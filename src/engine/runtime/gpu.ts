@@ -633,34 +633,23 @@ export function observeDevice(
     }
 }
 
-// the base floor every shallot app needs (the default renderer + GPU tables). It gates device
-// acquisition before any plugin loads, so **a floor entry earns its place only by being a
-// `DEFAULT_PLUGINS` need** — anything an opt-in plugin uses belongs on that plugin, via
-// `Plugin.features` (required — a missing one throws) or `Plugin.preferredFeatures` (best-effort —
-// requested only where the adapter has it, never throws). Hence the deliberate absentees:
-// `timestamp-query` is an optional profiler capability. `shader-f16` gates the WGSL `f16` type,
-// not `pack2x16float` / `unpack2x16float`. `subgroups` is the standing preferred case: the
-// BVH builder (physics broadphase / accel structure) runs a faster subgroup arm where present and an
-// LDS arm where absent (WebKit), so it's preferred, not required — a no-subgroup device still loads a
-// physics app, on the LDS arm.
-export const BASE_FEATURES = [
-    "indirect-first-instance",
-    // the default HDR scene offscreen + the standard renderer's MSAA color target are rg11b10ufloat:
-    // grants it render-attachment + multisample + resolve. Half the bandwidth of rgba16float at
-    // 4× MSAA, on the whole floor (desktop / Steam Deck / recent Android all support it)
-    "rg11b10ufloat-renderable",
-] as const;
+/** GPU capabilities declared by a plugin that uses the device. Presence of this value, including `{}`, requires a device. */
+export interface GpuRequirements {
+    readonly features?: readonly GPUFeatureName[];
+    readonly preferredFeatures?: readonly GPUFeatureName[];
+    /** `max*` values are lower bounds; `min*Alignment` values are upper bounds. */
+    readonly limits?: Readonly<Partial<GPUSupportedLimits>>;
+}
 
-/** shallot's per-stage storage buffer floor, requested as the ceiling across all bind groups. 99.6% of WebGPU
- *  devices support 10. */
-const REQUIRED_STORAGE_BUFFERS_PER_STAGE = 10;
+/** A plugin's GPU declaration, kept with its owner through capability checks. */
+export interface NamedGpuRequirements extends GpuRequirements {
+    readonly plugin: string;
+}
 
 /**
- * split requested features against what an adapter offers. `required` (the base floor ∪ the active
- * plugins' `Plugin.features`) that the adapter lacks land in `missing`; the caller throws. `preferred`
- * (the plugins' `Plugin.preferredFeatures`) are `granted` only where present, never gating the device:
- * a plugin asks for an arm it can run without (the BVH builder's `subgroups`). Pure over the adapter's
- * feature set, so a unit test exercises it with no device.
+ * split required and preferred features against what an adapter offers: return absent required features
+ * and grant only available preferred features not already required. The caller decides how to report any
+ * missing requirements. Pure over the adapter's feature set, so a unit test exercises it with no device.
  */
 export function resolveFeatures(
     available: { has(feature: GPUFeatureName): boolean },
@@ -1114,18 +1103,10 @@ export function stampAdapter(
     return verdict;
 }
 
-/**
- * Creates a world GPU context. Without `device`, acquires one through `navigator.gpu` and enforces
- * the feature floor (the base floor plus the active plugins' `features`), throwing
- * {@link UnsupportedError} otherwise; `preferred` features are requested only where the adapter has
- * them. A supplied device is adopted as-is, and the caller owns its feature support. Either way the
- * context's {@link WorldGpu.root} adopts the device, one root per owning World even when two Worlds
- * share a device.
- */
+/** Acquire a world GPU context after validating each named requirement against the supplied or acquired device. */
 export async function requestGPU(
     device?: GPUDevice,
-    features: readonly GPUFeatureName[] = [],
-    preferred: readonly GPUFeatureName[] = [],
+    requirements: readonly NamedGpuRequirements[] = [],
     adapter?: GPUAdapter,
     owner?: {
         own(resource: { destroy(): void }): void;
@@ -1136,8 +1117,8 @@ export async function requestGPU(
     // shader-generation time, so a capture installed later never sees that kernel's lines.
     captureGpuLog();
     checkTgsl();
-    const acquired =
-        device === undefined ? await acquireDevice(features, preferred) : { device, adapter };
+    if (device !== undefined) checkRequirements(device.features, device.limits, requirements);
+    const acquired = device === undefined ? await acquireDevice(requirements) : { device, adapter };
     const d = rawDevice(acquired.device);
     const verdict = stampAdapter(acquired.adapter);
     observeDevice(d);
@@ -1265,9 +1246,54 @@ function failureMessage(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
 }
 
+function checkRequirements(
+    features: { has(feature: GPUFeatureName): boolean },
+    limits: GPUSupportedLimits,
+    requirements: readonly NamedGpuRequirements[],
+): void {
+    for (const requirement of requirements) {
+        for (const feature of requirement.features ?? []) {
+            if (!features.has(feature)) {
+                throw new UnsupportedError(
+                    `Plugin "${requirement.plugin}" requires unsupported WebGPU feature "${feature}"`,
+                    [feature],
+                );
+            }
+        }
+        for (const [name, needed] of Object.entries(requirement.limits ?? {})) {
+            const available = Number(limits[name as keyof GPUSupportedLimits]);
+            const required = Number(needed);
+            const minAlignment = name.startsWith("min") && name.endsWith("Alignment");
+            if (minAlignment ? available > required : available < required) {
+                const condition = minAlignment ? `no greater than ${required}` : `${required}`;
+                throw new UnsupportedError(
+                    `Plugin "${requirement.plugin}" requires WebGPU limit ${name} ${condition}, but the device provides ${available}`,
+                );
+            }
+        }
+    }
+}
+
+function mergeLimits(requirements: readonly NamedGpuRequirements[]): Record<string, number> {
+    const limits: Record<string, number> = {};
+    for (const requirement of requirements) {
+        for (const [name, value] of Object.entries(requirement.limits ?? {})) {
+            const requested = Number(value);
+            const minAlignment = name.startsWith("min") && name.endsWith("Alignment");
+            const current = limits[name];
+            limits[name] =
+                current === undefined
+                    ? requested
+                    : minAlignment
+                      ? Math.min(current, requested)
+                      : Math.max(current, requested);
+        }
+    }
+    return limits;
+}
+
 async function acquireDevice(
-    extra: readonly GPUFeatureName[],
-    preferred: readonly GPUFeatureName[],
+    requirements: readonly NamedGpuRequirements[],
 ): Promise<{ device: GPUDevice; adapter: GPUAdapter }> {
     const gpu = typeof navigator === "undefined" ? undefined : navigator.gpu;
     if (!gpu) {
@@ -1294,19 +1320,11 @@ async function acquireDevice(
     }
     if (!adapter) throw new UnsupportedError(`No WebGPU adapter is available in ${runtime}.`);
 
-    const required = [...new Set<GPUFeatureName>([...BASE_FEATURES, ...extra])];
-    const { granted, missing } = resolveFeatures(adapter.features, required, preferred);
-    if (missing.length > 0) throw new UnsupportedError("Missing required WebGPU features", missing);
-
-    if (adapter.limits.maxStorageBuffersPerShaderStage < REQUIRED_STORAGE_BUFFERS_PER_STAGE) {
-        throw new UnsupportedError(
-            `Only ${adapter.limits.maxStorageBuffersPerShaderStage} storage buffers per shader stage; ${REQUIRED_STORAGE_BUFFERS_PER_STAGE} required`,
-        );
-    }
-
-    const requiredLimits: Record<string, number> = {
-        maxStorageBuffersPerShaderStage: REQUIRED_STORAGE_BUFFERS_PER_STAGE,
-    };
+    const required = [...new Set(requirements.flatMap((item) => item.features ?? []))];
+    const preferred = [...new Set(requirements.flatMap((item) => item.preferredFeatures ?? []))];
+    checkRequirements(adapter.features, adapter.limits, requirements);
+    const { granted } = resolveFeatures(adapter.features, required, preferred);
+    const requiredLimits = mergeLimits(requirements);
     // Older implementations expose the split-stage limits as zero even though the unified limit
     // governs them. Request zero explicitly so their requestDevice wrappers don't substitute the
     // newer spec defaults as impossible requirements.

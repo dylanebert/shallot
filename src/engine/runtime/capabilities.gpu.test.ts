@@ -7,7 +7,10 @@ import { rawDevice } from "./gpu";
 setDefaultTimeout(CEILING.gpu);
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 const subject = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({ defaults: false, plugins: [] });
+    const owner = await createApp({
+        defaults: false,
+        plugins: [{ name: "CapabilitiesOwner", gpu: {} }],
+    });
     apps.push(owner);
     const native = rawDevice(owner.world.gpu.device);
     const methods = new Map<PropertyKey, unknown>();

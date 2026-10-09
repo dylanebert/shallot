@@ -28,7 +28,7 @@ function median(values: number[]): number {
 test("measure vertex and compaction/regather costs of the approved instance payload", async () => {
     const app = await createApp({
         defaults: false,
-        plugins: [{ name: "InstancePayloadProbe", features: ["timestamp-query"] }],
+        plugins: [{ name: "InstancePayloadProbe", gpu: { features: ["timestamp-query"] } }],
     });
     const world = app.world;
     const device = world.gpu.device;

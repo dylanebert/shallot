@@ -205,6 +205,7 @@ const SpriteSystem: System = {
  * surface variants. Depends on {@link RenderingPlugin}; a StandardRenderer camera renders it
  */
 export const SpritePlugin: Plugin = {
+    gpu: {},
     name: "Sprite",
     components: [Sprite],
     systems: [SpriteSystem],

@@ -10,7 +10,7 @@ import "../../standard";
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { globalTransformTable } from "../../core/rendering";
-import { Time, type World } from "../index";
+import { type Plugin, Time, type World } from "../index";
 import { createApp } from "./index";
 
 await setupGlobals();
@@ -31,8 +31,10 @@ function replaceGpu(gpu: GPU | undefined): () => void {
     };
 }
 
+const AcquisitionPlugin: Plugin = { name: "AcquisitionProbe", gpu: {} };
+
 async function refusalMessage(): Promise<string> {
-    return createApp({ defaults: false, plugins: [] }).then(
+    return createApp({ defaults: false, plugins: [AcquisitionPlugin] }).then(
         (app) => {
             app.dispose();
             return "build unexpectedly succeeded";
@@ -121,6 +123,17 @@ test("overlapping public builds serialize their setup and then coexist as indepe
     first.dispose();
     second.world.step(Time.FIXED_DT);
     second.dispose();
+});
+
+test("StandardPhysicsPlugin builds and steps without navigator.gpu", async () => {
+    const restore = replaceGpu(undefined);
+    try {
+        live = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+        live.world.step(Time.FIXED_DT);
+        expect(live.world.time.fixedTick).toBe(1);
+    } finally {
+        restore();
+    }
 });
 
 test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
@@ -226,9 +239,8 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
     const first = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     author(first.world);
     const firstHash = stepAndHash(first.world);
+    expect(() => first.world.gpu).toThrow("no enabled plugin declares a GPU requirement");
     first.dispose();
-    expect(first.world.gpu.buffers.size).toBe(0);
-    expect(first.world.gpu.typed.size).toBe(0);
 
     live = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     author(live.world);

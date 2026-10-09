@@ -131,9 +131,17 @@ export class World {
         return this._frameFence;
     }
 
-    /** this world's GPU device, registries, typed handles and frame state. */
+    /** this world's GPU device, registries, typed handles and frame state; unavailable when the build acquired no device. */
     get gpu(): WorldGpu {
-        if (!this._gpu) throw new Error("World.gpu is unavailable before build acquires a device");
+        if (!this._gpu)
+            throw new Error(
+                "World.gpu is unavailable: no enabled plugin declares a GPU requirement",
+            );
+        return this._gpu;
+    }
+
+    /** @internal GPU context for lifecycle code that must also run without a device. */
+    get gpuIfAvailable(): WorldGpu | undefined {
         return this._gpu;
     }
 

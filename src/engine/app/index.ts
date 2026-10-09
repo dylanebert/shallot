@@ -4,6 +4,7 @@ import { type Component, declaration, type System, sameComponentSchema, World } 
 import {
     type AdapterVerdict,
     deviceLost,
+    type GpuRequirements,
     now,
     precompileAll,
     Runtime,
@@ -38,20 +39,8 @@ export interface Plugin {
     readonly components?: readonly Component[];
     /** other plugins that must load first; every dependency must be present in the composition */
     readonly dependencies?: readonly Plugin[];
-    /**
-     * GPU features this plugin's shaders require beyond the engine's base floor. The active
-     * plugins' features are unioned and requested at device acquisition; a device missing one
-     * fails with `UnsupportedError` before any plugin loads.
-     */
-    readonly features?: readonly GPUFeatureName[];
-    /**
-     * GPU features this plugin runs faster with but does not require. Unioned across the active
-     * plugins and requested at device acquisition only where the adapter has them; a device
-     * missing one loads normally, and the plugin takes its fallback path (it reads
-     * `device.features.has(...)` to pick the arm). e.g. the BVH builder prefers `subgroups` for
-     * its bounds reduction + radix sort, falling back to an LDS arm on a device without it.
-     */
-    readonly preferredFeatures?: readonly GPUFeatureName[];
+    /** Required and preferred features and required limits for this plugin's GPU use. Presence, including `{}`, declares a device need; an unmet requirement refuses before initialization with this plugin and the cause named. */
+    readonly gpu?: GpuRequirements;
     /** initial setup, run before warm-up; idempotent, may report progress */
     readonly initialize?: (
         world: World,
@@ -113,7 +102,7 @@ export interface AppConfig {
     setup?: (world: World) => void;
     /** mount app UI into the canvas-bounded overlay; return a cleanup. see `mountOverlay` */
     ui?: (container: HTMLElement, world: World) => () => void;
-    /** externally-acquired GPU device; if omitted, the engine acquires one */
+    /** externally acquired GPU device, checked against enabled declarations; if omitted, the engine acquires one for declared GPU needs */
     device?: GPUDevice;
     /** adapter that supplied an externally-acquired {@link device}; omitted devices are stamped unidentified */
     adapter?: GPUAdapter;
@@ -134,9 +123,9 @@ export interface App {
     dispose(): void;
 }
 
-/** settle every started warm before closing the shared device error scope. @internal */
+/** Settle every started warm; validate and precompile only when a device is present. @internal */
 export async function warmPlugins(
-    device: GPUDevice,
+    device: GPUDevice | undefined,
     world: World,
     plugins: readonly Plugin[],
     onProgress?: (progress: number) => void,
@@ -170,12 +159,15 @@ export async function warmPlugins(
             );
         }
 
-        // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
-        // so every registered pipeline is forced here — under the loading screen, not on frame one.
-        await precompileAll(world);
+        if (device) {
+            // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
+            // so every registered pipeline is forced here — under the loading screen, not on frame one.
+            await precompileAll(world);
+        }
     };
 
-    await validateGpu(device, "pipeline warm", warm);
+    if (device) await validateGpu(device, "pipeline warm", warm);
+    else await warm();
 }
 
 function pluginHookError(plugin: Plugin, hook: "initialize" | "warm", error: unknown): Error {
@@ -225,8 +217,9 @@ export function setDefaultLoading(factory: () => Loading): void {
 let buildTail: Promise<void> = Promise.resolve();
 
 /**
- * build the app: collect plugins, acquire the GPU device, register, run `initialize`, and
- * `warm`, returning a live {@link World} without starting a frame loop. Build setup is serialized, and
+ * build the app: collect plugins, acquire a GPU device only for declared needs or a supplied device,
+ * register, run `initialize` and `warm`, returning a live {@link World} without starting a frame loop.
+ * Build setup is serialized, and
  * completed Apps may coexist with separate World-owned storage and GPU registries. Plugin resources retained
  * in module globals are not isolated by this guarantee. Drive `world.step(dt)` yourself, or use {@link runApp}
  * for the managed loop.
@@ -280,16 +273,17 @@ async function buildNow(config: AppConfig): Promise<App> {
         loading = config.loading ?? _defaultLoading?.();
         cleanup = loading?.show() ?? undefined;
 
-        // acquire one device for every app, requesting the union of active plugins' required
-        // features and best-effort preferred features.
-        const features = [...new Set(sorted.flatMap((p) => p.features ?? []))];
-        const preferred = [...new Set(sorted.flatMap((p) => p.preferredFeatures ?? []))];
-        const compute = await requestGPU(config.device, features, preferred, config.adapter, {
-            own: world.own.bind(world),
-            resource: world.resource.bind(world),
-        });
-        world.attachGpu(compute);
-        if (world.gpu.adapter.class !== "real") loading?.notice?.(world.gpu.adapter);
+        const requirements = sorted.flatMap((plugin) =>
+            plugin.gpu ? [{ plugin: plugin.name, ...plugin.gpu }] : [],
+        );
+        if (config.device !== undefined || requirements.length > 0) {
+            const compute = await requestGPU(config.device, requirements, config.adapter, {
+                own: world.own.bind(world),
+                resource: world.resource.bind(world),
+            });
+            world.attachGpu(compute);
+            if (world.gpu.adapter.class !== "real") loading?.notice?.(world.gpu.adapter);
+        }
 
         for (const plugin of sorted) {
             if (
@@ -338,7 +332,7 @@ async function buildNow(config: AppConfig): Promise<App> {
         }
 
         const warmBase = sorted.length;
-        await warmPlugins(world.gpu.device, world, warmable, (progress) => {
+        await warmPlugins(world.gpuIfAvailable?.device, world, warmable, (progress) => {
             loading?.update((warmBase + progress) / total);
         });
 
@@ -433,8 +427,10 @@ export async function runApp(config: AppConfig): Promise<App> {
     try {
         const world = app.world;
         world.logAndPauseSystemErrors();
-        const { device, pending } = world.gpu;
-        const sync = world.gpu.sync;
+        const gpu = world.gpuIfAvailable;
+        const device = gpu?.device;
+        const pending = gpu?.pending;
+        const sync = gpu?.sync;
         // UI teardown is World-owned: the overlay auto-registers its removal (mountOverlay above), and the
         // ui cleanup registers beside it. Both run at world.dispose() — after the plugin dispose hooks on the
         // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
@@ -484,7 +480,12 @@ export async function runApp(config: AppConfig): Promise<App> {
         // build's profile still names the frame loop.
         const loop = {
             frame(timestamp?: number): void {
-                if (disposed || deviceLost(device) || world.gpu.sync !== sync) return;
+                if (
+                    disposed ||
+                    (device !== undefined && deviceLost(device)) ||
+                    world.gpuIfAvailable?.sync !== sync
+                )
+                    return;
                 // rAF clocks the loop and reschedules first, before any GPU work: the next frame is registered
                 // while the browser's paint deadline is still open, so frame delivery stays vsync-aligned. The
                 // alternative — scheduling the next rAF off the completion fence — slips a paint whenever the
@@ -692,11 +693,19 @@ function shapeDiff(
         .sort()
         .join(",");
     if (pdeps !== ndeps) return "dependencies changed";
-    if ((prev.features ?? []).join(",") !== (next.features ?? []).join(","))
-        return "features changed";
-    if ((prev.preferredFeatures ?? []).join(",") !== (next.preferredFeatures ?? []).join(","))
-        return "preferred features changed";
+    if (gpuSig(prev.gpu) !== gpuSig(next.gpu)) return "GPU requirements changed";
     return null;
+}
+
+function gpuSig(gpu: GpuRequirements | undefined): string {
+    if (gpu === undefined) return "undefined";
+    return JSON.stringify({
+        features: gpu.features ?? [],
+        preferredFeatures: gpu.preferredFeatures ?? [],
+        limits: Object.fromEntries(
+            Object.entries(gpu.limits ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+        ),
+    });
 }
 
 function systemSig(s: System): string {

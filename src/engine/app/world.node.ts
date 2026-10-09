@@ -35,6 +35,7 @@ const textureKey = {
 };
 const ResourcePlugin = {
     name: "WorldResourceProbe",
+    gpu: {},
     initialize(world: World) {
         const buffer = world.resource(resourceKey);
         const texture = world.resource(textureKey);
@@ -475,6 +476,7 @@ test("nested and asynchronous lifecycle hooks retain explicit field, resource an
     let parent: World | undefined;
     const childPlugin = {
         name: "ExplicitChild",
+        gpu: {},
         components: [component("Value", Value)],
         async initialize(world: World) {
             const _declaration = world.resource(declaration);
@@ -492,6 +494,7 @@ test("nested and asynchronous lifecycle hooks retain explicit field, resource an
     };
     const parentPlugin = {
         name: "ExplicitParent",
+        gpu: {},
         components: [component("Value", Value)],
         async warm(world: World) {
             const _declaration = world.resource(declaration);

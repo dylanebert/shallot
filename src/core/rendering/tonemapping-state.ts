@@ -204,6 +204,7 @@ export const TonemappingSystem: System = {
 
 /** Included by CorePipelinePlugin, not a separate presentation pass. */
 export const TonemappingPlugin: Plugin = {
+    gpu: {},
     name: "Tonemapping",
     dependencies: [RenderingPlugin],
     components: [Tonemapping, CustomPresentation, ColorGrading],

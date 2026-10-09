@@ -1189,9 +1189,9 @@ const ProfileRenderSystem: System = {
  */
 export const ProfilePlugin: Plugin = {
     name: "Profile",
+    gpu: { preferredFeatures: TIMESTAMP },
     systems: [ProfileFrameBeginSystem, ProfileRenderSystem],
     dependencies: [],
-    preferredFeatures: TIMESTAMP,
 
     initialize(world: World) {
         const compute = world.gpu;

@@ -115,7 +115,7 @@ function fillCpu(
 test("measure CPU GlobalTransform fill against GPU-only tick history and frame interpolation", async () => {
     const app = await createApp({
         defaults: false,
-        plugins: [{ name: "GlobalTransformFillMeasure", features: ["timestamp-query"] }],
+        plugins: [{ name: "GlobalTransformFillMeasure", gpu: { features: ["timestamp-query"] } }],
     });
     const world = app.world;
     try {

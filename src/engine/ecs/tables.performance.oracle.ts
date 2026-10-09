@@ -85,7 +85,7 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
     let world!: World;
     const plugin: Plugin = {
         name: "TableMapCostProbe",
-        features: ["timestamp-query"],
+        gpu: { features: ["timestamp-query"] },
         initialize(current) {
             world = current;
         },
@@ -315,7 +315,7 @@ test("measure struct records against per-field arrays for GlobalTransform and li
     let world!: World;
     const plugin: Plugin = {
         name: "TableRecordLayoutProbe",
-        features: ["timestamp-query"],
+        gpu: { features: ["timestamp-query"] },
         initialize(current) {
             world = current;
         },

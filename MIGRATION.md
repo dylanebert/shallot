@@ -2,6 +2,39 @@
 
 These changes require updates to a 0.9.5 app.
 
+## GPU requirements belong to plugins
+
+Replace `Plugin.features` and `Plugin.preferredFeatures` with `Plugin.gpu`:
+
+```ts
+const RenderPlugin = {
+    name: "Render",
+    gpu: {
+        features: ["rg11b10ufloat-renderable"],
+        preferredFeatures: ["timestamp-query"],
+        limits: { maxStorageBuffersPerShaderStage: 10 },
+    },
+};
+```
+
+Every plugin that touches `world.gpu` or the device declares `gpu`, even if it has no named capability beyond the device itself. Declaring `gpu` (even `{}`) opts the composition into a device. Put each feature and limit on the plugin whose GPU work needs it. A supplied `config.device` is still adopted when no plugin declares a GPU need, and it must satisfy any enabled declarations. Compositions with no `gpu` declarations and no supplied device now build and step without WebGPU; a headless app in that shape needs neither the optional `webgpu` peer nor `setupGlobals`.
+
+`requestGPU` remains public, but its feature-array arguments are replaced by named requirements. Calls that only pass a device still work:
+
+```ts
+// 0.9.5
+requestGPU(device, ["timestamp-query"], ["subgroups"]);
+
+// 0.10
+requestGPU(device, [
+    {
+        plugin: "MyPlugin",
+        features: ["timestamp-query"],
+        preferredFeatures: ["subgroups"],
+    },
+]);
+```
+
 ## Fixed systems read tick time
 
 Inside `fixed`, `world.time.elapsed` is now `fixedTick * Time.FIXED_DT`, not the

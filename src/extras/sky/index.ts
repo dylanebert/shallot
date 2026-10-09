@@ -106,6 +106,7 @@ const SkySystem: System = {
  * The sky reads the scene's directional light for the sun's position and writes nothing.
  */
 export const SkyPlugin: Plugin = {
+    gpu: {},
     name: "Sky",
     components: [Sky],
 

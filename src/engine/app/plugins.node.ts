@@ -197,7 +197,7 @@ async function trackedDevice() {
     const device = await withTimeout(
         "Dawn device request",
         adapter.requestDevice({
-            requiredFeatures: ["rg11b10ufloat-renderable"],
+            requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
             requiredLimits,
         }),
         5000,
@@ -517,6 +517,7 @@ function featurePlugin(subject: Plugin): Plugin {
     const components = everyPlugin.flatMap((plugin) => plugin.components ?? []);
     return {
         name: "GpuIsolationFeatureSeed",
+        gpu: {},
         components,
         // Character's app composes Physics explicitly; this fixture is that app.
         dependencies: [

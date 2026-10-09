@@ -413,6 +413,7 @@ async function initRender(world: World): Promise<void> {
  * and either can become a default plugin
  */
 export const RenderingPlugin: Plugin = {
+    gpu: { features: ["rg11b10ufloat-renderable"] },
     dependencies: [TransformPlugin],
     name: "Rendering",
     systems: [

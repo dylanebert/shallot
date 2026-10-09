@@ -362,6 +362,7 @@ const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456
  * label strings with {@link internText}. Depends on {@link RenderingPlugin}; a StandardRenderer camera renders it
  */
 export const TextPlugin: Plugin = {
+    gpu: {},
     name: "Text",
     components: [Text],
     systems: [TextSystem],

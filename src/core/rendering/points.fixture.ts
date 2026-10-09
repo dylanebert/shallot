@@ -32,6 +32,7 @@ export const pointsState = {
 };
 
 export const PointsPlugin: Plugin = {
+    gpu: {},
     name: "PointsFixture",
     dependencies: [CorePipelinePlugin],
     initialize(world) {

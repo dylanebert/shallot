@@ -973,6 +973,10 @@ const PackLightingSystem: System = {
  * sampled inline, and presentation follows the color resolve in core's tonemapping pass.
  */
 export const StandardRenderingPlugin: Plugin = {
+    gpu: {
+        features: ["indirect-first-instance"],
+        limits: { maxStorageBuffersPerShaderStage: 10 },
+    },
     name: "StandardRendering",
     components: [StandardRenderer, CameraBackground],
     systems: [

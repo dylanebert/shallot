@@ -243,6 +243,7 @@ const FogSystem: System = {
  * via the `sceneTransform` seam.
  */
 export const FogPlugin: Plugin = {
+    gpu: {},
     name: "Fog",
     components: [Fog],
 

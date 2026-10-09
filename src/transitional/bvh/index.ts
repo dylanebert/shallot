@@ -48,12 +48,13 @@ export {
  * GPU features the builder's kernels run faster with: the bounds reduction and the radix sort have
  * a subgroup arm and an LDS fallback ({@link createBvh} reads `device.features` to pick). A plugin
  * that builds a BVH (the physics broadphase, an acceleration structure) lists these in its
- * `Plugin.preferredFeatures` so a `subgroups`-less device (WebKit) still loads it, on the LDS arm.
+ * `Plugin.gpu.preferredFeatures` so a `subgroups`-less device (WebKit) still loads it, on the LDS arm.
  */
 export const BVH_FEATURES: readonly GPUFeatureName[] = ["subgroups"];
 
 /** The BVH extension owns GPU-only builders and therefore must be present in a GPU composition. */
 export const BvhPlugin: Plugin = {
+    gpu: { preferredFeatures: BVH_FEATURES },
     name: "BVH",
 };
 

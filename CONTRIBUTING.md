@@ -6,10 +6,10 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### Device and world ownership
 
-- Every built app requires WebGPU.
-- Headless Bun and Node apps install the optional `webgpu` peer and call `setupGlobals` from `@dylanebert/shallot/webgpu` before building; browser apps use the host's WebGPU.
-- A build acquires the composition's required capabilities, grants preferred features where available, and refuses with the cause; it never forwards adapter maxima.
-- Each build acquires a device unless supplied `config.device`; apps may share that device.
+- A build acquires WebGPU only when an enabled plugin declares `gpu` (including `{}`) or `config.device` is supplied. CPU-only compositions build and step without a WebGPU backend.
+- Headless Bun and Node GPU apps install the optional `webgpu` peer and call `setupGlobals` from `@dylanebert/shallot/webgpu` before building; browser GPU apps use the host's WebGPU. A headless app with no GPU-declaring plugin and no supplied device needs neither.
+- `Plugin.gpu` declares required and preferred features and required limits. Acquisition requests the enabled declarations' union, grants available preferred features, and refuses an unmet capability with its plugin and cause; it never forwards adapter maxima.
+- A supplied `config.device` is adopted even without a declaring plugin and is checked against every enabled declaration; apps may share it.
 - Each app owns its world storage and allocations; disposing one releases its resources, not the device or a sibling's data.
 - Builds serialize registration and warm-up; completed apps coexist.
 - Components declare fields, not storage or GPU residency.
@@ -42,8 +42,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### GPU floor
 
 - Built-in layouts fit WebGPU's default eight storage-buffer bindings per shader stage, counted by declared visibility across all bind groups, including bindings a shader does not read.
-- The standard composition requires `indirect-first-instance` and `rg11b10ufloat-renderable`.
-- Floor qualification supplies `config.device` requested with only the composition's required features and default limits, and records the resulting capabilities.
+- `RenderingPlugin` requires `rg11b10ufloat-renderable`; `StandardRenderingPlugin` requires `indirect-first-instance` and ten storage-buffer bindings per shader stage.
+- GPU qualification supplies `config.device` requested with the composition's required features and limits, and records the resulting capabilities.
 - A layout repair preserves precision and capacity, and reports its uploads, passes and dispatches on named hardware.
 
 ### Readback

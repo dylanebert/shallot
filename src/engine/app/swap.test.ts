@@ -28,6 +28,20 @@ test("a recovery factory failure is a named rebuild result, like an initialize f
     }
 });
 
+test("changing declared GPU requirements requires a rebuild", async () => {
+    const world = new World();
+    const old: Plugin = { name: "GpuOwner", gpu: {} };
+    const next: Plugin = { name: old.name };
+    try {
+        expect(await swapPlugins(world, [old], [next])).toEqual({
+            ok: false,
+            reason: "GpuOwner: GPU requirements changed",
+        });
+    } finally {
+        world.dispose();
+    }
+});
+
 for (const scheduling of [{ boundary: "before" as const }, { terminal: true }]) {
     test(`changing ${Object.keys(scheduling)[0]} refuses a swap before mutating the live system`, async () => {
         const world = new World();

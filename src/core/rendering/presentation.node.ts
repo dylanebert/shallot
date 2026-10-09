@@ -3,7 +3,6 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { createApp } from "../../engine/app";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { probeTexture } from "../../engine/runtime";
-import { BASE_FEATURES } from "../../engine/runtime/gpu";
 import { Vignette, VignettePlugin } from "../../extras/vignette";
 import { StandardRenderer } from "../../standard/rendering";
 import { Transform } from "../transform";
@@ -45,7 +44,7 @@ test("standard composition, vignette, after-tonemap and points present and captu
         if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
     }
     const device = await adapter.requestDevice({
-        requiredFeatures: [...BASE_FEATURES],
+        requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
         requiredLimits,
     });
     console.log("presentation adapter:", adapter.info, "device features:", [...device.features]);

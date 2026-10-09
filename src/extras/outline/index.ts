@@ -682,6 +682,7 @@ function disposeOutline(world: World): void {
  * highlighted-object count + screen × log(width), not scene geometry; nothing highlighted runs no passes.
  */
 export const OutlinePlugin: Plugin = {
+    gpu: {},
     name: "Outline",
     components: [Outline],
     systems: [OutlineSystem],

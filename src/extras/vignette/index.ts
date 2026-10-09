@@ -113,6 +113,7 @@ const stateKey = {
 };
 
 export const VignettePlugin: Plugin = {
+    gpu: {},
     name: "Vignette",
     dependencies: [CorePipelinePlugin],
     components: [Vignette],

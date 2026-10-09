@@ -155,6 +155,7 @@ const LinesSystem: System = {
  * {@link RenderingPlugin}; a StandardRenderer camera renders it
  */
 export const LinesPlugin: Plugin = {
+    gpu: {},
     name: "Lines",
     components: [Line, Arrow],
     systems: [LinesSystem],

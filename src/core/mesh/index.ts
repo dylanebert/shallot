@@ -19,6 +19,7 @@ export {
  * this plugin initializes.
  */
 export const MeshPlugin: Plugin = {
+    gpu: {},
     name: "Mesh",
     components: [MeshInstance],
     systems: [PrepareMeshesSystem],

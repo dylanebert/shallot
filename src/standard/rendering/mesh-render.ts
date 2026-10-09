@@ -11,6 +11,7 @@ import {
 
 /** Packs mesh instances into per-view, per-surface indirect draws. */
 export const MeshRenderPlugin: Plugin = {
+    gpu: {},
     name: "MeshRender",
     systems: [MeshPreprocessSystem],
     components: [MeshMaterial],

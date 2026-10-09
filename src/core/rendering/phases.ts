@@ -67,6 +67,7 @@ export const MainPassSystem: System = {
 
 /** Optional shared view pipeline: clear, targets, depth prepass and opaque/transparent records. */
 export const CorePipelinePlugin: Plugin = {
+    gpu: {},
     name: "CorePipeline",
     dependencies: [RenderingPlugin],
     systems: [PrepassSystem, MainPassSystem, TonemappingSystem],
