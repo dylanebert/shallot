@@ -27,3 +27,21 @@ test("one record listed by two plugins composes", () => {
         ]),
     ).not.toThrow();
 });
+
+test("different plugin objects with one name are refused", () => {
+    expect(() => resolvePlugins([{ name: "Dup" }, { name: "Dup" }])).toThrow(
+        'plugin "Dup" is listed more than once; give one of them its own name',
+    );
+});
+
+test("plugin names are checked before component declarations", () => {
+    expect(() => resolvePlugins([{ name: "Dup", components: [{}] }, { name: "Dup" }])).toThrow(
+        'plugin "Dup" is listed more than once',
+    );
+});
+
+test("one plugin reached both through a dependency and repeated input composes", () => {
+    const Shared = { name: "Shared" };
+    const Root = { name: "Root", dependencies: [Shared] };
+    expect(() => resolvePlugins([Root, Shared, Shared])).not.toThrow();
+});

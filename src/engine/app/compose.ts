@@ -19,6 +19,15 @@ export interface PluginComposition {
  */
 export function resolvePlugins(plugins: readonly Plugin[]): PluginComposition {
     const nodes = [...new Set(plugins)];
+    const names = new Set<string>();
+    for (const plugin of nodes) {
+        if (names.has(plugin.name)) {
+            throw new Error(
+                `plugin "${plugin.name}" is listed more than once; give one of them its own name`,
+            );
+        }
+        names.add(plugin.name);
+    }
     const present = new Set(nodes);
     const missing: MissingPluginDependency[] = [];
     const adjacent = new Map(nodes.map((plugin) => [plugin, [] as Plugin[]]));
