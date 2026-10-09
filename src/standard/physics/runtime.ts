@@ -57,6 +57,13 @@ interface PhysicsRuntime {
     stale: StaleScan;
     counters: PhysicsCounters;
     jointSig: number;
+    // eids whose Body membership, or a Body's Transform, changed since the last sync, as 32-bit words
+    changed: Uint32Array;
+    anyChanged: boolean;
+    // a sync after warm or restore walks every Body
+    full: boolean;
+    hulls: number;
+    observing: boolean;
 }
 
 const physicsRuntimeKey = { create: newRuntime };
@@ -77,7 +84,23 @@ function newRuntime(): PhysicsRuntime {
         stale: { world: null, eids: [], count: 0 },
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
         jointSig: FNV_BASIS,
+        changed: new Uint32Array(64),
+        anyChanged: false,
+        full: true,
+        hulls: 0,
+        observing: false,
     };
+}
+
+function markChanged(runtime: PhysicsRuntime, eid: number): void {
+    const word = eid >>> 5;
+    if (word >= runtime.changed.length) {
+        const grown = new Uint32Array(Math.max(word + 1, runtime.changed.length * 2));
+        grown.set(runtime.changed);
+        runtime.changed = grown;
+    }
+    runtime.changed[word] |= 1 << (eid & 31);
+    runtime.anyChanged = true;
 }
 
 function runtimeFor(world: World): PhysicsRuntime {
@@ -132,6 +155,7 @@ function clearBodies(runtime: PhysicsRuntime): void {
     runtime.failed.clear();
     runtime.jointSig = FNV_BASIS;
     runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
+    runtime.full = true;
     resetConstraints(runtime.constraints);
 }
 
@@ -366,6 +390,7 @@ function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
     if (bindings === undefined) throw new Error("physics: recovery image has no bindings");
     restoreWorld(physicsWorld, saved);
     restoreBindings(runtime, physicsWorld, bindings);
+    runtime.full = true;
     // ECS poses were restored by World. Warning latches are presentation, counters and stale
     // scans are overwritten on each step; solver history and binding caches are the participant.
 }
@@ -451,6 +476,47 @@ function collectStale(this: StaleScan, _body: unknown, eid: number): void {
 // membership-driven create/destroy, ascending eid order (world.query's natural order — creation order is
 // load-bearing for solver determinism). Runs every fixed tick before the solve so a body spawned this frame
 // joins THIS tick's step.
+// one Body's reconciliation; true when it bound a new solver body
+function visitBody(
+    world: World,
+    runtime: PhysicsRuntime,
+    physicsWorld: PhysicsWorld,
+    eid: number,
+): boolean {
+    const stamp = world.ref(eid);
+    if (world.has(eid, Transform)) {
+        const warning = runtime.placementWarnings.get(eid);
+        if (!warning || !world.resolve(warning)) {
+            console.warn(
+                `physics-sync: entity ${eid} carries both Body and Transform; both write GlobalTransform`,
+            );
+            runtime.placementWarnings.set(eid, stamp);
+        }
+    }
+    if (runtime.bodies.has(eid)) {
+        if (world.resolve(runtime.stamps.get(eid)!)) return false;
+        forget(runtime, eid); // recycled to a new Body in one update
+    }
+    const f = runtime.failed.get(eid);
+    if (f && world.resolve(f.stamp) && f.hulls === world.resource(Hulls).size) return false;
+    const tb = marshalBody(world, physicsWorld, eid);
+    if (!tb) {
+        runtime.failed.set(eid, { stamp, hulls: world.resource(Hulls).size });
+        return false;
+    }
+    runtime.failed.delete(eid);
+    kernel(world).bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
+    runtime.bodies.set(eid, tb);
+    runtime.stamps.set(eid, stamp);
+    seedGlobalTransform(world, eid);
+    teleportPlacement(world, eid);
+    return true;
+}
+
+function markFailed(this: PhysicsRuntime, _failure: unknown, eid: number): void {
+    markChanged(this, eid);
+}
+
 const SyncSystem: System = {
     name: "physics-sync",
     group: "fixed",
@@ -459,52 +525,56 @@ const SyncSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
-        runtime.counters.bodiesVisited = 0;
-        // a deferred body finally marshaling (or a body going stale) is the transition a dropped constraint
-        // waits on, and `SyncPhysicsConstraintsSystem` re-uploads on an authored signature change only, so the constraint
-        // re-sync is pumped from here on any body-set change (a no-op walk when nothing was dropped, joints.ts).
         let bodySetChanged = false;
-        for (const eid of world.query(BODY_TERMS)) {
-            runtime.counters.bodiesVisited += 1;
-            const stamp = world.ref(eid);
-            const warning = runtime.placementWarnings.get(eid);
-            if (world.has(eid, Transform) && (!warning || !world.resolve(warning))) {
-                console.warn(
-                    `physics-sync: entity ${eid} carries both Body and Transform; both write GlobalTransform`,
-                );
-                runtime.placementWarnings.set(eid, stamp);
+        let ended = false;
+        const hulls = world.resource(Hulls).size;
+        if (runtime.full) {
+            runtime.full = false;
+            runtime.changed.fill(0);
+            runtime.anyChanged = false;
+            let bound = 0;
+            for (const eid of world.query(BODY_TERMS)) {
+                if (visitBody(world, runtime, physicsWorld, eid)) bodySetChanged = true;
+                if (runtime.bodies.has(eid)) bound++;
             }
-            if (runtime.bodies.has(eid)) {
-                if (world.resolve(runtime.stamps.get(eid)!)) continue;
-                forget(runtime, eid); // recycled to a new Body in one update
+            // every bound body was visited live, so none is stale
+            ended = bound !== runtime.bodies.size || runtime.failed.size !== 0;
+        } else {
+            if (hulls !== runtime.hulls) runtime.failed.forEach(markFailed, runtime);
+            if (runtime.anyChanged) {
+                runtime.anyChanged = false;
+                const changed = runtime.changed;
+                for (let w = 0; w < changed.length; w++) {
+                    let bits = changed[w];
+                    if (bits === 0) continue;
+                    changed[w] = 0;
+                    while (bits !== 0) {
+                        const low = bits & -bits;
+                        bits ^= low;
+                        const eid = (w << 5) | (31 - Math.clz32(low));
+                        if (world.has(eid, Body)) {
+                            if (visitBody(world, runtime, physicsWorld, eid)) bodySetChanged = true;
+                        } else if (runtime.bodies.has(eid) || runtime.failed.has(eid)) ended = true;
+                    }
+                }
             }
-            const f = runtime.failed.get(eid);
-            if (f && world.resolve(f.stamp) && f.hulls === world.resource(Hulls).size) continue;
-            const tb = marshalBody(world, physicsWorld, eid);
-            if (!tb) {
-                runtime.failed.set(eid, { stamp, hulls: world.resource(Hulls).size });
-                continue;
-            }
-            runtime.failed.delete(eid);
-            kernel(world).bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
-            runtime.bodies.set(eid, tb);
-            runtime.stamps.set(eid, stamp);
-            bodySetChanged = true;
-            seedGlobalTransform(world, eid);
-            teleportPlacement(world, eid);
         }
-        runtime.failed.forEach(dropDespawnedFailure, world);
-        const stale = runtime.stale;
-        stale.world = world;
-        stale.count = 0;
-        runtime.bodies.forEach(collectStale, stale);
-        stale.world = null;
-        for (let i = 0; i < stale.count; i++) {
-            const eid = stale.eids[i];
-            forget(runtime, eid);
-            runtime.stamps.delete(eid);
-            bodySetChanged = true;
+        runtime.hulls = hulls;
+        if (ended) {
+            runtime.failed.forEach(dropDespawnedFailure, world);
+            const stale = runtime.stale;
+            stale.world = world;
+            stale.count = 0;
+            runtime.bodies.forEach(collectStale, stale);
+            stale.world = null;
+            for (let i = 0; i < stale.count; i++) {
+                const eid = stale.eids[i];
+                forget(runtime, eid);
+                runtime.stamps.delete(eid);
+                bodySetChanged = true;
+            }
         }
+        runtime.counters.bodiesVisited = runtime.bodies.size + runtime.failed.size;
         if (bodySetChanged)
             resyncConstraints(runtime.constraints, physicsWorld, runtime.bodies, runtime.isFailed);
     },
@@ -530,7 +600,17 @@ export const StandardPhysicsPlugin: Plugin = {
     systems: [SyncSystem, SyncPhysicsConstraintsSystem, StepPhysicsSystem],
 
     initialize(world) {
-        world.resource(physicsRuntimeKey).initialized = true;
+        const runtime = world.resource(physicsRuntimeKey);
+        runtime.initialized = true;
+        if (!runtime.observing) {
+            runtime.observing = true;
+            world.onDispose(world.observeMembership(Body, (eid) => markChanged(runtime, eid)));
+            world.onDispose(
+                world.observeMembership(Transform, (eid, present) => {
+                    if (present && world.has(eid, Body)) markChanged(runtime, eid);
+                }),
+            );
+        }
     },
 
     async warm(world) {
