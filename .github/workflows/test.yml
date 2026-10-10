@@ -144,16 +144,22 @@ jobs:
       selected: ${{ steps.variants.outputs.selected }}
     steps:
       - uses: actions/checkout@v7
-      - name: install Vulkan software driver
-        run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
-      - name: compare bare WebGPU variants
+      - name: compare bare WebGPU variants without adding Vulkan drivers
+        env:
+          PORTABLE_VARIANT_GROUP: baseline
+        run: bunx playwright test -c scripts/chromium-smoke.config.ts
+      - name: install Vulkan software driver
+        run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+      - name: compare documented Vulkan variant with lavapipe
         id: variants
+        env:
+          PORTABLE_VARIANT_GROUP: vulkan
         run: bunx playwright test -c scripts/chromium-smoke.config.ts
       - name: first-person browser test under the first stable variant
         if: ${{ steps.variants.outputs.selected != '' }}

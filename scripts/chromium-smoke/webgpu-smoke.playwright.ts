@@ -1,4 +1,6 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium } from "playwright";
 import { expect, test } from "playwright/test";
 import { CHROMIUM_USE } from "../chromium";
@@ -148,10 +150,27 @@ async function probe(id: string, name: string, args: readonly string[]): Promise
 }
 
 test("compare Chromium WebGPU launch variants outside Shallot", async () => {
-    const reports: VariantReport[] = [];
-    for (const variant of CHROMIUM_VARIANTS)
-        reports.push(await probe(variant.id, variant.name, variant.args));
+    const group = process.env.PORTABLE_VARIANT_GROUP;
+    const reportPath = join(process.env.RUNNER_TEMP ?? tmpdir(), "shallot-chromium-variants.json");
+    const prior =
+        group === "vulkan" ? (JSON.parse(readFileSync(reportPath, "utf8")) as VariantReport[]) : [];
+    const variants =
+        group === "baseline"
+            ? CHROMIUM_VARIANTS.filter((variant) => variant.id !== "d")
+            : group === "vulkan"
+              ? CHROMIUM_VARIANTS.filter((variant) => variant.id === "d")
+              : CHROMIUM_VARIANTS;
+    const current: VariantReport[] = [];
+    for (const variant of variants)
+        current.push(await probe(variant.id, variant.name, variant.args));
+    const reports = [...prior, ...current];
+    if (group === "baseline") {
+        writeFileSync(reportPath, JSON.stringify(reports));
+        console.info("bare Chromium WebGPU baseline variants:", JSON.stringify(current));
+        return;
+    }
     console.info("bare Chromium WebGPU variant table:", JSON.stringify(reports));
+    if (group !== "vulkan") writeFileSync(reportPath, JSON.stringify(reports));
     const selected = reports.find(
         (report) => report.error === null && report.deviceLost === null && report.frames >= 120,
     );
