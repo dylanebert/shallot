@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
-import { Camera } from "../../core/rendering";
+import { attachTexture, Camera } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import { Draws, materialTypeId, StandardRenderer } from "../../standard/rendering";
@@ -17,6 +17,7 @@ test("a large anchored world Sprite stays in the camera draw when its quad reach
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
     world.add(camera, StandardRenderer);
+    attachTexture(world, camera, { width: 32, height: 32 });
 
     const sprite = world.create();
     world.add(sprite, Transform, { translation: [4, 0, 0, 0] });

@@ -98,9 +98,11 @@ Register view-specific passes in `world.resource(EffectPasses)` under the camera
 
 ## Rendering extension exports
 
-These 0.9.5 exports are removed or renamed in 0.10. They shipped through the rendering extension subpaths or the former `/src/*` subpath. Remove direct imports from internal files; they are not replacement public paths.
+These 0.9.5 exports are removed or renamed in 0.10. The headings identify their v0.9.5 package paths; the old package's `./src/*` wildcard also made the two direct-source paths below importable. Remove direct imports from internal files; they are not replacement public paths.
 
-### `/rendering`
+### `/render/core` → `/rendering`
+
+All names below came from v0.9.5 `/render/core` except `backingSize` (`/src/standard/render/view`) and `COLOR_LANES` (`/src/standard/sear/codegen`).
 
 | Removed name | Replacement |
 |---|---|
@@ -120,7 +122,7 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `VIEW_STRIDE` | Read the view's own uniform buffer, not staging offsets. |
 | `viewWgsl` | Resolve the `ViewUniforms` TypeGPU schema. |
 
-### `/mesh`
+### `/render/core` mesh exports → `/mesh`
 
 | Removed name | Replacement |
 |---|---|
@@ -132,7 +134,9 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `VERTEX_FLOATS` | Author the vertex data accepted by `registerMesh`; packing is internal. |
 | `VERTEX_STRIDE` | Read the registered mesh's GPU bindings; packing is internal. |
 
-### `/standard/rendering`
+### `/render/core`, `/sear/core` and root exports → `/standard/rendering`
+
+In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSlice`, `Binding` through `SURFACE_GROUP`, `LIGHTING_UNIFORM_SIZE` through `spotParams`, and `DrawIndirectBuffer` came from `/render/core`. `/sear/core` also exported the Surface and Background contracts, `lightEvalWgsl`, `clusterOf` through `sunVisibility`, `getCompiledSurface`, and `casterWgsl` through `pointComboCount`.
 
 | Removed name | Replacement |
 |---|---|
@@ -157,9 +161,9 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `assertOwnFn` | Internal; registration validates shader ownership. |
 | `SURFACE_GROUP` | Removed; material and background group indices are renderer-owned. |
 | `clusterOf` | Use `clusterCell` for grid addressing or `lit` for surface lighting. |
-| `engineScaffoldWgsl` | Use `materialLayout`, `materialType` and `materialFragmentContext`. |
+| `engineScaffoldWgsl` | Use `materialLayout`, `materialType` and `materialFragmentContext()`. |
 | `fragCoord` | Use the material fragment context or a core render-phase renderer. |
-| `fragWorld` | Use `MaterialFragmentContext.world`. |
+| `fragWorld` | Read `.world` from the context returned by `materialFragmentContext()`. |
 | `lightFactor` | Use `lit` for the standard lighting response. |
 | `litPbr` | Use `StandardMaterial` or `lit`. |
 | `pointFactor` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
@@ -184,7 +188,7 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `pointAtlasSize` | Read `world.resource(PointShadows).atlas`. |
 | `pointComboCount` | No public replacement; shadow-camera diagnostics are internal. |
 
-### `/fog`
+### `/fog/core` → `/fog`
 
 | Removed name | Replacement |
 |---|---|
@@ -225,16 +229,16 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `Body.pos`, `.quat` | `position`, `rotation` |
 | Moving `Body` with positive `mass` | Write `type: BodyType.Dynamic`; `mass` is the dynamic body's mass. |
 | `Body` with `mass: 0` | Omit `type` for static geometry, or write `type: BodyType.Kinematic` for caller-driven motion. |
-| `Part` | `MeshInstance` |
-| `RenderPlugin` | `RenderingPlugin` for the frame/view substrate; add `CorePipelinePlugin` for shared targets and phases (`StandardRenderingPlugin` includes it) |
-| `SearPlugin` | `StandardRenderingPlugin` |
-| `Sear`, `Depth`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `CameraBackground` |
-| `Tag`, `TAG_FORMAT`, `TAG_NONE`, `TagFn`, `view.tag` | Removed; there is no replacement picking lane. |
-| `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |
+| Root `Part` | `MeshInstance` |
+| Root `RenderPlugin` | `RenderingPlugin` for the frame/view substrate; add `CorePipelinePlugin` for shared targets and phases (`StandardRenderingPlugin` includes it) |
+| Root `SearPlugin` | `StandardRenderingPlugin` |
+| Root `Sear`, `Depth`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `CameraBackground` |
+| Root `Tag`, `/sear/core` `TAG_FORMAT` and `TAG_NONE`, `/render/core` `TagFn` and `View.tag` | Removed; there is no replacement picking lane. |
+| `/render/core` `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |
 | `/render/core` GPU `View` schema and `linearToSrgb` | `/rendering` `ViewUniforms` and `linearToSrgb3` |
-| GPU `View.cluster` | `ViewUniforms.projection` (near, far, perspective flag, slot; unchanged byte layout) |
-| `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
-| `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
+| `/render/core` `View.cluster` | `ViewUniforms.projection` (near, far, perspective flag, slot; unchanged byte layout) |
+| Root `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
+| Root `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
 | `build`, `run`, `Config`, `swap`, `SwapResult` | `createApp`, `runApp`, `AppConfig`, `swapPlugins`, `PluginSwapResult` |
 | `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
 | `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
@@ -251,30 +255,30 @@ The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wr
 
 ## Text font load failures stop initialization
 
-In 0.9.5, `TextPlugin` warned and continued when a registered font failed to load. It now rejects initialization with the load error as `cause`; a 0.9.5 game with an unreachable registered font therefore fails initialization. The default Inter font ships with the package and no longer needs network access.
+In v0.9.5, the root `TextPlugin` warned and continued when a registered font failed to load. It now rejects initialization with the load error as `cause`; a 0.9.5 game with an unreachable registered font therefore fails initialization. The default Inter font ships with the package and no longer needs network access.
 
 ## Lights own their shadow settings
 
-`Spot` and `Shadow` are removed. A `SpotLight` contains its own light values; do not add a `PointLight` to provide them. `Volumetric` is now `VolumetricLight`. These components and `NotShadowCaster` are exported from the root and `/rendering`.
+Root `Spot` and `Shadow` are removed. A `SpotLight` contains its own light values; do not add a `PointLight` to provide them. Root `Volumetric` is now `VolumetricLight`. These 0.10 components and `NotShadowCaster` are exported from the root and `/rendering`.
 
-| 0.9.5 component or field | 0.10 replacement |
+| v0.9.5 component or field (path) | 0.10 replacement |
 |---|---|
-| `AmbientLight.color`, `.intensity` | Unchanged: hex sRGB and a linear multiplier. |
-| `DirectionalLight.color`, `.intensity`, `.direction` | Unchanged: hex sRGB, a linear multiplier and the light's travel direction. |
-| `PointLight.color`, `.intensity`, `.range`, `.radius` on a point light | Unchanged. |
-| `PointLight.color`, `.intensity`, `.range`, `.radius` on an entity with `Spot` | `SpotLight.color`, `.intensity`, `.range`, `.radius`; copy the values and remove `PointLight`. |
-| `Spot.inner`, `.outer` | `SpotLight.innerAngle`, `.outerAngle`, still half-angles in degrees. |
-| Presence of `Shadow` | Set the light's `shadowMapsEnabled` to `1`; `0` disables shadow maps. |
-| `Shadow.distance` on a directional light | `DirectionalLight.maximumDistance`, still world units. |
-| `Shadow.distance` on a point or spot light | Remove it; it was ignored. Shadow coverage still uses the light's `range`. |
-| `Shadow.depthBias`, `.normalBias` | The light's `shadowDepthBias`, `.shadowNormalBias`, with the same values and units. |
-| `SHADOW_DEFAULTS` | Removed. Light defaults are `shadowMapsEnabled: 0`, `shadowDepthBias: 0.0005`, `shadowNormalBias: 1.8`; directional `maximumDistance` defaults to `50`. |
-| `Volumetric` | `VolumetricLight`, still a marker. |
-| `SunShadows.cascades` | `DirectionalLight.numCascades`, default `4`, clamped to `MAX_CASCADES`. |
-| `SunShadows.overlap` | `DirectionalLight.overlapProportion`, default `0.2`. |
-| `SunShadows.lambda` | Removed. Set `DirectionalLight.firstCascadeFarBound`, default `10` world units: the first cascade ends there and the rest are spaced exponentially to `maximumDistance`. |
-| `SunShadows.resolution` | `world.resource(DirectionalLightShadowMap).size`, default `2048`. |
-| `PointShadows.atlas`, `.casters`, `.hysteresis` | The same fields on `world.resource(PointShadows)`. |
+| Root `AmbientLight.color`, `.intensity` | Unchanged: hex sRGB and a linear multiplier. |
+| Root `DirectionalLight.color`, `.intensity`, `.direction` | Unchanged: hex sRGB, a linear multiplier and the light's travel direction. |
+| Root `PointLight.color`, `.intensity`, `.range`, `.radius` on a point light | Unchanged. |
+| Root `PointLight.color`, `.intensity`, `.range`, `.radius` on an entity with root `Spot` | `SpotLight.color`, `.intensity`, `.range`, `.radius`; copy the values and remove `PointLight`. |
+| Root `Spot.inner`, `.outer` | `SpotLight.innerAngle`, `.outerAngle`, still half-angles in degrees. |
+| Root `Shadow` presence | Set the light's `shadowMapsEnabled` to `1`; `0` disables shadow maps. |
+| Root `Shadow.distance` on a directional light | `DirectionalLight.maximumDistance`, still world units. |
+| Root `Shadow.distance` on a point or spot light | Remove it; it was ignored. Shadow coverage still uses the light's `range`. |
+| Root `Shadow.depthBias`, `.normalBias` | The light's `shadowDepthBias`, `.shadowNormalBias`, with the same values and units. |
+| `/src/standard/sear/shadows` `SHADOW_DEFAULTS` | Removed. Light defaults are `shadowMapsEnabled: 0`, `shadowDepthBias: 0.0005`, `shadowNormalBias: 1.8`; directional `maximumDistance` defaults to `50`. |
+| Root `Volumetric` | `VolumetricLight`, still a marker. |
+| Root `SunShadows.cascades` | `DirectionalLight.numCascades`, default `4`, clamped to `MAX_CASCADES`. |
+| Root `SunShadows.overlap` | `DirectionalLight.overlapProportion`, default `0.2`. |
+| Root `SunShadows.lambda` | Removed. Set `DirectionalLight.firstCascadeFarBound`, default `10` world units: the first cascade ends there and the rest are spaced exponentially to `maximumDistance`. |
+| Root `SunShadows.resolution` | `world.resource(DirectionalLightShadowMap).size`, default `2048`. |
+| Root `PointShadows.atlas`, `.casters`, `.hysteresis` | The same fields on `world.resource(PointShadows)`. |
 
 A shadowed spot light is now authored as:
 
@@ -421,11 +425,11 @@ world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 
-Material vertex shaders receive `MaterialVertexInput.xform` and `.world`; fragment shaders receive `MaterialFragmentContext.world`. The dense mesh-instance record carries eid, mesh, material type and type-local material row. Body, camera, light, text, sprite and other world-space consumers read GlobalTransform rather than Transform as world placement.
+Material vertex shaders receive `MaterialVertexInput.xform` and `.world`; fragment shaders read `.world` from the context returned by `materialFragmentContext()`. The dense mesh-instance record carries eid, mesh, material type and type-local material row. Body, camera, light, text, sprite and other world-space consumers read GlobalTransform rather than Transform as world placement.
 
 ## Mesh material types own shaders and typed rows
 
-`Surface`, `registerSurface` and `surfaceLayout` are removed. Define a material type with a parameter schema, a layout, and shader functions; register it with `MaterialPlugin`. Each registered type owns one GPU parameter table. `MeshMaterial` stores `{ type, material }`: `type` is the World-local material-type id and `material` is that type's row. Preprocessing groups by `(material type, mesh)`, so changing either component field moves the entity to the corresponding draw on the next frame. A missing `MeshMaterial` selects StandardMaterial type 0, row 0.
+`Surface`, `registerSurface` and `surfaceLayout` are removed. Define a material type with a parameter schema, a layout, and shader functions; register it with `MaterialPlugin`. Each registered type owns CPU-authored rows and a lazily created GPU parameter table for renderer consumption. `MeshMaterial` stores `{ type, material }`: `type` is the World-local material-type id and `material` is that type's row. Preprocessing groups by `(material type, mesh)`, so changing either component field moves the entity to the corresponding draw on the next frame. A missing `MeshMaterial` selects StandardMaterial type 0, row 0.
 
 ```ts
 import {
@@ -528,7 +532,7 @@ Rendering split into `/rendering` for shared capabilities and `/standard/renderi
 ```ts
 // 0.9.5
 import { FrameGpu } from "@dylanebert/shallot/render/core";
-import { engineLayout, materialLayout, materialType, MaterialPlugin } from "@dylanebert/shallot/standard/rendering";
+import { engineLayout, Surface, surfaceLayout, registerSurface } from "@dylanebert/shallot/sear/core";
 import { Xform } from "@dylanebert/shallot/utils/core";
 ```
 
@@ -541,20 +545,21 @@ import { Xform } from "@dylanebert/shallot/utils";
 
 `MeshInstance` stores `mesh` and an optional local-space culling sphere; ordinary meshes need only set `mesh`, while Sprite maintains the sphere for its billboard quad. Add StandardMaterial values with `const handle = world.resource(Materials).add(StandardMaterial(values))`, then add `MeshMaterial` with that `{ type, material }` handle. Retain the handle to share or update a material; there is no material name or name lookup. Meshes without `MeshMaterial` draw with StandardMaterial type 0, row 0. `VertexMaterialType`, exported at the root and from `/standard/rendering`, is the built-in per-vertex-lit alternative and accepts the same `StandardMaterial` parameter schema.
 
-| 0.9.5 name or value | 0.10 replacement |
+| v0.9.5 export or field (path) | 0.10 replacement |
 |---|---|
 | Root `Part` | Root or `/mesh` `MeshInstance` |
-| `Part.surface` | A `MeshMaterial` handle selecting a registered material type and its row |
-| `Color.rgba` | Material's linear `baseColor` |
-| `Material.params` `(metallic, roughness, emissiveStrength, occlusion)` | `StandardMaterial({ metallic, perceptualRoughness, emissive: [baseColor[0] * emissiveStrength, baseColor[1] * emissiveStrength, baseColor[2] * emissiveStrength], occlusion })` |
-| `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material handle |
+| Root `Part.surface` | A `MeshMaterial` handle selecting a registered material type and its row |
+| `/render/core` `Draw.surface` | `Draw.materialType`, the World-local material-type id |
+| Root `Color.rgba` | Material's linear `baseColor` |
+| Root `Material.params` (lanes `metallic`, `roughness`, `emissive`, `occlusion`; `emissive` is a strength) | `StandardMaterial({ metallic, perceptualRoughness, emissive: [baseColor[0] * emissive, baseColor[1] * emissive, baseColor[2] * emissive], occlusion })` |
+| Root `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material handle |
 | Root `PartPlugin` | Root or `/standard/rendering` `MeshRenderPlugin` |
 | `/part/core` `Parts` | Removed; mesh-instance packing is internal to `MeshRenderPlugin`. |
-| `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:material:<type>:<mesh>:<handle>`, `mesh:preprocess` |
+| `/render/core` `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:material:<type>:<mesh>:<handle>`, `mesh:preprocess` |
 
 `StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1, `diffuseWrap` 1 and lit shading. Set `unlit: true` to use the base colour without lighting. Add the same parameter record to `world.resource(VertexMaterialType)` to evaluate the standard lighting model per vertex and interpolate its result. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(handle, values)`; omitted fields retain their values. Change both `MeshMaterial.type` and `.material` when switching to another type; changing either field takes effect on the next frame. Material handles belong to the World that added them.
 
-Custom material shaders receive a `MaterialFragmentContext` with linear `color` and a type-local `material` row. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
+Custom material shaders read linear `color` and the type-local `material` row from the context returned by `materialFragmentContext()`. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
 
 Mesh data has its own `/mesh` module. `registerMesh` now returns a world-local `MeshHandle`; retain it for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels register distinct meshes:
 
@@ -582,14 +587,14 @@ Update mesh imports as follows; these names are also exported from the root in 0
 
 Mesh packing and layout helpers not listed here are removed; see the rendering extension export table above.
 
-`Mesh.dynamic`, `Mesh.count` and `Mesh.cast` are removed; they had no effect. Delete them, and add `NotShadowCaster` to an entity that should cast no shadow.
+`/render/core` `Mesh.dynamic`, `Mesh.count` and `Mesh.cast` are removed; they had no effect. Delete them, and add `NotShadowCaster` to an entity that should cast no shadow.
 
 Material, background and draw contracts belong to `/standard/rendering`. Update imports as follows; backgrounds and draws remain on that path:
 
 | 0.9.5 import | 0.10 import |
 | --- | --- |
 | `/render/core` `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface` | Removed; use `materialLayout`, `materialType` and `MaterialPlugin` from `/standard/rendering` |
-| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | Removed; use `MaterialVertexInput`, `materialVertexOutput` and `materialFragmentContext` |
+| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | Removed; use `MaterialVertexInput`, `materialVertexOutput` and `materialFragmentContext()` |
 | `/render/core` `TagFn` | Removed; there is no replacement picking lane. |
 | `/render/core` `BgCtx` | `/standard/rendering` `BackgroundContext` |
 | `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |
