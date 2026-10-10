@@ -10,7 +10,7 @@ import { component } from "../../engine";
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
+import { Meshes, type MeshHandle, MeshPlugin, registerMesh } from "../../core/mesh";
 import { BeginFrameSystem, PrepassSystem, RenderingPlugin } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import { f32, type Plugin, Registry, type System, u32, vec2, type World } from "../../engine";
@@ -136,6 +136,7 @@ interface TextState {
     u32: Uint32Array;
     cap: number;
     count: number;
+    quad: MeshHandle | null;
     quadBase: number;
     sig: number;
     byFont: LabelGlyph[][];
@@ -160,6 +161,7 @@ function createTextState(): TextState {
         u32: new Uint32Array(staging),
         cap: INITIAL,
         count: 0,
+        quad: null,
         quadBase: 0,
         sig: -1,
         byFont: [],
@@ -322,13 +324,15 @@ const TextSystem: System = {
     setup(world: World) {
         const _textState = world.resource(textStateKey);
 
-        _textState.quadBase = world.resource(Meshes).get("textQuad")?.indexBase ?? 0;
+        _textState.quadBase =
+            (_textState.quad === null ? undefined : world.resource(Meshes).get(_textState.quad))
+                ?.indexBase ?? 0;
         for (let id = 0; id < _textState.atlases.length; id++) {
             if (!_textState.atlases[id]) continue;
             world.resource(Draws).register({
                 name: `text${id}`,
                 surface: surfaceName(id),
-                mesh: "textQuad",
+                mesh: _textState.quad!,
                 args: { indirect: _textState.argBuf!, offset: id * 20 },
             });
         }
@@ -382,7 +386,11 @@ export const TextPlugin: Plugin = {
 
         if (_fonts.size === 0) registerFont(world, DEFAULT_FONT);
 
-        registerMesh(world, { name: "textQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        _textState.quad = registerMesh(world, {
+            name: "textQuad",
+            vertices: QUAD_VERTS,
+            indices: QUAD_INDICES,
+        });
 
         await Promise.all(
             Array.from({ length: _fonts.size }, async (_, id) => {

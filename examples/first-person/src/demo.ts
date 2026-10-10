@@ -11,7 +11,6 @@ import {
     InputPlugin,
     LocalPlayer,
     Materials,
-    Meshes,
     MeshInstance,
     MeshMaterial,
     MeshPlugin,
@@ -49,9 +48,11 @@ function block(
 ): number {
     const eid = world.create();
     world.add(eid, Body, { type, position: at, halfExtents: size });
-    const name = `block-${eid}`;
-    registerMesh(world, { name, ...cube([size[0], size[1], size[2]]) });
-    world.add(eid, MeshInstance, { mesh: world.resource(Meshes).id(name)! });
+    const mesh = registerMesh(world, {
+        name: `block-${eid}`,
+        ...cube([size[0], size[1], size[2]]),
+    });
+    world.add(eid, MeshInstance, { mesh });
     world.add(eid, MeshMaterial, {
         material: world.resource(Materials).add(StandardMaterial({ baseColor: rgba })),
     });

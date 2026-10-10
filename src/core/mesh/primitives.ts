@@ -1,5 +1,5 @@
 import type { World } from "../../engine";
-import { registerMesh } from "./mesh";
+import { type MeshHandle, registerMesh } from "./mesh";
 
 /**
  * register the built-in meshes. All unit-sized (radius / half-extent 0.5),
@@ -9,10 +9,11 @@ import { registerMesh } from "./mesh";
  * - `sphere` / `capsule` — smooth-shaded; the rounded primitives physics will
  *   collide as a point/segment + radius
  */
-export function initMeshes(world: World): void {
-    registerMesh(world, { name: "cube", ...cube() });
+export function initMeshes(world: World): MeshHandle {
+    const cubeHandle = registerMesh(world, { name: "cube", ...cube() });
     registerMesh(world, { name: "sphere", ...sphere() });
     registerMesh(world, { name: "capsule", ...capsule() });
+    return cubeHandle;
 }
 
 interface Vert {

@@ -33,7 +33,7 @@ import type {
     UniformFlag,
 } from "typegpu";
 import * as d from "typegpu/data";
-import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
+import { type Mesh, Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
 import {
     Camera,
     DEPTH_FORMAT,
@@ -399,8 +399,7 @@ const OutlineSystem: System = {
         let maxWidth = 1;
         let occlude = false;
         for (const [meshId, group] of byMesh) {
-            const name = _meshes.name(meshId);
-            const mesh = name ? _meshes.get(name) : undefined;
+            const mesh = _meshes.get(meshId as MeshHandle);
             if (!mesh) continue; // mesh deleted / unregistered — skip the group
             const first = cursor;
             for (const eid of group) {

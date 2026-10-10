@@ -10,7 +10,14 @@ import {
 } from "../../standard/rendering";
 import { AmbientLight, attachTexture, Camera, captureTexture } from "../rendering";
 import { Transform } from "../transform";
-import { type Mesh, Meshes, MeshInstance, MeshPlugin, registerMesh } from "./index";
+import {
+    type Mesh,
+    Meshes,
+    type MeshHandle,
+    MeshInstance,
+    MeshPlugin,
+    registerMesh,
+} from "./index";
 
 setDefaultTimeout(CEILING.node);
 
@@ -21,18 +28,31 @@ const vertices = new Float32Array([
 ]);
 const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
 const register = (world: World) => registerMesh(world, { name: "slab", vertices, indices });
-const place = (world: World) => {
+function handleForLabel(world: World, label: string): MeshHandle {
+    for (const [handle, mesh] of world.resource(Meshes).entries())
+        if (mesh.name === label) return handle;
+    throw new Error(`no mesh labelled "${label}"`);
+}
+const place = (world: World, mesh: MeshHandle) => {
     const slab = world.create();
     world.add(slab, Transform);
-    world.add(slab, MeshInstance, { mesh: world.resource(Meshes).id("slab") });
+    world.add(slab, MeshInstance, { mesh });
 };
 const arms = {
     "during initialize": {
         name: "InitializeSlab",
         dependencies: [MeshPlugin],
-        initialize: register,
+        initialize(world) {
+            register(world);
+        },
     },
-    "in warm": { name: "WarmSlab", dependencies: [MeshPlugin], warm: register },
+    "in warm": {
+        name: "WarmSlab",
+        dependencies: [MeshPlugin],
+        warm(world) {
+            register(world);
+        },
+    },
     "after createApp": { name: "LateSlab", dependencies: [MeshPlugin] },
     "in a system": {
         name: "SystemSlab",
@@ -40,9 +60,8 @@ const arms = {
         systems: [
             {
                 update(world) {
-                    if (world.resource(Meshes).has("slab")) return;
-                    register(world);
-                    place(world);
+                    if (world.resource(Meshes).size > 3) return;
+                    place(world, register(world));
                 },
             },
         ],
@@ -54,15 +73,20 @@ const arms = {
             {
                 group: "draw",
                 update(world) {
-                    if (world.resource(Meshes).has("slab")) return;
-                    register(world);
-                    place(world);
+                    if (world.resource(Meshes).size > 3) return;
+                    place(world, register(world));
                 },
             },
         ],
     },
     "directly without streams": { name: "BareSlab", dependencies: [MeshPlugin] },
-    reinitialized: { name: "ReinitializedSlab", dependencies: [MeshPlugin], initialize: register },
+    reinitialized: {
+        name: "ReinitializedSlab",
+        dependencies: [MeshPlugin],
+        initialize(world) {
+            register(world);
+        },
+    },
 } satisfies Record<string, Plugin>;
 type Arm = keyof typeof arms;
 const order = Object.keys(arms) as Arm[];
@@ -86,10 +110,9 @@ async function frame(
     const { world } = subjects()[order.indexOf(arm)];
     if (arm === "after createApp") register(world);
     if (arm === "directly without streams") {
-        const cube = world.resource(Meshes).get("cube")!;
-        world
-            .resource(Meshes)
-            .register({ ...cube, name: "slab", position: undefined, quant: undefined });
+        const meshes = world.resource(Meshes);
+        const [, cube] = [...meshes.entries()].find(([, mesh]) => mesh.name === "cube")!;
+        meshes.register({ ...cube, name: "slab", position: undefined, quant: undefined });
     }
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -97,7 +120,7 @@ async function frame(
     world.add(camera, StandardRenderer);
     attachTexture(world, camera, { width: 32, height: 32 });
     world.add(world.create(), AmbientLight, { intensity: 1 });
-    if (!arm.endsWith("system")) place(world);
+    if (!arm.endsWith("system")) place(world, handleForLabel(world, "slab"));
     if (arm === "reinitialized") await reinitialize(world);
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     let warnings: string[];
@@ -134,7 +157,7 @@ test("a mesh registered in a draw-group system draws on the following frame with
 test("a mesh registered directly without quantized streams is skipped with a warning", async () => {
     const { warnings } = await frame("directly without streams");
     expect(warnings).toContain(
-        'standard: draw "mesh:default:slab" skipped — mesh "slab" has no quantized position/quant stream',
+        'standard: draw "mesh:default:slab:3" skipped — mesh "slab" has no quantized position/quant stream',
     );
 });
 
@@ -143,13 +166,13 @@ test("a mesh registered directly without quantized streams is skipped with a war
 const families: Mesh[] = [];
 let validation: GPUError | null = null;
 async function reinitialize(world: World): Promise<void> {
-    families.push(world.resource(Meshes).get("slab")!);
+    families.push(world.resource(Meshes).get(handleForLabel(world, "slab"))!);
     world.gpu.device.pushErrorScope("validation");
     for (let i = 0; i < 3; i++) {
         await MeshPlugin.initialize!(world);
         register(world);
         world.step(0);
-        families.push(world.resource(Meshes).get("slab")!);
+        families.push(world.resource(Meshes).get(handleForLabel(world, "slab"))!);
     }
     await world.gpu.device.queue.onSubmittedWorkDone();
     validation = await world.gpu.device.popErrorScope();

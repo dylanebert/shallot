@@ -17,8 +17,8 @@ import { Xform } from "../../engine/utils";
 import { backgroundsKey, surfacesKey } from "./contract-state";
 
 // Free functions (barrel-named — `layout`/`register` are too generic for a barrel), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
-// `Registry<T>` (`engine/utils/registry.ts`) is generic infra shared by `Draws`/`Meshes`, so it must stay
-// free of typegpu types and standard's group scheme — a method on it would leak both into every registry
+// `Registry<T>` (`engine/utils/registry.ts`) is generic infra shared by Draws and these contract registries,
+// so it must stay free of typegpu types and standard's group scheme — a method on it would leak both into every registry
 // consumer. `surfaceLayout`/`registerSurface` live here instead, against the plain surface registry.
 
 /** typegpu's shader-stage literal, re-declared locally — `TgpuShaderStage` isn't re-exported from the

@@ -1,7 +1,7 @@
 import type { IndexFlag, StorageFlag, TgpuBuffer, UniformFlag } from "typegpu";
 import type { AnyData, AnyWgslData, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
-import { Registry, type System, type World } from "../../engine";
+import type { System, World } from "../../engine";
 
 import { MeshQuant, octEncode, packUnorm2 } from "../../engine/utils";
 
@@ -33,7 +33,14 @@ export type MeshBinding =
  * vertices; procedural producers may supply their own or omit it (a culler then
  * treats the mesh as always-visible)
  */
+declare const meshHandleBrand: unique symbol;
+
+/** Stable, world-local identity returned by {@link registerMesh}. */
+export type MeshHandle = number & { readonly [meshHandleBrand]: true };
+const DEFAULT_MESH_HANDLE = 0 as MeshHandle;
+
 export interface Mesh {
+    /** Display label; mesh identity is its {@link MeshHandle}. */
     name: string;
     vertices: MeshStorage<d.Vec4u>;
     /** the 8 B/vertex position-only stream the depth + shadow passes pull (standard binds this in the prepass group) */
@@ -60,21 +67,76 @@ export interface Mesh {
 }
 
 /**
- * every registered mesh, keyed by name with a stable numeric ID. Each frame's draw reads the
- * entries as they stand. Standard draws an entry only with its `position` and `quant` streams,
- * which {@link registerMesh} builds; a direct `register` without them is skipped with a warning,
- * and a `pending` entry is skipped silently.
+ * Every registered mesh, keyed by its world-local handle. Standard draws an entry only with its
+ * `position` and `quant` streams, which {@link registerMesh} builds; a direct registration without
+ * them is skipped with a warning, and a pending entry is skipped silently.
  */
-export const Meshes: import("../../engine").Resource<Registry<Mesh>> = {
+interface MeshRegistry extends Iterable<Mesh> {
+    register(mesh: Mesh): MeshHandle;
+    get(handle: MeshHandle): Mesh | undefined;
+    has(handle: MeshHandle): boolean;
+    entries(): IterableIterator<[MeshHandle, Mesh]>;
+    values(): IterableIterator<Mesh>;
+    readonly size: number;
+    clear(): void;
+}
+
+class MeshRegistryImpl implements MeshRegistry {
+    private _nextHandle = 0;
+    private readonly _entriesByHandle = new Map<MeshHandle, Mesh>();
+
+    register(mesh: Mesh): MeshHandle {
+        const handle = this._nextHandle++ as MeshHandle;
+        this._entriesByHandle.set(handle, mesh);
+        return handle;
+    }
+
+    replace(handle: MeshHandle, mesh: Mesh): void {
+        if (!this._entriesByHandle.has(handle)) throw new Error(`unknown mesh handle ${handle}`);
+        this._entriesByHandle.set(handle, mesh);
+    }
+
+    get(handle: MeshHandle): Mesh | undefined {
+        return this._entriesByHandle.get(handle);
+    }
+
+    has(handle: MeshHandle): boolean {
+        return this._entriesByHandle.has(handle);
+    }
+
+    entries(): IterableIterator<[MeshHandle, Mesh]> {
+        return this._entriesByHandle.entries();
+    }
+
+    values(): IterableIterator<Mesh> {
+        return this._entriesByHandle.values();
+    }
+
+    [Symbol.iterator](): IterableIterator<Mesh> {
+        return this.values();
+    }
+
+    get size(): number {
+        return this._entriesByHandle.size;
+    }
+
+    clear(): void {
+        this._entriesByHandle.clear();
+        this._nextHandle = 0;
+    }
+}
+
+export const Meshes: import("../../engine").Resource<MeshRegistry> = {
     create: (world) => world.resource(meshResourcesKey).meshes,
 };
 
 /** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
 export const VERTEX_FLOATS = 8;
 
-// `registerMesh()` stages the typed arrays + a placeholder registry entry, so the mesh's id and
+// `registerMesh()` stages the typed arrays + a placeholder registry entry, so its handle and
 // `Meshes.size` are known at once; `flushMeshes()` packs staged meshes by stream signature.
 interface PendingMesh {
+    handle: MeshHandle;
     name: string;
     vertices: Float32Array;
     indices: Uint32Array;
@@ -82,8 +144,9 @@ interface PendingMesh {
     attributes?: Record<string, { element: AnyWgslData; data: ArrayBufferView }>;
 }
 interface MeshResources {
-    meshes: Registry<Mesh>;
+    meshes: MeshRegistryImpl;
     pending: PendingMesh[];
+    defaultMesh: MeshHandle;
     initialized: boolean;
     placeholderVertices: MeshStorage<d.Vec4u> | null;
     placeholderIndices: MeshIndex | null;
@@ -95,8 +158,9 @@ export const meshResourcesKey = { create: createMeshResources };
 
 function createMeshResources(): MeshResources {
     return {
-        meshes: new Registry<Mesh>(),
+        meshes: new MeshRegistryImpl(),
         pending: [],
+        defaultMesh: DEFAULT_MESH_HANDLE,
         initialized: false,
         placeholderVertices: null,
         placeholderIndices: null,
@@ -168,12 +232,13 @@ export function meshBounds(vertices: Float32Array): [number, number, number, num
 }
 
 /**
- * register a mesh from typed arrays, from `MeshPlugin.initialize` on. Its id is assigned now;
+ * register a mesh from typed arrays, from `MeshPlugin.initialize` on. Its handle is assigned now;
  * its data is packed by {@link flushMeshes} before the next frame's draw: at warm for
  * registrations during `initialize`, otherwise at the start of the next draw group, so a
  * registration in a draw-group system draws a frame later. Refuses before `MeshPlugin`
  * initializes (`AppConfig.setup`), whose initialize would drop it. Requires
- * `world.gpu.device`; no-ops otherwise. Optional named attributes contain raw storage bytes:
+ * `world.gpu.device`; registration refuses without one. `name` is a display label, so duplicate labels are valid.
+ * Optional named attributes contain raw storage bytes:
  * each byte length must equal vertex count times the element's storage-array stride
  * (including padding), otherwise registration refuses naming mesh and stream. A batch splits
  * into families by attribute names and schemas; each array uses absolute vertex indices.
@@ -186,7 +251,7 @@ export function registerMesh(
         indices: Uint32Array;
         attributes?: PendingMesh["attributes"];
     },
-): void {
+): MeshHandle {
     if (spec.vertices.length % VERTEX_FLOATS !== 0) {
         throw new Error(
             `mesh "${spec.name}": vertices length ${spec.vertices.length} is not a multiple of ${VERTEX_FLOATS} (one Vertex = posU + normalV)`,
@@ -207,7 +272,7 @@ export function registerMesh(
         );
     }
     const device = world.gpu.device;
-    if (!device) return;
+    if (!device) throw new Error(`mesh "${spec.name}": registerMesh needs a GPU device`);
     // a placeholder reserves the registry entry now; flushMeshes swaps in the
     // real shared buffer + correct indexBase
     resources.placeholderVertices ??= world.gpu.root
@@ -219,8 +284,7 @@ export function registerMesh(
         .$usage("storage", "index")
         .$name("shallot-mesh-pending-indices");
     const bounds = meshBounds(spec.vertices);
-    resources.pending.push({ ...spec, bounds });
-    world.resource(Meshes).register({
+    const handle = resources.meshes.register({
         name: spec.name,
         vertices: resources.placeholderVertices,
         indices: resources.placeholderIndices,
@@ -229,6 +293,8 @@ export function registerMesh(
         bounds,
         pending: true,
     });
+    resources.pending.push({ ...spec, handle, bounds });
+    return handle;
 }
 
 /**
@@ -236,10 +302,11 @@ export function registerMesh(
  * indices by its vertex base so the index stream holds absolute positions.
  * Pure: {@link flushMeshes} uploads it
  */
-function packMeshes(staged: { name: string; vertices: Float32Array; indices: Uint32Array }[]): {
+function packMeshes(staged: PendingMesh[]): {
     vertices: Float32Array;
     indices: Uint32Array;
     slices: {
+        handle: MeshHandle;
         name: string;
         indexBase: number;
         indexCount: number;
@@ -256,6 +323,7 @@ function packMeshes(staged: { name: string; vertices: Float32Array; indices: Uin
     const vertices = new Float32Array(totalVerts * VERTEX_FLOATS);
     const indices = new Uint32Array(totalIndices);
     const slices: {
+        handle: MeshHandle;
         name: string;
         indexBase: number;
         indexCount: number;
@@ -270,6 +338,7 @@ function packMeshes(staged: { name: string; vertices: Float32Array; indices: Uin
         for (let i = 0; i < m.indices.length; i++)
             indices[indexBase + i] = m.indices[i] + vertexBase;
         slices.push({
+            handle: m.handle,
             name: m.name,
             indexBase,
             indexCount: m.indices.length,
@@ -468,9 +537,9 @@ function packFamily(world: World, staged: PendingMesh[]): void {
         attributes[name] = buffer;
         resources.families.push(buffer);
     }
-    const bounds = new Map(staged.map((m) => [m.name, m.bounds]));
+    const bounds = new Map(staged.map((m) => [m.handle, m.bounds]));
     for (const s of packed.slices) {
-        world.resource(Meshes).register({
+        resources.meshes.replace(s.handle, {
             name: s.name,
             vertices,
             position,
@@ -478,7 +547,7 @@ function packFamily(world: World, staged: PendingMesh[]): void {
             indices,
             indexBase: s.indexBase,
             indexCount: s.indexCount,
-            bounds: bounds.get(s.name),
+            bounds: bounds.get(s.handle),
             attributes,
         });
     }
@@ -500,11 +569,22 @@ export const PrepareMeshesSystem: System = {
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */
 export function clearMeshes(world: World): void {
-    world.resource(Meshes).clear();
+    const resources = meshResources(world);
+    resources.meshes.clear();
+    resources.defaultMesh = DEFAULT_MESH_HANDLE;
     resetStaging(world);
     // initialize runs between frames, so no open encoder holds a family, submitted work keeps its
     // storage, and a cleared registry names none of them for any later bind group
-    const families = meshResources(world).families;
-    for (const buffer of families) buffer.destroy();
-    families.length = 0;
+    for (const buffer of resources.families) buffer.destroy();
+    resources.families.length = 0;
+}
+
+/** Set MeshPlugin's built-in default after registering its primitives. */
+export function setDefaultMeshHandle(world: World, handle: MeshHandle): void {
+    meshResources(world).defaultMesh = handle;
+}
+
+/** Handle used when an entity adds MeshInstance without an explicit mesh. */
+export function defaultMeshHandle(world: World): MeshHandle {
+    return meshResources(world).defaultMesh;
 }

@@ -3,7 +3,7 @@ import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { Meshes, MeshPlugin, registerMesh } from "./index";
+import { Meshes, type MeshHandle, MeshPlugin, registerMesh } from "./index";
 import { clearMeshes, flushMeshes } from "./mesh";
 
 setDefaultTimeout(CEILING.gpu);
@@ -28,26 +28,33 @@ async function words(buffer: TgpuBuffer<d.AnyData>) {
 test("a batch splits by attribute signature, with dense absolute addressing and unchanged default bytes", async () => {
     const { world } = subjects()[0];
     clearMeshes(world);
-    registerMesh(world, spec("plain"));
+    const aloneHandle = registerMesh(world, spec("plain"));
     flushMeshes(world);
-    const alone = world.resource(Meshes).get("plain")!;
+    const alone = world.resource(Meshes).get(aloneHandle)!;
     const bytes = await Promise.all([
         words(alone.vertices),
         words(alone.position!),
         words(alone.quant!),
     ]);
     clearMeshes(world);
-    registerMesh(world, spec("plain"));
+    const plainHandle = registerMesh(world, spec("plain"));
+    const handles = new Map<string, MeshHandle>();
     for (const [name, data] of [
         ["a", new Float32Array([1, 2])],
         ["b", new Float32Array([3, 4])],
     ] as const)
-        registerMesh(world, { ...spec(name), attributes: { weight: { element: d.f32, data } } });
+        handles.set(
+            name,
+            registerMesh(world, {
+                ...spec(name),
+                attributes: { weight: { element: d.f32, data } },
+            }),
+        );
     flushMeshes(world);
     const meshes = world.resource(Meshes);
-    const plain = meshes.get("plain")!;
-    const a = meshes.get("a")!;
-    const b = meshes.get("b")!;
+    const plain = meshes.get(plainHandle)!;
+    const a = meshes.get(handles.get("a")!)!;
+    const b = meshes.get(handles.get("b")!)!;
     expect(a.vertices).toBe(b.vertices);
     expect(plain.vertices).not.toBe(a.vertices);
     expect(
@@ -70,7 +77,7 @@ test("a wrong-length stream refuses naming mesh, stream and storage stride", () 
 test("clearMeshes destroys every attribute buffer with its family", () => {
     const { world } = subjects()[0];
     clearMeshes(world);
-    registerMesh(world, {
+    const handle = registerMesh(world, {
         ...spec("owned"),
         attributes: {
             weight: { element: d.f32, data: new Float32Array(2) },
@@ -78,7 +85,7 @@ test("clearMeshes destroys every attribute buffer with its family", () => {
         },
     });
     flushMeshes(world);
-    const mesh = world.resource(Meshes).get("owned")!;
+    const mesh = world.resource(Meshes).get(handle)!;
     const streams = Object.values(mesh.attributes ?? {});
     expect(streams).toHaveLength(2);
     clearMeshes(world);

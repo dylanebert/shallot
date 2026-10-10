@@ -4,10 +4,16 @@ import { MeshInstance } from "./instance";
 export { MeshInstance } from "./instance";
 export { capsule, cube, sphere } from "./primitives";
 
-import { clearMeshes, flushMeshes, initializeMeshState, PrepareMeshesSystem } from "./mesh";
+import {
+    clearMeshes,
+    flushMeshes,
+    initializeMeshState,
+    PrepareMeshesSystem,
+    setDefaultMeshHandle,
+} from "./mesh";
 import { initMeshes } from "./primitives";
 
-export type { Mesh, MeshBinding, MeshIndex } from "./mesh";
+export type { Mesh, MeshBinding, MeshHandle, MeshIndex } from "./mesh";
 export {
     Meshes,
     registerMesh,
@@ -26,7 +32,7 @@ export const MeshPlugin: Plugin = {
     initialize(world) {
         initializeMeshState(world);
         clearMeshes(world);
-        initMeshes(world);
+        setDefaultMeshHandle(world, initMeshes(world));
     },
     warm: flushMeshes,
 };

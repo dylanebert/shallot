@@ -371,14 +371,14 @@ function recordSurface(
     capacity: number,
 ): FrameDraw | null {
     const mesh = world.resource(Meshes).get(draw.mesh);
-    if (!mesh) return warnSkip(world, draw.name, `mesh "${draw.mesh}" not registered`);
+    if (!mesh) return warnSkip(world, draw.name, `mesh handle ${draw.mesh} not registered`);
     if (!mesh.position || !mesh.quant) {
         // registerMesh staged it after this frame's pack; it draws from the next frame
         if (mesh.pending) return null;
         return warnSkip(
             world,
             draw.name,
-            `mesh "${draw.mesh}" has no quantized position/quant stream`,
+            `mesh "${mesh.name}" has no quantized position/quant stream`,
         );
     }
     const prev = getGroup(world, draw.name, surface);

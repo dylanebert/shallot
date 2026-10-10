@@ -3,7 +3,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { create, globals } from "webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
-import { MeshInstance } from "../../core/mesh";
+import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
     attachTexture,
@@ -254,6 +254,9 @@ test("the standard composition and points render every variant at the declared t
             }
         }
         const view = world.resource(Views).get(camera)!;
+        const cube = [...world.resource(Meshes).entries()].find(
+            ([, mesh]) => mesh.name === "cube",
+        )![0];
         for (const [surface, count] of [
             ["default", 192],
             ["vertex", 1],
@@ -261,7 +264,7 @@ test("the standard composition and points render every variant at the declared t
             ["floor-custom", 1],
         ] as const) {
             const draw = [...world.resource(Draws)].find(
-                (draw) => draw.surface === surface && draw.mesh === "cube",
+                (draw) => draw.surface === surface && draw.mesh === cube,
             )!;
             const result = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
                 offset: (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
@@ -287,7 +290,7 @@ test("the standard composition and points render every variant at the declared t
         }
         expect(spriteAndTextDraws).toBe(7);
         const draw = [...world.resource(Draws)].find(
-            (draw) => draw.surface === "default" && draw.mesh === "cube",
+            (draw) => draw.surface === "default" && draw.mesh === cube,
         )!;
         const records = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect));
         const words = new Uint32Array(records.bytes);
