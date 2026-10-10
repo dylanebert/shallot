@@ -6,6 +6,14 @@ export type { Background } from "./contract";
 export { BackgroundContext, Backgrounds, backgroundLayout, registerBackground } from "./contract";
 export { engineLayout, lit } from "./engine";
 export { CameraBackground, StandardRenderer, StandardRenderingPlugin } from "./forward";
+export type { IndirectLightSource } from "./indirect";
+export {
+    IndirectLightInput,
+    indirectLight,
+    indirectLightSlot,
+    indirectLightSources,
+    registerIndirectLightSource,
+} from "./indirect";
 export {
     DirectionalLightGpu,
     distanceAttenuation,

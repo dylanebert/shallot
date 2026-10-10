@@ -28,6 +28,8 @@ import type { Plugin, System, World } from "../../engine";
 import { component, f32, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
+    indirectLightSlot,
+    indirectLightSources,
     LightCull,
     Lighting,
     pointAtlasView,
@@ -309,10 +311,9 @@ export const FogPlugin: Plugin = {
             .createBuffer(FogGpu)
             .$usage("uniform")
             .$name("fog-config");
-        _fogState.fog.pipeline = world.gpu.root
-            .createComputePipeline({ compute: fogKernel })
-            .$name("fog");
-        _fogState.fog.multisampledPipeline = world.gpu.root
+        const root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+        _fogState.fog.pipeline = root.createComputePipeline({ compute: fogKernel }).$name("fog");
+        _fogState.fog.multisampledPipeline = root
             .createComputePipeline({ compute: fogKernelMultisampled })
             .$name("fog-multisampled");
         // the pipeline just changed identity — drop any group cached against the prior build

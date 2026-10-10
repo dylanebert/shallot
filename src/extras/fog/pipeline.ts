@@ -18,6 +18,8 @@ import * as std from "typegpu/std";
 import { ViewUniforms } from "../../core/rendering";
 import {
     clusterCell,
+    IndirectLightInput,
+    indirectLight,
     LightClusters,
     LightingGpu,
     MAX_POINT_CASTERS,
@@ -189,7 +191,16 @@ function createFogKernel(
                         fogLayout1.$.pointLights.grid[
                             clusterCell(uv.x, uv.y, viewZ, near, far, slot)
                         ];
-                    let lstep = d.vec3f(0);
+                    const ambient = indirectLight(
+                        IndirectLightInput({
+                            worldPosition: p,
+                            normal: std.neg(dir),
+                            view: std.neg(dir),
+                            materialOcclusion: 1,
+                            ambientRadiance: camView.ambientColor.rgb,
+                        }),
+                    );
+                    let lstep = std.mul(ambient, camView.exposure / (4 * Math.PI));
                     let j = d.u32(0);
                     while (j < entry.y) {
                         // the array-element read is a pointer, not a copy — wrap in the element schema to

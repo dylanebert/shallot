@@ -8,6 +8,7 @@ import * as std from "typegpu/std";
 import { FrameGpu, ViewUniforms } from "../../core/rendering";
 import { MeshQuant } from "../../engine/utils";
 import { clusterCell, LightClusters } from "./cluster";
+import { IndirectLightInput, indirectLight } from "./indirect";
 import { distanceAttenuation, LightingGpu, PointLightGpu, spotFactor } from "./lighting";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 
@@ -163,10 +164,18 @@ export const lightFactor = tgpu.fn(
             ),
         );
     }
-    return std.add(
-        std.add(std.mul(engineLayout.$.view.ambientColor.rgb, exposure), direct),
-        pointFactor(normal),
+    const world = fragWorld.$;
+    const view = std.normalize(std.sub(engineLayout.$.view.eye.xyz, world));
+    const indirect = indirectLight(
+        IndirectLightInput({
+            worldPosition: world,
+            normal,
+            view,
+            materialOcclusion: 1,
+            ambientRadiance: engineLayout.$.view.ambientColor.rgb,
+        }),
     );
+    return std.add(std.add(std.mul(indirect, exposure), direct), pointFactor(normal));
 });
 
 /** `baseColor * lightFactor(normal)`.
@@ -192,12 +201,16 @@ export const litPbr = tgpu.fn(
     "use gpu";
     const V = std.normalize(std.sub(engineLayout.$.view.eye.xyz, world));
     const exposure = engineLayout.$.view.exposure;
-    let radiance = d.vec3f(
-        std.mul(
-            std.mul(engineLayout.$.view.ambientColor.rgb, exposure),
-            std.mul(s.albedo, s.occlusion),
-        ),
+    const indirect = indirectLight(
+        IndirectLightInput({
+            worldPosition: world,
+            normal,
+            view: V,
+            materialOcclusion: s.occlusion,
+            ambientRadiance: engineLayout.$.view.ambientColor.rgb,
+        }),
     );
+    let radiance = d.vec3f(std.mul(std.mul(indirect, exposure), s.albedo));
     for (let i = d.u32(0); i < engineLayout.$.lighting.directionalCount; i++) {
         const light = engineLayout.$.lighting.directionalLights[i];
         let visibility = d.f32(1);

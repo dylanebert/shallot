@@ -34,6 +34,7 @@ import {
     sunVisibility,
 } from "./engine";
 import type { Recorded } from "./forward";
+import { indirectLightSlot, indirectLightSources } from "./indirect";
 import { Lighting } from "./lighting";
 import type { MaterialBinding, MaterialLayout, MaterialType } from "./material-type";
 import {
@@ -1280,7 +1281,8 @@ export function compileMaterial<
         depthWriteEnabled: !transparent,
         depthCompare: transparent ? "greater-equal" : "greater",
     };
-    const pipeline = world.gpu.root.createRenderPipeline({
+    const root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    const pipeline = root.createRenderPipeline({
         vertex,
         fragment,
         targets: { color: { format: _render.format, ...(blend ? { blend } : {}) } },
@@ -1337,7 +1339,8 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
               : alphaPipelineKey === AlphaPipelineKey.Multiply
                 ? MULTIPLY_BLEND
                 : undefined;
-    const pipeline = world.gpu.root
+    const root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    const pipeline = root
         .createRenderPipeline({
             vertex,
             fragment: singleFragment,
@@ -1374,7 +1377,9 @@ function compilePrepass(
         depthWriteEnabled: true,
         depthCompare: "greater",
     };
-    const root = world.gpu.root.with(pointShadowSlot, pointShadowStub);
+    const root = world.gpu.root
+        .with(pointShadowSlot, pointShadowStub)
+        .with(indirectLightSlot, indirectLightSources(world));
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
     const atc = alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage;
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
@@ -1955,7 +1960,9 @@ function compileShadow(
     };
     // the receiver stub, as in `compilePrepass` — doubly load-bearing here: the real receiver
     // would sample the very atlas this pipeline renders into (a usage hazard)
-    const root = world.gpu.root.with(pointShadowSlot, pointShadowStub);
+    const root = world.gpu.root
+        .with(pointShadowSlot, pointShadowStub)
+        .with(indirectLightSlot, indirectLightSources(world));
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
     const atc = alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage;
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;

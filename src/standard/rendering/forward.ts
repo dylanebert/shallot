@@ -13,6 +13,7 @@ import {
     warmLightCull,
 } from "./cluster";
 import { initializeBackgroundState } from "./contract";
+import { initializeIndirectLightSources, sealIndirectLightSources } from "./indirect";
 import {
     initializeLightingState,
     LIGHTING_UNIFORM_SIZE,
@@ -956,6 +957,7 @@ export const StandardRenderingPlugin: Plugin = {
         });
         initializeClusterState(world);
         initializeLightingState(world);
+        initializeIndirectLightSources(world);
         world.resource(Lighting).buffer = world.gpu.device.createBuffer({
             label: "shallot-lighting",
             size: LIGHTING_UNIFORM_SIZE,
@@ -980,6 +982,7 @@ export const StandardRenderingPlugin: Plugin = {
     },
 
     async warm(world) {
+        sealIndirectLightSources(world);
         if (!world.gpu.device) return;
         warmClusters(world);
         await warmLightCull(world);
