@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Body, PhysicsPlugin, ShapeKind } from "../../core/physics";
+import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
 import { Time, World } from "../../engine";
 import {
     BodyType,
@@ -164,10 +164,11 @@ for (const item of lane.cases) {
                         const eid = world.create();
                         world.add(eid, Body, {
                             type: BodyType.Kinematic,
-                            shape: ShapeKind.Capsule,
                             position: [position.x, position.y, position.z, 0],
-                            halfExtents: [0, 0.5, 0, f32(command.radius)],
                         });
+                        world.add(eid, Shape, { kind: ShapeKind.Capsule });
+                        world.storage(Shape).capsuleA.set(eid, 0, -0.5, 0, 0);
+                        world.storage(Shape).capsuleB.set(eid, 0, 0.5, 0, f32(command.radius));
                         world.add(eid, Character, {
                             velocity: [velocity.x, velocity.y, velocity.z, 0],
                             pogoVelocity: f32(command.pogoVelocity),

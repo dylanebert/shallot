@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Body, PhysicsPlugin, ShapeKind } from "../../core/physics";
+import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { Time, World } from "../../engine";
 import { BodyType, createHull } from "./api";
@@ -25,10 +25,11 @@ async function scene() {
     const eid = world.create();
     world.add(eid, Body, {
         type: BodyType.Kinematic,
-        shape: ShapeKind.Capsule,
         position: [0, 0.9, 0, 0],
-        halfExtents: [0, 0.5, 0, 0.3],
     });
+    world.add(eid, Shape, { kind: ShapeKind.Capsule });
+    world.storage(Shape).capsuleA.set(eid, 0, -0.5, 0, 0);
+    world.storage(Shape).capsuleB.set(eid, 0, 0.5, 0, 0.3);
     world.add(eid, Character);
     return {
         world,
@@ -88,7 +89,8 @@ test("ascending platform carry stays grounded, but a jump relative to that platf
 
 const floor = (world: World, type: BodyType = BodyType.Static) => {
     const eid = world.create();
-    world.add(eid, Body, { type, position: [0, -0.5, 0, 0], halfExtents: [20, 0.5, 20, 0] });
+    world.add(eid, Body, { type, position: [0, -0.5, 0, 0] });
+    world.add(eid, Shape, { scale: [20, 0.5, 20, 0] });
     return eid;
 };
 

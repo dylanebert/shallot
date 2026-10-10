@@ -15,7 +15,16 @@ import {
     releaseKey,
     touchPoint,
 } from "@dylanebert/shallot/input";
-import { Body, Hulls, ShapeKind } from "@dylanebert/shallot/physics";
+import {
+    Body,
+    Compounds,
+    HeightFields,
+    Hulls,
+    PhysicsMeshes,
+    Shape,
+    ShapeKind,
+    ShapeMaterials,
+} from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
     physicsWorld,
@@ -92,24 +101,100 @@ test("world recovery includes gameplay, identity, allocation, clock and physics 
         app.dispose();
     }
 });
-test("recovery restores hull authoring read by fixed sync, so failed bodies do not marshal from future hulls", async () => {
+test("recovery restores a Shape on another entity with its body reference and solver binding", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const world = app.world;
+        const body = world.create();
+        world.add(body, Body);
+        const collider = world.create();
+        world.add(collider, Shape, { body, friction: 0.25 });
+        world.tick();
+        const saved = world.snapshot();
+        const hash = hashPhysics(world);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+
+        world.destroy(collider);
+        world.tick();
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        world.restore(saved);
+
+        expect(world.exists(collider)).toBe(true);
+        expect(world.has(collider, Shape)).toBe(true);
+        expect(world.storage(Shape).body.get(collider)).toBe(body);
+        expect(world.storage(Shape).friction.get(collider)).toBe(0.25);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        expect(hashPhysics(world)).toBe(hash);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("core physics recovery restores every Shape geometry and material registry", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const world = app.world;
+        const mesh = world.resource(PhysicsMeshes);
+        const heightField = world.resource(HeightFields);
+        const compound = world.resource(Compounds);
+        const materials = world.resource(ShapeMaterials);
+        const meshId = mesh.register({ name: "recovery-mesh", data: { version: 1 } });
+        const heightId = heightField.register({ name: "recovery-height", data: { version: 1 } });
+        const compoundId = compound.register({ name: "recovery-compound", data: { version: 1 } });
+        const materialId = materials.register({
+            name: "recovery-materials",
+            materials: [
+                {
+                    friction: 0.25,
+                    restitution: 0.5,
+                    rollingResistance: 0.1,
+                    tangentVelocity: { x: 1, y: 2, z: 3 },
+                    userMaterialId: 44n,
+                    customColor: 0x123456,
+                },
+            ],
+        });
+        const saved = world.snapshot();
+        mesh.register({ name: "recovery-mesh", data: { version: 2 } });
+        heightField.delete("recovery-height");
+        compound.register({ name: "recovery-compound", data: { version: 2 } });
+        materials.delete("recovery-materials");
+        world.restore(saved);
+
+        expect(mesh.id("recovery-mesh")).toBe(meshId);
+        expect(mesh.get("recovery-mesh")?.data).toEqual({ version: 1 });
+        expect(heightField.id("recovery-height")).toBe(heightId);
+        expect(heightField.get("recovery-height")?.data).toEqual({ version: 1 });
+        expect(compound.id("recovery-compound")).toBe(compoundId);
+        expect(compound.get("recovery-compound")?.data).toEqual({ version: 1 });
+        expect(materials.id("recovery-materials")).toBe(materialId);
+        expect(materials.get("recovery-materials")?.materials[0]?.userMaterialId).toBe(44n);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("recovery restores Shape authoring and its hull registry before fixed sync", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const world = app.world;
         const hulls = world.resource(Hulls);
         const body = world.create();
-        world.add(body, Body, { shape: ShapeKind.Hull, halfExtents: [1, 1, 1, 1] });
+        world.add(body, Body);
+        world.add(body, Shape, { kind: ShapeKind.Hull, geometry: 1, scale: [1, 1, 1, 0] });
         world.tick();
         const saved = world.snapshot();
         world.tick();
         const expected = hashPhysics(world);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
         const cube = structuredClone(hulls.get(hulls.name(0)!)!);
         expect(hulls.register({ ...cube, name: "future-hull" })).toBe(1);
         world.restore(saved);
         world.tick();
         expect(hashPhysics(world)).toBe(expected);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
         expect(world.resource(Hulls)).toBe(hulls);
         expect(hulls.size).toBe(1);
         expect(hulls.id("future-hull")).toBeUndefined();

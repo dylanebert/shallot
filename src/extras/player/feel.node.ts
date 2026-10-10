@@ -13,6 +13,7 @@ import {
     PlayerPlugin,
     pressKey,
     releaseKey,
+    Shape,
     ShapeKind,
     setTargetTransform,
     setTransform,
@@ -41,15 +42,16 @@ async function scene(y = 2, offset = 0) {
             world.add(floor, Body, {
                 type: BodyType.Kinematic,
                 position: [offset, offset, 0, 0],
-                halfExtents: [4, 0.5, 4, 0],
             });
+            world.add(floor, Shape, { scale: [4, 0.5, 4, 0] });
             player = world.create();
             world.add(player, Body, {
                 type: BodyType.Kinematic,
-                shape: ShapeKind.Capsule,
-                halfExtents: [0, 0.6, 0, 0.3],
                 position: [offset, offset + y, 0, 0],
             });
+            world.add(player, Shape, { kind: ShapeKind.Capsule });
+            world.storage(Shape).capsuleA.set(player, 0, -0.6, 0, 0);
+            world.storage(Shape).capsuleB.set(player, 0, 0.6, 0, 0.3);
             world.add(player, Character);
             world.add(player, Player, { camera });
             world.add(player, LocalPlayer);

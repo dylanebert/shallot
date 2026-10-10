@@ -23,6 +23,7 @@ import {
     pointerLockStatus,
     type Resource,
     registerMesh,
+    Shape,
     ShapeKind,
     StandardMaterial,
     StandardPhysicsPlugin,
@@ -48,7 +49,8 @@ function block(
     type: BodyType = BodyType.Static,
 ): number {
     const eid = world.create();
-    world.add(eid, Body, { type, position: at, halfExtents: size });
+    world.add(eid, Body, { type, position: at });
+    world.add(eid, Shape, { scale: size });
     const mesh = registerMesh(world, {
         name: `block-${eid}`,
         ...cube([size[0], size[1], size[2]]),
@@ -87,10 +89,11 @@ export function route(world: World) {
     const player = world.create();
     world.add(player, Body, {
         position: [0, 2, 12, 0],
-        shape: ShapeKind.Capsule,
-        halfExtents: [0, 0.6, 0, 0.3],
         type: BodyType.Kinematic,
     });
+    world.add(player, Shape, { kind: ShapeKind.Capsule });
+    world.storage(Shape).capsuleA.set(player, 0, -0.6, 0, 0);
+    world.storage(Shape).capsuleB.set(player, 0, 0.6, 0, 0.3);
     // The route keeps its launch and fall rhythm; pogo placement floats two radii above contact.
     world.add(player, Character);
     world.add(player, Player, { camera: eye, jumpSpeed: 7, gravity: 30 });

@@ -14,6 +14,8 @@ import {
     InputPlugin,
     LocalPlayer,
     Player,
+    Shape,
+    ShapeKind,
     StandardPhysicsPlugin,
     Time,
     Transform,
@@ -62,32 +64,40 @@ function horizontalSpeed(velocity: readonly [number, number, number]): number {
     return Math.hypot(velocity[0], velocity[2]);
 }
 
+function halfExtent(world: World, eid: number, axis: "x" | "y" | "z"): number {
+    const shape = world.storage(Shape);
+    if (shape.kind.get(eid) === ShapeKind.Capsule) {
+        const radius = shape.capsuleB.w.get(eid);
+        return axis === "y"
+            ? Math.max(Math.abs(shape.capsuleA.y.get(eid)), Math.abs(shape.capsuleB.y.get(eid))) +
+                  radius
+            : radius;
+    }
+    return shape.scale[axis].get(eid);
+}
+
 function placeRiderOnActualLift(world: World, player: number, lift: number): void {
     const body = world.storage(Body);
     const liftX = body.position.x.get(lift);
     const liftY = body.position.y.get(lift);
     const liftZ = body.position.z.get(lift);
-    const riderBottomOffset = body.halfExtents.y.get(player) + body.halfExtents.w.get(player);
+    const riderBottomOffset = halfExtent(world, player, "y");
     body.position.x.set(player, liftX);
-    body.position.y.set(player, liftY + body.halfExtents.y.get(lift) + riderBottomOffset);
+    body.position.y.set(player, liftY + halfExtent(world, lift, "y") + riderBottomOffset);
     body.position.z.set(player, liftZ);
 }
 
 function tangentGap(world: World, player: number, lift: number): number {
     const body = world.storage(Body);
-    const capsuleBottom =
-        body.position.y.get(player) -
-        body.halfExtents.y.get(player) -
-        body.halfExtents.w.get(player);
-    const liftTop = body.position.y.get(lift) + body.halfExtents.y.get(lift);
+    const capsuleBottom = body.position.y.get(player) - halfExtent(world, player, "y");
+    const liftTop = body.position.y.get(lift) + halfExtent(world, lift, "y");
     return capsuleBottom - liftTop;
 }
 
 function extent(world: World, eid: number, axis: "x" | "z", radius = 0): readonly [number, number] {
     const body = world.storage(Body);
     const center = axis === "x" ? body.position.x.get(eid) : body.position.z.get(eid);
-    const half =
-        (axis === "x" ? body.halfExtents.x.get(eid) : body.halfExtents.z.get(eid)) + radius;
+    const half = halfExtent(world, eid, axis) + radius;
     return [center - half, center + half];
 }
 
@@ -117,22 +127,18 @@ test("the actual first-person scene gives the player a pogo-rest spawn, a contai
         const lift = entity(app, "lift");
         const tower1 = entity(app, "tower-1");
         const groundTop =
-            app.world.storage(Body).position.y.get(ground) +
-            app.world.storage(Body).halfExtents.y.get(ground);
+            app.world.storage(Body).position.y.get(ground) + halfExtent(app.world, ground, "y");
         const playerBottom =
-            app.world.storage(Body).position.y.get(player) -
-            app.world.storage(Body).halfExtents.y.get(player) -
-            app.world.storage(Body).halfExtents.w.get(player);
-        const float = 2 * app.world.storage(Body).halfExtents.w.get(player);
+            app.world.storage(Body).position.y.get(player) - halfExtent(app.world, player, "y");
+        const float = 2 * app.world.storage(Shape).capsuleB.w.get(player);
         if (Math.abs(playerBottom - groundTop - float) > 0.0001)
             throw new Error(
                 `player was not at pogo rest: bottom=${playerBottom} top=${groundTop} float=${float}`,
             );
         const spawnGap =
             app.world.storage(Body).position.z.get(player) -
-            app.world.storage(Body).halfExtents.w.get(player) -
-            (app.world.storage(Body).position.z.get(step1) +
-                app.world.storage(Body).halfExtents.z.get(step1));
+            app.world.storage(Shape).capsuleB.w.get(player) -
+            (app.world.storage(Body).position.z.get(step1) + halfExtent(app.world, step1, "z"));
         if (!(spawnGap > 0)) throw new Error(`spawn-to-first-step gap was ${spawnGap}`);
         const route = [
             player,
@@ -147,7 +153,7 @@ test("the actual first-person scene gives the player a pogo-rest spawn, a contai
         for (const routeEntity of route) {
             for (const axis of ["x", "z"] as const) {
                 const radius =
-                    routeEntity === player ? app.world.storage(Body).halfExtents.w.get(player) : 0;
+                    routeEntity === player ? app.world.storage(Shape).capsuleB.w.get(player) : 0;
                 const [min, max] = extent(app.world, routeEntity, axis, radius);
                 const [groundMin, groundMax] = extent(app.world, ground, axis);
                 if (min < groundMin || max > groundMax)
@@ -157,26 +163,21 @@ test("the actual first-person scene gives the player a pogo-rest spawn, a contai
             }
         }
         const liftTop =
-            app.world.storage(Body).position.y.get(lift) +
-            app.world.storage(Body).halfExtents.y.get(lift);
+            app.world.storage(Body).position.y.get(lift) + halfExtent(app.world, lift, "y");
         const finalStepTop =
-            app.world.storage(Body).position.y.get(step3) +
-            app.world.storage(Body).halfExtents.y.get(step3);
+            app.world.storage(Body).position.y.get(step3) + halfExtent(app.world, step3, "y");
         if (Math.abs(liftTop - finalStepTop) > 0.0001)
             throw new Error(`lift lower stop missed final step: ${liftTop} vs ${finalStepTop}`);
         const liftBottom =
-            app.world.storage(Body).position.y.get(lift) -
-            app.world.storage(Body).halfExtents.y.get(lift);
+            app.world.storage(Body).position.y.get(lift) - halfExtent(app.world, lift, "y");
         if (!(liftBottom > groundTop))
             throw new Error(
                 `lift lower stop entered ground: bottom=${liftBottom} top=${groundTop}`,
             );
         const upperLiftNear =
-            app.world.storage(Body).position.z.get(lift) -
-            app.world.storage(Body).halfExtents.z.get(lift);
+            app.world.storage(Body).position.z.get(lift) - halfExtent(app.world, lift, "z");
         const towerNear =
-            app.world.storage(Body).position.z.get(tower1) +
-            app.world.storage(Body).halfExtents.z.get(tower1);
+            app.world.storage(Body).position.z.get(tower1) + halfExtent(app.world, tower1, "z");
         const towerGap = upperLiftNear - towerNear;
         if (!(towerGap > 0 && towerGap < 1))
             throw new Error(`lift upper stop was not adjacent to tower: gap=${towerGap}`);
@@ -291,8 +292,8 @@ test("the actual lift rises monotonically from its authored base, turns repeated
         const tower = entity(app, "tower-3");
         const ceiling =
             app.world.storage(Body).position.y.get(tower) +
-            app.world.storage(Body).halfExtents.y.get(tower) -
-            app.world.storage(Body).halfExtents.y.get(lift);
+            halfExtent(app.world, tower, "y") -
+            halfExtent(app.world, lift, "y");
         const stepRise = authoredStepRise(app, entity(app, "player"), lift);
         let previous = base[1];
         let rising = true;

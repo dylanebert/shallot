@@ -161,7 +161,6 @@ test("a Body publishes unit scale to fixed-tick GlobalTransform and renderer row
         const eid = world.create();
         world.add(eid, Body);
         world.storage(Body).position.set(eid, 12, 7, -3, 0);
-        world.storage(Body).halfExtents.set(eid, 1, 2, 3, 0);
         attachTestCamera(world);
         world.step(Time.FIXED_DT);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(12);

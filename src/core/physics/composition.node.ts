@@ -7,6 +7,7 @@ import {
     DistanceJoint,
     Hulls,
     PhysicsPlugin,
+    Shape,
     ShapeKind,
     SphericalJoint,
     UNIT_CUBE_ID,
@@ -24,9 +25,11 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         const world = app.world;
         const body = world.create();
         world.add(body, Body);
+        world.add(body, Shape);
         expect(world.has(body, GlobalTransform)).toBe(true);
         const b = world.storage(Body);
-        expect(b.shape.get(body)).toBe(ShapeKind.Box);
+        const shape = world.storage(Shape);
+        expect(shape.kind.get(body)).toBe(ShapeKind.Hull);
         expect([
             b.position.x.get(body),
             b.position.y.get(body),
@@ -40,13 +43,60 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
             b.rotation.w.get(body),
         ]).toEqual([0, 0, 0, 1]);
         expect([
-            b.halfExtents.x.get(body),
-            b.halfExtents.y.get(body),
-            b.halfExtents.z.get(body),
-            b.halfExtents.w.get(body),
+            shape.scale.x.get(body),
+            shape.scale.y.get(body),
+            shape.scale.z.get(body),
+            shape.scale.w.get(body),
         ]).toEqual([0.5, 0.5, 0.5, 0]);
-        expect(b.mass.get(body)).toBe(1);
-        expect(b.friction.get(body)).toBe(0.5);
+        expect(shape.body.get(body)).toBe(0);
+        expect(shape.geometry.get(body)).toBe(0);
+        expect([
+            shape.sphere.x.get(body),
+            shape.sphere.y.get(body),
+            shape.sphere.z.get(body),
+            shape.sphere.w.get(body),
+        ]).toEqual([0, 0, 0, 0.5]);
+        expect([
+            shape.capsuleA.x.get(body),
+            shape.capsuleA.y.get(body),
+            shape.capsuleA.z.get(body),
+            shape.capsuleA.w.get(body),
+        ]).toEqual([0, -0.5, 0, 0]);
+        expect([
+            shape.capsuleB.x.get(body),
+            shape.capsuleB.y.get(body),
+            shape.capsuleB.z.get(body),
+            shape.capsuleB.w.get(body),
+        ]).toEqual([0, 0.5, 0, 0.5]);
+        expect(shape.density.get(body)).toBe(1000);
+        expect(shape.explosionScale.get(body)).toBe(1);
+        expect(shape.friction.get(body)).toBe(Math.fround(0.6));
+        expect(shape.restitution.get(body)).toBe(0);
+        expect(shape.rollingResistance.get(body)).toBe(0);
+        expect([
+            shape.tangentVelocity.x.get(body),
+            shape.tangentVelocity.y.get(body),
+            shape.tangentVelocity.z.get(body),
+            shape.tangentVelocity.w.get(body),
+        ]).toEqual([0, 0, 0, 0]);
+        expect(shape.materialUserIdLow.get(body)).toBe(0);
+        expect(shape.materialUserIdHigh.get(body)).toBe(0);
+        expect(shape.customColor.get(body)).toBe(0);
+        expect(shape.filterCategoryLow.get(body)).toBe(0xffffffff);
+        expect(shape.filterCategoryHigh.get(body)).toBe(0xffffffff);
+        expect(shape.filterMaskLow.get(body)).toBe(0xffffffff);
+        expect(shape.filterMaskHigh.get(body)).toBe(0xffffffff);
+        expect(shape.filterGroupIndex.get(body)).toBe(0);
+        expect(shape.enableCustomFiltering.get(body)).toBe(0);
+        expect(shape.isSensor.get(body)).toBe(0);
+        expect(shape.enableSensorEvents.get(body)).toBe(0);
+        expect(shape.enableContactEvents.get(body)).toBe(0);
+        expect(shape.enableHitEvents.get(body)).toBe(0);
+        expect(shape.enablePreSolveEvents.get(body)).toBe(0);
+        expect(shape.enableSpeculativeContact.get(body)).toBe(1);
+        expect(shape.invokeContactCreation.get(body)).toBe(1);
+        expect(shape.updateBodyMass.get(body)).toBe(1);
+        expect(shape.materialSet.get(body)).toBe(0);
         const spring = world.create();
         world.add(spring, DistanceJoint);
         const s = world.storage(DistanceJoint);

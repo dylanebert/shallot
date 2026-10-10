@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { Body, BodyType } from "../../core/physics";
+import { Body, BodyType, Shape } from "../../core/physics";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
@@ -57,8 +57,8 @@ test("placement interpolation uploads one GlobalTransform range and preserves un
     function falling(y: number): number {
         const eid = world.create();
         world.add(eid, Body);
+        world.add(eid, Shape);
         body.position.set(eid, 0, y, 0, 0);
-        body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
         body.type.set(eid, BodyType.Dynamic);
         return eid;
     }

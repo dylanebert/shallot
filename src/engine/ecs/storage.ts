@@ -108,7 +108,7 @@ export class WorldField<T extends FieldType = FieldType> {
 
     /** Publish an eid after writing its current raw column; retained arrays do not follow growth. */
     markChanged(eid: number): void {
-        this.ensure(eid + 1);
+        if (eid + 1 > this.#column.array.length / this.type.lanes) this.ensure(eid + 1);
         this.#column.dirty[eid >>> 5] |= 1 << (eid & 31);
     }
 
@@ -155,7 +155,7 @@ export class WorldField<T extends FieldType = FieldType> {
         }
         let capacity = 0;
         for (let i = 0; i < eids.length; i++) capacity = Math.max(capacity, eids[i] + 1);
-        this.ensure(capacity);
+        if (capacity > this.#column.array.length / this.type.lanes) this.ensure(capacity);
         let byLanes = this.#writeRows.get(source);
         if (!byLanes) {
             byLanes = new Map();

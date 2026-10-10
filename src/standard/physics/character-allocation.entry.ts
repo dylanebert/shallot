@@ -1,4 +1,4 @@
-import { Body, createApp, ShapeKind } from "@dylanebert/shallot";
+import { Body, createApp, Shape, ShapeKind } from "@dylanebert/shallot";
 import {
     Character,
     CharacterPlugin,
@@ -28,15 +28,16 @@ export default async function create(input: string) {
     world.add(platform, Body, {
         type: BodyType.Kinematic,
         position: [0, -0.5, 0, 0],
-        halfExtents: [1000, 0.5, 1000, 0],
     });
+    world.add(platform, Shape, { scale: [1000, 0.5, 1000, 0] });
     const eid = world.create();
     world.add(eid, Body, {
         type: BodyType.Kinematic,
-        shape: ShapeKind.Capsule,
         position: [0, pushing ? 2 : 1.3, 0, 0],
-        halfExtents: [0, 0.5, 0, 0.3],
     });
+    world.add(eid, Shape, { kind: ShapeKind.Capsule });
+    world.storage(Shape).capsuleA.set(eid, 0, -0.5, 0, 0);
+    world.storage(Shape).capsuleB.set(eid, 0, 0.5, 0, 0.3);
     world.add(eid, Character);
     world.step(1 / 60);
     if (!pushing) physics.getBody(platform)!.setLinearVelocity({ x: 2, y: 0, z: 0 });

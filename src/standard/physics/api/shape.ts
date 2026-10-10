@@ -1,9 +1,10 @@
 import { ContactField, contactCapacity, contactField } from "../collision/contact";
 import { readContactManifolds } from "../collision/manifoldstore";
 import { NULL_INDEX } from "../common/array";
+import { hi32, lo32 } from "../common/bits";
 import type { EntityId } from "../common/ids";
 import type { AABB } from "../common/math";
-import type { Filter, ShapeType } from "../common/types";
+import type { Filter, ShapeType, SurfaceMaterial } from "../common/types";
 import { shapeBodyId } from "../kernel/filtercolumns";
 import { kernel } from "../kernel/kernel";
 import { readShapeAabb, SHAPE_STRIDE } from "../kernel/shapecolumns";
@@ -15,17 +16,36 @@ import {
     shapeFlag,
     shapeScalar,
 } from "../kernel/shaperecords";
-import type { MassData } from "../shapes/geometry";
+import type { Capsule, MassData, Sphere } from "../shapes/geometry";
+
+const materialScratch: SurfaceMaterial = {
+    friction: 0,
+    restitution: 0,
+    rollingResistance: 0,
+    tangentVelocity: { x: 0, y: 0, z: 0 },
+    userMaterialId: 0n,
+    customColor: 0,
+};
+
+import { acquireMeshData } from "../kernel/geocolumns";
+import type { HullData } from "../shapes/hull";
+import type { MeshData } from "../shapes/mesh";
 import {
     computeShapeMass,
     destroyShape,
     getSensorData,
+    getShapeMaterial,
+    getShapeMaterialCount,
+    getShapeMaterials,
     isSensorShape,
+    readShapeCapsule,
+    readShapeSphere,
     type Shape as ShapeRecord,
     setShapeFilter,
 } from "../shapes/shape";
-import { makeBodyId } from "../world/body";
+import { makeBodyId, releaseGeometryIdentities } from "../world/body";
 import type { WorldState } from "../world/world";
+import { addHullToDatabase } from "../world/world";
 import { Body } from "./body";
 import { type ContactData, makeShapeId } from "./config";
 
@@ -122,6 +142,92 @@ export class Shape {
         return shapeField(this.world, this.record(), ShapeField.type) as ShapeType;
     }
 
+    /** @returns the current local sphere geometry (b3Shape_GetSphere). */
+    getSphere(): Sphere {
+        return readShapeSphere(this.world, this.record());
+    }
+
+    /** Replace this shape's geometry with a local sphere (b3Shape_SetSphere). */
+    setSphere(sphere: Sphere): void {
+        kernel(this.world.ecsState).shapeSetSphere(
+            this.world.worldId,
+            this.record(),
+            Math.fround(sphere.center.x),
+            Math.fround(sphere.center.y),
+            Math.fround(sphere.center.z),
+            Math.fround(sphere.radius),
+        );
+        releaseGeometryIdentities(this.world);
+    }
+
+    /** @returns the current local capsule geometry (b3Shape_GetCapsule). */
+    getCapsule(): Capsule {
+        return readShapeCapsule(this.world, this.record());
+    }
+
+    /** Replace this shape's geometry with a local capsule (b3Shape_SetCapsule). */
+    setCapsule(capsule: Capsule): void {
+        kernel(this.world.ecsState).shapeSetCapsule(
+            this.world.worldId,
+            this.record(),
+            Math.fround(capsule.center1.x),
+            Math.fround(capsule.center1.y),
+            Math.fround(capsule.center1.z),
+            Math.fround(capsule.center2.x),
+            Math.fround(capsule.center2.y),
+            Math.fround(capsule.center2.z),
+            Math.fround(capsule.radius),
+        );
+        releaseGeometryIdentities(this.world);
+    }
+
+    /** @returns the current geometry database reference for native hull or mesh getters. */
+    getGeometryReference(): number {
+        return kernel(this.world.ecsState).shapeGetGeometryReference(
+            this.world.worldId,
+            this.record(),
+        );
+    }
+
+    /** @returns the current local mesh scale (b3Shape_GetMesh). */
+    getGeometryScale(): { x: number; y: number; z: number } {
+        this.world.shapeStore.refreshViews();
+        const offset = this.record() * SHAPE_STRIDE + 49;
+        const values = this.world.shapeStore.shapeF;
+        return { x: values[offset], y: values[offset + 1], z: values[offset + 2] };
+    }
+
+    /** @returns the current per-triangle material count. */
+    getMeshMaterialCount(): number {
+        return getShapeMaterialCount(this.world, this.record());
+    }
+
+    /** @returns a copy of the current per-triangle materials. */
+    getMaterials(): SurfaceMaterial[] {
+        return getShapeMaterials(this.world, this.record());
+    }
+
+    /** Replace this shape's geometry with a shared hull (b3Shape_SetHull). */
+    setHull(hull: HullData): void {
+        const handle = addHullToDatabase(this.world, hull);
+        kernel(this.world.ecsState).shapeSetHull(this.world.worldId, this.record(), handle);
+        releaseGeometryIdentities(this.world);
+    }
+
+    /** Replace this shape's geometry with mesh data and local scale (b3Shape_SetMesh). */
+    setMesh(mesh: MeshData, scale: { x: number; y: number; z: number }): void {
+        const handle = acquireMeshData(this.world, mesh);
+        kernel(this.world.ecsState).shapeSetMesh(
+            this.world.worldId,
+            this.record(),
+            handle,
+            Math.fround(scale.x),
+            Math.fround(scale.y),
+            Math.fround(scale.z),
+        );
+        releaseGeometryIdentities(this.world);
+    }
+
     /** @returns the body this shape is attached to. */
     getBody(): Body {
         const bodyId = shapeBodyId(this.world, this.record());
@@ -144,6 +250,99 @@ export class Shape {
     /** @returns the shape density. */
     getDensity(): number {
         return shapeScalar(this.world, this.record(), ShapeField.density);
+    }
+
+    /** Change density and, by default, recompute the parent body's mass properties. */
+    setDensity(value: number, updateBodyMass = true): void {
+        kernel(this.world.ecsState).shapeSetDensity(
+            this.world.worldId,
+            this.record(),
+            Math.fround(value),
+            updateBodyMass,
+        );
+    }
+
+    /** @returns a copy of the base surface material, or fills caller-owned `out`. */
+    getSurfaceMaterial(out?: SurfaceMaterial): SurfaceMaterial {
+        return getShapeMaterial(
+            this.world,
+            this.record(),
+            out ?? {
+                friction: 0,
+                restitution: 0,
+                rollingResistance: 0,
+                tangentVelocity: { x: 0, y: 0, z: 0 },
+                userMaterialId: 0n,
+                customColor: 0,
+            },
+        );
+    }
+
+    /** Replace the base surface material; per-triangle mesh materials are unchanged. */
+    setSurfaceMaterial(material: SurfaceMaterial): void {
+        const userMaterialId = BigInt.asUintN(64, material.userMaterialId);
+        kernel(this.world.ecsState).shapeSetSurfaceMaterial(
+            this.world.worldId,
+            this.record(),
+            Math.fround(material.friction),
+            Math.fround(material.restitution),
+            Math.fround(material.rollingResistance),
+            Math.fround(material.tangentVelocity.x),
+            Math.fround(material.tangentVelocity.y),
+            Math.fround(material.tangentVelocity.z),
+            lo32(userMaterialId),
+            hi32(userMaterialId),
+            material.customColor >>> 0,
+        );
+    }
+
+    getFriction(): number {
+        return getShapeMaterial(this.world, this.record(), materialScratch).friction;
+    }
+
+    setFriction(value: number): void {
+        kernel(this.world.ecsState).shapeSetFriction(
+            this.world.worldId,
+            this.record(),
+            Math.fround(value),
+        );
+    }
+
+    getRestitution(): number {
+        return getShapeMaterial(this.world, this.record(), materialScratch).restitution;
+    }
+
+    setRestitution(value: number): void {
+        kernel(this.world.ecsState).shapeSetRestitution(
+            this.world.worldId,
+            this.record(),
+            Math.fround(value),
+        );
+    }
+
+    /** Replace one mesh or height-field triangle material by index. */
+    setMeshMaterial(material: SurfaceMaterial, index: number): void {
+        if (
+            !Number.isInteger(index) ||
+            index < 0 ||
+            index >= getShapeMaterialCount(this.world, this.record())
+        )
+            throw new RangeError("physics: mesh material index is out of range");
+        const userMaterialId = BigInt.asUintN(64, material.userMaterialId);
+        kernel(this.world.ecsState).shapeSetMeshMaterial(
+            this.world.worldId,
+            this.record(),
+            index,
+            Math.fround(material.friction),
+            Math.fround(material.restitution),
+            Math.fround(material.rollingResistance),
+            Math.fround(material.tangentVelocity.x),
+            Math.fround(material.tangentVelocity.y),
+            Math.fround(material.tangentVelocity.z),
+            lo32(userMaterialId),
+            hi32(userMaterialId),
+            material.customColor >>> 0,
+        );
     }
 
     /** @returns the debug name attached to this shape. */
@@ -169,6 +368,18 @@ export class Shape {
     /** @returns whether this shape is a sensor (b3Shape_IsSensor). */
     isSensor(): boolean {
         return isSensorShape(this.world, this.record());
+    }
+
+    /** @returns the live Box3D collision filter. */
+    getFilter(): Filter {
+        const offset = this.record() * SHAPE_STRIDE;
+        const words = this.world.shapeStore.shapeU;
+        return {
+            categoryBits:
+                (BigInt(words[offset + 39] >>> 0) << 32n) | BigInt(words[offset + 38] >>> 0),
+            maskBits: (BigInt(words[offset + 41] >>> 0) << 32n) | BigInt(words[offset + 40] >>> 0),
+            groupIndex: words[offset + 42] | 0,
+        };
     }
 
     /**
@@ -217,6 +428,16 @@ export class Shape {
     /** @returns whether contact events are enabled for this shape (b3Shape_AreContactEventsEnabled). */
     areContactEventsEnabled(): boolean {
         return shapeFlag(this.world, this.record(), ShapeFlags.enableContactEvents);
+    }
+
+    /** Whether pre-solve contact events are enabled (b3Shape_ArePreSolveEventsEnabled). */
+    arePreSolveEventsEnabled(): boolean {
+        return shapeFlag(this.world, this.record(), ShapeFlags.enablePreSolveEvents);
+    }
+
+    /** Enable or disable pre-solve contact events for this shape. */
+    enablePreSolveEvents(flag: boolean): void {
+        setShapeFlag(this.world, this.record(), ShapeFlags.enablePreSolveEvents, flag);
     }
 
     /**

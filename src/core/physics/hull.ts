@@ -1,6 +1,5 @@
-// Convex-hull authoring geometry — the registry of convex hull shapes a `Body` references by id. A solver
-// builds its own colliders from it (marshal.ts; an outside solver through the physics barrel). No GJK/EPA; no
-// quickhull build here — authored hulls come from explicit geometry until a mesh→hull path lands.
+// Convex-hull authoring geometry — the registry of convex hulls a `Shape` references by id. A solver
+// builds its colliders from it (marshal-shape.ts). Authored hulls come from explicit geometry.
 
 import { Registry, type Resource } from "../../engine";
 
@@ -21,7 +20,7 @@ export interface Hull {
     edges: Vec3[];
 }
 
-/** World-owned convex hulls. Register geometry through `world.resource(Hulls)`; re-registering a name reuses its id. A `Body` references an id in its own world's registry. */
+/** World-owned convex hulls. Register geometry through `world.resource(Hulls)`; re-registering a name reuses its id. A `Shape` references an id in its own World's registry. */
 export const Hulls: Resource<Registry<Hull>> = {
     create: () => {
         const hulls = new Registry<Hull>();
@@ -30,9 +29,9 @@ export const Hulls: Resource<Registry<Hull>> = {
     },
 };
 
-// the built-in unit cube (full-size 2, verts ±1) reserved at id 0 — a box collider is THIS hull scaled by
-// its half-extents, so a hull SAT reads box and hull through ONE branch-free accessor path. Vertex/face/
-// edge order is the canonical `boxHull([2,2,2])` layout.
+// The built-in unit cube (full-size 2, verts ±1) reserved at id 0. A box collider is this hull scaled by
+// Shape.scale, so the kernel reads boxes and other hulls through one path. Vertex/face/edge order is
+// the canonical `boxHull([2,2,2])` layout.
 const UNIT_CUBE: Omit<Hull, "name"> = {
     verts: [
         [-1, -1, -1],
@@ -58,5 +57,5 @@ const UNIT_CUBE: Omit<Hull, "name"> = {
         [0, 0, 1],
     ],
 };
-/** the reserved hull id of the built-in unit cube: a box reads this hull scaled by its half-extents. */
+/** Reserved hull id of the built-in unit cube; `Shape.scale` supplies its half-extents. */
 export const UNIT_CUBE_ID = 0;

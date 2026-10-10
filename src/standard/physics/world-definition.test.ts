@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Body, BodyType } from "../../core/physics";
+import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
 import { hashPhysics, PhysicsWorldDefinition, physicsWorld, StandardPhysicsPlugin } from ".";
@@ -10,6 +10,7 @@ test("a world gravity write after warm changes acceleration on the next tick", a
         const { world } = app;
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 10, 0, 0] });
+        world.add(eid, Shape);
 
         world.tick();
         const velocity = world.storage(GlobalTransform).linearVelocity.y;
@@ -129,6 +130,7 @@ test("snapshot restore restores the world definition with the solver", async () 
         const { world } = app;
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 10, 0, 0] });
+        world.add(eid, Shape);
         const definition = world.resource(PhysicsWorldDefinition);
         definition.gravity = { x: 0, y: -2, z: 0 };
         world.tick();

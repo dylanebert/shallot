@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { World } from "@dylanebert/shallot";
-import { Body, ShapeKind } from "@dylanebert/shallot/physics";
+import { Body, PhysicsPlugin, Shape } from "@dylanebert/shallot/physics";
 import {
     type Capsule,
     type CollisionPlane,
@@ -17,22 +17,18 @@ import {
 
 test("published mover queries land a falling capsule on an authored floor sliding along a wall", async () => {
     const world = new World();
+    for (const component of PhysicsPlugin.components!)
+        world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);
     for (const system of StandardPhysicsPlugin.systems!) world.addSystem(system);
     try {
-        world.add(world.create(), Body, {
-            shape: ShapeKind.Box,
-            position: [0, -0.5, 0, 0],
-            halfExtents: [10, 0.5, 10, 0],
-            isEnabled: 1,
-        });
-        world.add(world.create(), Body, {
-            shape: ShapeKind.Box,
-            position: [1.5, 2, 0, 0],
-            halfExtents: [0.5, 2, 10, 0],
-            isEnabled: 1,
-        });
+        const floor = world.create();
+        world.add(floor, Body, { position: [0, -0.5, 0, 0], isEnabled: 1 });
+        world.add(floor, Shape, { scale: [10, 0.5, 10, 0] });
+        const wall = world.create();
+        world.add(wall, Body, { position: [1.5, 2, 0, 0], isEnabled: 1 });
+        world.add(wall, Shape, { scale: [0.5, 2, 10, 0] });
         world.step(1 / 60);
         const physics = physicsWorld(world)!;
         const capsule: Capsule = {

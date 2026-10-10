@@ -1,4 +1,4 @@
-import { Body, ShapeKind } from "../../core/physics";
+import { Body, Shape as ShapeComponent, ShapeKind } from "../../core/physics";
 import {
     component,
     f32 as field,
@@ -121,8 +121,10 @@ function moveCharacter(world: World, eid: number): void {
     const handle = physics?.getBody(eid);
     if (!physics || !handle) return;
     const body = world.storage(Body);
+    const shape = world.storage(ShapeComponent);
     if (
-        body.shape.column[eid] !== ShapeKind.Capsule ||
+        !world.has(eid, ShapeComponent) ||
+        shape.kind.column[eid] !== ShapeKind.Capsule ||
         body.type.column[eid] !== BodyType.Kinematic
     )
         throw new Error(`Character entity ${eid} requires a kinematic capsule Body`);
@@ -148,12 +150,17 @@ function moveCharacter(world: World, eid: number): void {
     up.x = uc[offset];
     up.y = uc[offset + 1];
     up.z = uc[offset + 2];
-    const extents = body.halfExtents.column;
-    s.radius = extents[offset + 3];
-    const half = extents[offset + 1];
-    s.local.y = -half;
+    const shapeOffset = eid * 4;
+    const capsuleA = shape.capsuleA.column;
+    const capsuleB = shape.capsuleB.column;
+    s.radius = capsuleB[shapeOffset + 3];
+    s.local.x = capsuleA[shapeOffset];
+    s.local.y = capsuleA[shapeOffset + 1];
+    s.local.z = capsuleA[shapeOffset + 2];
     quat.rotateOut(s.pose.q, s.local, s.center1);
-    s.local.y = half;
+    s.local.x = capsuleB[shapeOffset];
+    s.local.y = capsuleB[shapeOffset + 1];
+    s.local.z = capsuleB[shapeOffset + 2];
     quat.rotateOut(s.pose.q, s.local, s.center2);
     spring(world, eid, physics, s);
     collide(physics, handle.id.index1 - 1, s);
@@ -190,7 +197,7 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
     const position = s.pose.p,
         velocity = s.velocity,
         up = s.up;
-    const radius = world.storage(Body).halfExtents.column[eid * 4 + 3];
+    const radius = world.storage(ShapeComponent).capsuleB.column[eid * 4 + 3];
     const dt = s.dt;
     const rest = f32(3 * radius);
     const rayLength = f32(rest + radius);
@@ -268,8 +275,13 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
     }
     character.pogoVelocity.column[eid] = pogo;
     character.pogoVelocity.markChanged(eid);
-    vec3.mulAddOut(position, dt, velocity, s.target);
-    vec3.mulAddOut(s.target, f32(dt * pogo), up, s.target);
+    s.target.x = f32(position.x + f32(dt * velocity.x));
+    s.target.y = f32(position.y + f32(dt * velocity.y));
+    s.target.z = f32(position.z + f32(dt * velocity.z));
+    const pogoDistance = f32(dt * pogo);
+    s.target.x = f32(s.target.x + f32(pogoDistance * up.x));
+    s.target.y = f32(s.target.y + f32(pogoDistance * up.y));
+    s.target.z = f32(s.target.z + f32(pogoDistance * up.z));
 }
 
 function groundVelocity(physics: PhysicsWorld, shape: number, s: Scratch): void {

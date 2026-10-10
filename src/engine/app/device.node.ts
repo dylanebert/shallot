@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { Body, BodyType, ShapeKind } from "../../core/physics";
+import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { hashPhysics, StandardPhysicsPlugin } from "../../standard/physics";
 import "../../standard";
@@ -141,11 +141,9 @@ test("live Physics apps keep their authored component values and solver worlds i
     const author = (world: World, y: number) => {
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic });
+        world.add(eid, Shape);
         const body = world.storage(Body);
-        body.shape.set(eid, ShapeKind.Box);
         body.position.set(eid, 0, y, 0, 0);
-        body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-        body.mass.set(eid, 1);
         return eid;
     };
     const first = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
@@ -174,11 +172,9 @@ test("two live Physics apps keep sibling bodies and hash unchanged when only one
     const author = (world: World, y: number) => {
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic });
+        world.add(eid, Shape);
         const body = world.storage(Body);
-        body.shape.set(eid, ShapeKind.Box);
         body.position.set(eid, 0, y, 0, 0);
-        body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-        body.mass.set(eid, 1);
         return eid;
     };
     let first: Awaited<ReturnType<typeof createApp>> | undefined;
@@ -234,9 +230,8 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
     const author = (world: World) => {
         const eid = world.create();
         world.add(eid, Body);
-        world.storage(Body).shape.set(eid, ShapeKind.Box);
+        world.add(eid, Shape);
         world.storage(Body).position.set(eid, 0, 2, 0, 0);
-        world.storage(Body).halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
         world.storage(Body).type.set(eid, BodyType.Dynamic);
         return eid;
     };

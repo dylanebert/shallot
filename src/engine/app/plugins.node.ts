@@ -5,7 +5,14 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { MeshInstance } from "../../core/mesh";
-import { Body, BodyType, DistanceJoint, ShapeKind, SphericalJoint } from "../../core/physics";
+import {
+    Body,
+    BodyType,
+    DistanceJoint,
+    Shape,
+    ShapeKind,
+    SphericalJoint,
+} from "../../core/physics";
 import {
     AmbientLight,
     attachCanvas,
@@ -438,10 +445,9 @@ async function trackedDevice() {
 function addBody(world: World, y: number): number {
     const eid = world.create();
     world.add(eid, Body);
+    world.add(eid, Shape);
     const body = world.storage(Body);
-    body.shape.set(eid, ShapeKind.Box);
     body.position.set(eid, 0, y, 0, 0);
-    body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
     body.type.set(eid, BodyType.Dynamic);
     return eid;
 }
@@ -629,11 +635,12 @@ function featurePlugin(subject: Plugin): Plugin {
             const actor = world.create();
             resources.actor = actor;
             world.add(actor, Body);
+            world.add(actor, Shape, { kind: ShapeKind.Capsule });
             world.add(actor, Character);
             world.add(actor, Player);
-            world.storage(Body).shape.set(actor, ShapeKind.Capsule);
             world.storage(Body).position.set(actor, 0, 2, 2, 0);
-            world.storage(Body).halfExtents.set(actor, 0, 0.6, 0, 0.35);
+            world.storage(Shape).capsuleA.set(actor, 0, -0.6, 0, 0);
+            world.storage(Shape).capsuleB.set(actor, 0, 0.6, 0, 0.35);
             world.storage(Body).type.set(actor, BodyType.Kinematic);
             world.storage(Player).camera.set(actor, camera);
 

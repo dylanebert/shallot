@@ -204,6 +204,58 @@ export type Kernel = {
         maskLo: number,
         group: number,
     ): void;
+    shapeSetDensity(world: number, id: number, value: number, updateMass: boolean): void;
+    shapeSetSphere(
+        world: number,
+        id: number,
+        x: number,
+        y: number,
+        z: number,
+        radius: number,
+    ): void;
+    shapeSetCapsule(
+        world: number,
+        id: number,
+        ax: number,
+        ay: number,
+        az: number,
+        bx: number,
+        by: number,
+        bz: number,
+        radius: number,
+    ): void;
+    shapeSetHull(world: number, id: number, handle: number): void;
+    shapeSetMesh(world: number, id: number, handle: number, x: number, y: number, z: number): void;
+    shapeGetGeometryReference(world: number, id: number): number;
+    shapeSetFriction(world: number, id: number, value: number): void;
+    shapeSetRestitution(world: number, id: number, value: number): void;
+    shapeSetSurfaceMaterial(
+        world: number,
+        id: number,
+        friction: number,
+        restitution: number,
+        rolling: number,
+        x: number,
+        y: number,
+        z: number,
+        low: number,
+        high: number,
+        color: number,
+    ): void;
+    shapeSetMeshMaterial(
+        world: number,
+        id: number,
+        index: number,
+        friction: number,
+        restitution: number,
+        rolling: number,
+        x: number,
+        y: number,
+        z: number,
+        low: number,
+        high: number,
+        color: number,
+    ): void;
     worldSnapshot(world: number): number;
     worldSnapshotBuffer(bytes: number): number;
     worldRestore(world: number): void;

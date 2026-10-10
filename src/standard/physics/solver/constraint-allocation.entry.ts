@@ -2,6 +2,7 @@ import {
     Body,
     createApp,
     DistanceJoint,
+    Shape,
     SphericalJoint,
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
@@ -152,8 +153,10 @@ async function authored() {
     for (let i = 0; i < COUNT; i++) {
         const anchor = world.create();
         world.add(anchor, Body, { position: [i * SPACING, 10, 0, 0] });
+        world.add(anchor, Shape);
         const bob = world.create();
         world.add(bob, Body, { type: BodyType.Dynamic, position: [i * SPACING + 2.5, 10, 0, 0] });
+        world.add(bob, Shape);
         bobs.push(bob);
         if (i % 2 === 0)
             world.add(world.create(), DistanceJoint, {

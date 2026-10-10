@@ -20,6 +20,7 @@ import {
     pointerLockChanged,
     pointerMove,
     pressKey,
+    Shape,
     ShapeKind,
     StandardPhysicsPlugin,
     Time,
@@ -45,11 +46,8 @@ async function scene(localPlayers: readonly number[] = [], count = 1): Promise<S
         plugins: [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin],
         setup(world) {
             const floor = world.create();
-            world.add(floor, Body, {
-                type: BodyType.Static,
-                shape: ShapeKind.Box,
-                halfExtents: [20, 0.5, 20, 0],
-            });
+            world.add(floor, Body, { type: BodyType.Static });
+            world.add(floor, Shape, { scale: [20, 0.5, 20, 0] });
             for (let index = 0; index < count; index++) {
                 const camera = world.create();
                 world.add(camera, Transform);
@@ -58,10 +56,11 @@ async function scene(localPlayers: readonly number[] = [], count = 1): Promise<S
                 const player = world.create();
                 world.add(player, Body, {
                     type: BodyType.Kinematic,
-                    shape: ShapeKind.Capsule,
-                    halfExtents: [0, 0.5, 0, 0.3],
                     position: [index * 4, 1.3, 0, 0],
                 });
+                world.add(player, Shape, { kind: ShapeKind.Capsule });
+                world.storage(Shape).capsuleA.set(player, 0, -0.5, 0, 0);
+                world.storage(Shape).capsuleB.set(player, 0, 0.5, 0, 0.3);
                 world.add(player, Character);
                 world.add(player, Player, {
                     camera,

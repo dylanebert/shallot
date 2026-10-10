@@ -5,8 +5,12 @@ import {
     BodyMotionLock,
     BodyType,
     Hulls,
+    PhysicsMeshes,
+    PhysicsPlugin,
     RevoluteJoint,
+    Shape,
     ShapeKind,
+    ShapeMaterials,
 } from "@dylanebert/shallot/physics";
 import {
     physicsWorld,
@@ -16,15 +20,19 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { GlobalTransform, Transform } from "@dylanebert/shallot/transform";
 import { Body as SolverBody } from "./api/body";
-import { makeJointId } from "./api/config";
+import { makeJointId, makeShapeId } from "./api/config";
 import { RevoluteJoint as SolverRevoluteJoint } from "./api/joint";
+import { Shape as SolverShape } from "./api/shape";
 import { RJ_MOTOR_SPEED } from "./kernel/columns";
 import { readJointFloat } from "./kernel/jointcolumns";
 import { JointField, jointField } from "./kernel/jointrecords";
+import { createMesh } from "./shapes/mesh";
 import { jointIds } from "./solver/joint.fixture";
 
 async function createPhysicsWorld(): Promise<World> {
     const world = new World();
+    for (const component of PhysicsPlugin.components!)
+        world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);
     const recovery = StandardPhysicsPlugin.recovery!;
@@ -43,6 +51,11 @@ async function withPhysics(run: (world: World) => void | Promise<void>): Promise
         await StandardPhysicsPlugin.dispose!(world);
         world.dispose();
     }
+}
+
+function solverShape(world: World, index = 0): SolverShape {
+    const state = physicsWorld(world)!.state;
+    return new SolverShape(state, makeShapeId(state, index));
 }
 
 test("a Body type edit after spawn reaches the solver", async () => {
@@ -78,10 +91,8 @@ test("a post-spawn awake write survives the spawn-time Body mark", async () => {
             isEnabled: 1,
             allowFastRotation: 0,
             enableContactRecycling: 1,
-            halfExtents: [0.5, 0.5, 0.5, 0],
-            mass: 1,
-            friction: 0.5,
         });
+        world.add(eid, Shape);
         world.step(Time.FIXED_DT);
 
         const solver = physicsWorld(world)!.getBody(eid)!;
@@ -92,6 +103,341 @@ test("a post-spawn awake write survives the spawn-time Body mark", async () => {
 
         world.step(Time.FIXED_DT);
         expect(solver.isAwake()).toBe(false);
+    });
+});
+
+test("Shape material, filter and event writes reach Box3D setters only when values differ", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic });
+        world.add(eid, Shape);
+        world.tick();
+        const shape = solverShape(world);
+        const setters = [
+            spyOn(SolverShape.prototype, "setDensity"),
+            spyOn(SolverShape.prototype, "setFriction"),
+            spyOn(SolverShape.prototype, "setRestitution"),
+            spyOn(SolverShape.prototype, "setSurfaceMaterial"),
+            spyOn(SolverShape.prototype, "setFilter"),
+        ] as const;
+        try {
+            const authored = world.storage(Shape);
+            authored.density.set(eid, 1250);
+            authored.friction.set(eid, 0.25);
+            authored.restitution.set(eid, 0.4);
+            authored.rollingResistance.set(eid, 0.2);
+            authored.tangentVelocity.set(eid, 1, 2, 3, 0);
+            authored.materialUserIdLow.set(eid, 0x12345678);
+            authored.materialUserIdHigh.set(eid, 0x9abcdef0);
+            authored.customColor.set(eid, 0xff00ff);
+            authored.filterCategoryLow.set(eid, 0x1234);
+            authored.filterMaskHigh.set(eid, 0x5678);
+            authored.filterGroupIndex.set(eid, -4);
+            authored.enableSensorEvents.set(eid, 1);
+            authored.enableContactEvents.set(eid, 1);
+            authored.enableHitEvents.set(eid, 1);
+            authored.enablePreSolveEvents.set(eid, 1);
+            world.tick();
+
+            expect(shape.getDensity()).toBe(1250);
+            const material = shape.getSurfaceMaterial();
+            expect(material.friction).toBe(0.25);
+            expect(material.restitution).toBeCloseTo(0.4);
+            expect(material.rollingResistance).toBeCloseTo(0.2);
+            expect(material.tangentVelocity).toEqual({ x: 1, y: 2, z: 3 });
+            expect(material.userMaterialId).toBe(0x9abcdef012345678n);
+            expect(material.customColor).toBe(0xff00ff);
+            expect(shape.getFilter()).toEqual({
+                categoryBits: 0xffffffff00001234n,
+                maskBits: 0x00005678ffffffffn,
+                groupIndex: -4,
+            });
+            expect(shape.areSensorEventsEnabled()).toBe(true);
+            expect(shape.areContactEventsEnabled()).toBe(true);
+            expect(shape.areHitEventsEnabled()).toBe(true);
+            expect(shape.arePreSolveEventsEnabled()).toBe(true);
+            expect(setters.map((setter) => setter.mock.calls.length)).toEqual([1, 1, 1, 1, 1]);
+
+            authored.friction.set(eid, 0.25);
+            world.tick();
+            expect(setters[1]).toHaveBeenCalledTimes(1);
+            expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        } finally {
+            for (const setter of setters) setter.mockRestore();
+        }
+    });
+});
+
+test("Sphere and capsule Shape geometry writes use Box3D setters and getters", async () => {
+    await withPhysics((world) => {
+        const sphereBody = world.create();
+        world.add(sphereBody, Body, { type: BodyType.Dynamic });
+        world.add(sphereBody, Shape, { kind: ShapeKind.Sphere });
+        const capsuleBody = world.create();
+        world.add(capsuleBody, Body, { type: BodyType.Dynamic });
+        world.add(capsuleBody, Shape, { kind: ShapeKind.Capsule });
+        world.tick();
+
+        const sphere = solverShape(world, 0);
+        const capsule = solverShape(world, 1);
+        const setSphere = spyOn(SolverShape.prototype, "setSphere");
+        const setCapsule = spyOn(SolverShape.prototype, "setCapsule");
+        try {
+            world.storage(Shape).sphere.set(sphereBody, 0.25, -0.5, 0.75, 0.8);
+            world.storage(Shape).capsuleA.set(capsuleBody, -1, 0, 0, 0);
+            world.storage(Shape).capsuleB.set(capsuleBody, 1, 0, 0, 0.4);
+            world.tick();
+
+            expect(sphere.isValid()).toBe(true);
+            expect(sphere.getType()).toBe(ShapeKind.Sphere);
+            expect(sphere.getSphere().center).toEqual({ x: 0.25, y: -0.5, z: 0.75 });
+            expect(sphere.getSphere().radius).toBeCloseTo(0.8);
+            expect(capsule.isValid()).toBe(true);
+            expect(capsule.getType()).toBe(ShapeKind.Capsule);
+            expect(capsule.getCapsule().center1).toEqual({ x: -1, y: 0, z: 0 });
+            expect(capsule.getCapsule().center2).toEqual({ x: 1, y: 0, z: 0 });
+            expect(capsule.getCapsule().radius).toBeCloseTo(0.4);
+            expect(setSphere).toHaveBeenCalledTimes(1);
+            expect(setCapsule).toHaveBeenCalledTimes(1);
+            expect(physicsWorld(world)!.getCounters().shapeCount).toBe(2);
+        } finally {
+            setSphere.mockRestore();
+            setCapsule.mockRestore();
+        }
+    });
+});
+
+test("a hull scale edit reaches b3Shape_SetHull without replacing the ECS-bound shape", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic });
+        world.add(eid, Shape);
+        world.tick();
+        const shape = solverShape(world);
+        const previousGeometry = shape.getGeometryReference();
+        const setHull = spyOn(SolverShape.prototype, "setHull");
+        try {
+            world.storage(Shape).scale.x.set(eid, 1);
+            world.tick();
+
+            expect(shape.isValid()).toBe(true);
+            expect(shape.getType()).toBe(ShapeKind.Hull);
+            expect(shape.getGeometryReference()).not.toBe(previousGeometry);
+            expect(setHull).toHaveBeenCalledTimes(1);
+            expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        } finally {
+            setHull.mockRestore();
+        }
+    });
+});
+
+test("mesh geometry and per-triangle material edits use Box3D setters and getters", async () => {
+    await withPhysics((world) => {
+        const firstMesh = createMesh({
+            vertices: [
+                { x: 0, y: 0, z: 0 },
+                { x: 1, y: 0, z: 0 },
+                { x: 0, y: 1, z: 0 },
+            ],
+            indices: [0, 1, 2],
+        })!;
+        const secondMesh = createMesh({
+            vertices: [
+                { x: 0, y: 0, z: 0 },
+                { x: 2, y: 0, z: 0 },
+                { x: 0, y: 1, z: 0 },
+            ],
+            indices: [0, 1, 2],
+        })!;
+        const meshes = world.resource(PhysicsMeshes);
+        const firstId = meshes.register({ name: "shape-sync-first-mesh", data: firstMesh });
+        const secondId = meshes.register({ name: "shape-sync-second-mesh", data: secondMesh });
+        world.resource(ShapeMaterials).register({
+            name: "shape-sync-material-set",
+            materials: [
+                {
+                    friction: 0.15,
+                    restitution: 0.35,
+                    rollingResistance: 0.1,
+                    tangentVelocity: { x: 1, y: 0, z: -1 },
+                    userMaterialId: 23n,
+                    customColor: 0x336699,
+                },
+            ],
+        });
+        const eid = world.create();
+        world.add(eid, Body);
+        world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry: firstId });
+        world.tick();
+
+        const shape = solverShape(world);
+        const previousGeometry = shape.getGeometryReference();
+        const setMesh = spyOn(SolverShape.prototype, "setMesh");
+        const setMaterial = spyOn(SolverShape.prototype, "setMeshMaterial");
+        try {
+            world.storage(Shape).geometry.set(eid, secondId);
+            world.storage(Shape).scale.set(eid, 2, 0.5, 1, 0);
+            world.storage(Shape).materialSet.set(eid, 1);
+            world.tick();
+
+            expect(shape.isValid()).toBe(true);
+            expect(shape.getType()).toBe(ShapeKind.Mesh);
+            expect(shape.getGeometryReference()).not.toBe(previousGeometry);
+            expect(shape.getGeometryScale()).toEqual({ x: 2, y: 0.5, z: 1 });
+            expect(shape.getMaterials()).toEqual([
+                {
+                    friction: Math.fround(0.15),
+                    restitution: Math.fround(0.35),
+                    rollingResistance: Math.fround(0.1),
+                    tangentVelocity: { x: 1, y: 0, z: -1 },
+                    userMaterialId: 23n,
+                    customColor: 0x336699,
+                },
+            ]);
+            expect(setMesh).toHaveBeenCalledTimes(1);
+            expect(setMaterial).toHaveBeenCalledTimes(1);
+            world.storage(Shape).materialSet.set(eid, 1);
+            world.tick();
+            expect(setMaterial).toHaveBeenCalledTimes(1);
+            expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        } finally {
+            setMesh.mockRestore();
+            setMaterial.mockRestore();
+        }
+    });
+});
+
+test("changing Shape.body reattaches the collider to its new Body entity", async () => {
+    await withPhysics((world) => {
+        const firstBody = world.create();
+        world.add(firstBody, Body, { position: [1, 0, 0, 0] });
+        const secondBody = world.create();
+        world.add(secondBody, Body, { position: [2, 0, 0, 0] });
+        const shapeEntity = world.create();
+        world.add(shapeEntity, Shape, { body: firstBody });
+        world.tick();
+
+        const previous = solverShape(world);
+        expect(previous.getBody().getPosition().x).toBe(1);
+        world.storage(Shape).body.set(shapeEntity, secondBody);
+        world.tick();
+
+        expect(previous.isValid()).toBe(false);
+        expect(solverShape(world).getBody().getPosition().x).toBe(2);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+    });
+});
+
+test("an external Shape waits while its Body is removed and attaches when it returns", async () => {
+    await withPhysics((world) => {
+        const body = world.create();
+        world.add(body, Body);
+        const collider = world.create();
+        world.add(collider, Shape, { body });
+        world.tick();
+        const previous = solverShape(world);
+        expect(previous.isValid()).toBe(true);
+
+        world.remove(body, Body);
+        world.tick();
+        expect(previous.isValid()).toBe(false);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+
+        world.add(body, Body);
+        world.tick();
+        expect(solverShape(world).isValid()).toBe(true);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+    });
+});
+
+test("changing updateBodyMass does not recreate a Shape and later density writes honor it", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic });
+        world.add(eid, Shape, { kind: ShapeKind.Sphere, density: 2 });
+        world.tick();
+
+        const shape = solverShape(world);
+        const body = physicsWorld(world)!.getBody(eid)!;
+        const mass = body.getMass();
+        expect(mass).toBeGreaterThan(0);
+
+        world.storage(Shape).updateBodyMass.set(eid, 0);
+        world.tick();
+        expect(shape.isValid()).toBe(true);
+        expect(body.getMass()).toBe(mass);
+
+        world.storage(Shape).density.set(eid, 4);
+        world.tick();
+        expect(shape.getDensity()).toBe(4);
+        expect(body.getMass()).toBe(mass);
+    });
+});
+
+test("recreating a Shape with updateBodyMass disabled preserves body mass", async () => {
+    await withPhysics((world) => {
+        const bodyEid = world.create();
+        world.add(bodyEid, Body, { type: BodyType.Dynamic });
+        world.add(bodyEid, Shape, {
+            kind: ShapeKind.Sphere,
+            density: 2,
+            updateBodyMass: 0,
+        });
+        const sensorEid = world.create();
+        world.add(sensorEid, Shape, {
+            body: bodyEid,
+            kind: ShapeKind.Sphere,
+            density: 4,
+            updateBodyMass: 0,
+        });
+        world.tick();
+
+        const body = physicsWorld(world)!.getBody(bodyEid)!;
+        const mass = body.getMass();
+        const previous = solverShape(world, 1);
+        world.storage(Shape).isSensor.set(sensorEid, 1);
+        world.tick();
+
+        expect(previous.isValid()).toBe(false);
+        expect(solverShape(world, 1).isSensor()).toBe(true);
+        expect(body.getMass()).toBe(mass);
+    });
+});
+
+test("a marked friction write compares against the live Box3D value", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic });
+        world.add(eid, Shape, { kind: ShapeKind.Sphere });
+        world.tick();
+
+        const shape = solverShape(world);
+        const authored = world.storage(Shape).friction.get(eid);
+        shape.setFriction(0.125);
+        world.storage(Shape).friction.set(eid, authored);
+        world.tick();
+
+        expect(shape.getFriction()).toBe(authored);
+    });
+});
+
+test("changing the spawn-only sensor flag recreates its Box3D shape definition", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic });
+        world.add(eid, Shape);
+        world.tick();
+        const previous = solverShape(world);
+        expect(previous.isSensor()).toBe(false);
+
+        world.storage(Shape).isSensor.set(eid, 1);
+        world.tick();
+
+        expect(previous.isValid()).toBe(false);
+        const current = solverShape(world);
+        expect(current.isValid()).toBe(true);
+        expect(current.isSensor()).toBe(true);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
     });
 });
 
@@ -115,10 +461,8 @@ test("Body definition writes reach Box3D through its setters after spawn", async
             isEnabled: 1,
             allowFastRotation: 0,
             enableContactRecycling: 1,
-            halfExtents: [0.5, 0.5, 0.5, 0],
-            mass: 1,
-            friction: 0.5,
         });
+        world.add(eid, Shape);
         world.tick();
         const authored = world.storage(Body);
         const solver = physicsWorld(world)!.getBody(eid)!;
@@ -186,10 +530,8 @@ test("unchanged Body definition writes call no Box3D body setter", async () => {
             isEnabled: 1,
             allowFastRotation: 0,
             enableContactRecycling: 1,
-            halfExtents: [0.5, 0.5, 0.5, 0],
-            mass: 1,
-            friction: 0.5,
         });
+        world.add(eid, Shape);
         world.tick();
         const setters = [
             ["setType", spyOn(SolverBody.prototype, "setType")],
@@ -251,10 +593,8 @@ test("Body.isAwake is spawn-only", async () => {
             isEnabled: 1,
             allowFastRotation: 0,
             enableContactRecycling: 1,
-            halfExtents: [0.5, 0.5, 0.5, 0],
-            mass: 1,
-            friction: 0.5,
         });
+        world.add(eid, Shape);
         world.step(Time.FIXED_DT);
         const solver = physicsWorld(world)!.getBody(eid)!;
         expect(solver.isAwake()).toBe(true);
@@ -285,10 +625,8 @@ test("a Body field edit survives frame mark clearing and snapshot restore", asyn
             enableSleep: 1,
             isAwake: 1,
             isEnabled: 1,
-            halfExtents: [0.5, 0.5, 0.5, 0],
-            mass: 1,
-            friction: 0.5,
         });
+        world.add(eid, Shape);
         world.tick();
         const authored = world.storage(Body).linearDamping;
         const solver = physicsWorld(world)!.getBody(eid)!;
@@ -308,7 +646,8 @@ test("a Body field edit survives frame mark clearing and snapshot restore", asyn
 test("a corrected dynamic body's published velocity agrees with its solver body after one tick", async () => {
     await withPhysics((world) => {
         const floor = world.create();
-        world.add(floor, Body, { position: [0, -0.5, 0, 0], halfExtents: [10, 0.5, 10, 0] });
+        world.add(floor, Body, { position: [0, -0.5, 0, 0] });
+        world.add(floor, Shape, { scale: [10, 0.5, 10, 0] });
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 0.5, 0, 0] });
         world.tick();
@@ -592,22 +931,22 @@ test("physics sync walks Bodies added before a restored snapshot was bound", asy
     });
 });
 
-test("physics sync retries failed hull bodies when the registry grows", async () => {
+test("physics sync retries a missing Shape hull when the registry grows", async () => {
     await withPhysics((world) => {
         const hulls = world.resource(Hulls);
         const eid = world.create();
-        world.add(eid, Body, {
-            shape: ShapeKind.Hull,
-            halfExtents: [1, 1, 1, 1],
-        });
+        world.add(eid, Body);
+        world.add(eid, Shape, { kind: ShapeKind.Hull, geometry: 1, scale: [1, 1, 1, 0] });
         world.tick();
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
 
         const cube = structuredClone(hulls.get(hulls.name(0)!)!);
         expect(hulls.register({ ...cube, name: "runtime-sync-recovery-hull" })).toBe(1);
         world.tick();
 
         expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
         expect(physicsWorld(world)!.getBody(eid)?.isValid()).toBe(true);
     });
 });
@@ -643,16 +982,15 @@ test("physics sync forgets a Body destroyed before the next tick", async () => {
     });
 });
 
-test("physics sync retries a failed hull body whose hull a restored snapshot registered before its sync", async () => {
+test("physics sync restores a pending Shape hull when its registry snapshot predates sync", async () => {
     await withPhysics((world) => {
         const hulls = world.resource(Hulls);
         const eid = world.create();
-        world.add(eid, Body, {
-            shape: ShapeKind.Hull,
-            halfExtents: [1, 1, 1, 1],
-        });
+        world.add(eid, Body);
+        world.add(eid, Shape, { kind: ShapeKind.Hull, geometry: 1, scale: [1, 1, 1, 0] });
         world.tick();
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
 
         const cube = structuredClone(hulls.get(hulls.name(0)!)!);
         hulls.register({ ...cube, name: "runtime-sync-restored-hull" });
@@ -660,11 +998,13 @@ test("physics sync retries a failed hull body whose hull a restored snapshot reg
         world.tick();
         expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
         world.restore(saved);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
 
         world.tick();
 
         expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
         expect(physicsWorld(world)!.getBody(eid)?.isValid()).toBe(true);
     });
 });

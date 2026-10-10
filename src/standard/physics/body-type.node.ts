@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { Body, BodyType } from "../../core/physics";
+import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
 import { physicsWorld, StandardPhysicsPlugin, setTargetTransform } from ".";
@@ -45,7 +45,8 @@ test("a dynamic Body with zero mass does not fall", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const eid = app.world.create();
-        app.world.add(eid, Body, { type: BodyType.Dynamic, mass: 0, position: [0, 5, 0, 0] });
+        app.world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 5, 0, 0] });
+        app.world.add(eid, Shape, { density: 0 });
         app.world.step(Time.FIXED_DT);
         expect(physicsWorld(app.world)!.getBody(eid)!.getType()).toBe(BodyType.Dynamic);
         for (let i = 0; i < 10; i++) app.world.step(Time.FIXED_DT);
@@ -59,7 +60,7 @@ test("body sync publishes rigid pose without collider scale", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const eid = app.world.create();
-        app.world.add(eid, Body, { halfExtents: [2, 3, 4, 0] });
+        app.world.add(eid, Body);
         app.world.step(Time.FIXED_DT);
         const scale = app.world.storage(GlobalTransform).scale;
         expect([scale.x.get(eid), scale.y.get(eid), scale.z.get(eid)]).toEqual([1, 1, 1]);

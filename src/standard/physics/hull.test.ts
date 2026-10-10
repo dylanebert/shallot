@@ -1,14 +1,24 @@
 import { expect, test } from "bun:test";
-import { Body, BodyType, Hulls, ShapeKind, UNIT_CUBE_ID } from "../../core/physics";
+import {
+    Body,
+    BodyType,
+    Hulls,
+    PhysicsPlugin,
+    Shape,
+    ShapeKind,
+    UNIT_CUBE_ID,
+} from "../../core/physics";
 import { World } from "../../engine";
 import { PhysicsWorld } from "./api";
-import { marshalBody } from "./marshal";
+import { marshalShape } from "./marshal-shape";
 
 test("two worlds marshal their own hull registered under the same name", () => {
     const worlds = [new World(), new World()];
     const solver = new PhysicsWorld();
     try {
         const bodies = worlds.map((world, i) => {
+            for (const component of PhysicsPlugin.components!)
+                world.registry.register(component, PhysicsPlugin.name);
             const hulls = world.resource(Hulls);
             expect(hulls.id("__unit_cube__")).toBe(UNIT_CUBE_ID);
             const cube = hulls.get("__unit_cube__")!;
@@ -20,12 +30,16 @@ test("two worlds marshal their own hull registered under the same name", () => {
             });
             expect(id).toBe(1);
             const eid = world.create();
-            world.add(eid, Body);
-            world.storage(Body).shape.set(eid, ShapeKind.Hull);
-            world.storage(Body).halfExtents.w.set(eid, id);
-            world.storage(Body).type.set(eid, BodyType.Dynamic);
-            world.storage(Body).mass.set(eid, 1);
-            return marshalBody(world, solver, eid)!;
+            world.add(eid, Body, { type: BodyType.Dynamic });
+            world.add(eid, Shape, {
+                kind: ShapeKind.Hull,
+                geometry: id,
+                scale: [1, 1, 1, 0],
+                density: 1 / (8 * scale ** 3),
+            });
+            const body = solver.createBody({ type: BodyType.Dynamic });
+            marshalShape(world, body, eid);
+            return body;
         });
         expect(bodies[0]!.getMassData().inertia.cx.x).toBeCloseTo(2 / 3, 5);
         expect(bodies[1]!.getMassData().inertia.cx.x).toBeCloseTo(8 / 3, 5);

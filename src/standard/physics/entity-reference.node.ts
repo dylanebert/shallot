@@ -4,6 +4,7 @@ import {
     Body,
     BodyType,
     DistanceJoint,
+    Shape,
     ShapeKind,
     SphericalJoint,
 } from "@dylanebert/shallot/physics";
@@ -16,17 +17,20 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 
-test("recycled bodies retry failed marshals and placement warnings, including restored bindings", async () => {
+test("recycled Shape geometry retries and placement warnings preserve restored bindings", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const warning = spyOn(console, "warn").mockImplementation(() => {});
     try {
         const world = app.world;
         const eid = world.create();
-        world.add(eid, Body, { shape: ShapeKind.Hull, halfExtents: [1, 1, 1, 999] });
+        world.add(eid, Body);
+        world.add(eid, Shape, { kind: ShapeKind.Hull, geometry: 999, scale: [1, 1, 1, 0] });
         world.add(eid, Transform);
         world.step(Time.FIXED_DT);
         world.step(Time.FIXED_DT);
         expect(warning).toHaveBeenCalledTimes(2);
+        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
         const failed = world.snapshot();
         world.destroy(eid);
         expect(world.create()).toBe(eid);

@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { createApp, Time, type World } from "@dylanebert/shallot";
-import { Body, BodyType, ShapeKind } from "@dylanebert/shallot/physics";
+import { Body, BodyType, Shape, ShapeKind } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
     type PhysicsSnapshot,
@@ -21,33 +21,33 @@ await setupGlobals();
 function addBody(
     world: World,
     data: {
-        shape: number;
         pos: [number, number, number];
-        halfExtents: [number, number, number, number];
-        mass: number;
+        scale: [number, number, number, number];
+        density: number;
         friction?: number;
         quat?: [number, number, number, number];
     },
 ): number {
     const eid = world.create();
     world.add(eid, Body);
-    world.storage(Body).shape.set(eid, data.shape);
-    world.storage(Body).halfExtents.set(eid, ...data.halfExtents);
+    world.add(eid, Shape, {
+        kind: ShapeKind.Hull,
+        scale: data.scale,
+        density: data.density,
+        friction: data.friction ?? 0.5,
+    });
     world.storage(Body).position.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
     world.storage(Body).rotation.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
     world.storage(Body).type.set(eid, BodyType.Dynamic);
-    world.storage(Body).mass.set(eid, data.mass);
-    world.storage(Body).friction.set(eid, data.friction ?? 0.5);
     return eid;
 }
 
 async function cleanState() {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const body = addBody(app.world, {
-        shape: ShapeKind.Box,
         pos: [0, 2, 0],
-        halfExtents: [0.5, 0.5, 0.5, 0],
-        mass: 1,
+        scale: [0.5, 0.5, 0.5, 0],
+        density: 1,
     });
     return { app, world: app.world, body };
 }
@@ -198,10 +198,9 @@ test("physics reports the same body visit count for every scene, so a body-conte
         expect(one.world.has(one.body, Body)).toBe(true);
 
         const second = addBody(one.world, {
-            shape: ShapeKind.Box,
             pos: [2, 2, 0],
-            halfExtents: [0.5, 0.5, 0.5, 0],
-            mass: 1,
+            scale: [0.5, 0.5, 0.5, 0],
+            density: 1,
         });
         one.world.step(Time.FIXED_DT);
         const changed = physicsCounters(one.world);

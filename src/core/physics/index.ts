@@ -1,4 +1,4 @@
-import { component, f32, type Plugin, u32, vec4 } from "../../engine";
+import { component, f32, type Plugin, Registry, type Resource, u32, vec4 } from "../../engine";
 import { GlobalTransform, TransformPlugin } from "../transform";
 import { Hulls } from "./hull";
 import {
@@ -12,6 +12,7 @@ import {
     WeldJoint,
     WheelJoint,
 } from "./joints";
+import { Shape, type ShapeGeometry, type ShapeMaterialSet } from "./shape";
 
 export {
     DistanceJoint,
@@ -25,8 +26,24 @@ export {
     WheelJoint,
 } from "./joints";
 
-/** collision-shape tag for {@link Body}. Box collides as an OBB; sphere/capsule as a core + radius; hull as a convex polytope (geometry registered in `Hulls`, referenced by `halfExtents.w` = the hull id). */
-export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
+export { Shape, type ShapeGeometry, ShapeKind, type ShapeMaterialSet } from "./shape";
+
+/** Named mesh geometry referenced by a Shape of kind Mesh. */
+export const PhysicsMeshes: Resource<Registry<ShapeGeometry>> = {
+    create: () => new Registry(),
+};
+/** Named height-field geometry referenced by a Shape of kind HeightField. */
+export const HeightFields: Resource<Registry<ShapeGeometry>> = {
+    create: () => new Registry(),
+};
+/** Named compound geometry referenced by a Shape of kind Compound. */
+export const Compounds: Resource<Registry<ShapeGeometry>> = {
+    create: () => new Registry(),
+};
+/** Named per-triangle material lists referenced by Shape.materialSet (registry id plus one). */
+export const ShapeMaterials: Resource<Registry<ShapeMaterialSet>> = {
+    create: () => new Registry(),
+};
 
 /** Box3D's static, kinematic and dynamic motion types; Body defaults to static. */
 export const BodyType = { Static: 0, Kinematic: 1, Dynamic: 2 } as const;
@@ -82,14 +99,6 @@ export const Body = component(
         allowFastRotation: u32,
         /** Whether contacts on the body use contact recycling; changing it applies at the next fixed sync. */
         enableContactRecycling: u32,
-        /** Temporary box/sphere/capsule/hull collider kind; moved to `Shape` in stage 5. */
-        shape: u32,
-        /** Temporary collider geometry; moved to `Shape` in stage 5. */
-        halfExtents: vec4,
-        /** Temporary dynamic mass in kilograms; moved to `Shape` density in stage 5. */
-        mass: f32,
-        /** Temporary Coulomb friction coefficient; moved to `Shape` in stage 5. */
-        friction: f32,
     },
     {
         defaults: () => ({
@@ -109,10 +118,6 @@ export const Body = component(
             isEnabled: 1,
             allowFastRotation: 0,
             enableContactRecycling: 1,
-            shape: ShapeKind.Box,
-            halfExtents: [0.5, 0.5, 0.5, 0],
-            mass: 1,
-            friction: 0.5,
         }),
         requires: [GlobalTransform],
     },
@@ -123,15 +128,27 @@ export const PhysicsPlugin: Plugin = {
     name: "Physics",
     dependencies: [TransformPlugin],
     recovery(world) {
-        const hulls = world.resource(Hulls);
+        const snapshot = () => ({
+            hulls: structuredClone(world.resource(Hulls).snapshot()),
+            meshes: structuredClone(world.resource(PhysicsMeshes).snapshot()),
+            heightFields: structuredClone(world.resource(HeightFields).snapshot()),
+            compounds: structuredClone(world.resource(Compounds).snapshot()),
+            shapeMaterials: structuredClone(world.resource(ShapeMaterials).snapshot()),
+        });
         return {
-            snapshot: () => structuredClone(hulls.snapshot()),
-            restore: (state: ReturnType<typeof hulls.snapshot>) =>
-                hulls.restore(structuredClone(state)),
+            snapshot,
+            restore: (state: ReturnType<typeof snapshot>) => {
+                world.resource(Hulls).restore(structuredClone(state.hulls));
+                world.resource(PhysicsMeshes).restore(structuredClone(state.meshes));
+                world.resource(HeightFields).restore(structuredClone(state.heightFields));
+                world.resource(Compounds).restore(structuredClone(state.compounds));
+                world.resource(ShapeMaterials).restore(structuredClone(state.shapeMaterials));
+            },
         };
     },
     components: [
         Body,
+        Shape,
         DistanceJoint,
         FilterJoint,
         MotorJoint,

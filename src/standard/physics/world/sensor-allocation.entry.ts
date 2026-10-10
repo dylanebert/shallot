@@ -1,4 +1,4 @@
-import { Body, createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { Body, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { awakeContactCount } from "../collision/contact";
 import { BodyType } from "../common/types";
@@ -22,8 +22,8 @@ export default async function create(input: string) {
     world.add(platform, Body, {
         type: BodyType.Kinematic,
         position: [0, -0.5, 0, 0],
-        halfExtents: [100, 0.5, 100, 0],
     });
+    world.add(platform, Shape, { scale: [100, 0.5, 100, 0] });
     const hull = makeBoxHull(0.5, 0.5, 0.5);
     const side = Math.ceil(Math.sqrt(count));
     for (let i = 0; i < count; i++) {
