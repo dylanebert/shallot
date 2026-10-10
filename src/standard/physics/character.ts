@@ -32,7 +32,6 @@ import {
 import { bodyApplyLinearImpulse, getBodySim, getBodyState } from "./world/body";
 
 export const GroundState = { InAir: 0, OnGround: 1, OnSteepGround: 2 } as const;
-
 /** A kinematic capsule Body. Write velocity in a fixed system ordered before `CharacterPlugin.systems`; movement runs after body synchronization and before the rigid solver. Resolved velocity is written back, without gravity or input policy. Ground velocity is reported, never added to motion. */
 export const Character = component(
     "Character",
@@ -217,9 +216,17 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
         s.groundVelocity.y = 0;
         s.groundVelocity.z = 0;
     }
-    // Upward platform carry is not a jump: pogo suppression uses the hit body's frame.
+    // f32 position spacing bounds residue; upward carry is not a jump, and pogo suppression uses the hit body's frame.
     vec3.subOut(velocity, s.groundVelocity, s.vr);
-    if (!hit || vec3.dot(s.vr, up) > 0) {
+    if (
+        !hit ||
+        vec3.dot(s.vr, up) >
+            (2 *
+                2 ** -23 *
+                Math.max(Math.abs(s.center.x), Math.abs(s.center.y), Math.abs(s.center.z)) *
+                (Math.abs(up.x) + Math.abs(up.y) + Math.abs(up.z))) /
+                dt
+    ) {
         character.groundState.set(eid, GroundState.InAir);
         character.groundNormal.set(eid, 0, 0, 0, 0);
         character.groundVelocity.set(eid, 0, 0, 0, 0);

@@ -48,7 +48,6 @@ interface PhysicsRuntime {
     bodies: Map<number, SolverBody>;
     stamps: Map<number, EntityRef>;
     placementWarnings: Map<number, EntityRef>;
-    kinPrev: Map<number, { pos: [number, number, number]; quat: [number, number, number, number] }>;
     failed: Map<number, { stamp: EntityRef; hulls: number }>;
     constraints: ConstraintCache;
 
@@ -76,7 +75,6 @@ function newRuntime(): PhysicsRuntime {
         bodies: new Map(),
         stamps: new Map(),
         placementWarnings: new Map(),
-        kinPrev: new Map(),
         failed,
         constraints: createConstraintCache(),
 
@@ -144,14 +142,12 @@ function seedGlobalTransform(world: World, eid: number): void {
 function forget(runtime: PhysicsRuntime, eid: number): void {
     runtime.bodies.get(eid)?.destroy();
     runtime.bodies.delete(eid);
-    runtime.kinPrev.delete(eid);
 }
 
 function clearBodies(runtime: PhysicsRuntime): void {
     for (const body of runtime.bodies.values()) body.destroy();
     runtime.bodies.clear();
     runtime.stamps.clear();
-    runtime.kinPrev.clear();
     runtime.failed.clear();
     runtime.jointSig = FNV_BASIS;
     runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
@@ -206,20 +202,20 @@ export function readBody(world: World, eid: number, out?: BodyStateOut): BodySta
     return out;
 }
 
-// registers setKinematic hands the solver body; its setters round and copy them.
 const staticMotionWarnings = { create: () => new Map<number, EntityRef>() };
+// Body calls copy these reusable views synchronously.
 const kinPos = { x: 0, y: 0, z: 0 };
 const kinQuat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
+const kinTarget = { p: kinPos, q: kinQuat };
 const kinVel = { x: 0, y: 0, z: 0 };
 
-/** Drives a kinematic or dynamic body's target pose. Static bodies are ignored with one warning per entity; an unavailable body is ignored. Teleports discard interpolation across the move. */
+/** Drives a kinematic or dynamic body toward a pose over one fixed step; Box3D derives both velocities. A teleport preserves velocity and discards interpolation. Static bodies are ignored with one warning per entity; an unavailable body is ignored. */
 export function setKinematic(
     world: World,
     eid: number,
     pos: readonly [number, number, number],
     quat: readonly [number, number, number, number],
     teleport = false,
-    vel?: readonly [number, number, number],
 ): void {
     const runtime = runtimeFor(world);
     const tb = runtime.bodies.get(eid);
@@ -233,17 +229,6 @@ export function setKinematic(
         }
         return;
     }
-    let prev = runtime.kinPrev.get(eid);
-    const moved =
-        !prev ||
-        teleport ||
-        pos[0] !== prev.pos[0] ||
-        pos[1] !== prev.pos[1] ||
-        pos[2] !== prev.pos[2] ||
-        quat[0] !== prev.quat[0] ||
-        quat[1] !== prev.quat[1] ||
-        quat[2] !== prev.quat[2] ||
-        quat[3] !== prev.quat[3];
     kinPos.x = pos[0];
     kinPos.y = pos[1];
     kinPos.z = pos[2];
@@ -251,31 +236,14 @@ export function setKinematic(
     kinQuat.v.y = quat[1];
     kinQuat.v.z = quat[2];
     kinQuat.s = quat[3];
-    if (!prev || teleport) {
-        prev = {
-            pos: [pos[0], pos[1], pos[2]],
-            quat: [quat[0], quat[1], quat[2], quat[3]],
-        };
-        runtime.kinPrev.set(eid, prev);
+    if (teleport) tb.setTransform(kinPos, kinQuat);
+    else {
+        tb.setTargetTransform(kinTarget, fixedDeltaTime, true);
+        // Box3D leaves sub-threshold target motion asleep without adopting its pose.
+        if (!tb.isAwake()) return;
     }
-    if (vel) {
-        kinVel.x = vel[0];
-        kinVel.y = vel[1];
-        kinVel.z = vel[2];
-    } else {
-        kinVel.x = (pos[0] - prev.pos[0]) / Time.FIXED_DT;
-        kinVel.y = (pos[1] - prev.pos[1]) / Time.FIXED_DT;
-        kinVel.z = (pos[2] - prev.pos[2]) / Time.FIXED_DT;
-    }
-    if (moved) {
-        // The solve integrates kinematic velocity once. Upload the start of that step, not its
-        // already-swept endpoint; otherwise a character's displacement is applied twice.
-        kinPos.x -= kinVel.x * Time.FIXED_DT;
-        kinPos.y -= kinVel.y * Time.FIXED_DT;
-        kinPos.z -= kinVel.z * Time.FIXED_DT;
-        tb.setTransform(kinPos, kinQuat);
-    }
-    tb.setLinearVelocity(kinVel);
+    tb.getLinearVelocity(kinVel);
+    // GlobalTransformHistory can upload this row on a draw-only frame before the next solver step.
     const global = world.storage(GlobalTransform);
     const offset = eid * 4;
     const pc = global.translation.column,
@@ -290,14 +258,6 @@ export function setKinematic(
     global.rotation.markChanged(eid);
     global.linearVelocity.markChanged(eid);
     if (teleport) teleportPlacement(world, eid);
-    if (moved && !tb.isAwake()) tb.setAwake(true);
-    prev.pos[0] = pos[0];
-    prev.pos[1] = pos[1];
-    prev.pos[2] = pos[2];
-    prev.quat[0] = quat[0];
-    prev.quat[1] = quat[1];
-    prev.quat[2] = quat[2];
-    prev.quat[3] = quat[3];
 }
 export function setVelocity(world: World, eid: number, vx: number, vy: number, vz: number): void {
     const body = runtimeFor(world).bodies.get(eid);
@@ -314,8 +274,6 @@ export function physicsCounters(world: World): PhysicsCounters {
 interface Bindings {
     /** eid, solver body index1, solver generation, EntityRef */
     bodies: number[];
-    /** eid, then the last kinematic position and quaternion */
-    kinPrev: number[];
     /** eid, EntityRef, hull count */
     failed: number[];
     constraints: ConstraintIds;
@@ -336,13 +294,10 @@ function captureBindings(runtime: PhysicsRuntime): Bindings {
     const bodies: number[] = [];
     for (const [eid, body] of runtime.bodies)
         bodies.push(eid, body.id.index1, body.id.generation, runtime.stamps.get(eid)!);
-    const kinPrev: number[] = [];
-    for (const [eid, prev] of runtime.kinPrev) kinPrev.push(eid, ...prev.pos, ...prev.quat);
     const failed: number[] = [];
     for (const [eid, f] of runtime.failed) failed.push(eid, f.stamp, f.hulls);
     return {
         bodies,
-        kinPrev,
         failed,
         constraints: captureConstraints(runtime.constraints),
         jointSig: runtime.jointSig,
@@ -367,14 +322,6 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
             }),
         );
         runtime.stamps.set(eid, b.bodies[i + 3] as EntityRef);
-    }
-    runtime.kinPrev.clear();
-    for (let i = 0; i < b.kinPrev.length; i += 8) {
-        const k = b.kinPrev;
-        runtime.kinPrev.set(k[i], {
-            pos: [k[i + 1], k[i + 2], k[i + 3]],
-            quat: [k[i + 4], k[i + 5], k[i + 6], k[i + 7]],
-        });
     }
     runtime.failed.clear();
     for (let i = 0; i < b.failed.length; i += 3)
