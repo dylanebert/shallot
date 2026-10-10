@@ -10,7 +10,7 @@ import {
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
-import { CLUSTER_COUNT, LIGHT_GRID_OFFSET, lightInputKey } from "./cluster";
+import { CLUSTER_COUNT, CullLightsSystem, LIGHT_GRID_OFFSET, lightInputKey } from "./cluster";
 import { StandardRenderer, StandardRenderingPlugin } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
@@ -56,15 +56,26 @@ test("render light inputs upload as active dense table rows", async () => {
     }
 });
 
-test("empty clustered-light grids skip culling and clear once when their last light is removed", async () => {
+test("zero-light frames clear grids after an aborted draw without dispatching culling", async () => {
     const app = subjects()[2];
     try {
         const { world } = app;
         const culls: string[] = [];
+        let throwAfterCull = false;
         world.gpu.span = (name) => {
             if (name === "light:cull") culls.push(name);
             return undefined;
         };
+        world.addSystem({
+            name: "ThrowAfterCull",
+            group: "draw",
+            after: [CullLightsSystem],
+            update() {
+                if (!throwAfterCull) return;
+                throwAfterCull = false;
+                throw new Error("throw after cull");
+            },
+        });
         const camera = world.create();
         world.add(camera, Transform, { translation: [0, 0, 6, 0] });
         world.add(camera, Camera);
@@ -93,11 +104,16 @@ test("empty clustered-light grids skip culling and clear once when their last li
         expect(empty(await grid())).toBe(false);
 
         world.remove(light, PointLight);
+        throwAfterCull = true;
+        expect(() => world.step(0)).toThrow("throw after cull");
+        expect(empty(await grid())).toBe(false);
+
         world.step(0);
         expect(culls).toHaveLength(1);
         expect(empty(await grid())).toBe(true);
         world.step(0);
         expect(culls).toHaveLength(1);
+        expect(empty(await grid())).toBe(true);
     } finally {
         app.dispose();
     }
