@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { probeBuffer } from "./probe";
 
@@ -48,7 +48,7 @@ for (const [index, kind] of kinds.entries()) {
                 expect(values[33]).toBe(2);
             }
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }

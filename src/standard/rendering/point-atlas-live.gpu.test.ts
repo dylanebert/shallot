@@ -97,8 +97,7 @@ for (const [atlas0, atlas1] of [
                     (await captureTexture(fresh.world, reference)).rgba,
                 );
             } finally {
-                app.dispose();
-                fresh.dispose();
+                await disposeGpuApps([app, fresh]);
             }
         });
     }

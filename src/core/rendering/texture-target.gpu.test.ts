@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { rawDevice } from "../../engine/runtime";
 import { Transform } from "../transform";
@@ -126,6 +126,6 @@ test("texture final frames capture tight RGBA and refuse missing presentation; o
     world.add(eid, Camera);
     attachTexture(world, eid, { width: 2, height: 2 });
     const finalTarget = spyOn(world.resource(Views).get(eid)!.texture!, "destroy");
-    app.dispose();
+    await disposeGpuApps([app]);
     expect(finalTarget).toHaveBeenCalledTimes(1);
 });

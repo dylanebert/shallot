@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { probeBuffer, probeTexture } from "./probe";
 
@@ -37,7 +37,7 @@ test("one-shot readback stamps its copy and reuses then releases world staging",
         expect(world.readback.allocated).toBe(0);
     } finally {
         source.destroy();
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -68,7 +68,7 @@ test("a texture request shares buffer staging and returns tightly packed owned b
     } finally {
         texture.destroy();
         buffer.destroy();
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -85,12 +85,12 @@ test("readback bytes and stamps are plain owned data that survive world disposal
         for (const field of ["bytes", "frame", "fixedTick"]) {
             expect(Object.getOwnPropertyDescriptor(result, field)?.get).toBeUndefined();
         }
-        app.dispose();
+        await disposeGpuApps([app]);
         expect(retained[0]).toBe(17);
         expect(new Uint32Array(result.bytes)[0]).toBe(17);
         expect(result.frame).toBe(0);
         expect(result.fixedTick).toBe(0);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

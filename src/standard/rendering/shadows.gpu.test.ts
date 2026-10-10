@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.gpu);
 
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -46,11 +46,11 @@ let nextSubject = 0;
 
 let live: ReturnType<typeof subjects>[number] | null = null;
 
-afterEach(() => {
+afterEach(async () => {
     // destroy, not just forget: the pooled cameras hold views keyed by eid, and the next row's World
     // hands out the same eids
     if (live) destroyCascades(live.world);
-    live?.dispose();
+    if (live) await disposeGpuApps([live]);
     live = null;
 });
 

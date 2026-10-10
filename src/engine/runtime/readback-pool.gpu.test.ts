@@ -42,7 +42,7 @@ async function trackedPool(
         await body(app.world, source, counts);
     } finally {
         source.destroy();
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 }
 

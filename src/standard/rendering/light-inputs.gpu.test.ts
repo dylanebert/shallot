@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { PointLight, SpotLight, VolumetricLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -45,7 +45,7 @@ test("render light inputs upload as active dense table rows", async () => {
         expect(data.getFloat32(8, true)).toBe(7);
         expect(data.getFloat32(12, true)).toBe(0.25);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 

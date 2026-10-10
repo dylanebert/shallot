@@ -73,19 +73,19 @@ test("world pools on a shared device own separate staging and release it without
         ]);
         expect(first.world.readback).not.toBe(second.world.readback);
         expect(counts.live).toBe(2);
-        first.dispose();
+        await disposeGpuApps([first]);
         expect(counts.live).toBe(1);
         expect(new Uint32Array(b.bytes)[0]).toBe(17);
         expect(new Uint32Array(a.bytes)[0]).toBe(17);
         await probeBuffer(second.world, secondSource);
         expect(counts.live).toBe(1);
-        second.dispose();
+        await disposeGpuApps([second]);
         expect(counts.live).toBe(0);
     } finally {
         source.destroy();
         secondSource.destroy();
-        first.dispose();
-        second.dispose();
+        await disposeGpuApps([first]);
+        await disposeGpuApps([second]);
         device.destroy();
     }
 });
@@ -101,7 +101,7 @@ test("a request after device loss creates no staging", async () => {
         await expect(probeBuffer(app.world, source)).rejects.toThrow("disposed");
         expect(pool.allocated).toBe(0);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -126,6 +126,6 @@ test("device loss rejects a pending request and releases staging", async () => {
         );
         expect(pool.allocated).toBe(0);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

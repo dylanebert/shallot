@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { d } from "typegpu";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { rawDevice } from "./gpu";
 import { probeBuffer, probeTexture } from "./probe";
@@ -39,7 +39,7 @@ test("TypeGPU native buffers and textures belong to their world, and external al
             external.destroy();
         }
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -100,8 +100,7 @@ for (const [index, kind] of (["buffer", "range", "texture"] as const).entries())
             ).rejects.toThrow(`other-world-${kind === "texture" ? "texture" : "buffer"}`);
             expect(reader.world.readback.allocated).toBe(0);
         } finally {
-            reader.dispose();
-            owner.dispose();
+            await disposeGpuApps([owner, reader]);
         }
     });
 }

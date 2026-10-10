@@ -266,205 +266,199 @@ async function checkScene(
 }
 
 test("GPU light clusters match the CPU oracle across projection, overflow, reset, and aborted draws", async () => {
-    const app = subjects()[0]!;
-    try {
-        const world = app.world;
-        const cameras: number[] = [];
-        for (const [index, mode] of [CameraMode.Perspective, CameraMode.Orthographic].entries()) {
-            const canvas = {
-                width: 32,
-                height: 24,
-                style: { imageRendering: "auto" },
-                getContext: () => context,
-                getBoundingClientRect: () => ({ width: 32, height: 24 }),
-            } as unknown as HTMLCanvasElement;
-            const context = new CanvasContext(canvas, 32, 24);
-            const camera = world.create();
-            cameras.push(camera);
-            world.add(camera, Transform);
-            world.add(camera, Camera, { mode });
-            if (index === 0) {
-                world.storage(Camera).fov.set(camera, 90);
-                world.storage(Camera).near.set(camera, 1);
-                world.storage(Camera).far.set(camera, 4096);
-            }
-            world
-                .storage(Transform)
-                .translation.set(
-                    camera,
-                    index === 0 ? 0 : 8,
-                    index === 0 ? 0 : -3,
-                    index === 0 ? 0 : 12,
-                    0,
-                );
-            if (index === 1) {
-                const halfYaw = Math.sin(Math.PI / 8);
-                world.storage(Transform).rotation.set(camera, 0, halfYaw, 0, Math.cos(Math.PI / 8));
-            }
-            attachCanvas(camera, canvas, world);
-        }
-        const [perspectiveCamera, secondCamera] = cameras as [number, number];
-
-        // Establish camera GlobalTransforms and the first cluster grid before constructing view-space cases.
-        world.step(1 / 60);
-        expect(world.resource(RenderContext).shadeCount).toBe(2);
-        const tangentView = clusterView(world, perspectiveCamera, 32 / 24);
-        expect(world.storage(Camera).fov.get(perspectiveCamera)).toBe(90);
-        expect(tangentView.halfW).toBeCloseTo(4 / 3, 12);
-        expect(tangentView.halfH).toBeCloseTo(1, 12);
-        expect(tangentView.near).toBe(1);
-        expect(tangentView.far).toBe(4096);
-        const tangentCenter: [number, number, number] = [0, 0, -65.00000381469727];
-        expect(lightClusters(tangentView, tangentCenter, 1 * (1 - RANGE_EPSILON))).not.toContain(
-            1715,
-        );
-        expect(lightClusters(tangentView, tangentCenter, 1 * (1 + RANGE_EPSILON))).toContain(1715);
-        expect(clusterCoord(1715)).toEqual({ x: 7, y: 4, z: 11 });
-        expect(cameraFrame(world, perspectiveCamera).view).not.toEqual(
-            cameraFrame(world, secondCamera).view,
-        );
-
-        await checkScene(world, cameras, []);
-        const edges = edgeLights(world, perspectiveCamera, secondCamera);
-        const perspective = cameraFrame(world, perspectiveCamera);
-        const edgeCenters = edges.map((light) => transformPoint(perspective.view, light.position));
-        expect(
-            lightClusters(
-                perspective.projection,
-                edgeCenters[0]!,
-                edges[0]!.range * (1 + RANGE_EPSILON),
-            ).some((cluster) => clusterCoord(cluster).z === 0),
-        ).toBe(true);
-        expect(
-            lightClusters(
-                perspective.projection,
-                edgeCenters[1]!,
-                edges[1]!.range * (1 + RANGE_EPSILON),
-            ).some((cluster) => clusterCoord(cluster).z === CLUSTER_Z - 1),
-        ).toBe(true);
-        expect(
-            lightClusters(
-                perspective.projection,
-                edgeCenters[2]!,
-                edges[2]!.range * (1 + RANGE_EPSILON),
-            ),
-        ).toEqual([]);
-        const topRight = edgeCenters[3]!;
-        const bottomLeft = edgeCenters[4]!;
-        expect(
-            lightClusters(perspective.projection, topRight, 0.7 * (1 + RANGE_EPSILON)).some(
-                (cluster) => {
-                    const { x, y } = clusterCoord(cluster);
-                    return x === CLUSTER_X - 1 && y === CLUSTER_Y - 1;
-                },
-            ),
-        ).toBe(true);
-        expect(
-            lightClusters(perspective.projection, bottomLeft, 0.7 * (1 + RANGE_EPSILON)).some(
-                (cluster) => {
-                    const { x, y } = clusterCoord(cluster);
-                    return x === 0 && y === 0;
-                },
-            ),
-        ).toBe(true);
-        await checkScene(world, cameras, edges);
-        const reviewCases: LightInput[] = [
-            { position: [0, 0, -65.00000381469727], range: 1 },
-            { position: [-4000, 0, -3000], range: 1 },
-        ];
-        const farView = cameraFrame(world, perspectiveCamera);
-        const precisionCenter = transformPoint(farView.view, reviewCases[0]!.position);
-        const sliceBoundsCenter = transformPoint(farView.view, reviewCases[1]!.position);
-        expect(
-            lightClusters(farView.projection, precisionCenter, 1 * (1 + RANGE_EPSILON)),
-        ).toContain(1715);
-        expect(
-            lightClusters(farView.projection, sliceBoundsCenter, 1 * (1 - RANGE_EPSILON)),
-        ).toContain(1607);
-        expect(clusterCoord(1607)).toEqual({ x: 2, y: 4, z: 23 });
-        await checkScene(world, cameras, reviewCases);
-        for (const count of [1, 64, 256]) await checkScene(world, cameras, makeLights(count));
-
-        // A populated-to-zero transition must clear every grid entry and both pool-header words.
-        const empty = await checkScene(world, cameras, []);
-        expect(empty.sourceCount).toBe(0);
-        expect(empty.allocated).toBe(0);
-        expect(empty.dropped).toBe(0);
-
-        const overflowWarn = spyOn(console, "warn").mockImplementation(() => {});
-        let overflow!: SceneSnapshot;
-        try {
-            overflow = await checkScene(
-                world,
-                cameras,
-                Array.from({ length: 300 }, () => ({
-                    position: [0, 0, 0] as [number, number, number],
-                    range: 100000,
-                })),
-                false,
-            );
-            expect(overflowWarn).toHaveBeenCalledWith(
-                `shallot: 300 point lights exceed the ${MAX_POINT_LIGHTS} cap; ${300 - MAX_POINT_LIGHTS} ignored`,
-            );
-        } finally {
-            overflowWarn.mockRestore();
-        }
-        expect(overflow.sourceCount).toBe(300);
-        expect(overflow.compactEids.size).toBe(MAX_POINT_LIGHTS);
-        expect(overflow.allocated).toBe(LIGHT_POOL);
-        expect(overflow.dropped).toBeGreaterThan(0);
-        expect(overflow.allocated + overflow.dropped).toBeGreaterThanOrEqual(
-            overflow.expectedMinimum,
-        );
-        expect(overflow.allocated + overflow.dropped).toBeLessThanOrEqual(overflow.expectedMaximum);
-        expect((await requestLightOverflow(world)).dropped).toBe(overflow.dropped);
-        const cleared = await checkScene(world, cameras, []);
-        expect(cleared.sourceCount).toBe(0);
-        expect(cleared.allocated).toBe(0);
-        expect(cleared.dropped).toBe(0);
-
-        // A propagated draw failure discards the encoded AABB rebuild. Its dirty key must remain old
-        // until the same projection is successfully submitted on the following frame.
-        const aabbs = world.gpu.buffers.get("clusterAabbs")!;
-        const before = await probeBuffer(world, aabbs, {
-            size: CLUSTER_COUNT * 2 * 16,
-            label: "cluster grid before aborted projection",
-        });
-        const clusters = world.resource(Clusters);
-        const committed = clusters.last.slice(0, 8);
-        world.storage(Camera).fov.set(perspectiveCamera, 80);
-        let abort = true;
-        world.addSystem({
-            group: "draw",
-            last: true,
-            update() {
-                if (abort) {
-                    abort = false;
-                    throw new Error("abort projection rebuild");
-                }
-            },
-        });
-        const frame = world.gpu.frame;
-        expect(() => world.step(0)).toThrow("abort projection rebuild");
-        expect(world.gpu.frame).toBe(frame);
-        expect(clusters.last.slice(0, 8)).toEqual(committed);
-        await world.gpu.device.queue.onSubmittedWorkDone();
-        const aborted = await probeBuffer(world, aabbs, {
-            size: CLUSTER_COUNT * 2 * 16,
-            label: "cluster grid after aborted projection",
-        });
-        expect(new Uint8Array(aborted.bytes)).toEqual(new Uint8Array(before.bytes));
-
-        world.step(0);
-        await world.gpu.device.queue.onSubmittedWorkDone();
-        const rebuilt = await probeBuffer(world, aabbs, {
-            size: CLUSTER_COUNT * 2 * 16,
-            label: "cluster grid after retried projection",
-        });
-        expect(new Uint8Array(rebuilt.bytes)).not.toEqual(new Uint8Array(before.bytes));
-        world.step(0);
-        expect(clusters.last.slice(0, 8)).not.toEqual(committed);
-    } finally {
-        app.dispose();
-    }
+    await checkClusterScene(subjects()[0]!.world);
 });
+
+async function checkClusterScene(world: World): Promise<void> {
+    const cameras: number[] = [];
+    for (const [index, mode] of [CameraMode.Perspective, CameraMode.Orthographic].entries()) {
+        const canvas = {
+            width: 32,
+            height: 24,
+            style: { imageRendering: "auto" },
+            getContext: () => context,
+            getBoundingClientRect: () => ({ width: 32, height: 24 }),
+        } as unknown as HTMLCanvasElement;
+        const context = new CanvasContext(canvas, 32, 24);
+        const camera = world.create();
+        cameras.push(camera);
+        world.add(camera, Transform);
+        world.add(camera, Camera, { mode });
+        if (index === 0) {
+            world.storage(Camera).fov.set(camera, 90);
+            world.storage(Camera).near.set(camera, 1);
+            world.storage(Camera).far.set(camera, 4096);
+        }
+        world
+            .storage(Transform)
+            .translation.set(
+                camera,
+                index === 0 ? 0 : 8,
+                index === 0 ? 0 : -3,
+                index === 0 ? 0 : 12,
+                0,
+            );
+        if (index === 1) {
+            const halfYaw = Math.sin(Math.PI / 8);
+            world.storage(Transform).rotation.set(camera, 0, halfYaw, 0, Math.cos(Math.PI / 8));
+        }
+        attachCanvas(camera, canvas, world);
+    }
+    const [perspectiveCamera, secondCamera] = cameras as [number, number];
+
+    // Establish camera GlobalTransforms and the first cluster grid before constructing view-space cases.
+    world.step(1 / 60);
+    expect(world.resource(RenderContext).shadeCount).toBe(2);
+    const tangentView = clusterView(world, perspectiveCamera, 32 / 24);
+    expect(world.storage(Camera).fov.get(perspectiveCamera)).toBe(90);
+    expect(tangentView.halfW).toBeCloseTo(4 / 3, 12);
+    expect(tangentView.halfH).toBeCloseTo(1, 12);
+    expect(tangentView.near).toBe(1);
+    expect(tangentView.far).toBe(4096);
+    const tangentCenter: [number, number, number] = [0, 0, -65.00000381469727];
+    expect(lightClusters(tangentView, tangentCenter, 1 * (1 - RANGE_EPSILON))).not.toContain(1715);
+    expect(lightClusters(tangentView, tangentCenter, 1 * (1 + RANGE_EPSILON))).toContain(1715);
+    expect(clusterCoord(1715)).toEqual({ x: 7, y: 4, z: 11 });
+    expect(cameraFrame(world, perspectiveCamera).view).not.toEqual(
+        cameraFrame(world, secondCamera).view,
+    );
+
+    await checkScene(world, cameras, []);
+    const edges = edgeLights(world, perspectiveCamera, secondCamera);
+    const perspective = cameraFrame(world, perspectiveCamera);
+    const edgeCenters = edges.map((light) => transformPoint(perspective.view, light.position));
+    expect(
+        lightClusters(
+            perspective.projection,
+            edgeCenters[0]!,
+            edges[0]!.range * (1 + RANGE_EPSILON),
+        ).some((cluster) => clusterCoord(cluster).z === 0),
+    ).toBe(true);
+    expect(
+        lightClusters(
+            perspective.projection,
+            edgeCenters[1]!,
+            edges[1]!.range * (1 + RANGE_EPSILON),
+        ).some((cluster) => clusterCoord(cluster).z === CLUSTER_Z - 1),
+    ).toBe(true);
+    expect(
+        lightClusters(
+            perspective.projection,
+            edgeCenters[2]!,
+            edges[2]!.range * (1 + RANGE_EPSILON),
+        ),
+    ).toEqual([]);
+    const topRight = edgeCenters[3]!;
+    const bottomLeft = edgeCenters[4]!;
+    expect(
+        lightClusters(perspective.projection, topRight, 0.7 * (1 + RANGE_EPSILON)).some(
+            (cluster) => {
+                const { x, y } = clusterCoord(cluster);
+                return x === CLUSTER_X - 1 && y === CLUSTER_Y - 1;
+            },
+        ),
+    ).toBe(true);
+    expect(
+        lightClusters(perspective.projection, bottomLeft, 0.7 * (1 + RANGE_EPSILON)).some(
+            (cluster) => {
+                const { x, y } = clusterCoord(cluster);
+                return x === 0 && y === 0;
+            },
+        ),
+    ).toBe(true);
+    await checkScene(world, cameras, edges);
+    const reviewCases: LightInput[] = [
+        { position: [0, 0, -65.00000381469727], range: 1 },
+        { position: [-4000, 0, -3000], range: 1 },
+    ];
+    const farView = cameraFrame(world, perspectiveCamera);
+    const precisionCenter = transformPoint(farView.view, reviewCases[0]!.position);
+    const sliceBoundsCenter = transformPoint(farView.view, reviewCases[1]!.position);
+    expect(lightClusters(farView.projection, precisionCenter, 1 * (1 + RANGE_EPSILON))).toContain(
+        1715,
+    );
+    expect(lightClusters(farView.projection, sliceBoundsCenter, 1 * (1 - RANGE_EPSILON))).toContain(
+        1607,
+    );
+    expect(clusterCoord(1607)).toEqual({ x: 2, y: 4, z: 23 });
+    await checkScene(world, cameras, reviewCases);
+    for (const count of [1, 64, 256]) await checkScene(world, cameras, makeLights(count));
+
+    // A populated-to-zero transition must clear every grid entry and both pool-header words.
+    const empty = await checkScene(world, cameras, []);
+    expect(empty.sourceCount).toBe(0);
+    expect(empty.allocated).toBe(0);
+    expect(empty.dropped).toBe(0);
+
+    const overflowWarn = spyOn(console, "warn").mockImplementation(() => {});
+    let overflow!: SceneSnapshot;
+    try {
+        overflow = await checkScene(
+            world,
+            cameras,
+            Array.from({ length: 300 }, () => ({
+                position: [0, 0, 0] as [number, number, number],
+                range: 100000,
+            })),
+            false,
+        );
+        expect(overflowWarn).toHaveBeenCalledWith(
+            `shallot: 300 point lights exceed the ${MAX_POINT_LIGHTS} cap; ${300 - MAX_POINT_LIGHTS} ignored`,
+        );
+    } finally {
+        overflowWarn.mockRestore();
+    }
+    expect(overflow.sourceCount).toBe(300);
+    expect(overflow.compactEids.size).toBe(MAX_POINT_LIGHTS);
+    expect(overflow.allocated).toBe(LIGHT_POOL);
+    expect(overflow.dropped).toBeGreaterThan(0);
+    expect(overflow.allocated + overflow.dropped).toBeGreaterThanOrEqual(overflow.expectedMinimum);
+    expect(overflow.allocated + overflow.dropped).toBeLessThanOrEqual(overflow.expectedMaximum);
+    expect((await requestLightOverflow(world)).dropped).toBe(overflow.dropped);
+    const cleared = await checkScene(world, cameras, []);
+    expect(cleared.sourceCount).toBe(0);
+    expect(cleared.allocated).toBe(0);
+    expect(cleared.dropped).toBe(0);
+
+    // A propagated draw failure discards the encoded AABB rebuild. Its dirty key must remain old
+    // until the same projection is successfully submitted on the following frame.
+    const aabbs = world.gpu.buffers.get("clusterAabbs")!;
+    const before = await probeBuffer(world, aabbs, {
+        size: CLUSTER_COUNT * 2 * 16,
+        label: "cluster grid before aborted projection",
+    });
+    const clusters = world.resource(Clusters);
+    const committed = clusters.last.slice(0, 8);
+    world.storage(Camera).fov.set(perspectiveCamera, 80);
+    let abort = true;
+    world.addSystem({
+        group: "draw",
+        last: true,
+        update() {
+            if (abort) {
+                abort = false;
+                throw new Error("abort projection rebuild");
+            }
+        },
+    });
+    const frame = world.gpu.frame;
+    expect(() => world.step(0)).toThrow("abort projection rebuild");
+    expect(world.gpu.frame).toBe(frame);
+    expect(clusters.last.slice(0, 8)).toEqual(committed);
+    await world.gpu.device.queue.onSubmittedWorkDone();
+    const aborted = await probeBuffer(world, aabbs, {
+        size: CLUSTER_COUNT * 2 * 16,
+        label: "cluster grid after aborted projection",
+    });
+    expect(new Uint8Array(aborted.bytes)).toEqual(new Uint8Array(before.bytes));
+
+    world.step(0);
+    await world.gpu.device.queue.onSubmittedWorkDone();
+    const rebuilt = await probeBuffer(world, aabbs, {
+        size: CLUSTER_COUNT * 2 * 16,
+        label: "cluster grid after retried projection",
+    });
+    expect(new Uint8Array(rebuilt.bytes)).not.toEqual(new Uint8Array(before.bytes));
+    world.step(0);
+    expect(clusters.last.slice(0, 8)).not.toEqual(committed);
+}

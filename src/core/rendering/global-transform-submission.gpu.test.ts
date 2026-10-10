@@ -17,7 +17,7 @@ if (typeof ResizeObserver === "undefined") {
     });
 }
 
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [TransformPlugin] },
@@ -135,7 +135,7 @@ for (const renderer of [false, true]) {
                     if (descriptor) Object.defineProperty(object, key, descriptor);
                     else Reflect.deleteProperty(object, key);
                 }
-                app.dispose();
+                await disposeGpuApps([app]);
             }
         },
     );

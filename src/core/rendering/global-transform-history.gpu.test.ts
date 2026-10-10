@@ -24,7 +24,7 @@ if (typeof ResizeObserver === "undefined") {
     });
 }
 
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { deriveTransforms } from "../transform";
 import {
     GlobalTransformHistoryEndSystem,
@@ -145,7 +145,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             expect(() => world.resource(TransformRuntime).previous!.bytes).toThrow("GPU-only");
             expect(await bounded(world.gpu.device.popErrorScope())).toBeNull();
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }
@@ -191,7 +191,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             );
             expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(15, 5);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }
@@ -243,7 +243,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             );
             expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(105, 5);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }
@@ -291,7 +291,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             );
             expect(words[row * 12]).toBeCloseTo(6, 5);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }
@@ -334,7 +334,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
                 );
             }
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }
@@ -368,7 +368,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             for (let i = 0; i < eids.length; i++)
                 expect(words[table.rowIndex(eids[i]) * 12]).toBeCloseTo(placements[i], 5);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }
@@ -442,6 +442,6 @@ test("public exact ticks submit growth copies and retain interpolation, teleport
         ])
             expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(x, 5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

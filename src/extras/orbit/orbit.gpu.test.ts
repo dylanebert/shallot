@@ -13,7 +13,7 @@ import {
     Transform,
 } from "@dylanebert/shallot";
 import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [OrbitPlugin] }]);
 
@@ -62,6 +62,6 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
         if (_devices.keys.released.size !== 0)
             throw new Error("unrelated keyboard release state leaked into Orbit");
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

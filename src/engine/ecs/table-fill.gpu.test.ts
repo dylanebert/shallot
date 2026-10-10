@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { f32, vec2 } from "../index";
 import { probeBuffer } from "../runtime";
@@ -146,6 +146,6 @@ test("bound tables gather marked columns at upload after set, bulk write and rem
         expect(values[rowB]).toBe(11);
         expect(values[rowC]).toBe(29);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
