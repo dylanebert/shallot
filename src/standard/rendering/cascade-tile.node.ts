@@ -70,11 +70,11 @@ function subTexel(world: World): number[] {
     });
 }
 
-// steps the camera sideways in three sub-texel moves and returns the largest wrapped drift of each cascade's position
+// steps the camera sideways in eleven sub-texel moves and returns the largest wrapped drift of each cascade's position
 function drift(world: World, camera: number): number[] {
     const first = subTexel(world);
     const worst = first.map(() => 0);
-    for (let k = 1; k < 4; k++) {
+    for (let k = 1; k < 12; k++) {
         world.storage(Transform).translation.set(camera, k * 0.0137, 3, 8, 0);
         world.step(0);
         subTexel(world).forEach((f, i) => {
@@ -137,9 +137,9 @@ function build(size: number) {
 }
 
 for (const [size0, cascades0, size1, cascades1] of [
-    [512, 1, 512, 4],
-    [512, 4, 512, 1],
-    [256, 4, 512, 4],
+    [2048, 1, 2048, 4],
+    [2048, 4, 2048, 1],
+    [1024, 4, 2048, 4],
 ]) {
     for (const prepass of [false, true]) {
         test(`changing ${size0}x${cascades0} to ${size1}x${cascades1} after the sun first casts renders as an app built with ${size1}x${cascades1}${prepass ? ", under a depth prepass" : ""}`, async () => {
