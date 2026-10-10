@@ -60,7 +60,7 @@ const arms = {
         systems: [
             {
                 update(world) {
-                    if (world.resource(Meshes).size > 3) return;
+                    if (world.resource(Meshes).size > 1) return;
                     place(world, register(world));
                 },
             },
@@ -73,7 +73,7 @@ const arms = {
             {
                 group: "draw",
                 update(world) {
-                    if (world.resource(Meshes).size > 3) return;
+                    if (world.resource(Meshes).size > 1) return;
                     place(world, register(world));
                 },
             },
@@ -157,7 +157,7 @@ test("a mesh registered in a draw-group system draws on the following frame with
 test("a mesh registered directly without quantized streams is skipped with a warning", async () => {
     const { warnings } = await frame("directly without streams");
     expect(warnings).toContain(
-        'standard: draw "mesh:default:slab:3" skipped — mesh "slab" has no quantized position/quant stream',
+        'standard: draw "mesh:default:slab:1" skipped — mesh "slab" has no quantized position/quant stream',
     );
 });
 

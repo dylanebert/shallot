@@ -2,18 +2,11 @@ import type { World } from "../../engine";
 import { type MeshHandle, registerMesh } from "./mesh";
 
 /**
- * register the built-in meshes. All unit-sized (radius / half-extent 0.5),
- * centered at the origin, so an entity's transform scale maps to world size:
- *
- * - `cube` — flat-shaded, per-face normals
- * - `sphere` / `capsule` — smooth-shaded; the rounded primitives physics will
- *   collide as a point/segment + radius
+ * register the built-in default cube, unit-sized with flat per-face normals. Other primitive
+ * constructors return geometry for the game to register when needed.
  */
 export function initMeshes(world: World): MeshHandle {
-    const cubeHandle = registerMesh(world, { name: "cube", ...cube() });
-    registerMesh(world, { name: "sphere", ...sphere() });
-    registerMesh(world, { name: "capsule", ...capsule() });
-    return cubeHandle;
+    return registerMesh(world, { name: "cube", ...cube() });
 }
 
 interface Vert {

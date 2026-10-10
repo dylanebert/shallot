@@ -537,6 +537,14 @@ const mesh = registerMesh(world, { name: "block", ...cube() });
 world.add(eid, MeshInstance, { mesh });
 ```
 
+Replace `Meshes.id(name)` with the retained handle from `registerMesh`; names no longer resolve mesh identity. `MeshPlugin` registers only the default cube. To use another built-in geometry constructor, register its mesh explicitly:
+
+```ts
+import { registerMesh, sphere } from "@dylanebert/shallot/mesh";
+
+const sphereMesh = registerMesh(world, { name: "sphere", ...sphere() });
+```
+
 Update mesh imports as follows; these names are also exported from the root in 0.10:
 
 | 0.9.5 import | 0.10 import |
