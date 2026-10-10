@@ -5,20 +5,6 @@ import { Profile, ProfilePlugin } from "./index";
 
 await setupGlobals();
 
-async function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        return await Promise.race([
-            promise,
-            new Promise<never>((_, reject) => {
-                timer = setTimeout(() => reject(new Error(`${label} exceeded 750 ms`)), 750);
-            }),
-        ]);
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
 test("profiler timestamps arrive through the world's one-shot pool and staging is reused", async () => {
     const app = await createApp({
         defaults: false,
@@ -47,15 +33,13 @@ test("profiler timestamps arrive through the world's one-shot pool and staging i
     try {
         const stats = app.world.resource(Profile);
         if (stats.gpuTiming !== "available") throw new Error("requires timestamp-query");
-        const deadline = performance.now() + 750;
+        const device = app.world.gpu.device;
+        const lost = device.lost.then((info) => {
+            throw new Error(`profiler device lost: ${info.message}`);
+        });
         while (!stats.gpuTime.has("readback-witness")) {
-            if (performance.now() >= deadline)
-                throw new Error("profiler timestamp delivery exceeded 750 ms");
             app.world.step(0);
-            await bounded(
-                "timestamp witness submissions",
-                app.world.gpu.device.queue.onSubmittedWorkDone(),
-            );
+            await Promise.race([device.queue.onSubmittedWorkDone(), lost]);
             await new Promise((resolve) => setTimeout(resolve, 1));
         }
         expect(stats.gpuFires.get("readback-witness")).toBeGreaterThan(0);

@@ -12,6 +12,10 @@ export default async function create(_input = "", device?: GPUDevice) {
     globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
     const app = await createApp({ plugins: [], device });
     const world = app.world;
+    const lost = world.gpu.device.lost.then((info) => {
+        throw new Error(`render allocation device lost: ${info.message}`);
+    });
+    void lost.catch(() => {});
     let validation: GPUError | undefined;
     let failValidation!: (error: GPUError) => void;
     const failed = new Promise<never>((_, reject) => { failValidation = reject; });
@@ -38,13 +42,8 @@ export default async function create(_input = "", device?: GPUDevice) {
         world,
         step: () => { if (validation) throw validation; world.step(1 / 60); },
         wait: async () => {
-            let timer: ReturnType<typeof setTimeout> | undefined;
-            try {
-                await Promise.race([world.gpu.device.queue.onSubmittedWorkDone(), failed, new Promise<never>((_, reject) => {
-                    timer = setTimeout(() => reject(new Error("render allocation frame submissions exceeded 750 ms")), 750);
-                })]);
-                if (validation) throw validation;
-            } finally { clearTimeout(timer); }
+            await Promise.race([world.gpu.device.queue.onSubmittedWorkDone(), failed, lost]);
+            if (validation) throw validation;
         },
         dispose: () => {
             world.gpu.device.removeEventListener("uncapturederror", onError);

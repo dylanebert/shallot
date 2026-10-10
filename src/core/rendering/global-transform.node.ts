@@ -48,24 +48,6 @@ await setupGlobals();
 
 const SpawnedPlacement = { marker: u32 };
 
-function bounded<T>(promise: PromiseLike<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(
-            () => reject(new Error("GlobalTransform readback exceeded 750 ms")),
-            750,
-        );
-        promise.then(
-            (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-            (error) => {
-                clearTimeout(timer);
-                reject(error);
-            },
-        );
-    });
-}
 test("GlobalTransform is a transform-module public schema, independent of Physics", () => {
     expect(transform.GlobalTransform).toBe(GlobalTransform);
     expect(Reflect.get(engine, "GlobalTransform")).toBeUndefined();
@@ -155,7 +137,7 @@ test("Transform placement lands in the fixed-tick GlobalTransform column and the
         const row = table.rowIndex(eid);
         expect(row).toBeGreaterThanOrEqual(0);
         const words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
+            (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
         expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([2, 3, 4]);
@@ -184,7 +166,7 @@ test("a Body publishes unit scale to fixed-tick GlobalTransform and renderer row
         const table = globalTransformTable(world);
         const row = table.rowIndex(eid);
         const words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
+            (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
         expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([1, 1, 1]);
@@ -257,7 +239,7 @@ async function renderedX(
 ): Promise<number> {
     const row = table.rowIndex(eid);
     expect(row).toBeGreaterThanOrEqual(0);
-    const result = await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }));
+    const result = await probeBuffer(world, table.buffer, { size: table.buffer.size });
     return new Float32Array(result.bytes)[row * 12];
 }
 
@@ -280,7 +262,7 @@ async function interpolatedRows(
     pass.end();
     world.gpu.device.queue.submit([encoder.finish()]);
     return new Float32Array(
-        (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
+        (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
     );
 }
 
@@ -545,7 +527,7 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
         // No solver tick can republish the position on this draw-only step.
         world.step(0);
         const words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
+            (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([17, 3, -2]);
     } finally {

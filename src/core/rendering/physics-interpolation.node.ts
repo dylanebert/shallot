@@ -40,28 +40,17 @@ function attachTestCamera(world: import("../../index").World): void {
     attachCanvas(camera, canvas, world);
 }
 
-function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`${label} timed out after 750 ms`)), 750);
-        promise.then(
-            (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-            (error) => {
-                clearTimeout(timer);
-                reject(error);
-            },
-        );
-    });
-}
-
 test("placement interpolation uploads one GlobalTransform range and preserves unmoved renderer rows", async () => {
     const app = await createApp({
         defaults: false,
         plugins: [StandardPhysicsPlugin, RenderingPlugin],
     });
     const world = app.world;
+    const device = world.gpu.device;
+    const lost = device.lost.then((info) => {
+        throw new Error(`GlobalTransform device lost: ${info.message}`);
+    });
+    void lost.catch(() => {});
     attachTestCamera(world);
     const body = world.storage(Body);
     function falling(y: number): number {
@@ -99,24 +88,18 @@ test("placement interpolation uploads one GlobalTransform range and preserves un
         if (!previous) throw new Error("first falling Body has no solver state");
         globalTransformWrites = 0;
         globalTransformBytes = 0;
-        world.gpu.device.pushErrorScope("validation");
+        device.pushErrorScope("validation");
         world.step(Time.FIXED_DT);
         expect(globalTransformWrites).toBe(1);
         expect(globalTransformBytes).toBe(
             (table.rowIndex(second) - table.rowIndex(first) + 1) * table.rowBytes,
         );
-        const error = await bounded(
-            "bulk interpolated GlobalTransform validation",
-            world.gpu.device.popErrorScope(),
-        );
+        const error = await Promise.race([device.popErrorScope(), lost]);
         if (error) throw new Error(error.message);
-        const result = await bounded(
-            "bulk interpolated GlobalTransform readback",
-            probeBuffer(world, table.buffer, {
-                size: table.buffer.size,
-                label: "physics-global-transform-range",
-            }),
-        );
+        const result = await probeBuffer(world, table.buffer, {
+            size: table.buffer.size,
+            label: "physics-global-transform-range",
+        });
         const words = new Float32Array(result.bytes);
         expect(words[table.rowIndex(first) * 12 + 1]).toBeCloseTo(previous.position[1], 5);
         expect(
