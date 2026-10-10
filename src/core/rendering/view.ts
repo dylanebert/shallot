@@ -98,6 +98,8 @@ export interface View {
     context: GPUCanvasContext | null;
     /** Current canvas swapchain texture, retained through the frame for pre-presentation readback. */
     canvasTexture?: GPUTexture;
+    /** External captures copied by EndFrameSystem into the same submission as the presenting pass. */
+    frameCaptures?: CanvasFrameCaptureRequest[];
     /** World-owned fixed-size final surface, absent on canvas and depth-only views. */
     texture?: GPUTexture;
     /** True after a frame acquired this surface and submitted its encoder. */
@@ -124,6 +126,15 @@ export interface View {
     camera: EntityRef;
 }
 
+export interface CanvasFrameCaptureRequest {
+    buffer: GPUBuffer;
+    width: number;
+    height: number;
+    bytesPerRow: number;
+    resolve: (format: GPUTextureFormat) => void;
+    reject: (error: Error) => void;
+}
+
 interface ViewResources {
     views: Map<number, View>;
     offscreen: Map<number, { texture: GPUTexture; view: GPUTextureView; w: number; h: number }>;
@@ -140,6 +151,10 @@ function createViewResources(world: World): ViewResources {
     };
     world.onDispose(() => {
         for (const view of resources.views.values()) {
+            rejectFrameCaptures(
+                view,
+                new Error("captureFrame refused: world disposed before presentation"),
+            );
             view.texture?.destroy();
             view.observer?.disconnect();
             view.context?.unconfigure();
@@ -171,16 +186,21 @@ export const Views: import("../../engine").Resource<Map<number, View>> = {
 const _canvasOwners: WeakMap<HTMLCanvasElement, World> = new WeakMap();
 const _canvasViews = new WeakMap<HTMLCanvasElement, { world: World; view: View }>();
 
-/** Current presenting texture for `captureFrame`, available only during a live canvas view's frame. */
-export function canvasFrameSource(
+/** Live canvas binding used by the frame-capture path; no source exists before a camera binds. */
+export function canvasFrameBinding(
     canvas: HTMLCanvasElement,
-): { device: GPUDevice; texture: GPUTexture } | undefined {
+): { world: World; view: View; device: GPUDevice } | undefined {
     const binding = _canvasViews.get(canvas);
     if (!binding || binding.world.disposed) return undefined;
     const device = binding.world.gpu.device;
-    const texture = binding.view.canvasTexture;
-    if (!device || !texture) return undefined;
-    return { device: rawDevice(device), texture };
+    if (!device) return undefined;
+    return { ...binding, device: rawDevice(device) };
+}
+
+/** Reject readbacks queued for a canvas view that cannot reach its next presentation. */
+function rejectFrameCaptures(view: View, error: Error): void {
+    for (const capture of view.frameCaptures ?? []) capture.reject(error);
+    view.frameCaptures = undefined;
 }
 
 // read `import.meta.env.DEV` typeof-safely: the engine is bundled by arbitrary consumer bundlers, and a
@@ -277,6 +297,10 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
     _canvasViews.set(canvas, binding);
     world.onDispose(() => {
         if (_canvasViews.get(canvas) === binding) _canvasViews.delete(canvas);
+        rejectFrameCaptures(
+            view,
+            new Error("captureFrame refused: canvas disposed before presentation"),
+        );
     });
 }
 
@@ -437,6 +461,10 @@ export function detachCanvas(world: World, eid: number): void {
         view.observer?.disconnect();
         view.texture?.destroy();
         view.canvasTexture = undefined;
+        rejectFrameCaptures(
+            view,
+            new Error("captureFrame refused: canvas detached before presentation"),
+        );
         if (view.canvas && _canvasViews.get(view.canvas)?.view === view)
             _canvasViews.delete(view.canvas);
     }

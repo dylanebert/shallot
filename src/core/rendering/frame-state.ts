@@ -1,4 +1,5 @@
 import type { System, World } from "../../engine";
+import { encodeFrameCapture } from "./capture";
 import { MAX_SLOTS, type View, Views } from "./view";
 
 export const VIEW_KEY_FLOATS = 25;
@@ -30,9 +31,11 @@ export const EndFrameSystem: System = {
     group: "draw",
     boundary: "after",
     update(world) {
-        for (const view of world.resource(Views).values()) {
+        const views = world.resource(Views);
+        for (const view of views.values()) {
+            encodeFrameCapture(world, view);
             if (view.texture && view.present) view.presented = true;
         }
-        world.resource(Views).forEach(clearTargets);
+        views.forEach(clearTargets);
     },
 };

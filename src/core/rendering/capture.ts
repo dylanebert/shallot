@@ -4,7 +4,7 @@
 
 import type { World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
-import { canvasFrameSource, Views } from "./view";
+import { canvasFrameBinding, type View, Views } from "./view";
 
 interface CaptureIdentity {
     width: number;
@@ -81,30 +81,66 @@ export interface Capture {
  * copies its current swapchain texture before the browser presents it; an unbound canvas uses its own
  * bitmap. A held app presents no next frame; capture its page with a Playwright page screenshot.
  */
+export function encodeFrameCapture(world: World, view: View): void {
+    const captures = view.frameCaptures;
+    if (!captures?.length) return;
+    view.frameCaptures = undefined;
+    const texture = view.canvasTexture;
+    if (!texture) {
+        for (const capture of captures)
+            capture.reject(
+                new Error("captureFrame refused: no canvas texture in the presenting frame"),
+            );
+        return;
+    }
+    const encoder = world.frameEncoder();
+    if (!encoder) {
+        for (const capture of captures)
+            capture.reject(new Error("captureFrame refused: no encoder for the presenting frame"));
+        return;
+    }
+    try {
+        for (const capture of captures) {
+            if (capture.width !== texture.width || capture.height !== texture.height) {
+                capture.reject(
+                    new Error("captureFrame refused: canvas resized before presentation"),
+                );
+                continue;
+            }
+            encoder.copyTextureToBuffer(
+                { texture },
+                {
+                    buffer: capture.buffer,
+                    bytesPerRow: capture.bytesPerRow,
+                    rowsPerImage: capture.height,
+                },
+                { width: capture.width, height: capture.height, depthOrArrayLayers: 1 },
+            );
+            capture.resolve(texture.format);
+        }
+    } catch (error) {
+        const reason = error instanceof Error ? error : new Error(String(error));
+        for (const capture of captures) capture.reject(reason);
+    }
+}
+
 export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> {
     assertCaptureGeometry(canvas.width, canvas.height);
-    const source = await new Promise<ReturnType<typeof canvasFrameSource>>((done) =>
-        requestAnimationFrame(() => done(canvasFrameSource(canvas))),
-    );
-    if (source) {
-        const { device, texture } = source;
-        const width = texture.width;
-        const height = texture.height;
-        assertCaptureGeometry(width, height);
+    const binding = canvasFrameBinding(canvas);
+    if (binding) {
+        const width = canvas.width;
+        const height = canvas.height;
         const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
-        const buffer = device.createBuffer({
+        const buffer = binding.device.createBuffer({
             label: "canvas frame capture",
             size: bytesPerRow * height,
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
         try {
-            const encoder = device.createCommandEncoder({ label: "canvas frame capture" });
-            encoder.copyTextureToBuffer(
-                { texture },
-                { buffer, bytesPerRow, rowsPerImage: height },
-                { width, height, depthOrArrayLayers: 1 },
-            );
-            device.queue.submit([encoder.finish()]);
+            const format = await new Promise<GPUTextureFormat>((resolve, reject) => {
+                const captures = (binding.view.frameCaptures ??= []);
+                captures.push({ buffer, width, height, bytesPerRow, resolve, reject });
+            });
             await buffer.mapAsync(GPUMapMode.READ);
             const mapped = new Uint8Array(buffer.getMappedRange());
             const rgba = new Uint8ClampedArray(width * height * 4);
@@ -113,7 +149,7 @@ export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> 
                 rgba.set(mapped.subarray(sourceStart, sourceStart + width * 4), y * width * 4);
             }
             buffer.unmap();
-            if (texture.format === "bgra8unorm" || texture.format === "bgra8unorm-srgb") {
+            if (format === "bgra8unorm" || format === "bgra8unorm-srgb") {
                 for (let i = 0; i < rgba.length; i += 4) {
                     const red = rgba[i + 2];
                     rgba[i + 2] = rgba[i];
