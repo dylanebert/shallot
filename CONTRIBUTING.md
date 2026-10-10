@@ -216,8 +216,7 @@ bun run format                   # biome
 ### CI coverage
 
 - [CI](.github/workflows/test.yml) owns host and tier commands.
-- Display-bound allocation stays manual.
-- CI's matrix judges compatibility across operating systems for the static gates and cheap tier; a local machine adds only hardware claims on a real adapter, and CI does not qualify native packaging.
+- Display-bound allocation stays manual, and CI does not qualify Windows or native packaging.
 
 ## Code
 
