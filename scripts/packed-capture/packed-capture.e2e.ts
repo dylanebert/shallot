@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "playwright/test";
+import { expect, test } from "../browser.fixture";
 
 const SUBJECT = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SUBJECT, "../..");
@@ -39,6 +39,11 @@ async function waitForPreview(url: string, child: ChildProcess, log: () => strin
         await new Promise((done) => setTimeout(done, 100));
     }
     throw new Error(`packed project's Vite preview did not become ready:\n${log()}`);
+}
+
+function killWindowsProcessTree(child: ChildProcess): void {
+    if (!child.pid) throw new Error("Vite preview has no process id");
+    execFileSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
 }
 
 test("a Vite project built from the packed Shallot captures through its public rendering export", async ({
@@ -137,8 +142,10 @@ document.querySelector("#result")!.textContent = JSON.stringify({
         expect(result.hasColor).toBe(true);
     } finally {
         if (preview && preview.exitCode === null) {
-            preview.kill("SIGTERM");
-            await new Promise<void>((done) => preview?.once("exit", () => done()));
+            const exited = new Promise<void>((done) => preview!.once("exit", () => done()));
+            if (process.platform === "win32") killWindowsProcessTree(preview);
+            else preview.kill("SIGTERM");
+            await exited;
         }
         rmSync(scratch, { recursive: true, force: true });
     }
