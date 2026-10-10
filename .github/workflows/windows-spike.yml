@@ -1,4 +1,4 @@
-name: Windows adapter and Dawn diagnosis
+name: Windows browser verification
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 jobs:
   browser:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -17,20 +17,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
       - name: install dependencies
         run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
-      - name: WebGPU adapter launch variants A-E
-        env:
-          DEBUG: pw:browser
-        run: bun scripts/windows-adapter-diagnostic.ts
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.3
-      - name: Dawn adapter, backend and DLL-search diagnosis
-        shell: pwsh
-        run: ./scripts/windows-dawn-diagnostic.ps1
+      - name: first-person under the WARP-capable adapter flags
+        run: time -p bunx playwright test -c examples/first-person
