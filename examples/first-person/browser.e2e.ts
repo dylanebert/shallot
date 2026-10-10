@@ -52,7 +52,15 @@ test("the browser input adapter fails to record a real key press on the focused 
     });
     await page.addInitScript(() => {
         const events: string[] = [];
+        let frames = 0;
+        const requestFrame = window.requestAnimationFrame.bind(window);
+        window.requestAnimationFrame = (callback) =>
+            requestFrame((timestamp) => {
+                frames++;
+                callback(timestamp);
+            });
         Object.defineProperty(window, "__shallotBrowserEvents", { value: events });
+        Object.defineProperty(window, "__shallotBrowserFrames", { get: () => frames });
         const record = (event: Event) => {
             const keyboard = event as KeyboardEvent;
             const target = event.target as HTMLElement | null;
@@ -146,12 +154,29 @@ test("the browser input adapter fails to record a real key press on the focused 
     await page.keyboard.up("w");
     const focusedChange = await changedFraction(page, focusedBefore, focusedAfter);
     if (focusedChange <= inputSignal) {
-        const events = await page.evaluate(
-            () =>
-                (window as Window & { __shallotBrowserEvents?: string[] }).__shallotBrowserEvents ??
-                [],
+        const diagnostics = await page.evaluate(() => {
+            const browser = window as Window & {
+                __shallotBrowserEvents?: string[];
+                __shallotBrowserFrames?: number;
+            };
+            return {
+                events: browser.__shallotBrowserEvents ?? [],
+                frames: browser.__shallotBrowserFrames,
+                focused: document.hasFocus(),
+                visible: document.visibilityState,
+            };
+        });
+        console.info(
+            "browser input diagnostics:",
+            JSON.stringify({
+                idleChange,
+                unfocusedChange,
+                focusedChange,
+                inputSignal,
+                ...diagnostics,
+                pageErrors,
+            }),
         );
-        console.info("browser input events:", events);
     }
     expect(
         focusedChange,
