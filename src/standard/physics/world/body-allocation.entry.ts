@@ -1,5 +1,5 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
+import { PhysicsWorldDefinition, physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { contactIds, createContact, destroyContact } from "../collision/contact";
 import { BodyType } from "../common/types";
 import { readStateAngularVelocity } from "../kernel/bodycolumns";
@@ -14,7 +14,7 @@ export const control = () => {
 export default async function create(input: string) {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const physics = physicsWorld(app.world)!;
-    physics.setGravity({ x: 0, y: 0, z: 0 });
+    app.world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
     const hull = makeBoxHull(0.5, 0.5, 0.5);
     const a = physics.createBody({ type: BodyType.Dynamic });
     const b = physics.createBody({ type: BodyType.Dynamic, position: { x: 0.9, y: 0, z: 0 } });

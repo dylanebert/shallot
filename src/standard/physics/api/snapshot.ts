@@ -254,7 +254,13 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: PhysicsSnapshot): 
     const pointer = k.worldSnapshotBuffer(snapshot.bytes.byteLength);
     new Uint8Array(k.memory.buffer, pointer, snapshot.bytes.byteLength).set(snapshot.bytes);
     k.worldRestore(state.worldId);
-    k.worldSetCustomFilterCallback(state.worldId, state.customFilterCallback !== null);
-    k.worldSetPreSolveCallback(state.worldId, state.preSolveCallback !== null);
+    k.worldSetCustomFilterCallback(
+        state.worldId,
+        state.customFilterCallback !== null || state.worldCustomFilterCallback !== null,
+    );
+    k.worldSetPreSolveCallback(
+        state.worldId,
+        state.preSolveCallback !== null || state.worldPreSolveCallback !== null,
+    );
     state.manifoldStore.refreshViews();
 }

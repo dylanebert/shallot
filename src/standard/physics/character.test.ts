@@ -17,6 +17,7 @@ import {
     CharacterPlugin,
     GroundState,
     PhysicsWorld,
+    PhysicsWorldDefinition,
     physicsWorld,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
@@ -75,7 +76,7 @@ for (const item of lane.cases) {
             for (const command of item.input.commands as Command[]) {
                 switch (command.op) {
                     case "world.create":
-                        physics.setGravity(vector(command.gravity));
+                        world.resource(PhysicsWorldDefinition).gravity = vector(command.gravity);
                         break;
                     case "body.create":
                         bodies.set(

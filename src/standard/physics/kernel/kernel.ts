@@ -1062,20 +1062,21 @@ function collisionImport(runtime: KernelState) {
             const shapeB = new Shape(world, makeShapeId(world, b));
             if (kind === 0) {
                 runtime.stepCallback = true;
+                const owner = world.ecsState;
+                if (world.worldCustomFilterCallback && owner)
+                    return Number(world.worldCustomFilterCallback(owner, shapeA, shapeB));
                 return Number(world.customFilterCallback?.(shapeA, shapeB) ?? true);
             }
             const memory = kernel(world.ecsState).memory.buffer;
             if (values.buffer !== memory) values = new Float32Array(memory);
             const o = pointer >>> 2;
             runtime.stepCallback = true;
-            return Number(
-                world.preSolveCallback?.(
-                    shapeA,
-                    shapeB,
-                    { x: values[o], y: values[o + 1], z: values[o + 2] },
-                    { x: values[o + 3], y: values[o + 4], z: values[o + 5] },
-                ) ?? true,
-            );
+            const point = { x: values[o], y: values[o + 1], z: values[o + 2] };
+            const normal = { x: values[o + 3], y: values[o + 4], z: values[o + 5] };
+            const owner = world.ecsState;
+            if (world.worldPreSolveCallback && owner)
+                return Number(world.worldPreSolveCallback(owner, shapeA, shapeB, point, normal));
+            return Number(world.preSolveCallback?.(shapeA, shapeB, point, normal) ?? true);
         } catch (error) {
             runtime.queryFailed = true;
             runtime.queryError = error;
@@ -1111,10 +1112,17 @@ function materialImport(runtime: KernelState) {
             if (values.buffer !== memory) values = new Float32Array(memory);
             const o = pointer >>> 2;
             runtime.stepCallback = true;
+            const owner = world.ecsState;
             if (kind === 0) {
-                values[o + 2] = world.frictionCallback(values[o], idA, values[o + 1], idB);
+                values[o + 2] =
+                    owner && world.worldFrictionCallback
+                        ? world.worldFrictionCallback(owner, values[o], idA, values[o + 1], idB)
+                        : world.frictionCallback(values[o], idA, values[o + 1], idB);
             } else {
-                values[o + 2] = world.restitutionCallback(values[o], idA, values[o + 1], idB);
+                values[o + 2] =
+                    owner && world.worldRestitutionCallback
+                        ? world.worldRestitutionCallback(owner, values[o], idA, values[o + 1], idB)
+                        : world.restitutionCallback(values[o], idA, values[o + 1], idB);
             }
         } catch (error) {
             runtime.queryFailed = true;

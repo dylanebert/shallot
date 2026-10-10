@@ -28,6 +28,7 @@ test("standard physics exports consumed world operations and profiling without s
         "CharacterPlugin",
         "GroundState",
         "PhysicsWorld",
+        "PhysicsWorldDefinition",
         "StandardPhysicsPlugin",
         "StepPhysicsSystem",
         "clipVector",

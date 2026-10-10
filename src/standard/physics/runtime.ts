@@ -15,6 +15,8 @@ import {
 } from "./api";
 import { snapshotBindings } from "./api/snapshot";
 import { jointBindings } from "./authoring";
+import { f32, maxf } from "./common/math";
+import type { WorldDef } from "./common/types";
 import {
     type ConstraintCache,
     type ConstraintIds,
@@ -30,10 +32,13 @@ import {
 import { kernel } from "./kernel/kernel";
 import { marshalBody } from "./marshal";
 import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
+import {
+    copyPhysicsWorldDefinition,
+    PhysicsWorldDefinition,
+    type PhysicsWorldDefinitionConfig,
+} from "./world-definition";
 
 const fixedDeltaTime = Time.FIXED_DT;
-const GRAVITY = -10;
-const SUBSTEPS = 4; // the solver's own recommended sub-step count (World.step's default)
 
 export interface PhysicsCounters {
     bodiesVisited: number;
@@ -267,6 +272,8 @@ export function physicsCounters(world: World): PhysicsCounters {
 // The runtime's maps from entities to solver handles, as plain ids, so a restore rebinds them for its
 // target World and the sync systems reconcile them against the live ECS on the next tick.
 interface Bindings {
+    /** The authoring configuration paired with the captured solver settings. */
+    worldDefinition: PhysicsWorldDefinitionConfig;
     /** eid, solver body index1, solver generation, EntityRef */
     bodies: number[];
     /** eid, EntityRef, hull count */
@@ -284,13 +291,14 @@ function warmWorld(runtime: PhysicsRuntime): PhysicsWorld {
     return physicsWorld;
 }
 
-function captureBindings(runtime: PhysicsRuntime): Bindings {
+function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
     const bodies: number[] = [];
     for (const [eid, body] of runtime.bodies)
         bodies.push(eid, body.id.index1, body.id.generation, runtime.stamps.get(eid)!);
     const failed: number[] = [];
     for (const [eid, f] of runtime.failed) failed.push(eid, f.stamp, f.hulls);
     return {
+        worldDefinition: copyPhysicsWorldDefinition(world.resource(PhysicsWorldDefinition)),
         bodies,
         failed,
         constraints: captureConstraints(runtime.constraints),
@@ -300,7 +308,16 @@ function captureBindings(runtime: PhysicsRuntime): Bindings {
     };
 }
 
-function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b: Bindings): void {
+function restoreBindings(
+    world: World,
+    runtime: PhysicsRuntime,
+    physicsWorld: PhysicsWorld,
+    b: Bindings,
+): void {
+    Object.assign(
+        world.resource(PhysicsWorldDefinition),
+        copyPhysicsWorldDefinition(b.worldDefinition),
+    );
     const state = physicsWorld.state;
     runtime.bodies.clear();
     runtime.stamps.clear();
@@ -340,10 +357,81 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
     runtime.hulls = b.hulls;
 }
 
+function solverWorldDefinition(def: PhysicsWorldDefinitionConfig): Partial<WorldDef> {
+    return {
+        gravity: def.gravity,
+        restitutionThreshold: def.restitutionThreshold,
+        hitEventThreshold: def.hitEventThreshold,
+        contactHertz: def.contactHertz,
+        contactDampingRatio: def.contactDampingRatio,
+        contactSpeed: def.contactSpeed,
+        maximumLinearSpeed: def.maximumLinearSpeed,
+        enableSleep: def.enableSleep,
+        enableContinuous: def.enableContinuous,
+        capacity: def.capacity,
+    };
+}
+
+function syncWorldDefinition(
+    physicsWorld: PhysicsWorld,
+    definition: PhysicsWorldDefinitionConfig,
+): void {
+    const state = physicsWorld.state;
+    const gravity = definition.gravity;
+    if (
+        state.gravity.x !== f32(gravity.x) ||
+        state.gravity.y !== f32(gravity.y) ||
+        state.gravity.z !== f32(gravity.z)
+    )
+        physicsWorld.setGravity(gravity);
+
+    const restitutionThreshold = maxf(0, f32(definition.restitutionThreshold));
+    if (state.restitutionThreshold !== restitutionThreshold)
+        physicsWorld.setRestitutionThreshold(definition.restitutionThreshold);
+    const hitEventThreshold = maxf(0, f32(definition.hitEventThreshold));
+    if (state.hitEventThreshold !== hitEventThreshold)
+        physicsWorld.setHitEventThreshold(definition.hitEventThreshold);
+    const contactHertz = maxf(0, f32(definition.contactHertz));
+    const contactDampingRatio = maxf(0, f32(definition.contactDampingRatio));
+    const contactSpeed = maxf(0, f32(definition.contactSpeed));
+    if (
+        state.contactHertz !== contactHertz ||
+        state.contactDampingRatio !== contactDampingRatio ||
+        state.contactSpeed !== contactSpeed
+    )
+        physicsWorld.setContactTuning(
+            definition.contactHertz,
+            definition.contactDampingRatio,
+            definition.contactSpeed,
+        );
+    const recycleDistance = maxf(0, f32(definition.contactRecycleDistance));
+    if (state.contactRecycleDistance !== recycleDistance)
+        physicsWorld.setContactRecycleDistance(definition.contactRecycleDistance);
+    const maximumLinearSpeed = f32(definition.maximumLinearSpeed);
+    if (state.maxLinearSpeed !== maximumLinearSpeed)
+        physicsWorld.setMaximumLinearSpeed(definition.maximumLinearSpeed);
+    if (state.enableSleep !== definition.enableSleep)
+        physicsWorld.enableSleeping(definition.enableSleep);
+    if (state.enableContinuous !== definition.enableContinuous)
+        physicsWorld.enableContinuous(definition.enableContinuous);
+    if (state.enableWarmStarting !== definition.enableWarmStarting)
+        physicsWorld.enableWarmStarting(definition.enableWarmStarting);
+    if (state.enableSpeculative !== definition.enableSpeculative)
+        physicsWorld.enableSpeculative(definition.enableSpeculative);
+    if (state.worldCustomFilterCallback !== definition.customFilterCallback)
+        physicsWorld.setWorldCustomFilterCallback(definition.customFilterCallback);
+    if (state.worldPreSolveCallback !== definition.preSolveCallback)
+        physicsWorld.setWorldPreSolveCallback(definition.preSolveCallback);
+    if (state.worldFrictionCallback !== definition.frictionCallback)
+        physicsWorld.setWorldFrictionCallback(definition.frictionCallback);
+    if (state.worldRestitutionCallback !== definition.restitutionCallback)
+        physicsWorld.setWorldRestitutionCallback(definition.restitutionCallback);
+}
+
 function capturePhysics(world: World): PhysicsSnapshot {
     const runtime = runtimeFor(world);
     captureJointFieldCandidates(world, runtime.constraints, jointBindings(world));
-    return snapshotWorld(warmWorld(runtime), captureBindings(runtime));
+    return snapshotWorld(warmWorld(runtime), captureBindings(world, runtime));
 }
 function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
     const runtime = runtimeFor(world);
@@ -351,7 +439,7 @@ function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
     const bindings = snapshotBindings(saved) as Bindings | undefined;
     if (bindings === undefined) throw new Error("physics: recovery image has no bindings");
     restoreWorld(physicsWorld, saved);
-    restoreBindings(runtime, physicsWorld, bindings);
+    restoreBindings(world, runtime, physicsWorld, bindings);
     // ECS poses were restored by World. Warning latches are presentation, counters and stale
     // scans are overwritten on each step; solver history and binding caches are the participant.
 }
@@ -367,7 +455,7 @@ export const StepPhysicsSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
-        physicsWorld.step(fixedDeltaTime, SUBSTEPS);
+        physicsWorld.step(fixedDeltaTime, world.resource(PhysicsWorldDefinition).subStepCount);
         const record = world.recordSink;
         if (record) {
             readStepProfile(physicsWorld.state);
@@ -562,6 +650,17 @@ const SyncSystem: System = {
     },
 };
 
+/** Applies retained world-definition candidates before this tick's solver step. */
+export const SyncPhysicsWorldDefinitionSystem: System = {
+    name: "world-definition",
+    group: "fixed",
+    before: [SyncSystem],
+    update(world) {
+        const physicsWorld = runtimeFor(world).physicsWorld;
+        if (physicsWorld) syncWorldDefinition(physicsWorld, world.resource(PhysicsWorldDefinition));
+    },
+};
+
 /**
  * Rigid-body physics over shared bodies and the nine joint kinds, with a CPU solver (Rust/WASM kernel, no GPU device
  * needed to step). Opt-in — add it to a scene to run physics (it's not in the default plugins).
@@ -581,6 +680,7 @@ export const StandardPhysicsPlugin: Plugin = {
     dependencies: [PhysicsPlugin],
     systems: [
         SyncSystem,
+        SyncPhysicsWorldDefinitionSystem,
         SyncPhysicsConstraintsSystem,
         StepPhysicsSystem,
         CollectJointFieldCandidatesSystem,
@@ -589,6 +689,7 @@ export const StandardPhysicsPlugin: Plugin = {
 
     initialize(world) {
         const runtime = world.resource(physicsRuntimeKey);
+        world.resource(PhysicsWorldDefinition);
         runtime.initialized = true;
         if (!runtime.observing) {
             runtime.observing = true;
@@ -613,15 +714,13 @@ export const StandardPhysicsPlugin: Plugin = {
         const runtime = runtimeFor(world);
         await init(world); // async wasm compile — the browser main thread can't compile it synchronously
         runtime.physicsWorld?.destroy();
-        runtime.physicsWorld = new PhysicsWorld(
-            { gravity: { x: 0, y: GRAVITY, z: 0 } },
-            world,
-            (eid) => {
-                const ref = runtime.stamps.get(eid);
-                if (!world.has(eid, Body) || !ref || !world.resolve(ref)) return null;
-                return runtime.bodies.get(eid) ?? null;
-            },
-        );
+        const definition = world.resource(PhysicsWorldDefinition);
+        runtime.physicsWorld = new PhysicsWorld(solverWorldDefinition(definition), world, (eid) => {
+            const ref = runtime.stamps.get(eid);
+            if (!world.has(eid, Body) || !ref || !world.resolve(ref)) return null;
+            return runtime.bodies.get(eid) ?? null;
+        });
+        syncWorldDefinition(runtime.physicsWorld, definition);
         clearBodies(runtime);
     },
 

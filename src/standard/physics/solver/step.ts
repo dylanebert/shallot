@@ -36,7 +36,9 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
             world.enableContinuous,
             world.enableSleep,
             world.frictionCallback === defaultFrictionCallback &&
-                world.restitutionCallback === defaultRestitutionCallback,
+                world.restitutionCallback === defaultRestitutionCallback &&
+                world.worldFrictionCallback === null &&
+                world.worldRestitutionCallback === null,
         );
         solve(world);
         readJointEventUserData(world);

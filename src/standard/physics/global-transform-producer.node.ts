@@ -3,7 +3,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
-import { physicsWorld, readBody, StandardPhysicsPlugin } from ".";
+import { PhysicsWorldDefinition, physicsWorld, readBody, StandardPhysicsPlugin } from ".";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 
 setDefaultTimeout(CEILING.node);
@@ -20,7 +20,7 @@ test("a body falling asleep publishes zero ECS velocity, and waking publishes it
         world.add(eid, Body, { type: BodyType.Dynamic });
         world.step(Time.FIXED_DT);
         const physics = physicsWorld(world)!;
-        physics.setGravity({ x: 0, y: 0, z: 0 });
+        world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
         const body = physics.getBody(eid)!;
         setBodyField(physics.state, body.id.index1 - 1, BodyField.sleepThreshold, 1);
         body.setLinearVelocity({ x: 0.01, y: 0, z: 0 });

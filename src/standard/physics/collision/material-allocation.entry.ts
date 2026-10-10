@@ -1,5 +1,5 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
+import { PhysicsWorldDefinition, physicsWorld } from "@dylanebert/shallot/standard/physics";
 import type { Body } from "../api/body";
 import type { Vec3 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
@@ -22,14 +22,16 @@ export default async function create(input: string) {
     const world = app.world;
     const physics = physicsWorld(world)!;
     const state = physics.state;
-    state.enableSleep = false;
-    state.contactRecycleDistance = 0;
+    const definition = world.resource(PhysicsWorldDefinition);
+    definition.enableSleep = false;
+    definition.contactRecycleDistance = 0;
     let mixes = 0;
-    state.frictionCallback = (a, ia, b, ib) => {
+    definition.frictionCallback = (_world, a, ia, b, ib) => {
         mixes++;
         return defaultFrictionCallback(a, ia, b, ib);
     };
-    state.restitutionCallback = (a, ia, b, ib) => defaultRestitutionCallback(a, ia, b, ib);
+    definition.restitutionCallback = (_world, a, ia, b, ib) =>
+        defaultRestitutionCallback(a, ia, b, ib);
     const material = { ...defaultSurfaceMaterial(), userMaterialId: 0x123456789abcdef0n };
     const ground = physics.createBody({ type: BodyType.Static });
     if (kind === "mesh") {

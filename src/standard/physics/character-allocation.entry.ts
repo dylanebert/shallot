@@ -1,5 +1,10 @@
 import { Body, createApp, ShapeKind } from "@dylanebert/shallot";
-import { Character, CharacterPlugin, physicsWorld } from "@dylanebert/shallot/standard/physics";
+import {
+    Character,
+    CharacterPlugin,
+    PhysicsWorldDefinition,
+    physicsWorld,
+} from "@dylanebert/shallot/standard/physics";
 import { characterScratch } from "./character";
 import { BodyType } from "./common/types";
 
@@ -14,7 +19,7 @@ export default async function create(input: string) {
     const pushing = input === "push";
     const physics = physicsWorld(world)!;
     if (pushing) {
-        physics.setGravity({ x: 0, y: 0, z: 0 });
+        world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
         physics
             .createBody({ type: BodyType.Dynamic, position: { x: 0.8, y: 2, z: 0 } })
             .createSphere({ density: 1 }, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });

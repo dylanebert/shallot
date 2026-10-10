@@ -1,6 +1,11 @@
 import type { CustomFilterCallback, PreSolveCallback } from "../api/config";
 import { jointCount } from "../kernel/jointrecords";
 import { createSolverSet } from "../kernel/solversetcolumns";
+import type {
+    WorldCustomFilterCallback,
+    WorldMixCallback,
+    WorldPreSolveCallback,
+} from "../world-definition";
 // The simulation world: the root that owns every entity pool and the broad-phase. Ported from
 // Box3D's physics_world.c (Erin Catto, MIT). Each entity type has an id pool paired with a sparse
 // array of records; the hot payload lives in solver sets. Worlds live in a fixed registry so a
@@ -95,6 +100,10 @@ export type WorldState = {
 
     customFilterCallback: CustomFilterCallback | null;
     preSolveCallback: PreSolveCallback | null;
+    worldCustomFilterCallback: WorldCustomFilterCallback | null;
+    worldPreSolveCallback: WorldPreSolveCallback | null;
+    worldFrictionCallback: WorldMixCallback | null;
+    worldRestitutionCallback: WorldMixCallback | null;
     frictionCallback: MixCallback;
     restitutionCallback: MixCallback;
 
@@ -189,6 +198,10 @@ function makeWorldState(
         contactRecycleDistance: CONTACT_RECYCLE_DISTANCE,
         customFilterCallback: null,
         preSolveCallback: null,
+        worldCustomFilterCallback: null,
+        worldPreSolveCallback: null,
+        worldFrictionCallback: null,
+        worldRestitutionCallback: null,
         frictionCallback: def.frictionCallback ?? defaultFrictionCallback,
         restitutionCallback: def.restitutionCallback ?? defaultRestitutionCallback,
         generation,

@@ -19,6 +19,9 @@ export function releaseSolverSet(world: WorldState, set: number): void {
     active(world).solverSetDestroy(set);
     world.bodyStore.forgetSet(set);
 }
+export function wakeSolverSet(world: WorldState, set: number): void {
+    active(world).solverSetWake(set);
+}
 export function setBodyCount(world: WorldState, set: number): number {
     return active(world).solverSetBodyCount(set);
 }

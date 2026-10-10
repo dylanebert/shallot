@@ -27,3 +27,10 @@ export {
 } from "./runtime";
 export type { Capsule } from "./shapes/geometry";
 export type { StepProfile } from "./world/profile";
+export {
+    PhysicsWorldDefinition,
+    type PhysicsWorldDefinitionConfig,
+    type WorldCustomFilterCallback,
+    type WorldMixCallback,
+    type WorldPreSolveCallback,
+} from "./world-definition";

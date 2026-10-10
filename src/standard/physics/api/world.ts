@@ -10,14 +10,15 @@ import type { CustomFilterCallback, PreSolveCallback } from "./config";
 
 import type { ShapeProxy } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
-import { DEFAULT_MASK_BITS } from "../common/constants";
-import { type AABB, f32, froundConfig, type Pos, type Vec3 } from "../common/math";
+import { DEFAULT_MASK_BITS, SetType } from "../common/constants";
+import { type AABB, f32, froundConfig, maxf, type Pos, type Vec3 } from "../common/math";
 import {
     type BodyDef,
     BodyType,
     defaultBodyDef,
     defaultQueryFilter,
     defaultWorldDef,
+    type MixCallback,
     type QueryFilter,
     type WorldDef,
 } from "../common/types";
@@ -25,6 +26,12 @@ import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
 import { readJointEventUserData } from "../kernel/jointcolumns";
 import { kernel, rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
+import {
+    setBodyCount,
+    solverSetCount,
+    solverSetIndex,
+    wakeSolverSet,
+} from "../kernel/solversetcolumns";
 import type { TreeStats } from "../kernel/treecolumns";
 import type { Capsule } from "../shapes/geometry";
 import {
@@ -63,6 +70,8 @@ import type { StepProfile } from "../world/profile";
 import {
     type Counters,
     createWorld,
+    defaultFrictionCallback,
+    defaultRestitutionCallback,
     destroyWorld,
     getWorld,
     type WorldId,
@@ -71,6 +80,11 @@ import {
     worldIsValid,
     worldProfile,
 } from "../world/world";
+import type {
+    WorldCustomFilterCallback,
+    WorldMixCallback,
+    WorldPreSolveCallback,
+} from "../world-definition";
 import { Body } from "./body";
 import {
     type BaseJointConfig,
@@ -432,7 +446,8 @@ export class PhysicsWorld {
 
     /** Set the collision speed above which a contact reports a hit event (b3World_SetHitEventThreshold). */
     setHitEventThreshold(value: number): void {
-        this.state.hitEventThreshold = f32(value);
+        if (!this.isValid() || this.state.locked) return;
+        this.state.hitEventThreshold = maxf(0, f32(value));
     }
 
     /**
@@ -729,7 +744,7 @@ export class PhysicsWorld {
         this.state.customFilterCallback = callback;
         kernel(this.state.ecsState).worldSetCustomFilterCallback(
             this.state.worldId,
-            callback !== null,
+            callback !== null || this.state.worldCustomFilterCallback !== null,
         );
     }
 
@@ -741,12 +756,118 @@ export class PhysicsWorld {
     setPreSolveCallback(callback: PreSolveCallback | null): void {
         if (!this.isValid() || this.state.locked) return;
         this.state.preSolveCallback = callback;
-        kernel(this.state.ecsState).worldSetPreSolveCallback(this.state.worldId, callback !== null);
+        kernel(this.state.ecsState).worldSetPreSolveCallback(
+            this.state.worldId,
+            callback !== null || this.state.worldPreSolveCallback !== null,
+        );
     }
 
-    /** Set the gravity vector. */
+    /** Install or clear the ECS world's custom filter callback. @internal */
+    setWorldCustomFilterCallback(callback: WorldCustomFilterCallback | null): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.worldCustomFilterCallback = callback;
+        kernel(this.state.ecsState).worldSetCustomFilterCallback(
+            this.state.worldId,
+            callback !== null || this.state.customFilterCallback !== null,
+        );
+    }
+
+    /** Install or clear the ECS world's pre-solve callback. @internal */
+    setWorldPreSolveCallback(callback: WorldPreSolveCallback | null): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.worldPreSolveCallback = callback;
+        kernel(this.state.ecsState).worldSetPreSolveCallback(
+            this.state.worldId,
+            callback !== null || this.state.preSolveCallback !== null,
+        );
+    }
+
+    /** Install or clear the ECS world's friction mixing callback. @internal */
+    setWorldFrictionCallback(callback: WorldMixCallback | null): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.worldFrictionCallback = callback;
+    }
+
+    /** Install or clear the ECS world's restitution mixing callback. @internal */
+    setWorldRestitutionCallback(callback: WorldMixCallback | null): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.worldRestitutionCallback = callback;
+    }
+
+    /** Set the gravity vector (b3World_SetGravity). */
     setGravity(gravity: Vec3): void {
+        if (!this.isValid() || this.state.locked) return;
         this.state.gravity = froundConfig({ x: gravity.x, y: gravity.y, z: gravity.z });
+    }
+
+    /** Set restitution and hit-event speed thresholds (b3World_SetRestitutionThreshold). */
+    setRestitutionThreshold(value: number): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.restitutionThreshold = maxf(0, f32(value));
+    }
+
+    /** Set contact stiffness, damping and overlap-recovery speed (b3World_SetContactTuning). */
+    setContactTuning(hertz: number, dampingRatio: number, contactSpeed: number): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.contactHertz = maxf(0, f32(hertz));
+        this.state.contactDampingRatio = maxf(0, f32(dampingRatio));
+        this.state.contactSpeed = maxf(0, f32(contactSpeed));
+    }
+
+    /** Set the maximum distance at which contacts are recycled (b3World_SetContactRecycleDistance). */
+    setContactRecycleDistance(distance: number): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.contactRecycleDistance = maxf(0, f32(distance));
+    }
+
+    /** Set the speed cap for dynamic bodies (b3World_SetMaximumLinearSpeed). */
+    setMaximumLinearSpeed(speed: number): void {
+        if (!(speed > 0)) throw new RangeError("physics: maximum linear speed must be positive");
+        if (!this.isValid() || this.state.locked) return;
+        this.state.maxLinearSpeed = f32(speed);
+    }
+
+    /** Enable or disable body sleeping (b3World_EnableSleeping). */
+    enableSleeping(enabled: boolean): void {
+        if (!this.isValid() || this.state.locked || this.state.enableSleep === enabled) return;
+        this.state.enableSleep = enabled;
+        if (!enabled) {
+            const count = solverSetCount(this.state);
+            for (let set = SetType.FirstSleeping; set < count; set++) {
+                if (solverSetIndex(this.state, set) >= 0 && setBodyCount(this.state, set) > 0)
+                    wakeSolverSet(this.state, set);
+            }
+        }
+    }
+
+    /** Enable or disable continuous collision (b3World_EnableContinuous). */
+    enableContinuous(enabled: boolean): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.enableContinuous = enabled;
+    }
+
+    /** Enable or disable impulse warm starting (b3World_EnableWarmStarting). */
+    enableWarmStarting(enabled: boolean): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.enableWarmStarting = enabled;
+    }
+
+    /** Enable or disable world speculative mesh contacts (b3World_EnableSpeculative). */
+    enableSpeculative(enabled: boolean): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.enableSpeculative = enabled;
+    }
+
+    /** Install or clear Box3D's optional friction mixing callback. */
+    setFrictionCallback(callback: MixCallback | null): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.frictionCallback = callback ?? defaultFrictionCallback;
+    }
+
+    /** Install or clear Box3D's optional restitution mixing callback. */
+    setRestitutionCallback(callback: MixCallback | null): void {
+        if (!this.isValid() || this.state.locked) return;
+        this.state.restitutionCallback = callback ?? defaultRestitutionCallback;
     }
 
     /**
