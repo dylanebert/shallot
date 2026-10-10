@@ -187,6 +187,8 @@ class ProfileImpl implements Profile {
     private readonly _slotCache: GPUComputePassTimestampWrites[] = [];
     // drains since each pass last fired, for the greedy hold + eviction (see GPU_HOLD_DRAINS)
     private readonly _gpuMiss = new Map<string, number>();
+    private _readbackError: unknown;
+    private _readbackFailed = false;
     // reused scratch: one drained frame's per-pass summed time (cleared per slot, no per-frame alloc)
     private readonly _fired = new Map<string, number>();
     // Bounded timestamp metadata: `_free` can accept a request; `_mapped` holds owned result bytes
@@ -337,6 +339,8 @@ class ProfileImpl implements Profile {
 
     dispose(): void {
         this._disposed = true;
+        this._readbackFailed = false;
+        this._readbackError = undefined;
         for (const restore of this._restorePatches.reverse()) restore();
         this._restorePatches.length = 0;
         this._querySet?.destroy();
@@ -432,12 +436,15 @@ class ProfileImpl implements Profile {
                 (error: unknown) => {
                     if (this._disposed) return;
                     this._free.push(slot);
-                    console.error("profile timestamp readback failed:", error);
+                    this._readbackError = error;
+                    this._readbackFailed = true;
                 },
             );
     }
 
     drain(): void {
+        if (this._readbackFailed)
+            throw new Error("profile timestamp readback failed", { cause: this._readbackError });
         while (this._mapped.length > 0) {
             const slot = this._mapped.shift()!;
             const data = new BigUint64Array(slot.bytes);

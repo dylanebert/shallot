@@ -46,6 +46,24 @@ test("profiler timestamps arrive through the world's one-shot pool and staging i
         expect(Number.isFinite(stats.gpuTime.get("readback-witness"))).toBe(true);
         expect(app.world.readback.allocated).toBeGreaterThan(0);
         expect(app.world.readback.allocated).toBeLessThanOrEqual(4);
+
+        // A rejected timestamp copy must fail the same frame wait that drains it, not log and leave
+        // the timestamp loop spinning until its process ceiling.
+        const pool = app.world.readback;
+        const request = pool.request.bind(pool);
+        let injected = false;
+        pool.request = (size, label, encode) => {
+            if (label === "profile-timestamps" && !injected) {
+                injected = true;
+                return Promise.reject(new Error("injected timestamp validation failure"));
+            }
+            return request(size, label, encode);
+        };
+        app.world.step(0);
+        await Promise.resolve();
+        expect(injected).toBe(true);
+        expect(() => app.world.step(0)).toThrow("profile timestamp readback failed");
+        pool.request = request;
     } finally {
         app.dispose();
     }

@@ -74,6 +74,9 @@ function createClusterGpuState(): ClusterGpuState {
             views: null,
             staging: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
             last: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
+            pending: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
+            pendingFrame: -1,
+            pendingUsed: 0,
         },
         lightCull: {
             lights: null,
@@ -350,6 +353,11 @@ export interface Clusters {
     aabbs: GPUBuffer | null;
     views: GPUBuffer | null;
     staging: Float32Array;
+    /** Projection values whose grid rebuild was encoded but not yet acknowledged by a submitted frame. */
+    pending: Float32Array;
+    pendingFrame: number;
+    pendingUsed: number;
+    /** Projection values last acknowledged after a successful frame submission. */
     last: Float32Array;
 }
 
@@ -446,6 +454,11 @@ export const UpdateLightClustersSystem: System = {
         const _clusterGpu = world.resource(clusterGpuKey);
         const _clusters = world.resource(Clusters);
 
+        if (_clusters.pendingFrame >= 0 && world.gpu.frame > _clusters.pendingFrame) {
+            _clusters.last.set(_clusters.pending.subarray(0, _clusters.pendingUsed));
+            _clusters.pendingFrame = -1;
+            _clusters.pendingUsed = 0;
+        }
         if (!_clusterGpu.pipe || _render.shadeCount === 0) return;
         for (const [eid, view] of world.resource(Views)) {
             if (!view.framebuffer || view.slot >= _render.shadeCount) continue;
@@ -467,7 +480,6 @@ export const UpdateLightClustersSystem: System = {
             }
         }
         if (!changed) return;
-        _clusters.last.set(_clusters.staging.subarray(0, used));
         world.gpu.device.queue.writeBuffer(
             _clusters.views!,
             0,
@@ -482,6 +494,9 @@ export const UpdateLightClustersSystem: System = {
         pass.setBindGroup(0, grid.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
         pass.end();
+        _clusters.pending.set(_clusters.staging.subarray(0, used));
+        _clusters.pendingUsed = used;
+        _clusters.pendingFrame = world.gpu.frame;
     },
 };
 
@@ -516,6 +531,8 @@ export function warmClusters(world: World): void {
     if (!world.gpu.device) return;
     const root = world.gpu.root;
     _clusters.last.fill(0);
+    _clusters.pendingFrame = -1;
+    _clusters.pendingUsed = 0;
     _clusterGpu.bound = null;
 
     _clusterGpu.typedViews = root
@@ -626,6 +643,13 @@ struct ZSlice { light: u32, z: u32 };
 @group(0) @binding(4) var<storage, read_write> rasterArgs: array<RasterArgs, ${MAX_VIEWS}>;
 @group(0) @binding(5) var<storage, read_write> zSlices: array<ZSlice, ${MAX_VIEWS * Z_SLICE_CAPACITY}>;
 
+fn viewScale(view: mat4x4f) -> f32 {
+    let x = length(vec3f(view[0].x, view[1].x, view[2].x));
+    let y = length(vec3f(view[0].y, view[1].y, view[2].y));
+    let z = length(vec3f(view[0].z, view[1].z, view[2].z));
+    return max(x, max(y, z));
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let lightCount = min(atomicLoad(&cluster.count[0]), ${MAX_POINT_LIGHTS}u);
@@ -633,7 +657,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let light = rasterLights[gid.x];
     let center = (viewMats[gid.y] * vec4f(light.posRange.xyz, 1.0)).xyz;
     let inverseRangeSquared = light.posRange.w;
-    let radius = select(1e20, inverseSqrt(inverseRangeSquared), inverseRangeSquared > 0.0);
+    let radius = select(1e20, inverseSqrt(inverseRangeSquared), inverseRangeSquared > 0.0) * viewScale(viewMats[gid.y]);
     let view = clusterViews[gid.y * 2u];
     let nearest = -center.z - radius;
     let farthest = -center.z + radius;
@@ -641,7 +665,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let nearDepth = max(nearest, view.z);
     let farDepth = min(farthest, view.w);
     let scale = log(view.w / view.z);
-    let firstZ = u32(clamp(floor(log(nearDepth / view.z) / scale * ${CLUSTER_Z}.0), 0.0, ${CLUSTER_Z - 1}.0));
+    // Include the preceding slice when the sphere is tangent to a boundary. The fine sphere/AABB test
+    // removes the harmless extra candidates; rounding down alone drops the touching froxel.
+    let firstZ = u32(clamp(floor(log(nearDepth / view.z) / scale * ${CLUSTER_Z}.0) - 1.0, 0.0, ${CLUSTER_Z - 1}.0));
     let lastZ = u32(clamp(floor(log(farDepth / view.z) / scale * ${CLUSTER_Z}.0), 0.0, ${CLUSTER_Z - 1}.0));
     for (var z = firstZ; z <= lastZ; z += 1u) {
         let at = gid.y * ${Z_SLICE_CAPACITY}u + atomicAdd(&rasterArgs[gid.y].instanceCount, 1u);
@@ -737,53 +763,48 @@ struct Varyings {
 @group(0) @binding(2) var<storage, read> viewMats: array<mat4x4f>;
 @group(0) @binding(3) var<storage, read> clusterViews: array<vec4f>;
 
-fn rasterBounds(center: vec3f, radius: f32, view: vec4f, perspective: bool, z: u32) -> vec4u {
-    let nearDepth = view.z * pow(view.w / view.z, f32(z) / ${CLUSTER_Z}.0);
-    let farDepth = view.z * pow(view.w / view.z, f32(z + 1u) / ${CLUSTER_Z}.0);
-    let xRange = vec2f(center.x - radius, center.x + radius);
-    let yRange = vec2f(center.y - radius, center.y + radius);
-    var minX = ${CLUSTER_X}u;
-    var maxX = 0u;
-    var minY = ${CLUSTER_Y}u;
-    var maxY = 0u;
-    var foundX = false;
-    var foundY = false;
-    for (var x = 0u; x < ${CLUSTER_X}u; x += 1u) {
-        let lo = (-1.0 + 2.0 * f32(x) / ${CLUSTER_X}.0) * view.x;
-        let hi = (-1.0 + 2.0 * f32(x + 1u) / ${CLUSTER_X}.0) * view.x;
-        var clusterMin = lo;
-        var clusterMax = hi;
-        if (perspective) {
-            clusterMin = min(lo * nearDepth, lo * farDepth);
-            clusterMax = max(hi * nearDepth, hi * farDepth);
-        }
-        if (clusterMax >= xRange.x && clusterMin <= xRange.y) {
-            minX = min(minX, x);
-            maxX = max(maxX, x);
-            foundX = true;
-        }
-    }
-    for (var y = 0u; y < ${CLUSTER_Y}u; y += 1u) {
-        let lo = (-1.0 + 2.0 * f32(y) / ${CLUSTER_Y}.0) * view.y;
-        let hi = (-1.0 + 2.0 * f32(y + 1u) / ${CLUSTER_Y}.0) * view.y;
-        var clusterMin = lo;
-        var clusterMax = hi;
-        if (perspective) {
-            clusterMin = min(lo * nearDepth, lo * farDepth);
-            clusterMax = max(hi * nearDepth, hi * farDepth);
-        }
-        if (clusterMax >= yRange.x && clusterMin <= yRange.y) {
-            minY = min(minY, y);
-            maxY = max(maxY, y);
-            foundY = true;
-        }
-    }
-    if (!foundX || !foundY) { return vec4u(0u); }
+fn viewScale(view: mat4x4f) -> f32 {
+    let x = length(vec3f(view[0].x, view[1].x, view[2].x));
+    let y = length(vec3f(view[0].y, view[1].y, view[2].y));
+    let z = length(vec3f(view[0].z, view[1].z, view[2].z));
+    return max(x, max(y, z));
+}
+
+fn projectSphereCorner(point: vec3f, view: vec4f, perspective: bool) -> vec2f {
+    if (perspective) { return point.xy / (-point.z * view.xy); }
+    return point.xy / view.xy;
+}
+
+fn ndcCluster(position: f32, dimension: u32) -> u32 {
+    return min(u32(floor(clamp((position + 1.0) * 0.5, 0.0, 1.0) * f32(dimension))), dimension - 1u);
+}
+
+// Bevy's conservative projected sphere AABB: bound the sphere by a view-space cube, project its four
+// XY/Z corners, and rasterize that cluster rectangle. The fragment sphere/AABB test supplies precision.
+fn rasterBounds(center: vec3f, radius: f32, view: vec4f, perspective: bool) -> vec4u {
+    let viewMin = center - vec3f(radius);
+    let viewMax = center + vec3f(radius);
+    let nearZ = min(viewMin.z, -1e-5);
+    let farZ = min(viewMax.z, -1e-5);
+    let xyMin = viewMin.xy;
+    let xyMax = viewMax.xy;
+    let a = projectSphereCorner(vec3f(xyMin, nearZ), view, perspective);
+    let b = projectSphereCorner(vec3f(xyMin, farZ), view, perspective);
+    let c = projectSphereCorner(vec3f(xyMax, nearZ), view, perspective);
+    let d = projectSphereCorner(vec3f(xyMax, farZ), view, perspective);
+    let ndcMin = clamp(min(min(a, b), min(c, d)), vec2f(-1.0), vec2f(1.0));
+    let ndcMax = clamp(max(max(a, b), max(c, d)), vec2f(-1.0), vec2f(1.0));
+    let minX = ndcCluster(ndcMin.x, ${CLUSTER_X}u);
+    let maxX = ndcCluster(ndcMax.x, ${CLUSTER_X}u);
+    let minY = ndcCluster(ndcMin.y, ${CLUSTER_Y}u);
+    let maxY = ndcCluster(ndcMax.y, ${CLUSTER_Y}u);
+    let top = ${CLUSTER_Y}u - maxY - 1u;
+    let bottom = ${CLUSTER_Y}u - minY;
     return vec4u(
         select(minX, minX - 1u, minX > 0u),
-        ${CLUSTER_Y}u - min(maxY + 2u, ${CLUSTER_Y}u),
+        select(top, top - 1u, top > 0u),
         min(maxX + 2u, ${CLUSTER_X}u),
-        min(${CLUSTER_Y}u - minY + 1u, ${CLUSTER_Y}u),
+        min(bottom + 1u, ${CLUSTER_Y}u),
     );
 }
 
@@ -796,11 +817,12 @@ fn vertexMain(
     let slice = zSlices[instance];
     let light = rasterLights[slice.light];
     let center = (viewMats[slot] * vec4f(light.posRange.xyz, 1.0)).xyz;
-    let inverseRangeSquared = light.posRange.w;
-    let radius = select(1e20, inverseSqrt(inverseRangeSquared), inverseRangeSquared > 0.0);
+    let worldInverseRangeSquared = light.posRange.w;
+    let radius = select(1e20, inverseSqrt(worldInverseRangeSquared), worldInverseRangeSquared > 0.0) * viewScale(viewMats[slot]);
+    let inverseRangeSquared = select(0.0, 1.0 / (radius * radius), worldInverseRangeSquared > 0.0);
     let view = clusterViews[slot * 2u];
     let perspective = clusterViews[slot * 2u + 1u].x > 0.5;
-    let bounds = rasterBounds(center, radius, view, perspective, slice.z);
+    let bounds = rasterBounds(center, radius, view, perspective);
     let right = vertex == 1u || vertex == 3u;
     let bottom = vertex >= 2u;
     let x = select(bounds.x, bounds.z, right);
@@ -832,7 +854,9 @@ fn intersects(clusterIndex: u32, center: vec3f, inverseRangeSquared: f32) -> boo
     let mx = clusterAabbs[base + 1u].xyz;
     let nearest = clamp(center, mn, mx);
     let delta = nearest - center;
-    return dot(delta, delta) * inverseRangeSquared <= 1.0;
+    // The CPU oracle and grid builder use different precisions; retain exact tangencies across the
+    // f32 log-slice and projected-AABB calculations without widening visible membership materially.
+    return dot(delta, delta) * inverseRangeSquared <= 1.00001;
 }
 `;
 
