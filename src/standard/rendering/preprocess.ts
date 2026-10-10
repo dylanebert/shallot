@@ -16,9 +16,8 @@ import {
 } from "../../core/rendering";
 import type { Registry, System, World } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import type { Surface } from "./contract";
-import { MeshInstanceInput, Surfaces } from "./contract";
-import { MeshMaterial, materialTable } from "./material";
+import { type MaterialType, MaterialTypes, materialTypes } from "./material";
+import { MeshInstanceInput, MeshMaterial } from "./material-data";
 import {
     CullParams,
     countKernel,
@@ -65,7 +64,7 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
  * reads `slot`'s records via `Draw.args.viewStride`. `packedEids` is one list
  * partitioned into a `capacity`-sized region per slot, each region compacted
  * into per-pair slices, read by the VS at `instance_index`. The slot dimension
- * grows with the active camera count, the pair dimension (`Surfaces.size ×
+ * grows with the active camera count, the pair dimension (`MaterialTypes.size ×
  * Meshes.size`) with mesh registration: no fixed upper bound on either
  */
 export interface MeshDrawBuffers {
@@ -87,7 +86,7 @@ interface MeshPreprocessState {
     countBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     scanBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     scatterBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
-    surfaceCount: number;
+    materialTypeCount: number;
     meshCount: number;
     pairCount: number;
     viewDim: number;
@@ -136,7 +135,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
         countBound: null,
         scanBound: null,
         scatterBound: null,
-        surfaceCount: 0,
+        materialTypeCount: 0,
         meshCount: 0,
         pairCount: 0,
         viewDim: 1,
@@ -149,7 +148,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
         paramsInstanceCount: -1,
         paramsInstanceCapacity: -1,
         rowCapacity: 0,
-        inputGeneration: new Int32Array(5).fill(-1),
+        inputGeneration: new Int32Array(4).fill(-1),
     };
 }
 
@@ -157,11 +156,13 @@ export function initializeMeshPreprocess(world: World): void {
     world.resource(meshPreprocessKey);
     const table = meshInstanceTable(world);
     table.bindComponent(MeshInstance, { mesh: "mesh" });
-    materialTable(world);
-    table.bindFields(MeshMaterial, { material: "material" });
+    table.bindFields(MeshMaterial, { material: "material", materialType: "type" });
     table.bindPresence(NotShadowCaster, "flags", 1);
     const seedDefault = (eid: number) => {
-        if (!world.has(eid, MeshMaterial)) world.storage(MeshMaterial).material.set(eid, 0);
+        if (!world.has(eid, MeshMaterial)) {
+            world.storage(MeshMaterial).material.set(eid, 0);
+            world.storage(MeshMaterial).type.set(eid, 0);
+        }
     };
     world.onDispose(
         world.observeMembership(MeshInstance, (eid, present) => {
@@ -273,21 +274,18 @@ function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> 
     if (!_meshPreprocess.cullParams || !_meshPreprocess.meshBounds) return null;
     const meshInstances = meshInstanceTable(world);
     const globalTransforms = globalTransformTable(world);
-    const materials = materialTable(world);
     const generation = _meshPreprocess.inputGeneration;
     if (
         generation[0] !== meshInstances.generation ||
         generation[1] !== meshInstances.activeGeneration ||
         generation[2] !== globalTransforms.generation ||
-        generation[3] !== globalTransforms.mapGeneration ||
-        generation[4] !== materials.generation
+        generation[3] !== globalTransforms.mapGeneration
     ) {
         unbind(world);
         generation[0] = meshInstances.generation;
         generation[1] = meshInstances.activeGeneration;
         generation[2] = globalTransforms.generation;
         generation[3] = globalTransforms.mapGeneration;
-        generation[4] = materials.generation;
     }
     if (_meshPreprocess.cullGroup) return _meshPreprocess.cullGroup;
     const cullVolumes = world.gpu.buffers.get("cullVolumes");
@@ -301,7 +299,6 @@ function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> 
     _meshPreprocess.cullGroup = world.gpu.root.createBindGroup(cullLayout, {
         instanceRows,
         instances: meshInstances.buffer,
-        materials: materials.buffer,
         globalTransforms: globalTransforms.buffer,
         globalTransformRows,
         meshBounds: _meshPreprocess.meshBounds,
@@ -404,7 +401,7 @@ function unbind(world: World): void {
  * after warm. `drawArgs` + `counts` scale with `viewDim × pairCount`; dense
  * output lists scale with `viewDim × rowCapacity`; mesh bounds scale with mesh count.
  * Pair growth only appends slots
- * (`mid * surfaceCount + sid`) so existing offsets hold, and the pipelines read
+ * (`mid * materialTypeCount + sid`) so existing offsets hold, and the pipelines read
  * both dimensions from `cullParams` + `arrayLength`, never recompiling. Old
  * buffers free behind the submit fence: a prior frame may still reference them
  */
@@ -412,7 +409,7 @@ function syncBuffers(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
 
-    if (_meshPreprocess.surfaceCount === 0) return;
+    if (_meshPreprocess.materialTypeCount === 0) return;
     const meshCount = world.resource(Meshes).size;
     const viewDim = Math.max(1, world.resource(RenderContext).viewCount);
     const rowCapacity = meshInstanceTable(world).capacity;
@@ -425,7 +422,7 @@ function syncBuffers(world: World): void {
     _meshPreprocess.meshCount = Math.max(_meshPreprocess.meshCount, meshCount);
     _meshPreprocess.viewDim = Math.max(_meshPreprocess.viewDim, viewDim);
     _meshPreprocess.rowCapacity = Math.max(_meshPreprocess.rowCapacity, rowCapacity);
-    _meshPreprocess.pairCount = _meshPreprocess.surfaceCount * _meshPreprocess.meshCount;
+    _meshPreprocess.pairCount = _meshPreprocess.materialTypeCount * _meshPreprocess.meshCount;
     const records = _meshPreprocess.viewDim * _meshPreprocess.pairCount;
 
     const staleArgs: (DrawBuffer | AtomicU32Buffer | null)[] = [];
@@ -491,7 +488,7 @@ function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
     return buffer;
 }
 
-/** publish MeshInstance's `(surface, mesh)` draw pairs and return the indirect records the GPU buffer needs.
+/** publish MeshInstance's `(material type, mesh)` draw pairs and return the indirect records the GPU buffer needs.
  * Device-free so ordering tests can exercise the production publication seam without an adapter.
  * @internal */
 type DrawRecord = {
@@ -505,27 +502,25 @@ type DrawRecord = {
 export function publishMeshInstanceDraws(
     world: World,
     drawArgs: DrawBuffer,
-    surfaceCount: number,
+    materialTypeCount: number,
     pairCount: number,
     registries: {
-        surfaces: Registry<Surface>;
+        materialTypes: readonly (MaterialType | undefined)[];
         meshes: ReturnType<typeof Meshes.create>;
         draws: Registry<Draw>;
     } = {
-        surfaces: world.resource(Surfaces),
+        materialTypes: world.resource(MaterialTypes).types,
         meshes: world.resource(Meshes),
         draws: world.resource(Draws),
     },
 ): { offset: number; args: DrawRecord }[] {
-    const { surfaces, meshes, draws } = registries;
+    const { materialTypes, meshes, draws } = registries;
     const writes: { offset: number; args: DrawRecord }[] = [];
     const viewStride = pairCount * DRAW_ARG_STRIDE;
-    for (const surface of surfaces) {
-        const entries = surface.layout.entries;
-        if (!("eids" in entries) || !("globalTransforms" in entries)) continue;
-        const sid = surfaces.id(surface.name)!;
+    for (const [materialType, definition] of materialTypes.entries()) {
+        if (!definition) continue;
         for (const [handle, m] of meshes.entries()) {
-            const pair = handle * surfaceCount + sid;
+            const pair = handle * materialTypeCount + materialType;
             const offset = pair * DRAW_ARG_STRIDE;
             // DrawIndexedIndirect: indexCount, instanceCount (pack), firstIndex, baseVertex (0 — indices
             // are absolute vertex positions), firstInstance (pack)
@@ -538,8 +533,8 @@ export function publishMeshInstanceDraws(
             };
             writes.push({ offset, args });
             draws.register({
-                name: `mesh:${surface.name}:${m.name}:${handle}`,
-                surface: surface.name,
+                name: `mesh:material:${definition.name}:${m.name}:${handle}`,
+                materialType,
                 mesh: handle,
                 args: { indirect: drawArgs, offset, viewStride },
             });
@@ -557,7 +552,7 @@ function registerDraws(world: World): void {
     for (const { offset, args } of publishMeshInstanceDraws(
         world,
         _meshDraws.drawArgs,
-        _meshPreprocess.surfaceCount,
+        _meshPreprocess.materialTypeCount,
         _meshPreprocess.pairCount,
     )) {
         const bytes = new ArrayBuffer(DRAW_ARG_STRIDE);
@@ -579,7 +574,7 @@ export function initMeshPreprocess(world: World): void {
 
 /**
  * compile the pack pipelines + allocate `packedEids`'s first slot. Runs at warm
- * (after every `initialize`), so `Surfaces.size` is final: surfaces are WGSL
+ * (after every `initialize`), so `MaterialTypes.size` is final: surfaces are WGSL
  * shading programs declared in code, never data-driven, so the surface count is
  * the one axis safe to bake into the shaders. The pair count + view count come
  * from `cullParams` each frame, so the pipelines never recompile when meshes
@@ -593,7 +588,7 @@ export function warmMeshPreprocess(world: World): void {
 
     if (!world.gpu.device) return;
     const root = world.gpu.root;
-    _meshPreprocess.surfaceCount = world.resource(Surfaces).size;
+    _meshPreprocess.materialTypeCount = materialTypes(world).length;
     _meshPreprocess.meshCount = 0;
     _meshPreprocess.pairCount = 0;
     _meshPreprocess.viewDim = 1;
@@ -613,16 +608,16 @@ export function warmMeshPreprocess(world: World): void {
         .createBuffer(CullParams)
         .$usage("uniform")
         .$name("shallot-mesh-preprocess-cull-params");
-    if (_meshPreprocess.surfaceCount === 0) return;
+    if (_meshPreprocess.materialTypeCount === 0) return;
 
     _meshPreprocess.countPipe = root
-        .createComputePipeline({ compute: countKernel(_meshPreprocess.surfaceCount) })
+        .createComputePipeline({ compute: countKernel(_meshPreprocess.materialTypeCount) })
         .$name("shallot-mesh-preprocess-count");
     _meshPreprocess.scanPipe = root
         .createComputePipeline({ compute: scanKernel() })
         .$name("shallot-mesh-preprocess-scan");
     _meshPreprocess.scatterPipe = root
-        .createComputePipeline({ compute: scatterKernel(_meshPreprocess.surfaceCount) })
+        .createComputePipeline({ compute: scatterKernel(_meshPreprocess.materialTypeCount) })
         .$name("shallot-mesh-preprocess-scatter");
 
     // both the allocation and the bind are deferred into the forcers, not done here. The drain runs

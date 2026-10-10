@@ -6,11 +6,9 @@
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import type { MeshHandle } from "../../core/mesh";
 import type { World } from "../../engine";
 import { packColor } from "../../engine/utils";
-import { DrawIndexedIndirect } from "../../standard/rendering";
-import { Segment } from "./surface";
+import { DrawIndirect, Segment } from "./pipeline";
 
 // one segment = two world endpoints + a pixel width + a packed sRGBA color, 32 bytes / two vec4 reads
 // (read-all per instance coalesces near the floor). `a.xyz` shares its 16-byte slot with `width`,
@@ -28,8 +26,7 @@ interface SegmentState {
     u32: Uint32Array;
     capacity: number;
     count: number;
-    args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;
-    mesh: MeshHandle | null;
+    args: (TgpuBuffer<typeof DrawIndirect> & { usableAsIndirect: true }) | null;
 }
 
 const segmentStateKey = { create: createSegmentState };
@@ -44,7 +41,6 @@ function createSegmentState(): SegmentState {
         capacity: INITIAL,
         count: 0,
         args: null,
-        mesh: null,
     };
 }
 
@@ -56,14 +52,14 @@ export function initializeSegmentState(world: World): void {
     world.resource(segmentStateKey);
 }
 
-// the producer's GPU publication. `count` is the segments packed this frame (reset after the upload);
-// `args` is the `DrawIndexedIndirect` buffer whose `instanceCount` lane the live segment count drives.
+// the producer's GPU publication. `count` is the segments packed this frame (reset after upload);
+// `args` is the non-indexed indirect draw record consumed by the transparent phase.
 // Internal — the unit test reads `count` to check the immediate-API expansion; `args` is COPY_SRC so a
 // A one-shot probe can read back the produced instance count
 interface Lines {
     readonly count: number;
-    args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;
-    mesh: MeshHandle | null;
+    buffer: (TgpuBuffer<d.WgslArray<typeof Segment>> & StorageFlag) | null;
+    args: (TgpuBuffer<typeof DrawIndirect> & { usableAsIndirect: true }) | null;
 }
 
 export const Lines: import("../../engine").Resource<Lines> = {
@@ -235,14 +231,14 @@ export function warmSegments(world: World, _device: GPUDevice): void {
     world.gpu.buffers.set("lineSegments", world.gpu.root.unwrap(buffer));
     world.gpu.typed.set("lineSegments", buffer);
     world.resource(Lines).args = world.gpu.root
-        .createBuffer(DrawIndexedIndirect)
+        .createBuffer(DrawIndirect)
         .$usage("indirect")
         .$name("shallot-line-args");
 }
 
 // grow the GPU buffer to match the CPU staging (rare); republish so standard re-resolves the binding, then
 // upload this frame's segments, write the indirect record (instanceCount = live count), and clear
-export function flushSegments(world: World, device: GPUDevice, quadBase: number): void {
+export function flushSegments(world: World, device: GPUDevice): void {
     const _lines = world.resource(Lines);
 
     const resources = segmentState(world);
@@ -270,10 +266,9 @@ export function flushSegments(world: World, device: GPUDevice, quadBase: number)
             resources.count * SEGMENT_BYTES,
         );
     args.write({
-        indexCount: 6,
+        vertexCount: 6,
         instanceCount: resources.count,
-        firstIndex: quadBase,
-        baseVertex: 0,
+        firstVertex: 0,
         firstInstance: 0,
     });
     segmentState(world).count = 0;

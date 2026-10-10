@@ -122,11 +122,10 @@ test("report production frame GPU time for first-person and a 10k-instance scene
                 translation: [((i % 100) - 50) * 0.4, Math.floor(i / 100 - 50) * 0.4, 0, 0],
                 scale: [0.15, 0.15, 0.15, 1],
             });
-            world.add(eid, MeshMaterial, {
-                material: world
-                    .resource(Materials)
-                    .add(StandardMaterial({ baseColor: [0.3, 0.6, 0.8, 1] })),
-            });
+            const material = world
+                .resource(Materials)
+                .add(StandardMaterial({ baseColor: [0.3, 0.6, 0.8, 1] }));
+            world.add(eid, MeshMaterial, material);
         }
     };
     try {

@@ -2,20 +2,8 @@
 
 export { pointAtlasView, shadowSampler, sunShadowParams, sunShadowView } from "./atlas";
 export { Clusters, clusterCell, LightClusters, LightCull } from "./cluster";
-export type { Background, Surface } from "./contract";
-export {
-    BackgroundContext,
-    Backgrounds,
-    backgroundLayout,
-    fsCtxSchema,
-    MeshInstanceInput,
-    registerBackground,
-    registerSurface,
-    Surfaces,
-    surfaceLayout,
-    VsIn,
-    vsPatchSchema,
-} from "./contract";
+export type { Background } from "./contract";
+export { BackgroundContext, Backgrounds, backgroundLayout, registerBackground } from "./contract";
 export { engineLayout, lit } from "./engine";
 export { CameraBackground, StandardRenderer, StandardRenderingPlugin } from "./forward";
 export {
@@ -25,8 +13,36 @@ export {
     PointLightGpu,
     spotFactor,
 } from "./lighting";
-export { Materials, MeshMaterial, StandardMaterial } from "./material";
+export {
+    MaterialPlugin,
+    Materials,
+    MaterialTypes,
+    MeshMaterial,
+    materialAssets,
+    materialType,
+    materialTypeId,
+    materialTypes,
+    StandardMaterial,
+    StandardMaterialType,
+} from "./material";
+export { MeshInstanceInput, StandardMaterialInput } from "./material-data";
+export type {
+    MaterialBinding,
+    MaterialFragmentFn,
+    MaterialHandle,
+    MaterialLayout,
+    MaterialType,
+    MaterialVertexFn,
+} from "./material-type";
+export {
+    MaterialAssets,
+    MaterialVertexInput,
+    materialFragmentContext,
+    materialLayout,
+    materialVertexOutput,
+} from "./material-type";
 export { MeshRenderPlugin } from "./mesh-render";
+export { MeshPreprocessSystem } from "./preprocess";
 export type { Draw } from "./registry";
 export { DrawIndexedIndirect, Draws } from "./registry";
 export {

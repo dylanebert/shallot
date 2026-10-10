@@ -1,6 +1,6 @@
 import type { TgpuRenderPipeline } from "typegpu";
 import type { MeshIndex } from "../../core/mesh";
-import type { SurfaceGroupEntry } from "./pipelines";
+import type { MaterialGroupEntry } from "./pipelines";
 
 // The one form every standard pass records a draw through. It lives in its own module because both callers —
 // the color and prepass passes in ./forward and the shadow-atlas passes in ./atlas — would otherwise need a
@@ -14,7 +14,7 @@ import type { SurfaceGroupEntry } from "./pipelines";
  * alone; the prepass and the point/cascade atlas passes bind the depth variant too.
  */
 export function boundPipeline(
-    g: SurfaceGroupEntry,
+    g: MaterialGroupEntry,
     pipe: TgpuRenderPipeline<any>,
     group: GPUBindGroup,
     depthVariant: boolean,

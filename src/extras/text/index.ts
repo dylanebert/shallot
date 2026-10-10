@@ -1,26 +1,29 @@
 import { component } from "../../engine";
 // Text — the shallot SDF-text producer. A retained `Text` component (string content, font, size,
-// anchor, color) lays each label out into instanced glyph quads, drawn as a standard `"alpha"` world-space
-// surface (one draw per font atlas). The glyph buffer holds glyph-local positions + the owning entity id;
-// the VS resolves the entity's dense row through `globalTransformRows` each frame, so placement flows through GlobalTransform
-// and triggers no glyph rebuild — the buffer rebuilds only when a layout-affecting field changes (a
-// content / size / anchor / color edit, an add / remove), gated by a per-frame signature. The SDF atlas /
-// font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the shallot
-// surface + producer around it. Single-channel SDF (Valve "Improved Alpha-Tested Magnification").
+// anchor, color) lays each label out into instanced glyph quads, drawn in core's transparent phase (one
+// draw per font atlas). The glyph buffer holds glyph-local positions + the owning entity id; the VS resolves
+// the entity's dense row through `globalTransformRows` each frame, so placement flows through
+// GlobalTransform and triggers no glyph rebuild. Text previously used an alpha surface, so it never
+// entered the opaque depth prepass or either shadow path; moving it drops no shadow-casting behavior.
+// The SDF atlas / font / layout substance remains renderer-agnostic. Single-channel SDF (Valve "Improved
+// Alpha-Tested Magnification").
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Meshes, type MeshHandle, MeshPlugin, registerMesh } from "../../core/mesh";
-import { BeginFrameSystem, PrepassSystem, RenderingPlugin } from "../../core/rendering";
+import {
+    BeginFrameSystem,
+    Camera,
+    CorePipelinePlugin,
+    globalTransformTable,
+    PrepassSystem,
+    RenderContext,
+    RenderPhases,
+} from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import { f32, type Plugin, Registry, type System, u32, vec2, type World } from "../../engine";
-import { packColor } from "../../engine/utils";
-import {
-    DrawIndexedIndirect,
-    Draws,
-    registerSurface,
-    StandardRenderingPlugin,
-} from "../../standard/rendering";
+import { packColor, type Xform } from "../../engine/utils";
+import { DrawIndexedIndirect } from "../../standard/rendering";
 import {
     createGlyphAtlas,
     disposeAtlases,
@@ -30,8 +33,8 @@ import {
 } from "./atlas";
 import { DEFAULT_FONT, type Font, loadFont } from "./font";
 import { GLYPH_AT, GLYPH_BYTES, GLYPH_FLOATS, Glyph } from "./glyph";
+import { createTextPipeline, textLayout, viewLayout } from "./pipeline";
 import { initializeSdfState, resetPipelines } from "./sdf";
-import { atlasName, textSurface, textVaryings } from "./surface";
 
 /** registered fonts, keyed by name (the url when unnamed); the id is the atlas slot */
 export const Fonts = { create: () => new Registry<{ name: string; url: string }>() };
@@ -96,10 +99,7 @@ export const Text = component(
     },
 );
 
-// one surface + draw + atlas texture per font. The glyph buffer + sampler are shared (one name each); only
-// the atlas texture binding is per-font, so its name carries the id. The default single-font case is one
-// surface "text0" binding "textAtlas0"
-const surfaceName = (id: number) => `text${id}`;
+// One atlas and resource bind group per font; glyph and placement tables are shared.
 // the unit quad standard instances per glyph: posU.xyz = (corner.x, corner.y, 0); normalV unused
 // prettier-ignore
 const QUAD_VERTS = new Float32Array([
@@ -143,6 +143,13 @@ interface TextState {
     ranges: { start: number; count: number }[];
     bits: Float32Array;
     bitsU: Uint32Array;
+    colorPipelines: {
+        single: import("typegpu").TgpuRenderPipeline | null;
+        multisample: import("typegpu").TgpuRenderPipeline | null;
+    };
+    bindGroups: (GPUBindGroup | null)[];
+    bindKeys: (object[] | null)[];
+    viewGroups: Map<number, { buffer: GPUBuffer; quant: object; group: GPUBindGroup }>;
 }
 
 const textStateKey = { create: createTextState };
@@ -168,6 +175,10 @@ function createTextState(): TextState {
         ranges: [],
         bits,
         bitsU: new Uint32Array(bits.buffer),
+        colorPipelines: { single: null, multisample: null },
+        bindGroups: [],
+        bindKeys: [],
+        viewGroups: new Map(),
     };
 }
 
@@ -323,19 +334,9 @@ const TextSystem: System = {
     before: [PrepassSystem],
     setup(world: World) {
         const _textState = world.resource(textStateKey);
-
         _textState.quadBase =
             (_textState.quad === null ? undefined : world.resource(Meshes).get(_textState.quad))
                 ?.indexBase ?? 0;
-        for (let id = 0; id < _textState.atlases.length; id++) {
-            if (!_textState.atlases[id]) continue;
-            world.resource(Draws).register({
-                name: `text${id}`,
-                surface: surfaceName(id),
-                mesh: _textState.quad!,
-                args: { indirect: _textState.argBuf!, offset: id * 20 },
-            });
-        }
     },
     update(world) {
         const _textState = world.resource(textStateKey);
@@ -356,17 +357,91 @@ const TextSystem: System = {
 
 const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?-:;'\"()";
 
+function renderText(
+    world: World,
+    eid: number,
+    view: import("../../core/rendering").View,
+    pass: GPURenderPassEncoder,
+): void {
+    const state = world.resource(textStateKey);
+    if (!state.argBuf || !state.glyphBuf || !state.quad || !world.gpu.device) return;
+    const mesh = world.resource(Meshes).get(state.quad);
+    if (!mesh?.quant) return;
+    const table = globalTransformTable(world);
+    const context = world.resource(RenderContext);
+    const viewBuffer = context.viewBuffers[view.slot];
+    if (!viewBuffer) return;
+
+    let viewGroup = state.viewGroups.get(view.slot);
+    if (!viewGroup || viewGroup.buffer !== viewBuffer || viewGroup.quant !== mesh.quant) {
+        const group = world.gpu.root.createBindGroup(viewLayout, {
+            view: viewBuffer,
+            meshQuant: mesh.quant,
+        });
+        viewGroup = {
+            buffer: viewBuffer,
+            quant: mesh.quant,
+            group: world.gpu.root.unwrap(group),
+        };
+        state.viewGroups.set(view.slot, viewGroup);
+    }
+
+    const aa = world.storage(Camera).antialias.get(eid) !== 0;
+    const pipeline = aa ? state.colorPipelines.multisample : state.colorPipelines.single;
+    if (!pipeline) return;
+    pass.setPipeline(world.gpu.root.unwrap(pipeline));
+    pass.setBindGroup(0, viewGroup.group);
+    pass.setIndexBuffer(world.gpu.root.unwrap(mesh.indices), "uint32");
+
+    const glyphs = state.glyphBuf;
+    const transforms = table.typed;
+    const rows = table.eidToRowTyped;
+    if (!rows) return;
+    for (let id = 0; id < state.atlases.length; id++) {
+        const atlas = state.atlases[id];
+        if (!atlas || !state.ranges[id]?.count) continue;
+        const keys = [
+            mesh.vertices,
+            mesh.quant,
+            glyphs,
+            transforms,
+            rows,
+            atlas.texture,
+            state.sampler!,
+        ];
+        let group = state.bindGroups[id];
+        const previous = state.bindKeys[id];
+        if (!group || !previous || keys.some((key, index) => key !== previous[index])) {
+            group = world.gpu.root.unwrap(
+                world.gpu.root.createBindGroup(textLayout, {
+                    vertices: mesh.vertices,
+                    glyphs,
+                    globalTransforms: transforms as TgpuBuffer<d.WgslArray<typeof Xform>> &
+                        StorageFlag,
+                    globalTransformRows: rows as TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag,
+                    atlas: atlas.texture.createView(),
+                    sampler: state.sampler!,
+                }),
+            );
+            state.bindGroups[id] = group;
+            state.bindKeys[id] = keys;
+        }
+        pass.setBindGroup(1, group);
+        pass.drawIndexedIndirect(world.gpu.root.unwrap(state.argBuf), id * 20);
+    }
+}
+
 /**
  * the shallot text producer: the retained {@link Text} component laid out into instanced SDF glyph quads,
- * drawn as a standard `"alpha"` world-space surface (one draw per font). Register fonts with {@link registerFont} and
- * label strings with {@link internText}. Depends on {@link RenderingPlugin}; a StandardRenderer camera renders it
+ * drawn in core's transparent phase (one draw per font). Register fonts with {@link registerFont} and
+ * label strings with {@link internText}. Depends on {@link CorePipelinePlugin}; a core camera renders it
  */
 export const TextPlugin: Plugin = {
     gpu: {},
     name: "Text",
     components: [Text],
     systems: [TextSystem],
-    dependencies: [MeshPlugin, RenderingPlugin, StandardRenderingPlugin],
+    dependencies: [MeshPlugin, CorePipelinePlugin],
 
     async initialize(world) {
         const _textState = world.resource(textStateKey);
@@ -374,6 +449,7 @@ export const TextPlugin: Plugin = {
 
         _textState;
         initializeSdfState(world);
+        world.resource(RenderPhases).push({ transparent: renderText });
         _textState.loaded = [];
         _textState.atlases = [];
         _textState.glyphBuf = null;
@@ -411,24 +487,11 @@ export const TextPlugin: Plugin = {
             magFilter: "linear",
             minFilter: "linear",
         });
-        world.gpu.samplers.set("textSamp", _textState.sampler);
-
         for (let id = 0; id < _textState.loaded.length; id++) {
             const loaded = _textState.loaded[id];
             if (!loaded) continue;
             const atlas = createGlyphAtlas(device, loaded);
             _textState.atlases[id] = atlas;
-            world.gpu.textures.set(atlasName(id), atlas.texture);
-            const { layout, vs, fs } = textSurface(id);
-            registerSurface(world, {
-                name: surfaceName(id),
-                layout,
-                fragmentInputs: { localPos: true },
-                blend: "alpha",
-                varyings: textVaryings,
-                vs,
-                fs,
-            });
         }
     },
 
@@ -452,6 +515,14 @@ export const TextPlugin: Plugin = {
             .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _textState.atlases.length)))
             .$usage("indirect")
             .$name("shallot-text-args");
+        const format = world.resource(RenderContext).format;
+        _textState.colorPipelines = {
+            single: createTextPipeline(world.gpu.root, format, 1),
+            multisample: createTextPipeline(world.gpu.root, format, 4),
+        };
+        _textState.viewGroups.clear();
+        _textState.bindGroups.length = _textState.atlases.length;
+        _textState.bindKeys.length = _textState.atlases.length;
         for (const atlas of _textState.atlases) if (atlas) ensureString(world, atlas, ASCII_CACHE);
     },
 
@@ -467,5 +538,9 @@ export const TextPlugin: Plugin = {
         _textState.atlases = [];
         _textState.loaded = [];
         _textState.count = 0;
+        _textState.bindGroups = [];
+        _textState.bindKeys = [];
+        _textState.viewGroups.clear();
+        _textState.colorPipelines = { single: null, multisample: null };
     },
 };

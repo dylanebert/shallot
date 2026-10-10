@@ -38,11 +38,11 @@ function scene(world: World, cascades: number, prepass = false): { camera: numbe
     const floor = world.create();
     world.add(floor, Transform, { translation: [0, -0.5, 0, 0], scale: [40, 0.2, 40, 0] });
     world.add(floor, MeshInstance);
-    world.add(floor, MeshMaterial, { material });
+    world.add(floor, MeshMaterial, material);
     const cube = world.create();
     world.add(cube, Transform, { translation: [0, 0.5, 0, 0] });
     world.add(cube, MeshInstance);
-    world.add(cube, MeshMaterial, { material });
+    world.add(cube, MeshMaterial, material);
     const sun = world.create();
     world.add(sun, DirectionalLight, { direction: [-0.4, -1, -0.55, 0] });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);

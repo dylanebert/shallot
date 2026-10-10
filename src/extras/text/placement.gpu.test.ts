@@ -12,9 +12,8 @@ import { Transform } from "../../core/transform";
 import { createApp } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { encodePos } from "../../engine/utils";
-import { VsIn } from "../../standard/rendering";
 import { maskLayoutPlain, maskVertex } from "../outline/passes";
-import { textSurface } from "./surface";
+import { TextVertex } from "./pipeline";
 
 setDefaultTimeout(CEILING.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
@@ -65,29 +64,25 @@ const subject = compileGpuFile(import.meta.path, async () => {
     const glyph = new ArrayBuffer(48);
     new Uint32Array(glyph)[3] = eid;
     new Float32Array(glyph).set([0.5, 0.5], 8);
-    buffer("textGlyphs", new Uint8Array(glyph));
+    buffer("glyphs", new Uint8Array(glyph));
     buffer("maskEids", new Uint32Array([eid]));
     const quant = { posOffset: d.vec4f(0), posScale: d.vec4f(0.5, 0.5, 1, 0), uvScale: d.vec4f(0) };
     buffer("meshQuant", new Float32Array([0, 0, 0, 0, 0.5, 0.5, 1, 0, 0, 0, 0, 0]));
     const positions = [d.vec3f(0), d.vec3f(0.5, 0, 0), d.vec3f(0, 0.5, 0)].flatMap((p) => [
         ...encodePos(p, 0, quant),
     ]);
+    const vertices = [d.vec3f(0), d.vec3f(0.5, 0, 0), d.vec3f(0, 0.5, 0)].flatMap((p) => [
+        ...encodePos(p, 0, quant),
+        0,
+        0,
+    ]);
+    buffer("vertices", new Uint32Array(vertices));
     buffer("position", new Uint32Array(positions));
     buffer("indices", new Uint32Array([0, 1, 2]));
     const view = new Float32Array(52);
     for (const i of [0, 5, 10, 15]) view[i] = 1;
     buffer("view", view, true);
-    const text = textSurface(0);
-    const textCode = tgpu.resolve({
-        names: "strict",
-        externals: { VsIn, textVs: text.vs },
-        template: `
-@vertex fn main(@builtin(vertex_index) vidx: u32) -> @builtin(position) vec4f {
-    var input: VsIn;
-    input.localPos = array<vec3f, 3>(vec3f(0), vec3f(1, 0, 0), vec3f(0, 1, 0))[vidx];
-    return textVs(input).world;
-}`,
-    });
+    const textCode = tgpu.resolve([TextVertex], { names: "strict" });
     const outlineCode = tgpu.resolve([maskVertex(maskLayoutPlain)], { names: "strict" });
     const texture = device.createTexture({
         size: [32, 16],
@@ -102,7 +97,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
             });
             const pipeline = await device.createRenderPipelineAsync({
                 layout: "auto",
-                vertex: { module, entryPoint: index === 0 ? "main" : "maskVs" },
+                vertex: { module, entryPoint: index === 0 ? "TextVertex" : "maskVs" },
                 fragment: { module, entryPoint: "white", targets: [{ format: "rgba8unorm" }] },
             });
             const entries = new Map<number, GPUBindGroupEntry[]>();
@@ -153,7 +148,7 @@ for (const [index, name] of ["label", "outline"].entries()) {
         const bytes = new Uint8Array((await probeTexture(app.world, texture)).bytes);
         const pixel = (x: number, y: number) => bytes[(y * 32 + x) * 4];
         expect(
-            [pixel(5, 8), pixel(21, 8)],
+            [pixel(4, 8), pixel(21, 8)],
             `${name} coverage [own row 0, eid-indexed decoy]`,
         ).toEqual([255, 0]);
     });

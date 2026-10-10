@@ -1,16 +1,4 @@
-import { component } from "../../engine";
-// the Sprite component + the CPU half of the producer: bucket every visible sprite by
-// (billboard, blend), pack each instance into a shared eid-indexed staging buffer (the shadow atlas
-// re-gather preserves only `eid`, so instance data can't be slot-major once a surface casts — see
-// surface.ts), a slot-major `eids` array parallel to the bucket-contiguous ranges (each variant's
-// draw indexes its range via firstInstance), and the FNV signature that gates the rebuild. Pure
-// over World — no GPU — so the packing contract is what sprite.test.ts exercises directly.
-
-import * as d from "typegpu/data";
-import { GlobalTransform } from "../../core/transform";
-import { f32, u32, vec2, type World } from "../../engine";
-import { packColor } from "../../engine/utils";
-import { SpriteData } from "./surface";
+import { component, f32, u32, vec2 } from "../../engine";
 
 /** how a sprite quad orients toward the camera */
 export const SpriteBillboard = {
@@ -42,20 +30,11 @@ export const SpriteFill = {
     Horizontal: 3,
 } as const;
 
-/**
- * a textured world-space quad (icon, marker) anchored to an entity's {@link Transform}. `image` is
- * a registered image id ({@link registerImage}), `size` the world-space quad size, `anchor` the 0..1 pivot
- * (0.5 0.5 = centered), `color` a hex sRGB tint, `billboard` a {@link SpriteBillboard} mode,
- * `blend` a {@link SpriteBlend} mode. `opacity` multiplies the texture alpha; under the default
- * `clip` blend that shrinks the cutout (the sprite vanishes below 0.5);
- * a smooth fade needs `blend: alpha`. The quad scales by the transform's scale on top of `size`.
- * `fill` shows only the leading 0..1 fraction of the image along a {@link SpriteFill} `fillMode`:
- * a radial fill over a ring icon is a progress ring, a vertical fill over a bar icon a gauge
- */
+/** A textured world-space quad anchored to an entity's Transform. */
 export const Sprite = component(
     "Sprite",
     {
-        /** registered image id (see {@link registerImage}) */
+        /** registered image id (see registerImage) */
         image: u32,
         /** quad size in world units, before the transform's scale */
         size: vec2,
@@ -67,13 +46,13 @@ export const Sprite = component(
         opacity: f32,
         /** drawn when nonzero */
         visible: f32,
-        /** billboard orientation, a {@link SpriteBillboard} mode */
+        /** billboard orientation */
         billboard: u32,
-        /** compositing, a {@link SpriteBlend} mode */
+        /** compositing route */
         blend: u32,
-        /** leading fraction of the image shown, 0..1, along {@link fillMode} */
+        /** leading fraction of the image shown, 0..1 */
         fill: f32,
-        /** fill direction, a {@link SpriteFill} mode */
+        /** fill direction */
         fillMode: u32,
     },
     {
@@ -92,199 +71,8 @@ export const Sprite = component(
     },
 );
 
-// one sprite instance = the quad-local offset (-size·anchor) + size, the owning eid, the array
-// layer, a packed sRGBA tint, and the packed fill (unorm16 amount | mode << 16). 32 bytes / two
-// vec4 reads. Stride derived from the schema (a second hand-authored stride is layout drift
-// waiting to happen).
-export const SPRITE_BYTES = d.sizeOf(SpriteData);
-const SPRITE_FLOATS = SPRITE_BYTES / 4;
-/** initial instance capacity: the staging + GPU buffer double on demand */
-export const INITIAL = 1 << 8;
-
-/** six buckets, billboard-major: bucket = billboard * 2 + blend */
-export const BUCKETS = 6;
-
-interface Instance {
-    eid: number;
-    ox: number;
-    oy: number;
-    w: number;
-    h: number;
-    layer: number;
-    color: number;
-    fill: number;
-}
-
-interface SpritePackState {
-    staging: ArrayBuffer;
-    f32: Float32Array<ArrayBuffer>;
-    u32: Uint32Array<ArrayBuffer>;
-    dataCap: number;
-    eids: Uint32Array<ArrayBuffer>;
-    slotCap: number;
-    count: number;
-    byBucket: Instance[][];
-    ranges: { start: number; count: number }[];
-    bits: Float32Array;
-    bitsU: Uint32Array;
-}
-
-const spritePackKey = { create: createSpritePackState };
-
-function createSpritePackState(): SpritePackState {
-    const staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
-    const bits = new Float32Array(1);
-    return {
-        staging,
-        f32: new Float32Array(staging),
-        u32: new Uint32Array(staging),
-        dataCap: INITIAL,
-        eids: new Uint32Array(INITIAL),
-        slotCap: INITIAL,
-        count: 0,
-        byBucket: Array.from({ length: BUCKETS }, () => []),
-        ranges: Array.from({ length: BUCKETS }, () => ({ start: 0, count: 0 })),
-        bits,
-        bitsU: new Uint32Array(bits.buffer),
-    };
-}
-
-function spritePackState(world: World): SpritePackState {
-    return world.resource(spritePackKey);
-}
-
-function packFill(amount: number, mode: number): number {
+/** Encode fill amount and direction in the Sprite material row. */
+export function packSpriteFill(amount: number, mode: number): number {
     const a = Math.round(Math.min(1, Math.max(0, amount)) * 0xffff);
     return ((mode & 0xffff) << 16) | a;
-}
-
-function fbits(v: number, state: SpritePackState): number {
-    state.bits[0] = v;
-    return state.bitsU[0];
-}
-function fold(h: number, x: number): number {
-    return Math.imul(h ^ x, 16777619);
-}
-
-// the dirty key: every visible sprite's layout-affecting state + membership, billboard + blend
-// included (they pick the bucket). The transform is deliberately absent — it flows through the
-// slab, so moving a sprite leaves the signature (and the instance buffer) untouched
-export function signature(world: World): number {
-    const scratch = spritePackState(world);
-    const sprite = world.storage(Sprite);
-    let h = 0x811c9dc5 | 0;
-    for (const eid of world.query([Sprite, GlobalTransform])) {
-        if (!sprite.visible.get(eid)) continue;
-        h = fold(h, eid);
-        h = fold(h, sprite.image.get(eid));
-        h = fold(h, fbits(sprite.size.x.get(eid), scratch));
-        h = fold(h, fbits(sprite.size.y.get(eid), scratch));
-        h = fold(h, fbits(sprite.anchor.x.get(eid), scratch));
-        h = fold(h, fbits(sprite.anchor.y.get(eid), scratch));
-        h = fold(h, sprite.color.get(eid));
-        h = fold(h, fbits(sprite.opacity.get(eid), scratch));
-        h = fold(h, sprite.billboard.get(eid));
-        h = fold(h, sprite.blend.get(eid));
-        h = fold(h, fbits(sprite.fill.get(eid), scratch));
-        h = fold(h, sprite.fillMode.get(eid));
-    }
-    return h;
-}
-
-function growData(min: number, state: SpritePackState): void {
-    let cap = state.dataCap;
-    while (cap < min) cap *= 2;
-    const next = new ArrayBuffer(cap * SPRITE_BYTES);
-    new Uint8Array(next).set(new Uint8Array(state.staging, 0, state.dataCap * SPRITE_BYTES));
-    state.staging = next;
-    state.f32 = new Float32Array(next);
-    state.u32 = new Uint32Array(next);
-    state.dataCap = cap;
-}
-
-function growSlots(min: number, state: SpritePackState): void {
-    let cap = state.slotCap;
-    while (cap < min) cap *= 2;
-    const next = new Uint32Array(cap);
-    next.set(state.eids.subarray(0, state.slotCap));
-    state.eids = next;
-    state.slotCap = cap;
-}
-
-/** restore the staging to its initial capacity: the producer's `warm` reset */
-export function resetPack(world: World): void {
-    const pack = spritePackState(world);
-    pack.dataCap = INITIAL;
-    pack.staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
-    pack.f32 = new Float32Array(pack.staging);
-    pack.u32 = new Uint32Array(pack.staging);
-    pack.slotCap = INITIAL;
-    pack.eids = new Uint32Array(INITIAL);
-    pack.count = 0;
-}
-
-export function packSprites(world: World): {
-    ranges: { start: number; count: number }[];
-    count: number;
-    dataCap: number;
-    f32: Float32Array<ArrayBuffer>;
-    u32: Uint32Array<ArrayBuffer>;
-    eids: Uint32Array<ArrayBuffer>;
-} {
-    const pack = spritePackState(world);
-    for (const bucket of pack.byBucket) bucket.length = 0;
-
-    const sprite = world.storage(Sprite);
-    let maxEid = -1;
-    for (const eid of world.query([Sprite, GlobalTransform])) {
-        if (!sprite.visible.get(eid)) continue;
-        const w = sprite.size.x.get(eid);
-        const h = sprite.size.y.get(eid);
-        const billboard = Math.min(sprite.billboard.get(eid), 2);
-        const blend = Math.min(sprite.blend.get(eid), 1);
-        if (eid > maxEid) maxEid = eid;
-        pack.byBucket[billboard * 2 + blend].push({
-            eid,
-            ox: -w * sprite.anchor.x.get(eid),
-            oy: -h * sprite.anchor.y.get(eid),
-            w,
-            h,
-            layer: sprite.image.get(eid),
-            color: packColor(sprite.color.get(eid), sprite.opacity.get(eid)),
-            fill: packFill(sprite.fill.get(eid), sprite.fillMode.get(eid)),
-        });
-    }
-
-    let total = 0;
-    for (const bucket of pack.byBucket) total += bucket.length;
-    if (total > pack.slotCap) growSlots(total, pack);
-    if (maxEid + 1 > pack.dataCap) growData(maxEid + 1, pack);
-
-    let n = 0;
-    for (let b = 0; b < BUCKETS; b++) {
-        pack.ranges[b].start = n;
-        for (const s of pack.byBucket[b]) {
-            const o = s.eid * SPRITE_FLOATS;
-            pack.f32[o] = s.ox;
-            pack.f32[o + 1] = s.oy;
-            pack.f32[o + 2] = s.w;
-            pack.f32[o + 3] = s.h;
-            pack.u32[o + 4] = s.eid;
-            pack.u32[o + 5] = s.layer;
-            pack.u32[o + 6] = s.color;
-            pack.u32[o + 7] = s.fill;
-            pack.eids[n] = s.eid;
-            n++;
-        }
-        pack.ranges[b].count = n - pack.ranges[b].start;
-    }
-    pack.count = n;
-    return {
-        ranges: pack.ranges,
-        count: pack.count,
-        dataCap: pack.dataCap,
-        f32: pack.f32,
-        u32: pack.u32,
-        eids: pack.eids,
-    };
 }

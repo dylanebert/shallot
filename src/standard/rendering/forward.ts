@@ -12,7 +12,7 @@ import {
     warmClusters,
     warmLightCull,
 } from "./cluster";
-import { initializeSurfaceState } from "./contract";
+import { initializeBackgroundState } from "./contract";
 import {
     initializeLightingState,
     LIGHTING_UNIFORM_SIZE,
@@ -37,10 +37,9 @@ import { initializeDrawState } from "./registry";
 // fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
 
 import type { TgpuBindGroupLayout, TgpuBuffer, TgpuRenderPipeline } from "typegpu";
-import tgpu, { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
+import { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
-import * as std from "typegpu/std";
 import { type MeshBinding, Meshes, type MeshIndex, MeshPlugin } from "../../core/mesh";
 import type { View } from "../../core/rendering";
 import {
@@ -52,7 +51,6 @@ import {
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
 import { u32 } from "../../engine";
-import { Xform } from "../../engine/utils";
 import {
     cascadeRegather,
     disposeShadowAtlas,
@@ -71,41 +69,31 @@ import {
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
 import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
-import {
-    type Background,
-    Backgrounds,
-    fsCtxSchema,
-    registerSurface,
-    type Surface,
-    Surfaces,
-    surfaceLayout,
-    VsIn,
-    vsPatchSchema,
-} from "./contract";
-import { engineLayout, litPbr } from "./engine";
+import { type Background, Backgrounds } from "./contract";
+import { engineLayout } from "./engine";
+import { type MaterialType, materialTypes, registerMaterialType } from "./material-type";
 import {
     type BindResource,
     bgQuant,
     type CompiledBackground,
-    type CompiledSurface,
+    type CompiledMaterial,
     clearGroups,
     compileBackground,
-    compileSurface,
+    compileMaterial,
     engineGroup,
     ensureSingle,
     getBackground,
-    getCompiledSurface,
+    getCompiledMaterial,
     getGroup,
     initializePipelineState,
+    type MaterialGroupEntry,
     preparePipelines,
     resetPipelineCaches,
-    type SurfaceGroupEntry,
     setGroup,
 } from "./pipelines";
 import { initializeRegatherState, prepareRegather } from "./regather";
 import type { Draw } from "./registry";
 import { Draws } from "./registry";
-import { Pbr } from "./shade";
 import {
     cascadeCount,
     destroyCascades,
@@ -118,6 +106,7 @@ import {
     updateCascades,
     updatePointShadows,
 } from "./shadows";
+import { StandardMaterialType } from "./standard-material";
 
 interface StandardRendererState {
     warned: Set<string>;
@@ -235,26 +224,28 @@ export function validateMeshBindingOverrides(
     }
 }
 
-// a draw resolved through the surface contract: the compiled pipeline set + the
+// a draw resolved through its material type: the compiled pipeline set + the
 // per-draw group-2 state (engine group 0 resolves per slot at draw time via `engineGroup`;
 // group 1 is the pass's — `shadowGroup` for color, the atlas layouts' own for point/cascade)
-type RecordedSurface = { t: CompiledSurface; g: SurfaceGroupEntry; index: MeshIndex };
+type RecordedMaterial = { t: CompiledMaterial; g: MaterialGroupEntry; index: MeshIndex };
 
-export type Recorded = RecordedSurface;
+export type Recorded = RecordedMaterial;
 
 // one resolved draw of the frame: the entry-owned record `record` rewrites in place
 type FrameDraw = { draw: Draw; r: Recorded };
 
 /**
  * the color, transparent and depth prepass pipelines and the bind-group state standard records a draw
- * with, or null to skip it. All pipelines share one bind group (same group-0 layout). A surface with
+ * with, or null to skip it. All pipelines share one bind group (same group-0 layout). A material type with
  * no compiled pipeline isn't standard's (silent skip); a missing mesh or unpublished binding warns once.
  * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
  * are stable, so untracked
  */
 function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
-    const surface = world.resource(Surfaces).get(draw.surface);
-    return surface ? recordSurface(world, draw, surface, capacity) : null;
+    const type = materialTypes(world)[draw.materialType];
+    if (!type)
+        return warnSkip(world, draw.name, `material type ${draw.materialType} is not registered`);
+    return recordMaterial(world, draw, type, capacity);
 }
 
 // resolve a layout's own bindings (never the standard-injected `vertices`) to live resources by the
@@ -264,6 +255,7 @@ function layoutResources(
     world: World,
     entries: Record<string, object>,
     override?: Record<string, BindResource>,
+    materialType?: MaterialType<any, any, any>,
 ):
     | {
           values: Record<string, unknown>;
@@ -284,7 +276,11 @@ function layoutResources(
                 : "sampler" in entry
                   ? world.gpu.samplers
                   : world.gpu.typed;
-        const res = override?.[name] ?? registry.get(name);
+        const res =
+            override?.[name] ??
+            (name === "materialParameters" && materialType
+                ? world.resource(materialType).table.typed
+                : registry.get(name));
         if (!res) return name;
         if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
         resources.push(res);
@@ -306,7 +302,8 @@ function layoutResources(
 // four mesh streams, the layout's own bindings looked up by their held names, then the atlas lists),
 // compared in place so a steady frame neither re-validates nor builds a list
 function sameResources(
-    g: SurfaceGroupEntry,
+    world: World,
+    g: MaterialGroupEntry,
     mesh: NonNullable<ReturnType<ReturnType<typeof Meshes.create>["get"]>>,
     pointList: GPUBuffer | null,
     cascadeList: GPUBuffer | null,
@@ -326,7 +323,9 @@ function sameResources(
         const live =
             name in g.owner.layout.attributes
                 ? mesh.attributes?.[name]
-                : (override?.[name] ?? g.registries[i].get(name));
+                : name === "materialParameters"
+                  ? world.resource(g.owner).table.typed
+                  : (override?.[name] ?? g.registries[i].get(name));
         if (live !== res[k]) return false;
     }
     if (pointList && res[k++] !== pointList) return false;
@@ -334,10 +333,10 @@ function sameResources(
     return k === res.length;
 }
 
-// one surface bind group against `layout`: the resolved layout values, any override, and the vertex stream.
+// one material bind group against `layout`: the resolved layout values, any override, and the vertex stream.
 // The two layout objects share one loose signature here — the color/depth `vertices` element split is real at
 // authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class). A module function,
-// so the steady `recordSurface` path captures nothing and opens no context
+// so the steady `recordMaterial` path captures nothing and opens no context
 function surfaceGroup(
     world: World,
     values: Record<string, unknown>,
@@ -359,15 +358,15 @@ function surfaceGroup(
 }
 
 /**
- * {@link record}'s surface path: compiled pipelines + the per-draw group-2 state cached by
+ * {@link record}'s material path: compiled pipelines + the per-draw group-2 state cached by
  * layout name — `color` against `layout`; opaque depth-side groups against `layout.depthVariant`; clip
  * depth-side groups against the full layout so cutoff sees material UVs — plus the atlas `eids` swaps
  * used by the atlas passes. Their slot-0 engine group resolves through the same live cache as each view.
  */
-function recordSurface(
+function recordMaterial(
     world: World,
     draw: Draw,
-    surface: Surface,
+    surface: MaterialType<any, any, any>,
     capacity: number,
 ): FrameDraw | null {
     const mesh = world.resource(Meshes).get(draw.mesh);
@@ -382,15 +381,19 @@ function recordSurface(
         );
     }
     const prev = getGroup(world, draw.name, surface);
-    let t = prev?.item.r.t ?? getCompiledSurface(world, surface.name);
+    let t = prev?.item.r.t ?? getCompiledMaterial(world, surface.name);
     if (!t || t.owner !== surface || t.layout !== surface.layout) {
         // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
         // loop, so it degrades to the warn-once skip
         try {
-            t = compileSurface(world, surface, capacity);
+            t = compileMaterial(world, surface, capacity);
         } catch (e) {
-            return warnSkip(world, draw.name, `surface "${surface.name}" failed to compile: ${e}`);
+            return warnSkip(
+                world,
+                draw.name,
+                `material type "${surface.name}" failed to compile: ${e}`,
+            );
         }
     }
 
@@ -398,7 +401,7 @@ function recordSurface(
     const cascadeList = world.resource(cascadeRegather).eids();
     // a steady frame compares the cached entry's identities in place; only a changed resource re-resolves,
     // re-validates the overrides and rebuilds the groups
-    if (prev && sameResources(prev, mesh, pointList, cascadeList)) {
+    if (prev && sameResources(world, prev, mesh, pointList, cascadeList)) {
         prev.item.draw = draw;
         prev.item.r.t = t;
         return prev.item;
@@ -411,7 +414,7 @@ function recordSurface(
             return warnSkip(
                 world,
                 draw.name,
-                `mesh "${mesh.name}" ${stream ? "has a different schema for" : "has no"} attribute "${name}" that surface "${surface.name}" reads`,
+                `mesh "${mesh.name}" ${stream ? "has a different schema for" : "has no"} attribute "${name}" that material type "${surface.name}" reads`,
             );
         overrides[name] = stream;
     }
@@ -419,6 +422,7 @@ function recordSurface(
         world,
         surface.layout.entries as Record<string, object>,
         overrides,
+        surface,
     );
     if (typeof resolved === "string")
         return warnSkip(world, draw.name, `binding "${resolved}" not published`);
@@ -439,7 +443,7 @@ function recordSurface(
     const clip = surface.blend === "clip";
     const depthLayout = clip ? surface.layout : surface.layout.depthVariant;
     const depthVertices = clip ? mesh.vertices : mesh.position;
-    const entry: SurfaceGroupEntry = {
+    const entry: MaterialGroupEntry = {
         owner: surface,
         layout: surface.layout,
         quant: root.unwrap(mesh.quant),
@@ -481,7 +485,7 @@ function recordSurface(
 // per pass would repeat the work
 
 /**
- * the frame's draw list: every registered {@link Draw} with a compiled surface + published
+ * the frame's draw list: every registered {@link Draw} with a compiled material type + published
  * bindings, paired with its cached group-0 state. Camera-independent (the per-slot bind groups it builds
  * against are cached lazily by slot, not baked per camera), so {@link PrepassSystem}
  * resolves it once per frame into `_standardRendererState.frameDraws` and the prepass, shadow map, and color pass all
@@ -501,8 +505,8 @@ function resolveDraw(world: World, draw: Draw, capacity: number): void {
     if (item) _standardRendererState.frameDraws[_standardRendererState.frameCount++] = item;
 }
 
-/** Records opaque and clipped surfaces into core's single-sample depth prepass.
- * Alpha surfaces write no depth; an empty draw list still clears the depth target. */
+/** Records opaque and clipped material types into core's single-sample depth prepass.
+ * Alpha types write no depth; an empty draw list still clears the depth target. */
 function renderPrepass(
     world: World,
     eid: number,
@@ -606,7 +610,7 @@ function backgroundGroup(
     return group;
 }
 
-// one opaque or blended surface draw in a camera's color pass at its view slot, written into the
+// one opaque or blended material draw in a camera's color pass at its view slot, written into the
 // camera's bundle program at `at`
 function drawColor(
     world: World,
@@ -636,7 +640,7 @@ function drawColor(
  * depth-write off) in core's targets: one HDR color target, no MRT,
  * because each extra target costs bandwidth on every pixel and tile-based GPUs pay it hardest. With
  * `Camera.antialias` on (the default) it's a 4× MSAA pass resolved into the offscreen; off, it renders
- * single-sample straight into the offscreen (and binds the surfaces' single-sample pipeline twins,
+ * single-sample straight into the offscreen (and binds the material types' single-sample pipeline twins,
  * compiled lazily by {@link ensureSingle}). Opaque and transparent share one `beginRenderPass` (nothing
  * reads the color between them, so they fuse into one tile round-trip). Group 1 is the sun shadow seam:
  * standard's own shadow map + light params, or its 1×1 fallback (fully lit) when no light casts. An empty
@@ -765,9 +769,9 @@ function renderColor(
 const STANDARD_RENDERER_CAMERAS = [Camera, StandardRenderer];
 
 /**
- * compile the forward pipelines for every registered surface, sharing one shader module: a 4× MSAA
+ * compile the forward pipelines for every registered material type, sharing one shader module: a 4× MSAA
  * single-target color pipeline (its own depth, `less` + write) that writes shaded color resolved into
- * the offscreen framebuffer, and a 1× depth pipeline (position-only except for clipped surfaces).
+ * the offscreen framebuffer, and a 1× depth pipeline (position-only except for clipped types).
  * Color is one camera-independent shape across opaque / `clip` / `alpha`, with no MRT, and samples the
  * sun shadow inline (group 1 = the map + comparison sampler + light params). StandardRenderer declares the vertex-pull bindings itself; each draw selects its mesh via
  * `Draw.mesh`. Uniform across surfaces: no "MeshInstance-shaped" detection. Also (re)creates the sun-shadow
@@ -786,7 +790,7 @@ async function prepareStandardRenderer(
     // the resolved-bind-group cache to rebuild with it
     world.resource(pointRegather).reset(() => clearGroups(world));
     world.resource(cascadeRegather).reset(() => clearGroups(world));
-    // Compile surfaces and the shared re-gather pipelines before the first draw.
+    // Compile material types and the shared re-gather pipelines before the first draw.
     await Promise.all([
         prepareRegather(world, device, capacity),
         preparePipelines(world, capacity),
@@ -870,90 +874,6 @@ const ShadowMapSystem: System = {
     },
 };
 
-// the `default` and `vertex` surfaces' group 2 (`layout()`'s $idx(2) synthesis): `eids`, the
-// per-instance `vec4u` rows, and `globalTransforms`.
-const defaultSurfaceLayout = surfaceLayout({
-    eids: { type: "storage", element: d.vec4u },
-    globalTransforms: { type: "storage", element: Xform },
-});
-
-// The shader scaffold resolves each MeshInstance's material id to linear base color and material lanes.
-// `litPbr` (`standard/engine.ts`) reads the fs-scaffold privates the pipeline
-// builder (`pipelines.ts`) fills before calling this.
-const defaultSurfaceFs = tgpu.fn(
-    [fsCtxSchema()],
-    d.vec4f,
-)((ctx) => {
-    "use gpu";
-    const albedo = ctx.color.xyz;
-    const pbr = Pbr({
-        albedo,
-        metallic: ctx.material.x,
-        roughness: ctx.material.y,
-        occlusion: ctx.material.w,
-        dielectric: 0,
-        diffuseWrap: engineLayout.$.materials[d.u32(ctx.material.z)].diffuseWrap,
-    });
-    const emissive = engineLayout.$.materials[d.u32(ctx.material.z)].emissive;
-    return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), 1);
-});
-
-// the `unlit` surface's group 2: the same bindings as `default`'s, read without shading.
-const unlitSurfaceLayout = surfaceLayout({
-    eids: { type: "storage", element: d.vec4u },
-    globalTransforms: { type: "storage", element: Xform },
-});
-
-// The unlit surface reads the resolved material's linear base color.
-const unlitSurfaceFs = tgpu.fn(
-    [fsCtxSchema()],
-    d.vec4f,
-)((ctx) => {
-    "use gpu";
-    return d.vec4f(ctx.color.xyz, 1);
-});
-
-// the `vertex` surface (per-vertex Gouraud): `litColor` crosses vs→fs as a custom
-// varying through the `varyingVs`/`varyingFs` copier pair (`pipelines.ts`), so this `vs` runs
-// `litPbr` once per vertex. `sunVisibility`/`pointScale`/`fragWorld` sit at their defaults here (per-vertex
-// shading runs before the fs scaffold fills them), so it shades with a fully-lit sun and no point
-// contribution.
-const vertexSurfaceVaryings = { litColor: d.vec3f };
-const vertexSurfacePatch = vsPatchSchema(vertexSurfaceVaryings);
-const vertexSurfaceVs = tgpu.fn(
-    [VsIn],
-    vertexSurfacePatch,
-)((vsIn) => {
-    "use gpu";
-    const albedo = vsIn.color.xyz;
-    const pbr = Pbr({
-        albedo,
-        metallic: vsIn.material.x,
-        roughness: vsIn.material.y,
-        occlusion: vsIn.material.w,
-        dielectric: 0,
-        diffuseWrap: engineLayout.$.materials[d.u32(vsIn.material.z)].diffuseWrap,
-    });
-    const emissive = engineLayout.$.materials[d.u32(vsIn.material.z)].emissive;
-    const litColor = std.add(
-        litPbr(pbr, std.normalize(vsIn.worldNormal), vsIn.world.xyz),
-        emissive,
-    );
-    return vertexSurfacePatch({
-        world: vsIn.world,
-        worldNormal: vsIn.worldNormal,
-        clip: d.vec4f(0),
-        litColor,
-    });
-});
-const vertexSurfaceFs = tgpu.fn(
-    [fsCtxSchema(vertexSurfaceVaryings)],
-    d.vec4f,
-)((ctx) => {
-    "use gpu";
-    return d.vec4f(ctx.litColor, 1);
-});
-
 // Standard owns shadow atlases and their params; core releases view targets.
 // destroyCascades tears down the off-screen Camera entities separately.
 function disposeStandardRenderer(world: World): void {
@@ -974,7 +894,7 @@ const PackLightingSystem: System = {
 export const StandardRenderingPlugin: Plugin = {
     gpu: {
         features: ["indirect-first-instance"],
-        limits: { maxStorageBuffersPerShaderStage: 10 },
+        limits: { maxStorageBuffersPerShaderStage: 8 },
     },
     name: "StandardRendering",
     components: [StandardRenderer, CameraBackground],
@@ -1022,9 +942,10 @@ export const StandardRenderingPlugin: Plugin = {
             size: LIGHTING_UNIFORM_SIZE,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        initializeSurfaceState(world);
+        initializeBackgroundState(world);
+        registerMaterialType(world, StandardMaterialType as never, true);
+        world.resource(StandardMaterialType);
         initializeDrawState(world);
-        world.resource(Surfaces).clear();
         world.resource(Backgrounds).clear();
         world.resource(Draws).clear();
         world.resource(standardRendererStateKey);
@@ -1035,26 +956,6 @@ export const StandardRenderingPlugin: Plugin = {
         // a prior build so this re-run never aliases recycled entities (the module-scope contract)
         resetPointShadows(world);
         resetCascades(world);
-        // Dielectric reflectance stays zero to preserve Shallot's specular-free diffuse default.
-        registerSurface(world, {
-            name: "default",
-            layout: defaultSurfaceLayout,
-            fs: defaultSurfaceFs,
-        });
-        // standard's own varyings consumer (`litColor` crosses vs→fs through
-        // `varyingVs`/`varyingFs`'s per-surface copier, `pipelines.ts`).
-        registerSurface(world, {
-            name: "vertex",
-            layout: defaultSurfaceLayout,
-            varyings: vertexSurfaceVaryings,
-            vs: vertexSurfaceVs,
-            fs: vertexSurfaceFs,
-        });
-        registerSurface(world, {
-            name: "unlit",
-            layout: unlitSurfaceLayout,
-            fs: unlitSurfaceFs,
-        });
     },
 
     async warm(world) {

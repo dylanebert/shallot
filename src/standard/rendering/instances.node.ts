@@ -1,4 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
 
 import { CEILING } from "../../../scripts/test-tiers";
 
@@ -8,8 +10,15 @@ import { MeshInstance } from "../../core/mesh";
 import { globalTransformTable } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { createApp } from "../../engine";
-import { Surfaces } from "./contract";
-import { Materials, MeshMaterial, StandardMaterial } from "./material";
+import { StandardRenderingPlugin } from "./forward";
+import { MaterialPlugin, Materials, MeshMaterial, StandardMaterial } from "./material";
+import {
+    materialFragmentContext,
+    materialLayout,
+    materialType,
+    materialTypeId,
+} from "./material-type";
+import { MeshRenderPlugin } from "./mesh-render";
 import { meshInstanceTable } from "./preprocess";
 import { Draws } from "./registry";
 import "../../standard";
@@ -17,6 +26,25 @@ import "../../standard";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
+
+const TintParams = d.struct({ tint: d.vec4f });
+const tintLayout = materialLayout(TintParams, {});
+const TintContext = materialFragmentContext();
+const tintFragment = tgpu.fn(
+    [TintContext],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    return TintParams(tintLayout.$.materialParameters[ctx.material]).tint;
+});
+const TintMaterial = materialType({
+    name: "InstanceTypeChangeTint",
+    parameters: TintParams,
+    layout: tintLayout,
+    fragment: tintFragment,
+    defaults: { tint: d.vec4f(1) },
+});
+const tintPlugin = MaterialPlugin(TintMaterial);
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -85,26 +113,32 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
     }
 });
 
-test("mesh instances return to default draws when MeshMaterial is removed", async () => {
-    const app = await createApp({ plugins: [] });
+test("changing MeshMaterial type moves the instance to that type's mesh draw on the next frame", async () => {
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardRenderingPlugin, MeshRenderPlugin, tintPlugin],
+    });
     const world = app.world;
     const device = world.gpu.device;
     const readback = device.createBuffer({
-        size: 60,
+        size: 40,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     try {
         const eid = world.create();
         world.add(eid, Transform);
         world.add(eid, MeshInstance);
+        const standardType = 0;
+        const tintType = materialTypeId(world, TintMaterial);
+        const mesh = world.storage(MeshInstance).mesh.get(eid);
         async function counts() {
             device.pushErrorScope("validation");
             world.step();
             const encoder = device.createCommandEncoder();
-            const mesh = world.storage(MeshInstance).mesh.get(eid);
-            for (const [index, surface] of ["default", "unlit", "vertex"].entries()) {
+            for (const [index, materialType] of [standardType, tintType].entries()) {
                 const draw = Array.from(world.resource(Draws)).find(
-                    (draw) => draw.surface === surface && draw.mesh === mesh,
+                    (candidate) =>
+                        candidate.materialType === materialType && candidate.mesh === mesh,
                 )!;
                 encoder.copyBufferToBuffer(
                     world.gpu.root.unwrap(draw.args.indirect),
@@ -116,37 +150,24 @@ test("mesh instances return to default draws when MeshMaterial is removed", asyn
             }
             device.queue.submit([encoder.finish()]);
             expect(
-                await bounded("surface selection validation", device.popErrorScope()),
+                await bounded("material-type selection validation", device.popErrorScope()),
             ).toBeNull();
-            await bounded("surface selection readback", readback.mapAsync(GPUMapMode.READ));
+            await bounded("material-type selection readback", readback.mapAsync(GPUMapMode.READ));
             const words = new Uint32Array(readback.getMappedRange());
-            const result = [words[1], words[6], words[11]];
+            const result = [words[1], words[6]];
             readback.unmap();
             return result;
         }
-        expect(await counts()).toEqual([1, 0, 0]);
-        const materialIds: number[] = [];
-        for (const [index, surface] of ["unlit", "vertex"].entries()) {
-            const material = world
-                .resource(Materials)
-                .add(StandardMaterial({ surface: world.resource(Surfaces).id(surface)! }));
-            materialIds.push(material);
-            world.add(eid, MeshMaterial, { material });
-            expect(await counts()).toEqual(index === 0 ? [0, 1, 0] : [0, 0, 1]);
-            world.remove(eid, MeshMaterial);
-            expect(await counts()).toEqual([1, 0, 0]);
-        }
-        const materials = world.resource(Materials);
-        const material = materialIds[0]!;
-        world.add(eid, MeshMaterial, { material });
-        expect(await counts()).toEqual([0, 1, 0]);
-        world.storage(MeshMaterial).material.set(eid, materialIds[1]!);
-        expect(await counts()).toEqual([0, 0, 1]);
-        world.storage(MeshMaterial).material.set(eid, material);
-        materials.update(material, { surface: world.resource(Surfaces).id("default")! });
-        expect(await counts()).toEqual([1, 0, 0]);
-        world.remove(eid, MeshMaterial);
-        expect(await counts()).toEqual([1, 0, 0]);
+        expect(await counts()).toEqual([1, 0]);
+        const tint = world.resource(TintMaterial).add({ tint: d.vec4f(1, 0, 0, 1) });
+        world.add(eid, MeshMaterial, tint);
+        expect(await counts()).toEqual([0, 1]);
+        const standard = world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: [0, 1, 0, 1] }));
+        world.storage(MeshMaterial).type.set(eid, standard.type);
+        world.storage(MeshMaterial).material.set(eid, standard.material);
+        expect(await counts()).toEqual([1, 0]);
     } finally {
         readback.destroy();
         app.dispose();

@@ -16,37 +16,42 @@ import {
 import { Transform } from "../../core/transform";
 import type { Plugin, World } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
-import { Xform } from "../../engine/utils";
 import { pointAtlasView, sunShadowView } from "./atlas";
-import { fsCtxSchema, registerSurface, Surfaces, surfaceLayout } from "./contract";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
-import { Materials, MeshMaterial, materialTable, StandardMaterial } from "./material";
+import { MeshMaterial } from "./material-data";
+import {
+    MaterialPlugin,
+    materialFragmentContext,
+    materialLayout,
+    materialType,
+} from "./material-type";
 import { MeshRenderPlugin } from "./mesh-render";
 
 setDefaultTimeout(CEILING.node);
-const cutout: Plugin = {
+const CutoutParameters = d.struct({ color: d.vec4f });
+const cutoutLayout = materialLayout(CutoutParameters, {});
+const CutoutContext = materialFragmentContext();
+const CutoutMaterial = materialType({
+    name: "MaterialShadowCutout",
+    parameters: CutoutParameters,
+    layout: cutoutLayout,
+    fragment: tgpu.fn(
+        [CutoutContext],
+        d.vec4f,
+    )((ctx) => {
+        "use gpu";
+        const color = CutoutParameters(cutoutLayout.$.materialParameters[ctx.material]).color;
+        if (color.x < 0.5) std.discard();
+        return color;
+    }),
+    defaults: { color: d.vec4f(1) },
+    blend: "clip",
+    depthPass: { prepass: true, shadows: true },
+});
+const CutoutPlugin: Plugin = {
     name: "MaterialShadowProof",
-    dependencies: [MeshRenderPlugin, StandardRenderingPlugin],
-    initialize(world) {
-        const layout = surfaceLayout({
-            eids: { type: "storage", element: d.vec4u },
-            globalTransforms: { type: "storage", element: Xform },
-        });
-        registerSurface(world, {
-            name: "material-cutout",
-            layout,
-            blend: "clip",
-            fs: tgpu.fn(
-                [fsCtxSchema()],
-                d.vec4f,
-            )((ctx) => {
-                "use gpu";
-                if (ctx.color.x < 0.5) std.discard();
-                return d.vec4f(ctx.color);
-            }),
-        });
-    },
+    dependencies: [MeshRenderPlugin, StandardRenderingPlugin, MaterialPlugin(CutoutMaterial)],
     warm(world) {
         world.resource(depthProbe);
     },
@@ -69,7 +74,7 @@ const depthProbe = {
     create: (world: World) =>
         world.gpu.root.unwrap(world.gpu.root.createComputePipeline({ compute: depthCount })),
 };
-const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [cutout] }]);
+const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [CutoutPlugin] }]);
 
 test("NotShadowCaster preserves visibility and peers' shadows; shadow materials survive table growth", async () => {
     const { world } = subjects()[0];
@@ -82,10 +87,10 @@ test("NotShadowCaster preserves visibility and peers' shadows; shadow materials 
     const caster = world.create();
     world.add(caster, Transform);
     world.add(caster, MeshInstance);
-    const materials = world.resource(Materials);
-    const surface = world.resource(Surfaces).id("material-cutout")!;
-    const values = StandardMaterial({ surface, baseColor: [1, 0, 0, 1] });
-    world.add(caster, MeshMaterial, { material: materials.add(values) });
+    const materials = world.resource(CutoutMaterial);
+    const values = { color: d.vec4f(1, 0, 0, 1) };
+    const initial = materials.add(values);
+    world.add(caster, MeshMaterial, initial);
     const sun = world.create();
     world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
@@ -131,6 +136,7 @@ test("NotShadowCaster preserves visibility and peers' shadows; shadow materials 
     world.add(other, Transform);
     world.add(other, MeshInstance);
     world.add(other, MeshMaterial, {
+        type: world.storage(MeshMaterial).type.get(caster),
         material: world.storage(MeshMaterial).material.get(caster),
     });
     expect(await occupied()).toEqual(before);
@@ -138,18 +144,19 @@ test("NotShadowCaster preserves visibility and peers' shadows; shadow materials 
     expect(await occupied()).toEqual([0, 0]);
     world.remove(caster, NotShadowCaster);
     expect(await occupied()).toEqual(before);
-    const table = materialTable(world);
+    const table = materials.table;
     const generation = table.generation;
     const capacity = table.capacity;
-    let material = 0;
+    let material = initial;
     for (let i = 0; i < capacity * 4; i++) material = materials.add(values);
     expect(table.generation - generation).toBeGreaterThanOrEqual(2);
-    expect(material).toBeGreaterThanOrEqual(capacity);
-    world.storage(MeshMaterial).material.set(caster, material);
+    expect(material.material).toBeGreaterThanOrEqual(capacity);
+    world.storage(MeshMaterial).material.set(caster, material.material);
+    world.storage(MeshMaterial).type.set(caster, material.type);
     expect(await occupied()).toEqual(before);
-    materials.update(material, { baseColor: [0, 0, 0, 1] });
+    materials.update(material, { color: d.vec4f(0, 0, 0, 1) });
     expect(await occupied()).toEqual([0, 0]);
-    materials.update(material, { baseColor: [1, 0, 0, 1] });
+    materials.update(material, { color: d.vec4f(1, 0, 0, 1) });
     expect(await occupied()).toEqual(before);
     console.log(
         `material shadows: generation ${generation} -> ${table.generation}; occupied sun/point samples ${before.join("/")} -> 0/0 -> ${before.join("/")}`,

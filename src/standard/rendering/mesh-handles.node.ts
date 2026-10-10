@@ -11,7 +11,6 @@ import {
     StandardMaterial,
     StandardRenderer,
     StandardRenderingPlugin,
-    Surfaces,
 } from "./index";
 
 setDefaultTimeout(CEILING.node);
@@ -68,9 +67,7 @@ test("two meshes with the same label keep distinct geometry when rendered", asyn
     world.add(camera, Camera);
     world.add(camera, StandardRenderer);
     attachTexture(world, camera, { width: 64, height: 64 });
-    const material = world
-        .resource(Materials)
-        .add(StandardMaterial({ surface: world.resource(Surfaces).id("unlit")! }));
+    const material = world.resource(Materials).add(StandardMaterial({ emissive: [1, 1, 1] }));
     for (const [x, mesh] of [
         [-1, large],
         [1, small],
@@ -78,7 +75,7 @@ test("two meshes with the same label keep distinct geometry when rendered", asyn
         const eid = world.create();
         world.add(eid, Transform, { translation: [x, 0, 0, 0] });
         world.add(eid, MeshInstance, { mesh });
-        world.add(eid, MeshMaterial, { material });
+        world.add(eid, MeshMaterial, material);
     }
     world.step(0);
     world.step(0);

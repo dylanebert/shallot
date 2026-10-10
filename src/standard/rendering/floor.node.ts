@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import tgpu from "typegpu";
+import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { create, globals } from "webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
@@ -22,10 +22,20 @@ import { Transform } from "../../core/transform";
 import type { Plugin } from "../../engine";
 import { createApp } from "../../engine/app";
 import { probeBuffer } from "../../engine/runtime";
-import { Xform } from "../../engine/utils";
-import { Sprite, SpritePlugin } from "../../extras/sprite";
+import { packColor } from "../../engine/utils";
+import { Line, LinesPlugin } from "../../extras/lines";
+import { lineLayout, viewLayout as lineViewLayout } from "../../extras/lines/pipeline";
+import {
+    Sprite,
+    SpriteAlphaMaterialType,
+    SpriteMaterialInput,
+    SpriteMaterialType,
+    SpritePlugin,
+} from "../../extras/sprite";
+import { packSpriteFill } from "../../extras/sprite/pack";
 import { internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
+import { textLayout, viewLayout as textViewLayout } from "../../extras/text/pipeline";
 import { Vignette, VignettePlugin } from "../../extras/vignette";
 import {
     CLUSTER_COUNT,
@@ -39,17 +49,40 @@ import {
     backgroundLayout,
     CameraBackground,
     Draws,
-    fsCtxSchema,
+    engineLayout,
+    MaterialPlugin,
     Materials,
     MeshMaterial,
+    materialFragmentContext,
+    materialLayout,
+    materialType,
+    materialTypeId,
     registerBackground,
-    registerSurface,
     StandardMaterial,
     StandardRenderer,
-    Surfaces,
-    surfaceLayout,
 } from "./index";
 import "../../standard";
+
+const FloorParameters = d.struct({ color: d.vec4f });
+const floorLayout = materialLayout(FloorParameters, {});
+const attributeLayout = materialLayout(FloorParameters, {
+    stream: { type: "attribute", element: d.u32 },
+});
+const FloorContext = materialFragmentContext();
+const FloorMaterial = materialType({
+    name: "FloorCustomMaterial",
+    parameters: FloorParameters,
+    layout: floorLayout,
+    fragment: tgpu.fn(
+        [FloorContext],
+        d.vec4f,
+    )((ctx) => {
+        "use gpu";
+        return FloorParameters(floorLayout.$.materialParameters[ctx.material]).color;
+    }),
+    defaults: { color: d.vec4f(1) },
+});
+const FloorMaterialPlugin = MaterialPlugin(FloorMaterial);
 
 setDefaultTimeout(CEILING.node);
 
@@ -57,40 +90,42 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 const gpu = create([]);
+function storageCount(layout: unknown, stage: "vertex" | "fragment"): number {
+    const entries = (
+        layout as {
+            entries: Record<string, { storage?: unknown; visibility?: readonly string[] }>;
+        }
+    ).entries;
+    return Object.values(entries).filter(
+        (entry) => entry.storage && (entry.visibility ?? ["vertex", "fragment"]).includes(stage),
+    ).length;
+}
 const proof: Plugin = {
     name: "FloorProof",
-    dependencies: [SpritePlugin, TextPlugin, VignettePlugin, PointsPlugin],
+    dependencies: [
+        SpritePlugin,
+        TextPlugin,
+        VignettePlugin,
+        PointsPlugin,
+        LinesPlugin,
+        FloorMaterialPlugin,
+    ],
     initialize(world) {
         registerFont(
             world,
             `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
             "floor",
         );
-        const layout = surfaceLayout({
-            eids: { type: "storage", element: d.vec4u },
-            globalTransforms: { type: "storage", element: Xform },
-        });
-        registerSurface(world, {
-            name: "floor-custom",
-            layout,
-            fs: tgpu.fn(
-                [fsCtxSchema()],
-                d.vec4f,
-            )((ctx) => {
-                "use gpu";
-                return d.vec4f(ctx.color);
-            }),
-        });
     },
 };
 
-test("the standard composition and points render every variant at the declared ten-buffer limit", async () => {
+test("standard, custom-material and extras paths render within the eight-buffer limit", async () => {
     const adapter = await gpu.requestAdapter();
     if (!adapter) throw new Error("WebGPU adapter unavailable");
     const requiredFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"] as const;
     const device = await adapter.requestDevice({
         requiredFeatures: [...requiredFeatures],
-        requiredLimits: { maxStorageBuffersPerShaderStage: 10 },
+        requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
     });
     console.log(
         "floor adapter",
@@ -109,13 +144,13 @@ test("the standard composition and points render every variant at the declared t
             ),
         ),
     );
-    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(10);
+    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
     expect(
         [...device.features].filter((feature) => feature !== "core-features-and-limits").sort(),
     ).toEqual([...requiredFeatures].sort());
     device.pushErrorScope("validation");
     device.createPipelineLayout({
-        bindGroupLayouts: [6, 5].map((length) =>
+        bindGroupLayouts: [5, 4].map((length) =>
             device.createBindGroupLayout({
                 entries: Array.from({ length }, (_, binding) => ({
                     binding,
@@ -127,8 +162,8 @@ test("the standard composition and points render every variant at the declared t
     });
     const refused = await device.popErrorScope();
     expect(refused).not.toBeNull();
-    expect(refused!.message).toMatch(/storage.*(10|limit)|11.*storage/i);
-    console.log("eleven-binding control", refused!.message);
+    expect(refused!.message).toMatch(/storage.*(8|limit)|9.*storage/i);
+    console.log("nine-binding control", refused!.message);
     const work = { uploadedBytes: 0, renderPasses: 0, computePasses: 0, dispatches: 0 };
     const writeBuffer = device.queue.writeBuffer.bind(device.queue);
     device.queue.writeBuffer = (buffer, offset, data, dataOffset, size) => {
@@ -170,6 +205,51 @@ test("the standard composition and points render every variant at the declared t
     try {
         app = await createApp({ device, plugins: [proof] });
         const { world } = app;
+        const layouts = {
+            standardVertex:
+                storageCount(engineLayout, "vertex") + storageCount(Materials.layout, "vertex"),
+            standardFragment:
+                storageCount(engineLayout, "fragment") + storageCount(Materials.layout, "fragment"),
+            floorVertex:
+                storageCount(engineLayout, "vertex") + storageCount(FloorMaterial.layout, "vertex"),
+            attributeVertex:
+                storageCount(engineLayout, "vertex") + storageCount(attributeLayout, "vertex"),
+            attributeFragment:
+                storageCount(engineLayout, "fragment") + storageCount(attributeLayout, "fragment"),
+            spriteClipVertex:
+                storageCount(engineLayout, "vertex") +
+                storageCount(SpriteMaterialType.layout, "vertex"),
+            spriteAlphaVertex:
+                storageCount(engineLayout, "vertex") +
+                storageCount(SpriteAlphaMaterialType.layout, "vertex"),
+            textVertex: storageCount(textViewLayout, "vertex") + storageCount(textLayout, "vertex"),
+            textFragment: storageCount(textLayout, "fragment"),
+            linesVertex:
+                storageCount(lineViewLayout, "vertex") + storageCount(lineLayout, "vertex"),
+            linesFragment: storageCount(lineLayout, "fragment"),
+        };
+        expect(layouts).toEqual({
+            standardVertex: 7,
+            standardFragment: 7,
+            floorVertex: 7,
+            attributeVertex: 8,
+            attributeFragment: 8,
+            spriteClipVertex: 7,
+            spriteAlphaVertex: 7,
+            textVertex: 5,
+            textFragment: 0,
+            linesVertex: 1,
+            linesFragment: 0,
+        });
+        expect(layouts.standardVertex).toBeLessThanOrEqual(8);
+        expect(layouts.standardFragment).toBeLessThanOrEqual(8);
+        expect(() =>
+            materialLayout(FloorParameters, {
+                first: { type: "storage", element: d.u32 },
+                second: { type: "storage", element: d.u32 },
+            }),
+        ).toThrow("material layout uses 9 vertex storage buffers; WebGPU's limit is 8");
+        console.log("storage buffers per changed pipeline layout", layouts);
         expect(world.resource(RenderContext).cullVolumes.size).toBe(7168);
         expect(world.resource(LightCull).lights!.size).toBe(
             LIGHT_INDICES_OFFSET + (LIGHT_POOL + 2) * 4,
@@ -202,23 +282,28 @@ test("the standard composition and points render every variant at the declared t
             }),
         });
         world.add(camera, CameraBackground, { name: bg });
-        for (const [index, surface] of ["default", "vertex", "unlit", "floor-custom"].entries()) {
-            const material = world.resource(Materials).add(
-                StandardMaterial({
-                    surface: world.resource(Surfaces).id(surface)!,
-                    baseColor: [1, 0.3, 0.2, 1],
-                }),
-            );
-            for (let i = 0; i < (index === 0 ? 192 : 1); i++) {
-                const mesh = world.create();
-                world.add(mesh, Transform, {
-                    translation: [(index - 1.5) * 0.65, (i % 8) * 0.01, -i * 0.01, 0],
-                    scale: [0.4, 0.4, 0.4, 0],
-                });
-                world.add(mesh, MeshInstance);
-                world.add(mesh, MeshMaterial, { material });
-            }
+        const standardMaterial = world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: [1, 0.3, 0.2, 1] }));
+        for (let i = 0; i < 192; i++) {
+            const mesh = world.create();
+            world.add(mesh, Transform, {
+                translation: [-0.65, (i % 8) * 0.01, -i * 0.01, 0],
+                scale: [0.4, 0.4, 0.4, 0],
+            });
+            world.add(mesh, MeshInstance);
+            world.add(mesh, MeshMaterial, standardMaterial);
         }
+        const customMaterial = world
+            .resource(FloorMaterial)
+            .add({ color: d.vec4f(1, 0.3, 0.2, 1) });
+        const customMesh = world.create();
+        world.add(customMesh, Transform, {
+            translation: [0.65, 0, 0, 0],
+            scale: [0.4, 0.4, 0.4, 0],
+        });
+        world.add(customMesh, MeshInstance);
+        world.add(customMesh, MeshMaterial, customMaterial);
         world.add(world.create(), AmbientLight, { intensity: 0.2 });
         world.add(world.create(), DirectionalLight, { shadowMapsEnabled: 1 });
         const point = world.create();
@@ -227,16 +312,27 @@ test("the standard composition and points render every variant at the declared t
         const spot = world.create();
         world.add(spot, Transform, { translation: [-1, 1, 3, 0] });
         world.add(spot, SpotLight, { shadowMapsEnabled: 1, range: 10 });
+        const spriteEids: number[] = [];
         for (const billboard of [0, 1, 2]) {
             for (const blend of [0, 1]) {
                 const sprite = world.create();
                 world.add(sprite, Transform);
-                world.add(sprite, Sprite, { billboard, blend });
+                world.add(sprite, Sprite, {
+                    billboard,
+                    blend,
+                    color: 0xff0000 + billboard * 0x000101,
+                    fill: 0.5,
+                    fillMode: billboard % 3,
+                });
+                spriteEids.push(sprite);
             }
         }
         const text = world.create();
         world.add(text, Transform);
         world.add(text, Text, { content: internText(world, "isolation"), fontSize: 0.2 });
+        const line = world.create();
+        world.add(line, Transform, { translation: [0, 1, 0, 0] });
+        world.add(line, Line, { offset: [1, 0, 0, 0], thickness: 3, color: 0xff00ff });
         for (const aa of [0, 1]) {
             world.storage(Camera).antialias.set(camera, aa);
             for (const depth of [0, 1]) {
@@ -246,25 +342,48 @@ test("the standard composition and points render every variant at the declared t
                 work.uploadedBytes = work.renderPasses = work.computePasses = work.dispatches = 0;
                 world.step(0);
                 console.log(
-                    `floor work meshes=195 sprites=6 glyphs=9 AA=${aa} depth=${depth}`,
+                    `floor work meshes=193 sprites=6 glyphs=9 AA=${aa} depth=${depth}`,
                     JSON.stringify(work),
                 );
                 const shot = await captureCompletedFrame();
                 expect(shot.rgba.some((v, i) => i % 4 !== 3 && v > 0)).toBe(true);
             }
         }
+        for (const eid of spriteEids) {
+            const typeId = world.storage(MeshMaterial).type.get(eid);
+            const row = world.storage(MeshMaterial).material.get(eid);
+            expect(row).toBe(eid);
+            const type =
+                typeId === materialTypeId(world, SpriteMaterialType)
+                    ? SpriteMaterialType
+                    : SpriteAlphaMaterialType;
+            expect(typeId).toBe(materialTypeId(world, type));
+            const bytes = world
+                .resource(type)
+                .table.bytes.slice(
+                    row * d.sizeOf(SpriteMaterialInput),
+                    (row + 1) * d.sizeOf(SpriteMaterialInput),
+                );
+            const parameters = readFromArrayBuffer(bytes.buffer, SpriteMaterialInput);
+            const sprite = world.storage(Sprite);
+            expect(parameters.layer).toBe(sprite.image.get(eid));
+            expect(parameters.color).toBe(
+                packColor(sprite.color.get(eid), sprite.opacity.get(eid)),
+            );
+            expect(parameters.fill).toBe(
+                packSpriteFill(sprite.fill.get(eid), sprite.fillMode.get(eid)),
+            );
+        }
         const view = world.resource(Views).get(camera)!;
         const cube = [...world.resource(Meshes).entries()].find(
             ([, mesh]) => mesh.name === "cube",
         )![0];
-        for (const [surface, count] of [
-            ["default", 192],
-            ["vertex", 1],
-            ["unlit", 1],
-            ["floor-custom", 1],
+        for (const [materialType, count] of [
+            [0, 192],
+            [materialTypeId(world, FloorMaterial), 1],
         ] as const) {
             const draw = [...world.resource(Draws)].find(
-                (draw) => draw.surface === surface && draw.mesh === cube,
+                (draw) => draw.materialType === materialType && draw.mesh === cube,
             )!;
             const result = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
                 offset: (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
@@ -274,25 +393,26 @@ test("the standard composition and points render every variant at the declared t
             expect(args[1]).toBe(count);
             expect(args[3]).toBe(0);
         }
-        let spriteAndTextDraws = 0;
-        for (const draw of world.resource(Draws)) {
-            if (
-                draw.name !== draw.surface ||
-                (!draw.surface.startsWith("sprite-") && draw.surface !== "text0")
-            )
-                continue;
+        const spriteMesh = [...world.resource(Meshes).entries()].find(
+            ([, mesh]) => mesh.name === "spriteQuad",
+        )![0];
+        for (const materialType of [
+            materialTypeId(world, SpriteMaterialType),
+            materialTypeId(world, SpriteAlphaMaterialType),
+        ]) {
+            const draw = [...world.resource(Draws)].find(
+                (draw) => draw.materialType === materialType && draw.mesh === spriteMesh,
+            )!;
             const result = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
                 offset: (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
                 size: 20,
             });
-            expect(new Uint32Array(result.bytes)[1]).toBe(draw.surface === "text0" ? 9 : 1);
-            spriteAndTextDraws++;
+            expect(new Uint32Array(result.bytes)[1]).toBe(3);
         }
-        expect(spriteAndTextDraws).toBe(7);
-        const draw = [...world.resource(Draws)].find(
-            (draw) => draw.surface === "default" && draw.mesh === cube,
+        const defaultDraw = [...world.resource(Draws)].find(
+            (draw) => draw.materialType === 0 && draw.mesh === cube,
         )!;
-        const records = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect));
+        const records = await probeBuffer(world, world.gpu.root.unwrap(defaultDraw.args.indirect));
         const words = new Uint32Array(records.bytes);
         for (let i = 3; i < words.length; i += 5) expect(words[i]).toBe(0);
         const plain = (await captureCompletedFrame()).rgba;
@@ -360,7 +480,8 @@ test("the standard composition and points render every variant at the declared t
         await device.queue.onSubmittedWorkDone();
     } finally {
         app?.dispose();
-        expect(await device.popErrorScope()).toBeNull();
+        const finalError = await device.popErrorScope();
+        expect(finalError, finalError?.message).toBeNull();
         device.destroy();
         Object.assign(globalThis, previousGlobals);
     }

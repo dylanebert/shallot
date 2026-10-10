@@ -80,7 +80,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
         .resource(Materials)
         .add(StandardMaterial({ baseColor: [1, 0, 1, 1], perceptualRoughness: 1 }));
     world.add(mesh, MeshInstance);
-    world.add(mesh, MeshMaterial, { material });
+    world.add(mesh, MeshMaterial, material);
     world.add(mesh, Outline, { width: 3, color: [0.1, 1, 0.2, 1] });
     const edgeMesh = world.create();
     world.add(edgeMesh, Transform, {
@@ -89,7 +89,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
         scale: [0.65, 0.65, 0.65, 0],
     });
     world.add(edgeMesh, MeshInstance);
-    world.add(edgeMesh, MeshMaterial, { material });
+    world.add(edgeMesh, MeshMaterial, material);
     world.add(world.create(), AmbientLight, { intensity: 0.2 });
     const sun = world.create();
     world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });

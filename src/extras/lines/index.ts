@@ -2,21 +2,26 @@ import { component } from "../../engine";
 // Lines — the shallot debug-line producer. One shared segment buffer, two feeders: an immediate API
 // (`drawLine` / `drawWireBox` / `drawArrow`, appended and cleared each frame — the scale path) and the retained
 // `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
-// Everything draws as one instanced 6-vertex quad per segment, rendered as a standard `"alpha"` surface
-// inside the color pass — translucent, depth-tested, depth-write off, no overlay pass. Screen-space
-// constant-pixel width: the surface projects each segment's endpoints itself (the surface's `screen` mode)
-// and writes its own clip position, expanding the quad by a pixel half-width read from `view.resolution`.
-// Bevy's gizmo model; arrows are folded in (a shaft segment + segment-fletched head), no separate
-// primitive. The segment staging + upload + immediate API live in `segments.ts`, the surface in
-// `surface.ts`.
+// Everything draws as one non-indexed six-vertex quad per segment through core's transparent phase:
+// translucent, depth-tested, depth-write off, no overlay pass. Screen-space constant-pixel width; the shader
+// projects endpoints and expands the quad. Lines previously used an alpha surface, so they never entered
+// the opaque depth prepass or either shadow path; moving them drops no shadow-casting behavior. Bevy's
+// gizmo model; arrows are folded in (a shaft segment + segment-fletched head). Staging/upload live in
+// `segments.ts`; phase shaders live in `pipeline.ts`.
 
-import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
-import { BeginFrameSystem, PrepassSystem, RenderingPlugin } from "../../core/rendering";
+import {
+    BeginFrameSystem,
+    Camera,
+    CorePipelinePlugin,
+    PrepassSystem,
+    RenderContext,
+    RenderPhases,
+} from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
 import { f32, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
-import { Draws, registerSurface, StandardRenderingPlugin } from "../../standard/rendering";
+import { createLinePipeline, lineLayout, viewLayout } from "./pipeline";
 import {
     disposeSegments,
     flushSegments,
@@ -28,7 +33,6 @@ import {
     resetCount,
     warmSegments,
 } from "./segments";
-import { lineFs, lineLayout, lineVaryings, lineVs } from "./surface";
 
 export { drawArrow, drawLine, drawWireBox } from "./segments";
 
@@ -80,15 +84,6 @@ export const Arrow = component(
     },
 );
 
-// the canonical quad: posU.xyz = (t, edge, 0); normalV unused. Standard pulls these as localPos, the
-// chunk expands. 4 corners, 6 indices (two triangles)
-// prettier-ignore
-const QUAD_VERTS = new Float32Array([
-    0, -1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, -1, 0, 0, 0, 0, 1,
-    0,
-]);
-const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
-
 const _m = new Float32Array(16);
 
 // each retained Line is one segment from the entity's world pos along its rotated offset; an Arrow on it
@@ -122,72 +117,103 @@ function expandRetained(world: World): void {
     }
 }
 
-// runs after the immediate appends (simulation systems) and before standard reads the segment buffer
-// (PrepassSystem consumes the resolved draw's bind group): expands retained components, then uploads + clears
+// runs after immediate appends and before the main color pass: expands retained components, uploads, then clears
+interface LineRendererState {
+    single: import("typegpu").TgpuRenderPipeline | null;
+    multisample: import("typegpu").TgpuRenderPipeline | null;
+    viewGroups: Map<number, { buffer: GPUBuffer; group: GPUBindGroup }>;
+    segmentBuffer: object | null;
+    segmentGroup: GPUBindGroup | null;
+}
+const lineRendererKey = {
+    create: (): LineRendererState => ({
+        single: null,
+        multisample: null,
+        viewGroups: new Map(),
+        segmentBuffer: null,
+        segmentGroup: null,
+    }),
+};
+
+function renderLines(
+    world: World,
+    eid: number,
+    view: import("../../core/rendering").View,
+    pass: GPURenderPassEncoder,
+): void {
+    const lines = world.resource(Lines);
+    if (!lines.args || !lines.buffer) return;
+    const state = world.resource(lineRendererKey);
+    const context = world.resource(RenderContext);
+    const viewBuffer = context.viewBuffers[view.slot];
+    if (!viewBuffer) return;
+    let viewGroup = state.viewGroups.get(view.slot);
+    if (!viewGroup || viewGroup.buffer !== viewBuffer) {
+        const group = world.gpu.root.createBindGroup(viewLayout, { view: viewBuffer });
+        viewGroup = { buffer: viewBuffer, group: world.gpu.root.unwrap(group) };
+        state.viewGroups.set(view.slot, viewGroup);
+    }
+    if (state.segmentBuffer !== lines.buffer || !state.segmentGroup) {
+        const group = world.gpu.root.createBindGroup(lineLayout, { segments: lines.buffer });
+        state.segmentBuffer = lines.buffer;
+        state.segmentGroup = world.gpu.root.unwrap(group);
+    }
+    const pipeline =
+        world.storage(Camera).antialias.get(eid) !== 0 ? state.multisample : state.single;
+    if (!pipeline) return;
+    pass.setPipeline(world.gpu.root.unwrap(pipeline));
+    pass.setBindGroup(0, viewGroup.group);
+    pass.setBindGroup(1, state.segmentGroup);
+    pass.drawIndirect(world.gpu.root.unwrap(lines.args), 0);
+}
+
 const LinesSystem: System = {
     name: "lines",
     group: "draw",
     after: [BeginFrameSystem],
     before: [PrepassSystem],
-    setup(world: World) {
-        const lines = world.resource(Lines);
-        world.resource(Draws).register({
-            name: "lines",
-            surface: "lines",
-            mesh: lines.mesh!,
-            args: { indirect: lines.args! },
-        });
-    },
     update(world) {
         if (!world.gpu.device || !ready(world)) return;
         expandRetained(world);
-        const mesh = world.resource(Lines).mesh;
-        flushSegments(
-            world,
-            world.gpu.device,
-            mesh === null ? 0 : (world.resource(Meshes).get(mesh)?.indexBase ?? 0),
-        );
+        flushSegments(world, world.gpu.device);
     },
 };
 
 /**
  * the shallot debug-line producer: an immediate {@link drawLine} / {@link drawWireBox} / {@link drawArrow} API plus
  * the retained {@link Line} / {@link Arrow} components, both feeding one instanced-quad draw rendered
- * as a standard `"alpha"` surface (screen-space constant-pixel width, no overlay pass). Depends on
- * {@link RenderingPlugin}; a StandardRenderer camera renders it
+ * in core's transparent phase (screen-space constant-pixel width, no overlay pass). Depends on
+ * {@link CorePipelinePlugin}; a core camera renders it
  */
 export const LinesPlugin: Plugin = {
     gpu: {},
     name: "Lines",
     components: [Line, Arrow],
     systems: [LinesSystem],
-    dependencies: [MeshPlugin, RenderingPlugin, StandardRenderingPlugin],
+    dependencies: [CorePipelinePlugin],
 
     initialize(world) {
         initializeSegmentState(world);
         resetCount(world);
-        world.resource(Lines).mesh = registerMesh(world, {
-            name: "lineQuad",
-            vertices: QUAD_VERTS,
-            indices: QUAD_INDICES,
-        });
-        registerSurface(world, {
-            name: "lines",
-            layout: lineLayout,
-            blend: "alpha",
-            screen: true,
-            varyings: lineVaryings,
-            vs: lineVs,
-            fs: lineFs,
-        });
+        world.resource(RenderPhases).push({ transparent: renderLines });
     },
 
     warm(world: World) {
         if (!world.gpu.device) return;
         warmSegments(world, world.gpu.device);
+        const format = world.resource(RenderContext).format;
+        const state = world.resource(lineRendererKey);
+        state.single = createLinePipeline(world.gpu.root, format, 1);
+        state.multisample = createLinePipeline(world.gpu.root, format, 4);
     },
 
     dispose(world: World) {
         disposeSegments(world);
+        const state = world.resource(lineRendererKey);
+        state.viewGroups.clear();
+        state.segmentBuffer = null;
+        state.segmentGroup = null;
+        state.single = null;
+        state.multisample = null;
     },
 };

@@ -6,6 +6,7 @@ import type { Resource, System } from "../../engine";
 import { ClearChangeMarksSystem } from "../../engine/app";
 import { precompileState, typegpuRoot } from "../../engine/runtime/gpu";
 import {
+    MaterialTypes,
     MeshRenderPlugin,
     StandardRenderer,
     StandardRenderingPlugin,
@@ -18,8 +19,8 @@ import {
     lightInputKey,
     UpdateLightClustersSystem,
 } from "../../standard/rendering/cluster";
-import { Backgrounds, Surfaces } from "../../standard/rendering/contract";
-import { backgroundsKey, surfacesKey } from "../../standard/rendering/contract-state";
+import { Backgrounds } from "../../standard/rendering/contract";
+import { backgroundsKey } from "../../standard/rendering/contract-state";
 import { Lighting, lightingKey } from "../../standard/rendering/lighting";
 import { Draws, drawsKey } from "../../standard/rendering/registry";
 import { Meshes, meshResourcesKey } from "../mesh/mesh";
@@ -104,10 +105,9 @@ const meshResources = {
     Meshes,
 };
 const contractResources = {
-    surfacesKey,
-    Surfaces,
     backgroundsKey,
     Backgrounds,
+    MaterialTypes,
     drawsKey,
     Draws,
 };
@@ -172,7 +172,7 @@ test("stage 3: core-only rendering registers no mesh resources", () => {
     assertRegistration({ ...contractResources, ...lightResources }, lightSystems);
 });
 
-test("stage 4: core-only rendering registers no surface, background or draw resources", () => {
+test("stage 4: core-only rendering registers no material, background or draw resources", () => {
     assertRegistration(lightResources, lightSystems);
 });
 

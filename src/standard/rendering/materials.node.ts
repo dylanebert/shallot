@@ -16,14 +16,13 @@ import {
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import { DEFAULT_PLUGINS, MeshRenderPlugin, StandardRenderingPlugin } from "../index";
-import { Surfaces } from "./contract";
 import { StandardRenderer } from "./forward";
 import {
-    MaterialInput,
     Materials,
     MeshMaterial,
     materialTable,
     StandardMaterial,
+    StandardMaterialInput,
 } from "./material";
 
 setDefaultTimeout(CEILING.node);
@@ -32,7 +31,7 @@ const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] },
 ]);
 
-test("anonymous materials preserve every built-in surface frame including coloured emission", async () => {
+test("StandardMaterial keeps its frame while material types own independent parameter tables", async () => {
     const { world } = subjects()[0];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -48,34 +47,44 @@ test("anonymous materials preserve every built-in surface frame including colour
     world.add(eid, Transform, { rotation: [0.0996005, 0.199201, 0, 0.974884] });
     world.add(eid, MeshInstance);
     world.add(eid, MeshMaterial);
-    for (const surface of ["default", "unlit", "vertex"]) {
-        const material = world.resource(Materials).add(
-            StandardMaterial({
-                surface: world.resource(Surfaces).id(surface)!,
-                baseColor: [0.25, 0.5, 0.75, 1],
-                metallic: 0.25,
-                perceptualRoughness: 0.5,
-                emissive: [0.03125, 0.0625, 0.09375],
-                occlusion: 0.75,
-            }),
-        );
-        world.storage(MeshMaterial).material.set(eid, material);
-        world.gpu.device.pushErrorScope("validation");
-        world.step(0);
-        world.step(0);
-        const { rgba } = await captureTexture(world, camera);
-        expect(await world.gpu.device.popErrorScope()).toBeNull();
-        const colors = new Set<string>();
-        for (let i = 0; i < rgba.length; i += 4)
-            colors.add(`${rgba[i]},${rgba[i + 1]},${rgba[i + 2]}`);
-        expect(colors.size).toBeGreaterThan(3);
-        const directory = process.env.SHALLOT_MATERIAL_FRAMES;
-        if (directory) {
-            await mkdir(directory, { recursive: true });
-            const path = `${directory}/${surface}.rgba`;
-            if (process.env.SHALLOT_RECORD_MATERIAL_FRAMES) await writeFile(path, rgba);
-            else expect(Buffer.from(rgba).equals(await readFile(path))).toBe(true);
-        }
+    world.gpu.device.pushErrorScope("validation");
+    world.step(0);
+    world.step(0);
+    const before = await captureTexture(world, camera);
+    expect(await world.gpu.device.popErrorScope()).toBeNull();
+
+    // Adding another type's rows must not move or rewrite StandardMaterial's row zero.
+    const standard = world.resource(Materials);
+    const standardHandle = standard.add(
+        StandardMaterial({
+            baseColor: [0.25, 0.5, 0.75, 1],
+            metallic: 0.25,
+            perceptualRoughness: 0.5,
+            emissive: [0.03125, 0.0625, 0.09375],
+            occlusion: 0.75,
+        }),
+    );
+    world.gpu.device.pushErrorScope("validation");
+    world.step(0);
+    world.step(0);
+    const unchangedDefault = await captureTexture(world, camera);
+    expect(await world.gpu.device.popErrorScope()).toBeNull();
+    expect(unchangedDefault.rgba).toEqual(before.rgba);
+
+    world.storage(MeshMaterial).type.set(eid, standardHandle.type);
+    world.storage(MeshMaterial).material.set(eid, standardHandle.material);
+    world.gpu.device.pushErrorScope("validation");
+    world.step(0);
+    world.step(0);
+    const after = await captureTexture(world, camera);
+    expect(await world.gpu.device.popErrorScope()).toBeNull();
+    expect(after.rgba).not.toEqual(before.rgba);
+    const directory = process.env.SHALLOT_MATERIAL_FRAMES;
+    if (directory) {
+        await mkdir(directory, { recursive: true });
+        const path = `${directory}/standard.rgba`;
+        if (process.env.SHALLOT_RECORD_MATERIAL_FRAMES) await writeFile(path, after.rgba);
+        else expect(Buffer.from(after.rgba).equals(await readFile(path))).toBe(true);
     }
 });
 
@@ -89,9 +98,10 @@ test("steady mesh rendering adds no materials and creates no bind groups", () =>
     const eid = world.create();
     world.add(eid, Transform);
     world.add(eid, MeshInstance);
+    world.add(eid, MeshMaterial);
     const materials = world.resource(Materials);
     const material = materials.add(StandardMaterial({ metallic: 0.25 }));
-    world.add(eid, MeshMaterial, { material });
+    world.storage(MeshMaterial).material.set(eid, material.material);
     world.step(0);
     world.step(0);
     const add = materials.add.bind(materials);
@@ -124,37 +134,40 @@ test("steady mesh rendering adds no materials and creates no bind groups", () =>
     }
 });
 
-test("anonymous adds return distinct ids and partial updates preserve the other GPU values", async () => {
+test("type-owned adds return distinct rows and partial updates preserve the other GPU values", async () => {
     const { world } = subjects()[1];
     const materials = world.resource(Materials);
     const values = StandardMaterial({ metallic: 0.25, occlusion: 0.75 });
     const a = materials.add(values);
     const b = materials.add(values);
-    expect(b).not.toBe(a);
+    expect(b.material).not.toBe(a.material);
     materials.update(a, {
         baseColor: [0.75, 0.25, 0.5, 1],
         emissive: [0.5, 0.25, 0.125],
         diffuseWrap: 0,
     });
-    expect(() => materials.update(-1, {})).toThrow("unknown material id");
-    expect(() => materials.update(b + 1, {})).toThrow("unknown material id");
+    expect(() => materials.update(-1, {})).toThrow("unknown StandardMaterial row");
+    expect(() => materials.update({ ...b, material: b.material + 1 }, {})).toThrow(
+        "unknown StandardMaterial row",
+    );
     world.gpu.device.pushErrorScope("validation");
     world.step(0);
-    async function read(id: number) {
+    async function read(handle: typeof a) {
         const snapshot = await probeBuffer(world, materialTable(world).buffer, {
-            offset: id * d.sizeOf(MaterialInput),
-            size: d.sizeOf(MaterialInput),
+            offset: handle.material * d.sizeOf(StandardMaterialInput),
+            size: d.sizeOf(StandardMaterialInput),
         });
-        return readFromArrayBuffer(snapshot.bytes, MaterialInput);
+        return readFromArrayBuffer(snapshot.bytes, StandardMaterialInput);
     }
     const changed = await read(a);
     const unchanged = await read(b);
     expect(changed.baseColor).toEqual(d.vec4f(0.75, 0.25, 0.5, 1));
-    expect(changed.params).toEqual(d.vec4f(0.25, 0.5, a, 0.75));
+    expect(changed.metallic).toBe(0.25);
+    expect(changed.perceptualRoughness).toBe(0.5);
+    expect(changed.occlusion).toBe(0.75);
     expect(changed.emissive).toEqual(d.vec3f(0.5, 0.25, 0.125));
     expect(changed.diffuseWrap).toBe(0);
     expect(unchanged.baseColor).toEqual(d.vec4f(1));
-    expect(unchanged.params).toEqual(d.vec4f(0.25, 0.5, b, 0.75));
     expect(unchanged.emissive).toEqual(d.vec3f(0));
     expect(unchanged.diffuseWrap).toBe(1);
     expect(await world.gpu.device.popErrorScope()).toBeNull();

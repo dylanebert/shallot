@@ -34,11 +34,10 @@ export function authorWorld(world: World): void {
     const cube = world.create();
     world.add(cube, MeshInstance);
     world.add(cube, Transform, { translation: [0, 0, 0, 0] });
-    world.add(cube, MeshMaterial, {
-        material: world
-            .resource(Materials)
-            .add(StandardMaterial({ baseColor: [0.85, 0.55, 0.35, 1] })),
-    });
+    const material = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColor: [0.85, 0.55, 0.35, 1] }));
+    world.add(cube, MeshMaterial, material);
 }
 
 export const LoadingWorld: Plugin = {

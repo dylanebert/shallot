@@ -1,418 +1,120 @@
-// The renderer-neutral schema-backed surface/background contract. Layouts are created before their TGSL functions so
-// shader code can close over `layout.$.name`; registration binds exact spec identity to a World lifetime.
-//
-// Group split: a surface's own bindings + the standard-injected `vertices` slot pin
-// to **group 2** (engine 0 / shadow-or-atlas 1 / surface 2) — `surfaceLayout()`'s `$idx(SURFACE_GROUP)`. The
-// `vertices` slot is pass-variant (color pass reads the 16 B main stream, prepass/shadow the 8 B
-// position-only stream, same physical slot) — `surfaceLayout()` synthesizes both variants; typegpu resolves only
-// what a given shader actually calls, so carrying the unused variant's declaration costs nothing (the
-// "layout is a superset of what one shader declares" precedent, `engine.test.ts`).
-
 import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { isTgpuFn } from "typegpu";
-import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
+import type { WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import type { Registry, World } from "../../engine";
-import { Xform } from "../../engine/utils";
-import { backgroundsKey, surfacesKey } from "./contract-state";
+import { backgroundsKey } from "./contract-state";
+import type { MaterialBinding } from "./material-type";
 
-// Free functions (barrel-named — `layout`/`register` are too generic for a barrel), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
-// `Registry<T>` (`engine/utils/registry.ts`) is generic infra shared by Draws and these contract registries,
-// so it must stay free of typegpu types and standard's group scheme — a method on it would leak both into every registry
-// consumer. `surfaceLayout`/`registerSurface` live here instead, against the plain surface registry.
-
-/** typegpu's shader-stage literal, re-declared locally — `TgpuShaderStage` isn't re-exported from the
- *  top-level `typegpu` package (only from its internal `./types`). */
-type ShaderStage = "compute" | "vertex" | "fragment";
-
-/** the default visibility for an immutable surface resource. */
-const VS_FS: ShaderStage[] = ["vertex", "fragment"];
-
-/** group 2 (engine 0 / shadow-or-atlas 1 / surface 2) — where a surface's own
- *  bindings + the standard-injected `vertices` slot pin. */
-export const SURFACE_GROUP = 2;
-
-/**
- * the schema-carrying surface binding union. `uniform` takes the WGSL struct schema directly (`struct:
- * AnyWgslStruct`) and `storage` its element schema (`element: AnyWgslData`) — registry-kind resolution,
- * `mesh.bindings` overrides, and the `eids`+`globalTransforms` instancing convention carry over unchanged;
- * only the payload each variant carries changes. Texture/sampler variants are
- * unchanged (no schema needed — `type` alone selects the WGSL type).
- */
-export type Binding =
-    | { type: "uniform"; struct: AnyWgslStruct }
-    /** Mesh-only per-vertex storage array at absolute `vidx`, with the element's storage
-     * array stride (including padding). Missing or different schemas refuse the draw,
-     * naming mesh, surface and stream; no world resource or mesh binding override is used. */
-    | { type: "attribute"; element: AnyWgslData }
-    // `AnyWgslData`, not the wider `AnyData`: `AnyData` also admits loose vertex-format-only schemas that
-    // can't back a storage declaration — the narrower type is deliberate, not an accident of the spec's wording
-    | {
-          type: "storage";
-          element: AnyWgslData;
-          access?: "read" | "read_write";
-          /** Stages that read this consumer-owned buffer; defaults to vertex and fragment. */
-          visibility?: readonly ShaderStage[];
-      }
-    | { type: "texture-2d" }
-    | { type: "texture-2d-array" }
-    | { type: "texture-depth-2d" }
-    | { type: "sampler" }
-    | { type: "sampler-comparison" };
-
-/** the layout entry a {@link Binding} converts to, discriminated the same way `Binding` itself is —
- *  so `SurfaceLayout<B>['$'][K]` recovers the precise per-binding value type (`layout.$.items` reads as
- *  an array of the declared element, not the widened `TgpuLayoutEntry` union every case would collapse
- *  to). Mirrors {@link layoutEntry}'s runtime shape exactly. */
-// biome-ignore format: one row per Binding variant reads clearer un-wrapped
-type EntryFor<B extends Binding> = B extends { type: "uniform" }
-    ? { uniform: B["struct"]; visibility: ShaderStage[] }
+type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
+    ? { uniform: B["struct"]; visibility: ("vertex" | "fragment")[] }
     : B extends { type: "storage" | "attribute" }
       ? {
-            // `d.arrayOf(element)` with no length is a runtime-sized-array *constructor* — this is the
-            // unsized `array<T>` shape a storage binding needs
-            storage: (elementCount: number) => WgslArray<B["element"]>;
+            storage: (count: number) => WgslArray<B["element"]>;
             access: "mutable" | "readonly";
-            visibility: ShaderStage[];
+            visibility: ("vertex" | "fragment")[];
         }
       : B extends { type: "texture-2d" }
-        ? { texture: d.WgslTexture2d<d.F32>; visibility: ShaderStage[] }
+        ? { texture: d.WgslTexture2d<d.F32>; visibility: ("vertex" | "fragment")[] }
         : B extends { type: "texture-2d-array" }
-          ? { texture: d.WgslTexture2dArray<d.F32>; visibility: ShaderStage[] }
+          ? { texture: d.WgslTexture2dArray<d.F32>; visibility: ("vertex" | "fragment")[] }
           : B extends { type: "texture-depth-2d" }
-            ? { texture: d.WgslTextureDepth2d; visibility: ShaderStage[] }
+            ? { texture: d.WgslTextureDepth2d; visibility: ("vertex" | "fragment")[] }
             : B extends { type: "sampler" }
-              ? { sampler: "filtering"; visibility: ShaderStage[] }
-              : { sampler: "comparison"; visibility: ShaderStage[] };
+              ? { sampler: "filtering"; visibility: ("vertex" | "fragment")[] }
+              : { sampler: "comparison"; visibility: ("vertex" | "fragment")[] };
 
-function layoutEntry<B extends Binding>(b: B): EntryFor<B> {
-    switch (b.type) {
+const VISIBILITY: ("vertex" | "fragment")[] = ["vertex", "fragment"];
+
+function bindingEntry<B extends MaterialBinding>(binding: B): EntryFor<B> {
+    switch (binding.type) {
         case "uniform":
-            return { uniform: b.struct, visibility: VS_FS } as EntryFor<B>;
+            return { uniform: binding.struct, visibility: VISIBILITY } as EntryFor<B>;
         case "attribute":
             return {
-                storage: d.arrayOf(b.element),
+                storage: d.arrayOf(binding.element),
                 access: "readonly",
-                visibility: VS_FS,
+                visibility: VISIBILITY,
             } as EntryFor<B>;
         case "storage":
             return {
-                // a storage binding is always `array<element>` — the contract keeps that
-                // shape, so a bound name reads an array
-                storage: d.arrayOf(b.element),
-                access: b.access === "read_write" ? ("mutable" as const) : ("readonly" as const),
-                // WebGPU forbids a read-write storage binding visible to the vertex stage — a surface
-                // never runs compute, so a mutable binding narrows to fragment-only (typegpu's own
-                // default for mutable storage is `["compute", "fragment"]`); a read-only binding stays
-                // VS_FS like every other entry
-                visibility: b.visibility
-                    ? [...b.visibility]
-                    : b.access === "read_write"
-                      ? (["fragment"] as ShaderStage[])
-                      : VS_FS,
+                storage: d.arrayOf(binding.element),
+                access: binding.access === "read_write" ? "mutable" : "readonly",
+                visibility: binding.visibility
+                    ? [...binding.visibility]
+                    : binding.access === "read_write"
+                      ? ["fragment"]
+                      : VISIBILITY,
             } as EntryFor<B>;
         case "texture-2d":
-            return { texture: d.texture2d(), visibility: VS_FS } as EntryFor<B>;
+            return { texture: d.texture2d(), visibility: VISIBILITY } as EntryFor<B>;
         case "texture-2d-array":
-            return { texture: d.texture2dArray(), visibility: VS_FS } as EntryFor<B>;
+            return { texture: d.texture2dArray(), visibility: VISIBILITY } as EntryFor<B>;
         case "texture-depth-2d":
-            return { texture: d.textureDepth2d(), visibility: VS_FS } as EntryFor<B>;
+            return { texture: d.textureDepth2d(), visibility: VISIBILITY } as EntryFor<B>;
         case "sampler":
-            return { sampler: "filtering" as const, visibility: VS_FS } as EntryFor<B>;
+            return { sampler: "filtering", visibility: VISIBILITY } as EntryFor<B>;
         case "sampler-comparison":
-            return { sampler: "comparison" as const, visibility: VS_FS } as EntryFor<B>;
+            return { sampler: "comparison", visibility: VISIBILITY } as EntryFor<B>;
     }
 }
 
-/** the standard-injected `vertices` slot's two pass variants — the color pass's 16 B main stream
- *  (`array<vec4u>`: pos + meshId / oct normal / uv) and the prepass/shadow passes' 8 B position-only
- *  stream (`array<vec2u>`: pos + meshId). Same physical binding slot, distinct element type per pass —
- *  the `uniformWgsl(pass)` split, moved from the engine group into the surface group here. */
-const verticesColor = {
-    storage: d.arrayOf(d.vec4u),
-    access: "readonly" as const,
-    visibility: VS_FS,
-};
-const verticesDepth = {
-    storage: d.arrayOf(d.vec2u),
-    access: "readonly" as const,
-    visibility: VS_FS,
-};
-/** Per-draw instance: eid, Transform slot, MeshInstance slot + 1 (zero if absent), shadow combo. */
-export const InstanceInput = d.vec4u;
-
-/** Dense per-MeshInstance fields read by instanced surfaces. */
-export const MeshInstanceInput = d
-    .struct({
-        mesh: d.u32,
-        material: d.u32,
-        flags: d.u32,
-    })
-    .$name("MeshInstanceInput");
-const meshInstancesEntry = {
-    storage: d.arrayOf(MeshInstanceInput),
-    access: "readonly" as const,
-    visibility: VS_FS,
-};
-
-/** a synthesized surface layout: group 2, a consumer's own bindings by name (`layout.$.name`) plus
- *  the standard-injected `vertices` slot (color-pass shape). {@link depthVariant} is the same bindings at the
- *  same `$idx`, `vertices` swapped to the prepass/shadow shape — the pipeline builder selects
- *  between them per pass, the same way `uniformWgsl(pass)` does today. */
-export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<
-    { [K in keyof B]: EntryFor<B[K]> } & {
-        meshInstances: typeof meshInstancesEntry;
-        vertices: typeof verticesColor;
-    }
-> & {
-    readonly attributes: Readonly<Record<string, AnyWgslData>>;
-    readonly depthVariant: TgpuBindGroupLayout<
-        { [K in keyof B]: EntryFor<B[K]> } & {
-            meshInstances: typeof meshInstancesEntry;
-            vertices: typeof verticesDepth;
-        }
-    >;
-};
-
-/** the shared binding-map synthesis {@link surfaceLayout} and {@link backgroundLayout} both build on — a surface's own
- *  bindings mapped through {@link layoutEntry}, before either the `vertices` slot (surfaces) or nothing
- *  (backgrounds, which pull no mesh) is added. */
-function ownEntries<B extends Record<string, Binding>>(
+function ownEntries<B extends Record<string, MaterialBinding>>(
     bindings: B,
 ): { [K in keyof B]: EntryFor<B[K]> } {
     return Object.fromEntries(
-        Object.entries(bindings).map(([name, b]) => [name, layoutEntry(b)]),
+        Object.entries(bindings).map(([name, binding]) => [name, bindingEntry(binding)]),
     ) as { [K in keyof B]: EntryFor<B[K]> };
 }
 
-/**
- * step one of the two-step registration: synthesize a surface's group-2 layout
- * from its own bindings, so a `vs`/`fs` can close over `layout.$.name` while it's being authored —
- * before {@link registerSurface} exists to call. Layouts are shareable across surfaces declaring the same
- * bindings (sprite ×6 — register the same layout object on each).
- */
-export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): SurfaceLayout<B> {
-    const own = ownEntries(bindings);
-    const color = tgpu
-        .bindGroupLayout({
-            ...own,
-            meshInstances: meshInstancesEntry,
-            vertices: verticesColor,
-        })
-        .$idx(SURFACE_GROUP);
-    const depth = tgpu
-        .bindGroupLayout({
-            ...own,
-            meshInstances: meshInstancesEntry,
-            vertices: verticesDepth,
-        })
-        .$idx(SURFACE_GROUP);
-    const attributes = Object.fromEntries(
-        Object.entries(bindings)
-            .filter(([, binding]) => binding.type === "attribute")
-            .map(([name, binding]) => [
-                name,
-                (binding as Extract<Binding, { type: "attribute" }>).element,
-            ]),
-    );
-    return Object.assign(color, { depthVariant: depth, attributes }) as SurfaceLayout<B>;
-}
-
-/** a synthesized background layout: group 2 (the same group a surface's own bindings pin to — the
- *  Backgrounds bindings lock), a background's own bindings by name (`layout.$.name`), through the SAME
- *  {@link layoutEntry} synthesis {@link surfaceLayout} uses — minus the `vertices` slot (a background pulls no
- *  mesh) and with no `depthVariant` (a background draws only in the color pass). */
-export type BackgroundLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<{
+/** The resources a background's fragment shader reads from group 2. */
+export type BackgroundLayout<B extends Record<string, MaterialBinding>> = TgpuBindGroupLayout<{
     [K in keyof B]: EntryFor<B[K]>;
 }>;
 
-/**
- * step one of a background's two-step registration, {@link surfaceLayout}'s twin for the Backgrounds seam:
- * synthesize a background's group-2 layout from its own
- * bindings, so its `fs` can close over `layout.$.name` while it's being authored.
- */
-export function backgroundLayout<B extends Record<string, Binding>>(
+/** Build a background's resource layout before authoring the shader that closes over it. */
+export function backgroundLayout<B extends Record<string, MaterialBinding>>(
     bindings: B,
 ): BackgroundLayout<B> {
-    return tgpu.bindGroupLayout(ownEntries(bindings)).$idx(SURFACE_GROUP) as BackgroundLayout<B>;
+    return tgpu.bindGroupLayout(ownEntries(bindings)).$idx(2) as BackgroundLayout<B>;
 }
 
-/** what a `vs` chunk reads: the vertex-pull's pulled `localPos`/`localNormal`/`uv`, the
- *  `vidx`/`eid`/`iid` builtins, the resolved instance `xform`, and `world`/`worldNormal` — already carrying
- *  that GlobalTransform when the surface is instanced (the `eids`+`globalTransforms` convention). `xform` is identity for a
- *  non-instanced surface and lets a deforming vs replace local geometry without closing over one pass's
- *  concrete surface layout. */
-export const VsIn = d
-    .struct({
-        localPos: d.vec3f,
-        localNormal: d.vec3f,
-        uv: d.vec2f,
-        vidx: d.u32,
-        eid: d.u32,
-        iid: d.u32,
-        xform: Xform,
-        world: d.vec4f,
-        worldNormal: d.vec3f,
-        color: d.vec4f,
-        material: d.vec4f,
-    })
-    .$name("VsIn");
+/** A background shader's reconstructed normalized world-space view ray. */
+export const BackgroundContext = d.struct({ dir: d.vec3f }).$name("BackgroundContext");
+export type BackgroundFn = TgpuFn<(ctx: typeof BackgroundContext) => d.Vec3f>;
 
-/** a `vs` chunk's output schema, folding a surface's own `varyings` in beside the fixed patch fields
- *  (`world`/`worldNormal` override, `clip` for a `screen` surface's own projection) — standard builds this
- *  struct per surface rather than carrying one fixed shape, since the varying set is per-surface. */
-export function vsPatchSchema<V extends Record<string, AnyWgslData> = Record<string, never>>(
-    varyings: V = {} as V,
-) {
-    return d.struct({ world: d.vec4f, worldNormal: d.vec3f, clip: d.vec4f, ...varyings });
-}
-
-/** an `fs` chunk's input schema: the built-in fields standard rebinds as locals today (`eid`/`world`/
- *  `worldNormal`/`uv`/`localPos`) plus the surface's own `varyings` — the standard-rebuilt
- *  fragment context, built per surface for the same reason as
- *  {@link vsPatchSchema}. */
-export function fsCtxSchema<V extends Record<string, AnyWgslData> = Record<string, never>>(
-    varyings: V = {} as V,
-) {
-    return d.struct({
-        eid: d.u32,
-        world: d.vec3f,
-        worldNormal: d.vec3f,
-        uv: d.vec2f,
-        localPos: d.vec3f,
-        color: d.vec4f,
-        material: d.vec4f,
-        ...varyings,
-    });
-}
-
-/** a surface's vertex chunk: `VsIn` in, its own `vsPatchSchema(varyings)` out. Optional — a surface
- *  with no `vs` leaves `world`/`worldNormal` at `VsIn`'s (the identity transform, or the instance
- *  transform's result). */
-export type VsFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
-    (vsIn: typeof VsIn) => ReturnType<typeof vsPatchSchema<V>>
->;
-
-/** a surface's fragment chunk: its own `fsCtxSchema(varyings)` in, the shaded RGBA out. */
-export type FsFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
-    (ctx: ReturnType<typeof fsCtxSchema<V>>) => d.Vec4f
->;
-
-/**
- * a surface authored against the contract: TGSL fns as the code (a synthesized `surfaceLayout()` is what
- * lets `vs`/`fs` close over `layout.$.name`, the accessor chicken-egg {@link surfaceLayout} solves). Structural
- * facts (`blend`/`screen`) route the renderer, they're not code.
- */
-export interface Surface<
-    B extends Record<string, Binding> = Record<string, Binding>,
-    V extends Record<string, AnyWgslData> = Record<string, never>,
+/** A fullscreen background recipe; StandardRenderer supplies geometry and opaque alpha. */
+export interface Background<
+    B extends Record<string, MaterialBinding> = Record<string, MaterialBinding>,
 > {
-    /** registry key referenced by a `Draw.surface`. */
     name: string;
-    /** group-2 layout created before the shader functions so they can close over `layout.$`. */
-    layout: SurfaceLayout<B>;
-    /** optional mesh fields that must cross the rasterizer into {@link fs}. Undeclared fields remain
-     * available to {@link vs} but are zero-filled in the fragment context instead of consuming an
-     * interpolator. */
-    fragmentInputs?: { uv?: true; localPos?: true };
-    /** custom vertex-to-fragment fields; pass the same object to both IO schema factories. */
-    varyings?: V;
-    /** optional vertex patch over {@link VsIn}; omit to keep the engine-computed world values. */
-    vs?: VsFn<V>;
-    /** fragment shader returning linear HDR RGBA. */
-    fs: FsFn<V>;
-    /** alpha blends without depth writes; clip retains opaque depth/shadow routing and honors any
-     * `discard` authored by {@link fs}. */
-    blend?: "alpha" | "clip";
-    /** lets {@link vs} author clip space directly instead of using the engine world projection. Requires
-     * {@link vs}; registration without one fails when the surface compiles. */
-    screen?: boolean;
+    layout: BackgroundLayout<B>;
+    fs: BackgroundFn;
 }
 
-/** every registered surface in the active world's registry. */
-export const Surfaces: import("../../engine").Resource<Registry<Surface>> = {
-    create: (world) => world.resource(surfacesKey),
+export const Backgrounds: import("../../engine").Resource<Registry<Background>> = {
+    create: (world) => world.resource(backgroundsKey),
 };
 
-/** Create this world's surface and background registries during StandardRenderingPlugin initialization. */
-export function initializeSurfaceState(world: World): void {
-    world.resource(surfacesKey);
+export function initializeBackgroundState(world: World): void {
     world.resource(backgroundsKey);
 }
 
-/**
- * brand-check one incoming TGSL fn against this engine's own resolution of typegpu, at the seam where a
- * consumer-built object first meets the engine ({@link registerSurface}/{@link registerBackground}).
- * typegpu's brand markers are a per-copy `Symbol(...)` (never `Symbol.for`, `typegpu/shared/symbols.js`),
- * so `isTgpuFn`, imported from *this* engine's own resolution, reads `false` for a foreign copy's fn
- * even when its shape matches exactly (same
- * copy `true`, cross-copy `false`). This closes the ordering gap the module-load write-counter
- * (`checkTgsl`, `engine/runtime/gpu.ts`) can't: that counter can fold a duplicate's write into its own
- * baseline depending on which module evaluates first, but a foreign fn arriving here fails the brand
- * check regardless of evaluation order.
- */
-export function assertOwnFn(label: string, fn: unknown): void {
+function assertOwnFn(label: string, fn: unknown): void {
     if (fn == null || isTgpuFn(fn)) return;
     throw new Error(
         `${label}: this isn't a TGSL function the engine can recognize. ` +
             "If it came from tgpu.fn, it resolved from a foreign copy of typegpu, not the one this " +
             "engine built against. Two physical copies in one bundle stamp different internal " +
-            "markers even when the code is identical, so a kernel built from this fn resolves " +
-            "against the wrong metadata map, or not at all. Known triggers: a bundler dedupe miss " +
-            "(Vite prebundling) and pnpm's isolated node_modules. Dedupe typegpu to a single copy; " +
-            "it is the engine's peerDependency for exactly this reason. " +
-            "If it never came from tgpu.fn, build it with tgpu.fn(args, ret)(body).",
+            "markers even when the code is identical, so a shader built from a duplicate package " +
+            "cannot resolve against the engine's metadata. Dedupe typegpu to a single copy; it is " +
+            "the engine's peerDependency for exactly this reason. If this wasn't made with tgpu.fn, " +
+            "build it with tgpu.fn(args, ret)(body).",
     );
 }
 
-/**
- * register a surface for the lifetime of its owning World. Disposal removes it only while this exact
- * spec still owns the name, so a rebuilt World cannot delete its replacement.
- */
-export function registerSurface<
-    B extends Record<string, Binding>,
-    V extends Record<string, AnyWgslData>,
->(world: World, spec: Surface<B, V>): number {
-    assertOwnFn(`registerSurface "${spec.name}" vs`, spec.vs);
-    assertOwnFn(`registerSurface "${spec.name}" fs`, spec.fs);
-    return world.resource(surfacesKey).register(spec as Surface);
-}
-
-// Background bindings use the same group-2 scheme, minus the mesh vertex slot and depth variant.
-
-/** a background's fragment-input context: the engine-reconstructed normalized world-space view ray
- *  `dir` (from `@builtin(position)` + `view.invViewProj` at the reverse-Z far plane, not an interstage varying).
- *  Fixed shape, no per-background
- *  varyings — a background has no vertex stage of its own to write one from (the engine owns the one
- *  fullscreen-triangle `vertexFn`), so unlike {@link fsCtxSchema} this schema never folds anything in. */
-export const BackgroundContext = d.struct({ dir: d.vec3f }).$name("BackgroundContext");
-
-/** a background's TGSL fragment function: {@link BackgroundContext} in and HDR RGB out; StandardRenderer adds opaque alpha. */
-export type BackgroundFn = TgpuFn<(ctx: typeof BackgroundContext) => d.Vec3f>;
-
-/**
- * a schema-backed background recipe: {@link backgroundLayout} declares the group-2 resources its TGSL
- * {@link BackgroundFn} closes over. It has no mesh, vertex function, or interpolators; StandardRenderer owns the fullscreen
- * triangle and reconstructs {@link BackgroundContext.dir} per fragment.
- */
-export interface Background<B extends Record<string, Binding> = Record<string, Binding>> {
-    /** registry key referenced by a camera's `CameraBackground.background`. */
-    name: string;
-    /** group-2 resources the fragment function closes over. */
-    layout: BackgroundLayout<B>;
-    /** fragment shader returning linear HDR RGB for the reconstructed view ray. */
-    fs: BackgroundFn;
-}
-
-/** every registered background in the active world's registry. */
-export const Backgrounds: import("../../engine").Resource<Registry<Background>> = {
-    create: (world) => world.resource(backgroundsKey),
-};
-
-/**
- * register a background for the lifetime of its owning World.
- */
-export function registerBackground<B extends Record<string, Binding>>(
+/** Register a background for the lifetime of its owning World. */
+export function registerBackground<B extends Record<string, MaterialBinding>>(
     world: World,
     spec: Background<B>,
 ): number {

@@ -147,13 +147,13 @@ export interface WorldGpu {
     /**
      * named GPU textures published for cross-system lookup, mirroring
      * {@link buffers}. Producers register loaded / rendered textures;
-     * surfaces declaring a `texture-2d` / `texture-depth-2d` binding resolve
+     * material or background layouts declaring a `texture-2d` / `texture-depth-2d` binding resolve
      * the name here at bind-group build time
      */
     readonly textures: Map<string, GPUTexture>;
     /**
      * named GPU samplers published for cross-system lookup, mirroring
-     * {@link buffers}. Surfaces declaring a `sampler` / `sampler-comparison`
+     * {@link buffers}. Material or background layouts declaring a `sampler` / `sampler-comparison`
      * binding resolve the name here at bind-group build time
      */
     readonly samplers: Map<string, GPUSampler>;

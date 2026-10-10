@@ -38,11 +38,11 @@ function scene(world: World): number {
     const wall = world.create();
     world.add(wall, Transform, { translation: [0, 0, -1, 0], scale: [20, 20, 0.2, 0] });
     world.add(wall, MeshInstance);
-    world.add(wall, MeshMaterial, { material });
+    world.add(wall, MeshMaterial, material);
     const cube = world.create();
     world.add(cube, Transform, { translation: [0, 0, 1, 0] });
     world.add(cube, MeshInstance);
-    world.add(cube, MeshMaterial, { material });
+    world.add(cube, MeshMaterial, material);
     world.add(world.create(), AmbientLight, { intensity: 0 });
     const light = world.create();
     world.add(light, Transform, { translation: [0.6, 0.6, 3, 0] });

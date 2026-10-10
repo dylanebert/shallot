@@ -150,16 +150,16 @@ These 0.9.5 exports are removed or renamed in 0.10. They shipped through the ren
 | `lightClusters` | Read the `LightCull` resource and `LightClusters` schema. |
 | `sliceDepth` | No public replacement; light-grid construction is internal. |
 | `zSlice` | Use `clusterCell` to address the shared light grid. |
-| `Binding` | Infer bindings from `surfaceLayout` or `backgroundLayout`. |
-| `FsFn` | Infer from `Surface` or `registerSurface`. |
-| `SurfaceLayout` | Infer from `surfaceLayout`. |
-| `VsFn` | Infer from `Surface` or `registerSurface`. |
-| `assertOwnFn` | Registration validates shader ownership. |
-| `SURFACE_GROUP` | `surfaceLayout` owns the bind-group index. |
+| `Binding` | Removed; describe material resources with `MaterialBinding` and construct `materialLayout`. |
+| `FsFn` | `MaterialFragmentFn`, inferred from a `materialType` shader. |
+| `SurfaceLayout` | `MaterialLayout`, inferred from `materialLayout`. |
+| `VsFn` | `MaterialVertexFn`, inferred from a `materialType` shader. |
+| `assertOwnFn` | Internal; registration validates shader ownership. |
+| `SURFACE_GROUP` | Removed; material and background group indices are renderer-owned. |
 | `clusterOf` | Use `clusterCell` for grid addressing or `lit` for surface lighting. |
-| `engineScaffoldWgsl` | Use `surfaceLayout`, shader functions and `registerSurface`. |
-| `fragCoord` | Use the fragment context supplied to the surface function. |
-| `fragWorld` | Use the fragment context supplied to the surface function. |
+| `engineScaffoldWgsl` | Use `materialLayout`, `materialType` and `materialFragmentContext`. |
+| `fragCoord` | Use the material fragment context or a core render-phase renderer. |
+| `fragWorld` | Use `MaterialFragmentContext.world`. |
 | `lightFactor` | Use `lit` for the standard lighting response. |
 | `litPbr` | Use `StandardMaterial` or `lit`. |
 | `pointFactor` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
@@ -421,13 +421,39 @@ world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 
-Custom typed surfaces change their instance binding from `transforms` to `globalTransforms`; the dense instance record still names its `globalTransform` row. Body, camera, light, text, sprite and other world-space consumers read GlobalTransform rather than Transform as world placement.
+Material vertex shaders receive `MaterialVertexInput.xform` and `.world`; fragment shaders receive `MaterialFragmentContext.world`. The dense mesh-instance record carries eid, mesh, material type and type-local material row. Body, camera, light, text, sprite and other world-space consumers read GlobalTransform rather than Transform as world placement.
 
-## Instanced surfaces read a row payload, not a list of eids
+## Mesh material types own shaders and typed rows
 
-For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, globalTransformSlot, encodedMeshInstanceSlot, shadowCombo)`: the MeshInstance slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
+`Surface`, `registerSurface` and `surfaceLayout` are removed. Define a material type with a parameter schema, a layout, and shader functions; register it with `MaterialPlugin`. Each registered type owns one GPU parameter table. `MeshMaterial` stores `{ type, material }`: `type` is the World-local material-type id and `material` is that type's row. Preprocessing groups by `(material type, mesh)`, so changing either component field moves the entity to the corresponding draw on the next frame. A missing `MeshMaterial` selects StandardMaterial type 0, row 0.
 
-The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity.
+```ts
+import {
+    MaterialPlugin,
+    materialFragmentContext,
+    materialLayout,
+    materialType,
+} from "@dylanebert/shallot/standard/rendering";
+
+const Params = d.struct({ tint: d.vec4f });
+const layout = materialLayout(Params, {});
+const Context = materialFragmentContext();
+const Tint = materialType({
+    name: "Tint",
+    parameters: Params,
+    layout,
+    fragment: tgpu.fn([Context], d.vec4f)((ctx) => {
+        "use gpu";
+        return Params(layout.$.materialParameters[ctx.material]).tint;
+    }),
+    defaults: { tint: d.vec4f(1) },
+});
+const TintPlugin = MaterialPlugin(Tint);
+```
+
+Add parameter values with `world.resource(Tint).add(...)`; the returned `{ type, material }` handle goes directly into `MeshMaterial`. Partial updates use `world.resource(Tint).update(handle, values)`. Material rows and type ids belong to their World. The renderer supports typed mesh attributes declared by `materialLayout` and validates their element schemas against the registered mesh.
+
+Sprite carries image layer, tint, fill and billboard data in its material type's table, with rows indexed by entity id; it does not allocate a material row per tint. Sprite remains on the standard mesh path, including clip-sprite shadow casting. Text and lines use core's `RenderPhases.transparent` seam instead of standard materials. Both previously used alpha surfaces and did not enter the opaque depth prepass or cast shadows, so that move drops no shadow behavior.
 
 ## glTF and Skin are removed
 
@@ -435,7 +461,7 @@ The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity.
 
 The importer scene hooks `Preloader`, `Preloads` and `preload` are removed. Load assets in your plugin's `initialize`.
 
-The importer-only shader specialization is also removed: `Surface.specialize`, `Specialize` and `Mesh.variant` are gone. Register separate named surfaces instead.
+The importer-only shader specialization is also removed: `Surface.specialize`, `Specialize` and `Mesh.variant` are gone. Register separate material types when shaders differ.
 
 ## GPU registries and plugin helpers use the owning World
 
@@ -502,33 +528,33 @@ Rendering split into `/rendering` for shared capabilities and `/standard/renderi
 ```ts
 // 0.9.5
 import { FrameGpu } from "@dylanebert/shallot/render/core";
-import { engineLayout, registerSurface, surfaceLayout } from "@dylanebert/shallot/sear/core";
+import { engineLayout, materialLayout, materialType, MaterialPlugin } from "@dylanebert/shallot/standard/rendering";
 import { Xform } from "@dylanebert/shallot/utils/core";
 ```
 
 ```ts
 // 0.10
 import { FrameGpu } from "@dylanebert/shallot/rendering";
-import { engineLayout, registerSurface, surfaceLayout } from "@dylanebert/shallot/standard/rendering";
+import { engineLayout, materialLayout, materialType, MaterialPlugin } from "@dylanebert/shallot/standard/rendering";
 import { Xform } from "@dylanebert/shallot/utils";
 ```
 
-`MeshInstance` contains only `mesh`. Add anonymous material values with `const id = world.resource(Materials).add(StandardMaterial(values))`, then add `MeshMaterial` with `{ material: id }`. Retain the returned id to share or update a material; there is no material name or name lookup. Meshes without `MeshMaterial` draw with the shared default `StandardMaterial`.
+`MeshInstance` contains only `mesh`. Add StandardMaterial values with `const handle = world.resource(Materials).add(StandardMaterial(values))`, then add `MeshMaterial` with that `{ type, material }` handle. Retain the handle to share or update a material; there is no material name or name lookup. Meshes without `MeshMaterial` draw with StandardMaterial type 0, row 0.
 
 | 0.9.5 name or value | 0.10 replacement |
 |---|---|
 | Root `Part` | Root or `/mesh` `MeshInstance` |
-| `Part.surface` | Material's `surface`, a `Surfaces` id |
+| `Part.surface` | A `MeshMaterial` handle selecting a registered material type and its row |
 | `Color.rgba` | Material's linear `baseColor` |
 | `Material.params` `(metallic, roughness, emissiveStrength, occlusion)` | `StandardMaterial({ metallic, perceptualRoughness, emissive: [baseColor[0] * emissiveStrength, baseColor[1] * emissiveStrength, baseColor[2] * emissiveStrength], occlusion })` |
-| `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material's id |
+| `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material handle |
 | Root `PartPlugin` | Root or `/standard/rendering` `MeshRenderPlugin` |
 | `/part/core` `Parts` | Removed; mesh-instance packing is internal to `MeshRenderPlugin`. |
-| `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:<surface>:<mesh>:<handle>`, `mesh:preprocess` |
+| `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:material:<type>:<mesh>:<handle>`, `mesh:preprocess` |
 
-`StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuseWrap` 1. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(id, values)`; omitted fields retain their values. Set `world.storage(MeshMaterial).material` to switch an entity's material. Material ids belong to the World that added them.
+`StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuseWrap` 1. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(handle, values)`; omitted fields retain their values. Change both `MeshMaterial.type` and `.material` when switching to another type; changing either field takes effect on the next frame. Material handles belong to the World that added them.
 
-Custom surfaces still receive linear `color`; their `material` lanes are now `(metallic, perceptualRoughness, materialId, occlusion)`, not scalar emissive strength. The standard instance table's `MeshInstanceInput` is `{ mesh: u32, material: u32, flags: u32 }` (`flags` bit 0 excludes the mesh from shadow views); colour and shading values live in the `materials` table, bound in `engineLayout`. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
+Custom material shaders receive a `MaterialFragmentContext` with linear `color` and a type-local `material` row. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, flags: u32 }` (`flags` bit 0 excludes the mesh from shadow views); parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
 
 Mesh data has its own `/mesh` module. `registerMesh` now returns a world-local `MeshHandle`; retain it for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels register distinct meshes:
 
@@ -558,12 +584,12 @@ Mesh packing and layout helpers not listed here are removed; see the rendering e
 
 `Mesh.dynamic`, `Mesh.count` and `Mesh.cast` are removed; they had no effect. Delete them, and add `NotShadowCaster` to an entity that should cast no shadow.
 
-Surface, background and draw contracts belong to `/standard/rendering`. Update imports as follows; contracts re-exported by `/sear/core` use the same mappings:
+Material, background and draw contracts belong to `/standard/rendering`. Update imports as follows; backgrounds and draws remain on that path:
 
 | 0.9.5 import | 0.10 import |
 | --- | --- |
-| `/render/core` `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface` | `/standard/rendering`, same names |
-| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | `/standard/rendering`, same names |
+| `/render/core` `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface` | Removed; use `materialLayout`, `materialType` and `MaterialPlugin` from `/standard/rendering` |
+| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | Removed; use `MaterialVertexInput`, `materialVertexOutput` and `materialFragmentContext` |
 | `/render/core` `TagFn` | Removed; there is no replacement picking lane. |
 | `/render/core` `BgCtx` | `/standard/rendering` `BackgroundContext` |
 | `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |
@@ -584,7 +610,7 @@ Camera prepass markers and attachment constants are imported from `/rendering`:
 
 `CorePipelinePlugin` from `/rendering` registers `DepthPrepass` and owns view targets, clear, resolve and prepass/opaque/transparent phases. `StandardRenderingPlugin` includes it as a dependency. Custom renderers using these phases depend on `CorePipelinePlugin` and register records in `RenderPhases`; records do not end the shared pass. `RenderingPlugin` alone supplies views and frame/presentation anchors without the shared pipeline. `DepthPrepass` requests the camera's stored depth output.
 
-Custom surface, background and draw producers depend on `StandardRenderingPlugin`; `RenderingPlugin` alone no longer initializes their registries.
+Custom mesh material types register with `MaterialPlugin` and use `MeshRenderPlugin` / `StandardRenderingPlugin` for standard draws. Backgrounds remain on `StandardRenderingPlugin`. Text and lines depend on `CorePipelinePlugin` and record in `RenderPhases.transparent`; `RenderingPlugin` alone does not provide that shared pass.
 
 `RenderingPlugin` still registers the light components (`AmbientLight`, `DirectionalLight`, `PointLight`, `SpotLight`, `VolumetricLight`), but no longer packs GPU lights or builds clusters. Compositions using those GPU resources need `StandardRenderingPlugin`.
 

@@ -3,8 +3,6 @@ import * as d from "typegpu/data";
 import type { MeshHandle } from "../../core/mesh";
 import { Registry, type World } from "../../engine";
 
-export { Surfaces } from "./contract";
-
 /** WebGPU's canonical 20-byte `DrawIndexedIndirect` record. `baseVertex` is signed by specification. */
 export const DrawIndexedIndirect = d
     .struct({
@@ -44,15 +42,13 @@ export interface DrawArgs {
 }
 
 /**
- * one rendered thing. `surface` references a registered Surface by name;
- * `mesh` references a registered Mesh by handle: the consumer renderer pulls
- * indexed vertices from that mesh's `vertices` + `indices` buffers in WGSL.
- * `args` points at the indirect draw record. Surface bindings beyond mesh
- * resolve by name against `world.gpu.buffers`
+ * one rendered thing. `materialType` selects one registered mesh material type;
+ * `mesh` references a registered Mesh by handle, and `args` points at its indirect record.
+ * Material bindings beyond mesh resolve by name against `world.gpu.buffers`.
  */
 export interface Draw {
     name: string;
-    surface: string;
+    materialType: number;
     mesh: MeshHandle;
     args: DrawArgs;
 }

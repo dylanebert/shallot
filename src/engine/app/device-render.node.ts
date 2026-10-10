@@ -42,7 +42,7 @@ function cameraPlugin(
             const material = world
                 .resource(Materials)
                 .add(StandardMaterial({ baseColor: color, perceptualRoughness: 1 }));
-            world.add(mesh, MeshMaterial, { material });
+            world.add(mesh, MeshMaterial, material);
             world.add(world.create(), AmbientLight, { intensity: 0.5 });
         },
     };

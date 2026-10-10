@@ -3,8 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, CullVolumes } from "../../core/rendering";
 import { Xform, xformPoint } from "../../engine/utils";
-import { MeshInstanceInput } from "./contract";
-import { MaterialInput } from "./material";
+import { MeshInstanceInput } from "./material-data";
 import { DrawIndexedIndirect } from "./registry";
 
 // The pack kernels: cull → count → scan → scatter, the compute half of the MeshInstance producer. Count and
@@ -27,7 +26,6 @@ export const cullLayout = tgpu
     .bindGroupLayout({
         instanceRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
         instances: { storage: d.arrayOf(MeshInstanceInput), access: "readonly" },
-        materials: { storage: d.arrayOf(MaterialInput), access: "readonly" },
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
@@ -109,8 +107,8 @@ const Pair = d.struct({
     globalTransformRow: d.u32,
 });
 
-// Surface count is baked; the active row list and pair grid remain dynamic.
-function pairFactory(surfaceCount: number) {
+// Material-type count is baked; the active row list and pair grid remain dynamic.
+function pairFactory(materialTypeCount: number) {
     return tgpu
         .fn(
             [d.u32],
@@ -123,8 +121,8 @@ function pairFactory(surfaceCount: number) {
             const instance = cullLayout.$.instances[row];
             const encodedGlobalTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
-            const surface = cullLayout.$.materials[instance.material].surface;
-            if (surface >= surfaceCount || encodedGlobalTransform === 0) {
+            const materialType = instance.materialType;
+            if (materialType >= materialTypeCount || encodedGlobalTransform === 0) {
                 return Pair({
                     pair: invalidPair,
                     mid: instance.mesh,
@@ -134,7 +132,7 @@ function pairFactory(surfaceCount: number) {
                 });
             }
             return Pair({
-                pair: instance.mesh * surfaceCount + surface,
+                pair: instance.mesh * materialTypeCount + materialType,
                 mid: instance.mesh,
                 eid,
                 row,
@@ -145,8 +143,8 @@ function pairFactory(surfaceCount: number) {
 }
 
 /** Tally frustum-visible active MeshInstance rows per (view slot, pair); no entity-capacity scan. @internal */
-export function countKernel(surfaceCount: number) {
-    const pair = pairFactory(surfaceCount);
+export function countKernel(materialTypeCount: number) {
+    const pair = pairFactory(materialTypeCount);
     return tgpu
         .computeFn({
             workgroupSize: [64],
@@ -243,8 +241,8 @@ export function scanKernel() {
 }
 
 /** Scatter visible identities and MeshInstance rows into matching dense per-view draw lists. @internal */
-export function scatterKernel(surfaceCount: number) {
-    const pair = pairFactory(surfaceCount);
+export function scatterKernel(materialTypeCount: number) {
+    const pair = pairFactory(materialTypeCount);
     return tgpu
         .computeFn({
             workgroupSize: [64],

@@ -587,15 +587,14 @@ function featurePlugin(subject: Plugin): Plugin {
             resources.part = part;
             world.add(part, Transform);
             world.add(part, MeshInstance);
-            world.add(part, MeshMaterial, {
-                material: world.resource(Materials).add(
-                    StandardMaterial({
-                        baseColor: [0.8, 0.25, 0.1, 1],
-                        metallic: 0.1,
-                        perceptualRoughness: 0.6,
-                    }),
-                ),
-            });
+            const material = world.resource(Materials).add(
+                StandardMaterial({
+                    baseColor: [0.8, 0.25, 0.1, 1],
+                    metallic: 0.1,
+                    perceptualRoughness: 0.6,
+                }),
+            );
+            world.add(part, MeshMaterial, material);
             world.add(part, Outline);
             world.storage(Transform).translation.set(part, 0, 1, 0, 0);
 

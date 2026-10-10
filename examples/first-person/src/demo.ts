@@ -53,9 +53,8 @@ function block(
         ...cube([size[0], size[1], size[2]]),
     });
     world.add(eid, MeshInstance, { mesh });
-    world.add(eid, MeshMaterial, {
-        material: world.resource(Materials).add(StandardMaterial({ baseColor: rgba })),
-    });
+    const material = world.resource(Materials).add(StandardMaterial({ baseColor: rgba }));
+    world.add(eid, MeshMaterial, material);
     return eid;
 }
 

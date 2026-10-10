@@ -9,13 +9,12 @@ import { FrameGpu, ViewUniforms } from "../../core/rendering";
 import { MeshQuant } from "../../engine/utils";
 import { clusterCell, LightClusters } from "./cluster";
 import { distanceAttenuation, LightingGpu, PointLightGpu, spotFactor } from "./lighting";
-import { MaterialInput } from "./material";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 
 /**
  * the canonical engine group-0 layout: every pass-invariant binding a standard pipeline reads — frame / view /
- * lighting uniforms and three storage tables: clustered lights, materials and mesh dequantization. `vertices` is deliberately absent: it's pass-variant (color binds the 16 B main stream,
- * prepass/shadow the 8 B position stream) and moves into the surface group (2). Pinned at group 0.
+ * lighting uniforms and two storage tables: clustered lights and mesh dequantization. `vertices` is deliberately absent: it's pass-variant (color binds the 16 B main stream,
+ * prepass/shadow the 8 B position stream) and moves into the material-type group (2). Pinned at group 0.
  */
 export const engineLayout = tgpu
     .bindGroupLayout({
@@ -24,11 +23,6 @@ export const engineLayout = tgpu
         lighting: { uniform: LightingGpu, visibility: ["vertex", "fragment"] },
         pointLights: {
             storage: LightClusters,
-            access: "readonly",
-            visibility: ["vertex", "fragment"],
-        },
-        materials: {
-            storage: d.arrayOf(MaterialInput),
             access: "readonly",
             visibility: ["vertex", "fragment"],
         },
