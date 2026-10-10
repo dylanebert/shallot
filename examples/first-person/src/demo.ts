@@ -75,6 +75,9 @@ export function route(world: World) {
     world.add(sun, DirectionalLight, {
         color: 0xffe8c7,
         illuminance: 3449.1713,
+        maximumDistance: 50,
+        depthBias: 0.0005,
+        shadowNormalBias: 1.8,
     });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const eye = world.create();

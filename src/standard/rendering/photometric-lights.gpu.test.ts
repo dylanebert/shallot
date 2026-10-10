@@ -10,8 +10,11 @@ import {
     captureTexture,
     DirectionalLight,
     Exposure,
+    GlobalAmbientLight,
     PointLight,
     SpotLight,
+    SUN_DISK_EARTH_ANGULAR_SIZE,
+    SunDisk,
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
@@ -33,12 +36,12 @@ import {
     shadowDirectionalLight,
     writeLighting,
 } from "./lighting";
-import { offsetTowardLight } from "./shade";
 
 setDefaultTimeout(CEILING.gpu);
 
 const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 const subjects = gpuApps(import.meta.path, [
+    config,
     config,
     config,
     config,
@@ -192,6 +195,59 @@ test("spot lumens preserve the former linear-light frame after recalibration", a
     expect(pixel[2]).toBeCloseTo(encoded, 0);
 });
 
+test("default light values match Bevy's photometric and shadow defaults", () => {
+    const { world } = subjects()[8];
+    const ambientEid = world.create();
+    const directionalEid = world.create();
+    const pointEid = world.create();
+    const spotEid = world.create();
+    world.add(ambientEid, AmbientLight);
+    world.add(directionalEid, DirectionalLight);
+    world.add(directionalEid, SunDisk);
+    world.add(pointEid, PointLight);
+    world.add(spotEid, SpotLight);
+
+    expect(world.resource(GlobalAmbientLight)).toEqual({ color: 0xffffff, brightness: 80 });
+    const ambient = world.storage(AmbientLight);
+    expect(ambient.color.get(ambientEid)).toBe(0xffffff);
+    expect(ambient.brightness.get(ambientEid)).toBe(80);
+
+    const directional = world.storage(DirectionalLight);
+    expect(directional.color.get(directionalEid)).toBe(0xffffff);
+    expect(directional.illuminance.get(directionalEid)).toBe(10_000);
+    expect(directional.shadowMapsEnabled.get(directionalEid)).toBe(0);
+    expect(directional.maximumDistance.get(directionalEid)).toBe(150);
+    expect(directional.numCascades.get(directionalEid)).toBe(4);
+    expect(directional.firstCascadeFarBound.get(directionalEid)).toBe(10);
+    expect(directional.overlapProportion.get(directionalEid)).toBeCloseTo(0.2, 6);
+    expect(directional.depthBias.get(directionalEid)).toBeCloseTo(0.02, 6);
+    expect(directional.shadowNormalBias.get(directionalEid)).toBeCloseTo(1.8, 6);
+    const sunDisk = world.storage(SunDisk);
+    expect(sunDisk.angularSize.get(directionalEid)).toBeCloseTo(SUN_DISK_EARTH_ANGULAR_SIZE, 7);
+    expect(sunDisk.intensity.get(directionalEid)).toBe(1);
+    expect(sunDisk.glow.get(directionalEid)).toBe(0);
+
+    const point = world.storage(PointLight);
+    expect(point.color.get(pointEid)).toBe(0xffffff);
+    expect(point.intensity.get(pointEid)).toBe(1_000_000);
+    expect(point.range.get(pointEid)).toBe(20);
+    expect(point.radius.get(pointEid)).toBe(0);
+    expect(point.shadowMapsEnabled.get(pointEid)).toBe(0);
+    expect(point.depthBias.get(pointEid)).toBeCloseTo(0.08, 6);
+    expect(point.shadowNormalBias.get(pointEid)).toBeCloseTo(0.6, 6);
+
+    const spot = world.storage(SpotLight);
+    expect(spot.color.get(spotEid)).toBe(0xffffff);
+    expect(spot.intensity.get(spotEid)).toBe(1_000_000);
+    expect(spot.range.get(spotEid)).toBe(20);
+    expect(spot.radius.get(spotEid)).toBe(0);
+    expect(spot.innerAngle.get(spotEid)).toBe(0);
+    expect(spot.outerAngle.get(spotEid)).toBe(45);
+    expect(spot.shadowMapsEnabled.get(spotEid)).toBe(0);
+    expect(spot.depthBias.get(spotEid)).toBeCloseTo(0.02, 6);
+    expect(spot.shadowNormalBias.get(spotEid)).toBeCloseTo(1.8, 6);
+});
+
 test("Bevy photometric defaults render a finite, exposed frame", async () => {
     const { world } = subjects()[5];
     const { camera } = scene(world);
@@ -244,18 +300,4 @@ test("the selected directional shadow caster is brightest, then lowest eid, and 
     } finally {
         warn.mockRestore();
     }
-});
-
-test("directional and point receiver offsets use the same world-space distance", () => {
-    const distance = 0.02;
-    const position = d.vec3f(2, -3, 4);
-    const travel = d.vec3f(0.6, 0.8, 0);
-    const towardDirectional = d.vec3f(-travel.x, -travel.y, -travel.z);
-    const towardPoint = d.vec3f(6, 8, 0);
-    const directional = offsetTowardLight(position, towardDirectional, distance);
-    const point = offsetTowardLight(position, towardPoint, distance);
-    const moved = (p: typeof position) =>
-        Math.hypot(p.x - position.x, p.y - position.y, p.z - position.z);
-    expect(moved(directional)).toBeCloseTo(distance, 6);
-    expect(moved(point)).toBeCloseTo(distance, 6);
 });

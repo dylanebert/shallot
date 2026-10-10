@@ -272,7 +272,7 @@ In v0.10, authored light values use photometric units and a directional light sh
 | Root `Shadow.distance` on a directional light | `DirectionalLight.maximumDistance`, still world units. |
 | Root `Shadow.distance` on a point or spot light | Remove it; it was ignored. Shadow coverage still uses the light's `range`. |
 | Root `Shadow.depthBias`, `.normalBias` | `depthBias` and `shadowNormalBias`; normal bias remains measured in shadow texels, but `depthBias` is now a world-space receiver offset toward the light. Re-author it in world units. |
-| `/src/standard/sear/shadows` `SHADOW_DEFAULTS` | Removed. Per-light shadow requests default off; `shadowNormalBias` defaults to `1.8`, and `maximumDistance` to `50` for a directional light. |
+| `/src/standard/sear/shadows` `SHADOW_DEFAULTS` | Removed. Per-light shadow requests default off; Bevy's directional defaults apply, including `shadowNormalBias: 1.8` and `maximumDistance: 150`. |
 | Root `Volumetric` | `VolumetricLight`, still a marker; every marked point, spot and directional light contributes fog in-scatter. |
 | `Sky.sunSize`, `Sky.sunGlow` | Add `SunDisk` to each directional light whose disk should be drawn. To preserve the old disk diameter, set `angularSize` to `2 * Math.acos(1 - 0.0005 * oldSunSize)` radians; copy `sunGlow` to `glow`, the Shallot extension to Bevy's `SunDisk`. The default `angularSize` is Bevy's `EARTH` solar size. |
 | `Sky.sunColor` | Removed: a disk takes its directional light's `color`. `SunDisk.intensity` controls only its visual brightness, not illumination or shadows. |
@@ -282,7 +282,9 @@ In v0.10, authored light values use photometric units and a directional light sh
 | Root `SunShadows.resolution` | `world.resource(DirectionalLightShadowMap).size`, default `2048`. |
 | Root `PointShadows.atlas`, `.casters`, `.hysteresis` | The same fields on `world.resource(PointShadows)`. |
 
-At EV100 9.7, `exposure = 2^-9.7 / 1.2`. To preserve a former linear multiplier `m`, re-author ambient brightness as `m / exposure` cd/m², directional illuminance as `πm / exposure` lux, and point/spot luminous flux as `4π²m / exposure` lumens. Keep `Exposure` at its EV100 value (the default is 9.7) or re-evaluate those authored values for another exposure. Example directional aim:
+`DirectionalLight`, `PointLight` and `SpotLight` use Bevy's defaults for their photometric values, range, radius, angles and per-kind shadow biases. Re-author scene values explicitly when preserving a previous look.
+
+At EV100 9.7, `exposure = 2^-9.7 / 1.2`. To preserve a former linear multiplier `m`, re-author ambient brightness as `m / exposure` cd/m2, directional illuminance as `πm / exposure` lux, and point/spot luminous flux as `4π2m / exposure` lumens. Keep `Exposure` at its EV100 value (the default is 9.7) or re-evaluate those authored values for another exposure. Example directional aim:
 
 ```ts
 const q = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
@@ -290,6 +292,14 @@ world.add(sun, Transform, { rotation: [q.x, q.y, q.z, q.w] });
 world.add(sun, DirectionalLight, { color: 0xfff4e0, illuminance: 3449.1713 });
 world.add(sun, SunDisk, { angularSize: 0.0529, intensity: 1, glow: 0.5 });
 ```
+
+The public v0.9.5 `LightingGpu` schema in `packages/shallot/src/standard/render/lighting.ts` also changes shape. Its packed fields are replaced as follows:
+
+| v0.9.5 `LightingGpu` field | 0.10 replacement |
+|---|---|
+| `ambientColor` | `ViewUniforms.ambientColor` carries the effective linear ambient radiance from the camera's `AmbientLight` or `GlobalAmbientLight`; camera exposure is `ViewUniforms.exposure`. The old packed alpha multiplier is gone. |
+| `sunDirection` | `LightingGpu.directionalLights[i].direction`, the normalized travel direction from the light's transformed local `-Z`. `directionalCount` gives the active prefix. |
+| `sunColor` | `LightingGpu.directionalLights[i].color` plus `.params.x` illuminance in lux; exposure is camera-local. The old intensity-baked sun color is gone. |
 
 Standard packs up to ten directional lights. At most one enabled directional casts shadows: Shallot selects the enabled light with greatest illuminance, then lower entity id on a tie. It warns once while multiple directional lights request shadows; other enabled requests remain unshadowed. `shadowMapsEnabled` remains per light, so a game may change which one wins without rewriting the other lights.
 

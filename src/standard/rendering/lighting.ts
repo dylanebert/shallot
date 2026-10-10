@@ -49,6 +49,7 @@ interface LightingResources {
     colorEids: Int32Array;
     colorPacked: Float64Array;
     colors: Float64Array;
+    stagingU32: Uint32Array;
     overflowWarned: boolean;
     shadowConflictWarned: boolean;
 }
@@ -63,6 +64,7 @@ function createLightingResources(): LightingResources {
         colorEids: new Int32Array(MAX_DIRECTIONAL_LIGHTS).fill(-1),
         colorPacked: new Float64Array(MAX_DIRECTIONAL_LIGHTS).fill(-1),
         colors: new Float64Array(MAX_DIRECTIONAL_LIGHTS * 3),
+        stagingU32: new Uint32Array(backing),
         overflowWarned: false,
         shadowConflictWarned: false,
     };
@@ -169,8 +171,7 @@ export function writeLighting(world: World): void {
         resources.directionalEids[at] = first;
     }
 
-    const u32 = new Uint32Array(staging.buffer, staging.byteOffset, staging.length);
-    u32[DIR_COUNT] = count;
+    resources.stagingU32[DIR_COUNT] = count;
     for (let i = 0; i < count; i++) {
         const eid = resources.directionalEids[i];
         const base = i * DIR_STRIDE;
