@@ -50,6 +50,30 @@ test("the browser input adapter fails to record a real key press on the focused 
         if (message.type() === "warning" && message.text().startsWith("[shallot]"))
             console.info(`browser adapter: ${message.text()}`);
     });
+    await page.addInitScript(() => {
+        const events: string[] = [];
+        Object.defineProperty(window, "__shallotBrowserEvents", { value: events });
+        const record = (event: Event) => {
+            const keyboard = event as KeyboardEvent;
+            const target = event.target as HTMLElement | null;
+            events.push(
+                [
+                    event.type,
+                    keyboard.code ?? "",
+                    `active=${document.activeElement?.id || document.activeElement?.tagName}`,
+                    `focus=${document.hasFocus()}`,
+                    `lock=${document.pointerLockElement?.id || "none"}`,
+                    `target=${target?.id || target?.tagName || "none"}`,
+                ].join(" "),
+            );
+        };
+        for (const type of ["keydown", "keyup", "blur", "focus"]) {
+            window.addEventListener(type, record, true);
+        }
+        for (const type of ["pointerdown", "pointerlockchange"]) {
+            document.addEventListener(type, record, true);
+        }
+    });
     await page.goto("/");
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
@@ -121,6 +145,14 @@ test("the browser input adapter fails to record a real key press on the focused 
     const focusedAfter = await canvasImage(page);
     await page.keyboard.up("w");
     const focusedChange = await changedFraction(page, focusedBefore, focusedAfter);
+    if (focusedChange <= inputSignal) {
+        const events = await page.evaluate(
+            () =>
+                (window as Window & { __shallotBrowserEvents?: string[] }).__shallotBrowserEvents ??
+                [],
+        );
+        console.info("browser input events:", events);
+    }
     expect(
         focusedChange,
         "a focused W press changes the rendered first-person scene beyond idle motion",

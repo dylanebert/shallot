@@ -12,7 +12,7 @@ import { AmbientLight, attachTexture, Camera, captureTexture } from "../renderin
 import { Transform } from "../transform";
 import { type Mesh, Meshes, MeshInstance, MeshPlugin, registerMesh } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 // a 4×4 quad facing +z, wider than the default view from z = 5
 const vertices = new Float32Array([
