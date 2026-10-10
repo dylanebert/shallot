@@ -400,6 +400,9 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
             "none",
         );
 
+        // Chromium 153.0.8010.12 can composite an opacity-0 WebGPU canvas into Linux headless screenshots:
+        // this measured 2.18% frame background locally and 2.14% in CI. Omit only the canvas in this
+        // page-composition shot; its hidden class and opacity are checked separately above.
         const loadingScreenshot = await page.screenshot({
             style: "#scene { visibility: hidden !important; }",
         });

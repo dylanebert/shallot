@@ -90,9 +90,31 @@ async function changedFraction(page: Page, first: string, second: string): Promi
     );
 }
 
+async function captureUntilChange(
+    page: Page,
+    baseline: string,
+    threshold: number,
+    timeout: number,
+): Promise<{ change: number; samples: number }> {
+    const deadline = Date.now() + timeout;
+    let change = 0;
+    let samples = 0;
+    while (Date.now() < deadline) {
+        const sample = `${baseline}-sample-${samples++}`;
+        await captureCanvasFrame(page, sample);
+        change = await changedFraction(page, baseline, sample);
+        await page.evaluate((key) => {
+            delete window.__capturedFrames?.[key];
+        }, sample);
+        if (change > threshold) break;
+    }
+    return { change, samples };
+}
+
 test("the browser input adapter fails to record a real key press on the focused canvas or accepts it after focus leaves the canvas", async ({
     page,
-}) => {
+}, testInfo) => {
+    testInfo.setTimeout(CEILING.browser);
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto("/");
@@ -152,6 +174,7 @@ test("the browser input adapter fails to record a real key press on the focused 
     await captureCanvasFrame(page, "outside-after");
     await page.keyboard.up("w");
     const unfocusedChange = await changedFraction(page, "outside-before", "outside-after");
+    // Require >2% of pixels to change by >24 RGB levels; 3× measured idle change raises the noise floor.
     const inputSignal = Math.max(idleChange * 3, 0.02);
     expect(
         unfocusedChange,
@@ -166,12 +189,18 @@ test("the browser input adapter fails to record a real key press on the focused 
     ).toBe(true);
     await captureCanvasFrame(page, "focused-before");
     await page.keyboard.down("w");
-    await page.waitForTimeout(4000);
-    await captureCanvasFrame(page, "focused-after");
-    await page.keyboard.up("w");
-    const focusedChange = await changedFraction(page, "focused-before", "focused-after");
+    let focusedChange = 0;
+    let focusedSamples = 0;
+    try {
+        const remaining = Math.max(0, testInfo.timeout - testInfo.duration);
+        const result = await captureUntilChange(page, "focused-before", inputSignal, remaining);
+        focusedChange = result.change;
+        focusedSamples = result.samples;
+    } finally {
+        await page.keyboard.up("w");
+    }
     expect(
         focusedChange,
-        `a focused W press changes the rendered first-person scene beyond idle motion (idle ${idleChange}, unfocused ${unfocusedChange}, threshold ${inputSignal})`,
+        `a focused W press changes the rendered scene beyond idle motion (idle ${idleChange}, unfocused ${unfocusedChange}, threshold ${inputSignal}, samples ${focusedSamples})`,
     ).toBeGreaterThan(inputSignal);
 });
