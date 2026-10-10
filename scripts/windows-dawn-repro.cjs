@@ -1,3 +1,4 @@
+const { execFileSync } = require("node:child_process");
 const { writeSync } = require("node:fs");
 const option = process.argv[2] ?? "default";
 const options = option === "default" ? [] : [option.includes("=") ? option : `backend=${option}`];
@@ -6,10 +7,40 @@ function mark(message) {
     writeSync(1, `[dawn-repro ${option}] ${message}\n`);
 }
 
+function inspectHost() {
+    if (process.platform !== "win32") return;
+    mark(`process.execPath: ${process.execPath}`);
+    mark(`process.argv[0]: ${process.argv[0]}`);
+    mark(`process.pid: ${process.pid}`);
+    try {
+        mark(`where node:\n${execFileSync("where.exe", ["node"], { encoding: "utf8" }).trim()}`);
+    } catch {
+        mark("where node: no matches");
+    }
+    try {
+        const modules = execFileSync(
+            "powershell.exe",
+            [
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                `Get-Process -Id ${process.pid} -Module | Select-Object -ExpandProperty ModuleName`,
+            ],
+            { encoding: "utf8" },
+        );
+        for (const module of modules.trim().split(/\r?\n/)) {
+            if (module) mark(`module before require: ${module}`);
+        }
+    } catch (error) {
+        mark(`module inspection failed: ${error?.message ?? error}`);
+    }
+}
+
 async function run() {
     let gpu;
     let device;
     try {
+        inspectHost();
         mark("before require('webgpu')");
         const webgpu = require("webgpu");
         mark("after require('webgpu')");
@@ -45,6 +76,6 @@ async function run() {
 }
 
 run().catch((error) => {
-    writeSync(2, `[dawn-repro ${backend}] ${error?.stack ?? error}\n`);
+    writeSync(2, `[dawn-repro ${option}] ${error?.stack ?? error}\n`);
     process.exitCode = 1;
 });
