@@ -50,9 +50,26 @@ jobs:
         os: [macos-15, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/cache@v4
+        if: matrix.os == 'ubuntu-latest'
+        id: cache
+        with:
+          path: ~/.cache/mesa-apt
+          key: mesa-vulkan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/test.yml') }}
       - name: install Mesa Vulkan driver
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+        run: |
+          apt_cache="$HOME/.cache/mesa-apt"
+          mkdir -p "$apt_cache/archives/partial" "$apt_cache/lists/partial"
+          sudo chown _apt:root "$apt_cache/archives/partial" "$apt_cache/lists/partial"
+          apt_options=(-o Dir::Cache::archives="$apt_cache/archives" -o Dir::State::lists="$apt_cache/lists")
+          if [[ "${{ steps.cache.outputs.cache-hit }}" == 'true' ]]; then
+            sudo apt-get "${apt_options[@]}" install --no-download -y mesa-vulkan-drivers
+          else
+            sudo apt-get "${apt_options[@]}" update
+            sudo apt-get "${apt_options[@]}" install -y mesa-vulkan-drivers
+          fi
+          sudo chmod -R a+rX "$apt_cache"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -78,11 +95,29 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-15, ubuntu-latest]
+        shard: [1/5, 2/5, 3/5, 4/5, 5/5]
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/cache@v4
+        if: matrix.os == 'ubuntu-latest'
+        id: cache
+        with:
+          path: ~/.cache/mesa-apt
+          key: mesa-vulkan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/test.yml') }}
       - name: install Mesa Vulkan driver
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+        run: |
+          apt_cache="$HOME/.cache/mesa-apt"
+          mkdir -p "$apt_cache/archives/partial" "$apt_cache/lists/partial"
+          sudo chown _apt:root "$apt_cache/archives/partial" "$apt_cache/lists/partial"
+          apt_options=(-o Dir::Cache::archives="$apt_cache/archives" -o Dir::State::lists="$apt_cache/lists")
+          if [[ "${{ steps.cache.outputs.cache-hit }}" == 'true' ]]; then
+            sudo apt-get "${apt_options[@]}" install --no-download -y mesa-vulkan-drivers
+          else
+            sudo apt-get "${apt_options[@]}" update
+            sudo apt-get "${apt_options[@]}" install -y mesa-vulkan-drivers
+          fi
+          sudo chmod -R a+rX "$apt_cache"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -94,12 +129,17 @@ jobs:
           rustflags: ""
       - run: bun install --frozen-lockfile
       - name: Node tier
-        run: /usr/bin/time -p bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print)
+        run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
       - name: compile time oracle
+        if: matrix.shard == '1/5'
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/5, 2/5, 3/5, 4/5, 5/5]
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -117,9 +157,10 @@ jobs:
       - name: build checked kernels
         run: bun crates/physics/scripts/build-kernel.ts --checked
       - name: cheap tier
+        if: matrix.shard == '1/5'
         run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
       - name: Node tier
-        run: /usr/bin/time -p bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print)
+        run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
 
   browser:
     runs-on: ${{ matrix.os }}
