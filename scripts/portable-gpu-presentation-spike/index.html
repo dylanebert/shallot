@@ -66,8 +66,8 @@
                     };
 
                     function frame() {
-                        const frame = state.frames + 1;
-                        const phase = frame <= 120 ? "red" : "green";
+                        const frameNumber = state.frames + 1;
+                        const phase = frameNumber <= 120 ? "red" : "green";
                         const currentTexture = context.getCurrentTexture();
                         const encoder = device.createCommandEncoder();
                         const pass = encoder.beginRenderPass({
@@ -86,7 +86,7 @@
                         pass.end();
 
                         let probe;
-                        if (frame === 60 || frame === 180) {
+                        if (frameNumber === 60 || frameNumber === 180) {
                             probe = device.createBuffer({
                                 size: 5120 * 720,
                                 usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
@@ -99,7 +99,7 @@
                         }
 
                         device.queue.submit([encoder.finish()]);
-                        state.frames = frame;
+                        state.frames = frameNumber;
                         if (probe) readback(probe, phase);
                         requestAnimationFrame(frame);
                     }
