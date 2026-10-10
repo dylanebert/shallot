@@ -1,4 +1,4 @@
-name: Windows browser diagnostic
+name: Windows adapter and Dawn diagnosis
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 jobs:
   browser:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -17,18 +17,20 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
       - name: install dependencies
         run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
-      - name: packed-capture cleanup trace
-        run: bunx playwright test -c scripts/packed-capture --trace on
-      - name: identify open Windows handles
-        if: always()
-        shell: pwsh
-        run: ./scripts/windows-packed-capture-locks.ps1
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - name: WebGPU adapter launch variants A-E
+        env:
+          DEBUG: pw:browser
+        run: bun scripts/windows-adapter-diagnostic.ts
+      - uses: oven-sh/setup-bun@v2
         with:
-          name: windows-packed-capture-trace
-          path: test-results/
+          bun-version: 1.4.3
+      - name: Dawn adapter, backend and DLL-search diagnosis
+        shell: pwsh
+        run: ./scripts/windows-dawn-diagnostic.ps1
