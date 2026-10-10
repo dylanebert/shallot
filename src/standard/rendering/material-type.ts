@@ -286,33 +286,67 @@ export interface MaterialHandle {
     material: number;
 }
 
-/** A type-owned GPU table whose rows use the type's parameter schema. */
+/** CPU-authored material rows with a lazily published GPU table using the type's parameter schema. */
 export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
-    readonly table: ReturnType<World["table"]>;
     private readonly _world: World;
     private readonly _type: MaterialType<P, any, any>;
     private readonly _rowBytes: number;
     private readonly _scratch: ArrayBuffer;
     private readonly _freeRows: number[] = [];
+    private _bytes: Uint8Array;
+    private _highWater = 1;
+    private _table: ReturnType<World["table"]> | undefined;
 
     constructor(world: World, type: MaterialType<P, any, any>) {
         this._world = world;
         this._type = type;
+        registerMaterialType(world, type, type.name === "StandardMaterial");
         this._rowBytes = d.sizeOf(type.parameters);
         this._scratch = new ArrayBuffer(this._rowBytes);
-        this.table = world.table(`material:${type.name}`, type.parameters);
+        this._bytes = new Uint8Array(this._rowBytes);
         writeToArrayBuffer(this._scratch, type.parameters, type.defaults ?? ({} as never));
-        this.table.bytes.set(new Uint8Array(this._scratch), 0);
-        this.table.markRange(0, 1);
+        this._bytes.set(new Uint8Array(this._scratch), 0);
+    }
+
+    /** The GPU table is created lazily when a renderer first consumes these CPU-authored rows. */
+    get table(): ReturnType<World["table"]> {
+        if (!this._table) {
+            const table = this._world.table(`material:${this._type.name}`, this._type.parameters);
+            table.reserveSlots(this._highWater);
+            table.bytes.set(this._bytes.subarray(0, this._highWater * this._rowBytes));
+            table.markRange(0, this._highWater);
+            this._table = table;
+        }
+        return this._table;
+    }
+
+    private reserveRows(rows: number): void {
+        if (rows > this._bytes.length / this._rowBytes) {
+            let capacity = Math.max(1, this._bytes.length / this._rowBytes);
+            while (capacity < rows) capacity *= 2;
+            const bytes = new Uint8Array(capacity * this._rowBytes);
+            bytes.set(this._bytes);
+            this._bytes = bytes;
+        }
+        this._highWater = Math.max(this._highWater, rows);
+    }
+
+    private publish(firstRow: number, count: number): void {
+        if (!this._table || count === 0) return;
+        const start = firstRow * this._rowBytes;
+        const end = (firstRow + count) * this._rowBytes;
+        this._table.reserveSlots(this._highWater);
+        this._table.bytes.set(this._bytes.subarray(start, end), start);
+        this._table.markRange(firstRow, count);
     }
 
     /** Add a material value and return its type and type-local row for a MeshMaterial component. */
     add(values: d.InferInput<P>): MaterialHandle {
-        const row = this._freeRows.pop() ?? this.table.highWater;
-        this.table.reserveSlots(row + 1);
+        const row = this._freeRows.pop() ?? this._highWater;
+        this.reserveRows(row + 1);
         writeToArrayBuffer(this._scratch, this._type.parameters, values);
-        this.table.bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
-        this.table.markRange(row, 1);
+        this._bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
+        this.publish(row, 1);
         return { type: materialTypeId(this._world, this._type), material: row };
     }
 
@@ -324,7 +358,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         if (
             !Number.isSafeInteger(handle.material) ||
             handle.material <= 0 ||
-            handle.material >= this.table.highWater
+            handle.material >= this._highWater
         ) {
             throw new RangeError(
                 `Materials.remove: unknown ${this._type.name} row ${handle.material}`,
@@ -338,24 +372,21 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         if (!Number.isSafeInteger(row) || row < 0) {
             throw new RangeError(`Materials.setAt: invalid ${this._type.name} row ${row}`);
         }
-        const previousHighWater = this.table.highWater;
+        const previousHighWater = this._highWater;
         if (row >= previousHighWater) {
-            this.table.reserveSlots(row + 1);
+            this.reserveRows(row + 1);
             for (let index = previousHighWater; index <= row; index++) {
                 writeToArrayBuffer(
                     this._scratch,
                     this._type.parameters,
                     this._type.defaults ?? ({} as never),
                 );
-                this.table.bytes.set(new Uint8Array(this._scratch), index * this._rowBytes);
+                this._bytes.set(new Uint8Array(this._scratch), index * this._rowBytes);
             }
         }
         writeToArrayBuffer(this._scratch, this._type.parameters, values);
-        this.table.bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
-        this.table.markRange(
-            Math.min(row, previousHighWater),
-            Math.max(1, row - previousHighWater + 1),
-        );
+        this._bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
+        this.publish(Math.min(row, previousHighWater), Math.max(1, row - previousHighWater + 1));
     }
 
     /** Publish changed fields at one type-local row for the next frame upload. */
@@ -364,19 +395,19 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         if (typeof handle !== "number" && handle.type !== materialTypeId(this._world, this._type)) {
             throw new RangeError(`Materials.update: handle belongs to another material type`);
         }
-        if (!Number.isSafeInteger(row) || row < 0 || row >= this.table.highWater) {
+        if (!Number.isSafeInteger(row) || row < 0 || row >= this._highWater) {
             throw new RangeError(`Materials.update: unknown ${this._type.name} row ${row}`);
         }
         const offset = row * this._rowBytes;
-        const currentBytes = this.table.bytes.slice(offset, offset + this._rowBytes).buffer;
+        const currentBytes = this._bytes.slice(offset, offset + this._rowBytes).buffer;
         const current = readFromArrayBuffer(currentBytes, this._type.parameters) as Record<
             string,
             unknown
         >;
         const merged = { ...current, ...values } as d.InferInput<P>;
         writeToArrayBuffer(this._scratch, this._type.parameters, merged);
-        this.table.bytes.set(new Uint8Array(this._scratch), offset);
-        this.table.markRange(row, 1);
+        this._bytes.set(new Uint8Array(this._scratch), offset);
+        this.publish(row, 1);
     }
 }
 
@@ -429,24 +460,22 @@ export function materialTypes(world: World): readonly (ErasedMaterialType | unde
     return world.resource(MaterialTypes).types;
 }
 
-/** The GPU parameter table owned by one registered material type. */
+/** The CPU-authored store owned by one material type. */
 export function materialAssets<
     P extends AnyWgslStruct,
     B extends Record<string, MaterialBinding>,
     V extends Record<string, AnyWgslData>,
 >(world: World, type: MaterialType<P, B, V>) {
-    materialTypeId(world, type as ErasedMaterialType);
     return world.resource(type);
 }
 
-/** Register a material type and create its per-world parameter table. */
+/** Create the CPU-authored store and register the material type in this World. */
 export function MaterialPlugin<
     P extends AnyWgslStruct,
     B extends Record<string, MaterialBinding>,
     V extends Record<string, AnyWgslData>,
 >(type: MaterialType<P, B, V>): Plugin {
     return {
-        gpu: {},
         name: `Material(${type.name})`,
         initialize(world) {
             registerMaterialType(world, type as ErasedMaterialType);
