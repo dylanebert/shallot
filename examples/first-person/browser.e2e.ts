@@ -46,6 +46,10 @@ test("the browser input adapter fails to record a real key press on the focused 
 }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("console", (message) => {
+        if (message.type() === "warning" && message.text().startsWith("[shallot]"))
+            console.info(`browser adapter: ${message.text()}`);
+    });
     await page.goto("/");
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();

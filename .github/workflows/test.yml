@@ -43,9 +43,16 @@ jobs:
         run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
 
   gpu:
-    runs-on: macos-15
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
+      - name: install Mesa Vulkan driver
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -66,9 +73,16 @@ jobs:
         run: /usr/bin/time -p cargo test -p shallot-physics
 
   node:
-    runs-on: macos-15
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
+      - name: install Mesa Vulkan driver
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -108,7 +122,11 @@ jobs:
         run: /usr/bin/time -p bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print)
 
   browser:
-    runs-on: macos-15
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
