@@ -27,7 +27,7 @@ import {
     StandardPhysicsPlugin,
     StandardRenderer,
     type System,
-    setKinematic,
+    setTargetTransform,
     Transform,
     type World,
 } from "@dylanebert/shallot";
@@ -153,7 +153,7 @@ function createBag(world: World): DemoBag {
     return bag;
 }
 
-// The lift's pose register is written in place each tick; setKinematic copies it.
+// The lift's pose register is written in place each tick; setTargetTransform copies it.
 const liftPos: [number, number, number] = [0, 0, 0];
 const LIFT_QUAT = [0, 0, 0, 1] as const;
 
@@ -172,7 +172,7 @@ const lift: System = {
             liftPos[0] = bag.liftBases[base];
             liftPos[1] = bag.liftBases[base + 1] + rise;
             liftPos[2] = bag.liftBases[base + 2];
-            setKinematic(world, bag.liftEids[slot], liftPos, LIFT_QUAT);
+            setTargetTransform(world, bag.liftEids[slot], liftPos, LIFT_QUAT);
         }
     },
 };

@@ -3,7 +3,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
-import { PhysicsWorldDefinition, physicsWorld, readBody, StandardPhysicsPlugin } from ".";
+import { PhysicsWorldDefinition, physicsWorld, StandardPhysicsPlugin } from ".";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 
 setDefaultTimeout(CEILING.node);
@@ -36,20 +36,17 @@ test("a body falling asleep publishes zero ECS velocity, and waking publishes it
         expect(fellAsleep).toBe(true);
         expect(body.isAwake()).toBe(false);
         expect(body.getLinearVelocity()).toEqual({ x: 0, y: 0, z: 0 });
-        expect(readBody(world, eid)!.linearVelocity).toEqual([0, 0, 0]);
         const velocity = world.storage(GlobalTransform).linearVelocity;
         expect(Array.from(velocity.column.subarray(eid * 4, eid * 4 + 4))).toEqual([0, 0, 0, 0]);
 
         body.setAwake(true);
         world.step(Time.FIXED_DT);
         expect(body.isAwake()).toBe(true);
-        expect(readBody(world, eid)!.linearVelocity).toEqual([0, 0, 0]);
         body.setAwake(false);
         body.setLinearVelocity({ x: 2, y: 3, z: 4 });
         world.step(Time.FIXED_DT);
         expect(body.isAwake()).toBe(true);
         expect(body.getLinearVelocity()).toEqual({ x: 2, y: 3, z: 4 });
-        expect(readBody(world, eid)!.linearVelocity).toEqual([2, 3, 4]);
         expect(Array.from(velocity.column.subarray(eid * 4, eid * 4 + 4))).toEqual([2, 3, 4, 0]);
     } finally {
         app.dispose();

@@ -7,9 +7,9 @@ import {
     Character,
     CharacterPlugin,
     createApp,
+    GlobalTransform,
     Player,
     PlayerPlugin,
-    readBody,
     ShapeKind,
     StandardPhysicsPlugin,
     Time,
@@ -60,7 +60,10 @@ test("a Player capsule retains its collider geometry and rests above the floor",
                 Time.FIXED_DT *
                 (2 * 0.7 * omega * Time.FIXED_DT + (omega * Time.FIXED_DT) ** 2)) /
                 (omega * omega * Time.FIXED_DT);
-        expect(readBody(app.world, eid)?.position[1]).toBeCloseTo(equilibrium, 3);
+        expect(app.world.storage(GlobalTransform).translation.y.get(eid)).toBeCloseTo(
+            equilibrium,
+            3,
+        );
     } finally {
         app.dispose();
     }

@@ -14,7 +14,12 @@ import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { component } from "../../engine/ecs/component";
 import type { System } from "../../engine/ecs/scheduler";
 import { Time } from "../../engine/ecs/scheduler";
-import { StandardPhysicsPlugin, StepPhysicsSystem, setKinematic } from "../../standard/physics";
+import {
+    StandardPhysicsPlugin,
+    StepPhysicsSystem,
+    setTargetTransform,
+    setTransform,
+} from "../../standard/physics";
 import * as transform from "../transform";
 import {
     GlobalTransform,
@@ -507,7 +512,7 @@ test("an author-marked Transform jump of any size snaps instead of interpolating
     }
 });
 
-test("setKinematic publishes moved body placement to the fixed GlobalTransform table after one step", async () => {
+test("setTargetTransform publishes moved body placement to the fixed GlobalTransform table after one step", async () => {
     const app = await createApp({
         defaults: false,
         plugins: [StandardPhysicsPlugin, RenderingPlugin],
@@ -523,7 +528,7 @@ test("setKinematic publishes moved body placement to the fixed GlobalTransform t
         const table = world.resource(TransformRuntime).current!;
         const row = table.rowIndex(eid);
         expect(row).toBeGreaterThanOrEqual(0);
-        setKinematic(world, eid, [17, 3, -2], [0, 0, 0, 1], false);
+        setTargetTransform(world, eid, [17, 3, -2], [0, 0, 0, 1]);
         // No solver tick can republish the position on this draw-only step.
         world.step(0);
         const words = new Float32Array(
@@ -756,7 +761,7 @@ test("a kinematic teleport renders at its new placement at half a fixed step", a
             group: "fixed",
             after: [StepPhysicsSystem],
             update(world) {
-                setKinematic(world, eid, [100, 0, 0], [0, 0, 0, 1], true);
+                setTransform(world, eid, [100, 0, 0], [0, 0, 0, 1]);
             },
         };
         world.addSystem(teleport);

@@ -32,61 +32,91 @@ export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
 export const BodyType = { Static: 0, Kinematic: 1, Dynamic: 2 } as const;
 export type BodyType = (typeof BodyType)[keyof typeof BodyType];
 
+/** Bit positions stored by `Body.motionLocks`, matching Box3D's `b3MotionLocks`. */
+export const BodyMotionLock = {
+    linearX: 1 << 0,
+    linearY: 1 << 1,
+    linearZ: 1 << 2,
+    angularX: 1 << 3,
+    angularY: 1 << 4,
+    angularZ: 1 << 5,
+} as const;
+
 /**
- * shared rigid-body authoring data; a simulation plugin owns its motion and collisions.
- *
- * @example
- * ```
- * const box = world.create();
- * world.add(box, Body, { type: BodyType.Dynamic, shape: ShapeKind.Box, position: [0, 5, 0, 0], halfExtents: [0.5, 0.5, 0.5, 0], friction: 0.5 });
- * // Omitting type gives static geometry.
- * world.add(world.create(), Body, { position: [0, -0.5, 0, 0], halfExtents: [10, 0.5, 10, 0] });
- * // sphere, radius 0.5
- * world.add(world.create(), Body, { shape: ShapeKind.Sphere, position: [0, 5, 0, 0], halfExtents: [0, 0, 0, 0.5] });
- * // capsule, half-height 0.5, radius 0.3
- * world.add(world.create(), Body, { shape: ShapeKind.Capsule, position: [0, 5, 0, 0], halfExtents: [0, 0.5, 0, 0.3] });
- * // hull id 2, AABB half 1×1×1
- * world.add(world.create(), Body, { shape: ShapeKind.Hull, position: [0, 5, 0, 0], halfExtents: [1, 1, 1, 2] });
- * ```
+ * Shared rigid-body authoring data. Standard physics uses Box3D's body-definition defaults;
+ * definition fields with setters apply at the next fixed sync, while spawn pose and initial
+ * velocities are read only when the body is created. Physics owns pose and velocity after spawn.
  */
 export const Body = component(
     "Body",
     {
-        /** Spawn motion type; static by default. Read once when the body is synchronized. */
+        /** Box3D motion type; changing it applies at the next fixed sync. */
         type: u32,
-        /** the collider, a `ShapeKind`: `Box` (an OBB of `halfExtents`), `Sphere`, `Capsule` (a segment along local Y inflated by the radius), or `Hull` (a convex polytope registered in `Hulls`). */
-        shape: u32,
-        /** spawn position; physics owns it after spawn. */
+        /** Initial world position in meters; spawn-only. */
         position: vec4,
-        /** spawn orientation as a quaternion `(x, y, z, w)`, like `Transform.rotation`; physics-owned after spawn. */
+        /** Initial world rotation as `(x, y, z, w)`; spawn-only. */
         rotation: vec4,
-        /** box/AABB half-extents in `xyz`; `w` doubles as the rounding radius (sphere/capsule) or the `Hull` id (a hull has radius 0, so the lane is free). */
+        /** Initial linear velocity in meters per second; spawn-only. */
+        linearVelocity: vec4,
+        /** Initial angular velocity in radians per second; spawn-only. */
+        angularVelocity: vec4,
+        /** Linear damping; changing it applies at the next fixed sync. */
+        linearDamping: f32,
+        /** Angular damping; changing it applies at the next fixed sync. */
+        angularDamping: f32,
+        /** Non-dimensional gravity multiplier; changing it applies at the next fixed sync. */
+        gravityScale: f32,
+        /** Sleep speed threshold in meters per second; changing it applies at the next fixed sync. */
+        sleepThreshold: f32,
+        /** Six `BodyMotionLock` bits; changing them applies at the next fixed sync. */
+        motionLocks: u32,
+        /** Whether the body may sleep; changing it applies at the next fixed sync. */
+        enableSleep: u32,
+        /** Initial awake state; spawn-only. Box3D controls awake state after creation. */
+        isAwake: u32,
+        /** Whether the body uses continuous collision detection; changing it applies at the next fixed sync. */
+        isBullet: u32,
+        /** Whether the body participates in simulation; changing it applies at the next fixed sync. */
+        isEnabled: u32,
+        /** Whether the body bypasses rotational speed limits; changing it applies at the next fixed sync. */
+        allowFastRotation: u32,
+        /** Whether contacts on the body use contact recycling; changing it applies at the next fixed sync. */
+        enableContactRecycling: u32,
+        /** Temporary box/sphere/capsule/hull collider kind; moved to `Shape` in stage 5. */
+        shape: u32,
+        /** Temporary collider geometry; moved to `Shape` in stage 5. */
         halfExtents: vec4,
-        /** Dynamic mass in kg; non-positive mass gives zero density. */
+        /** Temporary dynamic mass in kilograms; moved to `Shape` density in stage 5. */
         mass: f32,
-        /** coulomb friction coefficient: `0` slides freely, higher grips. */
+        /** Temporary Coulomb friction coefficient; moved to `Shape` in stage 5. */
         friction: f32,
     },
     {
         defaults: () => ({
             type: BodyType.Static,
-            shape: ShapeKind.Box,
             position: [0, 0, 0, 0],
             rotation: [0, 0, 0, 1],
-            halfExtents: [0.5, 0.5, 0.5, 0], // .w = rounding radius (0 for a box)
+            linearVelocity: [0, 0, 0, 0],
+            angularVelocity: [0, 0, 0, 0],
+            linearDamping: 0,
+            angularDamping: 0,
+            gravityScale: 1,
+            sleepThreshold: 0.05,
+            motionLocks: 0,
+            enableSleep: 1,
+            isAwake: 1,
+            isBullet: 0,
+            isEnabled: 1,
+            allowFastRotation: 0,
+            enableContactRecycling: 1,
+            shape: ShapeKind.Box,
+            halfExtents: [0.5, 0.5, 0.5, 0],
             mass: 1,
             friction: 0.5,
         }),
         requires: [GlobalTransform],
     },
 );
-
-/** one body's live pose + velocity at the last fixed step; sleeping bodies read zero velocity. */
-export interface BodyState {
-    position: readonly [number, number, number];
-    rotation: readonly [number, number, number, number];
-    linearVelocity: readonly [number, number, number];
-}
 
 /** Registers shared physics authoring data without installing a simulation. */
 export const PhysicsPlugin: Plugin = {

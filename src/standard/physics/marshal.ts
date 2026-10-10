@@ -1,4 +1,4 @@
-import { Body, type BodyType, Hulls, ShapeKind } from "../../core/physics";
+import { Body, BodyMotionLock, type BodyType, Hulls, ShapeKind } from "../../core/physics";
 import type { World } from "../../engine";
 import {
     createHull,
@@ -89,21 +89,51 @@ export function marshalBody(
 ): SolverBody | null {
     const kind = world.storage(Body).shape.get(eid);
     const mass = world.storage(Body).mass.get(eid);
+    const body = world.storage(Body);
+    const locks = body.motionLocks.get(eid);
     const tb = physicsWorld.createBody({
-        type: world.storage(Body).type.get(eid) as BodyType,
+        type: body.type.get(eid) as BodyType,
         position: {
-            x: world.storage(Body).position.x.get(eid),
-            y: world.storage(Body).position.y.get(eid),
-            z: world.storage(Body).position.z.get(eid),
+            x: body.position.x.get(eid),
+            y: body.position.y.get(eid),
+            z: body.position.z.get(eid),
         },
         rotation: {
             v: {
-                x: world.storage(Body).rotation.x.get(eid),
-                y: world.storage(Body).rotation.y.get(eid),
-                z: world.storage(Body).rotation.z.get(eid),
+                x: body.rotation.x.get(eid),
+                y: body.rotation.y.get(eid),
+                z: body.rotation.z.get(eid),
             },
-            s: world.storage(Body).rotation.w.get(eid),
+            s: body.rotation.w.get(eid),
         },
+        linearVelocity: {
+            x: body.linearVelocity.x.get(eid),
+            y: body.linearVelocity.y.get(eid),
+            z: body.linearVelocity.z.get(eid),
+        },
+        angularVelocity: {
+            x: body.angularVelocity.x.get(eid),
+            y: body.angularVelocity.y.get(eid),
+            z: body.angularVelocity.z.get(eid),
+        },
+        linearDamping: body.linearDamping.get(eid),
+        angularDamping: body.angularDamping.get(eid),
+        gravityScale: body.gravityScale.get(eid),
+        sleepThreshold: body.sleepThreshold.get(eid),
+        motionLocks: {
+            linearX: (locks & BodyMotionLock.linearX) !== 0,
+            linearY: (locks & BodyMotionLock.linearY) !== 0,
+            linearZ: (locks & BodyMotionLock.linearZ) !== 0,
+            angularX: (locks & BodyMotionLock.angularX) !== 0,
+            angularY: (locks & BodyMotionLock.angularY) !== 0,
+            angularZ: (locks & BodyMotionLock.angularZ) !== 0,
+        },
+        enableSleep: body.enableSleep.get(eid) !== 0,
+        isAwake: body.isAwake.get(eid) !== 0,
+        isBullet: body.isBullet.get(eid) !== 0,
+        isEnabled: body.isEnabled.get(eid) !== 0,
+        allowFastRotation: body.allowFastRotation.get(eid) !== 0,
+        enableContactRecycling: body.enableContactRecycling.get(eid) !== 0,
         userData: eid,
     });
     const attached = attachShape(

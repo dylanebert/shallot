@@ -3,7 +3,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
-import { physicsWorld, readBody, StandardPhysicsPlugin, setKinematic } from ".";
+import { physicsWorld, StandardPhysicsPlugin, setTargetTransform } from ".";
 
 setDefaultTimeout(CEILING.node);
 
@@ -11,7 +11,7 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 
-test("a default Body is static, takes no velocity, and refuses setKinematic with one warning", async () => {
+test("a default Body is static, takes no velocity, and refuses target transforms", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const warning = spyOn(console, "warn").mockImplementation(() => {});
     try {
@@ -20,13 +20,21 @@ test("a default Body is static, takes no velocity, and refuses setKinematic with
         app.world.step(Time.FIXED_DT);
         physicsWorld(app.world)!.getBody(eid)!.setLinearVelocity({ x: 1, y: 2, z: 3 });
         app.world.step(Time.FIXED_DT);
-        expect(readBody(app.world, eid)!.linearVelocity).toEqual([0, 0, 0]);
-        setKinematic(app.world, eid, [4, 5, 6], [0, 0, 0, 1]);
-        setKinematic(app.world, eid, [7, 8, 9], [0, 0, 0, 1]);
+        const pose = app.world.storage(GlobalTransform);
+        expect([
+            pose.linearVelocity.x.get(eid),
+            pose.linearVelocity.y.get(eid),
+            pose.linearVelocity.z.get(eid),
+        ]).toEqual([0, 0, 0]);
+        setTargetTransform(app.world, eid, [4, 5, 6], [0, 0, 0, 1]);
+        setTargetTransform(app.world, eid, [7, 8, 9], [0, 0, 0, 1]);
         app.world.step(Time.FIXED_DT);
-        expect(readBody(app.world, eid)!.position).toEqual([0, 5, 0]);
-        expect(warning).toHaveBeenCalledTimes(1);
-        expect(String(warning.mock.calls[0]![0])).toContain(String(eid));
+        expect([
+            pose.translation.x.get(eid),
+            pose.translation.y.get(eid),
+            pose.translation.z.get(eid),
+        ]).toEqual([0, 5, 0]);
+        expect(warning).not.toHaveBeenCalled();
     } finally {
         warning.mockRestore();
         app.dispose();
@@ -41,7 +49,7 @@ test("a dynamic Body with zero mass does not fall", async () => {
         app.world.step(Time.FIXED_DT);
         expect(physicsWorld(app.world)!.getBody(eid)!.getType()).toBe(BodyType.Dynamic);
         for (let i = 0; i < 10; i++) app.world.step(Time.FIXED_DT);
-        expect(readBody(app.world, eid)!.position).toEqual([0, 5, 0]);
+        expect(app.world.storage(GlobalTransform).translation.y.get(eid)).toBe(5);
     } finally {
         app.dispose();
     }

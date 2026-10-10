@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
-import { StandardPhysicsPlugin, setKinematic } from ".";
+import { StandardPhysicsPlugin, setTargetTransform } from ".";
 
 test("a dynamic box turns with a rotating kinematic platform", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
@@ -26,7 +26,7 @@ test("a dynamic box turns with a rotating kinematic platform", async () => {
 
         for (let tick = 1; tick <= 2; tick++) {
             const angle = 1.2 * tick * Time.FIXED_DT;
-            setKinematic(
+            setTargetTransform(
                 world,
                 platform,
                 [0, 0, 0],

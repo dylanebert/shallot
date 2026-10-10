@@ -10,10 +10,10 @@ import {
     CharacterPlugin,
     createApp,
     Devices,
+    GlobalTransform,
     InputPlugin,
     LocalPlayer,
     Player,
-    readBody,
     StandardPhysicsPlugin,
     Time,
     Transform,
@@ -231,15 +231,14 @@ test("a Character standing on the actual recipe lift rises through its public ki
                 `invalid actual lift premise: capsule/lift gap was ${initialGap.toFixed(4)}m`,
             );
         step(app, 2);
-        const before = readBody(app.world, player);
-        const liftBefore = readBody(app.world, lift);
-        if (!before || !liftBefore) throw new Error("actual ascent bodies never became live");
+        const placement = app.world.storage(GlobalTransform);
+        const playerBefore = placement.translation.y.get(player);
+        const liftBefore = placement.translation.y.get(lift);
         step(app, 100);
-        const after = readBody(app.world, player);
-        const liftAfter = readBody(app.world, lift);
-        if (!after || !liftAfter) throw new Error("actual ascent bodies disappeared");
-        const liftRise = liftAfter.position[1] - liftBefore.position[1];
-        const riderRise = after.position[1] - before.position[1];
+        const liftAfter = placement.translation.y.get(lift);
+        const playerAfter = placement.translation.y.get(player);
+        const liftRise = liftAfter - liftBefore;
+        const riderRise = playerAfter - playerBefore;
         if (liftRise <= stepRise || riderRise <= stepRise)
             throw new Error(
                 `lift/rider rise ${liftRise.toFixed(3)}m/${riderRise.toFixed(3)}m did not clear authored step ${stepRise.toFixed(3)}m`,
@@ -262,15 +261,17 @@ test("the actual moving lift carries the Character vertically without delivering
         const lift = entity(app, "lift");
         placeRiderOnActualLift(app.world, player, lift);
         step(app, 2);
-        const before = readBody(app.world, lift);
-        if (!before) throw new Error("actual lift never became live");
+        const placement = app.world.storage(GlobalTransform);
+        const liftBefore = placement.translation.y.get(lift);
         step(app, 50);
-        const after = readBody(app.world, player);
-        const liftAfter = readBody(app.world, lift);
-        if (!after || !liftAfter) throw new Error("actual ascent bodies disappeared");
-        if (liftAfter.position[1] <= before.position[1])
+        if (placement.translation.y.get(lift) <= liftBefore)
             throw new Error("actual lift did not move upward during sample");
-        const speed = horizontalSpeed(after.linearVelocity);
+        const velocity = placement.linearVelocity;
+        const speed = horizontalSpeed([
+            velocity.x.get(player),
+            velocity.y.get(player),
+            velocity.z.get(player),
+        ]);
         if (speed > 0.001)
             throw new Error(`actual lift delivered ${speed.toFixed(4)}m/s horizontal velocity`);
     } finally {
@@ -296,11 +297,10 @@ test("the actual lift rises monotonically from its authored base, turns repeated
         let previous = base[1];
         let rising = true;
         let turns = 0;
+        const placement = app.world.storage(GlobalTransform);
         for (let tick = 1; tick <= 600; tick++) {
             app.world.step(Time.FIXED_DT);
-            const pose = readBody(app.world, lift);
-            if (!pose) throw new Error(`actual lift disappeared at tick ${tick}`);
-            const y = pose.position[1];
+            const y = placement.translation.y.get(lift);
             const falling = y < previous - 1e-6;
             if ((rising && falling) || (!rising && y > previous + 1e-6)) {
                 if (turns === 0 && !(previous > base[1] + stepRise))
@@ -314,13 +314,13 @@ test("the actual lift rises monotonically from its authored base, turns repeated
             if (
                 y < base[1] - 0.002 ||
                 y > ceiling ||
-                Math.abs(pose.position[0] - base[0]) > 0.002 ||
-                Math.abs(pose.position[2] - base[2]) > 0.002 ||
-                Math.abs(pose.linearVelocity[0]) > 0.002 ||
-                Math.abs(pose.linearVelocity[2]) > 0.002
+                Math.abs(placement.translation.x.get(lift) - base[0]) > 0.002 ||
+                Math.abs(placement.translation.z.get(lift) - base[2]) > 0.002 ||
+                Math.abs(placement.linearVelocity.x.get(lift)) > 0.002 ||
+                Math.abs(placement.linearVelocity.z.get(lift)) > 0.002
             )
                 throw new Error(
-                    `lift left its vertical band at tick ${tick}: pos=${pose.position} vel=${pose.linearVelocity} base=${base} ceiling=${ceiling}`,
+                    `lift left its vertical band at tick ${tick}: position=(${placement.translation.x.get(lift)}, ${y}, ${placement.translation.z.get(lift)}) velocity=(${placement.linearVelocity.x.get(lift)}, ${placement.linearVelocity.y.get(lift)}, ${placement.linearVelocity.z.get(lift)}) base=${base} ceiling=${ceiling}`,
                 );
         }
         if (turns < 3) throw new Error(`lift turned ${turns} times in 600 ticks`);

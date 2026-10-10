@@ -1,13 +1,21 @@
 import { expect, spyOn, test } from "bun:test";
-import { World } from "@dylanebert/shallot";
-import { Body, BodyType, Hulls, RevoluteJoint, ShapeKind } from "@dylanebert/shallot/physics";
+import { Time, World } from "@dylanebert/shallot";
+import {
+    Body,
+    BodyMotionLock,
+    BodyType,
+    Hulls,
+    RevoluteJoint,
+    ShapeKind,
+} from "@dylanebert/shallot/physics";
 import {
     physicsWorld,
-    readBody,
     StandardPhysicsPlugin,
-    setKinematic,
+    setAwake,
+    setTransform,
 } from "@dylanebert/shallot/standard/physics";
-import { Transform } from "@dylanebert/shallot/transform";
+import { GlobalTransform, Transform } from "@dylanebert/shallot/transform";
+import { Body as SolverBody } from "./api/body";
 import { makeJointId } from "./api/config";
 import { RevoluteJoint as SolverRevoluteJoint } from "./api/joint";
 import { RJ_MOTOR_SPEED } from "./kernel/columns";
@@ -37,6 +45,266 @@ async function withPhysics(run: (world: World) => void | Promise<void>): Promise
     }
 }
 
+test("a Body type edit after spawn reaches the solver", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic });
+        world.tick();
+
+        world.storage(Body).type.set(eid, BodyType.Static);
+        world.tick();
+
+        expect(physicsWorld(world)!.getBody(eid)!.getType()).toBe(BodyType.Static);
+    });
+});
+
+test("a post-spawn awake write survives the spawn-time Body mark", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, {
+            type: BodyType.Dynamic,
+            position: [0, 0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            linearVelocity: [0, 0, 0, 0],
+            angularVelocity: [0, 0, 0, 0],
+            linearDamping: 0,
+            angularDamping: 0,
+            gravityScale: 0,
+            sleepThreshold: 0.05,
+            motionLocks: 0,
+            enableSleep: 1,
+            isAwake: 1,
+            isBullet: 0,
+            isEnabled: 1,
+            allowFastRotation: 0,
+            enableContactRecycling: 1,
+            halfExtents: [0.5, 0.5, 0.5, 0],
+            mass: 1,
+            friction: 0.5,
+        });
+        world.step(Time.FIXED_DT);
+
+        const solver = physicsWorld(world)!.getBody(eid)!;
+        expect(solver.getMass()).toBeGreaterThan(0);
+        expect(solver.isAwake()).toBe(true);
+        setAwake(world, eid, false);
+        expect(solver.isAwake()).toBe(false);
+
+        world.step(Time.FIXED_DT);
+        expect(solver.isAwake()).toBe(false);
+    });
+});
+
+test("Body definition writes reach Box3D through its setters after spawn", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, {
+            type: BodyType.Dynamic,
+            position: [0, 0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            linearVelocity: [0, 0, 0, 0],
+            angularVelocity: [0, 0, 0, 0],
+            linearDamping: 0,
+            angularDamping: 0,
+            gravityScale: 1,
+            sleepThreshold: 0.05,
+            motionLocks: 0,
+            enableSleep: 1,
+            isAwake: 1,
+            isBullet: 0,
+            isEnabled: 1,
+            allowFastRotation: 0,
+            enableContactRecycling: 1,
+            halfExtents: [0.5, 0.5, 0.5, 0],
+            mass: 1,
+            friction: 0.5,
+        });
+        world.tick();
+        const authored = world.storage(Body);
+        const solver = physicsWorld(world)!.getBody(eid)!;
+
+        authored.type.set(eid, BodyType.Kinematic);
+        authored.linearDamping.set(eid, 0.25);
+        authored.angularDamping.set(eid, 0.5);
+        authored.gravityScale.set(eid, 0.75);
+        authored.sleepThreshold.set(eid, 0.2);
+        authored.motionLocks.set(eid, BodyMotionLock.linearX | BodyMotionLock.angularZ);
+        authored.enableSleep.set(eid, 0);
+        authored.isBullet.set(eid, 1);
+        authored.allowFastRotation.set(eid, 1);
+        authored.enableContactRecycling.set(eid, 0);
+        world.tick();
+
+        expect(solver.getType()).toBe(BodyType.Kinematic);
+        expect(solver.getLinearDamping()).toBe(0.25);
+        expect(solver.getAngularDamping()).toBe(0.5);
+        expect(solver.getGravityScale()).toBe(0.75);
+        expect(solver.getSleepThreshold()).toBeCloseTo(0.2);
+        expect(solver.getMotionLocks()).toBe(BodyMotionLock.linearX | BodyMotionLock.angularZ);
+        expect(solver.isSleepEnabled()).toBe(false);
+        expect(solver.isBullet()).toBe(true);
+        expect(solver.isFastRotationAllowed()).toBe(true);
+        expect(solver.isContactRecyclingEnabled()).toBe(false);
+
+        authored.type.set(eid, BodyType.Dynamic);
+        world.tick();
+        authored.enableSleep.set(eid, 1);
+        world.tick();
+        expect(solver.isSleepEnabled()).toBe(true);
+        setAwake(world, eid, false);
+        world.tick();
+        expect(solver.isAwake()).toBe(false);
+        setAwake(world, eid, true);
+        world.tick();
+        expect(solver.isAwake()).toBe(true);
+        authored.isEnabled.set(eid, 0);
+        world.tick();
+        expect(solver.isEnabled()).toBe(false);
+        authored.isEnabled.set(eid, 1);
+        world.tick();
+        expect(solver.isEnabled()).toBe(true);
+    });
+});
+
+test("unchanged Body definition writes call no Box3D body setter", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, {
+            type: BodyType.Dynamic,
+            position: [0, 0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            linearVelocity: [0, 0, 0, 0],
+            angularVelocity: [0, 0, 0, 0],
+            linearDamping: 0,
+            angularDamping: 0,
+            gravityScale: 1,
+            sleepThreshold: 0.05,
+            motionLocks: 0,
+            enableSleep: 1,
+            isAwake: 1,
+            isBullet: 0,
+            isEnabled: 1,
+            allowFastRotation: 0,
+            enableContactRecycling: 1,
+            halfExtents: [0.5, 0.5, 0.5, 0],
+            mass: 1,
+            friction: 0.5,
+        });
+        world.tick();
+        const setters = [
+            ["setType", spyOn(SolverBody.prototype, "setType")],
+            ["setLinearDamping", spyOn(SolverBody.prototype, "setLinearDamping")],
+            ["setAngularDamping", spyOn(SolverBody.prototype, "setAngularDamping")],
+            ["setGravityScale", spyOn(SolverBody.prototype, "setGravityScale")],
+            ["setSleepThreshold", spyOn(SolverBody.prototype, "setSleepThreshold")],
+            ["setMotionLocks", spyOn(SolverBody.prototype, "setMotionLocks")],
+            ["enableSleep", spyOn(SolverBody.prototype, "enableSleep")],
+            ["setAwake", spyOn(SolverBody.prototype, "setAwake")],
+            ["setBullet", spyOn(SolverBody.prototype, "setBullet")],
+            ["allowFastRotation", spyOn(SolverBody.prototype, "allowFastRotation")],
+            ["enableContactRecycling", spyOn(SolverBody.prototype, "enableContactRecycling")],
+            ["enable", spyOn(SolverBody.prototype, "enable")],
+            ["disable", spyOn(SolverBody.prototype, "disable")],
+        ] as const;
+        try {
+            const authored = world.storage(Body);
+            authored.type.set(eid, BodyType.Dynamic);
+            authored.linearDamping.set(eid, 0);
+            authored.angularDamping.set(eid, 0);
+            authored.gravityScale.set(eid, 1);
+            authored.sleepThreshold.set(eid, 0.05);
+            authored.motionLocks.set(eid, 0);
+            authored.enableSleep.set(eid, 1);
+            authored.isAwake.set(eid, 1);
+            authored.isBullet.set(eid, 0);
+            authored.isEnabled.set(eid, 1);
+            authored.allowFastRotation.set(eid, 0);
+            authored.enableContactRecycling.set(eid, 1);
+            world.tick();
+            for (const [name, setter] of setters) {
+                if (setter.mock.calls.length !== 0)
+                    throw new Error(`unchanged Body field called ${name}`);
+            }
+        } finally {
+            for (const [, setter] of setters) setter.mockRestore();
+        }
+    });
+});
+
+test("Body.isAwake is spawn-only", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, {
+            type: BodyType.Dynamic,
+            position: [0, 0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            linearVelocity: [0, 0, 0, 0],
+            angularVelocity: [0, 0, 0, 0],
+            linearDamping: 0,
+            angularDamping: 0,
+            gravityScale: 0,
+            sleepThreshold: 0.05,
+            motionLocks: 0,
+            enableSleep: 1,
+            isAwake: 1,
+            isBullet: 0,
+            isEnabled: 1,
+            allowFastRotation: 0,
+            enableContactRecycling: 1,
+            halfExtents: [0.5, 0.5, 0.5, 0],
+            mass: 1,
+            friction: 0.5,
+        });
+        world.step(Time.FIXED_DT);
+        const solver = physicsWorld(world)!.getBody(eid)!;
+        expect(solver.isAwake()).toBe(true);
+
+        const setter = spyOn(SolverBody.prototype, "setAwake");
+        try {
+            world.storage(Body).isAwake.set(eid, 0);
+            world.step(Time.FIXED_DT);
+            expect(solver.isAwake()).toBe(true);
+            expect(setter).not.toHaveBeenCalled();
+        } finally {
+            setter.mockRestore();
+        }
+    });
+});
+
+test("a Body field edit survives frame mark clearing and snapshot restore", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, {
+            type: BodyType.Dynamic,
+            position: [0, 0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            linearVelocity: [0, 0, 0, 0],
+            angularVelocity: [0, 0, 0, 0],
+            gravityScale: 1,
+            sleepThreshold: 0.05,
+            enableSleep: 1,
+            isAwake: 1,
+            isEnabled: 1,
+            halfExtents: [0.5, 0.5, 0.5, 0],
+            mass: 1,
+            friction: 0.5,
+        });
+        world.tick();
+        const authored = world.storage(Body).linearDamping;
+        const solver = physicsWorld(world)!.getBody(eid)!;
+        authored.set(eid, 0.2);
+        const saved = world.snapshot();
+        world.step(0);
+        authored.set(eid, 0.3);
+        world.tick();
+        expect(solver.getLinearDamping()).toBeCloseTo(0.3);
+
+        world.restore(saved);
+        world.tick();
+        expect(solver.getLinearDamping()).toBeCloseTo(0.2);
+    });
+});
+
 test("a corrected dynamic body's published velocity agrees with its solver body after one tick", async () => {
     await withPhysics((world) => {
         const floor = world.create();
@@ -51,14 +319,14 @@ test("a corrected dynamic body's published velocity agrees with its solver body 
 
         const body = physicsWorld(world)!.getBody(eid)!;
         const position = body.getPosition();
-        setKinematic(world, eid, [position.x, position.y, position.z], [0, 0, 0, 1], true);
+        setTransform(world, eid, [position.x, position.y, position.z], [0, 0, 0, 1]);
         world.tick();
 
-        const published = readBody(world, eid)!.linearVelocity;
+        const published = world.storage(GlobalTransform).linearVelocity;
         const solved = physicsWorld(world)!.getBody(eid)!.getLinearVelocity();
-        expect(published[0]).toBeCloseTo(solved.x, 5);
-        expect(published[1]).toBeCloseTo(solved.y, 5);
-        expect(published[2]).toBeCloseTo(solved.z, 5);
+        expect(published.x.get(eid)).toBeCloseTo(solved.x, 5);
+        expect(published.y.get(eid)).toBeCloseTo(solved.y, 5);
+        expect(published.z.get(eid)).toBeCloseTo(solved.z, 5);
     });
 });
 

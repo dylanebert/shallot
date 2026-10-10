@@ -253,6 +253,8 @@ export type Kernel = {
     contactLinkWorld(world: number, id: number): void;
     bodySyncFlags(world: number, id: number): void;
     bodyChangeType(world: number, id: number, type: number): void;
+    bodyGetProperty(world: number, id: number, property: number): number;
+    bodySetProperty(world: number, id: number, property: number, value: number): void;
     bodySetType(world: number, id: number, type: number): void;
     bodySetAwake(world: number, id: number, awake: boolean): void;
     bodyDisable(world: number, id: number): void;

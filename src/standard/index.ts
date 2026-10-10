@@ -1,5 +1,6 @@
 export {
     Body,
+    BodyMotionLock,
     BodyType,
     DistanceJoint,
     FilterJoint,
@@ -38,7 +39,12 @@ export {
     shallotLight,
 } from "./loading";
 export {
-    type BodyStateOut,
+    applyAngularImpulse,
+    applyForce,
+    applyForceToCenter,
+    applyLinearImpulse,
+    applyLinearImpulseToCenter,
+    applyTorque,
     Character,
     CharacterPlugin,
     GroundState,
@@ -46,12 +52,14 @@ export {
     type PhysicsSnapshot,
     PhysicsWorld,
     physicsWorld,
-    readBody,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     type StepProfile,
-    setKinematic,
-    setVelocity,
+    setAngularVelocity,
+    setAwake,
+    setLinearVelocity,
+    setTargetTransform,
+    setTransform,
 } from "./physics";
 export {
     AlphaMode,

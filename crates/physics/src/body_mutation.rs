@@ -61,6 +61,128 @@ pub unsafe extern "C" fn destroy_in_world(world: usize, id: usize) {
     body::remove_island(world, id);
     bodies::body_destroy_in_world(world, world as u32, id as u32);
 }
+#[export_name = "bodyGetProperty"]
+pub unsafe extern "C" fn get_property(world: usize, id: usize, property: u32) -> f32 {
+    crate::regions::select(world as u32);
+    unsafe { get_property_in_world(world, id, property) }
+}
+
+pub unsafe fn get_property_in_world(world: usize, id: usize, property: u32) -> f32 {
+    let record = bodies::record(world, id);
+    match property {
+        0..=2 => {
+            let sim = bodies::column(world, id, 1, crate::body::SIM_STRIDE);
+            sim.get(crate::body::LINEAR_DAMPING + property as usize)
+        }
+        3 => record.sleep_threshold,
+        4 => (u8::from(record.flags & crate::body::flags::ENABLE_SLEEP != 0)) as f32,
+        5 => (record.flags & crate::body::flags::ALL_MOTION_LOCKS) as f32,
+        6 => (u8::from(record.flags & crate::continuous::IS_BULLET != 0)) as f32,
+        7 => (u8::from(record.flags & crate::body::flags::ALLOW_FAST_ROTATION != 0)) as f32,
+        8 => (u8::from(record.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0)) as f32,
+        9 => (u8::from(record.set_index != 1)) as f32,
+        10 => (u8::from(record.set_index == 2)) as f32,
+        _ => 0.0,
+    }
+}
+
+#[export_name = "bodySetProperty"]
+pub unsafe extern "C" fn set_property(world: usize, id: usize, property: u32, value: f32) {
+    crate::regions::select(world as u32);
+    unsafe { set_property_in_world(world, id, property, value) }
+}
+
+pub unsafe fn set_property_in_world(world: usize, id: usize, property: u32, value: f32) {
+    use crate::body::{self, SIM_STRIDE};
+    match property {
+        0..=2 => {
+            let sim = bodies::column(world, id, 1, SIM_STRIDE);
+            sim.set(body::LINEAR_DAMPING + property as usize, value);
+        }
+        3 => bodies::record_mut(world, id).sleep_threshold = value,
+        4 => {
+            let record = bodies::record_mut(world, id);
+            let enabled = value != 0.0;
+            let was_enabled = record.flags & body::flags::ENABLE_SLEEP != 0;
+            if enabled == was_enabled {
+                return;
+            }
+            if enabled {
+                record.flags |= body::flags::ENABLE_SLEEP;
+            } else {
+                record.flags &= !body::flags::ENABLE_SLEEP;
+            }
+            crate::body_record::runtime::sync_flags_in_world(world, id);
+            if !enabled {
+                wake_body_in_world(world, id);
+            }
+        }
+        5 => {
+            let locks = (value as u32) & body::flags::ALL_MOTION_LOCKS;
+            let record = bodies::record_mut(world, id);
+            let old = record.flags & body::flags::ALL_MOTION_LOCKS;
+            if old == locks {
+                return;
+            }
+            let fixed_rotation_before = old & 0x38 == 0x38;
+            let fixed_rotation_after = locks & 0x38 == 0x38;
+            record.flags = (record.flags & !0x3f) | locks;
+            crate::body_record::runtime::sync_flags_in_world(world, id);
+            let set_index = record.set_index;
+            if set_index == 2 {
+                let state = bodies::column(world, id, 0, body::STATE_STRIDE);
+                for (bit, lane) in [(1, 0), (2, 1), (4, 2), (8, 3), (16, 4), (32, 5)] {
+                    if locks & bit != 0 {
+                        state.set(lane, 0.0);
+                    }
+                }
+            }
+            if fixed_rotation_before != fixed_rotation_after {
+                crate::body_record::runtime::update_mass_in_world(world, id);
+            }
+        }
+        6 => {
+            let flag = crate::continuous::IS_BULLET;
+            let record = bodies::record_mut(world, id);
+            record.flags = if value != 0.0 {
+                record.flags | flag
+            } else {
+                record.flags & !flag
+            };
+            crate::body_record::runtime::sync_flags_in_world(world, id);
+        }
+        7 => {
+            let flag = body::flags::ALLOW_FAST_ROTATION;
+            let record = bodies::record_mut(world, id);
+            record.flags = if value != 0.0 {
+                record.flags | flag
+            } else {
+                record.flags & !flag
+            };
+            crate::body_record::runtime::sync_flags_in_world(world, id);
+        }
+        8 => {
+            let flag = body::flags::ENABLE_CONTACT_RECYCLING;
+            let record = bodies::record_mut(world, id);
+            record.flags = if value != 0.0 {
+                record.flags | flag
+            } else {
+                record.flags & !flag
+            };
+            crate::body_record::runtime::sync_flags_in_world(world, id);
+        }
+        9 => {
+            if value != 0.0 {
+                enable_in_world(world, id);
+            } else {
+                disable_in_world(world, id);
+            }
+        }
+        10 => set_awake_in_world(world, id, value != 0.0),
+        _ => {}
+    }
+}
+
 #[export_name = "bodySetType"]
 pub unsafe extern "C" fn set_type(world: usize, id: usize, kind: i32) {
     crate::regions::select(world as u32);

@@ -9,7 +9,8 @@ import { Body, BodyType } from "../../core/physics";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
-import { readBody, StandardPhysicsPlugin } from "../../standard/physics";
+import { StandardPhysicsPlugin } from "../../standard/physics";
+import { GlobalTransform } from "../transform";
 import { GlobalTransformHistory as TransformRuntime } from "./global-transform";
 
 await setupGlobals();
@@ -84,8 +85,7 @@ test("placement interpolation uploads one GlobalTransform range and preserves un
     });
     try {
         world.step(Time.FIXED_DT);
-        const previous = readBody(world, first);
-        if (!previous) throw new Error("first falling Body has no solver state");
+        const previous = world.storage(GlobalTransform).translation.y.get(first);
         globalTransformWrites = 0;
         globalTransformBytes = 0;
         device.pushErrorScope("validation");
@@ -101,7 +101,7 @@ test("placement interpolation uploads one GlobalTransform range and preserves un
             label: "physics-global-transform-range",
         });
         const words = new Float32Array(result.bytes);
-        expect(words[table.rowIndex(first) * 12 + 1]).toBeCloseTo(previous.position[1], 5);
+        expect(words[table.rowIndex(first) * 12 + 1]).toBeCloseTo(previous, 5);
         expect(
             Array.from(
                 words.subarray(table.rowIndex(middle) * 12, table.rowIndex(middle) * 12 + 3),

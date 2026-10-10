@@ -1,11 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, Time } from "@dylanebert/shallot";
 import { Body, BodyType } from "@dylanebert/shallot/physics";
-import {
-    physicsWorld,
-    readBody,
-    StandardPhysicsPlugin,
-} from "@dylanebert/shallot/standard/physics";
+import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -37,8 +34,8 @@ test("the solver world's entity lookup lets a revolute joint constrain two autho
             localFrameB: { p: { x: 0, y: 2, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
         });
         for (let tick = 0; tick < 120; tick++) world.step(Time.FIXED_DT);
-        expect(readBody(world, bob)!.position[1]).toBeCloseTo(1, 1);
-        expect(readBody(world, free)!.position[1]).toBeLessThan(-10);
+        expect(world.storage(GlobalTransform).translation.y.get(bob)).toBeCloseTo(1, 1);
+        expect(world.storage(GlobalTransform).translation.y.get(free)).toBeLessThan(-10);
         world.remove(bob, Body);
         expect(solver.getBody(bob)).toBeNull();
     } finally {

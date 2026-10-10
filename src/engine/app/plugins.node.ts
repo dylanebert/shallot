@@ -58,9 +58,8 @@ import {
     CharacterPlugin,
     hashPhysics,
     physicsWorld,
-    readBody,
     StandardPhysicsPlugin,
-    setVelocity,
+    setLinearVelocity,
 } from "../../standard/physics";
 import {
     Backgrounds,
@@ -818,18 +817,37 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect(physicsWorld(first.world)?.getCounters().jointCount).toBe(2);
             expect(physicsWorld(second.world)?.getCounters().jointCount).toBe(2);
             const firstHash = hashPhysics(first.world);
-            const firstBody = readBody(first.world, firstA);
-            if (!firstBody) throw new Error("first Physics body did not become live");
+            const firstPlacement = first.world.storage(GlobalTransform);
+            const firstOffset = firstA * 4;
+            const firstBody = [
+                firstPlacement.translation.column.slice(firstOffset, firstOffset + 4),
+                firstPlacement.rotation.column.slice(firstOffset, firstOffset + 4),
+                firstPlacement.linearVelocity.column.slice(firstOffset, firstOffset + 4),
+            ];
             const siblingHash = hashPhysics(second.world);
-            const siblingBody = readBody(second.world, peerA);
+            const siblingPlacement = second.world.storage(GlobalTransform);
+            const siblingOffset = peerA * 4;
+            const siblingBody = [
+                siblingPlacement.translation.column.slice(siblingOffset, siblingOffset + 4),
+                siblingPlacement.rotation.column.slice(siblingOffset, siblingOffset + 4),
+                siblingPlacement.linearVelocity.column.slice(siblingOffset, siblingOffset + 4),
+            ];
             const saved = first.world.snapshot();
-            setVelocity(first.world, firstA, 7, 0, 0);
-            expect(readBody(first.world, firstA)?.linearVelocity[0]).toBeCloseTo(7);
+            setLinearVelocity(first.world, firstA, { x: 7, y: 0, z: 0 });
+            expect(firstPlacement.linearVelocity.x.get(firstA)).toBeCloseTo(7);
             first.world.restore(saved);
             expect(hashPhysics(first.world)).toBe(firstHash);
-            expect(readBody(first.world, firstA)).toEqual(firstBody);
+            expect([
+                firstPlacement.translation.column.slice(firstOffset, firstOffset + 4),
+                firstPlacement.rotation.column.slice(firstOffset, firstOffset + 4),
+                firstPlacement.linearVelocity.column.slice(firstOffset, firstOffset + 4),
+            ]).toEqual(firstBody);
             expect(hashPhysics(second.world)).toBe(siblingHash);
-            expect(readBody(second.world, peerA)).toEqual(siblingBody);
+            expect([
+                siblingPlacement.translation.column.slice(siblingOffset, siblingOffset + 4),
+                siblingPlacement.rotation.column.slice(siblingOffset, siblingOffset + 4),
+                siblingPlacement.linearVelocity.column.slice(siblingOffset, siblingOffset + 4),
+            ]).toEqual(siblingBody);
 
             if (uses(subject, CharacterPlugin)) {
                 expect(first.world.has(firstFeatures.actor, GlobalTransform)).toBe(true);
@@ -851,6 +869,18 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect([...first.world.query([GlobalTransform])].length).toBeGreaterThan(0);
             expect([...second.world.query([GlobalTransform])].length).toBeGreaterThan(0);
         }
+        if (uses(subject, SpritePlugin)) {
+            const atlasA = first.world.gpu.textures.get("spriteAtlas");
+            const atlasB = second.world.gpu.textures.get("spriteAtlas");
+            const samplerA = first.world.gpu.samplers.get("spriteSamp");
+            const samplerB = second.world.gpu.samplers.get("spriteSamp");
+            expect(atlasA).toBeDefined();
+            expect(atlasB).toBeDefined();
+            expect(atlasA).not.toBe(atlasB);
+            expect(samplerA).toBeDefined();
+            expect(samplerB).toBeDefined();
+            expect(samplerA).not.toBe(samplerB);
+        }
         for (const [plugin, key] of [
             [SpritePlugin, "material:SpriteMaterial"],
             [TextPlugin, "textGlyphs"],
@@ -866,7 +896,15 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         }
 
         const peerHashBeforeDispose = hasPhysics ? hashPhysics(second.world) : 0n;
-        const peerBodyBeforeDispose = hasPhysics ? readBody(second.world, peerA) : null;
+        const peerPlacement = hasPhysics ? second.world.storage(GlobalTransform) : null;
+        const peerOffset = peerA * 4;
+        const peerBodyBeforeDispose = peerPlacement
+            ? [
+                  peerPlacement.translation.column.slice(peerOffset, peerOffset + 4),
+                  peerPlacement.rotation.column.slice(peerOffset, peerOffset + 4),
+                  peerPlacement.linearVelocity.column.slice(peerOffset, peerOffset + 4),
+              ]
+            : null;
         const peerResources = new Set<GPUBuffer | GPUTexture>([
             ...second.world.gpu.buffers.values(),
             ...second.world.gpu.textures.values(),
@@ -885,10 +923,19 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         expect([...second.world.gpu.typed]).toEqual(peerRegistries.typed);
         if (hasPhysics) {
             expect(hashPhysics(second.world)).toBe(peerHashBeforeDispose);
-            expect(readBody(second.world, peerA)).toEqual(peerBodyBeforeDispose);
+            expect([
+                peerPlacement!.translation.column.slice(peerOffset, peerOffset + 4),
+                peerPlacement!.rotation.column.slice(peerOffset, peerOffset + 4),
+                peerPlacement!.linearVelocity.column.slice(peerOffset, peerOffset + 4),
+            ]).toEqual(peerBodyBeforeDispose!);
         }
         await stepGpuWorld(second.world, "second world after sibling disposal", secondDevice);
-        if (hasPhysics) expect(readBody(second.world, peerA)).not.toEqual(peerBodyBeforeDispose);
+        if (hasPhysics)
+            expect([
+                peerPlacement!.translation.column.slice(peerOffset, peerOffset + 4),
+                peerPlacement!.rotation.column.slice(peerOffset, peerOffset + 4),
+                peerPlacement!.linearVelocity.column.slice(peerOffset, peerOffset + 4),
+            ]).not.toEqual(peerBodyBeforeDispose!);
 
         second.dispose();
         second = undefined;

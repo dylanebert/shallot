@@ -5,7 +5,7 @@ import {
     hashPhysics,
     physicsWorld,
     StandardPhysicsPlugin,
-    setKinematic,
+    setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
@@ -61,7 +61,7 @@ test("kinematic targets replay the same physics hashes after world recovery", as
         const bob = world.create();
         world.add(bob, Body, { position: [0.2, 1, 0, 0] });
         const place = (tick: number) =>
-            setKinematic(world, platform, [tick * 0.05, 0, 0], [0, 0, 0, 1]);
+            setTargetTransform(world, platform, [tick * 0.05, 0, 0], [0, 0, 0, 1]);
         for (let tick = 0; tick < 5; tick++) {
             place(tick);
             world.tick();

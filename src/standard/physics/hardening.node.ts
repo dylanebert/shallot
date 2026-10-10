@@ -10,9 +10,8 @@ import {
     hashPhysics,
     type PhysicsSnapshot,
     physicsWorld,
-    readBody,
     StandardPhysicsPlugin,
-    setVelocity,
+    setLinearVelocity,
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { physicsCounters } from "./runtime";
@@ -59,7 +58,7 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
     const leftAfterSaved: string[] = [];
     try {
         for (let tick = 0; tick < 6; tick++) {
-            setVelocity(left.world, left.body, 1, 0, 0);
+            setLinearVelocity(left.world, left.body, { x: 1, y: 0, z: 0 });
             left.world.step(Time.FIXED_DT);
             leftHashes.push(hashPhysics(left.world).toString(16));
             if (tick > 2) leftAfterSaved.push(hashPhysics(left.world).toString(16));
@@ -72,7 +71,7 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
     const rightHashes: string[] = [];
     try {
         for (let tick = 0; tick < 6; tick++) {
-            setVelocity(right.world, right.body, 1, 0, 0);
+            setLinearVelocity(right.world, right.body, { x: 1, y: 0, z: 0 });
             right.world.step(Time.FIXED_DT);
             rightHashes.push(hashPhysics(right.world).toString(16));
         }
@@ -84,7 +83,7 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
     const replay = await cleanState();
     try {
         for (let tick = 0; tick < 3; tick++) {
-            setVelocity(replay.world, replay.body, 1, 0, 0);
+            setLinearVelocity(replay.world, replay.body, { x: 1, y: 0, z: 0 });
             replay.world.step(Time.FIXED_DT);
         }
         const saved = replay.world.snapshot();
@@ -93,7 +92,7 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
         replay.world.step(Time.FIXED_DT);
         replay.world.restore(saved);
         expect(hashPhysics(replay.world)).toBe(savedHash);
-        setVelocity(replay.world, replay.body, 1, 0, 0);
+        setLinearVelocity(replay.world, replay.body, { x: 1, y: 0, z: 0 });
         replay.world.step(Time.FIXED_DT);
         expect(hashPhysics(replay.world).toString(16)).toBe(leftAfterSaved[0]);
         expect(hashPhysics(replay.world)).not.toBe(before);
@@ -139,7 +138,7 @@ test("a solver snapshot restores into a fresh compatible PhysicsWorld with an eq
     const target = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         for (let tick = 0; tick < 4; tick++) {
-            setVelocity(source.world, source.body, 1, 0, 0);
+            setLinearVelocity(source.world, source.body, { x: 1, y: 0, z: 0 });
             source.world.step(Time.FIXED_DT);
         }
         const saved = physicsWorld(source.world)!.snapshot();
@@ -196,7 +195,7 @@ test("physics reports the same body visit count for every scene, so a body-conte
         one.world.step(Time.FIXED_DT);
         const oneCount = physicsCounters(one.world).bodiesVisited;
         expect(oneCount).toBe(1);
-        expect(readBody(one.world, one.body)).not.toBeNull();
+        expect(one.world.has(one.body, Body)).toBe(true);
 
         const second = addBody(one.world, {
             shape: ShapeKind.Box,
@@ -207,7 +206,7 @@ test("physics reports the same body visit count for every scene, so a body-conte
         one.world.step(Time.FIXED_DT);
         const changed = physicsCounters(one.world);
         expect(changed.bodiesVisited).toBe(2);
-        expect(readBody(one.world, second)).not.toBeNull();
+        expect(one.world.has(second, Body)).toBe(true);
     } finally {
         one.app.dispose();
     }

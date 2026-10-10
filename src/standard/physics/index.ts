@@ -16,14 +16,21 @@ export {
 } from "./collision/mover";
 export type { QueryFilter } from "./common/types";
 export {
-    type BodyStateOut,
+    applyAngularImpulse,
+    applyForce,
+    applyForceToCenter,
+    applyLinearImpulse,
+    applyLinearImpulseToCenter,
+    applyTorque,
     hashPhysics,
     physicsWorld,
-    readBody,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
-    setKinematic,
-    setVelocity,
+    setAngularVelocity,
+    setAwake,
+    setLinearVelocity,
+    setTargetTransform,
+    setTransform,
 } from "./runtime";
 export type { Capsule } from "./shapes/geometry";
 export type { StepProfile } from "./world/profile";

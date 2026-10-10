@@ -1,4 +1,5 @@
 import {
+    Body,
     DistanceJoint,
     FilterJoint,
     MotorJoint,
@@ -85,6 +86,34 @@ const bindingsKey = {
 
 export function jointBindings(world: World): readonly JointBinding[] {
     return world.resource(bindingsKey);
+}
+
+export interface BodyBinding {
+    index: number;
+    component: Component;
+    fields: { name: string; type: FieldType }[];
+    fieldIndices: Map<string, number>;
+    dirty: ReturnType<World["fieldStorage"]>[];
+    storage: Record<string, ScalarField | Vector4Field>;
+}
+const bodyBindingKey = {
+    create: (world: World): BodyBinding => {
+        const fields = Object.entries(Body).map(([name, type]) => ({
+            name,
+            type: type as FieldType,
+        }));
+        return {
+            index: 0,
+            component: Body,
+            fields,
+            fieldIndices: new Map(fields.map(({ name }, index) => [name, index])),
+            dirty: fields.map(({ name }) => world.fieldStorage(Body, name)),
+            storage: world.storage(Body) as unknown as Record<string, ScalarField | Vector4Field>,
+        };
+    },
+};
+export function bodyBinding(world: World): BodyBinding {
+    return world.resource(bodyBindingKey);
 }
 
 /** Composes one joint definition only when membership or an endpoint requires creation. */

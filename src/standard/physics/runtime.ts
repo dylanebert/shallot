@@ -1,8 +1,9 @@
 /// <reference types="@webgpu/types" />
 
-import { Body, type BodyState, BodyType, Hulls, PhysicsPlugin } from "../../core/physics";
+import { Body, BodyType, Hulls, PhysicsPlugin } from "../../core/physics";
 import { GlobalTransform, Transform, teleport as teleportPlacement } from "../../core/transform";
 import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
+import type { Pos, Quat, Vec3, WorldTransform } from "./api";
 import {
     hash as hashWorld,
     init,
@@ -14,17 +15,25 @@ import {
     snapshot as snapshotWorld,
 } from "./api";
 import { snapshotBindings } from "./api/snapshot";
-import { jointBindings } from "./authoring";
+import { bodyBinding, jointBindings } from "./authoring";
+import { syncBodyFields } from "./body-sync";
 import { f32, maxf } from "./common/math";
 import type { WorldDef } from "./common/types";
+import {
+    captureFieldCandidate,
+    captureFieldCandidates,
+    clearFieldCandidate,
+    clearFieldCandidates,
+    createFieldCandidates,
+    type FieldCandidates,
+    markFieldCandidate,
+} from "./field-candidates";
 import {
     type ConstraintCache,
     type ConstraintIds,
     captureConstraints,
-    captureJointFieldCandidates,
     createConstraintCache,
     markAllJointCandidates,
-    markJointCandidate,
     resetConstraints,
     restoreConstraints,
     syncJoints,
@@ -47,6 +56,8 @@ export interface PhysicsCounters {
 
 interface PhysicsRuntime {
     initialized: boolean;
+    bodyCandidates: FieldCandidates;
+    warnedBodyFields: Set<number>;
     physicsWorld: PhysicsWorld | null;
     bodies: Map<number, SolverBody>;
     stamps: Map<number, EntityRef>;
@@ -73,6 +84,8 @@ function newRuntime(): PhysicsRuntime {
     const failed: PhysicsRuntime["failed"] = new Map();
     return {
         initialized: false,
+        bodyCandidates: createFieldCandidates(),
+        warnedBodyFields: new Set(),
         physicsWorld: null,
         bodies: new Map(),
         stamps: new Map(),
@@ -121,28 +134,28 @@ function writeGlobalTransform(
     world.storage(GlobalTransform).linearVelocity.set(eid, vel[0], vel[1], vel[2], 0);
 }
 
-function seedGlobalTransform(world: World, eid: number): void {
+const spawnTransform: WorldTransform = {
+    p: { x: 0, y: 0, z: 0 },
+    q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+};
+const spawnVelocity: Vec3 = { x: 0, y: 0, z: 0 };
+function seedGlobalTransform(world: World, eid: number, body: SolverBody): void {
+    const pose = body.getTransform(spawnTransform);
+    body.getLinearVelocity(spawnVelocity);
     writeGlobalTransform(
         world,
         eid,
-        [
-            world.storage(Body).position.x.get(eid),
-            world.storage(Body).position.y.get(eid),
-            world.storage(Body).position.z.get(eid),
-        ],
-        [
-            world.storage(Body).rotation.x.get(eid),
-            world.storage(Body).rotation.y.get(eid),
-            world.storage(Body).rotation.z.get(eid),
-            world.storage(Body).rotation.w.get(eid),
-        ],
-        [0, 0, 0],
+        [pose.p.x, pose.p.y, pose.p.z],
+        [pose.q.v.x, pose.q.v.y, pose.q.v.z, pose.q.s],
+        [spawnVelocity.x, spawnVelocity.y, spawnVelocity.z],
     );
 }
 
 function forget(runtime: PhysicsRuntime, eid: number): void {
     runtime.bodies.get(eid)?.destroy();
     runtime.bodies.delete(eid);
+    for (let fieldIndex = 0; fieldIndex < 32; fieldIndex++)
+        runtime.warnedBodyFields.delete(eid * 32 + fieldIndex);
 }
 
 function clearBodies(runtime: PhysicsRuntime): void {
@@ -151,6 +164,7 @@ function clearBodies(runtime: PhysicsRuntime): void {
     runtime.stamps.clear();
     runtime.failed.clear();
     runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
+    runtime.warnedBodyFields.clear();
     runtime.full = true;
     resetConstraints(runtime.constraints);
 }
@@ -167,103 +181,179 @@ export function physicsWorld(world: World): PhysicsWorld | null {
     const physicsWorld = runtimeFor(world).physicsWorld;
     return physicsWorld ? physicsWorld : null;
 }
-/** a writable {@link BodyState} that {@link readBody} fills in place. */
-export interface BodyStateOut {
-    position: [number, number, number];
-    rotation: [number, number, number, number];
-    linearVelocity: [number, number, number];
+// Body methods copy these reusable views synchronously.
+const statePos: Pos = { x: 0, y: 0, z: 0 };
+const stateQuat: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
+const stateTarget: WorldTransform = { p: statePos, q: stateQuat };
+const stateVector: Vec3 = { x: 0, y: 0, z: 0 };
+const stateVelocity: Vec3 = { x: 0, y: 0, z: 0 };
+const stateVelocityTuple: [number, number, number] = [0, 0, 0];
+
+function stateTransform(
+    position: readonly [number, number, number],
+    rotation: readonly [number, number, number, number],
+): WorldTransform {
+    statePos.x = position[0];
+    statePos.y = position[1];
+    statePos.z = position[2];
+    stateQuat.v.x = rotation[0];
+    stateQuat.v.y = rotation[1];
+    stateQuat.v.z = rotation[2];
+    stateQuat.s = rotation[3];
+    return stateTarget;
+}
+function publishBodyVelocity(world: World, eid: number, body: SolverBody): void {
+    body.getLinearVelocity(stateVelocity);
+    world
+        .storage(GlobalTransform)
+        .linearVelocity.set(eid, stateVelocity.x, stateVelocity.y, stateVelocity.z, 0);
 }
 
-/** one body's live pose + velocity, or null when `eid` has no solver body. Pass `out` to fill it instead of allocating. */
-export function readBody(world: World, eid: number, out?: BodyStateOut): BodyState | null {
-    const tb = runtimeFor(world).bodies.get(eid);
-    if (!tb) return null;
-    const global = world.storage(GlobalTransform);
-    if (out === undefined)
-        return readBody(world, eid, {
-            position: [0, 0, 0],
-            rotation: [0, 0, 0, 1],
-            linearVelocity: [0, 0, 0],
-        });
-    const offset = eid * 4;
-    const p = global.translation.column,
-        q = global.rotation.column,
-        v = global.linearVelocity.column;
-    out.position[0] = p[offset];
-    out.position[1] = p[offset + 1];
-    out.position[2] = p[offset + 2];
-    out.rotation[0] = q[offset];
-    out.rotation[1] = q[offset + 1];
-    out.rotation[2] = q[offset + 2];
-    out.rotation[3] = q[offset + 3];
-    out.linearVelocity[0] = v[offset];
-    out.linearVelocity[1] = v[offset + 1];
-    out.linearVelocity[2] = v[offset + 2];
-    return out;
-}
-
-const staticMotionWarnings = { create: () => new Map<number, EntityRef>() };
-// Body calls copy these reusable views synchronously.
-const kinPos = { x: 0, y: 0, z: 0 };
-const kinQuat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
-const kinTarget = { p: kinPos, q: kinQuat };
-const kinVel = { x: 0, y: 0, z: 0 };
-
-/** Drives a kinematic or dynamic body toward a pose over one fixed step; Box3D derives both velocities. A teleport preserves velocity and discards interpolation. Static bodies are ignored with one warning per entity; an unavailable body is ignored. */
-export function setKinematic(
+/**
+ * Drives a kinematic or dynamic body toward a world pose over `timeStep` seconds. Box3D derives
+ * linear velocity in meters per second and angular velocity in radians per second; `wake` wakes an
+ * asleep body when the target motion is significant. The pose and linear velocity publish immediately.
+ * Static or unavailable bodies are ignored, as in Box3D.
+ */
+export function setTargetTransform(
     world: World,
     eid: number,
-    pos: readonly [number, number, number],
-    quat: readonly [number, number, number, number],
-    teleport = false,
+    position: readonly [number, number, number],
+    rotation: readonly [number, number, number, number],
+    timeStep = fixedDeltaTime,
+    wake = true,
 ): void {
-    const runtime = runtimeFor(world);
-    const tb = runtime.bodies.get(eid);
-    if (!tb) return;
-    if (tb.getType() === BodyType.Static) {
-        const warned = world.resource(staticMotionWarnings);
-        const previous = warned.get(eid);
-        if (!previous || !world.resolve(previous)) {
-            warned.set(eid, world.ref(eid));
-            console.warn(`[physics] setKinematic ignores static body entity ${eid}`);
-        }
-        return;
-    }
-    kinPos.x = pos[0];
-    kinPos.y = pos[1];
-    kinPos.z = pos[2];
-    kinQuat.v.x = quat[0];
-    kinQuat.v.y = quat[1];
-    kinQuat.v.z = quat[2];
-    kinQuat.s = quat[3];
-    if (teleport) tb.setTransform(kinPos, kinQuat);
-    else {
-        tb.setTargetTransform(kinTarget, fixedDeltaTime, true);
-        // Box3D leaves sub-threshold target motion asleep without adopting its pose.
-        if (!tb.isAwake()) return;
-    }
-    tb.getLinearVelocity(kinVel);
-    // GlobalTransformHistory can upload this row on a draw-only frame before the next solver step.
-    const global = world.storage(GlobalTransform);
-    const offset = eid * 4;
-    const pc = global.translation.column,
-        qc = global.rotation.column,
-        vc = global.linearVelocity.column;
-    for (let lane = 0; lane < 3; lane++) pc[offset + lane] = pos[lane];
-    for (let lane = 0; lane < 4; lane++) qc[offset + lane] = quat[lane];
-    vc[offset] = kinVel.x;
-    vc[offset + 1] = kinVel.y;
-    vc[offset + 2] = kinVel.z;
-    global.translation.markChanged(eid);
-    global.rotation.markChanged(eid);
-    global.linearVelocity.markChanged(eid);
-    if (teleport) teleportPlacement(world, eid);
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body || body.getType() === BodyType.Static) return;
+    body.setTargetTransform(stateTransform(position, rotation), timeStep, wake);
+    // Box3D leaves sub-threshold target motion asleep without adopting its pose.
+    if (!body.isAwake()) return;
+    body.getLinearVelocity(stateVelocity);
+    stateVelocityTuple[0] = stateVelocity.x;
+    stateVelocityTuple[1] = stateVelocity.y;
+    stateVelocityTuple[2] = stateVelocity.z;
+    writeGlobalTransform(world, eid, position, rotation, stateVelocityTuple);
 }
-export function setVelocity(world: World, eid: number, vx: number, vy: number, vz: number): void {
+
+/** Teleports a body in meters, preserving both velocities and discarding placement interpolation. */
+export function setTransform(
+    world: World,
+    eid: number,
+    position: readonly [number, number, number],
+    rotation: readonly [number, number, number, number],
+): void {
     const body = runtimeFor(world).bodies.get(eid);
     if (!body) return;
-    body.setLinearVelocity({ x: vx, y: vy, z: vz });
-    world.storage(GlobalTransform).linearVelocity.set(eid, vx, vy, vz, 0);
+    body.setTransform(stateTransform(position, rotation).p, stateQuat);
+    body.getLinearVelocity(stateVelocity);
+    stateVelocityTuple[0] = stateVelocity.x;
+    stateVelocityTuple[1] = stateVelocity.y;
+    stateVelocityTuple[2] = stateVelocity.z;
+    writeGlobalTransform(world, eid, position, rotation, stateVelocityTuple);
+    teleportPlacement(world, eid);
+}
+
+/** Sets center-of-mass velocity in meters per second; nonzero values wake the body. Box3D ignores static bodies. */
+export function setLinearVelocity(world: World, eid: number, velocity: Vec3): void {
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body) return;
+    stateVector.x = velocity.x;
+    stateVector.y = velocity.y;
+    stateVector.z = velocity.z;
+    body.setLinearVelocity(stateVector);
+    if (body.getType() !== BodyType.Static) publishBodyVelocity(world, eid, body);
+}
+
+/** Sets angular velocity in radians per second; nonzero values wake the body and locked axes are zeroed. Box3D ignores static bodies. */
+export function setAngularVelocity(world: World, eid: number, velocity: Vec3): void {
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body) return;
+    stateVector.x = velocity.x;
+    stateVector.y = velocity.y;
+    stateVector.z = velocity.z;
+    body.setAngularVelocity(stateVector);
+}
+
+/** Accumulates world force in newtons at a world point for the next step; an off-center point adds torque. `wake` defaults true. Box3D ignores static and kinematic bodies. */
+export function applyForce(world: World, eid: number, force: Vec3, point: Pos, wake = true): void {
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body) return;
+    stateVector.x = force.x;
+    stateVector.y = force.y;
+    stateVector.z = force.z;
+    statePos.x = point.x;
+    statePos.y = point.y;
+    statePos.z = point.z;
+    body.applyForce(stateVector, statePos, wake);
+}
+
+/** Accumulates world force in newtons at the center of mass for the next step; `wake` defaults true. Box3D ignores static and kinematic bodies. */
+export function applyForceToCenter(world: World, eid: number, force: Vec3, wake = true): void {
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body) return;
+    stateVector.x = force.x;
+    stateVector.y = force.y;
+    stateVector.z = force.z;
+    body.applyForceToCenter(stateVector, wake);
+}
+
+/** Accumulates world torque in newton-meters for the next step; `wake` defaults true. Box3D ignores static and kinematic bodies. */
+export function applyTorque(world: World, eid: number, torque: Vec3, wake = true): void {
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body) return;
+    stateVector.x = torque.x;
+    stateVector.y = torque.y;
+    stateVector.z = torque.z;
+    body.applyTorque(stateVector, wake);
+}
+
+/** Applies a one-shot world impulse in newton-seconds at a world point; off-center impulses also change angular velocity. `wake` defaults true. Box3D ignores static and kinematic bodies. */
+export function applyLinearImpulse(
+    world: World,
+    eid: number,
+    impulse: Vec3,
+    point: Pos,
+    wake = true,
+): void {
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body) return;
+    stateVector.x = impulse.x;
+    stateVector.y = impulse.y;
+    stateVector.z = impulse.z;
+    statePos.x = point.x;
+    statePos.y = point.y;
+    statePos.z = point.z;
+    body.applyLinearImpulse(stateVector, statePos, wake);
+}
+
+/** Applies a one-shot center-of-mass impulse in newton-seconds; `wake` defaults true. Box3D ignores static and kinematic bodies. */
+export function applyLinearImpulseToCenter(
+    world: World,
+    eid: number,
+    impulse: Vec3,
+    wake = true,
+): void {
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body) return;
+    stateVector.x = impulse.x;
+    stateVector.y = impulse.y;
+    stateVector.z = impulse.z;
+    body.applyLinearImpulseToCenter(stateVector, wake);
+}
+
+/** Applies a one-shot angular impulse in kilogram-meter-squared per second; `wake` defaults true. Box3D ignores static and kinematic bodies. */
+export function applyAngularImpulse(world: World, eid: number, impulse: Vec3, wake = true): void {
+    const body = runtimeFor(world).bodies.get(eid);
+    if (!body) return;
+    stateVector.x = impulse.x;
+    stateVector.y = impulse.y;
+    stateVector.z = impulse.z;
+    body.applyAngularImpulse(stateVector, wake);
+}
+
+/** Wakes a body and its island, or asks Box3D to put the whole island to sleep. */
+export function setAwake(world: World, eid: number, awake: boolean): void {
+    runtimeFor(world).bodies.get(eid)?.setAwake(awake);
 }
 export function physicsCounters(world: World): PhysicsCounters {
     return { ...runtimeFor(world).counters };
@@ -281,6 +371,8 @@ interface Bindings {
     constraints: ConstraintIds;
     /** pending sync words, copied so later marks cannot mutate the image */
     changed: Uint32Array | null;
+    /** pending body field candidates as [eid, field mask] pairs */
+    bodyCandidates: [number, number][];
     full: boolean;
     hulls: number;
 }
@@ -289,6 +381,15 @@ function warmWorld(runtime: PhysicsRuntime): PhysicsWorld {
     const physicsWorld = runtime.physicsWorld;
     if (!physicsWorld) throw new Error("physics: world is not warm");
     return physicsWorld;
+}
+
+function captureBodyCandidates(candidates: FieldCandidates): [number, number][] {
+    const pending: [number, number][] = [];
+    for (let i = 0; i < candidates.count; i++) {
+        const eid = candidates.eids[i];
+        pending.push([eid, candidates.fieldMarks[eid]]);
+    }
+    return pending;
 }
 
 function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
@@ -302,6 +403,7 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
         bodies,
         failed,
         constraints: captureConstraints(runtime.constraints),
+        bodyCandidates: captureBodyCandidates(runtime.bodyCandidates),
         changed: runtime.anyChanged ? runtime.changed.slice() : null,
         full: runtime.full,
         hulls: runtime.hulls,
@@ -340,6 +442,12 @@ function restoreBindings(
             hulls: b.failed[i + 2],
         });
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
+    clearFieldCandidates(runtime.bodyCandidates);
+    for (const [eid, fieldMask] of b.bodyCandidates) {
+        markFieldCandidate(runtime.bodyCandidates, eid);
+        runtime.bodyCandidates.fieldMarks[eid] = fieldMask;
+    }
+    runtime.warnedBodyFields.clear();
     if (b.changed) {
         if (b.changed.length > runtime.changed.length) {
             const grown = new Uint32Array(Math.max(b.changed.length, runtime.changed.length * 2));
@@ -430,7 +538,8 @@ function syncWorldDefinition(
 
 function capturePhysics(world: World): PhysicsSnapshot {
     const runtime = runtimeFor(world);
-    captureJointFieldCandidates(world, runtime.constraints, jointBindings(world));
+    captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
+    captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
     return snapshotWorld(warmWorld(runtime), captureBindings(world, runtime));
 }
 function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
@@ -484,7 +593,7 @@ export const SyncPhysicsConstraintsSystem: System = {
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
         const bindings = jointBindings(world);
-        captureJointFieldCandidates(world, runtime.constraints, bindings);
+        captureFieldCandidates(world, runtime.constraints.candidates, bindings);
         syncJoints(
             runtime.constraints,
             physicsWorld,
@@ -496,25 +605,27 @@ export const SyncPhysicsConstraintsSystem: System = {
     },
 };
 
-/** Captures joint field dirty words before the frame's clearChanges point. */
-export const CollectJointFieldCandidatesSystem: System = {
-    name: "joint-field-candidates",
+/** Captures authored field marks before the frame's clearChanges point. */
+export const CollectPhysicsFieldCandidatesSystem: System = {
+    name: "physics-field-candidates",
     group: "simulation",
     boundary: "after",
     update(world) {
         const runtime = runtimeFor(world);
-        captureJointFieldCandidates(world, runtime.constraints, jointBindings(world));
+        captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
+        captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
     },
 };
 
 /** Captures draw writes before CPU-only World.step clears frame marks on return. */
-export const CollectDrawJointFieldCandidatesSystem: System = {
-    name: "draw-joint-field-candidates",
+export const CollectDrawPhysicsFieldCandidatesSystem: System = {
+    name: "draw-physics-field-candidates",
     group: "draw",
     boundary: "after",
     update(world) {
         const runtime = runtimeFor(world);
-        captureJointFieldCandidates(world, runtime.constraints, jointBindings(world));
+        captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
+        captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
     },
 };
 
@@ -577,8 +688,9 @@ function visitBody(
     runtime.failed.delete(eid);
     kernel(world).bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
     runtime.bodies.set(eid, tb);
+    clearFieldCandidate(runtime.bodyCandidates, eid);
     runtime.stamps.set(eid, stamp);
-    seedGlobalTransform(world, eid);
+    seedGlobalTransform(world, eid, tb);
     teleportPlacement(world, eid);
     return true;
 }
@@ -595,6 +707,7 @@ const SyncSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
+        captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
         let bodySetChanged = false;
         let ended = false;
         const hulls = world.resource(Hulls).size;
@@ -644,6 +757,13 @@ const SyncSystem: System = {
                 bodySetChanged = true;
             }
         }
+        syncBodyFields(
+            runtime.bodyCandidates,
+            bodyBinding(world),
+            runtime.bodies,
+            runtime.warnedBodyFields,
+        );
+        clearFieldCandidates(runtime.bodyCandidates);
         runtime.counters.bodiesVisited = runtime.bodies.size + runtime.failed.size;
         if (bodySetChanged)
             markAllJointCandidates(world, runtime.constraints, jointBindings(world));
@@ -683,8 +803,8 @@ export const StandardPhysicsPlugin: Plugin = {
         SyncPhysicsWorldDefinitionSystem,
         SyncPhysicsConstraintsSystem,
         StepPhysicsSystem,
-        CollectJointFieldCandidatesSystem,
-        CollectDrawJointFieldCandidatesSystem,
+        CollectPhysicsFieldCandidatesSystem,
+        CollectDrawPhysicsFieldCandidatesSystem,
     ],
 
     initialize(world) {
@@ -698,7 +818,7 @@ export const StandardPhysicsPlugin: Plugin = {
             for (const binding of bindings) {
                 world.onDispose(
                     world.observeMembership(binding.component, (eid) =>
-                        markJointCandidate(runtime.constraints, binding.index, eid),
+                        markFieldCandidate(runtime.constraints.candidates[binding.index], eid),
                     ),
                 );
             }

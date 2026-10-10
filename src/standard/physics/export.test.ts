@@ -5,6 +5,7 @@ import * as standard from "@dylanebert/shallot/standard/physics";
 test("core physics exports shared authoring data without engine aliases or analytic shape helpers", () => {
     expect(Object.keys(physics).sort()).toEqual([
         "Body",
+        "BodyMotionLock",
         "BodyType",
         "DistanceJoint",
         "FilterJoint",
@@ -31,12 +32,20 @@ test("standard physics exports consumed world operations and profiling without s
         "PhysicsWorldDefinition",
         "StandardPhysicsPlugin",
         "StepPhysicsSystem",
+        "applyAngularImpulse",
+        "applyForce",
+        "applyForceToCenter",
+        "applyLinearImpulse",
+        "applyLinearImpulseToCenter",
+        "applyTorque",
         "clipVector",
         "hashPhysics",
         "physicsWorld",
-        "readBody",
-        "setKinematic",
-        "setVelocity",
+        "setAngularVelocity",
+        "setAwake",
+        "setLinearVelocity",
+        "setTargetTransform",
+        "setTransform",
         "solvePlanes",
     ]);
 });

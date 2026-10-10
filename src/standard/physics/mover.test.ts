@@ -25,11 +25,13 @@ test("published mover queries land a falling capsule on an authored floor slidin
             shape: ShapeKind.Box,
             position: [0, -0.5, 0, 0],
             halfExtents: [10, 0.5, 10, 0],
+            isEnabled: 1,
         });
         world.add(world.create(), Body, {
             shape: ShapeKind.Box,
             position: [1.5, 2, 0, 0],
             halfExtents: [0.5, 2, 10, 0],
+            isEnabled: 1,
         });
         world.step(1 / 60);
         const physics = physicsWorld(world)!;

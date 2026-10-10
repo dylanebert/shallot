@@ -22,6 +22,12 @@ import {
 import type { JointBinding, JointDef } from "./authoring";
 import { JOINT_KIND_COUNT, jointDef } from "./authoring";
 import {
+    clearFieldCandidates,
+    createFieldCandidates,
+    type FieldCandidates,
+    markFieldCandidate,
+} from "./field-candidates";
+import {
     DJ_LOWER_SPRING_FORCE,
     DJ_UPPER_SPRING_FORCE,
     J_CONSTRAINT_DAMPING,
@@ -37,84 +43,21 @@ import { readJointFloat, readJointQuat, readJointVec3 } from "./kernel/jointcolu
 import { JointField, jointDrawScale, jointField, setJointDrawScale } from "./kernel/jointrecords";
 import type { WorldState } from "./world/world";
 
-interface JointCandidates {
-    eids: number[];
-    seen: Uint8Array;
-    fieldMarks: Uint32Array;
-    count: number;
-}
 export interface ConstraintCache {
     liveJoints: Map<number, Map<number, SolverJoint>>;
-    candidates: JointCandidates[];
+    candidates: FieldCandidates[];
     warnedJoints: Set<number>;
 }
 export function createConstraintCache(): ConstraintCache {
     return {
         liveJoints: new Map(),
-        candidates: Array.from({ length: JOINT_KIND_COUNT }, () => ({
-            eids: [],
-            seen: new Uint8Array(16),
-            fieldMarks: new Uint32Array(16),
-            count: 0,
-        })),
+        candidates: Array.from({ length: JOINT_KIND_COUNT }, createFieldCandidates),
         warnedJoints: new Set(),
     };
 }
 
 function identity(index: number, eid: number): number {
     return eid * JOINT_KIND_COUNT + index;
-}
-function ensureCandidateCapacity(candidates: JointCandidates, eid: number): void {
-    if (eid < candidates.seen.length) return;
-    let capacity = candidates.seen.length;
-    while (capacity <= eid) capacity *= 2;
-    const grown = new Uint8Array(capacity);
-    grown.set(candidates.seen);
-    candidates.seen = grown;
-    const fieldMarks = new Uint32Array(capacity);
-    fieldMarks.set(candidates.fieldMarks);
-    candidates.fieldMarks = fieldMarks;
-}
-export function markJointCandidate(cache: ConstraintCache, index: number, eid: number): void {
-    const candidates = cache.candidates[index];
-    ensureCandidateCapacity(candidates, eid);
-    if (candidates.seen[eid] === 0) {
-        candidates.seen[eid] = 1;
-        candidates.eids[candidates.count++] = eid;
-    }
-}
-export function markJointFieldCandidate(
-    cache: ConstraintCache,
-    index: number,
-    eid: number,
-    fieldIndex: number,
-): void {
-    if (fieldIndex >= 32)
-        throw new Error(`physics: joint field index ${fieldIndex} exceeds its candidate mask`);
-    markJointCandidate(cache, index, eid);
-    cache.candidates[index].fieldMarks[eid] |= 1 << fieldIndex;
-}
-export function captureJointFieldCandidates(
-    world: World,
-    cache: ConstraintCache,
-    bindings: readonly JointBinding[],
-): void {
-    const words = (world.entityHighWater + 31) >>> 5;
-    for (let bindingIndex = 0; bindingIndex < bindings.length; bindingIndex++) {
-        const binding = bindings[bindingIndex];
-        for (let fieldIndex = 0; fieldIndex < binding.dirty.length; fieldIndex++) {
-            const dirty = binding.dirty[fieldIndex].dirty;
-            for (let word = 0; word < Math.min(dirty.length, words); word++) {
-                let bits = dirty[word];
-                while (bits !== 0) {
-                    const low = bits & -bits;
-                    bits ^= low;
-                    const eid = (word << 5) | (31 - Math.clz32(low));
-                    markJointFieldCandidate(cache, binding.index, eid, fieldIndex);
-                }
-            }
-        }
-    }
 }
 function fieldChanged(binding: JointBinding, mask: number, name: string): boolean {
     const index = binding.fieldIndices.get(name);
@@ -127,10 +70,10 @@ export function markAllJointCandidates(
 ): void {
     for (let i = 0; i < bindings.length; i++) {
         const binding = bindings[i];
-        for (const eid of world.query([binding.component]))
-            markJointCandidate(cache, binding.index, eid);
+        const candidates = cache.candidates[binding.index];
+        for (const eid of world.query([binding.component])) markFieldCandidate(candidates, eid);
         const live = cache.liveJoints.get(binding.index);
-        if (live) for (const eid of live.keys()) markJointCandidate(cache, binding.index, eid);
+        if (live) for (const eid of live.keys()) markFieldCandidate(candidates, eid);
     }
 }
 function warnOnce(warned: Set<number>, key: number, message: string): void {
@@ -886,12 +829,7 @@ export function syncJoints(
                 clearJointWarnings(cache.warnedJoints, key);
             }
         }
-        for (let candidate = 0; candidate < candidates.count; candidate++) {
-            const eid = candidates.eids[candidate];
-            candidates.seen[eid] = 0;
-            candidates.fieldMarks[eid] = 0;
-        }
-        candidates.count = 0;
+        clearFieldCandidates(candidates);
     }
 }
 
@@ -932,29 +870,15 @@ export function restoreConstraints(
         live.set(eid, joint);
     }
     cache.liveJoints = liveJoints;
-    for (const candidates of cache.candidates) {
-        for (let i = 0; i < candidates.count; i++) {
-            const eid = candidates.eids[i];
-            candidates.seen[eid] = 0;
-            candidates.fieldMarks[eid] = 0;
-        }
-        candidates.count = 0;
-    }
+    for (const candidates of cache.candidates) clearFieldCandidates(candidates);
     for (const [index, eid, fieldMask] of ids.candidates) {
-        markJointCandidate(cache, index, eid);
+        markFieldCandidate(cache.candidates[index], eid);
         cache.candidates[index].fieldMarks[eid] = fieldMask;
     }
     cache.warnedJoints.clear();
 }
 export function resetConstraints(cache: ConstraintCache): void {
     cache.liveJoints.clear();
-    for (const candidates of cache.candidates) {
-        for (let i = 0; i < candidates.count; i++) {
-            const eid = candidates.eids[i];
-            candidates.seen[eid] = 0;
-            candidates.fieldMarks[eid] = 0;
-        }
-        candidates.count = 0;
-    }
+    for (const candidates of cache.candidates) clearFieldCandidates(candidates);
     cache.warnedJoints.clear();
 }

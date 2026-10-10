@@ -4,8 +4,8 @@ import { Body, BodyType } from "@dylanebert/shallot/physics";
 import {
     physicsWorld,
     StandardPhysicsPlugin,
-    setKinematic,
-    setVelocity,
+    setLinearVelocity,
+    setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
@@ -20,12 +20,12 @@ async function sleepingPlatform() {
     const platform = world.create();
     world.add(platform, Body, { type: BodyType.Kinematic });
     world.tick();
-    setKinematic(world, platform, [0, 0, 0], [0, 0, 0, 1]);
+    setTargetTransform(world, platform, [0, 0, 0], [0, 0, 0, 1]);
     world.tick();
 
-    setVelocity(world, platform, 1, 0, 0);
+    setLinearVelocity(world, platform, { x: 1, y: 0, z: 0 });
     world.tick();
-    setVelocity(world, platform, 0, 0, 0);
+    setLinearVelocity(world, platform, { x: 0, y: 0, z: 0 });
     for (let tick = 0; tick < 120; tick++) world.tick();
 
     return {
@@ -37,13 +37,13 @@ async function sleepingPlatform() {
     };
 }
 
-test("setKinematic drives a sleeping body back to an unchanged target", async () => {
+test("setTargetTransform drives a sleeping body back to an unchanged target", async () => {
     const { app, world, platform, body, position } = await sleepingPlatform();
     try {
         expect(body.isAwake()).toBe(false);
         expect(position.x.get(platform)).toBeGreaterThan(0);
 
-        setKinematic(world, platform, [0, 0, 0], [0, 0, 0, 1]);
+        setTargetTransform(world, platform, [0, 0, 0], [0, 0, 0, 1]);
         world.tick();
 
         expect(body.getPosition().x).toBeCloseTo(0, 5);
@@ -53,14 +53,14 @@ test("setKinematic drives a sleeping body back to an unchanged target", async ()
     }
 });
 
-test("setKinematic does not publish a sub-threshold target a sleeping body rejects", async () => {
+test("setTargetTransform does not publish a sub-threshold target a sleeping body rejects", async () => {
     const { app, world, platform, body, position } = await sleepingPlatform();
     try {
         expect(body.isAwake()).toBe(false);
         const held = body.getPosition().x;
         const published = position.x.get(platform);
         const target = held + Time.FIXED_DT * 0.01;
-        setKinematic(world, platform, [target, 0, 0], [0, 0, 0, 1]);
+        setTargetTransform(world, platform, [target, 0, 0], [0, 0, 0, 1]);
 
         expect(body.isAwake()).toBe(false);
         expect(position.x.get(platform)).toBe(published);

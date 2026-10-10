@@ -270,6 +270,35 @@ export function bodySetTransform(
         rotation.s,
     );
 }
+export const BodyProperty = {
+    linearDamping: 0,
+    angularDamping: 1,
+    gravityScale: 2,
+    sleepThreshold: 3,
+    enableSleep: 4,
+    motionLocks: 5,
+    isBullet: 6,
+    allowFastRotation: 7,
+    enableContactRecycling: 8,
+    isEnabled: 9,
+    isAwake: 10,
+} as const;
+
+export function bodyGetProperty(world: WorldState, body: number, property: number): number {
+    return kernel(world.ecsState).bodyGetProperty(world.worldId, body, property);
+}
+export function bodySetProperty(
+    world: WorldState,
+    body: number,
+    property: number,
+    value: number,
+): void {
+    if (world.locked) return;
+    world.locked = true;
+    kernel(world.ecsState).bodySetProperty(world.worldId, body, property, value);
+    world.bodyStore.refreshViews();
+    world.locked = false;
+}
 export function bodySetType(world: WorldState, body: number, type: BodyType): void {
     world.locked = true;
     world.broadPhase.store.initialize();
@@ -373,8 +402,10 @@ export function bodyDisable(world: WorldState, body: number): void {
 }
 export function bodyEnable(world: WorldState, body: number): void {
     if (world.locked) return;
+    world.locked = true;
     kernel(world.ecsState).bodyEnable(world.worldId, body);
     world.broadPhase.store.refreshViews();
+    world.locked = false;
 }
 export function updateBodyMassData(world: WorldState, body: number): void {
     kernel(world.ecsState).bodyUpdateMass(world.worldId, body);

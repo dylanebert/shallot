@@ -7,7 +7,6 @@ import {
     CharacterPlugin,
     createApp,
     DrivePlayerSystem,
-    GlobalTransform,
     GroundState,
     LocalPlayer,
     Player,
@@ -15,7 +14,8 @@ import {
     pressKey,
     releaseKey,
     ShapeKind,
-    setKinematic,
+    setTargetTransform,
+    setTransform,
     Time,
     Transform,
 } from "@dylanebert/shallot";
@@ -87,7 +87,7 @@ test("a jump within 0.15 seconds after leaving a ledge fires", async () => {
     try {
         for (let tick = 0; tick < 60; tick++) world.step(Time.FIXED_DT);
         expect(world.storage(Character).groundState.get(player)).toBe(GroundState.OnGround);
-        setKinematic(world, player, [8, 2, 0], [0, 0, 0, 1], true);
+        setTransform(world, player, [8, 2, 0], [0, 0, 0, 1]);
         for (let tick = 0; tick < 6; tick++) world.step(Time.FIXED_DT);
         expect(world.storage(Character).groundState.get(player)).toBe(GroundState.InAir);
         pressKey(world, "Space");
@@ -99,24 +99,26 @@ test("a jump within 0.15 seconds after leaving a ledge fires", async () => {
 });
 
 async function checkDiagonalCarry(offset: number, velocityPrecision: number) {
-    const { app, world, player, floor } = await scene(2, offset);
+    const { app, world, player, floor } = await scene(1.4, offset);
     try {
         world.storage(Player).gravity.set(player, 0);
-        const pose = world.storage(GlobalTransform).translation;
+        world.step(Time.FIXED_DT);
+        world.step(Time.FIXED_DT);
+        expect(world.storage(Character).groundState.get(player)).toBe(GroundState.OnGround);
+        let tick = 0;
         world.addSystem({
             name: "platform",
             group: "fixed",
             before: [DrivePlayerSystem, ...CharacterPlugin.systems!],
             update() {
-                // Step from the published pose: the platform's order against body sync is undeclared, so
-                // its first call may precede the solver body and be ignored.
-                const step = 2 * Time.FIXED_DT;
-                setKinematic(
+                const distance = 2 * (tick + 1) * Time.FIXED_DT;
+                setTargetTransform(
                     world,
                     floor,
-                    [pose.x.get(floor) + step, pose.y.get(floor) + step, 0],
+                    [offset + distance, offset + distance, 0],
                     [0, 0, 0, 1],
                 );
+                tick++;
             },
         });
         for (let i = 0; i < 30; i++) {

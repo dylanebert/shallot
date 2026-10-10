@@ -11,6 +11,7 @@ import {
     createApp,
     Devices,
     DrivePlayerSystem,
+    GlobalTransform,
     GroundState,
     LocalPlayer,
     Player,
@@ -19,7 +20,6 @@ import {
     pointerLockChanged,
     pointerMove,
     pressKey,
-    readBody,
     ShapeKind,
     StandardPhysicsPlugin,
     Time,
@@ -106,6 +106,8 @@ function writeInput(
 function playerMotionState(world: Scene["world"], eid: number) {
     const player = world.storage(Player);
     const motion = world.storage(PlayerMotion);
+    const global = world.storage(GlobalTransform);
+    const offset = eid * 4;
     return {
         player: [player.yaw.get(eid), player.pitch.get(eid)],
         motion: {
@@ -114,7 +116,24 @@ function playerMotionState(world: Scene["world"], eid: number) {
             buffer: motion.buffer.get(eid),
             lastJumpPresses: motion.lastJumpPresses.get(eid),
         },
-        body: readBody(world, eid),
+        body: {
+            position: [
+                global.translation.column[offset],
+                global.translation.column[offset + 1],
+                global.translation.column[offset + 2],
+            ],
+            rotation: [
+                global.rotation.column[offset],
+                global.rotation.column[offset + 1],
+                global.rotation.column[offset + 2],
+                global.rotation.column[offset + 3],
+            ],
+            linearVelocity: [
+                global.linearVelocity.column[offset],
+                global.linearVelocity.column[offset + 1],
+                global.linearVelocity.column[offset + 2],
+            ],
+        },
     };
 }
 
@@ -125,8 +144,8 @@ test("two players follow different records and diverge", async () => {
         for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
         writeInput(world, forward, { move: [0, 1] });
         writeInput(world, right, { move: [1, 0] });
-        const beforeForward = readBody(world, forward)!;
-        const beforeRight = readBody(world, right)!;
+        const beforeForward = world.storage(GlobalTransform).translation.z.get(forward);
+        const beforeRight = world.storage(GlobalTransform).translation.x.get(right);
 
         world.tick();
 
@@ -137,8 +156,12 @@ test("two players follow different records and diverge", async () => {
         expect(inputs.move.column.slice(right * 2, right * 2 + 2)).toEqual(
             new Float32Array([1, 0]),
         );
-        expect(readBody(world, forward)!.position[2]).toBeLessThan(beforeForward.position[2]);
-        expect(readBody(world, right)!.position[0]).toBeGreaterThan(beforeRight.position[0]);
+        expect(world.storage(GlobalTransform).translation.z.get(forward)).toBeLessThan(
+            beforeForward,
+        );
+        expect(world.storage(GlobalTransform).translation.x.get(right)).toBeGreaterThan(
+            beforeRight,
+        );
     } finally {
         app.dispose();
     }
@@ -149,14 +172,16 @@ test("a player without LocalPlayer ignores the keyboard", async () => {
     try {
         const player = players[0];
         for (let i = 0; i < 4; i++) world.step(Time.FIXED_DT);
-        const before = readBody(world, player)!;
+        const before = world.storage(GlobalTransform).translation;
+        const beforeX = before.x.get(player);
+        const beforeZ = before.z.get(player);
         pressKey(world, "KeyW");
         world.step(Time.FIXED_DT);
-        const after = readBody(world, player)!;
+        const after = world.storage(GlobalTransform).translation;
 
         expect(world.has(player, LocalPlayer)).toBe(false);
-        expect(after.position[0]).toBeCloseTo(before.position[0]);
-        expect(after.position[2]).toBeCloseTo(before.position[2]);
+        expect(after.x.get(player)).toBeCloseTo(beforeX);
+        expect(after.z.get(player)).toBeCloseTo(beforeZ);
     } finally {
         app.dispose();
     }

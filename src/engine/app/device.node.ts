@@ -5,7 +5,8 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { Body, BodyType, ShapeKind } from "../../core/physics";
-import { hashPhysics, readBody, StandardPhysicsPlugin } from "../../standard/physics";
+import { GlobalTransform } from "../../core/transform";
+import { hashPhysics, StandardPhysicsPlugin } from "../../standard/physics";
 import "../../standard";
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
@@ -150,8 +151,8 @@ test("live Physics apps keep their authored component values and solver worlds i
     const first = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const firstEid = author(first.world, 2);
     for (let i = 0; i < 8; i++) first.world.step(Time.FIXED_DT);
-    const firstBefore = readBody(first.world, firstEid);
-    if (!firstBefore) throw new Error("first Physics App did not produce a live body");
+    if (!first.world.has(firstEid, GlobalTransform))
+        throw new Error("first Physics App did not publish its body placement");
 
     const second = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const secondEid = author(second.world, 20);
@@ -165,8 +166,7 @@ test("live Physics apps keep their authored component values and solver worlds i
 
     first.dispose();
     for (let i = 0; i < 8; i++) second.world.step(Time.FIXED_DT);
-    const secondAfter = readBody(second.world, secondEid);
-    expect(secondAfter?.position[1]).toBeLessThan(20);
+    expect(second.world.storage(GlobalTransform).translation.y.get(secondEid)).toBeLessThan(20);
     second.dispose();
 });
 
@@ -191,13 +191,22 @@ test("two live Physics apps keep sibling bodies and hash unchanged when only one
         second = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
         const secondEid = author(second.world, 20);
         for (let i = 0; i < 8; i++) second.world.step(Time.FIXED_DT);
-        const bodyBefore = readBody(second.world, secondEid);
-        if (!bodyBefore) throw new Error("second Physics App did not produce a live body");
+        const placement = second.world.storage(GlobalTransform);
+        const offset = secondEid * 4;
+        const bodyBefore = [
+            placement.translation.column.slice(offset, offset + 4),
+            placement.rotation.column.slice(offset, offset + 4),
+            placement.linearVelocity.column.slice(offset, offset + 4),
+        ];
         const hashBefore = hashPhysics(second.world);
 
         for (let i = 0; i < 8; i++) first.world.step(Time.FIXED_DT);
         expect({
-            body: readBody(second.world, secondEid),
+            body: [
+                placement.translation.column.slice(offset, offset + 4),
+                placement.rotation.column.slice(offset, offset + 4),
+                placement.linearVelocity.column.slice(offset, offset + 4),
+            ],
             hash: hashPhysics(second.world),
         }).toEqual({ body: bodyBefore, hash: hashBefore });
     } finally {

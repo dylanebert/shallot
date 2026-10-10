@@ -44,15 +44,20 @@ import {
     type Shape as ShapeRecord,
 } from "../shapes/shape";
 import {
+    BodyProperty,
     bodyApplyAngularImpulse,
     bodyApplyForce,
     bodyApplyForceToCenter,
     bodyApplyLinearImpulse,
     bodyApplyLinearImpulseToCenter,
     bodyApplyTorque,
+    bodyDisable,
+    bodyEnable,
+    bodyGetProperty,
     bodySetAngularVelocity,
     bodySetAwake,
     bodySetLinearVelocity,
+    bodySetProperty,
     bodySetTargetTransform,
     bodySetTransform,
     bodySetType,
@@ -386,6 +391,97 @@ export class Body {
      */
     setType(type: BodyType): void {
         bodySetType(this.world, this.record(), type);
+    }
+
+    getLinearDamping(): number {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.linearDamping);
+    }
+
+    setLinearDamping(value: number): void {
+        bodySetProperty(this.world, this.record(), BodyProperty.linearDamping, f32(value));
+    }
+
+    getAngularDamping(): number {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.angularDamping);
+    }
+
+    setAngularDamping(value: number): void {
+        bodySetProperty(this.world, this.record(), BodyProperty.angularDamping, f32(value));
+    }
+
+    getGravityScale(): number {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.gravityScale);
+    }
+
+    setGravityScale(value: number): void {
+        bodySetProperty(this.world, this.record(), BodyProperty.gravityScale, f32(value));
+    }
+
+    getSleepThreshold(): number {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.sleepThreshold);
+    }
+
+    setSleepThreshold(value: number): void {
+        bodySetProperty(this.world, this.record(), BodyProperty.sleepThreshold, f32(value));
+    }
+
+    isSleepEnabled(): boolean {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.enableSleep) !== 0;
+    }
+
+    enableSleep(enabled: boolean): void {
+        bodySetProperty(this.world, this.record(), BodyProperty.enableSleep, Number(enabled));
+    }
+
+    getMotionLocks(): number {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.motionLocks);
+    }
+
+    setMotionLocks(locks: number): void {
+        bodySetProperty(this.world, this.record(), BodyProperty.motionLocks, locks);
+    }
+
+    isBullet(): boolean {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.isBullet) !== 0;
+    }
+
+    setBullet(enabled: boolean): void {
+        bodySetProperty(this.world, this.record(), BodyProperty.isBullet, Number(enabled));
+    }
+
+    isFastRotationAllowed(): boolean {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.allowFastRotation) !== 0;
+    }
+
+    allowFastRotation(enabled: boolean): void {
+        bodySetProperty(this.world, this.record(), BodyProperty.allowFastRotation, Number(enabled));
+    }
+
+    isContactRecyclingEnabled(): boolean {
+        return (
+            bodyGetProperty(this.world, this.record(), BodyProperty.enableContactRecycling) !== 0
+        );
+    }
+
+    enableContactRecycling(enabled: boolean): void {
+        bodySetProperty(
+            this.world,
+            this.record(),
+            BodyProperty.enableContactRecycling,
+            Number(enabled),
+        );
+    }
+
+    isEnabled(): boolean {
+        return bodyGetProperty(this.world, this.record(), BodyProperty.isEnabled) !== 0;
+    }
+
+    enable(): void {
+        bodyEnable(this.world, this.record());
+    }
+
+    disable(): void {
+        bodyDisable(this.world, this.record());
     }
 
     /** Force the body awake, or put its whole island to sleep. */

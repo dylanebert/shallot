@@ -34,7 +34,9 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     d.set(o + DIR_SHAPE_B, shape_b as u32);
     d.set(o + DIR_CHILD_INDEX, child as u32);
     let mut flags = 0;
-    if body_a.flags & 0x4000 != 0 && body_b.flags & 0x4000 != 0 {
+    if body_a.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0
+        && body_b.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0
+    {
         flags |= 0x10;
     }
     if kind == 2
