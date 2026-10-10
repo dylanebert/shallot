@@ -30,8 +30,9 @@ export const PrepassSystem: System = {
             view.depth = null;
             let requested = world.has(eid, DepthPrepass);
             if (!requested) {
-                for (const request of world.resource(DepthPrepassRequests)) {
-                    if (request(world, eid, view)) {
+                const requests = world.resource(DepthPrepassRequests);
+                for (let i = 0; i < requests.length; i++) {
+                    if (requests[i]!(world, eid, view)) {
                         requested = true;
                         break;
                     }
