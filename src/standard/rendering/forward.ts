@@ -1060,7 +1060,7 @@ export const StandardRenderingPlugin: Plugin = {
     async warm(world) {
         if (!world.gpu.device) return;
         warmClusters(world);
-        warmLightCull(world);
+        await warmLightCull(world);
         await prepareStandardRenderer(world, world.gpu.device, world.entityHighWater);
     },
 

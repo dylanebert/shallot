@@ -16,15 +16,14 @@ import {
 } from "../../core/rendering";
 import type { System, World } from "../../engine";
 import { precompile, probeBuffer } from "../../engine/runtime";
+import { idiv, octEncodeNormal, srgbToLinear1, Xform, xformQuat } from "../../engine/utils";
 import {
-    idiv,
-    octEncodeNormal,
-    srgbToLinear1,
-    uniformLoad,
-    Xform,
-    xformQuat,
-} from "../../engine/utils";
-import { MAX_POINT_LIGHTS, PointLights, PointLightsRw, warnLightOverflow } from "./lighting";
+    MAX_POINT_LIGHTS,
+    PointLightGpu,
+    PointLights,
+    PointLightsRw,
+    warnLightOverflow,
+} from "./lighting";
 
 interface ClusterGpuState {
     clusters: Clusters;
@@ -34,17 +33,36 @@ interface ClusterGpuState {
     typedViews: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null;
     typedAabbs: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null;
     compactPipe: TgpuComputePipeline | null;
-    cullPipe: TgpuComputePipeline | null;
     compactBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
     compactGeneration: Int32Array;
     lightCountBuffer: GPUBuffer | null;
     lightCountValue: number;
-    cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
+    rasterLights: GPUBuffer | null;
+    zSlicePipe: GPUComputePipeline | null;
+    zSliceBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
+    allocationLocalPipe: GPUComputePipeline | null;
+    allocationGlobalPipe: GPUComputePipeline | null;
+    allocationBound: GPUBindGroup | null;
+    countPipe: GPURenderPipeline | null;
+    countBound: GPUBindGroup | null;
+    populatePipe: GPURenderPipeline | null;
+    populateBound: GPUBindGroup | null;
+    clusterCounts: GPUBuffer | null;
+    zSlices: GPUBuffer | null;
+    rasterArgs: GPUBuffer | null;
+    rasterTexture: GPUTexture | null;
+    rasterTextureView: GPUTextureView | null;
+    rasterIndexBuffer: GPUBuffer | null;
     viewProj: Float32Array;
     clusterView: ClusterView;
     viewMatrices: Float32Array[];
     gridPass: GPUComputePassDescriptor;
-    cullPass: GPUComputePassDescriptor;
+    compactPass: GPUComputePassDescriptor;
+    zSlicePass: GPUComputePassDescriptor;
+    allocationLocalPass: GPUComputePassDescriptor;
+    allocationGlobalPass: GPUComputePassDescriptor;
+    countPass: GPURenderPassDescriptor;
+    populatePass: GPURenderPassDescriptor;
 }
 
 export const clusterGpuKey = { create: createClusterGpuState };
@@ -67,17 +85,36 @@ function createClusterGpuState(): ClusterGpuState {
         typedViews: null,
         typedAabbs: null,
         compactPipe: null,
-        cullPipe: null,
         compactBound: null,
         compactGeneration: new Int32Array(4).fill(-1),
         lightCountBuffer: null,
         lightCountValue: -1,
-        cullBound: null,
+        rasterLights: null,
+        zSlicePipe: null,
+        zSliceBound: null,
+        allocationLocalPipe: null,
+        allocationGlobalPipe: null,
+        allocationBound: null,
+        countPipe: null,
+        countBound: null,
+        populatePipe: null,
+        populateBound: null,
+        clusterCounts: null,
+        zSlices: null,
+        rasterArgs: null,
+        rasterTexture: null,
+        rasterTextureView: null,
+        rasterIndexBuffer: null,
         viewProj: new Float32Array(16),
         clusterView: { perspective: false, halfW: 0, halfH: 0, near: 0, far: 0 },
         viewMatrices: [],
         gridPass: { label: "shallot-cluster-aabbs" },
-        cullPass: { label: "shallot-light-cull" },
+        compactPass: { label: "shallot-light-compact" },
+        zSlicePass: { label: "shallot-light-z-slice" },
+        allocationLocalPass: { label: "shallot-light-allocation-local" },
+        allocationGlobalPass: { label: "shallot-light-allocation-global" },
+        countPass: { label: "shallot-light-count", colorAttachments: [] },
+        populatePass: { label: "shallot-light-populate", colorAttachments: [] },
     };
 }
 
@@ -508,24 +545,16 @@ export function warmClusters(world: World): void {
     });
 }
 
-// The per-frame light passes: compact + cull, the GPU-driven deviation from
-// Bevy's CPU light assignment (the firehose has no CPU loop over lights). The
-// compact pass reads active PointLight table rows and atomic-appends
-// the live lights — world position from the GlobalTransform table, params from the
-// PointLight table — into the compacted list. The cull pass then bins that list
-// into the cluster grid (one thread per cluster per view): each light is transformed
-// to view space once per workgroup batch (shared memory, the DaveH355/logdahl
-// structure), sphere-vs-AABB tests against the landed cluster AABBs, and the
-// survivors atomic-append into one flat index pool, `lightGrid` recording each
-// cluster's (offset, count). StandardRenderer's FS reads grid + pool — the per-fragment
-// light loop is the cluster's shortlist, not the whole list.
+// The per-frame light passes: compact, z-slice, count rasterization, local/global allocation and populate
+// rasterization, following Bevy's object-major binner. Compact packs active PointLight rows once; each view's
+// z-slice records drive rasterized cluster candidates, which count and populate test against the existing
+// AABBs. Allocation writes the same slot-major grid and fixed index pool that shading and fog already read.
 
 /** per-cluster light index pool: 32 × CLUSTER_COUNT entries shared across views */
 export const LIGHT_POOL = CLUSTER_COUNT * 32;
 
-// pool header: [0] next-free counter, [1] overflow (entries that didn't fit).
-// Data entries start at element 2; grid offsets are absolute, so the FS indexes
-// the same binding without offset arithmetic
+// pool header: [0] allocated entries, [1] overflow (memberships that didn't fit).
+// Data entries start at element 2; grid offsets index this binding directly.
 const POOL_HEADER = 2;
 
 /** GPU-written light list, per-view grid and index pool in one binding. The runtime tail
@@ -544,12 +573,8 @@ export const LIGHT_GRID_OFFSET = d.sizeOf(PointLights);
 export const LIGHT_INDICES_OFFSET = LIGHT_GRID_OFFSET + MAX_VIEWS * CLUSTER_COUNT * 8;
 
 /**
- * GPU light-cull state. `lights` holds {@link LightClusters}: the compacted light list,
- * slot-major grid and flat index pool. The pool starts with a counter and overflow word;
- * grid offsets address its data from element 2. Compact and cull write the same allocation
- * in command order. `viewMats` is the
- * per-slot world→view matrix, staged by `BeginFrameSystem`: the cull pass
- * transforms world-space lights into each view's cluster space with it
+ * GPU light state. `lights` holds {@link LightClusters}: compacted lights, the slot-major grid and the fixed
+ * index pool. `viewMats` is the per-slot world→view matrix staged by `BeginFrameSystem`.
  */
 export interface LightCull {
     lights: GPUBuffer | null;
@@ -569,16 +594,278 @@ const compactLayout = tgpu
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         lightCount: { uniform: d.u32 },
         lights: { storage: LightClustersRw, access: "mutable" },
+        rasterLights: { storage: d.arrayOf(PointLightGpu), access: "mutable" },
     })
     .$idx(0);
 
-const cullLayout = tgpu
-    .bindGroupLayout({
-        aabbs: { storage: d.arrayOf(d.vec4f), access: "readonly" },
-        lights: { storage: LightClustersRw, access: "mutable" },
-        viewMats: { storage: d.arrayOf(d.mat4x4f), access: "readonly" },
-    })
-    .$idx(0);
+const Z_SLICE_CAPACITY = MAX_POINT_LIGHTS * CLUSTER_Z;
+const CLUSTER_SCRATCH_COUNT = MAX_VIEWS * CLUSTER_COUNT;
+const ALLOCATION_WORKGROUP_SIZE = 256;
+const RASTER_ARGS_SIZE = 20;
+
+const zSliceShader = `
+struct PointLight { posRange: vec4f, color: vec4f, params: vec4f };
+struct ClusterOutput {
+    count: array<atomic<u32>, 4>,
+    lights: array<PointLight, ${MAX_POINT_LIGHTS}>,
+    grid: array<vec2u, ${MAX_VIEWS * CLUSTER_COUNT}>,
+    indices: array<atomic<u32>>,
+};
+struct RasterArgs {
+    indexCount: u32,
+    instanceCount: atomic<u32>,
+    firstIndex: u32,
+    baseVertex: i32,
+    firstInstance: u32,
+};
+struct ZSlice { light: u32, z: u32 };
+@group(0) @binding(0) var<storage, read_write> cluster: ClusterOutput;
+@group(0) @binding(1) var<storage, read> rasterLights: array<PointLight, ${MAX_POINT_LIGHTS}>;
+@group(0) @binding(2) var<storage, read> viewMats: array<mat4x4f>;
+@group(0) @binding(3) var<storage, read> clusterViews: array<vec4f>;
+@group(0) @binding(4) var<storage, read_write> rasterArgs: array<RasterArgs, ${MAX_VIEWS}>;
+@group(0) @binding(5) var<storage, read_write> zSlices: array<ZSlice, ${MAX_VIEWS * Z_SLICE_CAPACITY}>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+    let lightCount = min(atomicLoad(&cluster.count[0]), ${MAX_POINT_LIGHTS}u);
+    if (gid.x >= lightCount || gid.y >= ${MAX_VIEWS}u) { return; }
+    let light = rasterLights[gid.x];
+    let center = (viewMats[gid.y] * vec4f(light.posRange.xyz, 1.0)).xyz;
+    let inverseRangeSquared = light.posRange.w;
+    let radius = select(1e20, inverseSqrt(inverseRangeSquared), inverseRangeSquared > 0.0);
+    let view = clusterViews[gid.y * 2u];
+    let nearest = -center.z - radius;
+    let farthest = -center.z + radius;
+    if (farthest < view.z || nearest > view.w) { return; }
+    let nearDepth = max(nearest, view.z);
+    let farDepth = min(farthest, view.w);
+    let scale = log(view.w / view.z);
+    let firstZ = u32(clamp(floor(log(nearDepth / view.z) / scale * ${CLUSTER_Z}.0), 0.0, ${CLUSTER_Z - 1}.0));
+    let lastZ = u32(clamp(floor(log(farDepth / view.z) / scale * ${CLUSTER_Z}.0), 0.0, ${CLUSTER_Z - 1}.0));
+    for (var z = firstZ; z <= lastZ; z += 1u) {
+        let at = gid.y * ${Z_SLICE_CAPACITY}u + atomicAdd(&rasterArgs[gid.y].instanceCount, 1u);
+        zSlices[at] = ZSlice(gid.x, z);
+    }
+}
+`;
+
+const allocationShader = `
+struct ClusterOutput {
+    count: array<atomic<u32>, 4>,
+    lights: array<vec4f, ${MAX_POINT_LIGHTS * 3}>,
+    grid: array<vec2u, ${MAX_VIEWS * CLUSTER_COUNT}>,
+    indices: array<atomic<u32>>,
+};
+struct ClusterCounter { count: atomic<u32>, cursor: atomic<u32> };
+@group(0) @binding(0) var<storage, read_write> counters: array<ClusterCounter, ${CLUSTER_SCRATCH_COUNT}>;
+@group(0) @binding(1) var<storage, read_write> cluster: ClusterOutput;
+var<workgroup> scan: array<u32, ${ALLOCATION_WORKGROUP_SIZE}>;
+var<workgroup> blockSize: u32;
+var<workgroup> blockBase: u32;
+
+@compute @workgroup_size(${ALLOCATION_WORKGROUP_SIZE})
+fn allocateLocal(
+    @builtin(global_invocation_id) global: vec3u,
+    @builtin(local_invocation_id) local: vec3u,
+) {
+    let count = atomicLoad(&counters[global.x].count);
+    scan[local.x] = count;
+    workgroupBarrier();
+    for (var offset = 1u; offset < ${ALLOCATION_WORKGROUP_SIZE}u; offset *= 2u) {
+        var term = 0u;
+        if (local.x >= offset) { term = scan[local.x - offset]; }
+        workgroupBarrier();
+        scan[local.x] += term;
+        workgroupBarrier();
+    }
+    cluster.grid[global.x] = vec2u(scan[local.x] - count, count);
+    atomicStore(&counters[global.x].cursor, 0u);
+}
+
+@compute @workgroup_size(${ALLOCATION_WORKGROUP_SIZE})
+fn allocateGlobal(@builtin(local_invocation_id) local: vec3u) {
+    if (local.x == 0u) { blockBase = 0u; }
+    workgroupBarrier();
+    for (var start = 0u; start < ${CLUSTER_SCRATCH_COUNT}u; start += ${ALLOCATION_WORKGROUP_SIZE}u) {
+        if (local.x == 0u) {
+            let tail = start + ${ALLOCATION_WORKGROUP_SIZE - 1}u;
+            blockSize = cluster.grid[tail].x + cluster.grid[tail].y;
+        }
+        workgroupBarrier();
+        let index = start + local.x;
+        let raw = cluster.grid[index];
+        let offset = blockBase + raw.x;
+        let boundedOffset = min(offset, ${LIGHT_POOL}u);
+        cluster.grid[index] = vec2u(
+            ${POOL_HEADER}u + boundedOffset,
+            min(raw.y, ${LIGHT_POOL}u - boundedOffset),
+        );
+        storageBarrier();
+        if (local.x == 0u) {
+            blockBase += blockSize;
+            if (start + ${ALLOCATION_WORKGROUP_SIZE}u == ${CLUSTER_SCRATCH_COUNT}u) {
+                atomicStore(&cluster.indices[0], min(blockBase, ${LIGHT_POOL}u));
+                atomicStore(&cluster.indices[1], blockBase - min(blockBase, ${LIGHT_POOL}u));
+            }
+        }
+        workgroupBarrier();
+    }
+}
+`;
+
+const rasterCommon = `
+struct PointLight { posRange: vec4f, color: vec4f, params: vec4f };
+struct ZSlice { light: u32, z: u32 };
+struct ClusterCounter { count: atomic<u32>, cursor: atomic<u32> };
+struct ClusterOutput {
+    count: array<atomic<u32>, 4>,
+    lights: array<PointLight, ${MAX_POINT_LIGHTS}>,
+    grid: array<vec2u, ${MAX_VIEWS * CLUSTER_COUNT}>,
+    indices: array<atomic<u32>>,
+};
+struct Varyings {
+    @builtin(position) position: vec4f,
+    @location(0) @interpolate(flat) light: u32,
+    @location(1) @interpolate(flat) slot: u32,
+    @location(2) @interpolate(flat) z: u32,
+    @location(3) @interpolate(flat) center: vec3f,
+    @location(4) @interpolate(flat) inverseRangeSquared: f32,
+};
+@group(0) @binding(0) var<storage, read> zSlices: array<ZSlice, ${MAX_VIEWS * Z_SLICE_CAPACITY}>;
+@group(0) @binding(1) var<storage, read> rasterLights: array<PointLight, ${MAX_POINT_LIGHTS}>;
+@group(0) @binding(2) var<storage, read> viewMats: array<mat4x4f>;
+@group(0) @binding(3) var<storage, read> clusterViews: array<vec4f>;
+
+fn rasterBounds(center: vec3f, radius: f32, view: vec4f, perspective: bool, z: u32) -> vec4u {
+    let nearDepth = view.z * pow(view.w / view.z, f32(z) / ${CLUSTER_Z}.0);
+    let farDepth = view.z * pow(view.w / view.z, f32(z + 1u) / ${CLUSTER_Z}.0);
+    let xRange = vec2f(center.x - radius, center.x + radius);
+    let yRange = vec2f(center.y - radius, center.y + radius);
+    var minX = ${CLUSTER_X}u;
+    var maxX = 0u;
+    var minY = ${CLUSTER_Y}u;
+    var maxY = 0u;
+    var foundX = false;
+    var foundY = false;
+    for (var x = 0u; x < ${CLUSTER_X}u; x += 1u) {
+        let lo = (-1.0 + 2.0 * f32(x) / ${CLUSTER_X}.0) * view.x;
+        let hi = (-1.0 + 2.0 * f32(x + 1u) / ${CLUSTER_X}.0) * view.x;
+        var clusterMin = lo;
+        var clusterMax = hi;
+        if (perspective) {
+            clusterMin = min(lo * nearDepth, lo * farDepth);
+            clusterMax = max(hi * nearDepth, hi * farDepth);
+        }
+        if (clusterMax >= xRange.x && clusterMin <= xRange.y) {
+            minX = min(minX, x);
+            maxX = max(maxX, x);
+            foundX = true;
+        }
+    }
+    for (var y = 0u; y < ${CLUSTER_Y}u; y += 1u) {
+        let lo = (-1.0 + 2.0 * f32(y) / ${CLUSTER_Y}.0) * view.y;
+        let hi = (-1.0 + 2.0 * f32(y + 1u) / ${CLUSTER_Y}.0) * view.y;
+        var clusterMin = lo;
+        var clusterMax = hi;
+        if (perspective) {
+            clusterMin = min(lo * nearDepth, lo * farDepth);
+            clusterMax = max(hi * nearDepth, hi * farDepth);
+        }
+        if (clusterMax >= yRange.x && clusterMin <= yRange.y) {
+            minY = min(minY, y);
+            maxY = max(maxY, y);
+            foundY = true;
+        }
+    }
+    if (!foundX || !foundY) { return vec4u(0u); }
+    return vec4u(
+        select(minX, minX - 1u, minX > 0u),
+        ${CLUSTER_Y}u - min(maxY + 2u, ${CLUSTER_Y}u),
+        min(maxX + 2u, ${CLUSTER_X}u),
+        min(${CLUSTER_Y}u - minY + 1u, ${CLUSTER_Y}u),
+    );
+}
+
+@vertex
+fn vertexMain(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> Varyings {
+    let slot = instance / ${Z_SLICE_CAPACITY}u;
+    let slice = zSlices[instance];
+    let light = rasterLights[slice.light];
+    let center = (viewMats[slot] * vec4f(light.posRange.xyz, 1.0)).xyz;
+    let inverseRangeSquared = light.posRange.w;
+    let radius = select(1e20, inverseSqrt(inverseRangeSquared), inverseRangeSquared > 0.0);
+    let view = clusterViews[slot * 2u];
+    let perspective = clusterViews[slot * 2u + 1u].x > 0.5;
+    let bounds = rasterBounds(center, radius, view, perspective, slice.z);
+    let right = vertex == 1u || vertex == 3u;
+    let bottom = vertex >= 2u;
+    let x = select(bounds.x, bounds.z, right);
+    let y = select(bounds.y, bounds.w, bottom);
+    let position = vec2f(
+        f32(x) * (2.0 / ${CLUSTER_X}.0) - 1.0,
+        1.0 - f32(y) * (2.0 / ${CLUSTER_Y}.0),
+    );
+    return Varyings(
+        vec4f(position, 0.0, 1.0),
+        slice.light,
+        slot,
+        slice.z,
+        center,
+        inverseRangeSquared,
+    );
+}
+
+fn fragmentCluster(input: Varyings) -> u32 {
+    let x = min(u32(input.position.x), ${CLUSTER_X - 1}u);
+    let yTop = min(u32(input.position.y), ${CLUSTER_Y - 1}u);
+    let y = ${CLUSTER_Y - 1}u - yTop;
+    return (input.slot * ${CLUSTER_COUNT}u) + ((y * ${CLUSTER_X}u + x) * ${CLUSTER_Z}u) + input.z;
+}
+
+fn intersects(clusterIndex: u32, center: vec3f, inverseRangeSquared: f32) -> bool {
+    let base = (clusterIndex * 2u);
+    let mn = clusterAabbs[base].xyz;
+    let mx = clusterAabbs[base + 1u].xyz;
+    let nearest = clamp(center, mn, mx);
+    let delta = nearest - center;
+    return dot(delta, delta) * inverseRangeSquared <= 1.0;
+}
+`;
+
+const countRasterShader = `${rasterCommon}
+@group(0) @binding(4) var<storage, read> clusterAabbs: array<vec4f>;
+@group(0) @binding(5) var<storage, read_write> counters: array<ClusterCounter, ${CLUSTER_SCRATCH_COUNT}>;
+@fragment
+fn fragmentMain(input: Varyings) -> @location(0) vec4f {
+    let index = fragmentCluster(input);
+    if (intersects(index, input.center, input.inverseRangeSquared)) {
+        atomicAdd(&counters[index].count, 1u);
+    }
+    return vec4f(0.0);
+}
+`;
+
+const populateRasterShader = `${rasterCommon}
+@group(0) @binding(4) var<storage, read> clusterAabbs: array<vec4f>;
+@group(0) @binding(5) var<storage, read_write> counters: array<ClusterCounter, ${CLUSTER_SCRATCH_COUNT}>;
+@group(0) @binding(6) var<storage, read_write> output: ClusterOutput;
+@fragment
+fn fragmentMain(input: Varyings) -> @location(0) vec4f {
+    let index = fragmentCluster(input);
+    if (intersects(index, input.center, input.inverseRangeSquared)) {
+        let local = atomicAdd(&counters[index].cursor, 1u);
+        let list = output.grid[index];
+        if (local < list.y) {
+            atomicStore(&output.indices[list.x + local], input.light);
+        }
+    }
+    return vec4f(0.0);
+}
+`;
 
 // Compact only active point-light rows. Dense table slots feed the record fields; the optional eid map is
 // a point lookup into the GlobalTransform table, never a capacity-sized pass. Hex sRGB is decoded on GPU.
@@ -609,19 +896,11 @@ function compactKernel() {
                 record.intensity,
             );
             const pos = globalTransform.pos;
-            compactLayout.$.lights.lights.lights[i].posRange = d.vec4f(
-                pos.x,
-                pos.y,
-                pos.z,
-                1 / (record.range * record.range),
-            );
+            const posRange = d.vec4f(pos.x, pos.y, pos.z, 1 / (record.range * record.range));
             // color.a carries the source entity id for per-entity light extensions.
-            compactLayout.$.lights.lights.lights[i].color = d.vec4f(
-                rgb.x,
-                rgb.y,
-                rgb.z,
-                d.f32(eid),
-            );
+            const color = d.vec4f(rgb.x, rgb.y, rgb.z, d.f32(eid));
+            compactLayout.$.lights.lights.lights[i].posRange = d.vec4f(posRange);
+            compactLayout.$.lights.lights.lights[i].color = d.vec4f(color);
 
             let radius = record.radius;
             if ((record.flags & LIGHT_VOLUMETRIC) !== 0) radius = -std.max(radius, 1e-4);
@@ -639,120 +918,24 @@ function compactKernel() {
                 );
             }
             compactLayout.$.lights.lights.lights[i].params = d.vec4f(params);
+            compactLayout.$.rasterLights[i].posRange = d.vec4f(posRange);
+            compactLayout.$.rasterLights[i].color = d.vec4f(color);
+            compactLayout.$.rasterLights[i].params = d.vec4f(params);
         })
         .$name("lightCompact");
 }
-
-const wgCount = tgpu.workgroupVar(d.u32);
-const wgCountUniform = uniformLoad(wgCount);
-const batch = tgpu.workgroupVar(d.arrayOf(d.vec4f, 64));
-
-// view-space sphere vs cluster AABB: squared distance from the box to the center against range²
-// (posRange.w carries 1/range²)
-const hits = tgpu.fn(
-    [d.vec3f, d.vec3f, d.vec4f],
-    d.bool,
-)((mn, mx, l) => {
-    "use gpu";
-    const c = d.vec3f(l.x, l.y, l.z);
-    const p = std.clamp(c, mn, mx);
-    const delta = std.sub(p, c);
-    return std.dot(delta, delta) * l.w <= 1;
-});
-
-// one thread per (cluster, view slot). Lights batch through shared memory: each thread of the workgroup
-// transforms one light to this view's space, then every thread tests the whole batch against its cluster
-// AABB — the mat4 transform runs once per workgroup, not once per cluster. Two sweeps (count, then
-// reserve + write) avoid a function-private index array (the Metal dynamically-indexed-private-array
-// miscompile). The batch loop bound comes through `uniformLoad` so the in-loop barriers pass
-// uniformity analysis; out-of-range threads mask on `live` instead of returning, for the same reason.
-const cullKernel = tgpu.computeFn({
-    workgroupSize: [64],
-    in: { gid: d.builtin.globalInvocationId, lid: d.builtin.localInvocationId },
-})((input) => {
-    "use gpu";
-    const cluster = input.gid.x;
-    // the dispatch's y covers the shading slots alone (depth-only shadow views sit above
-    // RenderContext.shadeCount and never bin — binning them would overflow the shared index pool)
-    const slot = input.gid.y;
-    const live = cluster < CLUSTER_COUNT;
-    if (input.lid.x === 0)
-        wgCount.$ = std.min(std.atomicLoad(cullLayout.$.lights.lights.count[0]), MAX_POINT_LIGHTS);
-    const n = wgCountUniform.$;
-    const base = (slot * CLUSTER_COUNT + std.min(cluster, CLUSTER_COUNT - 1)) * 2;
-    const lo = cullLayout.$.aabbs[base];
-    const hi = cullLayout.$.aabbs[base + 1];
-    const mn = d.vec3f(lo.x, lo.y, lo.z);
-    const mx = d.vec3f(hi.x, hi.y, hi.z);
-    const viewMat = cullLayout.$.viewMats[slot];
-
-    let cnt = d.u32(0);
-    let b = d.u32(0);
-    while (b < n) {
-        const li = b + input.lid.x;
-        if (li < n) {
-            const l = cullLayout.$.lights.lights.lights[li];
-            const v = std.mul(viewMat, d.vec4f(l.posRange.x, l.posRange.y, l.posRange.z, 1));
-            batch.$[input.lid.x] = d.vec4f(v.x, v.y, v.z, l.posRange.w);
-        }
-        std.workgroupBarrier();
-        const m = std.min(n - b, 64);
-        if (live) {
-            let j = d.u32(0);
-            while (j < m) {
-                if (hits(mn, mx, batch.$[j])) cnt = cnt + 1;
-                j = j + 1;
-            }
-        }
-        std.workgroupBarrier();
-        b = b + 64;
-    }
-
-    let off = d.u32(0);
-    let take = d.u32(0);
-    if (live && cnt > 0) {
-        off = std.atomicAdd(cullLayout.$.lights.indices[0], cnt);
-        const avail = std.select(d.u32(0), LIGHT_POOL - off, off < LIGHT_POOL);
-        take = std.min(cnt, avail);
-        if (cnt > take) std.atomicAdd(cullLayout.$.lights.indices[1], cnt - take);
-    }
-
-    let w = d.u32(0);
-    let b2 = d.u32(0);
-    while (b2 < n) {
-        const li = b2 + input.lid.x;
-        if (li < n) {
-            const l = cullLayout.$.lights.lights.lights[li];
-            const v = std.mul(viewMat, d.vec4f(l.posRange.x, l.posRange.y, l.posRange.z, 1));
-            batch.$[input.lid.x] = d.vec4f(v.x, v.y, v.z, l.posRange.w);
-        }
-        std.workgroupBarrier();
-        const m = std.min(n - b2, 64);
-        if (live) {
-            let j = d.u32(0);
-            while (j < m) {
-                if (w < take && hits(mn, mx, batch.$[j])) {
-                    std.atomicStore(cullLayout.$.lights.indices[POOL_HEADER + off + w], b2 + j);
-                    w = w + 1;
-                }
-                j = j + 1;
-            }
-        }
-        std.workgroupBarrier();
-        b2 = b2 + 64;
-    }
-
-    if (live) {
-        cullLayout.$.lights.grid[slot * CLUSTER_COUNT + cluster] = d.vec2u(POOL_HEADER + off, take);
-    }
-});
 
 // Keep bind groups until a table buffer generation changes; row membership alone never rebuilds one.
 function bindCompact(world: World): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     const _clusterGpu = world.resource(clusterGpuKey);
 
     const buffer = world.resource(LightCull).lights;
-    if (!_clusterGpu.compactPipe || !buffer || !_clusterGpu.lightCountBuffer)
+    if (
+        !_clusterGpu.compactPipe ||
+        !buffer ||
+        !_clusterGpu.lightCountBuffer ||
+        !_clusterGpu.rasterLights
+    )
         throw new Error("[render] light compact used before warmLightCull");
     const lights = lightInputTable(world);
     const globalTransforms = globalTransformTable(world);
@@ -771,6 +954,7 @@ function bindCompact(world: World): { pipeline: GPUComputePipeline; group: GPUBi
         globalTransforms: globalTransforms.buffer,
         globalTransformRows: globalTransforms.eidToRowBuffer,
         lightCount: _clusterGpu.lightCountBuffer,
+        rasterLights: _clusterGpu.rasterLights,
     };
     const missing = Object.entries(inputs)
         .filter(([, buffer]) => !buffer)
@@ -794,27 +978,206 @@ function bindCompact(world: World): { pipeline: GPUComputePipeline; group: GPUBi
     return _clusterGpu.compactBound;
 }
 
-function bindCull(world: World): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
+async function warmLightRaster(world: World): Promise<void> {
     const _clusterGpu = world.resource(clusterGpuKey);
     const _lightCull = world.resource(LightCull);
+    const _clusters = world.resource(Clusters);
+    const device = world.gpu.device;
+    const lights = _lightCull.lights;
+    const rasterLights = _clusterGpu.rasterLights;
+    const viewMats = _lightCull.viewMats;
+    const aabbs = _clusterGpu.typedAabbs && world.gpu.root.unwrap(_clusterGpu.typedAabbs);
+    const zSlices = _clusterGpu.zSlices;
+    const rasterArgs = _clusterGpu.rasterArgs;
+    const clusterCounts = _clusterGpu.clusterCounts;
+    if (
+        !lights ||
+        !rasterLights ||
+        !viewMats ||
+        !aabbs ||
+        !zSlices ||
+        !rasterArgs ||
+        !clusterCounts
+    )
+        throw new Error("[render] light raster inputs missing during warmLightCull");
 
-    if (_clusterGpu.cullBound) return _clusterGpu.cullBound;
-    if (!_clusterGpu.cullPipe || !_clusterGpu.typedAabbs || !_lightCull.lights)
-        throw new Error("[render] light cull used before warmLightCull");
-    // the light list binds RAW here and typed in the compact group: same buffer, two schemas (the
-    // writer's count word is atomic, which WGSL forbids in a read-only binding — `PointLightsRw` vs
-    // `PointLights`, layouts pinned equal in lighting.test.ts)
-    _clusterGpu.cullBound = {
-        pipeline: world.gpu.root.unwrap(_clusterGpu.cullPipe),
-        group: world.gpu.root.unwrap(
-            world.gpu.root.createBindGroup(cullLayout, {
-                aabbs: _clusterGpu.typedAabbs,
-                lights: _lightCull.lights,
-                viewMats: _lightCull.viewMats!,
+    const storage = (
+        binding: number,
+        visibility: GPUShaderStageFlags,
+        type: "storage" | "read-only-storage",
+    ): GPUBindGroupLayoutEntry => ({ binding, visibility, buffer: { type } });
+    const computeLayout = (entries: GPUBindGroupLayoutEntry[]) =>
+        device.createBindGroupLayout({ entries });
+    const zSliceLayout = computeLayout([
+        storage(0, GPUShaderStage.COMPUTE, "storage"),
+        storage(1, GPUShaderStage.COMPUTE, "read-only-storage"),
+        storage(2, GPUShaderStage.COMPUTE, "read-only-storage"),
+        storage(3, GPUShaderStage.COMPUTE, "read-only-storage"),
+        storage(4, GPUShaderStage.COMPUTE, "storage"),
+        storage(5, GPUShaderStage.COMPUTE, "storage"),
+    ]);
+    const allocationLayout = computeLayout([
+        storage(0, GPUShaderStage.COMPUTE, "storage"),
+        storage(1, GPUShaderStage.COMPUTE, "storage"),
+    ]);
+    const countLayout = computeLayout([
+        storage(0, GPUShaderStage.VERTEX, "read-only-storage"),
+        storage(1, GPUShaderStage.VERTEX, "read-only-storage"),
+        storage(2, GPUShaderStage.VERTEX, "read-only-storage"),
+        storage(3, GPUShaderStage.VERTEX, "read-only-storage"),
+        storage(4, GPUShaderStage.FRAGMENT, "read-only-storage"),
+        storage(5, GPUShaderStage.FRAGMENT, "storage"),
+    ]);
+    const populateLayout = computeLayout([
+        storage(0, GPUShaderStage.VERTEX, "read-only-storage"),
+        storage(1, GPUShaderStage.VERTEX, "read-only-storage"),
+        storage(2, GPUShaderStage.VERTEX, "read-only-storage"),
+        storage(3, GPUShaderStage.VERTEX, "read-only-storage"),
+        storage(4, GPUShaderStage.FRAGMENT, "read-only-storage"),
+        storage(5, GPUShaderStage.FRAGMENT, "storage"),
+        storage(6, GPUShaderStage.FRAGMENT, "storage"),
+    ]);
+    const zSliceModule = device.createShaderModule({
+        label: "shallot-light-z-slice",
+        code: zSliceShader,
+    });
+    const allocationModule = device.createShaderModule({
+        label: "shallot-light-allocation",
+        code: allocationShader,
+    });
+    const countModule = device.createShaderModule({
+        label: "shallot-light-count",
+        code: countRasterShader,
+    });
+    const populateModule = device.createShaderModule({
+        label: "shallot-light-populate",
+        code: populateRasterShader,
+    });
+    const zSlicePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [zSliceLayout] });
+    const allocationPipelineLayout = device.createPipelineLayout({
+        bindGroupLayouts: [allocationLayout],
+    });
+    const countPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [countLayout] });
+    const populatePipelineLayout = device.createPipelineLayout({
+        bindGroupLayouts: [populateLayout],
+    });
+
+    const [zSlicePipe, allocationLocalPipe, allocationGlobalPipe, countPipe, populatePipe] =
+        await Promise.all([
+            device.createComputePipelineAsync({
+                label: "shallot-light-z-slice",
+                layout: zSlicePipelineLayout,
+                compute: { module: zSliceModule, entryPoint: "main" },
             }),
-        ),
+            device.createComputePipelineAsync({
+                label: "shallot-light-allocation-local",
+                layout: allocationPipelineLayout,
+                compute: { module: allocationModule, entryPoint: "allocateLocal" },
+            }),
+            device.createComputePipelineAsync({
+                label: "shallot-light-allocation-global",
+                layout: allocationPipelineLayout,
+                compute: { module: allocationModule, entryPoint: "allocateGlobal" },
+            }),
+            device.createRenderPipelineAsync({
+                label: "shallot-light-count",
+                layout: countPipelineLayout,
+                vertex: { module: countModule, entryPoint: "vertexMain" },
+                primitive: { topology: "triangle-list" },
+                fragment: {
+                    module: countModule,
+                    entryPoint: "fragmentMain",
+                    targets: [{ format: "r8unorm", writeMask: 0 }],
+                },
+            }),
+            device.createRenderPipelineAsync({
+                label: "shallot-light-populate",
+                layout: populatePipelineLayout,
+                vertex: { module: populateModule, entryPoint: "vertexMain" },
+                primitive: { topology: "triangle-list" },
+                fragment: {
+                    module: populateModule,
+                    entryPoint: "fragmentMain",
+                    targets: [{ format: "r8unorm", writeMask: 0 }],
+                },
+            }),
+        ]);
+    _clusterGpu.zSlicePipe = zSlicePipe;
+    _clusterGpu.allocationLocalPipe = allocationLocalPipe;
+    _clusterGpu.allocationGlobalPipe = allocationGlobalPipe;
+    _clusterGpu.countPipe = countPipe;
+    _clusterGpu.populatePipe = populatePipe;
+
+    _clusterGpu.zSliceBound = {
+        pipeline: zSlicePipe,
+        group: device.createBindGroup({
+            layout: zSliceLayout,
+            entries: [
+                { binding: 0, resource: { buffer: lights } },
+                { binding: 1, resource: { buffer: rasterLights } },
+                { binding: 2, resource: { buffer: viewMats } },
+                { binding: 3, resource: { buffer: _clusters.views! } },
+                { binding: 4, resource: { buffer: rasterArgs } },
+                { binding: 5, resource: { buffer: zSlices } },
+            ],
+        }),
     };
-    return _clusterGpu.cullBound;
+    _clusterGpu.allocationBound = device.createBindGroup({
+        layout: allocationLayout,
+        entries: [
+            { binding: 0, resource: { buffer: clusterCounts } },
+            { binding: 1, resource: { buffer: lights } },
+        ],
+    });
+    _clusterGpu.countBound = device.createBindGroup({
+        layout: countLayout,
+        entries: [
+            { binding: 0, resource: { buffer: zSlices } },
+            { binding: 1, resource: { buffer: rasterLights } },
+            { binding: 2, resource: { buffer: viewMats } },
+            { binding: 3, resource: { buffer: _clusters.views! } },
+            { binding: 4, resource: { buffer: aabbs } },
+            { binding: 5, resource: { buffer: clusterCounts } },
+        ],
+    });
+    _clusterGpu.populateBound = device.createBindGroup({
+        layout: populateLayout,
+        entries: [
+            { binding: 0, resource: { buffer: zSlices } },
+            { binding: 1, resource: { buffer: rasterLights } },
+            { binding: 2, resource: { buffer: viewMats } },
+            { binding: 3, resource: { buffer: _clusters.views! } },
+            { binding: 4, resource: { buffer: aabbs } },
+            { binding: 5, resource: { buffer: clusterCounts } },
+            { binding: 6, resource: { buffer: lights } },
+        ],
+    });
+
+    _clusterGpu.rasterTexture = device.createTexture({
+        label: "shallot-light-raster-target",
+        size: [CLUSTER_X, CLUSTER_Y],
+        format: "r8unorm",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    world.own(_clusterGpu.rasterTexture);
+    _clusterGpu.rasterTextureView = _clusterGpu.rasterTexture.createView();
+    const attachment: GPURenderPassColorAttachment = {
+        view: _clusterGpu.rasterTextureView,
+        loadOp: "clear",
+        storeOp: "discard",
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+    };
+    _clusterGpu.countPass.colorAttachments.push(attachment);
+    _clusterGpu.populatePass.colorAttachments.push(attachment);
+
+    const indices = device.createBuffer({
+        label: "shallot-light-raster-indices",
+        size: 6 * Uint16Array.BYTES_PER_ELEMENT,
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    world.own(indices);
+    device.queue.writeBuffer(indices, 0, new Uint16Array([0, 1, 2, 1, 3, 2]));
+    _clusterGpu.rasterIndexBuffer = indices;
 }
 
 /** Request the latest submitted light-pool overflow count for diagnostics.
@@ -841,9 +1204,9 @@ export async function requestLightOverflow(world: World) {
 }
 
 /**
- * per-frame light compact + cull: builds the compacted list from active light-table rows, then bins it.
- * Runs after `UpdateLightClustersSystem` by registration order, before the renderers
- * (which sort after `BeginFrameSystem` in the same registration stream)
+ * compact lights, then count, allocate and populate their cluster lists after the AABBs are current.
+ * The two allocation passes always run for the fixed grid; the other passes skip when there are no local
+ * light inputs. Rasterization only draws the shading-view prefix, never depth-only shadow slots.
  */
 export const CullLightsSystem: System = {
     group: "draw",
@@ -852,8 +1215,29 @@ export const CullLightsSystem: System = {
         const _render = world.resource(RenderContext);
         const _clusterGpu = world.resource(clusterGpuKey);
         const _lightCull = world.resource(LightCull);
+        const zSlice = _clusterGpu.zSliceBound;
+        const allocation = _clusterGpu.allocationBound;
+        const count = _clusterGpu.countBound;
+        const populate = _clusterGpu.populateBound;
+        const args = _clusterGpu.rasterArgs;
 
-        if (!_clusterGpu.compactPipe || !_clusterGpu.cullPipe || _render.shadeCount === 0) return;
+        if (
+            !_clusterGpu.compactPipe ||
+            !zSlice ||
+            !_clusterGpu.allocationLocalPipe ||
+            !_clusterGpu.allocationGlobalPipe ||
+            !_clusterGpu.countPipe ||
+            !count ||
+            !_clusterGpu.populatePipe ||
+            !populate ||
+            !allocation ||
+            !_clusterGpu.clusterCounts ||
+            !args ||
+            !_clusterGpu.rasterIndexBuffer ||
+            !_clusterGpu.countPass.colorAttachments.length ||
+            _render.shadeCount === 0
+        )
+            return;
         warnLightOverflow(world);
 
         world.gpu.device.queue.writeBuffer(
@@ -863,63 +1247,160 @@ export const CullLightsSystem: System = {
             0,
             _render.shadeCount * 16,
         );
-        const encoder = world.frameEncoder()!;
-        encoder.clearBuffer(_lightCull.lights!, 0, 16);
-        encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
-        _clusterGpu.cullPass.timestampWrites = world.gpu.span?.("light:cull");
         const lightCount = lightInputTable(world).count;
         if (lightCount !== _clusterGpu.lightCountValue) {
             lightCountData[0] = lightCount;
             world.gpu.device.queue.writeBuffer(_clusterGpu.lightCountBuffer!, 0, lightCountData);
             _clusterGpu.lightCountValue = lightCount;
         }
-        const compact = lightCount > 0 ? bindCompact(world) : null;
-        const cull = bindCull(world);
-        const pass = encoder.beginComputePass(_clusterGpu.cullPass);
-        if (compact) {
-            pass.setPipeline(compact.pipeline);
-            pass.setBindGroup(0, compact.group);
-            pass.dispatchWorkgroups(Math.ceil(lightCount / 64));
+
+        const encoder = world.frameEncoder()!;
+        encoder.clearBuffer(_lightCull.lights!, 0, 16);
+        encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
+        encoder.clearBuffer(_clusterGpu.clusterCounts!, 0, _clusterGpu.clusterCounts!.size);
+        for (let slot = 0; slot < MAX_VIEWS; slot++)
+            encoder.clearBuffer(args, slot * RASTER_ARGS_SIZE + 4, 4);
+
+        if (lightCount > 0) {
+            const compact = bindCompact(world);
+            _clusterGpu.compactPass.timestampWrites = world.gpu.span?.("light:compact");
+            const compactPass = encoder.beginComputePass(_clusterGpu.compactPass);
+            compactPass.setPipeline(compact.pipeline);
+            compactPass.setBindGroup(0, compact.group);
+            compactPass.dispatchWorkgroups(Math.ceil(lightCount / 64));
+            compactPass.end();
+
+            _clusterGpu.zSlicePass.timestampWrites = world.gpu.span?.("light:z-slice");
+            const zSlicePass = encoder.beginComputePass(_clusterGpu.zSlicePass);
+            zSlicePass.setPipeline(zSlice.pipeline);
+            zSlicePass.setBindGroup(0, zSlice.group);
+            zSlicePass.dispatchWorkgroups(Math.ceil(MAX_POINT_LIGHTS / 64), _render.shadeCount);
+            zSlicePass.end();
+
+            encodeLightRaster(
+                world,
+                _clusterGpu.countPass,
+                _clusterGpu.countPipe,
+                count,
+                _render.shadeCount,
+                "light:count",
+            );
         }
-        pass.setPipeline(cull.pipeline);
-        pass.setBindGroup(0, cull.group);
-        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
-        pass.end();
+
+        _clusterGpu.allocationLocalPass.timestampWrites = world.gpu.span?.("light:allocate-local");
+        const localPass = encoder.beginComputePass(_clusterGpu.allocationLocalPass);
+        localPass.setPipeline(_clusterGpu.allocationLocalPipe);
+        localPass.setBindGroup(0, allocation);
+        localPass.dispatchWorkgroups(CLUSTER_SCRATCH_COUNT / ALLOCATION_WORKGROUP_SIZE);
+        localPass.end();
+
+        _clusterGpu.allocationGlobalPass.timestampWrites =
+            world.gpu.span?.("light:allocate-global");
+        const globalPass = encoder.beginComputePass(_clusterGpu.allocationGlobalPass);
+        globalPass.setPipeline(_clusterGpu.allocationGlobalPipe);
+        globalPass.setBindGroup(0, allocation);
+        globalPass.dispatchWorkgroups(1);
+        globalPass.end();
+
+        if (lightCount > 0) {
+            encodeLightRaster(
+                world,
+                _clusterGpu.populatePass,
+                _clusterGpu.populatePipe,
+                populate,
+                _render.shadeCount,
+                "light:populate",
+            );
+        }
     },
 };
 
-/** allocate the light-cull buffers + compile the compact and cull pipelines */
-export function warmLightCull(world: World): void {
+function encodeLightRaster(
+    world: World,
+    descriptor: GPURenderPassDescriptor,
+    pipeline: GPURenderPipeline,
+    group: GPUBindGroup,
+    shadeCount: number,
+    label: string,
+): void {
+    const _clusterGpu = world.resource(clusterGpuKey);
+    descriptor.timestampWrites = world.gpu.span?.(label);
+    const pass = world.frameEncoder()!.beginRenderPass(descriptor);
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, group);
+    pass.setIndexBuffer(_clusterGpu.rasterIndexBuffer!, "uint16");
+    pass.setViewport(0, 0, CLUSTER_X, CLUSTER_Y, 0, 1);
+    for (let slot = 0; slot < shadeCount; slot++)
+        pass.drawIndexedIndirect(_clusterGpu.rasterArgs!, slot * RASTER_ARGS_SIZE);
+    pass.end();
+    world.gpu.indirect?.(label, shadeCount);
+}
+
+/** Allocate fixed light-cluster buffers and compile the compact and raster pipelines. */
+export async function warmLightCull(world: World): Promise<void> {
     const _clusterGpu = world.resource(clusterGpuKey);
     const _lightCull = world.resource(LightCull);
 
     if (!world.gpu.device) return;
     const device = world.gpu.device;
     const root = world.gpu.root;
+    const ownBuffer = (descriptor: GPUBufferDescriptor): GPUBuffer => {
+        const buffer = device.createBuffer(descriptor);
+        world.own(buffer);
+        return buffer;
+    };
     _clusterGpu.viewMatrices = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         _lightCull.viewStaging.subarray(slot * 16, slot * 16 + 16),
     );
     _clusterGpu.compactBound = null;
     _clusterGpu.compactGeneration.fill(-1);
-    _clusterGpu.cullBound = null;
+    _clusterGpu.zSliceBound = null;
+    _clusterGpu.allocationBound = null;
+    _clusterGpu.countBound = null;
+    _clusterGpu.populateBound = null;
 
-    _lightCull.lights = device.createBuffer({
+    _lightCull.lights = ownBuffer({
         label: "shallot-light-clusters",
         size: LIGHT_INDICES_OFFSET + (POOL_HEADER + LIGHT_POOL) * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-    // COPY_SRC throughout for requested readback (typegpu grants it on the
-    // buffers it creates)
-    _lightCull.viewMats = device.createBuffer({
+    _lightCull.viewMats = ownBuffer({
         label: "shallot-light-views",
         size: MAX_VIEWS * 64,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    _clusterGpu.lightCountBuffer = device.createBuffer({
+    _clusterGpu.lightCountBuffer = ownBuffer({
         label: "shallot-light-count",
         size: 4,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    _clusterGpu.rasterLights = ownBuffer({
+        label: "shallot-light-raster-lights",
+        size: MAX_POINT_LIGHTS * 48,
+        usage: GPUBufferUsage.STORAGE,
+    });
+    _clusterGpu.clusterCounts = ownBuffer({
+        label: "shallot-light-cluster-counts",
+        size: CLUSTER_SCRATCH_COUNT * 8,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    _clusterGpu.zSlices = ownBuffer({
+        label: "shallot-light-z-slices",
+        size: MAX_VIEWS * Z_SLICE_CAPACITY * 8,
+        usage: GPUBufferUsage.STORAGE,
+    });
+    const rasterArgs = ownBuffer({
+        label: "shallot-light-raster-args",
+        size: MAX_VIEWS * RASTER_ARGS_SIZE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+    });
+    _clusterGpu.rasterArgs = rasterArgs;
+    const args = new Uint32Array(MAX_VIEWS * 5);
+    for (let slot = 0; slot < MAX_VIEWS; slot++) {
+        args[slot * 5] = 6;
+        args[slot * 5 + 4] = slot * Z_SLICE_CAPACITY;
+    }
+    device.queue.writeBuffer(rasterArgs, 0, args);
     _clusterGpu.lightCountValue = -1;
     world.gpu.buffers.set("lightClusters", _lightCull.lights);
     world.gpu.buffers.set("lightCount", _clusterGpu.lightCountBuffer);
@@ -927,9 +1408,6 @@ export function warmLightCull(world: World): void {
     _clusterGpu.compactPipe = root
         .createComputePipeline({ compute: compactKernel() })
         .$name("shallot-light-compact");
-    _clusterGpu.cullPipe = root
-        .createComputePipeline({ compute: cullKernel })
-        .$name("shallot-light-cull");
+    await warmLightRaster(world);
     precompile(world, "shallot-light-compact", () => [bindCompact(world).pipeline]);
-    precompile(world, "shallot-light-cull", () => [bindCull(world).pipeline]);
 }
