@@ -101,9 +101,10 @@ test("mesh instances return to default draws when MeshMaterial is removed", asyn
             device.pushErrorScope("validation");
             world.step();
             const encoder = device.createCommandEncoder();
+            const mesh = world.storage(MeshInstance).mesh.get(eid);
             for (const [index, surface] of ["default", "unlit", "vertex"].entries()) {
                 const draw = Array.from(world.resource(Draws)).find(
-                    (draw) => draw.surface === surface && draw.mesh === "cube",
+                    (draw) => draw.surface === surface && draw.mesh === mesh,
                 )!;
                 encoder.copyBufferToBuffer(
                     world.gpu.root.unwrap(draw.args.indirect),

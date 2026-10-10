@@ -7,7 +7,7 @@ import type {
 } from "typegpu";
 import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { type Mesh, Meshes, MeshInstance } from "../../core/mesh";
+import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     BeginFrameSystem,
     globalTransformTable,
@@ -453,7 +453,7 @@ function syncBuffers(world: World): void {
         world.gpu.typed.set("eids", _meshDraws.packedEids);
     }
 
-    // meshBounds is indexed by mesh id — rebuild only when a mesh registers
+    // meshBounds is indexed by mesh handle — rebuild only when a mesh registers
     let staleBounds: Vec4fBuffer | null = null;
     if (growMesh || !_meshPreprocess.meshBounds) {
         staleBounds = _meshPreprocess.meshBounds;
@@ -470,7 +470,7 @@ function syncBuffers(world: World): void {
 
 /**
  * allocate + fill the per-mesh local bounding sphere buffer (one `vec4` per
- * mesh id: `xyz` center, `w` radius). A mesh without `bounds` (a procedural
+ * mesh handle: `xyz` center, `w` radius). A mesh without `bounds` (a procedural
  * producer that didn't supply one) gets a sentinel radius so the cull keeps it
  * always-visible rather than wrongly culling it
  */
@@ -483,10 +483,9 @@ function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
         .$usage("storage")
         .$name("shallot-mesh-bounds");
     const data = new Float32Array(_meshPreprocess.meshCount * 4);
-    for (const m of _meshes) {
-        const id = _meshes.id(m.name)!;
-        if (m.bounds) data.set(m.bounds, id * 4);
-        else data[id * 4 + 3] = 1e30; // never-cull sentinel
+    for (const [handle, mesh] of _meshes.entries()) {
+        if (mesh.bounds) data.set(mesh.bounds, handle * 4);
+        else data[handle * 4 + 3] = 1e30; // never-cull sentinel
     }
     device.queue.writeBuffer(world.gpu.root.unwrap(buffer), 0, data as Float32Array<ArrayBuffer>);
     return buffer;
@@ -510,7 +509,7 @@ export function publishMeshInstanceDraws(
     pairCount: number,
     registries: {
         surfaces: Registry<Surface>;
-        meshes: Registry<Mesh>;
+        meshes: ReturnType<typeof Meshes.create>;
         draws: Registry<Draw>;
     } = {
         surfaces: world.resource(Surfaces),
@@ -525,8 +524,8 @@ export function publishMeshInstanceDraws(
         const entries = surface.layout.entries;
         if (!("eids" in entries) || !("globalTransforms" in entries)) continue;
         const sid = surfaces.id(surface.name)!;
-        for (const m of meshes) {
-            const pair = meshes.id(m.name)! * surfaceCount + sid;
+        for (const [handle, m] of meshes.entries()) {
+            const pair = handle * surfaceCount + sid;
             const offset = pair * DRAW_ARG_STRIDE;
             // DrawIndexedIndirect: indexCount, instanceCount (pack), firstIndex, baseVertex (0 — indices
             // are absolute vertex positions), firstInstance (pack)
@@ -539,9 +538,9 @@ export function publishMeshInstanceDraws(
             };
             writes.push({ offset, args });
             draws.register({
-                name: `mesh:${surface.name}:${m.name}`,
+                name: `mesh:${surface.name}:${m.name}:${handle}`,
                 surface: surface.name,
-                mesh: m.name,
+                mesh: handle,
                 args: { indirect: drawArgs, offset, viewStride },
             });
         }

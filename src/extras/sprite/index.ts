@@ -14,7 +14,7 @@
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { Meshes, MeshPlugin, registerMesh } from "../../core/mesh";
+import { Meshes, type MeshHandle, MeshPlugin, registerMesh } from "../../core/mesh";
 import {
     BeginFrameSystem,
     globalTransformTable,
@@ -78,6 +78,7 @@ interface SpriteGpuState {
         | (TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
               StorageFlag & { usableAsIndirect: true })
         | null;
+    quad: MeshHandle | null;
     quadBase: number;
     sig: number;
 }
@@ -90,6 +91,7 @@ const createSpriteGpuState = (): SpriteGpuState => ({
     eidsBuf: null,
     instances: new Uint32Array(INITIAL * 4),
     argBuf: null,
+    quad: null,
     quadBase: 0,
     sig: -1,
 });
@@ -129,7 +131,8 @@ function rebuild(world: World, device: GPUDevice): void {
             .createBuffer(d.arrayOf(d.vec4u, eids.length))
             .$usage("storage")
             .$name("shallot-sprite-eids");
-        const quad = world.resource(Meshes).get("spriteQuad");
+        const quad =
+            _spriteGpu.quad === null ? undefined : world.resource(Meshes).get(_spriteGpu.quad);
         if (quad) quad.bindings = { ...quad.bindings, eids: _spriteGpu.eidsBuf };
         stale.destroy();
     }
@@ -174,13 +177,15 @@ const SpriteSystem: System = {
     setup(world: World) {
         const _spriteGpu = world.resource(spriteGpuKey);
 
-        _spriteGpu.quadBase = world.resource(Meshes).get("spriteQuad")?.indexBase ?? 0;
+        _spriteGpu.quadBase =
+            (_spriteGpu.quad === null ? undefined : world.resource(Meshes).get(_spriteGpu.quad))
+                ?.indexBase ?? 0;
         // all six draws, unconditionally — an empty bucket packs instanceCount 0 and no-ops
         for (let b = 0; b < BUCKETS; b++) {
             world.resource(Draws).register({
                 name: surfaceName(b),
                 surface: surfaceName(b),
-                mesh: "spriteQuad",
+                mesh: _spriteGpu.quad!,
                 args: { indirect: _spriteGpu.argBuf!, offset: b * 20 },
             });
         }
@@ -228,7 +233,11 @@ export const SpritePlugin: Plugin = {
         }
 
         if (!world.gpu.device) return;
-        registerMesh(world, { name: "spriteQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        _spriteGpu.quad = registerMesh(world, {
+            name: "spriteQuad",
+            vertices: QUAD_VERTS,
+            indices: QUAD_INDICES,
+        });
     },
 
     // the atlas builds in warm, not initialize: warm runs after EVERY plugin's initialize, so any plugin
@@ -293,7 +302,8 @@ export const SpritePlugin: Plugin = {
             .createBuffer(d.arrayOf(d.vec4u, INITIAL))
             .$usage("storage")
             .$name("shallot-sprite-eids");
-        const quad = world.resource(Meshes).get("spriteQuad");
+        const quad =
+            _spriteGpu.quad === null ? undefined : world.resource(Meshes).get(_spriteGpu.quad);
         if (quad) quad.bindings = { ...quad.bindings, eids: _spriteGpu.eidsBuf };
         _spriteGpu.argBuf = world.gpu.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, BUCKETS))

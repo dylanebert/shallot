@@ -45,12 +45,7 @@ test("a corrected dynamic body's published velocity agrees with its solver body 
 
         const body = physicsWorld(world)!.getBody(eid)!;
         const position = body.getPosition();
-        const velocity = body.getLinearVelocity();
-        setKinematic(world, eid, [position.x, position.y, position.z], [0, 0, 0, 1], true, [
-            velocity.x,
-            velocity.y,
-            velocity.z,
-        ]);
+        setKinematic(world, eid, [position.x, position.y, position.z], [0, 0, 0, 1], true);
         world.tick();
 
         const published = readBody(world, eid)!.linearVelocity;

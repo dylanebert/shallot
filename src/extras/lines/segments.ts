@@ -6,6 +6,7 @@
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
+import type { MeshHandle } from "../../core/mesh";
 import type { World } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { DrawIndexedIndirect } from "../../standard/rendering";
@@ -28,6 +29,7 @@ interface SegmentState {
     capacity: number;
     count: number;
     args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;
+    mesh: MeshHandle | null;
 }
 
 const segmentStateKey = { create: createSegmentState };
@@ -42,6 +44,7 @@ function createSegmentState(): SegmentState {
         capacity: INITIAL,
         count: 0,
         args: null,
+        mesh: null,
     };
 }
 
@@ -60,6 +63,7 @@ export function initializeSegmentState(world: World): void {
 interface Lines {
     readonly count: number;
     args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;
+    mesh: MeshHandle | null;
 }
 
 export const Lines: import("../../engine").Resource<Lines> = {

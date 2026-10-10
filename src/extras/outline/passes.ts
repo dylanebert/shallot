@@ -30,7 +30,7 @@ export function jfaSteps(maxWidth: number): number[] {
 }
 
 /**
- * group highlighted eids by their mesh id, preserving insertion order. The mask draws one instanced
+ * group highlighted eids by their mesh handle, preserving insertion order. The mask draws one instanced
  * call per mesh: each group's eids become a contiguous instance slice. Pure.
  */
 export function groupByMesh(

@@ -524,17 +524,33 @@ import { Xform } from "@dylanebert/shallot/utils";
 | `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material's id |
 | Root `PartPlugin` | Root or `/standard/rendering` `MeshRenderPlugin` |
 | `/part/core` `Parts` | Removed; mesh-instance packing is internal to `MeshRenderPlugin`. |
-| `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:<surface>:<mesh>`, `mesh:preprocess` |
+| `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:<surface>:<mesh>:<handle>`, `mesh:preprocess` |
 
 `StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuseWrap` 1. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(id, values)`; omitted fields retain their values. Set `world.storage(MeshMaterial).material` to switch an entity's material. Material ids belong to the World that added them.
 
 Custom surfaces still receive linear `color`; their `material` lanes are now `(metallic, perceptualRoughness, materialId, occlusion)`, not scalar emissive strength. The standard instance table's `MeshInstanceInput` is `{ mesh: u32, material: u32, flags: u32 }` (`flags` bit 0 excludes the mesh from shadow views); colour and shading values live in the `materials` table, bound in `engineLayout`. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
 
-Mesh data has its own `/mesh` module. Update mesh imports as follows; these names are also exported from the root in 0.10:
+Mesh data has its own `/mesh` module. `registerMesh` now returns a world-local `MeshHandle`; retain it for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels register distinct meshes:
+
+```ts
+const mesh = registerMesh(world, { name: "block", ...cube() });
+world.add(eid, MeshInstance, { mesh });
+```
+
+Replace `Meshes.id(name)` with the retained handle from `registerMesh`; names no longer resolve mesh identity. `MeshPlugin` registers only the default cube. To use another built-in geometry constructor, register its mesh explicitly:
+
+```ts
+import { registerMesh, sphere } from "@dylanebert/shallot/mesh";
+
+const sphereMesh = registerMesh(world, { name: "sphere", ...sphere() });
+```
+
+Update mesh imports as follows; these names are also exported from the root in 0.10:
 
 | 0.9.5 import | 0.10 import |
 |---|---|
 | Root `mesh` | Root or `/mesh` `registerMesh` |
+| — | Root or `/mesh` `MeshHandle` (returned by `registerMesh`) |
 | `/render/core` `Mesh`, `MeshBinding`, `MeshIndex` | `/mesh`, same names |
 | `/render/core` `Meshes` | `/mesh`, same name |
 

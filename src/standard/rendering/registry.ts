@@ -1,5 +1,6 @@
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
+import type { MeshHandle } from "../../core/mesh";
 import { Registry, type World } from "../../engine";
 
 export { Surfaces } from "./contract";
@@ -44,7 +45,7 @@ export interface DrawArgs {
 
 /**
  * one rendered thing. `surface` references a registered Surface by name;
- * `mesh` references a registered Mesh by name: the consumer renderer pulls
+ * `mesh` references a registered Mesh by handle: the consumer renderer pulls
  * indexed vertices from that mesh's `vertices` + `indices` buffers in WGSL.
  * `args` points at the indirect draw record. Surface bindings beyond mesh
  * resolve by name against `world.gpu.buffers`
@@ -52,7 +53,7 @@ export interface DrawArgs {
 export interface Draw {
     name: string;
     surface: string;
-    mesh: string;
+    mesh: MeshHandle;
     args: DrawArgs;
 }
 

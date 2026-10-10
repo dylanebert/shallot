@@ -130,20 +130,22 @@ const LinesSystem: System = {
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     setup(world: World) {
+        const lines = world.resource(Lines);
         world.resource(Draws).register({
             name: "lines",
             surface: "lines",
-            mesh: "lineQuad",
-            args: { indirect: world.resource(Lines).args! },
+            mesh: lines.mesh!,
+            args: { indirect: lines.args! },
         });
     },
     update(world) {
         if (!world.gpu.device || !ready(world)) return;
         expandRetained(world);
+        const mesh = world.resource(Lines).mesh;
         flushSegments(
             world,
             world.gpu.device,
-            world.resource(Meshes).get("lineQuad")?.indexBase ?? 0,
+            mesh === null ? 0 : (world.resource(Meshes).get(mesh)?.indexBase ?? 0),
         );
     },
 };
@@ -164,7 +166,11 @@ export const LinesPlugin: Plugin = {
     initialize(world) {
         initializeSegmentState(world);
         resetCount(world);
-        registerMesh(world, { name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        world.resource(Lines).mesh = registerMesh(world, {
+            name: "lineQuad",
+            vertices: QUAD_VERTS,
+            indices: QUAD_INDICES,
+        });
         registerSurface(world, {
             name: "lines",
             layout: lineLayout,

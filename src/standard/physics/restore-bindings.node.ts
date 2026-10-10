@@ -52,7 +52,7 @@ for (const mutation of ["spawn", "despawn", "joint"] as const) {
     });
 }
 
-test("kinematic hidden motion history replays every tick's hash after world recovery", async () => {
+test("kinematic targets replay the same physics hashes after world recovery", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const world = app.world;
     try {

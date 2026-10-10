@@ -11,7 +11,6 @@ import {
     InputPlugin,
     LocalPlayer,
     Materials,
-    Meshes,
     MeshInstance,
     MeshMaterial,
     MeshPlugin,
@@ -49,9 +48,11 @@ function block(
 ): number {
     const eid = world.create();
     world.add(eid, Body, { type, position: at, halfExtents: size });
-    const name = `block-${eid}`;
-    registerMesh(world, { name, ...cube([size[0], size[1], size[2]]) });
-    world.add(eid, MeshInstance, { mesh: world.resource(Meshes).id(name)! });
+    const mesh = registerMesh(world, {
+        name: `block-${eid}`,
+        ...cube([size[0], size[1], size[2]]),
+    });
+    world.add(eid, MeshInstance, { mesh });
     world.add(eid, MeshMaterial, {
         material: world.resource(Materials).add(StandardMaterial({ baseColor: rgba })),
     });
@@ -153,28 +154,26 @@ function createBag(world: World): DemoBag {
     return bag;
 }
 
-// The lift's pose and velocity registers, written in place each tick; setKinematic copies them.
+// The lift's pose register is written in place each tick; setKinematic copies it.
 const liftPos: [number, number, number] = [0, 0, 0];
 const LIFT_QUAT = [0, 0, 0, 1] as const;
-const liftVel: [number, number, number] = [0, 0, 0];
 
 const lift: System = {
     name: "lift",
     group: "fixed",
     before: CharacterPlugin.systems,
-    // Every lift shares one trajectory, so the phase, the rise and the velocity are the tick's, not each
-    // lift's: they are computed once here and the slot walk only adds each lift's base to them.
+    // Every lift shares one trajectory, so the phase and rise are the tick's, not each lift's: they are
+    // computed once here and the slot walk only adds each lift's base to them.
     update(world: World): void {
         const bag = stateBag(world);
         const phase = 2 * (world.time.elapsed * RATE);
         const rise = 0.5 * TRAVEL * (1 - Math.cos(phase));
-        liftVel[1] = RATE * TRAVEL * Math.sin(phase);
         for (let slot = 0; slot < bag.liftCount; slot++) {
             const base = slot * 3;
             liftPos[0] = bag.liftBases[base];
             liftPos[1] = bag.liftBases[base + 1] + rise;
             liftPos[2] = bag.liftBases[base + 2];
-            setKinematic(world, bag.liftEids[slot], liftPos, LIFT_QUAT, false, liftVel);
+            setKinematic(world, bag.liftEids[slot], liftPos, LIFT_QUAT);
         }
     },
 };
