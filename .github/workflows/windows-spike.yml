@@ -8,7 +8,7 @@ on:
 jobs:
   browser:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     defaults:
       run:
         shell: bash
@@ -21,5 +21,5 @@ jobs:
         run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
-      - name: first-person under the WARP-capable adapter flags
-        run: time -p bunx playwright test -c examples/first-person
+      - name: whole browser tier on Windows WARP
+        run: time -p bun run test:browser

@@ -41,38 +41,28 @@ async function waitForPreview(url: string, child: ChildProcess, log: () => strin
     throw new Error(`packed project's Vite preview did not become ready:\n${log()}`);
 }
 
+function killWindowsProcessTree(child: ChildProcess): void {
+    if (!child.pid) throw new Error("Vite preview has no process id");
+    execFileSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+}
+
 test("a Vite project built from the packed Shallot captures through its public rendering export", async ({
     page,
 }) => {
-    const started = performance.now();
-    const mark = (phase: string): void =>
-        console.log(`[packed-capture +${(performance.now() - started).toFixed(1)}ms] ${phase}`);
     const scratch = mkdtempSync(join(tmpdir(), "shallot-packed-capture-"));
     const project = join(scratch, "project");
-    mark(`scratch created: ${scratch}`);
     const packageManifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const tarballName = `dylanebert-shallot-${packageManifest.version}.tgz`;
     mkdirSync(project);
     let preview: ChildProcess | undefined;
     let previewLog = "";
-    const removeScratch = (): void => {
-        try {
-            rmSync(scratch, { recursive: true, force: true });
-            mark("scratch removal finished");
-        } catch (error) {
-            mark(`scratch removal failed: ${error instanceof Error ? error.stack : String(error)}`);
-            throw error;
-        }
-    };
 
     try {
-        mark("bun pm pack started");
         execFileSync(
             "bun",
             ["pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
             { cwd: ROOT, stdio: "pipe" },
         );
-        mark("bun pm pack finished");
         const tarball = join(scratch, tarballName);
         if (!existsSync(tarball)) throw new Error(`packed tarball is missing: ${tarball}`);
 
@@ -119,12 +109,8 @@ document.querySelector("#result")!.textContent = JSON.stringify({
 `,
         );
 
-        mark("project bun install started");
         execFileSync("bun", ["install", "--no-progress"], { cwd: project, stdio: "pipe" });
-        mark("project bun install finished");
-        mark("project Vite build started");
         execFileSync("bun", ["x", "vite", "build"], { cwd: project, stdio: "pipe" });
-        mark("project Vite build finished");
 
         const port = await unusedPort();
         const url = `http://127.0.0.1:${port}/`;
@@ -133,15 +119,11 @@ document.querySelector("#result")!.textContent = JSON.stringify({
             ["x", "vite", "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
             { cwd: project, stdio: ["ignore", "pipe", "pipe"] },
         );
-        mark(`preview started: pid=${preview.pid}; cwd=${project}; port=${port}`);
         preview.stdout?.on("data", (chunk: Buffer) => (previewLog += chunk.toString()));
         preview.stderr?.on("data", (chunk: Buffer) => (previewLog += chunk.toString()));
         await waitForPreview(url, preview, () => previewLog);
-        mark("preview ready");
 
-        mark("browser navigation started");
         await page.goto(url);
-        mark("browser navigation finished");
         await expect(page.locator("#result")).not.toHaveText("");
         const result = JSON.parse((await page.locator("#result").textContent()) ?? "null") as {
             width: number;
@@ -158,20 +140,13 @@ document.querySelector("#result")!.textContent = JSON.stringify({
             encoding: "rgba8-tight",
         });
         expect(result.hasColor).toBe(true);
-        mark("browser assertions passed");
     } finally {
         if (preview && preview.exitCode === null) {
-            mark(`preview shutdown started: pid=${preview.pid}`);
-            const killRequested = preview.kill("SIGTERM");
-            mark(`preview.kill returned ${killRequested}`);
-            await new Promise<void>((done) =>
-                preview?.once("exit", (code, signal) => {
-                    mark(`preview exited: code=${code}; signal=${signal}`);
-                    done();
-                }),
-            );
+            const exited = new Promise<void>((done) => preview!.once("exit", () => done()));
+            if (process.platform === "win32") killWindowsProcessTree(preview);
+            else preview.kill("SIGTERM");
+            await exited;
         }
-        mark("scratch removal started");
-        removeScratch();
+        rmSync(scratch, { recursive: true, force: true });
     }
 });
