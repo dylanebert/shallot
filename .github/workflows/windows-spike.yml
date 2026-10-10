@@ -1,4 +1,4 @@
-name: Windows browser verification
+name: Windows browser diagnostic
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 jobs:
   browser:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -21,7 +21,14 @@ jobs:
         run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
-      - name: first-person subject under the selected adapter flags
-        run: time -p bunx playwright test -c examples/first-person
-      - name: whole browser tier
-        run: time -p bun run test:browser
+      - name: packed-capture cleanup trace
+        run: bunx playwright test -c scripts/packed-capture --trace on
+      - name: identify open Windows handles
+        if: always()
+        shell: pwsh
+        run: ./scripts/windows-packed-capture-locks.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-packed-capture-trace
+          path: test-results/
