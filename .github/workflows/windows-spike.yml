@@ -6,6 +6,23 @@ on:
       - spike/windows
 
 jobs:
+  dawn-napi:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: install dependencies
+        run: bun install --frozen-lockfile
+      - name: Dawn N-API host-identity diagnosis
+        shell: pwsh
+        run: ./scripts/windows-dawn-diagnostic.ps1
+
   browser:
     runs-on: windows-latest
     timeout-minutes: 35
