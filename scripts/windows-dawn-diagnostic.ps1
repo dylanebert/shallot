@@ -39,6 +39,8 @@ function Invoke-Repro($label, $executable, $backend, $prependDawnDirectory = $fa
     }
 }
 
+Invoke-Repro "Bun 1.4.3 create(['adapter=Microsoft']), normal DLL search" $bun "adapter=Microsoft"
+Invoke-Repro "Node 26 create(['adapter=Microsoft']) control" $node "adapter=Microsoft"
 Invoke-Repro "Bun 1.4.3 default backend, normal DLL search" $bun "default"
 Invoke-Repro "Node 26 default backend, normal DLL search" $node "default"
 foreach ($backend in @("d3d12", "d3d11", "vulkan", "null")) {

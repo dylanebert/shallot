@@ -1,5 +1,11 @@
 import { chromium } from "playwright";
-import { CHROMIUM_USE } from "./chromium";
+
+const windowsBaseArgs = [
+    "--enable-unsafe-webgpu",
+    "--enable-features=WebGPUDeveloperFeatures",
+    "--enable-webgpu-developer-features",
+    "--enable-gpu",
+];
 
 const variants = [
     { name: "a", args: ["--use-webgpu-adapter=swiftshader"] },
@@ -15,6 +21,7 @@ const variants = [
         name: "d",
         args: ["--use-angle=d3d11-warp", "--use-webgpu-adapter=d3d11"],
     },
+    { name: "e", args: ["--ignore-gpu-blocklist"] },
 ] as const;
 
 if (process.platform !== "win32") throw new Error("Windows adapter probe requires windows-latest");
@@ -42,8 +49,8 @@ for (const variant of variants) {
     let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
     try {
         browser = await chromium.launch({
-            channel: CHROMIUM_USE.channel,
-            args: [...CHROMIUM_USE.launchOptions.args, ...variant.args],
+            channel: "chromium",
+            args: [...windowsBaseArgs, ...variant.args],
             ignoreDefaultArgs: ["--enable-unsafe-swiftshader"],
         });
         const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -232,6 +239,7 @@ for (const variant of variants) {
         console.log(
             `WINDOWS_ADAPTER_RESULT ${JSON.stringify({
                 variant: variant.name,
+                commonArgs: windowsBaseArgs,
                 args: variant.args,
                 phases,
                 ...probe,
@@ -241,6 +249,7 @@ for (const variant of variants) {
         console.log(
             `WINDOWS_ADAPTER_RESULT ${JSON.stringify({
                 variant: variant.name,
+                commonArgs: windowsBaseArgs,
                 args: variant.args,
                 stoppedAt: "browser launch",
                 error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),

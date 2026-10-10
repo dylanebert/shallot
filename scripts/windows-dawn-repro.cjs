@@ -1,9 +1,9 @@
 const { writeSync } = require("node:fs");
-const backend = process.argv[2] ?? "default";
-const options = backend === "default" ? [] : [`backend=${backend}`];
+const option = process.argv[2] ?? "default";
+const options = option === "default" ? [] : [option.includes("=") ? option : `backend=${option}`];
 
 function mark(message) {
-    writeSync(1, `[dawn-repro ${backend}] ${message}\n`);
+    writeSync(1, `[dawn-repro ${option}] ${message}\n`);
 }
 
 async function run() {
