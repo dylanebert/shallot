@@ -9,12 +9,21 @@ const chromiumArgs =
               "--enable-unsafe-webgpu",
               "--enable-features=Vulkan",
           ]
-        : [
-              "--enable-unsafe-webgpu",
-              "--enable-features=WebGPUDeveloperFeatures",
-              "--enable-webgpu-developer-features",
-              "--enable-gpu",
-          ];
+        : process.platform === "win32"
+          ? [
+                "--enable-unsafe-webgpu",
+                "--enable-features=WebGPUDeveloperFeatures",
+                "--enable-webgpu-developer-features",
+                "--enable-gpu",
+                "--use-angle=d3d11-warp",
+                "--use-webgpu-adapter=d3d11",
+            ]
+          : [
+                "--enable-unsafe-webgpu",
+                "--enable-features=WebGPUDeveloperFeatures",
+                "--enable-webgpu-developer-features",
+                "--enable-gpu",
+            ];
 
 export const CHROMIUM_USE = {
     channel: "chromium" as const,
