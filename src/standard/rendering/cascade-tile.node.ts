@@ -24,7 +24,7 @@ import {
     DirectionalLightShadowMap,
 } from "./shadows";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 // a cube on a floor under a shadowed sun split into `cascades`, seen by a camera with or without a depth prepass
 function scene(world: World, cascades: number, prepass = false): { camera: number; sun: number } {
