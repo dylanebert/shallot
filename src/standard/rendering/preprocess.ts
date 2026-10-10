@@ -155,7 +155,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
 export function initializeMeshPreprocess(world: World): void {
     world.resource(meshPreprocessKey);
     const table = meshInstanceTable(world);
-    table.bindComponent(MeshInstance, { mesh: "mesh" });
+    table.bindComponent(MeshInstance, { mesh: "mesh", cullBounds: "cullBounds" });
     table.bindFields(MeshMaterial, { material: "material", materialType: "type" });
     table.bindPresence(NotShadowCaster, "flags", 1);
     const seedDefault = (eid: number) => {

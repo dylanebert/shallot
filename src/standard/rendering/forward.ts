@@ -106,7 +106,7 @@ import {
     updateCascades,
     updatePointShadows,
 } from "./shadows";
-import { StandardMaterialType } from "./standard-material";
+import { StandardMaterialType, VertexMaterialType } from "./standard-material";
 
 interface StandardRendererState {
     warned: Set<string>;
@@ -945,6 +945,8 @@ export const StandardRenderingPlugin: Plugin = {
         initializeBackgroundState(world);
         registerMaterialType(world, StandardMaterialType as never, true);
         world.resource(StandardMaterialType);
+        registerMaterialType(world, VertexMaterialType as never);
+        world.resource(VertexMaterialType);
         initializeDrawState(world);
         world.resource(Backgrounds).clear();
         world.resource(Draws).clear();

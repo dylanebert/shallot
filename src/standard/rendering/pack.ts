@@ -75,13 +75,15 @@ const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
  * @internal
  */
 export const visible = tgpu.fn(
-    [d.u32, d.u32, d.u32],
+    [d.u32, d.u32, d.u32, d.u32],
     d.bool,
-)((mid, globalTransformRow, slot) => {
+)((mid, instanceRow, globalTransformRow, slot) => {
     "use gpu";
     if (slot >= cullLayout.$.params.viewCount) return true;
     const xf = cullLayout.$.globalTransforms[globalTransformRow];
-    const b = cullLayout.$.meshBounds[mid];
+    let b = d.vec4f(cullLayout.$.meshBounds[mid]);
+    const override = cullLayout.$.instances[instanceRow].cullBounds;
+    if (override.w >= 0) b = d.vec4f(override);
     const center = xformPoint(xf, d.vec3f(b.x, b.y, b.z));
     const radius =
         b.w * std.max(std.abs(xf.scale.x), std.max(std.abs(xf.scale.y), std.abs(xf.scale.z)));
@@ -161,7 +163,7 @@ export function countKernel(materialTypeCount: number) {
                 cullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0
             )
                 return;
-            if (!visible(g.mid, g.globalTransformRow, slot)) return;
+            if (!visible(g.mid, g.row, g.globalTransformRow, slot)) return;
             std.atomicAdd(countLayout.$.counts[slot * cullLayout.$.params.pairCount + g.pair], 1);
         })
         .$name("meshPreprocessCount");
@@ -259,7 +261,7 @@ export function scatterKernel(materialTypeCount: number) {
                 cullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0
             )
                 return;
-            if (!visible(g.mid, g.globalTransformRow, slot)) return;
+            if (!visible(g.mid, g.row, g.globalTransformRow, slot)) return;
             const idx = slot * cullLayout.$.params.pairCount + g.pair;
             const remaining = std.atomicSub(scatterLayout.$.drawArgs[idx].instanceCount, 1);
             const target = scatterLayout.$.drawArgs[idx].firstInstance + remaining - 1;

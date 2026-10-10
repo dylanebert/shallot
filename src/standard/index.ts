@@ -65,6 +65,7 @@ export {
     StandardMaterial,
     StandardRenderer,
     StandardRenderingPlugin,
+    VertexMaterialType,
 } from "./rendering";
 
 import { BrowserInputPlugin, InputPlugin } from "../core/input";

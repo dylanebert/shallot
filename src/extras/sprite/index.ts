@@ -22,6 +22,8 @@ import { packSpriteFill, Sprite, SpriteBlend } from "./pack";
 export { SpriteAlphaMaterialType, SpriteMaterialInput, SpriteMaterialType } from "./material";
 export { Sprite, SpriteBillboard, SpriteBlend, SpriteFill } from "./pack";
 
+const SPRITE_QUERY = [Sprite];
+
 export const Images = { create: () => new Registry<{ name: string; source: string | Blob }>() };
 
 const PIXEL_PNG =
@@ -53,7 +55,16 @@ interface SpriteGpuState {
 }
 interface SpriteInstance {
     type: typeof SpriteMaterialType | typeof SpriteAlphaMaterialType;
-    signature: string;
+    image: number;
+    width: number;
+    height: number;
+    anchorX: number;
+    anchorY: number;
+    color: number;
+    opacity: number;
+    billboard: number;
+    fill: number;
+    fillMode: number;
 }
 const spriteGpuKey = {
     create: (): SpriteGpuState => ({
@@ -64,44 +75,32 @@ const spriteGpuKey = {
     }),
 };
 
-function values(world: World, eid: number) {
-    const sprite = world.storage(Sprite);
-    const width = sprite.size.x.get(eid);
-    const height = sprite.size.y.get(eid);
-    const anchorX = sprite.anchor.x.get(eid);
-    const anchorY = sprite.anchor.y.get(eid);
-    const image = sprite.image.get(eid);
-    const color = sprite.color.get(eid);
-    const opacity = sprite.opacity.get(eid);
-    const billboard = Math.min(sprite.billboard.get(eid), 2);
-    const blend = Math.min(sprite.blend.get(eid), 1);
-    const fill = sprite.fill.get(eid);
-    const fillMode = sprite.fillMode.get(eid);
-    const params = {
+function writeValues(
+    world: World,
+    eid: number,
+    type: SpriteInstance["type"],
+    width: number,
+    height: number,
+    anchorX: number,
+    anchorY: number,
+    image: number,
+    color: number,
+    opacity: number,
+    billboard: number,
+    fill: number,
+    fillMode: number,
+): number {
+    world.resource(type).setAt(eid, {
         offset: d.vec2f(-width * anchorX, -height * anchorY),
         size: d.vec2f(width, height),
         layer: image,
         color: packColor(color, opacity),
         fill: packSpriteFill(fill, fillMode),
         billboard,
-    };
-    return {
-        params,
-        type: blend === SpriteBlend.Alpha ? SpriteAlphaMaterialType : SpriteMaterialType,
-        signature: [
-            image,
-            width,
-            height,
-            anchorX,
-            anchorY,
-            color,
-            opacity,
-            billboard,
-            blend,
-            fill,
-            fillMode,
-        ].join("/"),
-    };
+    });
+    const halfWidth = Math.max(Math.abs(width * anchorX), Math.abs(width * (1 - anchorX)));
+    const halfHeight = Math.max(Math.abs(height * anchorY), Math.abs(height * (1 - anchorY)));
+    return Math.hypot(halfWidth, halfHeight);
 }
 
 function releaseInstance(world: World, eid: number): void {
@@ -117,10 +116,8 @@ const SpriteSystem: System = {
     update(world) {
         const state = world.resource(spriteGpuKey);
         if (state.quad === null) return;
-        const live = new Set<number>();
         const sprite = world.storage(Sprite);
-        for (const eid of world.query([Sprite])) {
-            live.add(eid);
+        for (const eid of world.query(SPRITE_QUERY)) {
             const current = state.instances.get(eid);
             if (!world.has(eid, GlobalTransform)) continue;
             if (!sprite.visible.get(eid)) {
@@ -130,34 +127,106 @@ const SpriteSystem: System = {
                 }
                 continue;
             }
-            const next = values(world, eid);
-            const type = next.type;
-            const assets = world.resource(type);
-            if (!current) {
-                if (world.has(eid, MeshInstance) || world.has(eid, MeshMaterial)) {
-                    throw new Error(
-                        `Sprite ${eid} cannot share its entity with another MeshInstance or MeshMaterial`,
-                    );
+            const image = sprite.image.get(eid);
+            const width = sprite.size.x.get(eid);
+            const height = sprite.size.y.get(eid);
+            const anchorX = sprite.anchor.x.get(eid);
+            const anchorY = sprite.anchor.y.get(eid);
+            const color = sprite.color.get(eid);
+            const opacity = sprite.opacity.get(eid);
+            const billboard = Math.min(sprite.billboard.get(eid), 2);
+            const blend = Math.min(sprite.blend.get(eid), 1);
+            const fill = sprite.fill.get(eid);
+            const fillMode = sprite.fillMode.get(eid);
+            const type = blend === SpriteBlend.Alpha ? SpriteAlphaMaterialType : SpriteMaterialType;
+            if (current) {
+                if (
+                    current.type === type &&
+                    current.image === image &&
+                    current.width === width &&
+                    current.height === height &&
+                    current.anchorX === anchorX &&
+                    current.anchorY === anchorY &&
+                    current.color === color &&
+                    current.opacity === opacity &&
+                    current.billboard === billboard &&
+                    current.fill === fill &&
+                    current.fillMode === fillMode
+                ) {
+                    continue;
                 }
-                assets.setAt(eid, next.params);
-                world.add(eid, MeshInstance, { mesh: state.quad });
-                world.add(eid, MeshMaterial, {
-                    type: materialTypeId(world, type),
-                    material: eid,
-                });
-                state.instances.set(eid, { type, signature: next.signature });
-                continue;
-            }
-            if (current.type !== type || current.signature !== next.signature) {
-                assets.setAt(eid, next.params);
+                const radius = writeValues(
+                    world,
+                    eid,
+                    type,
+                    width,
+                    height,
+                    anchorX,
+                    anchorY,
+                    image,
+                    color,
+                    opacity,
+                    billboard,
+                    fill,
+                    fillMode,
+                );
                 current.type = type;
-                current.signature = next.signature;
+                current.image = image;
+                current.width = width;
+                current.height = height;
+                current.anchorX = anchorX;
+                current.anchorY = anchorY;
+                current.color = color;
+                current.opacity = opacity;
+                current.billboard = billboard;
+                current.fill = fill;
+                current.fillMode = fillMode;
                 world.storage(MeshMaterial).type.set(eid, materialTypeId(world, type));
                 world.storage(MeshMaterial).material.set(eid, eid);
+                world.storage(MeshInstance).cullBounds.w.set(eid, radius);
+                continue;
             }
+            if (world.has(eid, MeshInstance) || world.has(eid, MeshMaterial)) {
+                throw new Error(
+                    `Sprite ${eid} cannot share its entity with another MeshInstance or MeshMaterial`,
+                );
+            }
+            const radius = writeValues(
+                world,
+                eid,
+                type,
+                width,
+                height,
+                anchorX,
+                anchorY,
+                image,
+                color,
+                opacity,
+                billboard,
+                fill,
+                fillMode,
+            );
+            world.add(eid, MeshInstance, { mesh: state.quad, cullBounds: [0, 0, 0, radius] });
+            world.add(eid, MeshMaterial, {
+                type: materialTypeId(world, type),
+                material: eid,
+            });
+            state.instances.set(eid, {
+                type,
+                image,
+                width,
+                height,
+                anchorX,
+                anchorY,
+                color,
+                opacity,
+                billboard,
+                fill,
+                fillMode,
+            });
         }
         for (const eid of state.instances.keys()) {
-            if (live.has(eid)) continue;
+            if (world.has(eid, Sprite)) continue;
             releaseInstance(world, eid);
             state.instances.delete(eid);
         }

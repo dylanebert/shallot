@@ -61,11 +61,11 @@ async function buildFailure(config: Parameters<typeof createApp>[0]): Promise<st
     }
 }
 
-test("GPU needs live on their consumers: rendering needs HDR, standard rendering needs indirect draws and ten storage buffers", () => {
+test("GPU needs live on their consumers: rendering needs HDR and standard rendering needs indirect draws and eight storage buffers", () => {
     expect(RenderingPlugin.gpu).toEqual({ features: ["rg11b10ufloat-renderable"] });
     expect(StandardRenderingPlugin.gpu).toEqual({
         features: ["indirect-first-instance"],
-        limits: { maxStorageBuffersPerShaderStage: 10 },
+        limits: { maxStorageBuffersPerShaderStage: 8 },
     });
 });
 
@@ -96,7 +96,7 @@ test("acquisition requests only enabled plugin requirements before warm-up", asy
             "rg11b10ufloat-renderable",
         ]);
         expect(requests[0].requiredLimits).toEqual({
-            maxStorageBuffersPerShaderStage: 10,
+            maxStorageBuffersPerShaderStage: 8,
         });
         expect(warmed).toBe(false);
     } finally {

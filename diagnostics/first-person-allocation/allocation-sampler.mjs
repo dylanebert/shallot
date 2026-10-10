@@ -154,6 +154,12 @@ async function main() {
 
         async function sample(run, n, label = "transition") {
             collect();
+            // A full collection can invalidate hot code. Re-prime the steady subject after it, then drain
+            // that unmeasured work before opening the allocation window.
+            if (run === stepChunk) {
+                for (let i = 0; i < 10; i++) stepChunk();
+                await subject.wait?.();
+            }
             await session.post("HeapProfiler.startSampling", {
                 samplingInterval: 1,
                 includeObjectsCollectedByMajorGC: true,

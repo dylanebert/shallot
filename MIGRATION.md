@@ -453,7 +453,7 @@ const TintPlugin = MaterialPlugin(Tint);
 
 Add parameter values with `world.resource(Tint).add(...)`; the returned `{ type, material }` handle goes directly into `MeshMaterial`. Partial updates use `world.resource(Tint).update(handle, values)`. Material rows and type ids belong to their World. The renderer supports typed mesh attributes declared by `materialLayout` and validates their element schemas against the registered mesh.
 
-Sprite carries image layer, tint, fill and billboard data in its material type's table, with rows indexed by entity id; it does not allocate a material row per tint. Sprite remains on the standard mesh path, including clip-sprite shadow casting. Text and lines use core's `RenderPhases.transparent` seam instead of standard materials. Both previously used alpha surfaces and did not enter the opaque depth prepass or cast shadows, so that move drops no shadow behavior.
+Sprite carries image layer, tint, fill and billboard data in its material type's table, with rows indexed by entity id; it does not allocate a material row per tint. Sprite remains on the standard mesh path, including clip-sprite shadow casting. Its `MeshInstance.cullBounds` is a conservative local-space sphere derived from the size and anchor, so camera- and shadow-view culling includes the expanded quad for every billboard mode. Text and lines use core's `RenderPhases.transparent` seam instead of standard materials. Both previously used alpha surfaces and did not enter the opaque depth prepass or cast shadows, so that move drops no shadow behavior.
 
 ## glTF and Skin are removed
 
@@ -539,7 +539,7 @@ import { engineLayout, materialLayout, materialType, MaterialPlugin } from "@dyl
 import { Xform } from "@dylanebert/shallot/utils";
 ```
 
-`MeshInstance` contains only `mesh`. Add StandardMaterial values with `const handle = world.resource(Materials).add(StandardMaterial(values))`, then add `MeshMaterial` with that `{ type, material }` handle. Retain the handle to share or update a material; there is no material name or name lookup. Meshes without `MeshMaterial` draw with StandardMaterial type 0, row 0.
+`MeshInstance` stores `mesh` and an optional local-space culling sphere; ordinary meshes need only set `mesh`, while Sprite maintains the sphere for its billboard quad. Add StandardMaterial values with `const handle = world.resource(Materials).add(StandardMaterial(values))`, then add `MeshMaterial` with that `{ type, material }` handle. Retain the handle to share or update a material; there is no material name or name lookup. Meshes without `MeshMaterial` draw with StandardMaterial type 0, row 0. `VertexMaterialType`, exported at the root and from `/standard/rendering`, is the built-in per-vertex-lit alternative and accepts the same `StandardMaterial` parameter schema.
 
 | 0.9.5 name or value | 0.10 replacement |
 |---|---|
@@ -552,9 +552,9 @@ import { Xform } from "@dylanebert/shallot/utils";
 | `/part/core` `Parts` | Removed; mesh-instance packing is internal to `MeshRenderPlugin`. |
 | `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:material:<type>:<mesh>:<handle>`, `mesh:preprocess` |
 
-`StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and `diffuseWrap` 1. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(handle, values)`; omitted fields retain their values. Change both `MeshMaterial.type` and `.material` when switching to another type; changing either field takes effect on the next frame. Material handles belong to the World that added them.
+`StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1, `diffuseWrap` 1 and lit shading. Set `unlit: true` to use the base colour without lighting. Add the same parameter record to `world.resource(VertexMaterialType)` to evaluate the standard lighting model per vertex and interpolate its result. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(handle, values)`; omitted fields retain their values. Change both `MeshMaterial.type` and `.material` when switching to another type; changing either field takes effect on the next frame. Material handles belong to the World that added them.
 
-Custom material shaders receive a `MaterialFragmentContext` with linear `color` and a type-local `material` row. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, flags: u32 }` (`flags` bit 0 excludes the mesh from shadow views); parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
+Custom material shaders receive a `MaterialFragmentContext` with linear `color` and a type-local `material` row. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
 
 Mesh data has its own `/mesh` module. `registerMesh` now returns a world-local `MeshHandle`; retain it for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels register distinct meshes:
 
@@ -595,6 +595,7 @@ Material, background and draw contracts belong to `/standard/rendering`. Update 
 | `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |
 | `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
 | `/render/core` `Draw`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
+| `/render/core` `computeViewProj`, `Frame`, `FrameGpu`, `BeginFrameSystem`, `OverlaySystem`, `CULL_FRUSTUM`, `CULL_VOLUME_FLOATS`, `Views`, `MAX_VIEWS`, `MAX_SLOTS`, `attachCanvas`, `attachView`, `detachCanvas`, `sceneTransform`, `imageArray` | `/rendering`, same names; `computeViewProj` and `attachView` / `detachCanvas` take World first, while `attachCanvas` takes World last |
 | `/render/core` `Clusters`, `clusterCell`, `LightCull` | `/standard/rendering`, same names |
 | `/render/core` `Lighting`, `LightingGpu`, `PointLightGpu`, `distanceAttenuation`, `spotFactor` | `/standard/rendering`, same names |
 

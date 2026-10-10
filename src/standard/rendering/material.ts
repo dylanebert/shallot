@@ -1,6 +1,6 @@
 import type { World } from "../../engine";
 import { MeshMaterial, StandardMaterial, StandardMaterialInput } from "./material-data";
-import { StandardMaterialType } from "./standard-material";
+import { StandardMaterialType, VertexMaterialType } from "./standard-material";
 
 export type { MaterialHandle, MaterialType } from "./material-type";
 export {
@@ -17,6 +17,7 @@ export {
     StandardMaterialInput,
     StandardMaterialType as Materials,
     StandardMaterialType,
+    VertexMaterialType,
 };
 
 /** The StandardMaterial type's per-world GPU parameter table. */

@@ -106,6 +106,7 @@ const QUAD_VERTS = new Float32Array([
     0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0,
 ]);
 const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
+const TEXT_TRANSFORM_QUERY = [Text, GlobalTransform];
 
 // initial glyph capacity; the CPU staging + GPU buffer double on demand (long paragraphs push thousands)
 const INITIAL = 1 << 12;
@@ -198,7 +199,7 @@ function signature(world: World): number {
     const scratch = world.resource(textStateKey);
     const text = world.storage(Text);
     let h = 0x811c9dc5 | 0;
-    for (const eid of world.query([Text, GlobalTransform])) {
+    for (const eid of world.query(TEXT_TRANSFORM_QUERY)) {
         if (!text.visible.get(eid)) continue;
         h = fold(h, eid);
         h = fold(h, text.content.get(eid));
@@ -236,7 +237,7 @@ function rebuild(world: World, device: GPUDevice): void {
         _textState.ranges.push({ start: 0, count: 0 });
     for (let i = 0; i < _textState.atlases.length; i++) _textState.byFont[i].length = 0;
 
-    for (const eid of world.query([Text, GlobalTransform])) {
+    for (const eid of world.query(TEXT_TRANSFORM_QUERY)) {
         if (!world.storage(Text).visible.get(eid)) continue;
         const content = world.resource(Content).name(world.storage(Text).content.get(eid));
         if (!content) continue;
@@ -400,18 +401,19 @@ function renderText(
     for (let id = 0; id < state.atlases.length; id++) {
         const atlas = state.atlases[id];
         if (!atlas || !state.ranges[id]?.count) continue;
-        const keys = [
-            mesh.vertices,
-            mesh.quant,
-            glyphs,
-            transforms,
-            rows,
-            atlas.texture,
-            state.sampler!,
-        ];
         let group = state.bindGroups[id];
         const previous = state.bindKeys[id];
-        if (!group || !previous || keys.some((key, index) => key !== previous[index])) {
+        if (
+            !group ||
+            !previous ||
+            previous[0] !== mesh.vertices ||
+            previous[1] !== mesh.quant ||
+            previous[2] !== glyphs ||
+            previous[3] !== transforms ||
+            previous[4] !== rows ||
+            previous[5] !== atlas.texture ||
+            previous[6] !== state.sampler
+        ) {
             group = world.gpu.root.unwrap(
                 world.gpu.root.createBindGroup(textLayout, {
                     vertices: mesh.vertices,
@@ -424,7 +426,15 @@ function renderText(
                 }),
             );
             state.bindGroups[id] = group;
-            state.bindKeys[id] = keys;
+            state.bindKeys[id] = [
+                mesh.vertices,
+                mesh.quant,
+                glyphs,
+                transforms,
+                rows,
+                atlas.texture,
+                state.sampler!,
+            ];
         }
         pass.setBindGroup(1, group);
         pass.drawIndexedIndirect(world.gpu.root.unwrap(state.argBuf), id * 20);

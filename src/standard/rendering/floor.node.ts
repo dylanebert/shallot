@@ -60,6 +60,7 @@ import {
     registerBackground,
     StandardMaterial,
     StandardRenderer,
+    VertexMaterialType,
 } from "./index";
 import "../../standard";
 
@@ -212,6 +213,12 @@ test("standard, custom-material and extras paths render within the eight-buffer 
                 storageCount(engineLayout, "fragment") + storageCount(Materials.layout, "fragment"),
             floorVertex:
                 storageCount(engineLayout, "vertex") + storageCount(FloorMaterial.layout, "vertex"),
+            vertexMaterialVertex:
+                storageCount(engineLayout, "vertex") +
+                storageCount(VertexMaterialType.layout, "vertex"),
+            vertexMaterialFragment:
+                storageCount(engineLayout, "fragment") +
+                storageCount(VertexMaterialType.layout, "fragment"),
             attributeVertex:
                 storageCount(engineLayout, "vertex") + storageCount(attributeLayout, "vertex"),
             attributeFragment:
@@ -232,6 +239,8 @@ test("standard, custom-material and extras paths render within the eight-buffer 
             standardVertex: 7,
             standardFragment: 7,
             floorVertex: 7,
+            vertexMaterialVertex: 7,
+            vertexMaterialFragment: 7,
             attributeVertex: 8,
             attributeFragment: 8,
             spriteClipVertex: 7,
@@ -297,6 +306,12 @@ test("standard, custom-material and extras paths render within the eight-buffer 
         const customMaterial = world
             .resource(FloorMaterial)
             .add({ color: d.vec4f(1, 0.3, 0.2, 1) });
+        const vertexMaterial = world
+            .resource(VertexMaterialType)
+            .add(StandardMaterial({ baseColor: [0, 1, 0, 1] }));
+        const unlitMaterial = world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: [0, 0, 1, 1], unlit: true }));
         const customMesh = world.create();
         world.add(customMesh, Transform, {
             translation: [0.65, 0, 0, 0],
@@ -304,6 +319,18 @@ test("standard, custom-material and extras paths render within the eight-buffer 
         });
         world.add(customMesh, MeshInstance);
         world.add(customMesh, MeshMaterial, customMaterial);
+        for (const [x, material] of [
+            [-1.6, vertexMaterial],
+            [1.6, unlitMaterial],
+        ] as const) {
+            const mesh = world.create();
+            world.add(mesh, Transform, {
+                translation: [x, 0, 0, 0],
+                scale: [0.4, 0.4, 0.4, 0],
+            });
+            world.add(mesh, MeshInstance);
+            world.add(mesh, MeshMaterial, material);
+        }
         world.add(world.create(), AmbientLight, { intensity: 0.2 });
         world.add(world.create(), DirectionalLight, { shadowMapsEnabled: 1 });
         const point = world.create();
@@ -342,11 +369,19 @@ test("standard, custom-material and extras paths render within the eight-buffer 
                 work.uploadedBytes = work.renderPasses = work.computePasses = work.dispatches = 0;
                 world.step(0);
                 console.log(
-                    `floor work meshes=193 sprites=6 glyphs=9 AA=${aa} depth=${depth}`,
+                    `floor work meshes=195 sprites=6 glyphs=9 AA=${aa} depth=${depth}`,
                     JSON.stringify(work),
                 );
                 const shot = await captureCompletedFrame();
                 expect(shot.rgba.some((v, i) => i % 4 !== 3 && v > 0)).toBe(true);
+                if (aa === 0 && depth === 0) {
+                    const pixel = (x: number, y: number) =>
+                        Array.from(shot.rgba.subarray((y * 32 + x) * 4, (y * 32 + x) * 4 + 4));
+                    const vertex = pixel(7, 16);
+                    const unlit = pixel(25, 16);
+                    expect(vertex[1]).toBeGreaterThan(vertex[0]);
+                    expect(unlit[2]).toBeGreaterThan(unlit[0]);
+                }
             }
         }
         for (const eid of spriteEids) {
@@ -379,7 +414,8 @@ test("standard, custom-material and extras paths render within the eight-buffer 
             ([, mesh]) => mesh.name === "cube",
         )![0];
         for (const [materialType, count] of [
-            [0, 192],
+            [0, 193],
+            [materialTypeId(world, VertexMaterialType), 1],
             [materialTypeId(world, FloorMaterial), 1],
         ] as const) {
             const draw = [...world.resource(Draws)].find(

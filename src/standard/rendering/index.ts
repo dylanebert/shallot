@@ -24,6 +24,7 @@ export {
     materialTypes,
     StandardMaterial,
     StandardMaterialType,
+    VertexMaterialType,
 } from "./material";
 export { MeshInstanceInput, StandardMaterialInput } from "./material-data";
 export type {

@@ -3,7 +3,13 @@ import { component, u32 } from "../../engine";
 
 /** Dense per-MeshInstance fields consumed by preprocess and the material shaders. */
 export const MeshInstanceInput = d
-    .struct({ mesh: d.u32, materialType: d.u32, material: d.u32, flags: d.u32 })
+    .struct({
+        mesh: d.u32,
+        materialType: d.u32,
+        material: d.u32,
+        flags: d.u32,
+        cullBounds: d.vec4f,
+    })
     .$name("MeshInstanceInput");
 
 /**
@@ -26,6 +32,7 @@ export const StandardMaterialInput = d
         emissive: d.vec3f,
         occlusion: d.f32,
         diffuseWrap: d.f32,
+        unlit: d.u32,
     })
     .$name("StandardMaterialInput");
 
@@ -37,6 +44,7 @@ type StandardMaterialOptions = {
     emissive?: readonly [number, number, number];
     occlusion?: number;
     diffuseWrap?: number;
+    unlit?: boolean;
 };
 
 /** Linear colours; emissive is independent of baseColor. diffuseWrap 1 preserves Shallot's diffuse look. */
@@ -48,5 +56,6 @@ export function StandardMaterial(values: StandardMaterialOptions = {}): Standard
         emissive: d.vec3f(...(values.emissive ?? [0, 0, 0])),
         occlusion: values.occlusion ?? 1,
         diffuseWrap: values.diffuseWrap ?? 1,
+        unlit: values.unlit ? 1 : 0,
     };
 }

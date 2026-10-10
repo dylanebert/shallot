@@ -26,6 +26,7 @@ import {
     StandardMaterial,
     StandardPhysicsPlugin,
     StandardRenderer,
+    StandardRenderingPlugin,
     type System,
     setKinematic,
     Transform,
@@ -252,7 +253,14 @@ export const Demo = {
         },
     }),
     components: [Lift],
-    dependencies: [PlayerPlugin, CharacterPlugin, InputPlugin, StandardPhysicsPlugin, MeshPlugin],
+    dependencies: [
+        PlayerPlugin,
+        CharacterPlugin,
+        InputPlugin,
+        StandardPhysicsPlugin,
+        MeshPlugin,
+        StandardRenderingPlugin,
+    ],
     initialize(world: World) {
         const state = world.resource(Route);
         state.entities ??= route(world);
