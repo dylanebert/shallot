@@ -229,6 +229,8 @@ pub extern "C" fn body_sync_moved(count: usize) -> usize {
 pub extern "C" fn body_sync_moved_in_world(world_index: usize, count: usize) -> usize {
     unsafe {
         let layout = world(world_index).columns.layout;
+        // A solve can relocate the awake state; the cached base refreshes after it returns.
+        let state = crate::solver_set::awake_base(world_index, 0) as *const f32;
         let mut written = 0;
         for row in 0..count {
             let event = &*(layout[B_MOVE] as *const crate::events::BodyMove).add(row);
@@ -246,7 +248,7 @@ pub extern "C" fn body_sync_moved_in_world(world_index: usize, count: usize) -> 
             let vel = (layout[B_SYNC_VEL] as *mut f32).add(written * 4);
             for lane in 0..3 {
                 *pos.add(lane) = *(event.transform.p.as_ptr()).add(lane);
-                *vel.add(lane) = *(layout[B_STATE] as *const f32).add(row * STATE_STRIDE + lane);
+                *vel.add(lane) = *state.add(row * STATE_STRIDE + lane);
             }
             *pos.add(3) = 0.0;
             *vel.add(3) = 0.0;

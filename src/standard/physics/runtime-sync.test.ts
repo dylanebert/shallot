@@ -1,7 +1,12 @@
 import { expect, spyOn, test } from "bun:test";
 import { World } from "@dylanebert/shallot";
-import { Body, Hulls, ShapeKind } from "@dylanebert/shallot/physics";
-import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { Body, BodyType, Hulls, ShapeKind } from "@dylanebert/shallot/physics";
+import {
+    physicsWorld,
+    readBody,
+    StandardPhysicsPlugin,
+    setKinematic,
+} from "@dylanebert/shallot/standard/physics";
 import { Transform } from "@dylanebert/shallot/transform";
 
 async function createPhysicsWorld(): Promise<World> {
@@ -25,6 +30,36 @@ async function withPhysics(run: (world: World) => void | Promise<void>): Promise
         world.dispose();
     }
 }
+
+test("a corrected dynamic body's published velocity agrees with its solver body after one tick", async () => {
+    await withPhysics((world) => {
+        const floor = world.create();
+        world.add(floor, Body, { position: [0, -0.5, 0, 0], halfExtents: [10, 0.5, 10, 0] });
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 0.5, 0, 0] });
+        world.tick();
+        physicsWorld(world)!.getBody(eid)!.setLinearVelocity({ x: 4, y: 0, z: 0 });
+        const saved = world.snapshot();
+        world.tick();
+        world.restore(saved);
+
+        const body = physicsWorld(world)!.getBody(eid)!;
+        const position = body.getPosition();
+        const velocity = body.getLinearVelocity();
+        setKinematic(world, eid, [position.x, position.y, position.z], [0, 0, 0, 1], true, [
+            velocity.x,
+            velocity.y,
+            velocity.z,
+        ]);
+        world.tick();
+
+        const published = readBody(world, eid)!.linearVelocity;
+        const solved = physicsWorld(world)!.getBody(eid)!.getLinearVelocity();
+        expect(published[0]).toBeCloseTo(solved.x, 5);
+        expect(published[1]).toBeCloseTo(solved.y, 5);
+        expect(published[2]).toBeCloseTo(solved.z, 5);
+    });
+});
 
 test("physics sync warns when Transform is added to a bound Body", async () => {
     await withPhysics((world) => {
