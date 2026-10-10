@@ -43,6 +43,15 @@ const variants = [
     },
 ];
 
+async function waitFor(page, predicate, timeout) {
+    try {
+        await page.waitForFunction(predicate, undefined, { timeout });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 async function pixelEvidence(page, red, green) {
     return page.evaluate(
         async ({ red, green }) => {
@@ -101,41 +110,59 @@ try {
             const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
             const pageErrors = [];
             page.on("pageerror", (error) => pageErrors.push(error.message));
+            page.on("console", (message) => {
+                if (message.type() === "error")
+                    console.error(`${variant.name} page console: ${message.text()}`);
+            });
             await page.goto("http://127.0.0.1:4179");
-            await page.waitForFunction(
+            const redFrameReached = await waitFor(
+                page,
                 () =>
                     window.webgpuRepro?.frames >= 60 ||
                     window.webgpuRepro?.deviceLoss ||
                     window.webgpuRepro?.error,
+                10_000,
             );
-            await page.waitForFunction(
+            const framesAtRedScreenshot = await page.evaluate(
+                () => window.webgpuRepro?.frames ?? null,
+            );
+            const red = await page.screenshot();
+            writeFileSync(resolve(output, `${variant.name}-red.png`), red);
+            const redReadbackCompleted = await waitFor(
+                page,
                 () =>
                     window.webgpuRepro?.readbacks.red !== undefined ||
                     window.webgpuRepro?.readbackErrors.length > 0 ||
                     window.webgpuRepro?.deviceLoss ||
                     window.webgpuRepro?.error,
+                5_000,
             );
-            const red = await page.screenshot();
-            await page.waitForFunction(
+
+            const greenFrameReached = await waitFor(
+                page,
                 () =>
                     window.webgpuRepro?.frames >= 180 ||
                     window.webgpuRepro?.deviceLoss ||
                     window.webgpuRepro?.error,
+                10_000,
             );
-            if (await page.evaluate(() => window.webgpuRepro?.frames >= 180)) {
-                await page.waitForFunction(
-                    () =>
-                        window.webgpuRepro?.readbacks.green !== undefined ||
-                        window.webgpuRepro?.readbackErrors.some((error) =>
-                            error.startsWith("green:"),
-                        ) ||
-                        window.webgpuRepro?.deviceLoss ||
-                        window.webgpuRepro?.error,
-                );
-            }
+            const framesAtGreenScreenshot = await page.evaluate(
+                () => window.webgpuRepro?.frames ?? null,
+            );
             const green = await page.screenshot();
-            writeFileSync(resolve(output, `${variant.name}-red.png`), red);
             writeFileSync(resolve(output, `${variant.name}-green.png`), green);
+            const greenReadbackCompleted = await waitFor(
+                page,
+                () =>
+                    window.webgpuRepro?.readbacks.green !== undefined ||
+                    window.webgpuRepro?.readbackErrors.some((error) =>
+                        error.startsWith("green:"),
+                    ) ||
+                    window.webgpuRepro?.deviceLoss ||
+                    window.webgpuRepro?.error,
+                5_000,
+            );
+
             const result = await page.evaluate(() => ({ ...window.webgpuRepro }));
             const screenshot = await pixelEvidence(page, red, green);
             const record = {
@@ -146,17 +173,21 @@ try {
                 adapter: result.adapter,
                 format: result.format,
                 frames: result.frames,
+                framesAtRedScreenshot,
+                framesAtGreenScreenshot,
+                redFrameReached,
+                greenFrameReached,
                 deviceLoss: result.deviceLoss,
                 gpuErrors: result.errors,
                 pageErrors,
                 error: result.error,
                 readbacks: result.readbacks,
+                redReadbackCompleted,
+                greenReadbackCompleted,
                 readbackErrors: result.readbackErrors,
                 screenshotsDiffer: screenshot.screenshotsDiffer,
                 changedPixels: screenshot.changedPixels,
                 screenshotSamples: screenshot.samples,
-                redReached: result.frames >= 60,
-                greenReached: result.frames >= 180,
             };
             writeFileSync(
                 resolve(output, `${variant.name}.json`),
