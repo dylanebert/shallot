@@ -160,9 +160,13 @@ test("the browser input adapter fails to record a real key press on the focused 
 
     await canvas.click();
     await canvas.focus();
+    expect(
+        await canvas.evaluate((element) => document.activeElement === element),
+        "the real first-person canvas regains browser focus",
+    ).toBe(true);
     await captureCanvasFrame(page, "focused-before");
     await page.keyboard.down("w");
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(1500);
     await captureCanvasFrame(page, "focused-after");
     await page.keyboard.up("w");
     const focusedChange = await changedFraction(page, "focused-before", "focused-after");
