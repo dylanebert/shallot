@@ -14,7 +14,7 @@ import {
     Surfaces,
 } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] },
