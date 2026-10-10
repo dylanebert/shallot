@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [macos-15, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -98,8 +98,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        shard: [1/5, 2/5, 3/5, 4/5, 5/5]
+        os: [macos-15, ubuntu-latest]
+        shard: [1/2, 2/2]
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -139,7 +139,7 @@ jobs:
       - name: Node tier
         run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
       - name: compile time oracle
-        if: matrix.shard == '1/5'
+        if: matrix.shard == '1/2'
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
@@ -196,7 +196,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [macos-15, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
