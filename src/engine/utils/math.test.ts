@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { composeMat4, invertMat4, lookAt, lookAtRotation, multiplyMat4 } from "./math";
+import { composeMat4, invertMat4, lookAt, lookAtRotation, multiplyMat4, perspective } from "./math";
 
 // `lookAtRotation` and `lookAt` are two readings of one orientation: `lookAtRotation` returns it as a quaternion an entity is
 // posed with, `lookAt` as the view matrix a projection multiplies. StandardRenderer poses each shadow light camera with
@@ -25,6 +25,15 @@ function viewFromAim(
     const world = composeMat4(eye[0], eye[1], eye[2], q.x, q.y, q.z, q.w, 1, 1, 1);
     return invertMat4(world);
 }
+
+test("infinite reverse-Z perspective keeps depth precision beyond the culling far plane", () => {
+    const projection = perspective(60, 1, 0.1);
+    const depthAt = (distance: number) =>
+        (projection[10]! * -distance + projection[14]!) / distance;
+    expect(depthAt(0.1)).toBeCloseTo(1, 6);
+    expect(depthAt(1_000_000)).toBeGreaterThan(0);
+    expect(depthAt(1_000_000)).toBeLessThan(depthAt(1000));
+});
 
 test("the quaternion aim returns orients a camera differently from the view matrix lookAt builds for the same eye and target, so a shadow light would cull against one frustum and render through another", () => {
     for (const { eye, target } of CASES) {

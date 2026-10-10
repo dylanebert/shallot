@@ -5,6 +5,7 @@ import {
     colorPassDescriptor,
     colorTargets,
     DepthPrepass,
+    DepthPrepassRequests,
     disposeViewTargets,
     initializeViewTargets,
     prepassDescriptor,
@@ -27,7 +28,16 @@ export const PrepassSystem: System = {
             if (!view.framebuffer) continue;
             const encoder = world.frameEncoder()!;
             view.depth = null;
-            if (!world.has(eid, DepthPrepass)) continue;
+            let requested = world.has(eid, DepthPrepass);
+            if (!requested) {
+                for (const request of world.resource(DepthPrepassRequests)) {
+                    if (request(world, eid, view)) {
+                        requested = true;
+                        break;
+                    }
+                }
+            }
+            if (!requested) continue;
             const pass = encoder.beginRenderPass(prepassDescriptor(world, eid, view));
             for (const renderer of world.resource(RenderPhases))
                 renderer.prepass?.(world, eid, view, pass);
@@ -72,6 +82,7 @@ export const CorePipelinePlugin: Plugin = {
     initialize(world) {
         initializeViewTargets(world);
         world.resource(RenderPhases);
+        world.resource(DepthPrepassRequests);
         TonemappingPlugin.initialize?.(world);
     },
     warm: TonemappingPlugin.warm,

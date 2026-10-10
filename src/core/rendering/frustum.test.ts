@@ -1,13 +1,12 @@
 import { expect, test } from "bun:test";
-import { perspective } from "../../engine/utils/math";
-import { frustumPlanes } from "./frustum";
+import { composeMat4, perspective } from "../../engine/utils/math";
+import { CULL_VOLUME_FLOATS, frustumPlanes, frustumVolume } from "./frustum";
 
 /** A pure frustum whose left plane passes exactly through `boundary`. */
 const FRUSTUM_FIXTURE = {
     fov: 90,
     aspect: 1,
     near: 1,
-    far: 10,
     boundary: [-5, 0, -5] as const,
     outside: [-5.01, 0, -5] as const,
     radius: 0,
@@ -28,7 +27,6 @@ test("the frustum keeps an exactly tangent sphere visible, so a strict boundary 
         FRUSTUM_FIXTURE.fov,
         FRUSTUM_FIXTURE.aspect,
         FRUSTUM_FIXTURE.near,
-        FRUSTUM_FIXTURE.far,
     );
     const planes = frustumPlanes(projection, new Float32Array(24));
     const boundaryDistances = Array.from({ length: 6 }, (_, plane) =>
@@ -46,4 +44,17 @@ test("the frustum keeps an exactly tangent sphere visible, so a strict boundary 
     expect(inside(boundaryDistances)).toBe(true);
     expect(inside(outsideDistances)).toBe(false);
     expect(outsideDistances[0]).toBeLessThan(-FRUSTUM_FIXTURE.radius);
+});
+
+test("an infinite perspective frustum still culls beyond its finite far bound", () => {
+    const cameraWorld = composeMat4(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
+    const projection = perspective(90, 1, 1);
+    const volume = new Float32Array(CULL_VOLUME_FLOATS);
+    frustumVolume(volume, 0, projection, cameraWorld, 10);
+    const planes = volume.subarray(4, 28);
+    const beyondFar = [0, 0, -10.1] as const;
+    const depth = (projection[10]! * beyondFar[2] + projection[14]!) / -beyondFar[2];
+    expect(signedDistance(planes, 4, [0, 0, -9.9])).toBeGreaterThan(0);
+    expect(depth).toBeGreaterThan(0);
+    expect(signedDistance(planes, 4, beyondFar)).toBeLessThan(0);
 });

@@ -57,6 +57,20 @@ export const fogLayout0 = tgpu
     })
     .$idx(0);
 
+/** MSAA variant: compute loads sample zero from the main pass's multisampled depth lane. */
+export const fogLayout0Multisampled = tgpu
+    .bindGroupLayout({
+        sceneTex: { texture: d.texture2d(d.f32), visibility: ["compute"] },
+        depthTex: { texture: d.textureDepthMultisampled2d(), visibility: ["compute"] },
+        output: {
+            storageTexture: d.textureStorage2d("rgba16float", "write-only"),
+            visibility: ["compute"],
+        },
+        view: { uniform: ViewUniforms, visibility: ["compute"] },
+        fog: { uniform: FogGpu, visibility: ["compute"] },
+    })
+    .$idx(0);
+
 // group 1's caster-cap-sized uniforms are built once here (a schema instance is exactly one WGSL struct
 // declaration per resolve, and this pipeline's resolve is independent of standard's own raw one — `chunk()`'s
 // duplicate-name suffixing only matters *within* one resolve, so a second `PointCasters`/`TileRects`
@@ -86,155 +100,197 @@ export const fogLayout1 = tgpu
 // in ordinary module-scope JS, so the kernel body below closes over the real `tgpu.fn` value directly.
 const pointShadowOf = pointShadowRef();
 
+const loadDepth = tgpu.fn(
+    [d.vec2i],
+    d.f32,
+)((px) => {
+    "use gpu";
+    return std.textureLoad(fogLayout0.$.depthTex, px, 0);
+});
+const loadDepthMultisampled = tgpu.fn(
+    [d.vec2i],
+    d.f32,
+)((px) => {
+    "use gpu";
+    return std.textureLoad(fogLayout0Multisampled.$.depthTex, px, 0);
+});
+
 /** the fog march compute kernel: per pixel, reconstruct the camera→fragment segment, then fuse the
  *  extinction march ({@link fogDensity} / `fogComposite`) with clustered point/spot + directional in-scatter
  *  ({@link inScatterContribution} / {@link directionalInScatter}), shadowed by standard's point atlas
  *  ({@link pointShadowOf}) and the selected directional cascade map ({@link sampleSunShadow}). @internal */
-export const fogKernel = tgpu
-    .computeFn({
-        workgroupSize: [WORKGROUP, WORKGROUP],
-        in: { gid: d.builtin.globalInvocationId },
-    })((input) => {
-        "use gpu";
-        const dim = std.textureDimensions(fogLayout0.$.output);
-        if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
-        const px = d.vec2i(input.gid.xy);
-        const scn = std.textureLoad(fogLayout0.$.sceneTex, px, 0).xyz;
-        const depth = std.textureLoad(fogLayout0.$.depthTex, px, 0);
-
-        // reconstruct the camera→fragment segment from the near plane to the fragment depth (reverse-Z:
-        // near = ndc depth 1.0) — the same round-trip `reconstructWorld`'s own unit test pins
-        const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim));
-        const nearWorld = reconstructWorld(fogLayout0.$.view.invViewProj, uv, 1);
-        const fragWorld = reconstructWorld(fogLayout0.$.view.invViewProj, uv, depth);
-        const seg = std.sub(fragWorld, nearWorld);
-        const dist = std.length(seg);
-        const dir = std.div(seg, std.max(dist, 1e-6));
-
-        // `cfg`/`camView` — not `fog`/`view` — to avoid colliding with the group-0 binding keys of the same
-        // name (a local named identically to its own binding forces a confusing double-pointer alias)
-        const cfg = fogLayout0.$.fog;
-        const density = cfg.march.x;
-        const base = cfg.march.y;
-        const falloff = cfg.march.z;
-        const jitter = cfg.march.w;
-        const steps = std.max(d.u32(cfg.extra.x), d.u32(1));
-        const g = cfg.extra.y;
-        const absorption = cfg.extra.z;
-        const gain = cfg.extra.w;
-        const offset = std.mix(0.5, ign(d.vec2f(input.gid.xy)), jitter);
-
-        // the froxel lookup along this pixel's ray: tile-xy is the pixel, the z-slice is the step's view
-        // depth (matches standard's clusterOf for the same world point, perspective + ortho alike)
-        const camView = fogLayout0.$.view;
-        const near = camView.projection.x;
-        const far = camView.projection.y;
-        const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
-        const slot = d.u32(camView.projection.w);
-
-        // the extinction + in-scatter march, fused on one front-to-back midpoint sweep — see march.ts's
-        // header for the accumulator shapes (`trans` / `inScatter`)
-        const ds = dist / d.f32(steps);
-        const albedo = 1 - absorption;
-        let trans = d.f32(1);
-        let inScatter = d.vec3f(0);
-        let i = d.u32(0);
-        while (i < FOG_MAX_STEPS) {
-            if (i >= steps) break;
-            const p = std.add(nearWorld, std.mul(dir, (d.f32(i) + offset) * ds));
-            const dens = fogDensity(p, density, base, falloff);
-            const sampleTrans = std.exp(-dens * ds);
-            const viewZ = std.max(std.dot(std.sub(p, camView.eye.xyz), forward), near);
-            const entry =
-                fogLayout1.$.pointLights.grid[clusterCell(uv.x, uv.y, viewZ, near, far, slot)];
-            let lstep = d.vec3f(0);
-            let j = d.u32(0);
-            while (j < entry.y) {
-                // the array-element read is a pointer, not a copy — wrap in the element schema to
-                // pass it by value into inScatterContribution / pointShadowRef
-                const light = PointLightGpu(
-                    fogLayout1.$.pointLights.lights.lights[
-                        fogLayout1.$.pointLights.indices[entry.x + j]
-                    ],
-                );
-                // params.x < 0 is the VolumetricLight flag; a plain light has no shaft (skip it) — the for-loop
-                // `continue` becomes an early increment + `continue` under the dynamic-bound `while` shape
-                // (the "loop{} emits as while(true)" class), never a reassociation
-                if (light.params.x >= 0) {
-                    j = j + 1;
-                    continue;
+function createFogKernel(
+    layout: typeof fogLayout0 | typeof fogLayout0Multisampled,
+    readDepth: typeof loadDepth | typeof loadDepthMultisampled,
+) {
+    return (
+        tgpu
+            .computeFn({
+                workgroupSize: [WORKGROUP, WORKGROUP],
+                in: { gid: d.builtin.globalInvocationId },
+            })((input) => {
+                "use gpu";
+                const dim = std.textureDimensions(layout.$.output);
+                if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
+                const px = d.vec2i(input.gid.xy);
+                const scn = std.textureLoad(layout.$.sceneTex, px, 0).xyz;
+                // Match Bevy's volumetric fog: sample zero is a cheap approximation at an MSAA edge.
+                const depth = readDepth(px);
+                if (depth === 0 && layout.$.view.projection.z > 0.5) {
+                    // Infinite perspective depth marks no opaque surface; avoid unprojecting it as a finite point.
+                    std.textureStore(layout.$.output, px, d.vec4f(scn, 1));
+                    return;
                 }
-                const shadow = pointShadowOf(light, d.vec3f(0), p);
-                lstep = d.vec3f(
-                    std.add(
-                        lstep,
-                        std.mul(inScatterContribution(light, p, dir, g), shadow * camView.exposure),
-                    ),
-                );
-                j = j + 1;
-            }
-            // Every directional light carrying VolumetricLight scatters; only the selected shadow caster
-            // samples the directional atlas, while the other enabled lights remain unshadowed.
-            let k = d.u32(0);
-            while (k < fogLayout1.$.lighting.directionalCount) {
-                const light = fogLayout1.$.lighting.directionalLights[k];
-                if (light.params.z > 0) {
-                    let visibility = d.f32(1);
-                    if (light.params.y > 0) visibility = sampleSunShadow(p, d.vec3f(0));
-                    lstep = d.vec3f(
-                        std.add(
-                            lstep,
-                            std.mul(
-                                directionalInScatter(
-                                    std.mul(light.color.rgb, light.params.x * camView.exposure),
-                                    light.direction.xyz,
-                                    dir,
-                                    g,
+
+                // reconstruct the camera→fragment segment from the near plane to the fragment depth (reverse-Z:
+                // near = ndc depth 1.0) — the same round-trip `reconstructWorld`'s own unit test pins
+                const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim));
+                const nearWorld = reconstructWorld(layout.$.view.invViewProj, uv, 1);
+                const fragWorld = reconstructWorld(layout.$.view.invViewProj, uv, depth);
+                const seg = std.sub(fragWorld, nearWorld);
+                const dist = std.length(seg);
+                const dir = std.div(seg, std.max(dist, 1e-6));
+
+                // `cfg`/`camView` — not `fog`/`view` — to avoid colliding with the group-0 binding keys of the same
+                // name (a local named identically to its own binding forces a confusing double-pointer alias)
+                const cfg = layout.$.fog;
+                const density = cfg.march.x;
+                const base = cfg.march.y;
+                const falloff = cfg.march.z;
+                const jitter = cfg.march.w;
+                const steps = std.max(d.u32(cfg.extra.x), d.u32(1));
+                const g = cfg.extra.y;
+                const absorption = cfg.extra.z;
+                const gain = cfg.extra.w;
+                const offset = std.mix(0.5, ign(d.vec2f(input.gid.xy)), jitter);
+
+                // the froxel lookup along this pixel's ray: tile-xy is the pixel, the z-slice is the step's view
+                // depth (matches standard's clusterOf for the same world point, perspective + ortho alike)
+                const camView = layout.$.view;
+                const near = camView.projection.x;
+                const far = camView.projection.y;
+                const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
+                const slot = d.u32(camView.projection.w);
+
+                // the extinction + in-scatter march, fused on one front-to-back midpoint sweep — see march.ts's
+                // header for the accumulator shapes (`trans` / `inScatter`)
+                const ds = dist / d.f32(steps);
+                const albedo = 1 - absorption;
+                let trans = d.f32(1);
+                let inScatter = d.vec3f(0);
+                let i = d.u32(0);
+                while (i < FOG_MAX_STEPS) {
+                    if (i >= steps) break;
+                    const p = std.add(nearWorld, std.mul(dir, (d.f32(i) + offset) * ds));
+                    const dens = fogDensity(p, density, base, falloff);
+                    const sampleTrans = std.exp(-dens * ds);
+                    const viewZ = std.max(std.dot(std.sub(p, camView.eye.xyz), forward), near);
+                    const entry =
+                        fogLayout1.$.pointLights.grid[
+                            clusterCell(uv.x, uv.y, viewZ, near, far, slot)
+                        ];
+                    let lstep = d.vec3f(0);
+                    let j = d.u32(0);
+                    while (j < entry.y) {
+                        // the array-element read is a pointer, not a copy — wrap in the element schema to
+                        // pass it by value into inScatterContribution / pointShadowRef
+                        const light = PointLightGpu(
+                            fogLayout1.$.pointLights.lights.lights[
+                                fogLayout1.$.pointLights.indices[entry.x + j]
+                            ],
+                        );
+                        // params.x < 0 is the VolumetricLight flag; a plain light has no shaft (skip it) — the for-loop
+                        // `continue` becomes an early increment + `continue` under the dynamic-bound `while` shape
+                        // (the "loop{} emits as while(true)" class), never a reassociation
+                        if (light.params.x >= 0) {
+                            j = j + 1;
+                            continue;
+                        }
+                        const shadow = pointShadowOf(light, d.vec3f(0), p);
+                        lstep = d.vec3f(
+                            std.add(
+                                lstep,
+                                std.mul(
+                                    inScatterContribution(light, p, dir, g),
+                                    shadow * camView.exposure,
                                 ),
-                                visibility,
                             ),
+                        );
+                        j = j + 1;
+                    }
+                    // Every directional light carrying VolumetricLight scatters; only the selected shadow caster
+                    // samples the directional atlas, while the other enabled lights remain unshadowed.
+                    let k = d.u32(0);
+                    while (k < fogLayout1.$.lighting.directionalCount) {
+                        const light = fogLayout1.$.lighting.directionalLights[k];
+                        if (light.params.z > 0) {
+                            let visibility = d.f32(1);
+                            if (light.params.y > 0) visibility = sampleSunShadow(p, d.vec3f(0));
+                            lstep = d.vec3f(
+                                std.add(
+                                    lstep,
+                                    std.mul(
+                                        directionalInScatter(
+                                            std.mul(
+                                                light.color.rgb,
+                                                light.params.x * camView.exposure,
+                                            ),
+                                            light.direction.xyz,
+                                            dir,
+                                            g,
+                                        ),
+                                        visibility,
+                                    ),
+                                ),
+                            );
+                        }
+                        k = k + 1;
+                    }
+                    // (trans·albedo·gain) is one scalar product that scales lstep, and the result is scaled again
+                    // by (1−sampleTrans) as a separate step — matching the shipped shader's left-to-right f32
+                    // rounding; folding (1−sampleTrans) into the leading scalar chain shifts the last bits
+                    inScatter = d.vec3f(
+                        std.add(
+                            inScatter,
+                            std.mul(std.mul(lstep, trans * albedo * gain), 1 - sampleTrans),
                         ),
                     );
+                    trans = trans * sampleTrans;
+                    i = i + 1;
                 }
-                k = k + 1;
-            }
-            // (trans·albedo·gain) is one scalar product that scales lstep, and the result is scaled again
-            // by (1−sampleTrans) as a separate step — matching the shipped shader's left-to-right f32
-            // rounding; folding (1−sampleTrans) into the leading scalar chain shifts the last bits
-            inScatter = d.vec3f(
-                std.add(inScatter, std.mul(std.mul(lstep, trans * albedo * gain), 1 - sampleTrans)),
-            );
-            trans = trans * sampleTrans;
-            i = i + 1;
-        }
 
-        // force the six shadow-only bindings into scope: `pointShadowRef()`/`sampleSunShadow`'s own bodies
-        // read `pointAtlas`/`shadowSamp`/`pointShadows`/`tileRects`/`shadowMap`/`sunShadow` as free names,
-        // invisible to the call-graph walk from here — folded (times zero) into the live `t` below rather
-        // than a discarded local, so the JS→WGSL transpiler can't drop it as dead
-        const forcedZero =
-            (fogLayout1.$.pointShadows.casters[0].pos.x +
-                fogLayout1.$.tileRects.rects[0].x +
-                fogLayout1.$.sunShadow.enabled +
-                std.textureSampleCompareLevel(
-                    fogLayout1.$.pointAtlas,
-                    fogLayout1.$.shadowSamp,
-                    d.vec2f(0, 0),
-                    0,
-                ) +
-                std.textureSampleCompareLevel(
-                    fogLayout1.$.shadowMap,
-                    fogLayout1.$.shadowSamp,
-                    d.vec2f(0, 0),
-                    0,
-                )) *
-            0;
+                // force the six shadow-only bindings into scope: `pointShadowRef()`/`sampleSunShadow`'s own bodies
+                // read `pointAtlas`/`shadowSamp`/`pointShadows`/`tileRects`/`shadowMap`/`sunShadow` as free names,
+                // invisible to the call-graph walk from here — folded (times zero) into the live `t` below rather
+                // than a discarded local, so the JS→WGSL transpiler can't drop it as dead
+                const forcedZero =
+                    (fogLayout1.$.pointShadows.casters[0].pos.x +
+                        fogLayout1.$.tileRects.rects[0].x +
+                        fogLayout1.$.sunShadow.enabled +
+                        std.textureSampleCompareLevel(
+                            fogLayout1.$.pointAtlas,
+                            fogLayout1.$.shadowSamp,
+                            d.vec2f(0, 0),
+                            0,
+                        ) +
+                        std.textureSampleCompareLevel(
+                            fogLayout1.$.shadowMap,
+                            fogLayout1.$.shadowSamp,
+                            d.vec2f(0, 0),
+                            0,
+                        )) *
+                    0;
 
-        const t = trans + forcedZero;
-        const outc = std.add(fogComposite(scn, cfg.color.xyz, t), inScatter);
-        std.textureStore(fogLayout0.$.output, px, d.vec4f(outc, 1));
-    })
-    // "fogMarch", not "fog" — the kernel's own name shares one WGSL namespace with its bindings, and a
-    // group-0 binding is keyed "fog" (the config uniform); naming both the same forces a confusing
-    // collision-avoidance rename on the binding instead
-    .$name("fogMarch");
+                const t = trans + forcedZero;
+                const outc = std.add(fogComposite(scn, cfg.color.xyz, t), inScatter);
+                std.textureStore(layout.$.output, px, d.vec4f(outc, 1));
+            })
+            // "fogMarch", not "fog" — the kernel's own name shares one WGSL namespace with its bindings, and a
+            // group-0 binding is keyed "fog" (the config uniform); naming both the same forces a confusing
+            // collision-avoidance rename on the binding instead
+            .$name("fogMarch")
+    );
+}
+
+export const fogKernel = createFogKernel(fogLayout0, loadDepth);
+export const fogKernelMultisampled = createFogKernel(fogLayout0Multisampled, loadDepthMultisampled);

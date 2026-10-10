@@ -6,16 +6,23 @@ import type { View } from "./view";
 
 /** Reverse-Z depth format shared by view passes and matching renderer pipelines. */
 export const DEPTH_FORMAT: GPUTextureFormat = "depth32float";
-/** Main-pass sample count when Camera.antialias is enabled; prepasses stay single-sample. */
+/** Main-pass sample count when Camera.antialias is enabled; the shared depth lane matches it. */
 export const SAMPLE_COUNT = 4;
 
-/** Opt a camera into stored single-sample prepass depth, published as view.depth. */
+/** Explicitly request the camera's stored depth lane, published as `view.depth`. */
 export const DepthPrepass = component("DepthPrepass", {});
+
+/** A plugin's per-camera request for the shared stored depth lane. */
+export type DepthPrepassRequest = (world: World, eid: number, view: View) => boolean;
+
+/** Plugins register per-camera consumers here; Core records one shared lane when any request returns true. */
+export const DepthPrepassRequests = { create: () => [] as DepthPrepassRequest[] };
 interface Target {
     texture: GPUTexture;
     view: GPUTextureView;
     w: number;
     h: number;
+    sampleCount: number;
 }
 interface ColorTargets {
     color: GPUTexture | null;
@@ -90,20 +97,23 @@ export function disposeViewTargets(world: World): void {
     state.colorTargets.clear();
 }
 
-/** Single-sample prepass depth; recreated on resize. */
+/** Stored depth matches the main pass's sample count; recreated on resize or AA toggle. */
 function depthView(world: World, eid: number, w: number, h: number): GPUTextureView {
     const state = world.resource(viewTargetsKey);
+    const sampleCount = world.storage(Camera).antialias.get(eid) !== 0 ? SAMPLE_COUNT : 1;
     const cached = state.depth.get(eid);
-    if (cached && cached.w === w && cached.h === h) return cached.view;
+    if (cached && cached.w === w && cached.h === h && cached.sampleCount === sampleCount)
+        return cached.view;
     cached?.texture.destroy();
     const texture = world.gpu.device.createTexture({
         label: `standard-depth-${eid}`,
         size: { width: w, height: h },
         format: DEPTH_FORMAT,
+        sampleCount,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     const view = texture.createView();
-    state.depth.set(eid, { texture, view, w, h });
+    state.depth.set(eid, { texture, view, w, h, sampleCount });
     return view;
 }
 

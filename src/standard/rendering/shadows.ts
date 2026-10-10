@@ -1222,8 +1222,9 @@ export function packCasters(
  * query order; a hysteresis margin keeps an incumbent its slot so the set doesn't flicker. {@link packCasters}
  * then sizes each caster's tiles (area ∝ score) and buddy-packs them into the square atlas; a caster that
  * won't fit even at the smallest tiling is dropped (warn). Each combo's viewProj is `tileTransform(rect) ×
- * perspective([pointFov(tilePx), 1, near, far]) × lookAt(light, light+fwd, up)` (near/far = `[range/1000,
- * range]`), written into the shared {@link pointFaceVP} buffer combo-major, with its rect in {@link pointTileRects}.
+ * infinite `perspective([pointFov(tilePx), 1, near]) × lookAt(light, light+fwd, up)`; `far = range` bounds
+ * caster culling. The matrix is written into the shared {@link pointFaceVP} buffer combo-major, with its rect in
+ * {@link pointTileRects}.
  * Each combo also gets a pooled depth-only camera ({@link pointComboEids}) the pack frustum-culls casters
  * into (the per-combo cull), spawned lazily at the first casting frame. The frames are written into the
  * caller's `frames` pool (grown by one record per new high-water caster, reused in place after) and the
@@ -1415,7 +1416,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         const faceRects = rects![frame.slot];
         if (frame.spot) {
             const rect = faceRects[0];
-            perspective(frame.coneFov, 1, frame.near, frame.far, _faceProj);
+            perspective(frame.coneFov, 1, frame.near, _faceProj);
             // `up` is orthonormal to `fwd`, so it serves as the lookAt up directly (same basis as up0)
             lookAt(
                 px,
@@ -1455,7 +1456,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
             ci++;
         } else {
             const fov = pointFov(frame.tilePx);
-            perspective(fov, 1, frame.near, frame.far, _faceProj);
+            perspective(fov, 1, frame.near, _faceProj);
             for (let f = 0; f < 6; f++) {
                 const { fwd, up } = POINT_FACES[f];
                 const rect = faceRects[f];

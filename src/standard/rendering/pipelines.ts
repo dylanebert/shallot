@@ -170,8 +170,9 @@ export interface CompiledMaterial {
     color: TgpuRenderPipeline<{ color: d.Vec4f }> | null;
     transparent: TgpuRenderPipeline<{ color: d.Vec4f }> | null;
     // Alpha surfaces write no prepass depth. Opaque surfaces use the compact depth layout;
-    // clipped surfaces use the main stream for their authored cutoff.
+    // clipped surfaces use the main stream for their authored cutoff. The lane matches the camera's MSAA count.
     prepass: TgpuRenderPipeline<any> | null;
+    prepassSingle: TgpuRenderPipeline<any> | null;
     // the point/cascade shadow-atlas pipelines. `null` when the type opts out of that shadow route.
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
@@ -1296,6 +1297,7 @@ export function compileMaterial<
             surface.depthPass?.prepass === false
                 ? null
                 : compilePrepass(world, surface, alphaPipelineKey),
+        prepassSingle: null,
         point: null,
         cascade: null,
         single: null,
@@ -1317,7 +1319,11 @@ export function compileMaterial<
  */
 export function ensureSingle(world: World, t: CompiledMaterial): void {
     const _render = world.resource(RenderContext);
-    if (t.single) return;
+    if (t.single) {
+        if (t.prepass && !t.prepassSingle)
+            t.prepassSingle = compilePrepass(world, t.owner, t.args.alphaPipelineKey, 1);
+        return;
+    }
     const { vertex, singleFragment, alphaPipelineKey, primitive, name } = t.args;
     const transparent =
         alphaPipelineKey === AlphaPipelineKey.Blend ||
@@ -1346,6 +1352,7 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
         })
         .$name(`standard-${name}-1x`);
     t.single = { color: transparent ? null : pipeline, transparent: transparent ? pipeline : null };
+    if (t.prepass) t.prepassSingle = compilePrepass(world, t.owner, alphaPipelineKey, 1);
 }
 
 /** Opaque uses the compact depth stream; Mask and AlphaToCoverage use alpha-tested material inputs. */
@@ -1353,6 +1360,7 @@ function compilePrepass(
     world: World,
     surface: AnyMaterialType,
     alphaPipelineKey: number,
+    sampleCount = SAMPLE_COUNT,
 ): TgpuRenderPipeline<any> | null {
     if (
         alphaPipelineKey === AlphaPipelineKey.Blend ||
@@ -1386,8 +1394,9 @@ function compilePrepass(
                 : {}),
             primitive,
             depthStencil,
+            multisample: { count: sampleCount },
         })
-        .$name(`standard-prepass-${surface.name}-${alphaPipelineKey}`);
+        .$name(`standard-prepass-${surface.name}-${alphaPipelineKey}-${sampleCount}x`);
     return depthOnly;
 }
 
@@ -2037,9 +2046,14 @@ function bgFs(bg: AnyBackground) {
             const uv = std.div(input.pos.xy, engineLayout.$.view.resolution);
             const ndc = d.vec3f(uv.x * 2 - 1, 1 - uv.y * 2, 0);
             const far = std.mul(engineLayout.$.view.invViewProj, d.vec4f(ndc, 1));
-            const dir = std.normalize(
-                std.sub(std.div(far.xyz, far.w), engineLayout.$.view.eye.xyz),
-            );
+            let dir = d.vec3f(0);
+            if (engineLayout.$.view.projection.z > 0.5) {
+                // Infinite reverse-Z maps perspective depth 0 to a homogeneous direction at infinity.
+                dir = std.normalize(far.xyz);
+            } else {
+                // Orthographic depth 0 remains a finite point on the far projection plane.
+                dir = std.normalize(std.sub(std.div(far.xyz, far.w), engineLayout.$.view.eye.xyz));
+            }
             // see `colorFs`'s matching comment — the same forcing-touch precedent, folded into a
             // value the return genuinely uses so the transpiler can't prune it as dead
             const forcedZero =

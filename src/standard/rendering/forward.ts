@@ -24,8 +24,8 @@ import { initializeDrawState } from "./registry";
 // submission spine, primary visibility only) with sun shadows sampled inline in the FS, matching Bevy's
 // clustered-forward shape. One renderer, one plugin (`StandardRenderingPlugin`), no layers behind seams: one color
 // pass (opaque draws then `blend` draws composited over them in a single `beginRenderPass`), an
-// opt-in single-sample depth prepass (`DepthPrepass`), and sun shadows (shadowMapsEnabled on a directional
-// light) are gated by camera and light data; core owns the view targets and depth marker —
+// shared depth prepass (requested by `DepthPrepass` or a depth consumer), and sun shadows (shadowMapsEnabled on a
+// directional light) are gated by camera and light data; core owns the view targets and depth requests —
 // not composed plugins coordinating through a singleton.
 //
 // Sun shadows: the CPU/ECS half (the off-screen light camera + placement) lives in ./shadows; the GPU half
@@ -516,7 +516,7 @@ function resolveDraw(world: World, draw: Draw, capacity: number): void {
     if (item) _standardRendererState.frameDraws[_standardRendererState.frameCount++] = item;
 }
 
-/** Records opaque, masked and alpha-to-coverage materials into core's single-sample depth prepass.
+/** Records opaque, masked and alpha-to-coverage materials into core's shared depth prepass.
  * Blended modes write no depth; an empty draw list still clears the depth target. */
 function renderPrepass(
     world: World,
@@ -529,12 +529,20 @@ function renderPrepass(
     const _standardRendererState = world.resource(standardRendererStateKey);
 
     if (!view.framebuffer) return;
+    const antialias = world.storage(Camera).antialias.get(eid) !== 0;
+    _standardRendererState.prepassBundleDesc.sampleCount = antialias ? SAMPLE_COUNT : 1;
+    if (!antialias) {
+        for (let i = 0; i < count; i++) {
+            const material = items[i]!.r.t;
+            if (material.prepass) ensureSingle(world, material);
+        }
+    }
 
     let draws = 0;
     const shadow = shadowGroup(world);
     for (let i = 0; i < count; i++) {
         const { draw, r } = items[i];
-        const pipe = r.t.prepass;
+        const pipe = antialias ? r.t.prepass : r.t.prepassSingle;
         const group = r.g.depth;
         if (pipe && group) {
             const step = bundleDraw(_standardRendererState.prepassProgram, draws);

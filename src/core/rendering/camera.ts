@@ -45,7 +45,7 @@ export const Camera = component(
         fov: f32,
         /** near plane distance */
         near: f32,
-        /** far plane distance */
+        /** perspective frustum cull bound and clustered-light range; does not limit perspective depth precision */
         far: f32,
         /** view size in world units (orthographic mode) */
         size: f32,
@@ -108,7 +108,7 @@ export function computeViewProj(
     const proj =
         world.storage(Camera).mode.get(eid) === CameraMode.Orthographic
             ? orthographic(world.storage(Camera).size.get(eid), aspect, near, far, _proj)
-            : perspective(world.storage(Camera).fov.get(eid), aspect, near, far, _proj);
+            : perspective(world.storage(Camera).fov.get(eid), aspect, near, _proj);
     composeGlobalTransform(world, eid, _world);
     const view = invertMat4(_world, _view);
     viewOut?.set(view);

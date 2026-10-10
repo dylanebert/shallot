@@ -77,7 +77,23 @@ export const maskLayoutOcclude = tgpu.bindGroupLayout({
     sceneDepth: { texture: d.textureDepth2d(), visibility: ["fragment"] },
 });
 
-type MaskLayout = typeof maskLayoutPlain | typeof maskLayoutOcclude;
+/** MSAA occlusion variant, loading sample zero from the stored depth lane. */
+export const maskLayoutOccludeMultisampled = tgpu.bindGroupLayout({
+    globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
+    view: { uniform: ViewUniforms, visibility: ["vertex"] },
+    position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
+    indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
+    globalTransforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
+    maskEids: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
+    maskAttrs: { storage: d.arrayOf(d.vec4f), access: "readonly", visibility: ["fragment"] },
+    meshQuant: { storage: d.arrayOf(MeshQuant), access: "readonly", visibility: ["vertex"] },
+    sceneDepth: { texture: d.textureDepthMultisampled2d(), visibility: ["fragment"] },
+});
+
+type MaskLayout =
+    | typeof maskLayoutPlain
+    | typeof maskLayoutOcclude
+    | typeof maskLayoutOccludeMultisampled;
 
 /**
  * the mask vs, over a specific mask layout (plain or occlude — one authored
@@ -103,7 +119,7 @@ export function maskVertex(layout: MaskLayout) {
             const world = d.vec4f(xformPoint(x, p), 1);
             return { pos: std.mul(layout.$.view.viewProj, world), iid: input.iid };
         })
-        .$name(layout === maskLayoutOcclude ? "maskVsOcclude" : "maskVs");
+        .$name(layout === maskLayoutPlain ? "maskVs" : "maskVsOcclude");
 }
 
 /**

@@ -15,18 +15,20 @@ export const CULL_FRUSTUM = 0;
 /**
  * extract the six clip-space frustum planes from a column-major `viewProj`,
  * packed as 6 × `vec4<f32>` (xyz = inward normal, w = offset) into `out` at
- * `base`. Gribb–Hartmann against WebGPU's [0, 1] depth range: the near plane is
- * the bare z-row, not w+z. Each plane is normalized so the signed distance
- * `dot(n, p) + w` is in world units. A sphere of radius `r` is outside when
- * that distance drops below `-r`. Pure; the cull pass reads the packed planes
- * per view, the producer pack tests instance bounds against them
+ * `base`. With reverse-Z in WebGPU's [0, 1] depth range, the far plane is the
+ * bare z-row and the near plane is w−z. Infinite perspective makes the far row
+ * degenerate; {@link frustumVolume} replaces it with the finite cull bound. Each
+ * nondegenerate plane is normalized so `dot(n, p) + w` is a world-space signed
+ * distance. A sphere of radius `r` is outside when that distance drops below `-r`.
+ * Pure; the cull pass reads the packed planes per view, the producer pack tests
+ * instance bounds against them
  */
 export function frustumPlanes(viewProj: Float32Array, out: Float32Array, base = 0): Float32Array {
     const m = viewProj;
 
     // rows of the matrix recovered from column-major storage (m[col*4 + row]):
     // left = w + x, right = w - x, bottom = w + y, top = w - y,
-    // near = z, far = w - z
+    // far = z, near = w - z (reverse-Z)
     out[base + 0] = m[3] + m[0];
     out[base + 1] = m[7] + m[4];
     out[base + 2] = m[11] + m[8];
@@ -72,12 +74,34 @@ export function frustumPlanes(viewProj: Float32Array, out: Float32Array, base = 
 
 /**
  * pack a frustum cull volume into `out` at view `slot`: the tag word ({@link CULL_FRUSTUM}) in the header
- * vec4, then the camera's 6 planes ({@link frustumPlanes}). The view pack sets header.y to one for a
+ * vec4, then the camera's 6 planes ({@link frustumPlanes}). Infinite perspective projections replace the
+ * degenerate far clip plane with the camera's finite culling bound when `cameraWorld` and `far` are supplied.
+ * The view pack sets header.y to one for a
  * depth-only view and zero for a shading view. One source for the per-slot layout: the pack
  * reads the slot at `slot * CULL_VOLUME_FLOATS` and tests the planes after the header vec4.
  */
-export function frustumVolume(out: Float32Array, slot: number, viewProj: Float32Array): void {
+export function frustumVolume(
+    out: Float32Array,
+    slot: number,
+    viewProj: Float32Array,
+    cameraWorld?: Float32Array,
+    far?: number,
+): void {
     const base = slot * CULL_VOLUME_FLOATS;
     out[base] = CULL_FRUSTUM; // header vec4: tag in .x
     frustumPlanes(viewProj, out, base + 4); // planes follow the header vec4
+    if (!cameraWorld || far === undefined) return;
+
+    const x = cameraWorld[8]!;
+    const y = cameraWorld[9]!;
+    const z = cameraWorld[10]!;
+    const invLength = 1 / (Math.hypot(x, y, z) || 1);
+    const nx = x * invLength;
+    const ny = y * invLength;
+    const nz = z * invLength;
+    const plane = base + 4 + 16;
+    out[plane] = nx;
+    out[plane + 1] = ny;
+    out[plane + 2] = nz;
+    out[plane + 3] = far - nx * cameraWorld[12]! - ny * cameraWorld[13]! - nz * cameraWorld[14]!;
 }

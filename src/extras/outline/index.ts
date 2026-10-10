@@ -11,7 +11,7 @@ import { component } from "../../engine";
 //   1. mask — draw only the `Outline` entities (a scoped instanced draw, grouped by mesh) into a seed
 //      texture (each covered pixel seeds its own coordinate) + an attribute texture (per-entity color +
 //      width). Always-on-top by default; `Outline.occlude` depth-tests against core's `view.depth` lane
-//      so an occluded object's outline hides (needs `DepthPrepass` on the camera).
+//      so an occluded object's outline hides. The plugin requests the lane only while an occluding outline exists.
 //   2. JFA — ping-pong fullscreen passes (`jfaSteps(maxWidth)` of them) that flood the nearest seed
 //      coordinate outward, producing a distance field within `width` pixels of every silhouette.
 //   3. composite — one fullscreen **compute** dispatch through the `sceneTransform` seam: reads the
@@ -23,7 +23,7 @@ import { component } from "../../engine";
 // composite goes through `sceneTransform` (a compute pass) rather than a render pass into
 // `view.framebuffer`, so it never assumes the framebuffer's format/usage — a fog scratch is rgba16float
 // storage, not a render attachment — which is what let the two effects collide. Both anchor refs drop
-// harmlessly when their plugin isn't registered. Targets the standard rendering path (reads core's `DepthPrepass` lane).
+// harmlessly when their plugin isn't registered. Targets the standard rendering path and requests core's shared depth lane.
 
 import type {
     TgpuBindGroup,
@@ -37,11 +37,13 @@ import { type Mesh, Meshes, type MeshHandle, MeshInstance } from "../../core/mes
 import {
     Camera,
     DEPTH_FORMAT,
+    DepthPrepassRequests,
     MainPassSystem,
     OverlaySystem,
     PresentationSystem,
     RenderContext,
     RenderingPlugin,
+    SAMPLE_COUNT,
     sceneTransform,
     TonemappingSystem,
     type View,
@@ -50,7 +52,7 @@ import {
 import type { Plugin, System, World } from "../../engine";
 import { f32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { MeshRenderPlugin } from "../../standard/rendering";
+import { MeshRenderPlugin, StandardRenderer } from "../../standard/rendering";
 import {
     compositeKernel,
     compositeLayout,
@@ -62,6 +64,7 @@ import {
     MAX_WIDTH,
     maskFragment,
     maskLayoutOcclude,
+    maskLayoutOccludeMultisampled,
     maskLayoutPlain,
     maskVertex,
     WORKGROUP,
@@ -80,7 +83,7 @@ export const Outline = component(
         color: vec4,
         /** band thickness in pixels, clamped to 64 */
         width: f32,
-        /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs core's `DepthPrepass` on the camera) */
+        /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry */
         occlude: f32,
     },
     {
@@ -170,6 +173,7 @@ type CompositeEntry = {
 interface OutlineGpuState {
     maskPlain: TgpuRenderPipeline<MaskTargets> | null;
     maskOcclude: TgpuRenderPipeline<MaskTargets> | null;
+    maskOccludeMultisampled: TgpuRenderPipeline<MaskTargets> | null;
     jfa: TgpuRenderPipeline<d.Vec4u> | null;
     composite: TgpuComputePipeline | null;
     eids: GPUBuffer | null;
@@ -191,6 +195,7 @@ const createOutlineState = (): OutlineState => ({
     gpu: {
         maskPlain: null,
         maskOcclude: null,
+        maskOccludeMultisampled: null,
         jfa: null,
         composite: null,
         eids: null,
@@ -280,6 +285,7 @@ function renderOutline(
     if (!view.framebuffer) return;
     const encoder = world.frameEncoder()!;
     const t = targets(world, camEid, view.width, view.height);
+    const multisampled = world.storage(Camera).antialias.get(camEid) !== 0;
     const seedClear = { r: SENTINEL, g: SENTINEL, b: 0, a: 0 };
 
     // 1. mask — the scoped instanced draw, grouped by mesh, into seed + attr (MRT, no depth attachment)
@@ -299,7 +305,10 @@ function renderOutline(
     for (const g of groups) {
         if (!g.mesh.position || !g.mesh.quant) continue; // un-quantized producer — nothing to outline
         if (occlude) {
-            const group = world.gpu.root.createBindGroup(maskLayoutOcclude, {
+            const depthPipeline = multisampled
+                ? _outlineState.gpu.maskOccludeMultisampled!
+                : _outlineState.gpu.maskOcclude!;
+            const bindings = {
                 view: _render.viewBuffers[view.slot],
                 position: g.mesh.position,
                 indices: g.mesh.indices,
@@ -309,9 +318,12 @@ function renderOutline(
                 maskAttrs: _outlineState.gpu.attrs!,
                 meshQuant: g.mesh.quant,
                 sceneDepth: view.depth!,
-            });
-            _outlineState.gpu
-                .maskOcclude!.with(group)
+            };
+            const group = multisampled
+                ? world.gpu.root.createBindGroup(maskLayoutOccludeMultisampled, bindings)
+                : world.gpu.root.createBindGroup(maskLayoutOcclude, bindings);
+            depthPipeline
+                .with(group as never)
                 .with(mask)
                 .draw(g.mesh.indexCount, g.count, g.mesh.indexBase, g.first);
         } else {
@@ -441,7 +453,7 @@ const OutlineSystem: System = {
         for (const camEid of world.query([Camera])) {
             const view = world.resource(Views).get(camEid);
             if (!view?.framebuffer) continue;
-            // occlusion needs standard's DepthPrepass lane; without it, degrade to always-on-top
+            // occlusion needs the shared depth lane; without another requester, the outline plugin supplies it.
             renderOutline(
                 world,
                 camEid,
@@ -504,6 +516,14 @@ function prepareOutline(world: World): void {
             primitive: maskPrimitive,
         })
         .$name("outline-mask-occlude");
+    _outlineState.gpu.maskOccludeMultisampled = world.gpu.root
+        .createRenderPipeline({
+            vertex: maskVertex(maskLayoutOccludeMultisampled),
+            fragment: maskFragment(maskLayoutOccludeMultisampled, true),
+            targets: maskTargets,
+            primitive: maskPrimitive,
+        })
+        .$name("outline-mask-occlude-multisampled");
 
     forceCompile(world);
 }
@@ -647,6 +667,52 @@ function forceCompile(world: World): void {
         depth.destroy();
         return bound;
     });
+
+    precompile(world, "outline-mask-occlude-multisampled", () => {
+        const position = buf(8);
+        const indices = buf(4);
+        const globalTransformsBuffer = buf(48);
+        const eids = buf(4);
+        const attrs = buf(32);
+        const quant = buf(48);
+        const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
+        const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
+        const depth = world.gpu.device.createTexture({
+            label: "outline-mask-warm-depth-msaa",
+            size: { width: 1, height: 1 },
+            format: DEPTH_FORMAT,
+            sampleCount: SAMPLE_COUNT,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        });
+        const group = world.gpu.root.createBindGroup(maskLayoutOccludeMultisampled, {
+            view: world.resource(RenderContext).viewBuffers[0],
+            position,
+            indices,
+            globalTransforms: globalTransformsBuffer,
+            globalTransformRows: eids,
+            maskEids: eids,
+            maskAttrs: attrs,
+            meshQuant: quant,
+            sceneDepth: depth.createView(),
+        });
+        const bound = world
+            .resource(outlineStateKey)
+            .gpu.maskOccludeMultisampled!.with(group)
+            .withColorAttachment({
+                seed: { view: seed.createView() },
+                attr: { view: attr.createView() },
+            });
+        position.destroy();
+        indices.destroy();
+        globalTransformsBuffer.destroy();
+        eids.destroy();
+        attrs.destroy();
+        quant.destroy();
+        seed.destroy();
+        attr.destroy();
+        depth.destroy();
+        return bound;
+    });
 }
 
 function disposeOutline(world: World): void {
@@ -667,6 +733,7 @@ function disposeOutline(world: World): void {
     _outlineState.gpu.steps = [];
     _outlineState.gpu.maskPlain = null;
     _outlineState.gpu.maskOcclude = null;
+    _outlineState.gpu.maskOccludeMultisampled = null;
     _outlineState.gpu.jfa = null;
     _outlineState.gpu.composite = null;
     _outlineState.gpu.capacity = 0;
@@ -689,6 +756,14 @@ export const OutlinePlugin: Plugin = {
 
     initialize(world) {
         initializeOutlineState(world);
+        world.resource(DepthPrepassRequests).push((world, eid) => {
+            if (!world.has(eid, StandardRenderer)) return false;
+            const occlusion = world.storage(Outline).occlude;
+            for (const eid of world.query([Outline, MeshInstance])) {
+                if (occlusion.get(eid) > 0.5) return true;
+            }
+            return false;
+        });
     },
 
     async warm(world: World) {

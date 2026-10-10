@@ -2,7 +2,7 @@
 
 // the extras barrel lists each module's author names explicitly; extension names stay on the module.
 
-export { Fog, FogPlugin } from "./fog";
+export { Fog, FogPlugin, NoFog } from "./fog";
 export {
     Arrow,
     drawArrow,

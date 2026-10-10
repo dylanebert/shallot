@@ -90,6 +90,8 @@ export {
 export {
     DEPTH_FORMAT,
     DepthPrepass,
+    type DepthPrepassRequest,
+    DepthPrepassRequests,
     SAMPLE_COUNT,
 } from "./targets";
 
@@ -115,6 +117,8 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     const _render = world.resource(RenderContext);
 
     view.slot = slot;
+    const camera = world.storage(Camera);
+    const isPerspective = camera.mode.get(eid) !== CameraMode.Orthographic;
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
     // the viewProj is composed from, so it is read before the unchanged-slot test below
     composeGlobalTransform(world, eid, _renderFrame.camWorld);
@@ -150,14 +154,19 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     // pack this view's frustum cull volume — the pack tests each instance's bound against
     // cullVolumes[slot]'s 6 planes. Every view culls by frustum: cameras, the sun, and each
     // point/spot shadow combo (its own frustum-culled depth view)
-    frustumVolume(_render.cullVolumeStaging, slot, viewProj);
+    frustumVolume(
+        _render.cullVolumeStaging,
+        slot,
+        viewProj,
+        isPerspective ? _renderFrame.camWorld : undefined,
+        isPerspective ? camera.far.get(eid) : undefined,
+    );
     _render.cullVolumeStaging[slot * CULL_VOLUME_FLOATS + 1] = shading ? 0 : 1;
     // ViewUniforms.projection: near, far, perspective flag, slot.
     if (shading) {
-        const camera = world.storage(Camera);
         _render.viewStaging[offset + 28] = camera.near.get(eid);
         _render.viewStaging[offset + 29] = camera.far.get(eid);
-        _render.viewStaging[offset + 30] = camera.mode.get(eid) !== CameraMode.Orthographic ? 1 : 0;
+        _render.viewStaging[offset + 30] = isPerspective ? 1 : 0;
     } else {
         _render.viewStaging[offset + 28] = 0;
         _render.viewStaging[offset + 29] = 0;
@@ -170,9 +179,9 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     _render.viewStaging[offset + 33] = _renderFrame.camWorld[13];
     _render.viewStaging[offset + 34] = _renderFrame.camWorld[14];
     _render.viewStaging[offset + 35] = 1;
-    // invViewProj (floats 36-51): a screen-space pass (fog) reconstructs world position from depth
-    // via ndc → invViewProj. Only a shading view (a presenting camera) runs such a pass, so a
-    // depth-only shadow view skips the 4×4 inverse — the costliest op in the pack — and zeroes the
+    // invViewProj (floats 36-51): screen-space consumers reconstruct fog positions and background rays
+    // via ndc → invViewProj. Only a shading view (a presenting camera) runs such a pass, so a depth-only
+    // shadow view skips the 4×4 inverse — the costliest op in the pack — and zeroes the
     // slot. invert reads viewProj fully into locals before writing, so inverting into a sibling
     // view of the same staging never aliases
     if (shading) invertMat4(viewProj, _renderFrame.invViewProjs[slot]);

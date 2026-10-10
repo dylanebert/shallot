@@ -5,7 +5,7 @@ import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { lookAtRotation } from "../../engine";
-import { Fog, FogPlugin } from "../../extras/fog";
+import { Fog, FogPlugin, NoFog } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";
 import { DEFAULT_PLUGINS } from "../../standard";
 import {
@@ -42,7 +42,7 @@ const subjects = gpuApps(import.meta.path, [
     },
 ]);
 
-test("view targets preserve non-uniform lit background, fog and outline frames for every AA and depth-prepass setting", async () => {
+test("view targets preserve non-uniform lit background, fog and outline frames for every AA and explicit depth request", async () => {
     const { world } = subjects()[0];
     let renderPasses = 0;
     const device = world.gpu.device;
@@ -125,8 +125,13 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     for (const aa of [0, 1]) {
         world.storage(Camera).antialias.set(camera, aa);
         for (const depth of [0, 1]) {
-            if (depth) world.add(camera, DepthPrepass);
-            else world.remove(camera, DepthPrepass);
+            if (depth) {
+                world.add(camera, DepthPrepass);
+                world.remove(camera, NoFog);
+            } else {
+                world.remove(camera, DepthPrepass);
+                world.add(camera, NoFog);
+            }
             world.gpu.device.pushErrorScope("validation");
             world.step(0);
             renderPasses = 0;

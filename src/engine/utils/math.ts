@@ -194,12 +194,11 @@ export function rotateQuatByEuler(
     };
 }
 
-/** perspective projection mat4 (column-major), reverse-Z (near→1, far→0); fov in degrees */
+/** Infinite perspective projection mat4 (column-major), reverse-Z (near→1, infinity→0); fov in degrees */
 export function perspective(
     fov: number,
     aspect: number,
     near: number,
-    far: number,
     out?: Float32Array,
 ): Float32Array {
     if (!Number.isFinite(fov) || fov <= 0) throw new Error(`Invalid FOV: ${fov} (must be > 0)`);
@@ -207,11 +206,8 @@ export function perspective(
         throw new Error(`Invalid aspect ratio: ${aspect} (must be > 0)`);
     if (!Number.isFinite(near) || near <= 0)
         throw new Error(`Invalid near plane: ${near} (must be > 0)`);
-    if (!Number.isFinite(far) || near === far)
-        throw new Error(`Invalid depth planes: near === far (${near})`);
     if (!out) out = new Float32Array(16);
     const f = 1 / Math.tan((fov * Math.PI) / 360);
-    const nf = 1 / (near - far);
     out[0] = f / aspect;
     out[1] = 0;
     out[2] = 0;
@@ -222,14 +218,12 @@ export function perspective(
     out[7] = 0;
     out[8] = 0;
     out[9] = 0;
-    // reverse-Z: the depth row is the standard mapping with near/far swapped, so near→1 and
-    // far→0 (`out[11] = -1` keeps w_clip = z). Float depth + reverse-Z holds near-constant
-    // relative precision across the range; forward-Z crowds it all at the far plane.
-    out[10] = -near * nf;
+    // `w_clip = -z_view`; zeroing the depth coefficient maps infinity to 0 and the near plane to 1.
+    out[10] = 0;
     out[11] = -1;
     out[12] = 0;
     out[13] = 0;
-    out[14] = -near * far * nf;
+    out[14] = near;
     out[15] = 0;
     return out;
 }

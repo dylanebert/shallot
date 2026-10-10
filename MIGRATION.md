@@ -65,6 +65,33 @@ when interpreting hit distances. `viewportToWorld` reads fixed-tick `GlobalTrans
 and returns null without camera placement or a non-empty bound viewport.
 `generateRay` and `screenToRay` are no longer physics exports.
 
+## Camera depth, fog and perspective range
+
+Perspective cameras now use infinite reverse-Z. `Camera.far` remains the finite
+visibility-culling bound and clustered-light range; it no longer clips the perspective
+projection or limits its depth precision. Orthographic cameras still use `far` as a
+projection plane. The exported `perspective` helper likewise drops its `far` argument:
+call `perspective(fov, aspect, near)`.
+
+`DepthPrepass` remains an explicit request for stored camera depth, but it is no longer
+required to enable built-in depth consumers: fog and occluded outlines request the shared
+lane when needed. The lane matches the camera's antialiasing sample count; GPU consumers
+that read it use sample zero. Keep `DepthPrepass` when the game itself explicitly needs the
+lane, not as a switch for these plugins.
+
+When the world has a `Fog` component, `FogPlugin` now applies it to every `StandardRenderer`
+camera by default. Attach `NoFog` to an individual camera to opt that camera out; this does
+not suppress a separate `DepthPrepass` request:
+
+```ts
+import { NoFog } from "@dylanebert/shallot";
+world.add(camera, NoFog);
+```
+
+For perspective cameras, infinite reverse-Z makes depth zero mean no opaque surface, so the
+fog pass leaves those background pixels unchanged rather than unprojecting them as a finite
+endpoint. Orthographic depth zero still names its far projection plane.
+
 ## Hull registries belong to worlds
 
 Replace `Hulls.register(...)` and other registry calls with

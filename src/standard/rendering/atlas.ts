@@ -855,7 +855,7 @@ export function renderPointShadows(
     ensurePointAtlas(world);
     _pointRegather.ensure(pointCasters(world) * 6, capacity);
 
-    // the caster params the FS samples (pos + source eid, clip planes + bias, + the spot basis —
+    // the caster params the FS samples (pos + source eid, near + depth/normal bias, + the spot basis —
     // right.xyz/coneTanHalf, up.xyz, fwd.xyz; coneTanHalf 0 routes the FS to the cube-face path). The tile
     // rects ride a separate uniform (uploaded below), indexed slot·6 + face
     clearPointParams(world);
@@ -867,7 +867,7 @@ export function renderPointShadows(
         _atlasState.pointF32[o + 2] = caster.pos[2];
         _atlasState.pointF32[o + 3] = caster.light;
         _atlasState.pointF32[o + 4] = caster.near;
-        _atlasState.pointF32[o + 5] = caster.far;
+        _atlasState.pointF32[o + 5] = 0;
         _atlasState.pointF32[o + 6] = caster.depthBias;
         _atlasState.pointF32[o + 7] = caster.normalBias;
         _atlasState.pointF32[o + 8] = caster.right[0];

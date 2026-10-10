@@ -51,8 +51,8 @@ export const VIEW_UNIFORM_SIZE = VIEW_STRIDE * MAX_SLOTS;
 
 /**
  * the byte size of the {@link ViewUniforms} uniform a surface statically reads, from the schema: projection,
- * camera basis, eye and inverse view-projection, followed by per-camera ambient radiance and exposure. A
- * screen-space pass reconstructs world position from depth through `invViewProj`; each shading slot also
+ * camera basis, eye and inverse view-projection, followed by per-camera ambient radiance and exposure. Fog
+ * reconstructs surface positions and backgrounds derive camera rays through `invViewProj`; each shading slot also
  * carries the camera's effective ambient override and EV100 factor. Each shading slot binds its own whole
  * {@link RenderContext.viewBuffers} buffer of exactly this size.
  */
@@ -84,8 +84,8 @@ export const linearToSrgb3 = tgpu.fn(
  * backbuffer, as a render attachment in the base canvas format (not sRGB). The final pass
  * writes it, encoding linear→sRGB once. The split from `framebuffer` exists so postfx
  * has a rendered color to read: writing the swapchain in place leaves nothing to read back.
- * `depth` is the camera's single-sample depth, stored and published by the prepass only when the camera
- * carries `DepthPrepass`, read by screen-space consumers (AO, fog); otherwise it is null. A
+ * `depth` is the camera's stored depth lane, matching the main pass's sample count. Core publishes it only when
+ * the camera carries `DepthPrepass` or a registered plugin requests it; otherwise it is null. A
  * canvas-bound view (`attachCanvas`) renders to that canvas; a canvas-less view (`attachView`) has
  * no `canvas` / `context` / `observer` and a null `framebuffer` / `present`. It still takes a cull slot
  * (a shadow light's off-screen camera renders to its own target, not the screen). Every view

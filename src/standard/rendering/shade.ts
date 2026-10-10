@@ -172,7 +172,7 @@ export const brdfSphere = tgpu.fn(
 
 /**
  * one shadowed point/spot caster slot: `pos` = light world position with the source entity id in `w`
- * (`-1` for an empty slot, which matches no light); `nf` = (near, far, depthBias, normalBias); `spotA/B/C`
+ * (`-1` for an empty slot, which matches no light); `nf` = (near, unused, depthBias, normalBias); `spotA/B/C`
  * = the cone's lookAt basis (right / up / fwd) with the widened cone tangent in `spotA.w` (0 for a point
  * caster, which uses cube faces instead).
  */
@@ -267,14 +267,13 @@ export const offsetTowardLight = tgpu
     })
     .$name("offsetTowardLight");
 
-/** Reverse-Z perspective depth for a receiver already offset in world space. */
+/** Infinite reverse-Z perspective depth for a receiver already offset in world space. */
 export const pointReceiver = tgpu.fn(
-    [d.f32, d.f32, d.f32],
+    [d.f32, d.f32],
     d.f32,
-)((z, near, far) => {
+)((z, near) => {
     "use gpu";
-    const zb = std.max(z, near);
-    return (near * (far - zb)) / (zb * (far - near));
+    return near / std.max(z, near);
 });
 
 /** returns the point/spot caster WGSL: the {@link PointCaster} / `PointCasters` / `TileRects` structs a
@@ -321,7 +320,7 @@ function pointShadowFn() {
             let biased = offsetTowardLight(toFrag, -toFrag, c.nf.z);
             let dOff = biased + normal * (c.nf.w * 1.4142136 * texelWorld);
             let z = max(dot(dOff, c.spotC.xyz), c.nf.x);
-            receiver = pointReceiver(z, c.nf.x, c.nf.y);
+            receiver = pointReceiver(z, c.nf.x);
             let ndc = vec2<f32>(dot(dOff, c.spotA.xyz), dot(dOff, c.spotB.xyz)) / (z * coneTanHalf);
             uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
         } else {
@@ -335,7 +334,7 @@ function pointShadowFn() {
             let f = pointFaceOf(dOff);
             rect = tileRects.rects[k * 6u + f.face];
             let z = max(f.stz.z, c.nf.x);
-            receiver = pointReceiver(z, c.nf.x, c.nf.y);
+            receiver = pointReceiver(z, c.nf.x);
             let ndc = f.stz.xy / (z * tanHalf);
             uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
         }

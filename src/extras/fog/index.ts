@@ -4,8 +4,8 @@
 // standard's point atlas, and only the selected directional shadow caster uses the directional atlas; other
 // enabled directionals scatter unshadowed. Occluders still cast dark shafts for shadowed sources.
 // It runs through the `sceneTransform` seam after the main pass and before tonemapping.
-// A scene opts in with one `Fog` singleton; a camera opts in with core's `DepthPrepass` lane
-// (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
+// A scene opts in with one `Fog` singleton; the plugin requests core's shared depth lane for each standard camera
+// unless it carries `NoFog`. The march primitives + the Fog
 // uniform schema live in `./march`; the pipeline (the two bind-group layouts + the compute kernel
 // calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle
 // are the same TGSL source (extinction + clustered + directional in-scatter) — this file is the ECS/system/
@@ -14,10 +14,12 @@ import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from
 import {
     Camera,
     DEPTH_FORMAT,
+    DepthPrepassRequests,
     MainPassSystem,
     OverlaySystem,
     RenderContext,
     RenderingPlugin,
+    SAMPLE_COUNT,
     sceneTransform,
     TonemappingSystem,
     Views,
@@ -37,7 +39,13 @@ import {
 } from "../../standard/rendering";
 import { FOG_FLOATS, FogGpu, WORKGROUP } from "./march";
 import { packFog } from "./pack";
-import { fogKernel, fogLayout0, fogLayout1 } from "./pipeline";
+import {
+    fogKernel,
+    fogKernelMultisampled,
+    fogLayout0,
+    fogLayout0Multisampled,
+    fogLayout1,
+} from "./pipeline";
 
 /**
  * the scene's volumetric atmosphere: one per scene (a singleton). The fog pass marches each pixel from the
@@ -86,9 +94,13 @@ export const Fog = component(
     },
 );
 
+/** Camera marker that opts out of the world's {@link Fog} atmosphere. */
+export const NoFog = component("NoFog", {});
+
 interface FogState {
     fog: {
         pipeline: TgpuComputePipeline | null;
+        multisampledPipeline: TgpuComputePipeline | null;
         buffer: (TgpuBuffer<typeof FogGpu> & UniformFlag) | null;
     };
     staging: Float32Array;
@@ -100,6 +112,7 @@ interface FogState {
             write: GPUTextureView;
             depth: GPUTextureView;
             slot: number;
+            multisampled: boolean;
             group: ViewGroup;
         }
     >;
@@ -107,7 +120,7 @@ interface FogState {
 
 const fogStateKey = { create: () => createFogState() };
 const createFogState = (): FogState => ({
-    fog: { pipeline: null, buffer: null },
+    fog: { pipeline: null, multisampledPipeline: null, buffer: null },
     staging: new Float32Array(FOG_FLOATS),
     lights: null,
     views: new Map(),
@@ -119,7 +132,9 @@ function initializeFogState(world: World): void {
 }
 
 type LightsGroup = TgpuBindGroup<(typeof fogLayout1)["entries"]>;
-type ViewGroup = TgpuBindGroup<(typeof fogLayout0)["entries"]>;
+type ViewGroup =
+    | TgpuBindGroup<(typeof fogLayout0)["entries"]>
+    | TgpuBindGroup<(typeof fogLayout0Multisampled)["entries"]>;
 
 // the camera-independent light + shadow service group (group 1), cached on the identities of the resources
 // it binds. The cull already binned every shading view this frame, so one group serves all cameras; standard's
@@ -170,8 +185,8 @@ function fogLights(world: World): LightsGroup {
  * the fog march, per camera: reads the resolved scene (`view.framebuffer`) + the camera's depth lane,
  * marches each pixel through the atmosphere, and writes the haze-composited scene back through the
  * `sceneTransform` scratch so tonemapping reads it. No-op unless the scene has a {@link Fog} singleton and the
- * camera carries core's `DepthPrepass` lane (the march needs scene depth, no auto-add). Ordered after the main
- * color pass and before tonemapping.
+ * camera is a standard view without {@link NoFog}; the plugin requests the shared depth lane. Ordered after the
+ * main color pass and before tonemapping.
  */
 const FogSystem: System = {
     name: "fog",
@@ -184,7 +199,13 @@ const FogSystem: System = {
         const _render = world.resource(RenderContext);
         const _fogState = world.resource(fogStateKey);
 
-        if (!world.gpu.device || !_fogState.fog.pipeline || !_fogState.fog.buffer) return;
+        if (
+            !world.gpu.device ||
+            !_fogState.fog.pipeline ||
+            !_fogState.fog.multisampledPipeline ||
+            !_fogState.fog.buffer
+        )
+            return;
         const fogEid = world.only([Fog]);
         if (fogEid < 0) return;
         packFog(world, fogEid, fogState(world).staging);
@@ -192,8 +213,13 @@ const FogSystem: System = {
         // a null resource is a wiring bug, not a frame to skip (gpu firehose rule) — fogLights asserts them
         const lights = fogLights(world);
         for (const eid of world.query([Camera, StandardRenderer])) {
+            if (world.has(eid, NoFog)) continue;
             const view = world.resource(Views).get(eid);
             if (!view?.framebuffer || !view.depth) continue;
+            const multisampled = world.storage(Camera).antialias.get(eid) !== 0;
+            const pipeline = multisampled
+                ? _fogState.fog.multisampledPipeline
+                : _fogState.fog.pipeline;
             const { read, write } = sceneTransform(world, view, eid);
             let cam = fogState(world).views.get(eid);
             if (
@@ -201,20 +227,30 @@ const FogSystem: System = {
                 cam.read !== read ||
                 cam.write !== write ||
                 cam.depth !== view.depth ||
-                cam.slot !== view.slot
+                cam.slot !== view.slot ||
+                cam.multisampled !== multisampled
             ) {
                 cam = {
                     read,
                     write,
                     depth: view.depth,
                     slot: view.slot,
-                    group: world.gpu.root.createBindGroup(fogLayout0, {
-                        sceneTex: read,
-                        depthTex: view.depth,
-                        output: write,
-                        view: _render.viewBuffers[view.slot],
-                        fog: _fogState.fog.buffer,
-                    }),
+                    multisampled,
+                    group: multisampled
+                        ? world.gpu.root.createBindGroup(fogLayout0Multisampled, {
+                              sceneTex: read,
+                              depthTex: view.depth,
+                              output: write,
+                              view: _render.viewBuffers[view.slot],
+                              fog: _fogState.fog.buffer,
+                          })
+                        : world.gpu.root.createBindGroup(fogLayout0, {
+                              sceneTex: read,
+                              depthTex: view.depth,
+                              output: write,
+                              view: _render.viewBuffers[view.slot],
+                              fog: _fogState.fog.buffer,
+                          }),
                 };
                 fogState(world).views.set(eid, cam);
             }
@@ -222,8 +258,8 @@ const FogSystem: System = {
                 label: `fog/${eid}`,
                 timestampWrites: world.gpu.span?.("fog:march"),
             });
-            _fogState.fog.pipeline
-                .with(cam.group)
+            pipeline
+                .with(cam.group as never)
                 .with(lights)
                 .with(pass)
                 .dispatchWorkgroups(
@@ -237,19 +273,27 @@ const FogSystem: System = {
 
 /**
  * volumetric atmosphere (fog + height fog). Opt-in: add `FogPlugin` to the plugin set, give the scene one
- * {@link Fog} singleton, and give the rendering camera core's `DepthPrepass` lane. The march composites before tonemapping
- * via the `sceneTransform` seam.
+ * {@link Fog} singleton; fog requests the shared camera depth lane, and {@link NoFog} opts a camera out. The march
+ * composites before tonemapping via the `sceneTransform` seam.
  */
 export const FogPlugin: Plugin = {
     gpu: {},
     name: "Fog",
-    components: [Fog],
+    components: [Fog, NoFog],
 
     systems: [FogSystem],
     dependencies: [RenderingPlugin, StandardRenderingPlugin],
 
     initialize(world) {
         initializeFogState(world);
+        world
+            .resource(DepthPrepassRequests)
+            .push(
+                (world, eid) =>
+                    world.only([Fog]) >= 0 &&
+                    world.has(eid, StandardRenderer) &&
+                    !world.has(eid, NoFog),
+            );
     },
 
     async warm(world: World) {
@@ -265,12 +309,15 @@ export const FogPlugin: Plugin = {
         _fogState.fog.pipeline = world.gpu.root
             .createComputePipeline({ compute: fogKernel })
             .$name("fog");
+        _fogState.fog.multisampledPipeline = world.gpu.root
+            .createComputePipeline({ compute: fogKernelMultisampled })
+            .$name("fog-multisampled");
         // the pipeline just changed identity — drop any group cached against the prior build
         fogState(world).lights = null;
         fogState(world).views.clear();
 
         // typegpu creates pipelines synchronously, so Dawn defers the real compile — and
-        // the march runs every frame `Fog` + `DepthPrepass` are both present, so an unfired compile would land the
+        // the march runs every frame `Fog` + a camera without `NoFog` are both present, so an unfired compile would land the
         // stall on whichever frame that is. Group 1's real resources (the light/shadow service) exist by the
         // time this runs (deferred past every plugin's `warm`); group 0 is genuinely per-camera,
         // so the forcer stands in 1×1 throwaways, like tonemapping's / outline's
@@ -308,6 +355,41 @@ export const FogPlugin: Plugin = {
             dst.destroy();
             return bound;
         });
+        precompile(world, "fog-msaa", () => {
+            const _fogState = world.resource(fogStateKey);
+
+            const src = device.createTexture({
+                label: "fog-precompile-scene",
+                size: { width: 1, height: 1 },
+                format: "rgba16float",
+                usage: GPUTextureUsage.TEXTURE_BINDING,
+            });
+            const depth = device.createTexture({
+                label: "fog-precompile-depth",
+                size: { width: 1, height: 1 },
+                format: DEPTH_FORMAT,
+                sampleCount: SAMPLE_COUNT,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            });
+            const dst = device.createTexture({
+                label: "fog-precompile-out",
+                size: { width: 1, height: 1 },
+                format: "rgba16float",
+                usage: GPUTextureUsage.STORAGE_BINDING,
+            });
+            const group0 = world.gpu.root.createBindGroup(fogLayout0Multisampled, {
+                sceneTex: src.createView(),
+                depthTex: depth.createView(),
+                output: dst.createView(),
+                view: world.resource(RenderContext).viewBuffers[0],
+                fog: _fogState.fog.buffer!,
+            });
+            const bound = _fogState.fog.multisampledPipeline!.with(group0).with(fogLights(world));
+            src.destroy();
+            depth.destroy();
+            dst.destroy();
+            return bound;
+        });
     },
 
     dispose(world: World) {
@@ -316,6 +398,7 @@ export const FogPlugin: Plugin = {
         _fogState.fog.buffer?.destroy();
         _fogState.fog.buffer = null;
         _fogState.fog.pipeline = null;
+        _fogState.fog.multisampledPipeline = null;
         fogState(world).lights = null;
         fogState(world).views.clear();
     },
