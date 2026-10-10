@@ -1973,14 +1973,18 @@ export function getBackground(
     return compiled;
 }
 
-/** Compile every surface and background at warm, before the first draw. */
+/** Prepare every material parameter table, pipeline and background at warm, before the first draw. */
 export async function preparePipelines(world: World, capacity: number): Promise<void> {
-    // force each pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
+    // Create type-local tables at warm so their defaults are ready for the first frame. A material type
+    // can first acquire a draw from a draw-group system; creating its table during that draw would miss
+    // the frame's already-completed table upload.
+    // Force each pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
     // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
     // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm
-    // lock)
+    // lock).
     for (const type of materialTypes(world)) {
         if (!type) continue;
+        world.resource(type).table;
         const compiled = compileMaterial(world, type, capacity);
         for (const p of [
             compiled.color,

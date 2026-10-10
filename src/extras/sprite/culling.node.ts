@@ -8,7 +8,7 @@ import { probeBuffer } from "../../engine/runtime";
 import { Draws, materialTypeId, StandardRenderer } from "../../standard/rendering";
 import { Sprite, SpriteBillboard, SpriteMaterialType, SpritePlugin } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [SpritePlugin] }]);
 
 test("a large anchored world Sprite stays in the camera draw when its quad reaches the frustum", async () => {

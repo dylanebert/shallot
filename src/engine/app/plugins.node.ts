@@ -852,7 +852,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect([...second.world.query([GlobalTransform])].length).toBeGreaterThan(0);
         }
         for (const [plugin, key] of [
-            [SpritePlugin, "spriteData"],
+            [SpritePlugin, "material:SpriteMaterial"],
             [TextPlugin, "textGlyphs"],
             [LinesPlugin, "lineSegments"],
             [SkyPlugin, "sky"],

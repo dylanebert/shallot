@@ -308,7 +308,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         this._bytes.set(new Uint8Array(this._scratch), 0);
     }
 
-    /** The GPU table is created lazily when a renderer first consumes these CPU-authored rows. */
+    /** The renderer initializes this table at warm so its default row is uploaded before the first draw. */
     get table(): ReturnType<World["table"]> {
         if (!this._table) {
             const table = this._world.table(`material:${this._type.name}`, this._type.parameters);

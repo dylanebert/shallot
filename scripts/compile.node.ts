@@ -18,7 +18,8 @@ const pipelineCounts: Record<string, number> = {
     "Physics profiling": 0,
     Orbit: 0,
     profiling: 0,
-    "default plugins": 27, // Cull -> z-slice, local/global allocation, count + populate (+4); tonemapping warms rgba8unorm.
+    "default plugins": 23, // Unlit became a StandardMaterial branch; it no longer compiles its own
+    // color, prepass, point-shadow or cascade-shadow pipeline.
 };
 
 for (const subject of compileSubjects) {

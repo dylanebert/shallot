@@ -506,7 +506,12 @@ async function compositionFrame(world: World, offset: number, frame: number) {
         sprite: world.has(eid, Sprite) ? world.storage(Sprite).image.get(eid) : null,
     }));
     const buffers: Record<string, number[]> = {};
-    for (const name of ["global-transform", "textGlyphs", "spriteData", "lineSegments"]) {
+    for (const name of [
+        "global-transform",
+        "textGlyphs",
+        "material:SpriteMaterial",
+        "lineSegments",
+    ]) {
         const buffer = world.gpu.buffers.get(name);
         if (!buffer) throw new Error(`ownership composition did not publish ${name}`);
         const probe = await probeBuffer(world, buffer, { size: Math.min(buffer.size, 2048) });
