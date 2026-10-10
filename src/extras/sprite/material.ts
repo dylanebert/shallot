@@ -99,7 +99,7 @@ const spriteVertex = tgpu
     })
     .$name("spriteVertex");
 
-function spriteFragment(clip: boolean) {
+function spriteFragment() {
     return tgpu
         .fn(
             [SpriteFragmentContext],
@@ -118,13 +118,9 @@ function spriteFragment(clip: boolean) {
             const mask = spriteFillMask(sprite.fill, uv);
             const rgb = std.mul(texel.xyz, spriteSrgbToLinear(tint.xyz));
             const alpha = texel.w * tint.w * mask;
-            if (clip) {
-                if (alpha < 0.5) std.discard();
-                return d.vec4f(rgb, 1);
-            }
             return d.vec4f(rgb, alpha);
         })
-        .$name(clip ? "spriteClipFragment" : "spriteAlphaFragment");
+        .$name("spriteFragment");
 }
 
 const defaults = {
@@ -136,28 +132,14 @@ const defaults = {
     billboard: SpriteBillboard.Screen,
 };
 
-/** Opaque/cutout sprites retain standard depth and shadow-atlas participation. */
+/** Sprite parameters occupy one table; each row supplies its own AlphaMode. */
 export const SpriteMaterialType = materialType({
     name: "SpriteMaterial",
     parameters: SpriteMaterialInput,
     layout,
     fragmentInputs: { localPos: true },
     vertex: spriteVertex,
-    fragment: spriteFragment(true),
+    fragment: spriteFragment(),
     defaults,
-    blend: "clip",
     depthPass: { prepass: true, shadows: true },
-});
-
-/** Alpha sprites share the same schema/shader and use the alpha route's fixed-function blend state. */
-export const SpriteAlphaMaterialType = materialType({
-    name: "SpriteAlphaMaterial",
-    parameters: SpriteMaterialInput,
-    layout,
-    fragmentInputs: { localPos: true },
-    vertex: spriteVertex,
-    fragment: spriteFragment(false),
-    defaults,
-    blend: "alpha",
-    depthPass: { prepass: false, shadows: false },
 });

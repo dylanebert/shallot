@@ -71,7 +71,12 @@ import type { BundleDraw, PassBundle } from "./bundle";
 import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
 import { type Background, Backgrounds } from "./contract";
 import { engineLayout } from "./engine";
-import { type MaterialType, materialTypes, registerMaterialType } from "./material-type";
+import {
+    AlphaPipelineKey,
+    type MaterialType,
+    materialTypes,
+    registerMaterialType,
+} from "./material-type";
 import {
     type BindResource,
     bgQuant,
@@ -165,8 +170,8 @@ export const CameraBackground = component("CameraBackground", {
     name: u32,
 });
 
-// a draw resolving to null is a silent skip — usually a typo'd binding or an
-// unpublished resource. Warn once per draw so it's visible without spamming
+// A draw resolving to null is a silent skip — usually a typo'd binding or an
+// unpublished resource. Warn once per material/mesh pair so alpha variants do not repeat it.
 
 function warnSkip(world: World, draw: string, cause: string): null {
     const _standardRendererState = world.resource(standardRendererStateKey);
@@ -370,28 +375,29 @@ function recordMaterial(
     capacity: number,
 ): FrameDraw | null {
     const mesh = world.resource(Meshes).get(draw.mesh);
-    if (!mesh) return warnSkip(world, draw.name, `mesh handle ${draw.mesh} not registered`);
+    const warningName = `mesh:material:${surface.name}:${mesh?.name ?? draw.mesh}:${draw.mesh}`;
+    if (!mesh) return warnSkip(world, warningName, `mesh handle ${draw.mesh} not registered`);
     if (!mesh.position || !mesh.quant) {
         // registerMesh staged it after this frame's pack; it draws from the next frame
         if (mesh.pending) return null;
         return warnSkip(
             world,
-            draw.name,
+            warningName,
             `mesh "${mesh.name}" has no quantized position/quant stream`,
         );
     }
     const prev = getGroup(world, draw.name, surface);
-    let t = prev?.item.r.t ?? getCompiledMaterial(world, surface.name);
+    let t = prev?.item.r.t ?? getCompiledMaterial(world, surface.name, draw.alphaPipelineKey);
     if (!t || t.owner !== surface || t.layout !== surface.layout) {
         // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
         // loop, so it degrades to the warn-once skip
         try {
-            t = compileMaterial(world, surface, capacity);
+            t = compileMaterial(world, surface, capacity, draw.alphaPipelineKey);
         } catch (e) {
             return warnSkip(
                 world,
-                draw.name,
+                warningName,
                 `material type "${surface.name}" failed to compile: ${e}`,
             );
         }
@@ -413,7 +419,7 @@ function recordMaterial(
         if (!stream || !d.deepEqual(stream.dataType.elementType, element))
             return warnSkip(
                 world,
-                draw.name,
+                warningName,
                 `mesh "${mesh.name}" ${stream ? "has a different schema for" : "has no"} attribute "${name}" that material type "${surface.name}" reads`,
             );
         overrides[name] = stream;
@@ -425,7 +431,7 @@ function recordMaterial(
         surface,
     );
     if (typeof resolved === "string")
-        return warnSkip(world, draw.name, `binding "${resolved}" not published`);
+        return warnSkip(world, warningName, `binding "${resolved}" not published`);
     // geometry + the atlas packed lists join the identity check (a re-gather realloc also clears the
     // whole cache via `clearGroups` — the lists here make the entry self-consistent even without it)
     const resources: BindResource[] = [
@@ -440,7 +446,13 @@ function recordMaterial(
 
     const root = world.gpu.root;
     const engineCache = new Map<number, GPUBindGroup>();
-    const clip = surface.blend === "clip";
+    const clip =
+        draw.alphaPipelineKey === AlphaPipelineKey.Mask ||
+        draw.alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage;
+    const transparent =
+        draw.alphaPipelineKey === AlphaPipelineKey.Blend ||
+        draw.alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
+        draw.alphaPipelineKey === AlphaPipelineKey.Multiply;
     const depthLayout = clip ? surface.layout : surface.layout.depthVariant;
     const depthVertices = clip ? mesh.vertices : mesh.position;
     const entry: MaterialGroupEntry = {
@@ -448,11 +460,10 @@ function recordMaterial(
         layout: surface.layout,
         quant: root.unwrap(mesh.quant),
         color: surfaceGroup(world, resolved.values, surface.layout, mesh.vertices),
-        // `alpha` compiles no depth-side pipelines, so it needs no depth-shape groups
-        depth:
-            surface.blend === "alpha"
-                ? null
-                : surfaceGroup(world, resolved.values, depthLayout, depthVertices),
+        // Blended modes compile no depth-side pipelines, so they need no depth-shape groups
+        depth: transparent
+            ? null
+            : surfaceGroup(world, resolved.values, depthLayout, depthVertices),
         point:
             t.point && pointList
                 ? surfaceGroup(world, resolved.values, depthLayout, depthVertices, {
@@ -505,8 +516,8 @@ function resolveDraw(world: World, draw: Draw, capacity: number): void {
     if (item) _standardRendererState.frameDraws[_standardRendererState.frameCount++] = item;
 }
 
-/** Records opaque and clipped material types into core's single-sample depth prepass.
- * Alpha types write no depth; an empty draw list still clears the depth target. */
+/** Records opaque, masked and alpha-to-coverage materials into core's single-sample depth prepass.
+ * Blended modes write no depth; an empty draw list still clears the depth target. */
 function renderPrepass(
     world: World,
     eid: number,
@@ -610,7 +621,7 @@ function backgroundGroup(
     return group;
 }
 
-// one opaque or blended material draw in a camera's color pass at its view slot, written into the
+// one opaque, masked, alpha-to-coverage or blended material draw in a camera's color pass at its view slot, written into the
 // camera's bundle program at `at`
 function drawColor(
     world: World,

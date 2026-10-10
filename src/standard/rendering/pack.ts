@@ -17,6 +17,7 @@ import { DrawIndexedIndirect } from "./registry";
 export const CullParams = d.struct({
     viewCount: d.u32,
     pairCount: d.u32,
+    meshCount: d.u32,
     instanceCount: d.u32,
     instanceCapacity: d.u32,
 });
@@ -124,7 +125,12 @@ function pairFactory(materialTypeCount: number) {
             const encodedGlobalTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
             const materialType = instance.materialType;
-            if (materialType >= materialTypeCount || encodedGlobalTransform === 0) {
+            const alphaMode = instance.alphaMode;
+            if (
+                materialType >= materialTypeCount ||
+                alphaMode > 6 ||
+                encodedGlobalTransform === 0
+            ) {
                 return Pair({
                     pair: invalidPair,
                     mid: instance.mesh,
@@ -133,8 +139,12 @@ function pairFactory(materialTypeCount: number) {
                     globalTransformRow: 0,
                 });
             }
+            let alphaKey = alphaMode;
+            if (alphaMode === 3 || alphaMode === 4) alphaKey = 3;
+            else if (alphaMode === 5) alphaKey = 4;
+            else if (alphaMode === 6) alphaKey = 5;
             return Pair({
-                pair: instance.mesh * materialTypeCount + materialType,
+                pair: (materialType * 6 + alphaKey) * cullLayout.$.params.meshCount + instance.mesh,
                 mid: instance.mesh,
                 eid,
                 row,

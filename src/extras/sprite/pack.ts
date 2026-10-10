@@ -10,11 +10,11 @@ export const SpriteBillboard = {
     World: 2,
 } as const;
 
-/** how a sprite composites against the scene */
+/** Sprite material alpha mode: Clip maps to Mask(0.5), Alpha maps to Blend. */
 export const SpriteBlend = {
-    /** alpha-tested cutout at 0.5: depth-written, unsorted, holed shadows (the default) */
+    /** alpha-tested cutout at 0.5: depth-written and casts holed shadows (the default) */
     Clip: 0,
-    /** translucent: blended over the opaque scene, casts nothing */
+    /** translucent: blended over the opaque scene and casts no shadows */
     Alpha: 1,
 } as const;
 
@@ -42,7 +42,7 @@ export const Sprite = component(
         anchor: vec2,
         /** hex sRGB tint multiplied into the texture */
         color: f32,
-        /** texture-alpha multiplier; under clip blend it shrinks the cutout, under alpha blend it fades */
+        /** texture-alpha multiplier; it shrinks the mask or fades the blended sprite */
         opacity: f32,
         /** drawn when nonzero */
         visible: f32,

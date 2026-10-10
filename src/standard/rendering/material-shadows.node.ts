@@ -21,6 +21,7 @@ import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
 import { MeshMaterial } from "./material-data";
 import {
+    AlphaMode,
     MaterialPlugin,
     materialFragmentContext,
     materialLayout,
@@ -46,7 +47,6 @@ const CutoutMaterial = materialType({
         return color;
     }),
     defaults: { color: d.vec4f(1) },
-    blend: "clip",
     depthPass: { prepass: true, shadows: true },
 });
 const CutoutPlugin: Plugin = {
@@ -89,7 +89,7 @@ test("NotShadowCaster preserves visibility and peers' shadows; shadow materials 
     world.add(caster, MeshInstance);
     const materials = world.resource(CutoutMaterial);
     const values = { color: d.vec4f(1, 0, 0, 1) };
-    const initial = materials.add(values);
+    const initial = materials.add(values, { alphaMode: AlphaMode.Mask(0.5) });
     world.add(caster, MeshMaterial, initial);
     const sun = world.create();
     world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });
@@ -135,9 +135,11 @@ test("NotShadowCaster preserves visibility and peers' shadows; shadow materials 
     const other = world.create();
     world.add(other, Transform);
     world.add(other, MeshInstance);
+    const otherMaterial = world.storage(MeshMaterial).material.get(caster);
     world.add(other, MeshMaterial, {
         type: world.storage(MeshMaterial).type.get(caster),
-        material: world.storage(MeshMaterial).material.get(caster),
+        material: otherMaterial,
+        ...materials.alpha(otherMaterial),
     });
     expect(await occupied()).toEqual(before);
     world.destroy(other);
@@ -148,7 +150,9 @@ test("NotShadowCaster preserves visibility and peers' shadows; shadow materials 
     const generation = table.generation;
     const capacity = table.capacity;
     let material = initial;
-    for (let i = 0; i < capacity * 4; i++) material = materials.add(values);
+    for (let i = 0; i < capacity * 4; i++) {
+        material = materials.add(values, { alphaMode: AlphaMode.Mask(0.5) });
+    }
     expect(table.generation - generation).toBeGreaterThanOrEqual(2);
     expect(material.material).toBeGreaterThanOrEqual(capacity);
     world.storage(MeshMaterial).material.set(caster, material.material);

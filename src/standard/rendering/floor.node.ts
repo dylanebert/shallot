@@ -25,13 +25,7 @@ import { probeBuffer } from "../../engine/runtime";
 import { packColor } from "../../engine/utils";
 import { Line, LinesPlugin } from "../../extras/lines";
 import { lineLayout, viewLayout as lineViewLayout } from "../../extras/lines/pipeline";
-import {
-    Sprite,
-    SpriteAlphaMaterialType,
-    SpriteMaterialInput,
-    SpriteMaterialType,
-    SpritePlugin,
-} from "../../extras/sprite";
+import { Sprite, SpriteMaterialInput, SpriteMaterialType, SpritePlugin } from "../../extras/sprite";
 import { packSpriteFill } from "../../extras/sprite/pack";
 import { internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
@@ -45,6 +39,8 @@ import {
     LightCull,
 } from "./cluster";
 import {
+    AlphaMode,
+    AlphaPipelineKey,
     BackgroundContext,
     backgroundLayout,
     CameraBackground,
@@ -223,12 +219,9 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
                 storageCount(engineLayout, "vertex") + storageCount(attributeLayout, "vertex"),
             attributeFragment:
                 storageCount(engineLayout, "fragment") + storageCount(attributeLayout, "fragment"),
-            spriteClipVertex:
+            spriteVertex:
                 storageCount(engineLayout, "vertex") +
                 storageCount(SpriteMaterialType.layout, "vertex"),
-            spriteAlphaVertex:
-                storageCount(engineLayout, "vertex") +
-                storageCount(SpriteAlphaMaterialType.layout, "vertex"),
             textVertex: storageCount(textViewLayout, "vertex") + storageCount(textLayout, "vertex"),
             textFragment: storageCount(textLayout, "fragment"),
             linesVertex:
@@ -243,8 +236,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             vertexMaterialFragment: 7,
             attributeVertex: 8,
             attributeFragment: 8,
-            spriteClipVertex: 7,
-            spriteAlphaVertex: 7,
+            spriteVertex: 7,
             textVertex: 5,
             textFragment: 0,
             linesVertex: 1,
@@ -308,7 +300,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             .add({ color: d.vec4f(1, 0.3, 0.2, 1) });
         const vertexMaterial = world
             .resource(VertexMaterialType)
-            .add(StandardMaterial({ baseColor: [0, 1, 0, 1] }));
+            .add(StandardMaterial({ baseColor: [0, 1, 0, 1] }), { alphaMode: AlphaMode.Mask(0.5) });
         const unlitMaterial = world
             .resource(Materials)
             .add(StandardMaterial({ baseColor: [0, 0, 1, 1], unlit: true }));
@@ -388,10 +380,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             const typeId = world.storage(MeshMaterial).type.get(eid);
             const row = world.storage(MeshMaterial).material.get(eid);
             expect(row).toBe(eid);
-            const type =
-                typeId === materialTypeId(world, SpriteMaterialType)
-                    ? SpriteMaterialType
-                    : SpriteAlphaMaterialType;
+            const type = SpriteMaterialType;
             expect(typeId).toBe(materialTypeId(world, type));
             const bytes = world
                 .resource(type)
@@ -413,13 +402,16 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         const cube = [...world.resource(Meshes).entries()].find(
             ([, mesh]) => mesh.name === "cube",
         )![0];
-        for (const [materialType, count] of [
-            [0, 193],
-            [materialTypeId(world, VertexMaterialType), 1],
-            [materialTypeId(world, FloorMaterial), 1],
+        for (const [materialType, alphaPipelineKey, count] of [
+            [0, AlphaPipelineKey.Opaque, 193],
+            [materialTypeId(world, VertexMaterialType), AlphaPipelineKey.Mask, 1],
+            [materialTypeId(world, FloorMaterial), AlphaPipelineKey.Opaque, 1],
         ] as const) {
             const draw = [...world.resource(Draws)].find(
-                (draw) => draw.materialType === materialType && draw.mesh === cube,
+                (draw) =>
+                    draw.materialType === materialType &&
+                    draw.alphaPipelineKey === alphaPipelineKey &&
+                    draw.mesh === cube,
             )!;
             const result = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
                 offset: (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
@@ -432,18 +424,21 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         const spriteMesh = [...world.resource(Meshes).entries()].find(
             ([, mesh]) => mesh.name === "spriteQuad",
         )![0];
-        for (const materialType of [
-            materialTypeId(world, SpriteMaterialType),
-            materialTypeId(world, SpriteAlphaMaterialType),
-        ]) {
+        for (const [alphaPipelineKey, count] of [
+            [AlphaPipelineKey.Mask, 3],
+            [AlphaPipelineKey.Blend, 3],
+        ] as const) {
             const draw = [...world.resource(Draws)].find(
-                (draw) => draw.materialType === materialType && draw.mesh === spriteMesh,
+                (draw) =>
+                    draw.materialType === materialTypeId(world, SpriteMaterialType) &&
+                    draw.alphaPipelineKey === alphaPipelineKey &&
+                    draw.mesh === spriteMesh,
             )!;
             const result = await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
                 offset: (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
                 size: 20,
             });
-            expect(new Uint32Array(result.bytes)[1]).toBe(3);
+            expect(new Uint32Array(result.bytes)[1]).toBe(count);
         }
         const defaultDraw = [...world.resource(Draws)].find(
             (draw) => draw.materialType === 0 && draw.mesh === cube,

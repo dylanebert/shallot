@@ -54,6 +54,7 @@ export {
     setVelocity,
 } from "./physics";
 export {
+    AlphaMode,
     CameraBackground,
     DirectionalLightShadowMap,
     MAX_CASCADES,

@@ -21,7 +21,7 @@ const standardFragment = tgpu.fn(
 )((ctx) => {
     "use gpu";
     const material = StandardMaterialInput(standardLayout.$.materialParameters[ctx.material]);
-    if (material.unlit !== 0) return d.vec4f(material.baseColor.xyz, 1);
+    if (material.unlit !== 0) return material.baseColor;
     const pbr = Pbr({
         albedo: material.baseColor.xyz,
         metallic: material.metallic,
@@ -31,7 +31,10 @@ const standardFragment = tgpu.fn(
         diffuseWrap: material.diffuseWrap,
     });
     const emissive = material.emissive;
-    return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), 1);
+    return d.vec4f(
+        std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive),
+        material.baseColor.a,
+    );
 });
 
 /** The built-in mesh material type. Its type-local table is the sole source of its PBR parameters. */
@@ -41,12 +44,11 @@ export const StandardMaterialType = materialType({
     layout: standardLayout,
     fragment: standardFragment,
     defaults: StandardMaterial(),
-    blend: "opaque",
     depthPass: { prepass: true, shadows: true },
 });
 
 const vertexLayout = materialLayout(StandardMaterialInput, {});
-const vertexVaryings = { litColor: d.vec3f };
+const vertexVaryings = { litColor: d.vec4f };
 const VertexOutput = materialVertexOutput(vertexVaryings);
 const VertexContext = materialFragmentContext(vertexVaryings);
 const vertexVertex = tgpu.fn(
@@ -55,7 +57,7 @@ const vertexVertex = tgpu.fn(
 )((input) => {
     "use gpu";
     const material = StandardMaterialInput(vertexLayout.$.materialParameters[input.material]);
-    let litColor = material.baseColor.xyz;
+    let litColor = d.vec4f(material.baseColor);
     if (material.unlit === 0) {
         const pbr = Pbr({
             albedo: material.baseColor.xyz,
@@ -65,9 +67,12 @@ const vertexVertex = tgpu.fn(
             dielectric: 0,
             diffuseWrap: material.diffuseWrap,
         });
-        litColor = std.add(
-            litPbr(pbr, std.normalize(input.worldNormal), input.world.xyz),
-            material.emissive,
+        litColor = d.vec4f(
+            std.add(
+                litPbr(pbr, std.normalize(input.worldNormal), input.world.xyz),
+                material.emissive,
+            ),
+            material.baseColor.a,
         );
     }
     return VertexOutput({ world: input.world, worldNormal: input.worldNormal, litColor });
@@ -77,7 +82,7 @@ const vertexFragment = tgpu.fn(
     d.vec4f,
 )((ctx) => {
     "use gpu";
-    return d.vec4f(ctx.litColor, 1);
+    return d.vec4f(ctx.litColor);
 });
 /** Built-in Gouraud material: standard lighting is evaluated once per vertex and interpolated. */
 export const VertexMaterialType = materialType({
@@ -88,6 +93,5 @@ export const VertexMaterialType = materialType({
     vertex: vertexVertex,
     fragment: vertexFragment,
     defaults: StandardMaterial(),
-    blend: "opaque",
     depthPass: { prepass: true, shadows: true },
 });

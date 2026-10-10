@@ -1,5 +1,5 @@
 import * as d from "typegpu/data";
-import { component, u32 } from "../../engine";
+import { component, f32, u32 } from "../../engine";
 
 /** Dense per-MeshInstance fields consumed by preprocess and the material shaders. */
 export const MeshInstanceInput = d
@@ -7,6 +7,8 @@ export const MeshInstanceInput = d
         mesh: d.u32,
         materialType: d.u32,
         material: d.u32,
+        alphaMode: d.u32,
+        alphaCutoff: d.f32,
         flags: d.u32,
         cullBounds: d.vec4f,
     })
@@ -14,13 +16,14 @@ export const MeshInstanceInput = d
 
 /**
  * Selects one material row from one World-local material type. `type` identifies the shader and typed
- * parameter table; `material` is a row in that table. Mesh draws group by `(type, mesh)`. Missing
- * MeshMaterial selects StandardMaterial type 0, row 0.
+ * parameter table; `material` is a row in that table. `alphaMode` and `alphaCutoff` mirror that row
+ * into the dense mesh table. Draws group by `(type, alpha pipeline key, mesh)`. Missing MeshMaterial
+ * selects StandardMaterial type 0, row 0 with Opaque mode.
  */
 export const MeshMaterial = component(
     "MeshMaterial",
-    { type: u32, material: u32 },
-    { defaults: () => ({ type: 0, material: 0 }) },
+    { type: u32, material: u32, alphaMode: u32, alphaCutoff: f32 },
+    { defaults: () => ({ type: 0, material: 0, alphaMode: 0, alphaCutoff: 0.5 }) },
 );
 
 /** Standard forward PBR parameters, stored as one typed row per StandardMaterial instance. */

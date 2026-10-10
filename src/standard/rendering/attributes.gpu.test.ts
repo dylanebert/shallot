@@ -148,7 +148,8 @@ for (const mesh of ["missing", "wrong"])
                 .map((call) => call.join(" "))
                 .filter(
                     (message) =>
-                        message.includes(`mesh:material:StreamAttributeMaterial:${mesh}:`) &&
+                        message.includes(`mesh:material:StreamAttributeMaterial:`) &&
+                        message.includes(`:${mesh}:`) &&
                         message.includes('material type "StreamAttributeMaterial"'),
                 );
             expect(messages).toHaveLength(1);

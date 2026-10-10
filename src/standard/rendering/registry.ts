@@ -42,13 +42,15 @@ export interface DrawArgs {
 }
 
 /**
- * one rendered thing. `materialType` selects one registered mesh material type;
- * `mesh` references a registered Mesh by handle, and `args` points at its indirect record.
+ * one rendered draw group. `materialType` selects one registered mesh material type,
+ * `alphaPipelineKey` selects its phase/variant, `mesh` references a registered Mesh by handle,
+ * and `args` points at its indirect record.
  * Material bindings beyond mesh resolve by name against `world.gpu.buffers`.
  */
 export interface Draw {
     name: string;
     materialType: number;
+    alphaPipelineKey: number;
     mesh: MeshHandle;
     args: DrawArgs;
 }

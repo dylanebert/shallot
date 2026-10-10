@@ -5,7 +5,12 @@ import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
-import { Draws, materialTypeId, StandardRenderer } from "../../standard/rendering";
+import {
+    AlphaPipelineKey,
+    Draws,
+    materialTypeId,
+    StandardRenderer,
+} from "../../standard/rendering";
 import { Sprite, SpriteBillboard, SpriteMaterialType, SpritePlugin } from "./index";
 
 setDefaultTimeout(CEILING.node);
@@ -34,7 +39,10 @@ test("a large anchored world Sprite stays in the camera draw when its quad reach
     const type = materialTypeId(world, SpriteMaterialType);
     const mesh = world.storage(MeshInstance).mesh.get(sprite);
     const draw = [...world.resource(Draws)].find(
-        (entry) => entry.materialType === type && entry.mesh === mesh,
+        (entry) =>
+            entry.materialType === type &&
+            entry.alphaPipelineKey === AlphaPipelineKey.Mask &&
+            entry.mesh === mesh,
     );
     expect(draw).toBeDefined();
     const offset = draw!.args.offset ?? 0;

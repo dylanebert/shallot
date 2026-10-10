@@ -14,6 +14,8 @@ export {
     spotFactor,
 } from "./lighting";
 export {
+    AlphaMode,
+    AlphaPipelineKey,
     MaterialPlugin,
     Materials,
     MaterialTypes,

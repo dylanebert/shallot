@@ -9,6 +9,7 @@ import { GlobalTransform } from "../../core/transform";
 import { type Plugin, Registry, type System, type World } from "../../engine";
 import { packColor } from "../../engine/utils";
 import {
+    AlphaMode,
     MaterialPlugin,
     MeshMaterial,
     MeshPreprocessSystem,
@@ -16,10 +17,10 @@ import {
     materialTypeId,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { SpriteAlphaMaterialType, SpriteMaterialType } from "./material";
+import { SpriteMaterialType } from "./material";
 import { packSpriteFill, Sprite, SpriteBlend } from "./pack";
 
-export { SpriteAlphaMaterialType, SpriteMaterialInput, SpriteMaterialType } from "./material";
+export { SpriteMaterialInput, SpriteMaterialType } from "./material";
 export { Sprite, SpriteBillboard, SpriteBlend, SpriteFill } from "./pack";
 
 const SPRITE_QUERY = [Sprite];
@@ -54,7 +55,6 @@ interface SpriteGpuState {
     instances: Map<number, SpriteInstance>;
 }
 interface SpriteInstance {
-    type: typeof SpriteMaterialType | typeof SpriteAlphaMaterialType;
     image: number;
     width: number;
     height: number;
@@ -65,6 +65,7 @@ interface SpriteInstance {
     billboard: number;
     fill: number;
     fillMode: number;
+    blend: number;
 }
 const spriteGpuKey = {
     create: (): SpriteGpuState => ({
@@ -78,7 +79,7 @@ const spriteGpuKey = {
 function writeValues(
     world: World,
     eid: number,
-    type: SpriteInstance["type"],
+    alphaMode: AlphaMode,
     width: number,
     height: number,
     anchorX: number,
@@ -90,14 +91,18 @@ function writeValues(
     fill: number,
     fillMode: number,
 ): number {
-    world.resource(type).setAt(eid, {
-        offset: d.vec2f(-width * anchorX, -height * anchorY),
-        size: d.vec2f(width, height),
-        layer: image,
-        color: packColor(color, opacity),
-        fill: packSpriteFill(fill, fillMode),
-        billboard,
-    });
+    world.resource(SpriteMaterialType).setAt(
+        eid,
+        {
+            offset: d.vec2f(-width * anchorX, -height * anchorY),
+            size: d.vec2f(width, height),
+            layer: image,
+            color: packColor(color, opacity),
+            fill: packSpriteFill(fill, fillMode),
+            billboard,
+        },
+        { alphaMode },
+    );
     const halfWidth = Math.max(Math.abs(width * anchorX), Math.abs(width * (1 - anchorX)));
     const halfHeight = Math.max(Math.abs(height * anchorY), Math.abs(height * (1 - anchorY)));
     return Math.hypot(halfWidth, halfHeight);
@@ -138,10 +143,10 @@ const SpriteSystem: System = {
             const blend = Math.min(sprite.blend.get(eid), 1);
             const fill = sprite.fill.get(eid);
             const fillMode = sprite.fillMode.get(eid);
-            const type = blend === SpriteBlend.Alpha ? SpriteAlphaMaterialType : SpriteMaterialType;
+            const alphaMode = blend === SpriteBlend.Alpha ? AlphaMode.Blend : AlphaMode.Mask(0.5);
             if (current) {
                 if (
-                    current.type === type &&
+                    current.blend === blend &&
                     current.image === image &&
                     current.width === width &&
                     current.height === height &&
@@ -158,7 +163,7 @@ const SpriteSystem: System = {
                 const radius = writeValues(
                     world,
                     eid,
-                    type,
+                    alphaMode,
                     width,
                     height,
                     anchorX,
@@ -170,7 +175,6 @@ const SpriteSystem: System = {
                     fill,
                     fillMode,
                 );
-                current.type = type;
                 current.image = image;
                 current.width = width;
                 current.height = height;
@@ -181,7 +185,10 @@ const SpriteSystem: System = {
                 current.billboard = billboard;
                 current.fill = fill;
                 current.fillMode = fillMode;
-                world.storage(MeshMaterial).type.set(eid, materialTypeId(world, type));
+                current.blend = blend;
+                world
+                    .storage(MeshMaterial)
+                    .type.set(eid, materialTypeId(world, SpriteMaterialType));
                 world.storage(MeshMaterial).material.set(eid, eid);
                 world.storage(MeshInstance).cullBounds.w.set(eid, radius);
                 continue;
@@ -194,7 +201,7 @@ const SpriteSystem: System = {
             const radius = writeValues(
                 world,
                 eid,
-                type,
+                alphaMode,
                 width,
                 height,
                 anchorX,
@@ -208,11 +215,11 @@ const SpriteSystem: System = {
             );
             world.add(eid, MeshInstance, { mesh: state.quad, cullBounds: [0, 0, 0, radius] });
             world.add(eid, MeshMaterial, {
-                type: materialTypeId(world, type),
+                type: materialTypeId(world, SpriteMaterialType),
                 material: eid,
+                ...world.resource(SpriteMaterialType).alpha(eid),
             });
             state.instances.set(eid, {
-                type,
                 image,
                 width,
                 height,
@@ -223,6 +230,7 @@ const SpriteSystem: System = {
                 billboard,
                 fill,
                 fillMode,
+                blend,
             });
         }
         for (const eid of state.instances.keys()) {
@@ -234,9 +242,8 @@ const SpriteSystem: System = {
 };
 
 const SpriteMaterialPlugin = MaterialPlugin(SpriteMaterialType);
-const SpriteAlphaMaterialPlugin = MaterialPlugin(SpriteAlphaMaterialType);
 
-/** Retained textured quads; clip sprites cast shadows through StandardRenderingPlugin. */
+/** Retained textured quads; Mask sprites cast shadows through StandardRenderingPlugin. */
 export const SpritePlugin: Plugin = {
     gpu: {},
     name: "Sprite",
@@ -248,7 +255,6 @@ export const SpritePlugin: Plugin = {
         StandardRenderingPlugin,
         MeshRenderPlugin,
         SpriteMaterialPlugin,
-        SpriteAlphaMaterialPlugin,
     ],
 
     initialize(world) {

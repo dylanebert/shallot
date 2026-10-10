@@ -18,6 +18,7 @@ import type { Registry, System, World } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { type MaterialType, MaterialTypes, materialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
+import { ALPHA_PIPELINE_KEY_COUNT } from "./material-type";
 import {
     CullParams,
     countKernel,
@@ -65,7 +66,7 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
  * partitioned into a `capacity`-sized region per slot, each region compacted
  * into per-pair slices, read by the VS at `instance_index`. The slot dimension
  * grows with the active camera count, the pair dimension (`MaterialTypes.size ×
- * Meshes.size`) with mesh registration: no fixed upper bound on either
+ * ALPHA_PIPELINE_KEY_COUNT × Meshes.size`) with mesh registration: no fixed upper bound on either
  */
 export interface MeshDrawBuffers {
     /** `DrawIndexedIndirect` records, slot-major (`slot * pairCount + pair`); null until the first frame's `syncBuffers` */
@@ -156,12 +157,19 @@ export function initializeMeshPreprocess(world: World): void {
     world.resource(meshPreprocessKey);
     const table = meshInstanceTable(world);
     table.bindComponent(MeshInstance, { mesh: "mesh", cullBounds: "cullBounds" });
-    table.bindFields(MeshMaterial, { material: "material", materialType: "type" });
+    table.bindFields(MeshMaterial, {
+        material: "material",
+        materialType: "type",
+        alphaMode: "alphaMode",
+        alphaCutoff: "alphaCutoff",
+    });
     table.bindPresence(NotShadowCaster, "flags", 1);
     const seedDefault = (eid: number) => {
         if (!world.has(eid, MeshMaterial)) {
             world.storage(MeshMaterial).material.set(eid, 0);
             world.storage(MeshMaterial).type.set(eid, 0);
+            world.storage(MeshMaterial).alphaMode.set(eid, 0);
+            world.storage(MeshMaterial).alphaCutoff.set(eid, 0.5);
         }
     };
     world.onDispose(
@@ -209,9 +217,8 @@ export const MeshPreprocessSystem: System = {
         // index its slot's slice; slot ≥ viewCount means no frustum (headless),
         // packed unculled. The engine submits after this pass.
         const views = Math.max(1, _render.viewCount);
-        // a two-word uniform written when either word changes: the typed write is the idiomatic path here.
-        // The "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
-        // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
+        // A small uniform written when its dimensions change; the "CPU truth stays typed arrays" law
+        // governs per-entity firehoses, not this dispatch description.
         const instanceCount = meshInstanceTable(world).count;
         if (
             _meshPreprocess.paramsTarget !== _meshPreprocess.cullParams ||
@@ -223,6 +230,7 @@ export const MeshPreprocessSystem: System = {
             _meshPreprocess.cullParams!.write({
                 viewCount: _render.viewCount,
                 pairCount: _meshPreprocess.pairCount,
+                meshCount: _meshPreprocess.meshCount,
                 instanceCount,
                 instanceCapacity: _meshPreprocess.rowCapacity,
             });
@@ -400,8 +408,7 @@ function unbind(world: World): void {
  * active MeshInstance table row capacity and camera count, growing when any axis rises
  * after warm. `drawArgs` + `counts` scale with `viewDim × pairCount`; dense
  * output lists scale with `viewDim × rowCapacity`; mesh bounds scale with mesh count.
- * Pair growth only appends slots
- * (`mid * materialTypeCount + sid`) so existing offsets hold, and the pipelines read
+ * Pair growth appends mesh slots within each `(material type, alpha key)` range, so existing offsets hold, and the pipelines read
  * both dimensions from `cullParams` + `arrayLength`, never recompiling. Old
  * buffers free behind the submit fence: a prior frame may still reference them
  */
@@ -422,7 +429,8 @@ function syncBuffers(world: World): void {
     _meshPreprocess.meshCount = Math.max(_meshPreprocess.meshCount, meshCount);
     _meshPreprocess.viewDim = Math.max(_meshPreprocess.viewDim, viewDim);
     _meshPreprocess.rowCapacity = Math.max(_meshPreprocess.rowCapacity, rowCapacity);
-    _meshPreprocess.pairCount = _meshPreprocess.materialTypeCount * _meshPreprocess.meshCount;
+    _meshPreprocess.pairCount =
+        _meshPreprocess.materialTypeCount * ALPHA_PIPELINE_KEY_COUNT * _meshPreprocess.meshCount;
     const records = _meshPreprocess.viewDim * _meshPreprocess.pairCount;
 
     const staleArgs: (DrawBuffer | AtomicU32Buffer | null)[] = [];
@@ -488,7 +496,7 @@ function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
     return buffer;
 }
 
-/** publish MeshInstance's `(material type, mesh)` draw pairs and return the indirect records the GPU buffer needs.
+/** publish `(material type, alpha pipeline key, mesh)` draw pairs and return the indirect records the GPU buffer needs.
  * Device-free so ordering tests can exercise the production publication seam without an adapter.
  * @internal */
 type DrawRecord = {
@@ -502,7 +510,6 @@ type DrawRecord = {
 export function publishMeshInstanceDraws(
     world: World,
     drawArgs: DrawBuffer,
-    materialTypeCount: number,
     pairCount: number,
     registries: {
         materialTypes: readonly (MaterialType | undefined)[];
@@ -519,25 +526,34 @@ export function publishMeshInstanceDraws(
     const viewStride = pairCount * DRAW_ARG_STRIDE;
     for (const [materialType, definition] of materialTypes.entries()) {
         if (!definition) continue;
-        for (const [handle, m] of meshes.entries()) {
-            const pair = handle * materialTypeCount + materialType;
-            const offset = pair * DRAW_ARG_STRIDE;
-            // DrawIndexedIndirect: indexCount, instanceCount (pack), firstIndex, baseVertex (0 — indices
-            // are absolute vertex positions), firstInstance (pack)
-            const args = {
-                indexCount: m.indexCount,
-                instanceCount: 0,
-                firstIndex: m.indexBase,
-                baseVertex: 0,
-                firstInstance: 0,
-            };
-            writes.push({ offset, args });
-            draws.register({
-                name: `mesh:material:${definition.name}:${m.name}:${handle}`,
-                materialType,
-                mesh: handle,
-                args: { indirect: drawArgs, offset, viewStride },
-            });
+        for (
+            let alphaPipelineKey = 0;
+            alphaPipelineKey < ALPHA_PIPELINE_KEY_COUNT;
+            alphaPipelineKey++
+        ) {
+            for (const [handle, m] of meshes.entries()) {
+                const pair =
+                    (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) * meshes.size +
+                    handle;
+                const offset = pair * DRAW_ARG_STRIDE;
+                // DrawIndexedIndirect: indexCount, instanceCount (pack), firstIndex, baseVertex (0 — indices
+                // are absolute vertex positions), firstInstance (pack)
+                const args = {
+                    indexCount: m.indexCount,
+                    instanceCount: 0,
+                    firstIndex: m.indexBase,
+                    baseVertex: 0,
+                    firstInstance: 0,
+                };
+                writes.push({ offset, args });
+                draws.register({
+                    name: `mesh:material:${definition.name}:${alphaPipelineKey}:${m.name}:${handle}`,
+                    materialType,
+                    alphaPipelineKey,
+                    mesh: handle,
+                    args: { indirect: drawArgs, offset, viewStride },
+                });
+            }
         }
     }
     return writes;
@@ -552,7 +568,6 @@ function registerDraws(world: World): void {
     for (const { offset, args } of publishMeshInstanceDraws(
         world,
         _meshDraws.drawArgs,
-        _meshPreprocess.materialTypeCount,
         _meshPreprocess.pairCount,
     )) {
         const bytes = new ArrayBuffer(DRAW_ARG_STRIDE);

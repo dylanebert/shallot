@@ -429,7 +429,7 @@ Material vertex shaders receive `MaterialVertexInput.xform` and `.world`; fragme
 
 ## Mesh material types own shaders and typed rows
 
-`Surface`, `registerSurface` and `surfaceLayout` are removed. Define a material type with a parameter schema, a layout, and shader functions; register it with `MaterialPlugin`. Each registered type owns CPU-authored rows and a lazily created GPU parameter table for renderer consumption. `MeshMaterial` stores `{ type, material }`: `type` is the World-local material-type id and `material` is that type's row. Preprocessing groups by `(material type, mesh)`, so changing either component field moves the entity to the corresponding draw on the next frame. A missing `MeshMaterial` selects StandardMaterial type 0, row 0.
+`Surface`, `registerSurface` and `surfaceLayout` are removed. Define a material type with a parameter schema, a layout, and shader functions; register it with `MaterialPlugin`. Each registered type owns CPU-authored rows and a lazily created GPU parameter table for renderer consumption. `MeshMaterial` stores the World-local material-type id, that type's row, and its numeric `alphaMode`/`alphaCutoff` mirror. Preprocessing groups by `(material type, alpha pipeline key, mesh)`, so changing the type, row or alpha mode moves the entity to the corresponding draw on the next frame. A missing `MeshMaterial` selects StandardMaterial type 0, row 0 in Opaque mode.
 
 ```ts
 import {
@@ -455,9 +455,28 @@ const Tint = materialType({
 const TintPlugin = MaterialPlugin(Tint);
 ```
 
-Add parameter values with `world.resource(Tint).add(...)`; the returned `{ type, material }` handle goes directly into `MeshMaterial`. Partial updates use `world.resource(Tint).update(handle, values)`. Material rows and type ids belong to their World. The renderer supports typed mesh attributes declared by `materialLayout` and validates their element schemas against the registered mesh.
+Add parameter values with `world.resource(Tint).add(...)`; the returned material handle goes directly into `MeshMaterial`. Partial updates use `world.resource(Tint).update(handle, values)`. Material rows and type ids belong to their World. The renderer supports typed mesh attributes declared by `materialLayout` and validates their element schemas against the registered mesh.
 
-Sprite carries image layer, tint, fill and billboard data in its material type's table, with rows indexed by entity id; it does not allocate a material row per tint. Sprite remains on the standard mesh path, including clip-sprite shadow casting. Its `MeshInstance.cullBounds` is a conservative local-space sphere derived from the size and anchor, so camera- and shadow-view culling includes the expanded quad for every billboard mode. Text and lines use core's `RenderPhases.transparent` seam instead of standard materials. Both previously used alpha surfaces and did not enter the opaque depth prepass or cast shadows, so that move drops no shadow behavior.
+Sprite carries image layer, tint, fill and billboard data in one material type's table, with rows indexed by entity id; it does not allocate a material row per tint. `SpriteBlend.Clip` selects `AlphaMode.Mask(0.5)` and retains depth/shadow participation; `SpriteBlend.Alpha` selects `AlphaMode.Blend` on the same type. The former separate `SpriteAlphaMaterialType` is removed. Sprite remains on the standard mesh path. Its `MeshInstance.cullBounds` is a conservative local-space sphere derived from the size and anchor, so camera- and shadow-view culling includes the expanded quad for every billboard mode. Text and lines own their renderer pipelines and use core's `RenderPhases.transparent` seam; their transparency is not selected by mesh-material `AlphaMode` and they do not enter the opaque depth prepass or cast shadows.
+
+## Material alpha modes belong to each material row
+
+`AlphaMode` is exported from the root and `/standard/rendering`; alpha behavior is no longer declared on a material type with `blend: "alpha"` or `blend: "clip"`. StandardMaterial defaults to `Opaque`, but its fragment keeps `baseColor[3]` instead of forcing alpha to 1. Choose a non-opaque mode explicitly when that value should affect compositing. Add or update a row with the alpha option:
+
+```ts
+const glass = world.resource(Materials).add(
+    StandardMaterial({ baseColor: [0.3, 0.7, 1, 0.35] }),
+    { alphaMode: AlphaMode.Blend },
+);
+world.add(window, MeshMaterial, glass);
+world.resource(Materials).update(glass, { baseColor: [0.3, 0.7, 1, 0.6] }, {
+    alphaMode: AlphaMode.Blend,
+});
+```
+
+Custom material types use the same `{ alphaMode }` option on `add`, `update` and `setAt`; their fragment shader must return the intended alpha. `Opaque` writes depth. `Mask(cutoff)` discards fragments below its per-row cutoff and writes depth; `Blend`, `Premultiplied`, `Add` and `Multiply` use transparent color pipelines without depth writes or shadows. `Premultiplied` expects premultiplied shader RGB; `Add` premultiplies RGB and shares its pipeline key, with shader output distinguishing the additive behavior. `AlphaToCoverage` selects per-sample coverage when multisampling is enabled and falls back to a 0.5 mask on a single-sample view. Transparent draws keep their existing order; this change does not sort them.
+
+Do not move Text or Lines onto `AlphaMode`: they own their renderer pipelines and stay in the shared transparent phase. Sprite retains its `SpriteBlend` component API and maps Clip/Alpha to Mask/Blend on its one material type as described above.
 
 ## glTF and Skin are removed
 
@@ -555,11 +574,11 @@ import { Xform } from "@dylanebert/shallot/utils";
 | Root `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material handle |
 | Root `PartPlugin` | Root or `/standard/rendering` `MeshRenderPlugin` |
 | `/part/core` `Parts` | Removed; mesh-instance packing is internal to `MeshRenderPlugin`. |
-| `/render/core` `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:material:<type>:<mesh>:<handle>`, `mesh:preprocess` |
+| `/render/core` `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:material:<type>:<alpha key>:<mesh>:<handle>`, `mesh:preprocess` |
 
 `StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1, `diffuseWrap` 1 and lit shading. Set `unlit: true` to use the base colour without lighting. Add the same parameter record to `world.resource(VertexMaterialType)` to evaluate the standard lighting model per vertex and interpolate its result. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(handle, values)`; omitted fields retain their values. Change both `MeshMaterial.type` and `.material` when switching to another type; changing either field takes effect on the next frame. Material handles belong to the World that added them.
 
-Custom material shaders read linear `color` and the type-local `material` row from the context returned by `materialFragmentContext()`. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
+Custom material shaders read linear `color` and the type-local `material` row from the context returned by `materialFragmentContext()`. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, alphaMode: u32, alphaCutoff: f32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
 
 Mesh data has its own `/mesh` module. `registerMesh` now returns a world-local `MeshHandle`; retain it for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels register distinct meshes:
 

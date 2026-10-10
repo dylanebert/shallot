@@ -4,7 +4,7 @@ import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import type { Plugin, Resource, World } from "../../engine";
 import { Xform } from "../../engine/utils";
-import { MeshInstanceInput } from "./material-data";
+import { MeshInstanceInput, MeshMaterial } from "./material-data";
 
 /** A shader-stage name understood by TypeGPU. */
 type ShaderStage = "vertex" | "fragment";
@@ -259,8 +259,90 @@ export type MaterialVertexFn<V extends Record<string, AnyWgslData> = Record<stri
 export type MaterialFragmentFn<V extends Record<string, AnyWgslData> = Record<string, never>> =
     TgpuFn<(context: ReturnType<typeof materialFragmentContext<V>>) => d.Vec4f>;
 
-/** Current routing retained until AlphaMode lands: opaque writes depth, clip writes cutouts, alpha blends. */
-export type MaterialBlend = "opaque" | "clip" | "alpha";
+export type AlphaMode =
+    | { readonly kind: "opaque" }
+    | { readonly kind: "mask"; readonly cutoff: number }
+    | { readonly kind: "blend" }
+    | { readonly kind: "premultiplied" }
+    | { readonly kind: "add" }
+    | { readonly kind: "multiply" }
+    | { readonly kind: "alpha-to-coverage" };
+
+/** Per-material transparency behavior; Mask defaults to the 0.5 cutoff. */
+export const AlphaMode = {
+    Opaque: { kind: "opaque" } as const,
+    Mask: (cutoff = 0.5): Extract<AlphaMode, { kind: "mask" }> => ({ kind: "mask", cutoff }),
+    Blend: { kind: "blend" } as const,
+    Premultiplied: { kind: "premultiplied" } as const,
+    Add: { kind: "add" } as const,
+    Multiply: { kind: "multiply" } as const,
+    AlphaToCoverage: { kind: "alpha-to-coverage" } as const,
+};
+
+/** Values carried in the mesh-instance table; Premultiplied and Add share one pipeline. */
+export const AlphaModeCode = {
+    Opaque: 0,
+    Mask: 1,
+    Blend: 2,
+    Premultiplied: 3,
+    Add: 4,
+    Multiply: 5,
+    AlphaToCoverage: 6,
+} as const;
+
+export const AlphaPipelineKey = {
+    Opaque: 0,
+    Mask: 1,
+    Blend: 2,
+    Premultiplied: 3,
+    Multiply: 4,
+    AlphaToCoverage: 5,
+} as const;
+export const ALPHA_PIPELINE_KEY_COUNT = 6;
+
+export function alphaModeFields(mode: AlphaMode): { alphaMode: number; alphaCutoff: number } {
+    switch (mode.kind) {
+        case "opaque":
+            return { alphaMode: AlphaModeCode.Opaque, alphaCutoff: 0.5 };
+        case "mask":
+            if (!Number.isFinite(mode.cutoff) || mode.cutoff < 0 || mode.cutoff > 1) {
+                throw new RangeError(`AlphaMode.Mask cutoff must be between 0 and 1`);
+            }
+            return { alphaMode: AlphaModeCode.Mask, alphaCutoff: mode.cutoff };
+        case "blend":
+            return { alphaMode: AlphaModeCode.Blend, alphaCutoff: 0.5 };
+        case "premultiplied":
+            return { alphaMode: AlphaModeCode.Premultiplied, alphaCutoff: 0.5 };
+        case "add":
+            return { alphaMode: AlphaModeCode.Add, alphaCutoff: 0.5 };
+        case "multiply":
+            return { alphaMode: AlphaModeCode.Multiply, alphaCutoff: 0.5 };
+        case "alpha-to-coverage":
+            return { alphaMode: AlphaModeCode.AlphaToCoverage, alphaCutoff: 0.5 };
+    }
+}
+
+export function alphaPipelineKey(alphaMode: number): number {
+    switch (alphaMode) {
+        case AlphaModeCode.Opaque:
+            return AlphaPipelineKey.Opaque;
+        case AlphaModeCode.Mask:
+            return AlphaPipelineKey.Mask;
+        case AlphaModeCode.Blend:
+            return AlphaPipelineKey.Blend;
+        case AlphaModeCode.Premultiplied:
+        case AlphaModeCode.Add:
+            return AlphaPipelineKey.Premultiplied;
+        case AlphaModeCode.Multiply:
+            return AlphaPipelineKey.Multiply;
+        case AlphaModeCode.AlphaToCoverage:
+            return AlphaPipelineKey.AlphaToCoverage;
+        default:
+            throw new RangeError(`unknown alpha mode ${alphaMode}`);
+    }
+}
+
+export type AlphaPipelineKey = (typeof AlphaPipelineKey)[keyof typeof AlphaPipelineKey];
 
 /** The shader, parameter schema, and depth behavior shared by every instance of one mesh material type. */
 export interface MaterialType<
@@ -275,15 +357,16 @@ export interface MaterialType<
     readonly varyings?: V;
     readonly vertex?: MaterialVertexFn<V>;
     readonly fragment: MaterialFragmentFn<V>;
-    readonly blend?: MaterialBlend;
     readonly depthPass?: { prepass?: boolean; shadows?: boolean };
     readonly defaults?: d.InferInput<P>;
 }
 
-/** A material handle stores the type id and its type-local row for `MeshMaterial`. */
+/** A material handle can be added directly as `MeshMaterial`; alpha fields mirror its live row. */
 export interface MaterialHandle {
-    type: number;
-    material: number;
+    readonly type: number;
+    readonly material: number;
+    readonly alphaMode: number;
+    readonly alphaCutoff: number;
 }
 
 /** CPU-authored material rows with a lazily published GPU table using the type's parameter schema. */
@@ -294,6 +377,9 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     private readonly _scratch: ArrayBuffer;
     private readonly _freeRows: number[] = [];
     private _bytes: Uint8Array;
+    private _alphaModes = new Uint32Array([AlphaModeCode.Opaque]);
+    private _alphaCutoffs = new Float32Array([0.5]);
+    private readonly _handles: (MaterialHandle | undefined)[] = [undefined];
     private _highWater = 1;
     private _table: ReturnType<World["table"]> | undefined;
 
@@ -327,6 +413,12 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
             const bytes = new Uint8Array(capacity * this._rowBytes);
             bytes.set(this._bytes);
             this._bytes = bytes;
+            const alphaModes = new Uint32Array(capacity);
+            alphaModes.set(this._alphaModes);
+            this._alphaModes = alphaModes;
+            const alphaCutoffs = new Float32Array(capacity).fill(0.5);
+            alphaCutoffs.set(this._alphaCutoffs);
+            this._alphaCutoffs = alphaCutoffs;
         }
         this._highWater = Math.max(this._highWater, rows);
     }
@@ -341,13 +433,63 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     }
 
     /** Add a material value and return its type and type-local row for a MeshMaterial component. */
-    add(values: d.InferInput<P>): MaterialHandle {
+    add(values: d.InferInput<P>, options: { alphaMode?: AlphaMode } = {}): MaterialHandle {
+        const alphaMode = options.alphaMode ?? AlphaMode.Opaque;
+        alphaModeFields(alphaMode);
         const row = this._freeRows.pop() ?? this._highWater;
         this.reserveRows(row + 1);
         writeToArrayBuffer(this._scratch, this._type.parameters, values);
         this._bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
+        this._writeAlpha(row, alphaMode);
         this.publish(row, 1);
-        return { type: materialTypeId(this._world, this._type), material: row };
+        const handle = {
+            type: materialTypeId(this._world, this._type),
+            material: row,
+            ...this.alpha(row),
+        };
+        this._handles[row] = handle;
+        return handle;
+    }
+
+    /** Per-material alpha state consumed by mesh-instance preprocessing. */
+    alpha(row: number): { alphaMode: number; alphaCutoff: number } {
+        if (!Number.isSafeInteger(row) || row < 0 || row >= this._highWater) {
+            throw new RangeError(`Materials.alpha: unknown ${this._type.name} row ${row}`);
+        }
+        return { alphaMode: this._alphaModes[row], alphaCutoff: this._alphaCutoffs[row] };
+    }
+
+    /** Pipeline variants currently used by this type's material rows. */
+    alphaPipelineKeys(): number[] {
+        const keys = new Set<number>();
+        for (let row = 0; row < this._highWater; row++) {
+            keys.add(alphaPipelineKey(this._alphaModes[row]));
+        }
+        return [...keys];
+    }
+
+    private _writeAlpha(row: number, mode: AlphaMode): void {
+        const fields = alphaModeFields(mode);
+        if (
+            this._alphaModes[row] === fields.alphaMode &&
+            this._alphaCutoffs[row] === fields.alphaCutoff
+        )
+            return;
+        this._alphaModes[row] = fields.alphaMode;
+        this._alphaCutoffs[row] = fields.alphaCutoff;
+        const handle = this._handles[row];
+        if (handle) Object.assign(handle, fields);
+        const declaresMeshMaterial = [...this._world.registry.entries()].some(
+            ({ component }) => component === MeshMaterial,
+        );
+        if (!declaresMeshMaterial) return;
+        const type = materialTypeId(this._world, this._type);
+        const storage = this._world.storage(MeshMaterial);
+        for (const eid of this._world.query([MeshMaterial])) {
+            if (storage.type.get(eid) !== type || storage.material.get(eid) !== row) continue;
+            storage.alphaMode.set(eid, fields.alphaMode);
+            storage.alphaCutoff.set(eid, fields.alphaCutoff);
+        }
     }
 
     /** Release an unused row so producers with entity lifetimes can reuse its storage. Row zero is reserved. */
@@ -368,10 +510,11 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     }
 
     /** Write per-entity data at a stable eid-indexed row, filling intervening rows with defaults. */
-    setAt(row: number, values: d.InferInput<P>): void {
+    setAt(row: number, values: d.InferInput<P>, options: { alphaMode?: AlphaMode } = {}): void {
         if (!Number.isSafeInteger(row) || row < 0) {
             throw new RangeError(`Materials.setAt: invalid ${this._type.name} row ${row}`);
         }
+        if (options.alphaMode) alphaModeFields(options.alphaMode);
         const previousHighWater = this._highWater;
         if (row >= previousHighWater) {
             this.reserveRows(row + 1);
@@ -386,11 +529,16 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         }
         writeToArrayBuffer(this._scratch, this._type.parameters, values);
         this._bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
+        if (options.alphaMode) this._writeAlpha(row, options.alphaMode);
         this.publish(Math.min(row, previousHighWater), Math.max(1, row - previousHighWater + 1));
     }
 
     /** Publish changed fields at one type-local row for the next frame upload. */
-    update(handle: number | MaterialHandle, values: Partial<d.InferInput<P>>): void {
+    update(
+        handle: number | MaterialHandle,
+        values: Partial<d.InferInput<P>>,
+        options: { alphaMode?: AlphaMode } = {},
+    ): void {
         const row = typeof handle === "number" ? handle : handle.material;
         if (typeof handle !== "number" && handle.type !== materialTypeId(this._world, this._type)) {
             throw new RangeError(`Materials.update: handle belongs to another material type`);
@@ -398,6 +546,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         if (!Number.isSafeInteger(row) || row < 0 || row >= this._highWater) {
             throw new RangeError(`Materials.update: unknown ${this._type.name} row ${row}`);
         }
+        if (options.alphaMode) alphaModeFields(options.alphaMode);
         const offset = row * this._rowBytes;
         const currentBytes = this._bytes.slice(offset, offset + this._rowBytes).buffer;
         const current = readFromArrayBuffer(currentBytes, this._type.parameters) as Record<
@@ -407,6 +556,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         const merged = { ...current, ...values } as d.InferInput<P>;
         writeToArrayBuffer(this._scratch, this._type.parameters, merged);
         this._bytes.set(new Uint8Array(this._scratch), offset);
+        if (options.alphaMode) this._writeAlpha(row, options.alphaMode);
         this.publish(row, 1);
     }
 }
@@ -477,6 +627,7 @@ export function MaterialPlugin<
 >(type: MaterialType<P, B, V>): Plugin {
     return {
         name: `Material(${type.name})`,
+        components: [MeshMaterial],
         initialize(world) {
             registerMaterialType(world, type as ErasedMaterialType);
             world.resource(type);

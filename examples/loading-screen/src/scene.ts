@@ -1,4 +1,5 @@
 import {
+    AlphaMode,
     AmbientLight,
     Camera,
     DirectionalLight,
@@ -36,7 +37,9 @@ export function authorWorld(world: World): void {
     world.add(cube, Transform, { translation: [0, 0, 0, 0] });
     const material = world
         .resource(Materials)
-        .add(StandardMaterial({ baseColor: [0.85, 0.55, 0.35, 1] }));
+        .add(StandardMaterial({ baseColor: [0.85, 0.55, 0.35, 0.72] }), {
+            alphaMode: AlphaMode.Blend,
+        });
     world.add(cube, MeshMaterial, material);
 }
 

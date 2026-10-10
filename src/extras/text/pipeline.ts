@@ -80,6 +80,7 @@ export const TextFragment = tgpu.fragmentFn({
     return d.vec4f(textSrgbToLinear(input.color.xyz), std.mul(input.color.w, alpha));
 });
 
+// Text owns a renderer pipeline and is always transparent; mesh-material AlphaMode does not route it.
 const ALPHA_BLEND: GPUBlendState = {
     color: { operation: "add", srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
     alpha: { operation: "add", srcFactor: "one", dstFactor: "one-minus-src-alpha" },
