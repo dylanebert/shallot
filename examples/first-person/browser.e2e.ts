@@ -34,10 +34,23 @@ async function captureCanvasFrame(page: Page, key: string): Promise<void> {
         const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
         const capture = await window.shallotCaptureFrame(canvas);
         (window.__capturedFrames ??= {})[frameKey] = capture.rgba;
+        const clear = [capture.rgba[0]!, capture.rgba[1]!, capture.rgba[2]!];
+        let scenePixels = 0;
+        for (let offset = 0; offset < capture.rgba.length; offset += 4) {
+            if (
+                Math.max(
+                    Math.abs(capture.rgba[offset]! - clear[0]!),
+                    Math.abs(capture.rgba[offset + 1]! - clear[1]!),
+                    Math.abs(capture.rgba[offset + 2]! - clear[2]!),
+                ) > 24
+            )
+                scenePixels++;
+        }
         return {
             width: capture.width,
             height: capture.height,
             identity: capture.identity,
+            scenePixels,
         };
     }, key);
     expect(image.width, "captureFrame reads the declared canvas width").toBe(1280);
@@ -49,6 +62,10 @@ async function captureCanvasFrame(page: Page, key: string): Promise<void> {
         surface: "final-canvas",
         encoding: "rgba8-tight",
     });
+    expect(
+        image.scenePixels,
+        "captureFrame includes the rendered scene beyond its clear color",
+    ).toBeGreaterThan(0);
 }
 
 async function changedFraction(page: Page, first: string, second: string): Promise<number> {
@@ -151,6 +168,6 @@ test("the browser input adapter fails to record a real key press on the focused 
     const focusedChange = await changedFraction(page, "focused-before", "focused-after");
     expect(
         focusedChange,
-        "a focused W press changes the rendered first-person scene beyond idle motion",
+        `a focused W press changes the rendered first-person scene beyond idle motion (idle ${idleChange}, unfocused ${unfocusedChange}, threshold ${inputSignal})`,
     ).toBeGreaterThan(inputSignal);
 });
