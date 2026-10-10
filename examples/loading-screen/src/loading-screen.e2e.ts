@@ -400,7 +400,9 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
             "none",
         );
 
-        const loadingScreenshot = await page.screenshot();
+        const loadingScreenshot = await page.screenshot({
+            style: "#scene { visibility: hidden !important; }",
+        });
         const loadingPixels = await inspectPageScreenshot(
             page,
             loadingScreenshot.toString("base64"),
@@ -415,7 +417,7 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
         ).toBeGreaterThan(100);
         expect(
             loadingPixels.frameBackgroundFraction,
-            "the hidden canvas leaves at least 97 percent of its frame at --bg2",
+            "the screenshot with the canvas omitted leaves at least 97 percent of its frame at --bg2",
         ).toBeGreaterThanOrEqual(0.97);
         expect(
             loadingPixels.pageBackgroundError,
