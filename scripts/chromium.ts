@@ -15,8 +15,7 @@ const chromiumArgs =
                 "--enable-features=WebGPUDeveloperFeatures",
                 "--enable-webgpu-developer-features",
                 "--enable-gpu",
-                "--use-angle=d3d11-warp",
-                "--use-webgpu-adapter=d3d11",
+                "--ignore-gpu-blocklist",
             ]
           : [
                 "--enable-unsafe-webgpu",
@@ -25,9 +24,14 @@ const chromiumArgs =
                 "--enable-gpu",
             ];
 
+const chromiumLaunchOptions =
+    process.platform === "win32"
+        ? { args: chromiumArgs, ignoreDefaultArgs: ["--enable-unsafe-swiftshader"] }
+        : { args: chromiumArgs };
+
 export const CHROMIUM_USE = {
     channel: "chromium" as const,
-    launchOptions: { args: chromiumArgs },
+    launchOptions: chromiumLaunchOptions,
 };
 
 export const BROWSER_CONFIG = {
