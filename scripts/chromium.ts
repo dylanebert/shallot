@@ -1,16 +1,24 @@
 import type { PlaywrightTestConfig } from "playwright/test";
 import { CEILING } from "./test-tiers";
 
+const chromiumArgs =
+    process.platform === "linux"
+        ? [
+              "--use-angle=swiftshader",
+              "--no-sandbox",
+              "--enable-unsafe-webgpu",
+              "--enable-features=Vulkan",
+          ]
+        : [
+              "--enable-unsafe-webgpu",
+              "--enable-features=WebGPUDeveloperFeatures",
+              "--enable-webgpu-developer-features",
+              "--enable-gpu",
+          ];
+
 export const CHROMIUM_USE = {
     channel: "chromium" as const,
-    launchOptions: {
-        args: [
-            "--enable-unsafe-webgpu",
-            "--enable-features=WebGPUDeveloperFeatures",
-            "--enable-webgpu-developer-features",
-            "--enable-gpu",
-        ],
-    },
+    launchOptions: { args: chromiumArgs },
 };
 
 export const BROWSER_CONFIG = {
