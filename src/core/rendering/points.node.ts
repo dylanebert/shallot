@@ -57,6 +57,7 @@ import {
     Tonemapping,
     TonemappingMethod,
 } from "./index";
+import { GlobalAmbientLight } from "./lighting";
 import { PointsPlugin, pointsState } from "./points.fixture";
 import { RenderContext, renderKey } from "./render";
 import { viewTargetsKey } from "./targets";
@@ -99,6 +100,7 @@ const coreResources = {
     compositeCacheKey,
     tonemappingStateKey,
     EffectPasses,
+    GlobalAmbientLight,
 };
 const meshResources = {
     meshResourcesKey,

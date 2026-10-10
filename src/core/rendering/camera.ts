@@ -19,6 +19,16 @@ export const CameraMode = {
     Orthographic: 1,
 } as const;
 
+/** Bevy's Blender-calibrated default exposure in EV100. */
+export const EXPOSURE_EV100_BLENDER = 9.7;
+
+/** Camera exposure in EV100. The default follows Bevy's Blender-calibrated value. */
+export const Exposure = component(
+    "Exposure",
+    { ev100: f32 },
+    { defaults: () => ({ ev100: EXPOSURE_EV100_BLENDER }) },
+);
+
 /**
  * camera component. Placement comes from TransformPlugin's fixed-tick GlobalTransform (looks down its local -Z). A lone camera
  * auto-binds to the first `<canvas>` in the document, so the single-view case needs no wiring;

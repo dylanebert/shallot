@@ -11,6 +11,8 @@ import { clusterCell, LightClusters } from "./cluster";
 import { distanceAttenuation, LightingGpu, PointLightGpu, spotFactor } from "./lighting";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 
+const PI = Math.PI;
+
 /**
  * the canonical engine group-0 layout: every pass-invariant binding a standard pipeline reads — frame / view /
  * lighting uniforms and two storage tables: clustered lights and mesh dequantization. `vertices` is deliberately absent: it's pass-variant (color binds the 16 B main stream,
@@ -128,10 +130,12 @@ export const pointFactor = tgpu.fn(
                 sum,
                 std.mul(
                     light.color.rgb,
-                    distanceAttenuation(distSq, light.posRange.w, radiusSq) *
+                    (distanceAttenuation(distSq, light.posRange.w, radiusSq) *
                         diff *
                         spotFactor(light, L) *
-                        pointShadowSlot.$(light, normal, fragWorld.$),
+                        pointShadowSlot.$(light, normal, fragWorld.$) *
+                        engineLayout.$.view.exposure) /
+                        PI,
                 ),
             ),
         );
@@ -139,27 +143,28 @@ export const pointFactor = tgpu.fn(
     return sum;
 });
 
-/** ambient + sun·halfLambert·shadow + the clustered point sum, callable in a vs for per-vertex shading
- *  (where {@link sunVisibility} /
- *  {@link pointScale} sit at their defaults: fully-lit sun, zero point contribution).
- */
+/** Photometric ambient, directional and clustered point illumination. Exposure is camera-local. */
 export const lightFactor = tgpu.fn(
     [d.vec3f],
     d.vec3f,
 )((normal) => {
     "use gpu";
-    const L = std.neg(engineLayout.$.lighting.sunDirection.xyz);
-    const sun = halfLambert(std.dot(normal, L));
-    return std.add(
-        std.add(
-            std.mul(
-                engineLayout.$.lighting.ambientColor.rgb,
-                engineLayout.$.lighting.ambientColor.a,
+    const exposure = engineLayout.$.view.exposure;
+    let direct = d.vec3f(0);
+    for (let i = d.u32(0); i < engineLayout.$.lighting.directionalCount; i++) {
+        const light = engineLayout.$.lighting.directionalLights[i];
+        let visibility = d.f32(1);
+        if (light.params.y > 0) visibility = sunVisibility.$;
+        const cosine = halfLambert(std.dot(normal, std.neg(light.direction.xyz)));
+        direct = d.vec3f(
+            std.add(
+                direct,
+                std.mul(light.color.rgb, (light.params.x * exposure * cosine * visibility) / PI),
             ),
-            // (sunColor.rgb * sun) * sunVisibility, left-to-right like the shipped shader — grouping
-            // sun*sunVisibility first (a natural JS-side simplification) shifts the f32 rounding
-            std.mul(std.mul(engineLayout.$.lighting.sunColor.rgb, sun), sunVisibility.$),
-        ),
+        );
+    }
+    return std.add(
+        std.add(std.mul(engineLayout.$.view.ambientColor.rgb, exposure), direct),
         pointFactor(normal),
     );
 });
@@ -186,28 +191,27 @@ export const litPbr = tgpu.fn(
 )((s, normal, world) => {
     "use gpu";
     const V = std.normalize(std.sub(engineLayout.$.view.eye.xyz, world));
-    // left-to-right, like the shipped shader's `a * b * c * d`: ((ambient.rgb * ambient.a) * albedo) * occlusion
+    const exposure = engineLayout.$.view.exposure;
     let radiance = d.vec3f(
         std.mul(
-            std.mul(
+            std.mul(engineLayout.$.view.ambientColor.rgb, exposure),
+            std.mul(s.albedo, s.occlusion),
+        ),
+    );
+    for (let i = d.u32(0); i < engineLayout.$.lighting.directionalCount; i++) {
+        const light = engineLayout.$.lighting.directionalLights[i];
+        let visibility = d.f32(1);
+        if (light.params.y > 0) visibility = sunVisibility.$;
+        radiance = d.vec3f(
+            std.add(
+                radiance,
                 std.mul(
-                    engineLayout.$.lighting.ambientColor.rgb,
-                    engineLayout.$.lighting.ambientColor.a,
+                    std.mul(light.color.rgb, light.params.x * exposure * visibility),
+                    brdf(s, normal, V, std.neg(light.direction.xyz)),
                 ),
-                s.albedo,
             ),
-            s.occlusion,
-        ),
-    );
-    radiance = d.vec3f(
-        std.add(
-            radiance,
-            std.mul(
-                std.mul(engineLayout.$.lighting.sunColor.rgb, sunVisibility.$),
-                brdf(s, normal, V, std.neg(engineLayout.$.lighting.sunDirection.xyz)),
-            ),
-        ),
-    );
+        );
+    }
     if (pointScale.$ !== 0) {
         const entry = engineLayout.$.pointLights.grid[clusterOf()];
         for (let i = d.u32(0); i < entry.y; i++) {
@@ -230,7 +234,7 @@ export const litPbr = tgpu.fn(
                 std.add(
                     radiance,
                     std.mul(
-                        std.mul(light.color.rgb, f),
+                        std.mul(light.color.rgb, f * exposure),
                         brdfSphere(s, normal, V, L, dist, light.params.x),
                     ),
                 ),

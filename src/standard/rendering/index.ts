@@ -7,9 +7,11 @@ export { BackgroundContext, Backgrounds, backgroundLayout, registerBackground } 
 export { engineLayout, lit } from "./engine";
 export { CameraBackground, StandardRenderer, StandardRenderingPlugin } from "./forward";
 export {
+    DirectionalLightGpu,
     distanceAttenuation,
     Lighting,
     LightingGpu,
+    MAX_DIRECTIONAL_LIGHTS,
     PointLightGpu,
     spotFactor,
 } from "./lighting";

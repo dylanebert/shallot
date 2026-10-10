@@ -117,9 +117,9 @@ async function frame(
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
+    world.add(camera, AmbientLight, { brightness: 998.09574 });
     world.add(camera, StandardRenderer);
     attachTexture(world, camera, { width: 32, height: 32 });
-    world.add(world.create(), AmbientLight, { intensity: 1 });
     if (!arm.endsWith("system")) place(world, handleForLabel(world, "slab"));
     if (arm === "reinitialized") await reinitialize(world);
     const warn = spyOn(console, "warn").mockImplementation(() => {});

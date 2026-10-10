@@ -111,10 +111,9 @@ test("report production frame GPU time for first-person and a 10k-instance scene
     const stress = (world: World) => {
         const camera = world.create();
         world.add(camera, Camera);
+        world.add(camera, AmbientLight, { brightness: 798.4766 });
         world.add(camera, StandardRenderer);
         world.add(camera, Transform, { translation: [0, 0, 90, 0] });
-        const ambient = world.create();
-        world.add(ambient, AmbientLight, { intensity: 0.8 });
         for (let i = 0; i < 10000; i++) {
             const eid = world.create();
             world.add(eid, MeshInstance);

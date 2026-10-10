@@ -33,6 +33,7 @@ function cameraPlugin(
             const camera = world.create();
             world.add(camera, Transform, { translation: [x, 0, 5, 0] });
             world.add(camera, Camera, { clearColor });
+            world.add(camera, AmbientLight, { brightness: 499.04787 });
             world.add(camera, StandardRenderer);
             attachTexture(world, camera, { width: 16, height: 16 });
 
@@ -43,7 +44,6 @@ function cameraPlugin(
                 .resource(Materials)
                 .add(StandardMaterial({ baseColor: color, perceptualRoughness: 1 }));
             world.add(mesh, MeshMaterial, material);
-            world.add(world.create(), AmbientLight, { intensity: 0.5 });
         },
     };
 }

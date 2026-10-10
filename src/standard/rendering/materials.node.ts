@@ -14,6 +14,7 @@ import {
     PointLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import { lookAtRotation } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import { DEFAULT_PLUGINS, MeshRenderPlugin, StandardRenderingPlugin } from "../index";
 import { StandardRenderer } from "./forward";
@@ -36,13 +37,18 @@ test("StandardMaterial keeps its frame while material types own independent para
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
+    world.add(camera, AmbientLight, { brightness: 199.61915 });
     world.add(camera, StandardRenderer);
     attachTexture(world, camera, { width: 64, height: 64 });
-    world.add(world.create(), AmbientLight, { intensity: 0.2 });
-    world.add(world.create(), DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });
+    const sun = world.create();
+    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
+    world.add(sun, Transform, {
+        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
+    });
+    world.add(sun, DirectionalLight, { illuminance: 4703.4155 });
     const point = world.create();
     world.add(point, Transform, { translation: [1, 1, 2, 0] });
-    world.add(point, PointLight, { intensity: 8, range: 10 });
+    world.add(point, PointLight, { intensity: 315225.92, range: 10 });
     const eid = world.create();
     world.add(eid, Transform, { rotation: [0.0996005, 0.199201, 0, 0.974884] });
     world.add(eid, MeshInstance);

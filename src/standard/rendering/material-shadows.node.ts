@@ -14,7 +14,7 @@ import {
     PointLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import type { Plugin, World } from "../../engine";
+import { lookAtRotation, type Plugin, type World } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import { pointAtlasView, sunShadowView } from "./atlas";
 import { StandardRenderer } from "./forward";
@@ -92,11 +92,15 @@ test("NotShadowCaster preserves visibility and peers' shadows; shadow materials 
     const initial = materials.add(values, { alphaMode: AlphaMode.Mask(0.5) });
     world.add(caster, MeshMaterial, initial);
     const sun = world.create();
-    world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });
+    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
+    world.add(sun, Transform, {
+        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
+    });
+    world.add(sun, DirectionalLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const point = world.create();
     world.add(point, Transform, { translation: [2, 2, 3, 0] });
-    world.add(point, PointLight, { intensity: 8, range: 10 });
+    world.add(point, PointLight, { intensity: 315225.92, range: 10 });
     world.storage(PointLight).shadowMapsEnabled.set(point, 1);
     const counts = device.createBuffer({
         size: 8,

@@ -2,7 +2,7 @@ import type { System, World } from "../../engine";
 import { encodeFrameCapture } from "./capture";
 import { MAX_SLOTS, type View, Views } from "./view";
 
-export const VIEW_KEY_FLOATS = 25;
+export const VIEW_KEY_FLOATS = 28;
 
 export const renderFrameKey = {
     create: () => ({

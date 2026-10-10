@@ -10,7 +10,7 @@ import {
     DirectionalLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { createApp, type World } from "../../engine";
+import { createApp, lookAtRotation, type World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -44,7 +44,11 @@ function scene(world: World, cascades: number, prepass = false): { camera: numbe
     world.add(cube, MeshInstance);
     world.add(cube, MeshMaterial, material);
     const sun = world.create();
-    world.add(sun, DirectionalLight, { direction: [-0.4, -1, -0.55, 0] });
+    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -1, -0.55);
+    world.add(sun, Transform, {
+        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
+    });
+    world.add(sun, DirectionalLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     world.storage(DirectionalLight).numCascades.set(sun, cascades);
     return { camera, sun };

@@ -23,13 +23,19 @@ import {
     type Resource,
     type World,
 } from "../../engine";
+import { directionalTravelDirection, shadowDirectionalLight } from "./lighting";
 
 /** the directional shadow's cascade ceiling: each cascade takes one of the depth view slots reserved out
  * of the point-shadow combo budget, so the count can't exceed it. Four is the three.js / Bevy default. */
 export const MAX_CASCADES = 4;
 
 /**
- * the directional shadow map size, Bevy's `DirectionalLightShadowMap`: `size` is the side in pixels of each
+ * Shallot permits one directional shadow caster. Bevy can shadow every enabled directional, while Unity URP
+ * exposes directional shadows through its main light; Shallot chooses the latter shape because every extra
+ * cascade set adds depth passes and atlas area. `shadowMapsEnabled` remains per light: the brightest enabled
+ * light wins (ties by lower eid), other requests remain unshadowed, and a conflict warns once.
+ *
+ * The directional shadow map size, Bevy's `DirectionalLightShadowMap`: `size` is the side in pixels of each
  * cascade's square tile (default 2048), clamped to [256, 4096] and snapped to a power of two. The tiles share
  * one depth32float atlas `ceil(√numCascades)` tiles on a side, so 4096 with more than one cascade allocates
  * an 8192² atlas (256 MiB). It is read every frame the sun casts, and a change reallocates the atlas before
@@ -379,6 +385,7 @@ interface ShadowRuntime {
     cascadeCover: Float32Array;
     cascadeDepth: Float32Array;
     sunBias: Float64Array;
+    sunTowardLight: Float64Array;
     sunCascades: number;
     sunOverlap: number;
     cascKey: Float64Array;
@@ -404,6 +411,7 @@ const createShadowRuntime = (): ShadowRuntime => ({
     cascadeCover: new Float32Array(MAX_CASCADES),
     cascadeDepth: new Float32Array(MAX_CASCADES),
     sunBias: new Float64Array(2),
+    sunTowardLight: new Float64Array(3),
     sunCascades: 0,
     sunOverlap: 0,
     cascKey: new Float64Array(CASC_KEY_FLOATS).fill(Number.NaN),
@@ -423,7 +431,6 @@ const _cascWorld = new Float32Array(16);
 const _cascView = new Float32Array(16);
 const _cascProj = new Float32Array(16);
 const _cascTileMat = new Float32Array(16);
-const SUN_TERMS = [DirectionalLight];
 const _sunDir = new Float64Array(3);
 const _splits = new Float64Array(MAX_CASCADES);
 const _fit: LightFit = {
@@ -496,10 +503,14 @@ export function sunOverlap(world: World): number {
     return shadows(world).sunOverlap;
 }
 
-/** the casting sun's bias knobs this frame, `[depthBias, normalBias]` (the residual clip-space lift, the
- * receiver normal-offset multiplier): the renderer writes them into the receiver's params. */
+/** The selected directional caster's `[depthBias, normalBias]` for this frame. */
 export function sunBias(world: World): Float64Array {
     return shadows(world).sunBias;
+}
+
+/** The selected caster's normalized direction from the receiver toward the light. */
+export function sunTowardLight(world: World): Float64Array {
+    return shadows(world).sunTowardLight;
 }
 
 // a pooled cascade camera: an off-screen ortho Camera (no canvas, `attachView`) posed per frame by
@@ -591,18 +602,19 @@ export function resetCascades(world: World): void {
  */
 export function updateCascades(world: World, main: number): void {
     const shadow = shadows(world);
-    const light = world.only(SUN_TERMS);
-    if (light < 0 || !world.storage(DirectionalLight).shadowMapsEnabled.get(light) || main < 0) {
+    const light = shadowDirectionalLight(world);
+    if (light < 0 || main < 0) {
         shadow.cascadeCount = 0;
         return;
     }
     const resolution = sunResolution(world);
     const maxDist = Math.max(1e-3, world.storage(DirectionalLight).maximumDistance.get(light));
-    shadow.sunBias[0] = world.storage(DirectionalLight).shadowDepthBias.get(light);
+    shadow.sunBias[0] = world.storage(DirectionalLight).depthBias.get(light);
     shadow.sunBias[1] = world.storage(DirectionalLight).shadowNormalBias.get(light);
-    _sunDir[0] = world.storage(DirectionalLight).direction.x.get(light);
-    _sunDir[1] = world.storage(DirectionalLight).direction.y.get(light);
-    _sunDir[2] = world.storage(DirectionalLight).direction.z.get(light);
+    directionalTravelDirection(world, light, _sunDir);
+    shadow.sunTowardLight[0] = -_sunDir[0];
+    shadow.sunTowardLight[1] = -_sunDir[1];
+    shadow.sunTowardLight[2] = -_sunDir[2];
     const view = world.resource(Views).get(main);
     const aspect = view && view.height > 0 ? view.width / view.height : 1;
     composeGlobalTransform(world, main, _cascWorld);
@@ -1301,7 +1313,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         const source = world.has(c.light, SpotLight)
             ? world.storage(SpotLight)
             : world.storage(PointLight);
-        f.depthBias = source.shadowDepthBias.get(c.light);
+        f.depthBias = source.depthBias.get(c.light);
         f.normalBias = source.shadowNormalBias.get(c.light);
         f.spot = world.has(c.light, SpotLight);
         f.fwd[0] = 0;

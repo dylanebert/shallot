@@ -4,6 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, DirectionalLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import { lookAtRotation } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import {
     DirectionalLightShadowMap,
@@ -58,11 +59,12 @@ test("clip Sprite leaves its alpha hole out of the directional shadow map", asyn
         scale: [3, 3, 0.1, 0],
     });
     world.add(receiver, MeshInstance);
-    world.add(world.create(), DirectionalLight, {
-        direction: [-0.4, -0.8, -0.5, 0],
-        shadowMapsEnabled: 1,
-        numCascades: 1,
+    const sun = world.create();
+    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
+    world.add(sun, Transform, {
+        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
     });
+    world.add(sun, DirectionalLight, { shadowMapsEnabled: 1, numCascades: 1 });
 
     const depthBuffer = device.createBuffer({
         size: SHADOW_SIDE * SHADOW_SIDE * 4,

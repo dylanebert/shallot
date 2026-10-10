@@ -66,6 +66,7 @@ export {
     CameraBackground,
     DirectionalLightShadowMap,
     MAX_CASCADES,
+    MAX_DIRECTIONAL_LIGHTS,
     MAX_POINT_CASTERS,
     Materials,
     MeshMaterial,

@@ -15,6 +15,7 @@ import {
     RenderingPlugin,
     Resolution,
     SpotLight,
+    SunDisk,
     Tonemapping,
     Views,
     VolumetricLight,
@@ -538,6 +539,7 @@ function featurePlugin(subject: Plugin): Plugin {
             resources.camera = camera;
             world.add(camera, Transform);
             world.add(camera, Camera);
+            world.add(camera, AmbientLight, { brightness: 499.04787 });
             world.add(camera, Resolution);
             world.add(camera, StandardRenderer);
             world.add(camera, DepthPrepass);
@@ -552,8 +554,6 @@ function featurePlugin(subject: Plugin): Plugin {
                 .name.set(camera, world.resource(Backgrounds).id("sky") ?? 0);
             attachCanvas(camera, canvas, world);
 
-            const ambient = world.create();
-            world.add(ambient, AmbientLight);
             if (
                 subject === RenderingPlugin ||
                 subject === StandardRenderingPlugin ||
@@ -562,6 +562,11 @@ function featurePlugin(subject: Plugin): Plugin {
             ) {
                 const sun = world.create();
                 world.add(sun, DirectionalLight);
+                world.add(sun, SunDisk, {
+                    angularSize: 2 * Math.acos(1 - 0.0005 * 0.7),
+                    intensity: 1,
+                    glow: 0.5,
+                });
                 world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
                 world.add(sun, VolumetricLight);
                 const point = world.create();

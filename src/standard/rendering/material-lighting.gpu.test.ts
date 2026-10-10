@@ -7,6 +7,7 @@ import {
     attachTexture,
     Camera,
     captureTexture,
+    Exposure,
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
@@ -26,11 +27,11 @@ import type { MaterialHandle } from "./material-type";
 setDefaultTimeout(CEILING.gpu);
 
 // With no sun or point lights, the lit diffuse pixel is baseColor * this white ambient intensity.
-// Tonemapping.None still applies linear-to-sRGB presentation encoding in expectedPixel.
-const AMBIENT = 0.25;
-const LIGHTED = AMBIENT;
+// At EV100 9.7, the recalibrated cd/m² value yields the former 0.25 linear response.
+const AMBIENT = 249.52394;
+const LIGHTED = 0.25;
 const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
-const subjects = gpuApps(import.meta.path, [config, config]);
+const subjects = gpuApps(import.meta.path, [config, config, config]);
 
 function srgbByte(linear: number): number {
     const encoded = linear <= 0.0031308 ? linear * 12.92 : 1.055 * linear ** (1 / 2.4) - 0.055;
@@ -45,11 +46,11 @@ function makeScene(world: World) {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
+    world.add(camera, AmbientLight, { brightness: AMBIENT });
     world.add(camera, StandardRenderer);
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     attachTexture(world, camera, { width: 64, height: 32 });
 
-    world.add(world.create(), AmbientLight, { intensity: AMBIENT });
     const add = (x: number, material: MaterialHandle) => {
         const eid = world.create();
         world.add(eid, Transform, { translation: [x, 0, 0, 0], scale: [0.5, 0.5, 0.5, 0] });
@@ -62,7 +63,7 @@ function makeScene(world: World) {
         const rgba = (await captureTexture(world, camera)).rgba;
         return (x: number) => Array.from(rgba.subarray((16 * 64 + x) * 4, (16 * 64 + x) * 4 + 4));
     };
-    return { add, capture };
+    return { add, camera, capture };
 }
 
 test("StandardMaterial unlit preserves base colour under lighting that dims a lit material", async () => {
@@ -98,4 +99,23 @@ test("VertexMaterialType applies the independently computed ambient light to its
     const baseColour = expectedPixel(0, 1, 0);
     expect(litPixel).toEqual(expectedLit);
     expect(litPixel).not.toEqual(baseColour);
+});
+
+test("camera EV100 changes ambient exposure by one stop", async () => {
+    const { world } = subjects()[2];
+    const { add, camera, capture } = makeScene(world);
+    const material = world.resource(Materials).add(
+        StandardMaterial({
+            baseColor: [1, 1, 1, 1],
+            metallic: 0,
+            perceptualRoughness: 1,
+            diffuseWrap: 1,
+        }),
+    );
+    add(0, material);
+    world.add(camera, Exposure, { ev100: 9.7 });
+    expect((await capture())(32)).toEqual(expectedPixel(LIGHTED, LIGHTED, LIGHTED));
+
+    world.storage(Exposure).ev100.set(camera, 8.7);
+    expect((await capture())(32)).toEqual(expectedPixel(LIGHTED * 2, LIGHTED * 2, LIGHTED * 2));
 });

@@ -8,6 +8,7 @@ import {
     prepareGlobalTransformFrame,
     GlobalTransformHistory as TransformRuntime,
 } from "../../core/rendering/global-transform";
+import { VIEW_BYTES } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
 import { createApp } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
@@ -79,7 +80,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     buffer("vertices", new Uint32Array(vertices));
     buffer("position", new Uint32Array(positions));
     buffer("indices", new Uint32Array([0, 1, 2]));
-    const view = new Float32Array(52);
+    const view = new Float32Array(VIEW_BYTES / 4);
     for (const i of [0, 5, 10, 15]) view[i] = 1;
     buffer("view", view, true);
     const textCode = tgpu.resolve([TextVertex], { names: "strict" });

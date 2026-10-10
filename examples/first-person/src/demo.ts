@@ -1,5 +1,4 @@
 import {
-    AmbientLight,
     Body,
     BodyType,
     Camera,
@@ -8,8 +7,10 @@ import {
     component,
     cube,
     DirectionalLight,
+    GlobalAmbientLight,
     InputPlugin,
     LocalPlayer,
+    lookAtRotation,
     Materials,
     MeshInstance,
     MeshMaterial,
@@ -63,13 +64,17 @@ export const Route: Resource<{ entities: ReturnType<typeof route> | null }> = {
 };
 
 export function route(world: World) {
-    const ambient = world.create();
-    world.add(ambient, AmbientLight, { color: 0xd6dfdf, intensity: 0.74 });
+    const ambient = world.resource(GlobalAmbientLight);
+    ambient.color = 0xd6dfdf;
+    ambient.brightness = 738.59085;
     const sun = world.create();
+    const sunRotation = lookAtRotation(0, 0, 0, -0.45, -1, -0.6);
+    world.add(sun, Transform, {
+        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
+    });
     world.add(sun, DirectionalLight, {
-        direction: [-0.45, -1, -0.6, 0],
         color: 0xffe8c7,
-        intensity: 1.1,
+        illuminance: 3449.1713,
     });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const eye = world.create();

@@ -3,10 +3,10 @@
 // tests pin the GPU to. There is no twin to keep in step.
 //
 // S1 integrates **extinction** only (uniform haze + exponential height fog, Beer-Lambert per step); S2 adds
-// **in-scatter** — the clustered point/spot shafts and the directional sun — on the same march loop.
+// **in-scatter** — each clustered point/spot source and each opted-in directional — on the same march loop.
 //
 // Two things here are deliberately NOT TGSL. `heightOpticalDepth` is the analytic closed form the march is
-// validated against, so it has no shader twin by construction. `fogInScatter` / `fogSunInScatter` are the
+// validated against, so it has no shader twin by construction. `fogInScatter` / `fogDirectionalInScatter` are the
 // single-light march oracles: the production shader fuses that loop with the per-step light gather + shadow
 // lookups, so there is no WGSL function to collapse onto — but they call the TGSL primitives below, never a
 // second copy of the arithmetic.
@@ -134,7 +134,7 @@ export const ign = tgpu.fn(
     return std.fract(52.9829189 * std.fract(std.dot(p, d.vec2f(0.06711056, 0.00583715))));
 });
 
-// ---- in-scatter (clustered lights + sun) ----
+// ---- in-scatter (clustered lights + directionals) ----
 
 /** the Henyey-Greenstein single-scatter phase function. `g` in [-1,1]: 0 isotropic (1/4π), →1 forward-peaked
  *  (a bright halo toward a light), →-1 back-scatter. `cosTheta` is the cosine between the view ray and the
@@ -169,18 +169,13 @@ export const inScatterContribution = tgpu.fn(
     return std.mul(light.color.xyz, atten * spotFactor(light, L) * phase);
 });
 
-/**
- * the sun's (directional) in-scatter contribution at a march point: `sunColor · phase` toward the light.
- * `sunDir` is the sun's travel direction (`lighting.sunDirection.xyz`), so `-sunDir` is toward the light; no
- * distance falloff or cone (directional, infinitely far). Shadow-free — the caller multiplies the per-step
- * sun shadow. Additive with the clustered cones on the same march.
- */
-export const sunInScatter = tgpu.fn(
+/** One volumetric directional light's in-scatter radiance, with no distance falloff or cone. */
+export const directionalInScatter = tgpu.fn(
     [d.vec3f, d.vec3f, d.vec3f, d.f32],
     d.vec3f,
-)((sunColor, sunDir, dir, g) => {
+)((lightColor, travelDirection, dir, g) => {
     "use gpu";
-    return std.mul(sunColor, henyeyGreenstein(g, std.dot(dir, std.neg(sunDir))));
+    return std.mul(lightColor, henyeyGreenstein(g, std.dot(dir, std.neg(travelDirection))));
 });
 
 // ---- the CPU-only tier: the analytic ground truth + the two single-light march oracles ----
@@ -251,31 +246,25 @@ export function fogInScatter(
     return [r, g, b];
 }
 
-/** the directional sun in the terms the fog march reads: `direction` the sun's normalized travel direction
- * (lighting.sunDirection.xyz; toward-light is its negation), `color` the linear rgb with intensity baked
- * (lighting.sunColor.rgb). No position/range/cone: directional, infinitely far. */
-export interface FogSun {
+/** One directional light's normalized travel direction and linear RGB radiance at a fog sample. */
+export interface FogDirectionalLight {
     direction: d.v3f;
     color: d.v3f;
 }
 
-/** the single-sun in-scatter march: the oracle the fog probe's sun-in-scatter readback is pinned to (the
- * production shader adds this to the clustered cones on the same march; the probe + this run the sun alone,
- * shadow-free, the no-occluder analytic). Marches the same midpoint samples as {@link fogTransmittance},
- * weighting each step by the transmittance to its start and integrating the source over the step with the
- * same energy-conserving `albedo·(1−e^{−σ_t·ds})·gain` form as {@link fogInScatter}. */
-export function fogSunInScatter(
+/** A single-directional in-scatter march, weighted by transmittance and integrated over each step. */
+export function fogDirectionalInScatter(
     origin: d.v3f,
     dir: d.v3f,
     dist: number,
     fog: FogScatter,
-    sun: FogSun,
+    light: FogDirectionalLight,
     steps: number,
     sampleOffset: number,
 ): [number, number, number] {
     const ds = dist / steps;
     const albedo = 1 - fog.absorption;
-    const c = sunInScatter(sun.color, sun.direction, dir, fog.anisotropy);
+    const c = directionalInScatter(light.color, light.direction, dir, fog.anisotropy);
     let trans = 1;
     let r = 0;
     let g = 0;

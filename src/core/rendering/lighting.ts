@@ -1,113 +1,138 @@
-import { component, f32, u32, vec4 } from "../../engine";
+import type { Resource } from "../../engine";
+import { component, f32, u32 } from "../../engine";
+import { Transform } from "../transform";
 
-/** Ambient illumination. color is hex sRGB; intensity is a linear multiplier. */
+/** Ambient illumination used unless a camera carries an {@link AmbientLight} override. */
+export interface GlobalAmbientLightState {
+    /** Linearized from this sRGB hex color when packed. */
+    color: number;
+    /** Scene luminance in cd/m². */
+    brightness: number;
+}
+
+/** The world's default ambient source, measured in cd/m². */
+export const GlobalAmbientLight: Resource<GlobalAmbientLightState> = {
+    create: () => ({ color: 0xffffff, brightness: 80 }),
+};
+
+/** Per-camera ambient override. Color is sRGB hex; brightness is luminance in cd/m². */
 export const AmbientLight = component(
     "AmbientLight",
-    { color: f32, intensity: f32 },
-    {
-        defaults: () => ({ color: 0xffffff, intensity: 0.5 }),
-    },
+    { color: f32, brightness: f32 },
+    { defaults: () => ({ color: 0xffffff, brightness: 80 }) },
 );
 
-/** Directional illumination. direction is the normalized travel direction when packed.
- * intensity remains a linear multiplier, not lux. shadowMapsEnabled is zero when disabled, one when enabled.
- * The shadow cascades follow Bevy's `CascadeShadowConfigBuilder`: numCascades depth slices (clamped to the
- * renderer's maximum) cover the camera's view out to maximumDistance in world units, the first ending at
- * firstCascadeFarBound and the rest spaced exponentially to maximumDistance; with one cascade the bound is
- * ignored and maximumDistance takes precedence. overlapProportion, in [0, 1), is the fraction of each
- * cascade blended with the next. All are read every frame; a numCascades change resizes the cascade atlas.
- * Shadow normal bias is measured in shadow texels; depth bias is a residual depth offset.
- */
+/** Directional illumination in lux. Light travels along the entity's transformed local -Z. */
 export const DirectionalLight = component(
     "DirectionalLight",
     {
         color: f32,
-        intensity: f32,
-        direction: vec4,
+        illuminance: f32,
         shadowMapsEnabled: u32,
         maximumDistance: f32,
         numCascades: u32,
         firstCascadeFarBound: f32,
         overlapProportion: f32,
-        shadowDepthBias: f32,
+        /** Receiver offset toward this light in world units. */
+        depthBias: f32,
+        /** Receiver offset in shadow texels along the surface normal. */
         shadowNormalBias: f32,
     },
     {
         defaults: () => ({
             color: 0xffffff,
-            intensity: 1.5,
-            direction: [-0.6, -1.0, -0.8, 0],
+            illuminance: 4703.4155,
             shadowMapsEnabled: 0,
             maximumDistance: 50,
             numCascades: 4,
             firstCascadeFarBound: 10,
             overlapProportion: 0.2,
-            shadowDepthBias: 0.0005,
+            depthBias: 0.0005,
             shadowNormalBias: 1.8,
         }),
+        requires: [Transform],
     },
 );
 
-/** Spherical light. Placement comes from GlobalTransform. color is hex sRGB;
- * intensity is a linear multiplier. range and radius are metres; falloff reaches zero at range.
- * shadowMapsEnabled is zero when disabled, one when enabled.
- * Shadow normal bias is measured in shadow texels; depth bias is a residual depth offset.
- */
+/** Spherical source with luminous flux in lumens. Placement, range and radius use world units. */
 export const PointLight = component(
     "PointLight",
     {
         color: f32,
+        /** Total emitted luminous flux in lumens. */
         intensity: f32,
         range: f32,
         radius: f32,
         shadowMapsEnabled: u32,
-        shadowDepthBias: f32,
+        /** Receiver offset toward this light in world units. */
+        depthBias: f32,
         shadowNormalBias: f32,
     },
     {
         defaults: () => ({
             color: 0xffffff,
-            intensity: 1,
+            intensity: 39_403.24,
             range: 10,
             radius: 0.1,
             shadowMapsEnabled: 0,
-            shadowDepthBias: 0.0005,
+            depthBias: 0.0005,
             shadowNormalBias: 1.8,
         }),
+        requires: [Transform],
     },
 );
 
-/** Cone light pointing down its GlobalTransform's local -Z. Units match PointLight;
- * Light attenuates smoothly between the inner and outer cones.
- * A SpotLight takes precedence over a PointLight on the same entity.
- */
+/** Cone source with luminous flux in lumens. It points down GlobalTransform's local -Z. */
 export const SpotLight = component(
     "SpotLight",
     {
         color: f32,
+        /** Total emitted luminous flux in lumens. */
         intensity: f32,
         range: f32,
         radius: f32,
-        /** Inner half-angle in degrees, measured from the cone axis; full brightness inside it. */
+        /** Inner half-angle in degrees; full brightness inside it. */
         innerAngle: f32,
-        /** Outer half-angle in degrees, measured from the cone axis; dark beyond it. */
+        /** Outer half-angle in degrees; dark beyond it. */
         outerAngle: f32,
         shadowMapsEnabled: u32,
-        shadowDepthBias: f32,
+        /** Receiver offset toward this light in world units. */
+        depthBias: f32,
         shadowNormalBias: f32,
     },
     {
         defaults: () => ({
             color: 0xffffff,
-            intensity: 1,
+            intensity: 39_403.24,
             range: 10,
             radius: 0.1,
             innerAngle: 20,
             outerAngle: 30,
             shadowMapsEnabled: 0,
-            shadowDepthBias: 0.0005,
+            depthBias: 0.0005,
             shadowNormalBias: 1.8,
         }),
+        requires: [Transform],
+    },
+);
+
+/** Bevy's apparent solar diameter used by `SunDisk.EARTH` (radians). */
+export const SUN_DISK_EARTH_ANGULAR_SIZE = 0.00930842;
+
+/** Visible disk attached to a directional light. Sky's angular size and glow are independent of illumination. */
+export const SunDisk = component(
+    "SunDisk",
+    {
+        /** Apparent disk diameter in radians. */
+        angularSize: f32,
+        /** Visual multiplier; does not change the light or its shadows. */
+        intensity: f32,
+        /** Per-light sky glow, a Shallot extension to Bevy's SunDisk. */
+        glow: f32,
+    },
+    {
+        defaults: () => ({ angularSize: SUN_DISK_EARTH_ANGULAR_SIZE, intensity: 1, glow: 0 }),
+        requires: [DirectionalLight],
     },
 );
 

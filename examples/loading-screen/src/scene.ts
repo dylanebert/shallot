@@ -1,8 +1,9 @@
 import {
     AlphaMode,
-    AmbientLight,
     Camera,
     DirectionalLight,
+    GlobalAmbientLight,
+    lookAtRotation,
     Materials,
     MeshInstance,
     MeshMaterial,
@@ -17,13 +18,17 @@ import {
 import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 
 export function authorWorld(world: World): void {
-    const ambient = world.create();
-    world.add(ambient, AmbientLight, { color: 0xd0dcec, intensity: 0.5 });
+    const ambient = world.resource(GlobalAmbientLight);
+    ambient.color = 0xd0dcec;
+    ambient.brightness = 499.04787;
     const sun = world.create();
+    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -1, -0.55);
+    world.add(sun, Transform, {
+        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
+    });
     world.add(sun, DirectionalLight, {
-        direction: [-0.4, -1, -0.55, 0],
         color: 0xfff4e0,
-        intensity: 1.1,
+        illuminance: 3449.1713,
     });
     const camera = world.create();
     // Neutral + sRGB inverse for --bg2 (#1c1917): one red level lower after 8-bit quantization.

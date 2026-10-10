@@ -1,14 +1,14 @@
 // Fog — opt-in volumetric atmosphere. A compute pass marches each pixel camera→scene-depth, fusing
 // **extinction** (uniform haze + exponential height fog, fading the scene toward the haze color) with
-// **in-scatter** — the light shafts a `VolumetricLight` opts into: the clustered point/spot cones
-// shadowed by standard's point atlas, plus the directional sun shaft shadowed by its sun map (the same
-// light grid + shadow service standard's lit path uses), so occluders cast dark shafts.
+// **in-scatter** — every point, spot or directional light carrying `VolumetricLight`: point/spot sources use
+// standard's point atlas, and only the selected directional shadow caster uses the directional atlas; other
+// enabled directionals scatter unshadowed. Occluders still cast dark shafts for shadowed sources.
 // It runs through the `sceneTransform` seam after the main pass and before tonemapping.
 // A scene opts in with one `Fog` singleton; a camera opts in with core's `DepthPrepass` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
 // uniform schema live in `./march`; the pipeline (the two bind-group layouts + the compute kernel
 // calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle
-// are the same TGSL source (extinction + clustered + sun in-scatter) — this file is the ECS/system/
+// are the same TGSL source (extinction + clustered + directional in-scatter) — this file is the ECS/system/
 // plugin half: the component, the per-frame uniform pack, and the per-camera dispatch.
 import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import {

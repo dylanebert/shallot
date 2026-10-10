@@ -4,8 +4,8 @@ import { Sky } from "./index";
 import { SKY_AT } from "./shader";
 
 /**
- * pack a `Sky` singleton entity into its {@link SkyGpu} uniform. Hex colors decode to linear rgb. The sun
- * *direction* is not packed; the shader reads it from standard's `lighting` uniform.
+ * Pack a `Sky` singleton entity into its {@link SkyGpu} uniform. Hex colors decode to linear RGB; per-light
+ * SunDisk data comes from standard's lighting uniform.
  */
 export function packSky(world: World, eid: number, out: Float32Array): void {
     out.fill(0);
@@ -38,12 +38,4 @@ export function packSky(world: World, eid: number, out: Float32Array): void {
     out[SKY_AT.cloudColor] = cloud.r;
     out[SKY_AT.cloudColor + 1] = cloud.g;
     out[SKY_AT.cloudColor + 2] = cloud.b;
-
-    out[SKY_AT.sunParams] = world.storage(Sky).sunSize.get(eid);
-    out[SKY_AT.sunParams + 3] = world.storage(Sky).sunGlow.get(eid);
-
-    const sun = unpackColor(world.storage(Sky).sunColor.get(eid));
-    out[SKY_AT.sunVisualColor] = sun.r;
-    out[SKY_AT.sunVisualColor + 1] = sun.g;
-    out[SKY_AT.sunVisualColor + 2] = sun.b;
 }

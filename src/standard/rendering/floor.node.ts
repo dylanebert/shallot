@@ -265,6 +265,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         const camera = world.create();
         world.add(camera, Transform, { translation: [0, 0, 5, 0] });
         world.add(camera, Camera);
+        world.add(camera, AmbientLight, { brightness: 199.61915 });
         world.add(camera, StandardRenderer);
         attachTexture(world, camera, { width: 32, height: 32 });
         const captureCompletedFrame = async () => {
@@ -323,7 +324,6 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             world.add(mesh, MeshInstance);
             world.add(mesh, MeshMaterial, material);
         }
-        world.add(world.create(), AmbientLight, { intensity: 0.2 });
         world.add(world.create(), DirectionalLight, { shadowMapsEnabled: 1 });
         const point = world.create();
         world.add(point, Transform, { translation: [1, 1, 2, 0] });

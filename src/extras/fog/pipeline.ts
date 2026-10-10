@@ -29,6 +29,7 @@ import {
     tileRectsSchema,
 } from "../../standard/rendering";
 import {
+    directionalInScatter,
     FOG_MAX_STEPS,
     FogGpu,
     fogComposite,
@@ -36,7 +37,6 @@ import {
     ign,
     inScatterContribution,
     reconstructWorld,
-    sunInScatter,
     WORKGROUP,
 } from "./march";
 
@@ -87,9 +87,9 @@ export const fogLayout1 = tgpu
 const pointShadowOf = pointShadowRef();
 
 /** the fog march compute kernel: per pixel, reconstruct the camera→fragment segment, then fuse the
- *  extinction march ({@link fogDensity} / `fogComposite`) with the clustered point/spot + sun in-scatter
- *  ({@link inScatterContribution} / {@link sunInScatter}), shadowed by standard's point atlas
- *  ({@link pointShadowOf}) and sun cascade map ({@link sampleSunShadow}). @internal */
+ *  extinction march ({@link fogDensity} / `fogComposite`) with clustered point/spot + directional in-scatter
+ *  ({@link inScatterContribution} / {@link directionalInScatter}), shadowed by standard's point atlas
+ *  ({@link pointShadowOf}) and the selected directional cascade map ({@link sampleSunShadow}). @internal */
 export const fogKernel = tgpu
     .computeFn({
         workgroupSize: [WORKGROUP, WORKGROUP],
@@ -166,26 +166,37 @@ export const fogKernel = tgpu
                 }
                 const shadow = pointShadowOf(light, d.vec3f(0), p);
                 lstep = d.vec3f(
-                    std.add(lstep, std.mul(inScatterContribution(light, p, dir, g), shadow)),
+                    std.add(
+                        lstep,
+                        std.mul(inScatterContribution(light, p, dir, g), shadow * camView.exposure),
+                    ),
                 );
                 j = j + 1;
             }
-            // the sun (directional) shaft, additive with the clustered cones on the same accumulator
-            if (fogLayout1.$.lighting.sunDirection.w > 0) {
-                lstep = d.vec3f(
-                    std.add(
-                        lstep,
-                        std.mul(
-                            sunInScatter(
-                                fogLayout1.$.lighting.sunColor.xyz,
-                                fogLayout1.$.lighting.sunDirection.xyz,
-                                dir,
-                                g,
+            // Every directional light carrying VolumetricLight scatters; only the selected shadow caster
+            // samples the directional atlas, while the other enabled lights remain unshadowed.
+            let k = d.u32(0);
+            while (k < fogLayout1.$.lighting.directionalCount) {
+                const light = fogLayout1.$.lighting.directionalLights[k];
+                if (light.params.z > 0) {
+                    let visibility = d.f32(1);
+                    if (light.params.y > 0) visibility = sampleSunShadow(p, d.vec3f(0));
+                    lstep = d.vec3f(
+                        std.add(
+                            lstep,
+                            std.mul(
+                                directionalInScatter(
+                                    std.mul(light.color.rgb, light.params.x * camView.exposure),
+                                    light.direction.xyz,
+                                    dir,
+                                    g,
+                                ),
+                                visibility,
                             ),
-                            sampleSunShadow(p, d.vec3f(0)),
                         ),
-                    ),
-                );
+                    );
+                }
+                k = k + 1;
             }
             // (trans·albedo·gain) is one scalar product that scales lstep, and the result is scaled again
             // by (1−sampleTrans) as a separate step — matching the shipped shader's left-to-right f32

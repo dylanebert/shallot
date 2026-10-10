@@ -7,7 +7,7 @@ import { component } from "../../engine";
 // plugin, so sky and lights never depend on each other. One `Sky` singleton holds the look; a camera opts
 // in with standard's `CameraBackground` component. Not in `DEFAULT_PLUGINS`.
 
-import { BeginFrameSystem, MainPassSystem, RenderingPlugin } from "../../core/rendering";
+import { BeginFrameSystem, MainPassSystem, RenderingPlugin, SunDisk } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
 import { f32 } from "../../engine";
 import { registerBackground, StandardRenderingPlugin } from "../../standard/rendering";
@@ -18,8 +18,8 @@ import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
  * the scene's procedural sky, one per scene (a singleton). A camera shows it by selecting the registered
  * `sky` background with `CameraBackground`. The look is a layered recipe: an elevation gradient from
  * `horizon` up to `zenith`, a sun glow + disk (positioned by the scene's directional light, tinted
- * `sunColor`), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. The sun's direction
- * follows the directional light; this component sets only its appearance.
+ * per-light `SunDisk`s), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. Each disk
+ * follows its directional light and takes that light's color.
  */
 export const Sky = component(
     "Sky",
@@ -30,12 +30,6 @@ export const Sky = component(
         horizon: f32,
         /** bright band strength right at the horizon line [0,1] (0 = none) */
         band: f32,
-        /** hex sRGB tint of the sun glow + disk (the sun's *position* follows the directional light) */
-        sunColor: f32,
-        /** sun disk size [0,1]: larger paints a bigger disk */
-        sunSize: f32,
-        /** sun glow strength around the disk [0,1] (0 = no glow) */
-        sunGlow: f32,
         /** hex sRGB cloud color */
         cloudColor: f32,
         /** cloud coverage [0,1]: how much of the sky the clouds fill (0 = clear) */
@@ -58,9 +52,6 @@ export const Sky = component(
             zenith: 0x89b6e9,
             horizon: 0xc4cdda,
             band: 0,
-            sunColor: 0xffffff,
-            sunSize: 0.7,
-            sunGlow: 0.5,
             cloudColor: 0xffffff,
             cloudCoverage: 0.5,
             cloudDensity: 0.7,
@@ -102,8 +93,8 @@ const SkySystem: System = {
 
 /**
  * procedural sky (the bryce3d look). Opt-in: add `SkyPlugin` to the plugin set, give the scene one
- * {@link Sky} singleton, and select the `sky` background on the rendering camera with `CameraBackground`.
- * The sky reads the scene's directional light for the sun's position and writes nothing.
+ * {@link Sky} singleton, add one or more {@link SunDisk}s to directional lights, and select the `sky` background
+ * on the rendering camera with `CameraBackground`. The sky reads each opted-in light and writes nothing.
  */
 export const SkyPlugin: Plugin = {
     gpu: {},

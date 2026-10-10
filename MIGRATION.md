@@ -257,44 +257,58 @@ The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wr
 
 In v0.9.5, the root `TextPlugin` warned and continued when a registered font failed to load. It now rejects initialization with the load error as `cause`; a 0.9.5 game with an unreachable registered font therefore fails initialization. The default Inter font ships with the package and no longer needs network access.
 
-## Lights own their shadow settings
+## Photometric lights follow transforms
 
-Root `Spot` and `Shadow` are removed. A `SpotLight` contains its own light values; do not add a `PointLight` to provide them. Root `Volumetric` is now `VolumetricLight`. These 0.10 components and `NotShadowCaster` are exported from the root and `/rendering`.
+In v0.10, authored light values use photometric units and a directional light shines along its entity's transformed local `-Z`. This replaces the v0.9.5 linear multipliers and explicit `DirectionalLight.direction`. Each camera may carry `Exposure` in EV100; its default, 9.7, follows Bevy's Blender calibration. The old names below were checked in the `v0.9.5` source (`packages/shallot/src/standard/render/lighting.ts`); root `Spot` and `Shadow` fields were separate components.
 
-| v0.9.5 component or field (path) | 0.10 replacement |
+| v0.9.5 component or field | 0.10 replacement |
 |---|---|
-| Root `AmbientLight.color`, `.intensity` | Unchanged: hex sRGB and a linear multiplier. |
-| Root `DirectionalLight.color`, `.intensity`, `.direction` | Unchanged: hex sRGB, a linear multiplier and the light's travel direction. |
-| Root `PointLight.color`, `.intensity`, `.range`, `.radius` on a point light | Unchanged. |
-| Root `PointLight.color`, `.intensity`, `.range`, `.radius` on an entity with root `Spot` | `SpotLight.color`, `.intensity`, `.range`, `.radius`; copy the values and remove `PointLight`. |
+| Root `AmbientLight.color`, `.intensity` | `GlobalAmbientLight` resource with `color` and `brightness` in cd/m², plus optional per-camera `AmbientLight` override on the camera entity. Both use hex sRGB color. |
+| Root `DirectionalLight.color`, `.intensity`, `.direction` | `DirectionalLight.color`, `.illuminance` in lux, and a `Transform` rotation; `direction` is removed. Use a quaternion that rotates local `-Z` onto the old normalized travel direction. |
+| Root `PointLight.color`, `.intensity`, `.range`, `.radius` on a point light | `PointLight` with color, `intensity` in lumens, range and radius; the light now requires `Transform`. |
+| Root `PointLight.color`, `.intensity`, `.range`, `.radius` on an entity with root `Spot` | `SpotLight.color`, `intensity` in lumens, range and radius; remove `PointLight`. `SpotLight` requires `Transform`. |
 | Root `Spot.inner`, `.outer` | `SpotLight.innerAngle`, `.outerAngle`, still half-angles in degrees. |
-| Root `Shadow` presence | Set the light's `shadowMapsEnabled` to `1`; `0` disables shadow maps. |
+| Root `Shadow` presence | Set each light's `shadowMapsEnabled` to `1`; `0` disables its shadow request. |
 | Root `Shadow.distance` on a directional light | `DirectionalLight.maximumDistance`, still world units. |
 | Root `Shadow.distance` on a point or spot light | Remove it; it was ignored. Shadow coverage still uses the light's `range`. |
-| Root `Shadow.depthBias`, `.normalBias` | The light's `shadowDepthBias`, `.shadowNormalBias`, with the same values and units. |
-| `/src/standard/sear/shadows` `SHADOW_DEFAULTS` | Removed. Light defaults are `shadowMapsEnabled: 0`, `shadowDepthBias: 0.0005`, `shadowNormalBias: 1.8`; directional `maximumDistance` defaults to `50`. |
-| Root `Volumetric` | `VolumetricLight`, still a marker. |
+| Root `Shadow.depthBias`, `.normalBias` | `depthBias` and `shadowNormalBias`; normal bias remains measured in shadow texels, but `depthBias` is now a world-space receiver offset toward the light. Re-author it in world units. |
+| `/src/standard/sear/shadows` `SHADOW_DEFAULTS` | Removed. Per-light shadow requests default off; `shadowNormalBias` defaults to `1.8`, and `maximumDistance` to `50` for a directional light. |
+| Root `Volumetric` | `VolumetricLight`, still a marker; every marked point, spot and directional light contributes fog in-scatter. |
+| `Sky.sunSize`, `Sky.sunGlow` | Add `SunDisk` to each directional light whose disk should be drawn. To preserve the old disk diameter, set `angularSize` to `2 * Math.acos(1 - 0.0005 * oldSunSize)` radians; copy `sunGlow` to `glow`, the Shallot extension to Bevy's `SunDisk`. The default `angularSize` is Bevy's `EARTH` solar size. |
+| `Sky.sunColor` | Removed: a disk takes its directional light's `color`. `SunDisk.intensity` controls only its visual brightness, not illumination or shadows. |
 | Root `SunShadows.cascades` | `DirectionalLight.numCascades`, default `4`, clamped to `MAX_CASCADES`. |
 | Root `SunShadows.overlap` | `DirectionalLight.overlapProportion`, default `0.2`. |
 | Root `SunShadows.lambda` | Removed. Set `DirectionalLight.firstCascadeFarBound`, default `10` world units: the first cascade ends there and the rest are spaced exponentially to `maximumDistance`. |
 | Root `SunShadows.resolution` | `world.resource(DirectionalLightShadowMap).size`, default `2048`. |
 | Root `PointShadows.atlas`, `.casters`, `.hysteresis` | The same fields on `world.resource(PointShadows)`. |
 
+At EV100 9.7, `exposure = 2^-9.7 / 1.2`. To preserve a former linear multiplier `m`, re-author ambient brightness as `m / exposure` cd/m², directional illuminance as `πm / exposure` lux, and point/spot luminous flux as `4π²m / exposure` lumens. Keep `Exposure` at its EV100 value (the default is 9.7) or re-evaluate those authored values for another exposure. Example directional aim:
+
+```ts
+const q = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
+world.add(sun, Transform, { rotation: [q.x, q.y, q.z, q.w] });
+world.add(sun, DirectionalLight, { color: 0xfff4e0, illuminance: 3449.1713 });
+world.add(sun, SunDisk, { angularSize: 0.0529, intensity: 1, glow: 0.5 });
+```
+
+Standard packs up to ten directional lights. At most one enabled directional casts shadows: Shallot selects the enabled light with greatest illuminance, then lower entity id on a tie. It warns once while multiple directional lights request shadows; other enabled requests remain unshadowed. `shadowMapsEnabled` remains per light, so a game may change which one wins without rewriting the other lights.
+
 A shadowed spot light is now authored as:
 
 ```ts
+world.add(lamp, Transform, { translation: [0, 4, 0, 0] });
 world.add(lamp, SpotLight, {
-    color: 0xffffff, intensity: 4, range: 12,
+    color: 0xffffff, intensity: 157612.96, range: 12,
     innerAngle: 18,
     outerAngle: 28,
     shadowMapsEnabled: 1,
-    shadowDepthBias: 0.0005,
+    depthBias: 0.0005,
     shadowNormalBias: 1.8,
 });
 world.add(lamp, VolumetricLight);
 ```
 
-`NotShadowCaster` is new in 0.10. Add it to a mesh entity to keep it visible without casting shadows. Removing it restores casting. `PointShadows` and `DirectionalLightShadowMap` belong to each World: instead of assigning to an imported object, write `world.resource(PointShadows).atlas = 1024` in `AppConfig.setup` or a plugin's `initialize`. Light brightness units have not changed to lux or lumens.
+`NotShadowCaster` is new in 0.10. Add it to a mesh entity to keep it visible without casting shadows. Removing it restores casting. `PointShadows` and `DirectionalLightShadowMap` belong to each World: instead of assigning to an imported object, write `world.resource(PointShadows).atlas = 1024` in `AppConfig.setup` or a plugin's `initialize`.
 
 `Camera` remains one component: `mode`, `fov`, `near`, `far`, `size`, `clearColor` and `antialias` are unchanged, including `fov` in degrees and `antialias: 1` for 4× MSAA. `CameraMode` and `Resolution.width`/`.height` are unchanged.
 

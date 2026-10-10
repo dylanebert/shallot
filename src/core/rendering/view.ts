@@ -22,6 +22,10 @@ export const ViewUniforms = d
         projection: d.vec4f,
         eye: d.vec4f,
         invViewProj: d.mat4x4f,
+        /** The selected global or camera ambient source, already multiplied by its cd/m² brightness. */
+        ambientColor: d.vec4f,
+        /** EV100 exposure factor, `2^-EV100 / 1.2`. */
+        exposure: d.f32,
     })
     .$name("ViewUniforms");
 
@@ -46,17 +50,11 @@ export const MAX_SLOTS = 64;
 export const VIEW_UNIFORM_SIZE = VIEW_STRIDE * MAX_SLOTS;
 
 /**
- * the byte size of the {@link ViewUniforms} uniform a surface statically reads, from the schema: `mat4` (64) +
- * `vec2` resolution (8, padded to 16 by the vec4 that follows) + two `vec4` camera-basis columns (right
- * at byte 80, up at 96: the camera's normalized world-space right/up, packed by `BeginFrameSystem`;
- * forward derives as `-cross(right, up)`) + the `projection` vec4 at 112 (near, far, perspective flag,
- * view slot) + the `eye` vec4 at 128 (the camera's world-space position, for view-dependent shading
- * (specular, fresnel, fog)). Billboard-shaped surfaces orient quads from `right`/`up`. Note
- * the shadow light camera packs through the same path, so a billboard in the shadow pass faces the
- * light (Godot-consistent). Then `invViewProj` at byte 144 (the inverse of `viewProj`). A screen-space
- * pass (fog / volumetrics) reconstructs a fragment's world position from its depth: `ndc(uv, depth)`
- * → `invViewProj` → world. Each shading slot binds its own whole {@link RenderContext.viewBuffers} buffer of
- * exactly this size — no dynamic offset, no `minBindingSize` needed.
+ * the byte size of the {@link ViewUniforms} uniform a surface statically reads, from the schema: projection,
+ * camera basis, eye and inverse view-projection, followed by per-camera ambient radiance and exposure. A
+ * screen-space pass reconstructs world position from depth through `invViewProj`; each shading slot also
+ * carries the camera's effective ambient override and EV100 factor. Each shading slot binds its own whole
+ * {@link RenderContext.viewBuffers} buffer of exactly this size.
  */
 export const VIEW_BYTES = d.sizeOf(ViewUniforms);
 

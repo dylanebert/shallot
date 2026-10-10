@@ -51,6 +51,7 @@ import {
     sunCascades,
     sunOverlap,
     sunResolution,
+    sunTowardLight,
 } from "./shadows";
 
 interface AtlasState {
@@ -1285,6 +1286,11 @@ export function renderCascades(
     // one atlas pixel in uv — the actual texture side (allocated for the light's count), not the active
     // count: an ortho main camera runs C = 1 into the whole atlas, so its PCF tap step is still 1 physical pixel
     _atlasState.paramsF32[SUN_PARAMS.globals.texel] = 1 / _atlasState.cascadeAtlas!.width;
+    const towardLight = sunTowardLight(world);
+    const direction = SUN_PARAMS.globals.lightDirection;
+    _atlasState.paramsF32[direction] = towardLight[0];
+    _atlasState.paramsF32[direction + 1] = towardLight[1];
+    _atlasState.paramsF32[direction + 2] = towardLight[2];
     world.gpu.device.queue.writeBuffer(
         _atlasState.sunParams!,
         0,

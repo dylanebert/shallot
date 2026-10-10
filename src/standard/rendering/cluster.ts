@@ -125,6 +125,7 @@ function _clusterGpu(world: World): ClusterGpuState {
     return world.resource(clusterGpuKey);
 }
 
+/** Authoring input rows preserve lumens; the compact pass divides by 4π to store linear-RGB candela. */
 const LightInput = d
     .struct({
         color: d.f32,
@@ -139,6 +140,7 @@ const LightInput = d
     .$name("LightInput");
 const LIGHT_SPOT = 1;
 const LIGHT_VOLUMETRIC = 2;
+const INV_FOUR_PI = 1 / (4 * Math.PI);
 export const lightInputKey = { create: createLightInputTable };
 const lightCountData = new Uint32Array(1);
 
@@ -923,7 +925,7 @@ function compactKernel() {
                     srgbToLinear1(d.f32((hex >>> 8) & 0xff) / 255),
                     srgbToLinear1(d.f32(hex & 0xff) / 255),
                 ),
-                record.intensity,
+                record.intensity * INV_FOUR_PI,
             );
             const pos = globalTransform.pos;
             const posRange = d.vec4f(pos.x, pos.y, pos.z, 1 / (record.range * record.range));

@@ -2,14 +2,21 @@
 
 import * as d from "typegpu/data";
 import type { Plugin, System, World } from "../../engine";
-import { ClearChangeMarksSystem, invertMat4 } from "../../engine";
+import { ClearChangeMarksSystem, invertMat4, unpackColor } from "../../engine";
 import {
     composeGlobalTransform,
     PrepareGlobalTransformSystem,
     TransformPlugin,
 } from "../transform";
 
-import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
+import {
+    Camera,
+    CameraMode,
+    computeViewProj,
+    EXPOSURE_EV100_BLENDER,
+    Exposure,
+    Resolution,
+} from "./camera";
 import { FRAME_UNIFORM_SIZE, Frame, initializeFrameState, writeFrame } from "./frame";
 import {
     EndFrameSystem,
@@ -31,9 +38,11 @@ import { initializeImageState } from "./image";
 import {
     AmbientLight,
     DirectionalLight,
+    GlobalAmbientLight,
     NotShadowCaster,
     PointLight,
     SpotLight,
+    SunDisk,
     VolumetricLight,
 } from "./lighting";
 import { initializeRenderState, RenderContext } from "./render";
@@ -53,23 +62,29 @@ import {
     VIEW_UNIFORM_SIZE,
     type View as ViewSlot,
     Views,
+    ViewUniforms,
 } from "./view";
 
 /** Fixed read-only cull table, shared by camera and shadow slots. */
 export const CullVolumes = d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4));
+const AMBIENT_COLOR_F32 = d.memoryLayoutOf(ViewUniforms, (view) => view.ambientColor).offset / 4;
+const EXPOSURE_F32 = d.memoryLayoutOf(ViewUniforms, (view) => view.exposure).offset / 4;
 
 // the public happy path: the component contract (camera + lights).
 // Everything else a renderer or producer touches — the RenderContext singleton, the
 // View contract, canvas binding and the frame
 // loop — is the extension API, exported below.
-export { Camera, CameraMode, Resolution } from "./camera";
+export { Camera, CameraMode, Exposure, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
 export {
     AmbientLight,
     DirectionalLight,
+    GlobalAmbientLight,
     NotShadowCaster,
     PointLight,
     SpotLight,
+    SUN_DISK_EARTH_ANGULAR_SIZE,
+    SunDisk,
     VolumetricLight,
 } from "./lighting";
 export {
@@ -106,6 +121,22 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     if (!slotInputsChanged(world, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;
     const viewProj = _renderFrame.viewProjs[slot];
+    const ambientPacked = world.has(eid, AmbientLight)
+        ? world.storage(AmbientLight).color.get(eid)
+        : world.resource(GlobalAmbientLight).color;
+    const ambientBrightness = world.has(eid, AmbientLight)
+        ? world.storage(AmbientLight).brightness.get(eid)
+        : world.resource(GlobalAmbientLight).brightness;
+    const ambientRgb = unpackColor(ambientPacked);
+    const ambientAt = offset + AMBIENT_COLOR_F32;
+    _render.viewStaging[ambientAt] = ambientRgb.r * ambientBrightness;
+    _render.viewStaging[ambientAt + 1] = ambientRgb.g * ambientBrightness;
+    _render.viewStaging[ambientAt + 2] = ambientRgb.b * ambientBrightness;
+    _render.viewStaging[ambientAt + 3] = 0;
+    const ev100 = world.has(eid, Exposure)
+        ? world.storage(Exposure).ev100.get(eid)
+        : EXPOSURE_EV100_BLENDER;
+    _render.viewStaging[offset + EXPOSURE_F32] = 2 ** -ev100 / 1.2;
     computeViewProj(world, eid, view.width / view.height, viewProj);
     // resolution (pixels) follows viewProj in the ViewUniforms struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
@@ -169,6 +200,18 @@ function slotInputsChanged(
     _renderFrame.viewKeyNext[7] = world.storage(Camera).near.get(eid);
     _renderFrame.viewKeyNext[8] = world.storage(Camera).far.get(eid);
     _renderFrame.viewKeyNext.set(_renderFrame.camWorld, 9);
+    const ev100 = world.has(eid, Exposure)
+        ? world.storage(Exposure).ev100.get(eid)
+        : EXPOSURE_EV100_BLENDER;
+    const ambientColor = world.has(eid, AmbientLight)
+        ? world.storage(AmbientLight).color.get(eid)
+        : world.resource(GlobalAmbientLight).color;
+    const ambientBrightness = world.has(eid, AmbientLight)
+        ? world.storage(AmbientLight).brightness.get(eid)
+        : world.resource(GlobalAmbientLight).brightness;
+    _renderFrame.viewKeyNext[25] = ev100;
+    _renderFrame.viewKeyNext[26] = ambientColor;
+    _renderFrame.viewKeyNext[27] = ambientBrightness;
     const at = slot * VIEW_KEY_FLOATS;
     let changed = false;
     for (let i = 0; i < VIEW_KEY_FLOATS; i++) {
@@ -424,11 +467,13 @@ export const RenderingPlugin: Plugin = {
     recovery: recoverGlobalTransformHistory,
     components: [
         Camera,
+        Exposure,
         Resolution,
         AmbientLight,
         DirectionalLight,
         PointLight,
         SpotLight,
+        SunDisk,
         VolumetricLight,
         NotShadowCaster,
     ],
@@ -439,6 +484,7 @@ export const RenderingPlugin: Plugin = {
         initializeFrameState(world);
         initializeImageState(world);
         initializeRenderFrameState(world);
+        world.resource(GlobalAmbientLight);
         await initRender(world);
         const globalTransformRuntime = world.resource(GlobalTransformHistory);
         // Its uniform binding reuses the leading vec4 in the Frame buffer written each frame.

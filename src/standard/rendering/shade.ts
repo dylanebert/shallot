@@ -96,11 +96,8 @@ export const fresnelSchlick = tgpu.fn(
 });
 
 /**
- * one light's Cook-Torrance radiance, unscaled by light color / attenuation (the caller scales). The
- * trailing `* PI` folds physical diffuse (`albedo/PI`) back to shallot's no-PI light convention so the
- * diffuse term matches `lit` exactly. The diffuse cosine is {@link halfLambert} (the soft default); the
- * specular keeps the physical clamped cosine, so it vanishes on back faces and metals / glTF dielectrics
- * stay correct.
+ * one light's Cook-Torrance BRDF, unscaled by photometric radiance / attenuation (the caller scales).
+ * Diffuse retains its physical `albedo/PI` normalization; half-Lambert remains the authored soft response.
  */
 export const brdf = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f, d.vec3f],
@@ -122,7 +119,7 @@ export const brdf = tgpu.fn(
     const kd = std.mul(std.sub(d.vec3f(1), F), 1 - s.metallic);
     const diffuseCosine = std.mix(std.max(dNL, 0), halfLambert(dNL), s.diffuseWrap);
     const diffuse = std.mul(std.div(std.mul(kd, s.albedo), PI), diffuseCosine);
-    return std.mul(std.add(diffuse, std.mul(spec, ndl)), PI);
+    return std.add(diffuse, std.mul(spec, ndl));
 });
 
 /**
@@ -168,7 +165,7 @@ export const brdfSphere = tgpu.fn(
     const kd = std.mul(std.sub(d.vec3f(1), F), 1 - s.metallic);
     const diffuseCosine = std.mix(std.max(dC, 0), halfLambert(dC), s.diffuseWrap);
     const diffuse = std.mul(std.div(std.mul(kd, s.albedo), PI), diffuseCosine);
-    return std.mul(std.add(diffuse, std.mul(spec, ndl)), PI);
+    return std.add(diffuse, std.mul(spec, ndl));
 });
 
 // ---- point / spot shadows: the caster uniform layout + the receiver math ----
@@ -259,22 +256,24 @@ export const pointFaceOf = tgpu.fn(
     return PointFace({ stz: d.vec3f(dir.x, dir.y, -dir.z), face: d.u32(5) });
 });
 
-/**
- * the depth a point/spot shadow receiver compares against, biased toward the light. `z` is the receiver's
- * view-space forward distance (already normal-offset), `near`/`far` the caster's clip planes, `depthBias`
- * the residual lift. The bias applies in **linear** depth: `z` is pulled toward the light by
- * `depthBias·(far−near)` world units *before* the perspective remap, so the world-space lift is constant
- * across distance. A fixed offset in the hyperbolic NDC depth (what an orthographic sun gets for free, its
- * depth being linear) instead grows with z² and detaches far contact shadows (peter-panning). The remap is
- * reverse-Z (near→1, far→0), matching the `perspective` the atlas renders through — pinned to it by unit
- * test, so the hardware depth the atlas wrote compares exactly.
- */
+/** Move a receiver toward its light by a fixed world-space distance. */
+export const offsetTowardLight = tgpu
+    .fn(
+        [d.vec3f, d.vec3f, d.f32],
+        d.vec3f,
+    )((position, towardLight, distance) => {
+        "use gpu";
+        return std.add(position, std.mul(std.normalize(towardLight), distance));
+    })
+    .$name("offsetTowardLight");
+
+/** Reverse-Z perspective depth for a receiver already offset in world space. */
 export const pointReceiver = tgpu.fn(
-    [d.f32, d.f32, d.f32, d.f32],
+    [d.f32, d.f32, d.f32],
     d.f32,
-)((z, near, far, depthBias) => {
+)((z, near, far) => {
     "use gpu";
-    const zb = std.max(z - depthBias * (far - near), near);
+    const zb = std.max(z, near);
     return (near * (far - zb)) / (zb * (far - near));
 });
 
@@ -319,9 +318,10 @@ function pointShadowFn() {
             rect = tileRects.rects[k * 6u];
             let tilePx = rect.z * atlas;
             let texelWorld = max(length(toFrag), 1e-4) * (2.0 * coneTanHalf / tilePx);
-            let dOff = toFrag + normal * (c.nf.w * 1.4142136 * texelWorld);
+            let biased = offsetTowardLight(toFrag, -toFrag, c.nf.z);
+            let dOff = biased + normal * (c.nf.w * 1.4142136 * texelWorld);
             let z = max(dot(dOff, c.spotC.xyz), c.nf.x);
-            receiver = pointReceiver(z, c.nf.x, c.nf.y, c.nf.z);
+            receiver = pointReceiver(z, c.nf.x, c.nf.y);
             let ndc = vec2<f32>(dot(dOff, c.spotA.xyz), dot(dOff, c.spotB.xyz)) / (z * coneTanHalf);
             uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
         } else {
@@ -330,11 +330,12 @@ function pointShadowFn() {
             let tilePx = tileRects.rects[k * 6u].z * atlas;
             let tanHalf = 1.0 + ${2 * EDGE_TEXELS}.0 / tilePx;
             let texelWorld = max(length(toFrag), 1e-4) * (2.0 * tanHalf / tilePx);
-            let dOff = toFrag + normal * (c.nf.w * 1.4142136 * texelWorld);
+            let biased = offsetTowardLight(toFrag, -toFrag, c.nf.z);
+            let dOff = biased + normal * (c.nf.w * 1.4142136 * texelWorld);
             let f = pointFaceOf(dOff);
             rect = tileRects.rects[k * 6u + f.face];
             let z = max(f.stz.z, c.nf.x);
-            receiver = pointReceiver(z, c.nf.x, c.nf.y, c.nf.z);
+            receiver = pointReceiver(z, c.nf.x, c.nf.y);
             let ndc = f.stz.xy / (z * tanHalf);
             uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
         }
@@ -358,7 +359,7 @@ function pointShadowFn() {
             // free names for the caller to declare) — naming them here is what lets a real-reference caller
             // (a pipeline) pull them in via `tgpu.resolve`'s call
             // graph without also re-listing them by hand
-            .$uses({ pointFaceOf, pointReceiver })
+            .$uses({ pointFaceOf, pointReceiver, offsetTowardLight })
             .$name("pointShadowOf")
     );
 }
@@ -399,6 +400,7 @@ export const Cascade = d.struct({
  */
 export const SunShadow = d.struct({
     cascades: d.arrayOf(Cascade, MAX_CASCADES),
+    lightDirection: d.vec4f,
     count: d.f32,
     overlap: d.f32,
     depthBias: d.f32,
@@ -441,6 +443,7 @@ export const SUN_PARAMS = {
         enabled: at(SunShadow, (s) => s.enabled),
         normalBias: at(SunShadow, (s) => s.normalBias),
         texel: at(SunShadow, (s) => s.texel),
+        lightDirection: at(SunShadow, (s) => s.lightDirection),
     },
 } as const;
 
@@ -450,10 +453,9 @@ const sampleCascade = tgpu
         d.f32,
     )(/* wgsl */ `(ci: u32, worldPos: vec3f, normal: vec3f) -> f32 {
     let c = sunShadow.cascades[ci];
-    // normal-offset bias (the primary acne fix, matching Bevy): shift the receiver along its world normal by
-    // normalBias shadow texels of world size before projecting. 1.41 is SQRT_2 (worst-case diagonal); the
-    // texel world size is per-cascade, so a near cascade's finer texels don't over-offset
-    let offset = worldPos + normalize(normal) * (sunShadow.normalBias * 1.4142136 * c.texelWorld);
+    // Offset toward the light in world space before projection; normal bias remains texel-scaled.
+    let biased = offsetTowardLight(worldPos, sunShadow.lightDirection.xyz, sunShadow.depthBias);
+    let offset = biased + normalize(normal) * (sunShadow.normalBias * 1.4142136 * c.texelWorld);
     let lc = c.lightViewProj * vec4<f32>(offset, 1.0);
     let l = lc.xyz / lc.w;
     if (l.x < -1.0 || l.x > 1.0 || l.y < -1.0 || l.y > 1.0 || l.z < 0.0 || l.z > 1.0) {
@@ -462,8 +464,7 @@ const sampleCascade = tgpu
     // remap the cascade-NDC into its atlas tile, then clamp the 3×3 PCF taps to the tile interior so a
     // grazing sample never bleeds into a neighbour cascade's tile (the point atlas's seam-clamp)
     let uv = c.rect.xy + vec2<f32>(l.x * 0.5 + 0.5, 0.5 - l.y * 0.5) * c.rect.zw;
-    // a small residual constant lift toward the light (reverse-Z: the light is at greater depth, so it adds)
-    let receiver = l.z + sunShadow.depthBias;
+    let receiver = l.z;
     let lo = c.rect.xy + vec2<f32>(0.5 * sunShadow.texel);
     let hi = c.rect.xy + c.rect.zw - vec2<f32>(0.5 * sunShadow.texel);
     var sum = 0.0;
@@ -475,6 +476,7 @@ const sampleCascade = tgpu
     }
     return sum / 9.0;
 }`)
+    .$uses({ offsetTowardLight })
     .$name("sampleCascade");
 
 /**

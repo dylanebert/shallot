@@ -4,6 +4,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
+import { lookAtRotation } from "../../engine";
 import { Fog, FogPlugin } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";
 import { DEFAULT_PLUGINS } from "../../standard";
@@ -58,6 +59,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera, { clearColor: 0x204060 });
+    world.add(camera, AmbientLight, { brightness: 199.61915 });
     world.add(camera, StandardRenderer);
     world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
     const layout = backgroundLayout({});
@@ -90,20 +92,26 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     });
     world.add(edgeMesh, MeshInstance);
     world.add(edgeMesh, MeshMaterial, material);
-    world.add(world.create(), AmbientLight, { intensity: 0.2 });
     const sun = world.create();
-    world.add(sun, DirectionalLight, { direction: [-0.4, -0.8, -0.5, 0] });
+    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
+    world.add(sun, Transform, {
+        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
+    });
+    world.add(sun, DirectionalLight, { illuminance: 4703.4155 });
     world.add(sun, VolumetricLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
+    const fill = world.create();
+    world.add(fill, Transform);
+    world.add(fill, DirectionalLight, { color: 0x80c0ff, illuminance: 2500 });
     const point = world.create();
     world.add(point, Transform, { translation: [1, 1, 2, 0] });
-    world.add(point, PointLight, { intensity: 8, range: 10, color: 0xff8844 });
+    world.add(point, PointLight, { intensity: 315225.92, range: 10, color: 0xff8844 });
     world.add(point, VolumetricLight);
     world.storage(PointLight).shadowMapsEnabled.set(point, 1);
     const spot = world.create();
     world.add(spot, Transform, { translation: [-1, 1, 3, 0] });
     world.add(spot, SpotLight, {
-        intensity: 12,
+        intensity: 472838.89,
         range: 10,
         color: 0x4488ff,
         innerAngle: 20,
@@ -150,4 +158,15 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     for (let depth = 0; depth < 2; depth++) {
         expect(Buffer.from(frames[0][depth]).equals(Buffer.from(frames[1][depth]))).toBe(false);
     }
+
+    // Adding VolumetricLight to a second directional changes the fog result without changing either light's
+    // photometric contribution to the surface pass.
+    world.add(fill, VolumetricLight);
+    world.storage(Camera).antialias.set(camera, 0);
+    world.step(0);
+    world.step(0);
+    const withSecondDirectionalShaft = await captureTexture(world, camera);
+    expect(Buffer.from(withSecondDirectionalShaft.rgba).equals(Buffer.from(frames[0][1]))).toBe(
+        false,
+    );
 });

@@ -11,7 +11,7 @@ import {
     PointLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { createApp, type World } from "../../engine";
+import { createApp, lookAtRotation, type World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -32,6 +32,7 @@ function scene(world: World): number {
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 6, 0] });
     world.add(camera, Camera);
+    world.add(camera, AmbientLight, { brightness: 0 });
     world.add(camera, StandardRenderer);
     attachTexture(world, camera, { width: 32, height: 32 });
     const material = world.resource(Materials).add(StandardMaterial());
@@ -43,13 +44,16 @@ function scene(world: World): number {
     world.add(cube, Transform, { translation: [0, 0, 1, 0] });
     world.add(cube, MeshInstance);
     world.add(cube, MeshMaterial, material);
-    world.add(world.create(), AmbientLight, { intensity: 0 });
     const light = world.create();
     world.add(light, Transform, { translation: [0.6, 0.6, 3, 0] });
-    world.add(light, PointLight, { intensity: 20, range: 20 });
+    world.add(light, PointLight, { intensity: 788064.8, range: 20 });
     world.storage(PointLight).shadowMapsEnabled.set(light, 1);
     const sun = world.create();
-    world.add(sun, DirectionalLight, { intensity: 3, direction: [-0.3, -0.3, -1, 0] });
+    const sunRotation = lookAtRotation(0, 0, 0, -0.3, -0.3, -1);
+    world.add(sun, Transform, {
+        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
+    });
+    world.add(sun, DirectionalLight, { illuminance: 9406.831 });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     return camera;
 }

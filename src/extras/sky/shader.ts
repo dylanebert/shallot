@@ -10,10 +10,10 @@ import {
     BackgroundContext,
     backgroundLayout,
     engineLayout,
+    LightingGpu,
 } from "../../standard/rendering";
 
-/** the procedural sky uniform. Explicit pad fields preserve the shipped 144-byte contract: the two
- * leading scalars fill one vec4-aligned row, followed by eight vec4 rows. */
+/** Procedural sky colors and atmosphere controls; sun disks come from the directional-light table. */
 export const SkyGpu = d
     .struct({
         hazeDensity: d.f32,
@@ -26,8 +26,6 @@ export const SkyGpu = d
         starParams: d.vec4f,
         cloudParams: d.vec4f,
         cloudColor: d.vec4f,
-        sunParams: d.vec4f,
-        sunVisualColor: d.vec4f,
     })
     .$name("Sky");
 
@@ -49,8 +47,6 @@ export const SKY_AT = {
     starParams: at(SkyGpu, (sky) => sky.starParams),
     cloudParams: at(SkyGpu, (sky) => sky.cloudParams),
     cloudColor: at(SkyGpu, (sky) => sky.cloudColor),
-    sunParams: at(SkyGpu, (sky) => sky.sunParams),
-    sunVisualColor: at(SkyGpu, (sky) => sky.sunVisualColor),
 } as const;
 
 const hash2 = tgpu
@@ -197,13 +193,12 @@ const sampleClouds = tgpu
     })
     .$name("sampleClouds");
 
-/** the complete procedural view-ray recipe. `sunDirection` is the light-travel direction from the engine
- * Lighting uniform; the visible sun sits opposite it. Pure and CPU-callable. */
+/** The view-ray sky. Every directional light carrying SunDisk draws its own light-colored disk and glow. */
 export const sampleSky = tgpu
     .fn(
-        [SkyGpu, d.vec3f, d.vec3f],
+        [SkyGpu, d.vec3f, LightingGpu],
         d.vec3f,
-    )((sky, dir, sunDirection) => {
+    )((sky, dir, lighting) => {
         "use gpu";
         const t = std.pow(std.clamp(dir.y, 0, 1), 0.25);
         let color = d.vec3f(std.mix(sky.skyHorizon.xyz, sky.skyZenith.xyz, t));
@@ -217,63 +212,69 @@ export const sampleSky = tgpu
         const clouds = sampleClouds(dir, sky.cloudParams, sky.cloudColor);
         color = d.vec3f(std.mix(color, clouds.xyz, clouds.w));
 
-        const sunDir = std.neg(sunDirection);
-        const sunDot = std.dot(dir, sunDir);
-        const sunVisualColor = sky.sunVisualColor.xyz;
-        const glowStrength = sky.sunParams.w;
-        if (glowStrength > 0) {
-            const g = d.f32(0.76);
-            const gg = g * g;
-            const mie = (1 - gg) / std.pow(1 + gg - 2 * g * sunDot, 1.5);
-            color = d.vec3f(
-                std.add(color, std.mul(std.mul(std.mul(sunVisualColor, mie), glowStrength), 0.025)),
-            );
-            const angle = std.max(0, sunDot);
-            const corona = std.pow(angle, 512) * 0.4 + std.pow(angle, 128) * 0.06;
-            const warmTint = d.vec3f(1, 0.9, 0.7);
-            color = d.vec3f(
-                std.add(
-                    color,
-                    std.mul(std.mul(std.mul(warmTint, sunVisualColor), corona), glowStrength),
-                ),
-            );
-        }
-
-        // A zero f32 span means no disk. Guard the derived denominator before constructing equal
-        // smoothstep edges or dividing, including when a tiny positive size rounds the span to zero.
-        const baseSunSize = d.f32(0.9995);
-        const sunThreshold = d.f32(1 - (1 - baseSunSize) * sky.sunParams.x);
-        const sunSpan = d.f32(1 - sunThreshold);
-        if (sunSpan > 0) {
-            const sunEdgeWidth = sunSpan * 0.15;
-            const diskBlend = std.smoothstep(
-                sunThreshold - sunEdgeWidth,
-                sunThreshold + sunEdgeWidth,
-                sunDot,
-            );
-            if (diskBlend > 0) {
-                const radial = std.saturate((sunDot - sunThreshold) / sunSpan);
-                const r = 1 - radial;
-                const mu = std.sqrt(1 - r * r);
-                const limbDarken = 1 - 0.6 * (1 - mu);
-                color = d.vec3f(
-                    std.add(color, std.mul(std.mul(sunVisualColor, limbDarken), diskBlend)),
-                );
-                const edgeDist = 1 - std.smoothstep(0, 1, radial);
-                const fringe = d.vec3f(
-                    std.smoothstep(0.3, 0.7, edgeDist),
-                    std.smoothstep(0.5, 0.9, edgeDist),
-                    std.smoothstep(0.7, 1, edgeDist),
-                );
-                color = d.vec3f(
-                    std.add(
-                        color,
-                        std.mul(
-                            std.mul(std.mul(std.mul(fringe, sunVisualColor), 0.15), diskBlend),
-                            1 - radial,
+        for (let i = d.u32(0); i < lighting.directionalCount; i++) {
+            const light = lighting.directionalLights[i];
+            if (light.params.w > 0) {
+                const sunDot = std.dot(dir, std.neg(light.direction.xyz));
+                const sunColor = light.color.xyz;
+                const glow = light.disk.z;
+                if (glow > 0) {
+                    const g = d.f32(0.76);
+                    const mie = (1 - g * g) / std.pow(1 + g * g - 2 * g * sunDot, 1.5);
+                    color = d.vec3f(
+                        std.add(color, std.mul(std.mul(std.mul(sunColor, mie), glow), 0.025)),
+                    );
+                    const angle = std.max(0, sunDot);
+                    const corona = std.pow(angle, 512) * 0.4 + std.pow(angle, 128) * 0.06;
+                    color = d.vec3f(
+                        std.add(
+                            color,
+                            std.mul(std.mul(std.mul(d.vec3f(1, 0.9, 0.7), sunColor), corona), glow),
                         ),
-                    ),
-                );
+                    );
+                }
+
+                const angularSize = light.disk.x;
+                const threshold = std.cos(angularSize * 0.5);
+                const span = std.max(1 - threshold, 1e-6);
+                const edgeWidth = std.max(span * 0.15, 1e-6);
+                if (angularSize > 0 && light.disk.y > 0) {
+                    const diskBlend = std.smoothstep(
+                        threshold - edgeWidth,
+                        threshold + edgeWidth,
+                        sunDot,
+                    );
+                    if (diskBlend > 0) {
+                        const radial = std.saturate((sunDot - threshold) / span);
+                        const r = 1 - radial;
+                        const mu = std.sqrt(std.max(1 - r * r, 0));
+                        const limbDarken = 1 - 0.6 * (1 - mu);
+                        color = d.vec3f(
+                            std.add(
+                                color,
+                                std.mul(std.mul(sunColor, light.disk.y * limbDarken), diskBlend),
+                            ),
+                        );
+                        const edgeDist = 1 - std.smoothstep(0, 1, radial);
+                        const fringe = d.vec3f(
+                            std.smoothstep(0.3, 0.7, edgeDist),
+                            std.smoothstep(0.5, 0.9, edgeDist),
+                            std.smoothstep(0.7, 1, edgeDist),
+                        );
+                        color = d.vec3f(
+                            std.add(
+                                color,
+                                std.mul(
+                                    std.mul(
+                                        std.mul(fringe, sunColor),
+                                        0.15 * light.disk.y * diskBlend,
+                                    ),
+                                    1 - radial,
+                                ),
+                            ),
+                        );
+                    }
+                }
             }
         }
 
@@ -294,11 +295,7 @@ const skyFs = tgpu
         d.vec3f,
     )((ctx) => {
         "use gpu";
-        return sampleSky(
-            SkyGpu(skyLayout.$.sky),
-            ctx.dir,
-            engineLayout.$.lighting.sunDirection.xyz,
-        );
+        return sampleSky(SkyGpu(skyLayout.$.sky), ctx.dir, LightingGpu(engineLayout.$.lighting));
     })
     .$name("skyFs");
 
