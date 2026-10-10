@@ -184,7 +184,18 @@ export const Views: import("../../engine").Resource<Map<number, View>> = {
 // canvas → the World that last bound it, for the dev-only rebuild guard below. WeakMap so a collected
 // canvas drops its entry; never populated in production (the guard is dev-gated).
 const _canvasOwners: WeakMap<HTMLCanvasElement, World> = new WeakMap();
-const _canvasViews = new WeakMap<HTMLCanvasElement, { world: World; view: View }>();
+const CANVAS_VIEWS = Symbol.for("@dylanebert/shallot/canvas-views");
+const _canvasViews = (() => {
+    const registry = globalThis as unknown as Record<symbol, unknown>;
+    let views = registry[CANVAS_VIEWS] as
+        | WeakMap<HTMLCanvasElement, { world: World; view: View }>
+        | undefined;
+    if (!views) {
+        views = new WeakMap();
+        registry[CANVAS_VIEWS] = views;
+    }
+    return views;
+})();
 
 /** Live canvas binding used by the frame-capture path; no source exists before a camera binds. */
 export function canvasFrameBinding(
