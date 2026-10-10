@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
+import { disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp, type Plugin } from "../app";
 import { probeBuffer } from "../runtime";
@@ -105,7 +106,7 @@ test("compute-only steps submit their lazy frame encoder once and idle device st
         runtime.enabled = true;
         if (descriptor) Object.defineProperty(queue, "submit", descriptor);
         else Reflect.deleteProperty(queue, "submit");
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -176,6 +177,6 @@ test("a propagated draw failure discards its commands and fence", async () => {
     } finally {
         if (descriptor) Object.defineProperty(queue, "submit", descriptor);
         else Reflect.deleteProperty(queue, "submit");
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
