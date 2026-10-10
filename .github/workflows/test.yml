@@ -50,12 +50,12 @@ jobs:
         os: [macos-15, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         if: matrix.os == 'ubuntu-latest'
         id: cache
         with:
           path: ~/.cache/mesa-apt
-          key: mesa-vulkan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/test.yml') }}
+          key: mesa-vulkan-${{ env.ImageOS }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/test.yml') }}
       - name: install Mesa Vulkan driver
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -98,12 +98,12 @@ jobs:
         shard: [1/5, 2/5, 3/5, 4/5, 5/5]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         if: matrix.os == 'ubuntu-latest'
         id: cache
         with:
           path: ~/.cache/mesa-apt
-          key: mesa-vulkan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/test.yml') }}
+          key: mesa-vulkan-${{ env.ImageOS }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/test.yml') }}
       - name: install Mesa Vulkan driver
         if: matrix.os == 'ubuntu-latest'
         run: |
