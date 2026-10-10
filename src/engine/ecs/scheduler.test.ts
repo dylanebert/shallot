@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { type Plugin, swapPlugins } from "../app";
+import { component, f32 } from "./component";
 import { Scheduler, type System } from "./scheduler";
 import { World } from "./world";
 
@@ -47,6 +48,44 @@ for (const phase of ["update", "setup"] as const) {
         expect(disposed).toBe(true);
     });
 }
+
+test("a failed frame carries field marks into the next frame", () => {
+    const world = new World();
+    const Marked = component("failed-frame-change-mark", { value: f32 });
+    const eid = world.create();
+    world.add(eid, Marked, { value: 0 });
+    const value = world.storage(Marked).value;
+    const dirty = world.fieldStorage(Marked, "value").dirty;
+    world.clearChanges();
+    const broken: System = {
+        name: "mark-then-throw",
+        group: "simulation",
+        update() {
+            value.set(eid, 13);
+            throw new Error("failed frame");
+        },
+    };
+    world.addSystem(broken, "Game");
+    try {
+        expect(() => world.step(0)).toThrow('System "Game/mark-then-throw" threw: failed frame');
+        expect(dirty[eid >>> 5]! & (1 << (eid & 31))).not.toBe(0);
+
+        world.removeSystem(broken);
+        let markedInNextFrame = false;
+        world.addSystem({
+            group: "simulation",
+            update() {
+                markedInNextFrame = (dirty[eid >>> 5]! & (1 << (eid & 31))) !== 0;
+            },
+        });
+        world.step(0);
+
+        expect(markedInNextFrame).toBe(true);
+        expect(dirty[eid >>> 5]).toBe(0);
+    } finally {
+        world.dispose();
+    }
+});
 
 test("the scheduler consumes each updated duration from its lifetime frame input", () => {
     const scheduler = new Scheduler();

@@ -572,7 +572,8 @@ export class World {
             stepped = true;
         } finally {
             this._stepping = false;
-            if (!this._gpu) this.clearChangesIfNeeded();
+            // A failed scheduler has no CPU-only fallback upload point; preserve its pending marks.
+            if (!this._gpu && stepped) this.clearChangesIfNeeded();
             if (this._gpu && stepped) {
                 this._gpu.frame++;
                 this._readback?.advance(this._gpu.frame);

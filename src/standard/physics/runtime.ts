@@ -14,24 +14,22 @@ import {
     snapshot as snapshotWorld,
 } from "./api";
 import { snapshotBindings } from "./api/snapshot";
-import { FNV_BASIS, jointDefs, jointSignature } from "./authoring";
+import { jointBindings } from "./authoring";
 import {
     type ConstraintCache,
     type ConstraintIds,
     captureConstraints,
+    captureJointFieldCandidates,
     createConstraintCache,
+    markAllJointCandidates,
+    markJointCandidate,
     resetConstraints,
     restoreConstraints,
-    resyncConstraints,
     syncJoints,
 } from "./joints";
 import { kernel } from "./kernel/kernel";
 import { marshalBody } from "./marshal";
 import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
-
-export function resetSignatures(world: World): void {
-    resetConstraints(world.resource(physicsRuntimeKey).constraints);
-}
 
 const fixedDeltaTime = Time.FIXED_DT;
 const GRAVITY = -10;
@@ -55,7 +53,6 @@ interface PhysicsRuntime {
     isFailed: (eid: number) => boolean;
     stale: StaleScan;
     counters: PhysicsCounters;
-    jointSig: number;
     // eids whose Body membership, or a Body's Transform, changed since the last sync, as 32-bit words
     changed: Uint32Array;
     anyChanged: boolean;
@@ -81,7 +78,6 @@ function newRuntime(): PhysicsRuntime {
         isFailed: (eid) => failed.has(eid),
         stale: { world: null, eids: [], count: 0 },
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
-        jointSig: FNV_BASIS,
         changed: new Uint32Array(64),
         anyChanged: false,
         full: true,
@@ -149,7 +145,6 @@ function clearBodies(runtime: PhysicsRuntime): void {
     runtime.bodies.clear();
     runtime.stamps.clear();
     runtime.failed.clear();
-    runtime.jointSig = FNV_BASIS;
     runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
     runtime.full = true;
     resetConstraints(runtime.constraints);
@@ -277,7 +272,6 @@ interface Bindings {
     /** eid, EntityRef, hull count */
     failed: number[];
     constraints: ConstraintIds;
-    jointSig: number;
     /** pending sync words, copied so later marks cannot mutate the image */
     changed: Uint32Array | null;
     full: boolean;
@@ -300,7 +294,6 @@ function captureBindings(runtime: PhysicsRuntime): Bindings {
         bodies,
         failed,
         constraints: captureConstraints(runtime.constraints),
-        jointSig: runtime.jointSig,
         changed: runtime.anyChanged ? runtime.changed.slice() : null,
         full: runtime.full,
         hulls: runtime.hulls,
@@ -330,7 +323,6 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
             hulls: b.failed[i + 2],
         });
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
-    runtime.jointSig = b.jointSig;
     if (b.changed) {
         if (b.changed.length > runtime.changed.length) {
             const grown = new Uint32Array(Math.max(b.changed.length, runtime.changed.length * 2));
@@ -350,6 +342,7 @@ function restoreBindings(runtime: PhysicsRuntime, physicsWorld: PhysicsWorld, b:
 
 function capturePhysics(world: World): PhysicsSnapshot {
     const runtime = runtimeFor(world);
+    captureJointFieldCandidates(world, runtime.constraints, jointBindings(world));
     return snapshotWorld(warmWorld(runtime), captureBindings(runtime));
 }
 function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
@@ -402,17 +395,38 @@ export const SyncPhysicsConstraintsSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
-        const js = jointSignature(world);
-        if (js !== runtime.jointSig) {
-            runtime.jointSig = js;
-            syncJoints(
-                runtime.constraints,
-                physicsWorld,
-                runtime.bodies,
-                jointDefs(world),
-                runtime.isFailed,
-            );
-        }
+        const bindings = jointBindings(world);
+        captureJointFieldCandidates(world, runtime.constraints, bindings);
+        syncJoints(
+            runtime.constraints,
+            physicsWorld,
+            runtime.bodies,
+            world,
+            bindings,
+            runtime.isFailed,
+        );
+    },
+};
+
+/** Captures joint field dirty words before the frame's clearChanges point. */
+export const CollectJointFieldCandidatesSystem: System = {
+    name: "joint-field-candidates",
+    group: "simulation",
+    boundary: "after",
+    update(world) {
+        const runtime = runtimeFor(world);
+        captureJointFieldCandidates(world, runtime.constraints, jointBindings(world));
+    },
+};
+
+/** Captures draw writes before CPU-only World.step clears frame marks on return. */
+export const CollectDrawJointFieldCandidatesSystem: System = {
+    name: "draw-joint-field-candidates",
+    group: "draw",
+    boundary: "after",
+    update(world) {
+        const runtime = runtimeFor(world);
+        captureJointFieldCandidates(world, runtime.constraints, jointBindings(world));
     },
 };
 
@@ -544,7 +558,7 @@ const SyncSystem: System = {
         }
         runtime.counters.bodiesVisited = runtime.bodies.size + runtime.failed.size;
         if (bodySetChanged)
-            resyncConstraints(runtime.constraints, physicsWorld, runtime.bodies, runtime.isFailed);
+            markAllJointCandidates(world, runtime.constraints, jointBindings(world));
     },
 };
 
@@ -565,7 +579,13 @@ export const StandardPhysicsPlugin: Plugin = {
         restore: (image: PhysicsSnapshot) => recoverPhysics(world, image),
     }),
     dependencies: [PhysicsPlugin],
-    systems: [SyncSystem, SyncPhysicsConstraintsSystem, StepPhysicsSystem],
+    systems: [
+        SyncSystem,
+        SyncPhysicsConstraintsSystem,
+        StepPhysicsSystem,
+        CollectJointFieldCandidatesSystem,
+        CollectDrawJointFieldCandidatesSystem,
+    ],
 
     initialize(world) {
         const runtime = world.resource(physicsRuntimeKey);
@@ -573,6 +593,14 @@ export const StandardPhysicsPlugin: Plugin = {
         if (!runtime.observing) {
             runtime.observing = true;
             world.onDispose(world.observeMembership(Body, (eid) => markChanged(runtime, eid)));
+            const bindings = jointBindings(world);
+            for (const binding of bindings) {
+                world.onDispose(
+                    world.observeMembership(binding.component, (eid) =>
+                        markJointCandidate(runtime.constraints, binding.index, eid),
+                    ),
+                );
+            }
             world.onDispose(
                 world.observeMembership(Transform, (eid, present) => {
                     if (present && world.has(eid, Body)) markChanged(runtime, eid);
@@ -595,7 +623,6 @@ export const StandardPhysicsPlugin: Plugin = {
             },
         );
         clearBodies(runtime);
-        resetSignatures(world); // the fresh world receives the authored constraint set on its first frame
     },
 
     dispose(world) {

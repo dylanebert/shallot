@@ -13,6 +13,24 @@ import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 
 setDefaultTimeout(CEILING.node);
 const entry = resolve(import.meta.dir, "fixtures/joint-allocation.entry.ts");
+const fieldEntry = resolve(import.meta.dir, "fixtures/joint-field-allocation.entry.ts");
+
+test("a public ECS motor-speed write allocates no steady JavaScript heap", async () => {
+    const sample = await sampleAllocation(fieldEntry, { warm: 6000, frames: 600 });
+    expect(sample.control.length).toBeGreaterThan(0);
+    const failure = allocationFailure(sample);
+    if (failure !== undefined) throw new Error(failure);
+});
+
+test("the public ECS motor-speed allocation check detects an allocating control", async () => {
+    const sample = await sampleAllocation(fieldEntry, {
+        warm: 1200,
+        frames: 600,
+        input: "allocating",
+    });
+    expect(sample.control.length).toBeGreaterThan(0);
+    expect(allocationFailure(sample)).toContain("steady play allocated JavaScript heap");
+});
 
 test("the same warm joint subject allocates no WASM heap and its counting allocator detects an allocating control", async () => {
     const dir = mkdtempSync(join(tmpdir(), "shallot-joint-alloc-"));
