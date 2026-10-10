@@ -35,6 +35,29 @@ function assertCaptureGeometry(width: number, height: number): void {
     }
 }
 
+const FRAME_CAPTURE_LABEL = "canvas frame capture";
+
+function labeledCaptureError(error: unknown): Error {
+    const reason = error instanceof Error ? error : new Error(String(error));
+    if (reason.message.startsWith(`${FRAME_CAPTURE_LABEL}: `)) return reason;
+    return new Error(`${FRAME_CAPTURE_LABEL}: ${reason.message}`, { cause: reason });
+}
+
+function watchFrameCaptureDevice(view: View, device: GPUDevice): void {
+    if (view.frameCaptureLossWatched) return;
+    view.frameCaptureLossWatched = true;
+    const viewRef = new WeakRef(view);
+    void device.lost.then((info) => {
+        const liveView = viewRef.deref();
+        if (!liveView) return;
+        const error = (liveView.frameCaptureLost ??= new Error(
+            `GPU device lost: ${info.message || info.reason || "device lost"}`,
+        ));
+        for (const capture of liveView.frameCaptures ?? []) capture.reject(error);
+        liveView.frameCaptures = undefined;
+    });
+}
+
 /**
  * Read a camera's world-owned final texture after a submitted presenting frame. Call after stepping;
  * queue order places the copy after that submission, without requiring another frame. Refuses an
@@ -128,18 +151,28 @@ export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> 
     assertCaptureGeometry(canvas.width, canvas.height);
     const binding = canvasFrameBinding(canvas);
     if (binding) {
+        if (binding.view.frameCaptureLost) throw labeledCaptureError(binding.view.frameCaptureLost);
         const width = canvas.width;
         const height = canvas.height;
         const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
-        const buffer = binding.device.createBuffer({
-            label: "canvas frame capture",
-            size: bytesPerRow * height,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        });
+        let buffer: GPUBuffer | undefined;
         try {
+            buffer = binding.device.createBuffer({
+                label: FRAME_CAPTURE_LABEL,
+                size: bytesPerRow * height,
+                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+            });
             const format = await new Promise<GPUTextureFormat>((resolve, reject) => {
                 const captures = (binding.view.frameCaptures ??= []);
-                captures.push({ buffer, width, height, bytesPerRow, resolve, reject });
+                captures.push({
+                    buffer: buffer!,
+                    width,
+                    height,
+                    bytesPerRow,
+                    resolve,
+                    reject: (error) => reject(labeledCaptureError(error)),
+                });
+                watchFrameCaptureDevice(binding.view, binding.device);
             });
             await buffer.mapAsync(GPUMapMode.READ);
             const mapped = new Uint8Array(buffer.getMappedRange());
@@ -157,8 +190,10 @@ export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> 
                 }
             }
             return { rgba, width, height, identity: CAPTURE_CONTRACT };
+        } catch (error) {
+            throw labeledCaptureError(error);
         } finally {
-            buffer.destroy();
+            buffer?.destroy();
         }
     }
 

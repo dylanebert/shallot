@@ -100,6 +100,10 @@ export interface View {
     canvasTexture?: GPUTexture;
     /** External captures copied by EndFrameSystem into the same submission as the presenting pass. */
     frameCaptures?: CanvasFrameCaptureRequest[];
+    /** A weak device-loss watcher serves this view's captures without retaining detached canvases. */
+    frameCaptureLossWatched?: boolean;
+    /** Device loss is permanent for this view; later capture requests fail immediately. */
+    frameCaptureLost?: Error;
     /** World-owned fixed-size final surface, absent on canvas and depth-only views. */
     texture?: GPUTexture;
     /** True after a frame acquired this surface and submitted its encoder. */
@@ -151,6 +155,8 @@ function createViewResources(world: World): ViewResources {
     };
     world.onDispose(() => {
         for (const view of resources.views.values()) {
+            if (view.canvas && _canvasViews.get(view.canvas)?.view === view)
+                _canvasViews.delete(view.canvas);
             rejectFrameCaptures(
                 view,
                 new Error("captureFrame refused: world disposed before presentation"),
@@ -304,15 +310,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
     });
     view.observer.observe(canvas);
     _views.set(eid, view);
-    const binding = { world, view };
-    _canvasViews.set(canvas, binding);
-    world.onDispose(() => {
-        if (_canvasViews.get(canvas) === binding) _canvasViews.delete(canvas);
-        rejectFrameCaptures(
-            view,
-            new Error("captureFrame refused: canvas disposed before presentation"),
-        );
-    });
+    _canvasViews.set(canvas, { world, view });
 }
 
 /**

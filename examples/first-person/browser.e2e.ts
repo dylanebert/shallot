@@ -170,9 +170,12 @@ test("the browser input adapter fails to record a real key press on the focused 
 
     await captureCanvasFrame(page, "outside-before");
     await page.keyboard.down("w");
-    await page.waitForTimeout(700);
-    await captureCanvasFrame(page, "outside-after");
-    await page.keyboard.up("w");
+    try {
+        await page.waitForTimeout(700);
+        await captureCanvasFrame(page, "outside-after");
+    } finally {
+        await page.keyboard.up("w");
+    }
     const unfocusedChange = await changedFraction(page, "outside-before", "outside-after");
     // Require >2% of pixels to change by >24 RGB levels; 3× measured idle change raises the noise floor.
     const inputSignal = Math.max(idleChange * 3, 0.02);
