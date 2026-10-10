@@ -9,7 +9,6 @@ export const CHROMIUM_USE = {
             "--enable-features=WebGPUDeveloperFeatures",
             "--enable-webgpu-developer-features",
             "--enable-gpu",
-            ...(process.platform === "linux" ? ["--use-webgpu-adapter=swiftshader"] : []),
         ],
     },
 };

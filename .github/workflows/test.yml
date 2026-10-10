@@ -137,3 +137,16 @@ jobs:
         run: bunx playwright install chromium
       - name: browser tier
         run: /usr/bin/time -p bun run test:browser
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: install Playwright Chromium
+        run: bunx playwright install chromium
+      - name: bare WebGPU smoke
+        run: bunx playwright test -c scripts/chromium-smoke.config.ts

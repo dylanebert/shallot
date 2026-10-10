@@ -45,46 +45,7 @@ test("the browser input adapter fails to record a real key press on the focused 
     page,
 }) => {
     const pageErrors: string[] = [];
-    const consoleMessages: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
-    page.on("console", (message) => {
-        if (message.type() === "error" || message.type() === "warning")
-            consoleMessages.push(`${message.type()}: ${message.text()}`);
-        if (message.type() === "warning" && message.text().startsWith("[shallot]"))
-            console.info(`browser adapter: ${message.text()}`);
-    });
-    await page.addInitScript(() => {
-        const events: string[] = [];
-        let frames = 0;
-        const requestFrame = window.requestAnimationFrame.bind(window);
-        window.requestAnimationFrame = (callback) =>
-            requestFrame((timestamp) => {
-                frames++;
-                callback(timestamp);
-            });
-        Object.defineProperty(window, "__shallotBrowserEvents", { value: events });
-        Object.defineProperty(window, "__shallotBrowserFrames", { get: () => frames });
-        const record = (event: Event) => {
-            const keyboard = event as KeyboardEvent;
-            const target = event.target as HTMLElement | null;
-            events.push(
-                [
-                    event.type,
-                    keyboard.code ?? "",
-                    `active=${document.activeElement?.id || document.activeElement?.tagName}`,
-                    `focus=${document.hasFocus()}`,
-                    `lock=${document.pointerLockElement?.id || "none"}`,
-                    `target=${target?.id || target?.tagName || "none"}`,
-                ].join(" "),
-            );
-        };
-        for (const type of ["keydown", "keyup", "blur", "focus"]) {
-            window.addEventListener(type, record, true);
-        }
-        for (const type of ["pointerdown", "pointerlockchange"]) {
-            document.addEventListener(type, record, true);
-        }
-    });
     await page.goto("/");
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
@@ -109,9 +70,8 @@ test("the browser input adapter fails to record a real key press on the focused 
         "the real first-person canvas receives browser focus",
     ).toBe(true);
 
-    // Give a software adapter time to present several frames for each input observation.
     const idleBefore = await canvasImage(page);
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(700);
     const idleAfter = await canvasImage(page);
     const idleChange = await changedFraction(page, idleBefore, idleAfter);
 
@@ -138,7 +98,7 @@ test("the browser input adapter fails to record a real key press on the focused 
 
     const outsideBefore = await canvasImage(page);
     await page.keyboard.down("w");
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(700);
     const outsideAfter = await canvasImage(page);
     await page.keyboard.up("w");
     const unfocusedChange = await changedFraction(page, outsideBefore, outsideAfter);
@@ -152,36 +112,10 @@ test("the browser input adapter fails to record a real key press on the focused 
     await canvas.focus();
     const focusedBefore = await canvasImage(page);
     await page.keyboard.down("w");
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(700);
     const focusedAfter = await canvasImage(page);
     await page.keyboard.up("w");
     const focusedChange = await changedFraction(page, focusedBefore, focusedAfter);
-    if (focusedChange <= inputSignal) {
-        const diagnostics = await page.evaluate(() => {
-            const browser = window as Window & {
-                __shallotBrowserEvents?: string[];
-                __shallotBrowserFrames?: number;
-            };
-            return {
-                events: browser.__shallotBrowserEvents ?? [],
-                frames: browser.__shallotBrowserFrames,
-                focused: document.hasFocus(),
-                visible: document.visibilityState,
-            };
-        });
-        console.info(
-            "browser input diagnostics:",
-            JSON.stringify({
-                idleChange,
-                unfocusedChange,
-                focusedChange,
-                inputSignal,
-                ...diagnostics,
-                pageErrors,
-                consoleMessages,
-            }),
-        );
-    }
     expect(
         focusedChange,
         "a focused W press changes the rendered first-person scene beyond idle motion",
