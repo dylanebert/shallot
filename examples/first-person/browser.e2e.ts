@@ -1,31 +1,63 @@
+import { execFileSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "playwright/test";
 import { CEILING } from "../../scripts/test-tiers";
 
-async function canvasImage(page: Page): Promise<string> {
-    const canvas = page.locator("#canvas");
-    const bounds = await canvas.boundingBox();
-    expect(bounds, "the first-person canvas has a page rectangle").not.toBeNull();
-    return (await page.screenshot({ clip: bounds! })).toString("base64");
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const CAPTURE_ENTRY = resolve(ROOT, ".artifacts/capture-page.js");
+execFileSync("bun", ["run", "scripts/build-capture-page.ts"], { cwd: ROOT });
+
+interface BrowserCapture {
+    rgba: Uint8ClampedArray;
+    width: number;
+    height: number;
+    identity: {
+        width: number;
+        height: number;
+        deviceScale: number;
+        surface: string;
+        encoding: string;
+    };
+}
+
+declare global {
+    interface Window {
+        shallotCaptureFrame?: (canvas: HTMLCanvasElement) => Promise<BrowserCapture>;
+        __capturedFrames?: Record<string, Uint8ClampedArray>;
+    }
+}
+
+async function captureCanvasFrame(page: Page, key: string): Promise<void> {
+    const image = await page.evaluate(async (frameKey) => {
+        if (!window.shallotCaptureFrame) throw new Error("captureFrame is not installed");
+        const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
+        const capture = await window.shallotCaptureFrame(canvas);
+        (window.__capturedFrames ??= {})[frameKey] = capture.rgba;
+        return {
+            width: capture.width,
+            height: capture.height,
+            identity: capture.identity,
+        };
+    }, key);
+    expect(image.width, "captureFrame reads the declared canvas width").toBe(1280);
+    expect(image.height, "captureFrame reads the declared canvas height").toBe(720);
+    expect(image.identity).toMatchObject({
+        width: 1280,
+        height: 720,
+        deviceScale: 1,
+        surface: "final-canvas",
+        encoding: "rgba8-tight",
+    });
 }
 
 async function changedFraction(page: Page, first: string, second: string): Promise<number> {
     return page.evaluate(
-        async ({ first, second }) => {
-            const pixels = async (base64: string) => {
-                const image = await createImageBitmap(
-                    await (await fetch(`data:image/png;base64,${base64}`)).blob(),
-                );
-                const surface = document.createElement("canvas");
-                surface.width = image.width;
-                surface.height = image.height;
-                const context = surface.getContext("2d")!;
-                context.drawImage(image, 0, 0);
-                image.close();
-                return context.getImageData(0, 0, surface.width, surface.height).data;
-            };
-            const a = await pixels(first);
-            const b = await pixels(second);
-            if (a.length !== b.length) return 1;
+        ({ first, second }) => {
+            const frames = window.__capturedFrames ?? {};
+            const a = frames[first];
+            const b = frames[second];
+            if (!a || !b || a.length !== b.length) return 1;
             let changed = 0;
             for (let offset = 0; offset < a.length; offset += 4) {
                 const delta = Math.max(
@@ -60,6 +92,7 @@ test("the browser input adapter fails to record a real key press on the focused 
         );
     }
     expect(pageErrors, "first-person reaches its first draw without a runtime error").toEqual([]);
+    await page.addScriptTag({ path: CAPTURE_ENTRY, type: "module" });
     await canvas.evaluate((element) => {
         element.tabIndex = 0;
     });
@@ -70,10 +103,10 @@ test("the browser input adapter fails to record a real key press on the focused 
         "the real first-person canvas receives browser focus",
     ).toBe(true);
 
-    const idleBefore = await canvasImage(page);
+    await captureCanvasFrame(page, "idle-before");
     await page.waitForTimeout(700);
-    const idleAfter = await canvasImage(page);
-    const idleChange = await changedFraction(page, idleBefore, idleAfter);
+    await captureCanvasFrame(page, "idle-after");
+    const idleChange = await changedFraction(page, "idle-before", "idle-after");
 
     await page.evaluate(() => {
         const outside = document.createElement("button");
@@ -96,12 +129,12 @@ test("the browser input adapter fails to record a real key press on the focused 
         "the canvas is no longer the focused input target",
     ).toBe(true);
 
-    const outsideBefore = await canvasImage(page);
+    await captureCanvasFrame(page, "outside-before");
     await page.keyboard.down("w");
     await page.waitForTimeout(700);
-    const outsideAfter = await canvasImage(page);
+    await captureCanvasFrame(page, "outside-after");
     await page.keyboard.up("w");
-    const unfocusedChange = await changedFraction(page, outsideBefore, outsideAfter);
+    const unfocusedChange = await changedFraction(page, "outside-before", "outside-after");
     const inputSignal = Math.max(idleChange * 3, 0.02);
     expect(
         unfocusedChange,
@@ -110,12 +143,12 @@ test("the browser input adapter fails to record a real key press on the focused 
 
     await canvas.click();
     await canvas.focus();
-    const focusedBefore = await canvasImage(page);
+    await captureCanvasFrame(page, "focused-before");
     await page.keyboard.down("w");
     await page.waitForTimeout(700);
-    const focusedAfter = await canvasImage(page);
+    await captureCanvasFrame(page, "focused-after");
     await page.keyboard.up("w");
-    const focusedChange = await changedFraction(page, focusedBefore, focusedAfter);
+    const focusedChange = await changedFraction(page, "focused-before", "focused-after");
     expect(
         focusedChange,
         "a focused W press changes the rendered first-person scene beyond idle motion",

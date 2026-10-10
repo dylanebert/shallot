@@ -1,7 +1,29 @@
+import { execFileSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "playwright/test";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const CAPTURE_ENTRY = resolve(ROOT, ".artifacts/capture-page.js");
+execFileSync("bun", ["run", "scripts/build-capture-page.ts"], { cwd: ROOT });
+
+interface BrowserCapture {
+    rgba: Uint8ClampedArray;
+    width: number;
+    height: number;
+    identity: {
+        width: number;
+        height: number;
+        deviceScale: number;
+        surface: string;
+        encoding: string;
+    };
+}
 
 declare global {
     interface Window {
+        shallotCaptureFrame?: (canvas: HTMLCanvasElement) => Promise<BrowserCapture>;
+        __sceneFrames?: Record<string, Uint8ClampedArray>;
         __releaseLoading?: () => void;
         __progressWidths?: number[];
         __releaseReveal?: () => void;
@@ -111,18 +133,14 @@ async function inspectPageScreenshot(page: Page, encoded: string) {
     }, encoded);
 }
 
-async function inspectScene(page: Page, encoded: string) {
-    return page.evaluate(async (base64) => {
-        const bitmap = await createImageBitmap(
-            await (await fetch(`data:image/png;base64,${base64}`)).blob(),
-        );
-        const surface = document.createElement("canvas");
-        surface.width = bitmap.width;
-        surface.height = bitmap.height;
-        const context = surface.getContext("2d")!;
-        context.drawImage(bitmap, 0, 0);
-        bitmap.close();
-        const rgba = context.getImageData(0, 0, surface.width, surface.height).data;
+async function inspectScene(page: Page, frameKey: string) {
+    return page.evaluate(async (key) => {
+        if (!window.shallotCaptureFrame) throw new Error("captureFrame is not installed");
+        const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
+        const capture = await window.shallotCaptureFrame(canvas);
+        (window.__sceneFrames ??= {})[key] = capture.rgba;
+        const surface = { width: capture.width, height: capture.height };
+        const rgba = capture.rgba;
         const clear = [rgba[0]!, rgba[1]!, rgba[2]!];
         const frameColor = (
             getComputedStyle(document.querySelector("#frame")!).backgroundColor.match(/[\d.]+/g) ??
@@ -257,7 +275,35 @@ async function inspectScene(page: Page, encoded: string) {
             maxBackgroundError,
             compared,
         };
-    }, encoded);
+    }, frameKey);
+}
+
+async function compareSceneFrames(page: Page, first: string, later: string) {
+    return page.evaluate(
+        ({ first, later }) => {
+            const frames = window.__sceneFrames ?? {};
+            const a = frames[first];
+            const b = frames[later];
+            if (!a || !b || a.length !== b.length) return { meanError: 255, changedFraction: 1 };
+            let totalError = 0;
+            let changedPixels = 0;
+            const pixelCount = a.length / 4;
+            for (let offset = 0; offset < a.length; offset += 4) {
+                let largestError = 0;
+                for (let channel = 0; channel < 3; channel++) {
+                    const error = Math.abs(a[offset + channel]! - b[offset + channel]!);
+                    totalError += error;
+                    largestError = Math.max(largestError, error);
+                }
+                if (largestError > 2) changedPixels++;
+            }
+            return {
+                meanError: totalError / (pixelCount * 3),
+                changedFraction: changedPixels / pixelCount,
+            };
+        },
+        { first, later },
+    );
 }
 
 test("loading progress stays in its owned frame and reaches the bar; its description remains hit-testable", async ({
@@ -349,6 +395,7 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
         expect(held.canvasOpacity, "the canvas remains hidden before its first frame").toBe("0");
         expect(held.progressBar, "the real page owns a progress bar during loading").toBe(true);
         expect(held.adapterIdentity, "the subject adapter identity was recorded").toBeTruthy();
+        console.log(`Browser WebGPU adapter: ${held.adapterIdentity}`);
         expect(held.adapterIdentity, "the subject adapter is present rather than absent").not.toBe(
             "none",
         );
@@ -476,16 +523,28 @@ test("the first and later scene frames match the projected unit cube and remain 
     page,
 }) => {
     await waitForScene(page);
+    await page.addStyleTag({
+        content: "#frame { width: 1280px !important; height: 720px !important; }",
+    });
+    await expect
+        .poll(() =>
+            page.locator("#scene").evaluate((canvas) => (canvas as HTMLCanvasElement).width),
+        )
+        .toBe(1280);
+    await expect
+        .poll(() =>
+            page.locator("#scene").evaluate((canvas) => (canvas as HTMLCanvasElement).height),
+        )
+        .toBe(720);
     await page.waitForTimeout(200);
     const bounds = await page.locator("#scene").boundingBox();
     expect(bounds, "the scene canvas has a page rectangle").not.toBeNull();
-    const firstScreenshot = await page.screenshot({ clip: bounds! });
-    const firstImage = firstScreenshot.toString("base64");
-    const first = await inspectScene(page, firstImage);
-    expect(first.width, "the screenshot matches the real canvas width").toBe(
+    await page.addScriptTag({ path: CAPTURE_ENTRY, type: "module" });
+    const first = await inspectScene(page, "first");
+    expect(first.width, "captureFrame matches the real canvas width").toBe(
         Math.round(bounds!.width),
     );
-    expect(first.height, "the screenshot matches the real canvas height").toBe(
+    expect(first.height, "captureFrame matches the real canvas height").toBe(
         Math.round(bounds!.height),
     );
     expect(
@@ -498,55 +557,12 @@ test("the first and later scene frames match the projected unit cube and remain 
     ).toBeLessThanOrEqual(2);
 
     await page.waitForTimeout(100);
-    const laterScreenshot = await page.screenshot({ clip: bounds! });
-    const later = await inspectScene(page, laterScreenshot.toString("base64"));
+    const later = await inspectScene(page, "later");
     expect(
         later.geometry,
         "the later stepped scene has the orbit-projected unit-cube population and centered bounds",
     ).toBe(true);
-    const comparison = await page.evaluate(
-        async ({ first, later }) => {
-            const decode = async (base64: string) => {
-                const image = await createImageBitmap(
-                    await (await fetch(`data:image/png;base64,${base64}`)).blob(),
-                );
-                const surface = document.createElement("canvas");
-                surface.width = image.width;
-                surface.height = image.height;
-                const context = surface.getContext("2d")!;
-                context.drawImage(image, 0, 0);
-                image.close();
-                return {
-                    width: surface.width,
-                    height: surface.height,
-                    pixels: context.getImageData(0, 0, surface.width, surface.height).data,
-                };
-            };
-            const a = await decode(first);
-            const b = await decode(later);
-            if (a.width !== b.width || a.height !== b.height)
-                return { meanError: 255, changedFraction: 1 };
-            let totalError = 0;
-            let changedPixels = 0;
-            const pixelCount = a.width * a.height;
-            for (let offset = 0; offset < a.pixels.length; offset += 4) {
-                let largestError = 0;
-                for (let channel = 0; channel < 3; channel++) {
-                    const error = Math.abs(
-                        a.pixels[offset + channel]! - b.pixels[offset + channel]!,
-                    );
-                    totalError += error;
-                    largestError = Math.max(largestError, error);
-                }
-                if (largestError > 2) changedPixels++;
-            }
-            return {
-                meanError: totalError / (pixelCount * 3),
-                changedFraction: changedPixels / pixelCount,
-            };
-        },
-        { first: firstImage, later: laterScreenshot.toString("base64") },
-    );
+    const comparison = await compareSceneFrames(page, "first", "later");
     expect(
         comparison.meanError,
         "the first scene region matches the later stepped scene within 0.25 mean RGB",

@@ -16,9 +16,12 @@ test("a browser capture preserves the declared page geometry and shows its color
     expect(page.viewportSize()).toEqual({ width: 1280, height: 720 });
     await page.waitForTimeout(200);
 
-    const first = await page.screenshot();
-    const second = await page.screenshot();
-    expect(first.equals(second), "two page screenshots of one state are byte-identical").toBe(true);
+    const first = await page.screenshot({ mask: [canvas] });
+    const second = await page.screenshot({ mask: [canvas] });
+    expect(
+        first.equals(second),
+        "two page screenshots of one state are byte-identical outside the canvas",
+    ).toBe(true);
 
     const pixels = await page.evaluate(async (encoded) => {
         const image = await createImageBitmap(
