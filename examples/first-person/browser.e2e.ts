@@ -45,8 +45,11 @@ test("the browser input adapter fails to record a real key press on the focused 
     page,
 }) => {
     const pageErrors: string[] = [];
+    const consoleMessages: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("console", (message) => {
+        if (message.type() === "error" || message.type() === "warning")
+            consoleMessages.push(`${message.type()}: ${message.text()}`);
         if (message.type() === "warning" && message.text().startsWith("[shallot]"))
             console.info(`browser adapter: ${message.text()}`);
     });
@@ -175,6 +178,7 @@ test("the browser input adapter fails to record a real key press on the focused 
                 inputSignal,
                 ...diagnostics,
                 pageErrors,
+                consoleMessages,
             }),
         );
     }
