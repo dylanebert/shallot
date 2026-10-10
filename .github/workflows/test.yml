@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -98,7 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest]
+        os: [ubuntu-latest]
         shard: [1/5, 2/5, 3/5, 4/5, 5/5]
     steps:
       - uses: actions/checkout@v7
@@ -143,13 +143,34 @@ jobs:
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         shard: [1/5, 2/5, 3/5, 4/5, 5/5]
     steps:
       - uses: actions/checkout@v7
+      - name: capture runner image
+        id: runner-image
+        run: echo "image=${ImageOS:?GitHub-hosted runner must set ImageOS}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v5
+        id: cache
+        with:
+          path: ~/.cache/mesa-apt
+          key: mesa-vulkan-${{ steps.runner-image.outputs.image }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/test.yml') }}
+      - name: install Mesa Vulkan driver
+        run: |
+          apt_cache="$HOME/.cache/mesa-apt"
+          mkdir -p "$apt_cache/archives/partial" "$apt_cache/lists/partial"
+          sudo chown _apt:root "$apt_cache/archives/partial" "$apt_cache/lists/partial"
+          apt_options=(-o Dir::Cache::archives="$apt_cache/archives" -o Dir::State::lists="$apt_cache/lists")
+          if [[ "${{ steps.cache.outputs.cache-hit }}" == 'true' ]]; then
+            sudo apt-get "${apt_options[@]}" install --no-download -y mesa-vulkan-drivers
+          else
+            sudo apt-get "${apt_options[@]}" update
+            sudo apt-get "${apt_options[@]}" install -y mesa-vulkan-drivers
+          fi
+          sudo chmod -R a+rX "$apt_cache"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
