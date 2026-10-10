@@ -435,6 +435,8 @@ test("GPU light clusters match the CPU oracle across projection, overflow, reset
         });
         expect(new Uint8Array(rebuilt.bytes)).not.toEqual(new Uint8Array(before.bytes));
         world.step(0);
+        // Drain the final retry before app disposal releases the shared device.
+        await world.gpu.device.queue.onSubmittedWorkDone();
         expect(clusters.last.slice(0, 8)).not.toEqual(committed);
     } finally {
         app.dispose();
