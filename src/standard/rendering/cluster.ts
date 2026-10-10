@@ -779,13 +779,21 @@ fn ndcCluster(position: f32, dimension: u32) -> u32 {
     return min(u32(floor(clamp((position + 1.0) * 0.5, 0.0, 1.0) * f32(dimension))), dimension - 1u);
 }
 
-// Bevy's conservative projected sphere AABB: bound the sphere by a view-space cube, project its four
-// XY/Z corners, and rasterize that cluster rectangle. The fragment sphere/AABB test supplies precision.
-fn rasterBounds(center: vec3f, radius: f32, view: vec4f, perspective: bool) -> vec4u {
+fn sliceBoundary(view: vec4f, z: u32) -> f32 {
+    return view.z * pow(view.w / view.z, f32(z) / ${CLUSTER_Z}.0);
+}
+
+// A cluster AABB spans its whole log slice, so project the sphere's XY bounds at the slice ends too.
+// Using only the sphere's own Z extent misses AABB overlaps where a far slice widens toward its far plane.
+fn rasterBounds(center: vec3f, radius: f32, view: vec4f, perspective: bool, slice: u32) -> vec4u {
     let viewMin = center - vec3f(radius);
     let viewMax = center + vec3f(radius);
-    let nearZ = min(viewMin.z, -1e-5);
-    let farZ = min(viewMax.z, -1e-5);
+    let sliceNear = sliceBoundary(view, slice);
+    let sliceFar = sliceBoundary(view, slice + 1u);
+    let zMin = min(viewMin.z, -sliceFar);
+    let zMax = max(viewMax.z, -sliceNear);
+    let nearZ = min(zMin, -1e-5);
+    let farZ = min(zMax, -1e-5);
     let xyMin = viewMin.xy;
     let xyMax = viewMax.xy;
     let a = projectSphereCorner(vec3f(xyMin, nearZ), view, perspective);
@@ -822,7 +830,7 @@ fn vertexMain(
     let inverseRangeSquared = select(0.0, 1.0 / (radius * radius), worldInverseRangeSquared > 0.0);
     let view = clusterViews[slot * 2u];
     let perspective = clusterViews[slot * 2u + 1u].x > 0.5;
-    let bounds = rasterBounds(center, radius, view, perspective);
+    let bounds = rasterBounds(center, radius, view, perspective, slice.z);
     let right = vertex == 1u || vertex == 3u;
     let bottom = vertex >= 2u;
     let x = select(bounds.x, bounds.z, right);
@@ -854,9 +862,7 @@ fn intersects(clusterIndex: u32, center: vec3f, inverseRangeSquared: f32) -> boo
     let mx = clusterAabbs[base + 1u].xyz;
     let nearest = clamp(center, mn, mx);
     let delta = nearest - center;
-    // The CPU oracle and grid builder use different precisions; retain exact tangencies across the
-    // f32 log-slice and projected-AABB calculations without widening visible membership materially.
-    return dot(delta, delta) * inverseRangeSquared <= 1.00001;
+    return dot(delta, delta) * inverseRangeSquared <= 1.0;
 }
 `;
 

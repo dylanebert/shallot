@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp } from "../app";
 import type { World } from "../ecs";
@@ -25,9 +25,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
         tracker.restore();
     }
 });
-afterAll(() => {
-    for (const app of apps.reverse()) app.dispose();
-});
+afterAll(() => disposeGpuApps(apps));
 let nextSubject = 0;
 
 async function trackedPool(

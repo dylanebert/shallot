@@ -1,7 +1,7 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { globalTransformTable, RenderingPlugin } from "../../core/rendering";
 import {
@@ -126,7 +126,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     );
     return { app, texture, pipelines };
 });
-afterAll(() => subject().app.dispose());
+afterAll(() => disposeGpuApps([subject().app]));
 
 for (const [index, name] of ["label", "outline"].entries()) {
     test(`${name} lands at its own dense transform row, not the placement indexed by eid`, async () => {

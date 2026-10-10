@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, gpuRequirements } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, disposeGpuApps, gpuRequirements } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -104,6 +104,4 @@ for (const [atlas0, atlas1] of [
     }
 }
 
-afterAll(() => {
-    subjects().owner.dispose();
-});
+afterAll(() => disposeGpuApps([subjects().owner]));

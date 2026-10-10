@@ -21,7 +21,6 @@ import {
     CLUSTER_Z,
     Clusters,
     clusterCoord,
-    clusterIndex,
     clusterView,
     LIGHT_GRID_OFFSET,
     LIGHT_INDICES_OFFSET,
@@ -34,6 +33,9 @@ import { StandardRenderingPlugin } from "./index";
 import { MAX_POINT_LIGHTS } from "./lighting";
 
 setDefaultTimeout(CEILING.gpu);
+
+// CTS accepts f32 results within an interval; bracket each CPU range by this relative radius.
+const RANGE_EPSILON = 1e-5;
 if (typeof ResizeObserver === "undefined") {
     Object.assign(globalThis, {
         ResizeObserver: class {
@@ -64,7 +66,8 @@ interface CameraFrame {
 interface SceneSnapshot {
     sourceCount: number;
     compactEids: Map<number, number>;
-    totalExpected: number;
+    expectedMinimum: number;
+    expectedMaximum: number;
     allocated: number;
     dropped: number;
 }
@@ -117,55 +120,6 @@ function makeLights(count: number): LightInput[] {
     }));
 }
 
-// lightClusters applies the fine sphere/AABB predicate to every froxel. The raster path first visits
-// only the projected sphere rectangle, so clip those CPU hits to the same conservative screen bounds.
-function rasterClusters(
-    view: ReturnType<typeof clusterView>,
-    center: [number, number, number],
-    radius: number,
-): number[] {
-    const viewMin = [center[0] - radius, center[1] - radius, Math.min(center[2] - radius, -1e-5)];
-    const viewMax = [center[0] + radius, center[1] + radius, Math.min(center[2] + radius, -1e-5)];
-    const projected: [number, number][] = [
-        [viewMin[0]!, viewMin[1]!, viewMin[2]!],
-        [viewMin[0]!, viewMin[1]!, viewMax[2]!],
-        [viewMax[0]!, viewMax[1]!, viewMin[2]!],
-        [viewMax[0]!, viewMax[1]!, viewMax[2]!],
-    ].map(([x, y, z]) =>
-        view.perspective
-            ? [x! / (-z! * view.halfW), y! / (-z! * view.halfH)]
-            : [x! / view.halfW, y! / view.halfH],
-    );
-    const ndcMin = [
-        Math.max(-1, Math.min(...projected.map((point) => point[0]))),
-        Math.max(-1, Math.min(...projected.map((point) => point[1]))),
-    ];
-    const ndcMax = [
-        Math.min(1, Math.max(...projected.map((point) => point[0]))),
-        Math.min(1, Math.max(...projected.map((point) => point[1]))),
-    ];
-    const minX = Math.max(
-        0,
-        Math.min(CLUSTER_X - 1, Math.floor((ndcMin[0]! + 1) * 0.5 * CLUSTER_X)) - 1,
-    );
-    const maxX = Math.min(
-        CLUSTER_X - 1,
-        Math.min(CLUSTER_X - 1, Math.floor((ndcMax[0]! + 1) * 0.5 * CLUSTER_X)) + 1,
-    );
-    const minY = Math.max(
-        0,
-        Math.min(CLUSTER_Y - 1, Math.floor((ndcMin[1]! + 1) * 0.5 * CLUSTER_Y)) - 1,
-    );
-    const maxY = Math.min(
-        CLUSTER_Y - 1,
-        Math.min(CLUSTER_Y - 1, Math.floor((ndcMax[1]! + 1) * 0.5 * CLUSTER_Y)) + 1,
-    );
-    return lightClusters(view, center, radius).filter((cluster) => {
-        const { x, y } = clusterCoord(cluster);
-        return x >= minX && x <= maxX && y >= minY && y <= maxY;
-    });
-}
-
 function edgeLights(world: World, perspectiveCamera: number, secondCamera: number): LightInput[] {
     const frame = cameraFrame(world, perspectiveCamera);
     const view = frame.projection;
@@ -175,8 +129,8 @@ function edgeLights(world: World, perspectiveCamera: number, secondCamera: numbe
     const cornerX = view.halfW * depth * 0.94;
     const cornerY = view.halfH * depth * 0.94;
     return [
-        { position: pointFromView(world, perspectiveCamera, [0, 0, -0.2]), range: 0.15 },
-        { position: pointFromView(world, perspectiveCamera, [0, 0, -999]), range: 2 },
+        { position: pointFromView(world, perspectiveCamera, [0, 0, -0.9]), range: 0.2 },
+        { position: pointFromView(world, perspectiveCamera, [0, 0, -4095]), range: 2 },
         { position: pointFromView(world, perspectiveCamera, [0, 0, 2]), range: 0.5 },
         {
             position: pointFromView(world, perspectiveCamera, [cornerX, cornerY, -depth]),
@@ -209,7 +163,7 @@ async function checkScene(
 
     try {
         world.step(1 / 60);
-        expect(world.resource(RenderContext).shadeCount).toBe(2);
+        expect(world.resource(RenderContext).shadeCount).toBe(cameras.length);
         await world.gpu.device.queue.onSubmittedWorkDone();
         const output = await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
             size: LIGHT_INDICES_OFFSET + (LIGHT_POOL + 2) * 4,
@@ -227,25 +181,53 @@ async function checkScene(
         }
 
         const compactedEids = new Set(compactEids.values());
-        let totalExpected = 0;
+        let expectedMinimum = 0;
+        let expectedMaximum = 0;
+        let assigned = 0;
         for (const camera of cameras) {
             const frame = cameraFrame(world, camera);
-            const expected = verifyMembership
+            const inner = verifyMembership
                 ? Array.from({ length: CLUSTER_COUNT }, () => new Set<number>())
                 : undefined;
+            const outer = verifyMembership
+                ? Array.from({ length: CLUSTER_COUNT }, () => new Set<number>())
+                : undefined;
+            const geometry = new Map<string, { inner: number[]; outer: number[] }>();
             for (const light of cases) {
                 if (!compactedEids.has(light.eid)) continue;
                 const center = transformPoint(frame.view, light.position);
-                const clusters = rasterClusters(frame.projection, center, light.range);
-                totalExpected += clusters.length;
-                if (expected) for (const cluster of clusters) expected[cluster]!.add(light.eid);
+                const key = `${center[0]},${center[1]},${center[2]},${light.range}`;
+                let clusters = geometry.get(key);
+                if (!clusters) {
+                    clusters = {
+                        inner: lightClusters(
+                            frame.projection,
+                            center,
+                            light.range * (1 - RANGE_EPSILON),
+                        ),
+                        outer: lightClusters(
+                            frame.projection,
+                            center,
+                            light.range * (1 + RANGE_EPSILON),
+                        ),
+                    };
+                    geometry.set(key, clusters);
+                }
+                expectedMinimum += clusters.inner.length;
+                expectedMaximum += clusters.outer.length;
+                if (inner && outer) {
+                    for (const cluster of clusters.inner) inner[cluster]!.add(light.eid);
+                    for (const cluster of clusters.outer) outer[cluster]!.add(light.eid);
+                }
             }
-            if (!expected) continue;
-            const actual = Array.from({ length: CLUSTER_COUNT }, (_, cluster) => {
+
+            for (let cluster = 0; cluster < CLUSTER_COUNT; cluster++) {
                 const gridAt = LIGHT_GRID_OFFSET / 4 + (frame.slot * CLUSTER_COUNT + cluster) * 2;
                 const start = words[gridAt]!;
                 const length = words[gridAt + 1]!;
-                const list: number[] = [];
+                assigned += length;
+                if (!verifyMembership) continue;
+                const actual = new Set<number>();
                 for (let i = 0; i < length; i++) {
                     const compact = words[LIGHT_INDICES_OFFSET / 4 + start + i]!;
                     const eid = compactEids.get(compact);
@@ -253,24 +235,28 @@ async function checkScene(
                         throw new Error(
                             `cluster ${cluster} references missing compact light ${compact}`,
                         );
-                    list.push(eid);
+                    actual.add(eid);
                 }
-                return [...new Set(list)].sort((a, b) => a - b);
-            });
-            const sortedExpected = expected.map((list) => [...list].sort((a, b) => a - b));
-            expect(actual).toEqual(sortedExpected);
+                const actualIds = [...actual].sort((a, b) => a - b);
+                const innerIds = [...inner![cluster]!].sort((a, b) => a - b);
+                const outerIds = [...outer![cluster]!].sort((a, b) => a - b);
+                expect(actualIds).toHaveLength(length);
+                expect(actualIds).toEqual(expect.arrayContaining(innerIds));
+                expect(outerIds).toEqual(expect.arrayContaining(actualIds));
+            }
         }
 
         const allocated = words[LIGHT_INDICES_OFFSET / 4]!;
         const dropped = words[LIGHT_INDICES_OFFSET / 4 + 1]!;
-        if (verifyMembership) {
-            expect(allocated).toBe(totalExpected);
-            expect(dropped).toBe(0);
-        }
+        expect(allocated).toBe(assigned);
+        expect(allocated + dropped).toBeGreaterThanOrEqual(expectedMinimum);
+        expect(allocated + dropped).toBeLessThanOrEqual(expectedMaximum);
+        if (verifyMembership) expect(dropped).toBe(0);
         return {
             sourceCount,
             compactEids,
-            totalExpected,
+            expectedMinimum,
+            expectedMaximum,
             allocated,
             dropped,
         };
@@ -297,13 +283,18 @@ test("GPU light clusters match the CPU oracle across projection, overflow, reset
             cameras.push(camera);
             world.add(camera, Transform);
             world.add(camera, Camera, { mode });
+            if (index === 0) {
+                world.storage(Camera).fov.set(camera, 90);
+                world.storage(Camera).near.set(camera, 1);
+                world.storage(Camera).far.set(camera, 4096);
+            }
             world
                 .storage(Transform)
                 .translation.set(
                     camera,
                     index === 0 ? 0 : 8,
                     index === 0 ? 0 : -3,
-                    index === 0 ? 5 : 12,
+                    index === 0 ? 0 : 12,
                     0,
                 );
             if (index === 1) {
@@ -318,9 +309,16 @@ test("GPU light clusters match the CPU oracle across projection, overflow, reset
         world.step(1 / 60);
         expect(world.resource(RenderContext).shadeCount).toBe(2);
         const tangentView = clusterView(world, perspectiveCamera, 32 / 24);
-        const tangentCenter: [number, number, number] = [0, 0, -(sliceDepth(tangentView, 12) + 1)];
-        expect(lightClusters(tangentView, tangentCenter, 1)).toContain(clusterIndex(7, 4, 11));
-        expect(rasterClusters(tangentView, tangentCenter, 1)).toContain(1715);
+        expect(world.storage(Camera).fov.get(perspectiveCamera)).toBe(90);
+        expect(tangentView.halfW).toBeCloseTo(4 / 3, 12);
+        expect(tangentView.halfH).toBeCloseTo(1, 12);
+        expect(tangentView.near).toBe(1);
+        expect(tangentView.far).toBe(4096);
+        const tangentCenter: [number, number, number] = [0, 0, -65.00000381469727];
+        expect(lightClusters(tangentView, tangentCenter, 1 * (1 - RANGE_EPSILON))).not.toContain(
+            1715,
+        );
+        expect(lightClusters(tangentView, tangentCenter, 1 * (1 + RANGE_EPSILON))).toContain(1715);
         expect(clusterCoord(1715)).toEqual({ x: 7, y: 4, z: 11 });
         expect(cameraFrame(world, perspectiveCamera).view).not.toEqual(
             cameraFrame(world, secondCamera).view,
@@ -331,33 +329,60 @@ test("GPU light clusters match the CPU oracle across projection, overflow, reset
         const perspective = cameraFrame(world, perspectiveCamera);
         const edgeCenters = edges.map((light) => transformPoint(perspective.view, light.position));
         expect(
-            rasterClusters(perspective.projection, edgeCenters[0]!, edges[0]!.range).some(
-                (cluster) => clusterCoord(cluster).z === 0,
-            ),
+            lightClusters(
+                perspective.projection,
+                edgeCenters[0]!,
+                edges[0]!.range * (1 + RANGE_EPSILON),
+            ).some((cluster) => clusterCoord(cluster).z === 0),
         ).toBe(true);
         expect(
-            rasterClusters(perspective.projection, edgeCenters[1]!, edges[1]!.range).some(
-                (cluster) => clusterCoord(cluster).z === CLUSTER_Z - 1,
-            ),
+            lightClusters(
+                perspective.projection,
+                edgeCenters[1]!,
+                edges[1]!.range * (1 + RANGE_EPSILON),
+            ).some((cluster) => clusterCoord(cluster).z === CLUSTER_Z - 1),
         ).toBe(true);
-        expect(rasterClusters(perspective.projection, edgeCenters[2]!, edges[2]!.range)).toEqual(
-            [],
-        );
+        expect(
+            lightClusters(
+                perspective.projection,
+                edgeCenters[2]!,
+                edges[2]!.range * (1 + RANGE_EPSILON),
+            ),
+        ).toEqual([]);
         const topRight = edgeCenters[3]!;
         const bottomLeft = edgeCenters[4]!;
         expect(
-            rasterClusters(perspective.projection, topRight, 0.7).some((cluster) => {
-                const { x, y } = clusterCoord(cluster);
-                return x === CLUSTER_X - 1 && y === CLUSTER_Y - 1;
-            }),
+            lightClusters(perspective.projection, topRight, 0.7 * (1 + RANGE_EPSILON)).some(
+                (cluster) => {
+                    const { x, y } = clusterCoord(cluster);
+                    return x === CLUSTER_X - 1 && y === CLUSTER_Y - 1;
+                },
+            ),
         ).toBe(true);
         expect(
-            rasterClusters(perspective.projection, bottomLeft, 0.7).some((cluster) => {
-                const { x, y } = clusterCoord(cluster);
-                return x === 0 && y === 0;
-            }),
+            lightClusters(perspective.projection, bottomLeft, 0.7 * (1 + RANGE_EPSILON)).some(
+                (cluster) => {
+                    const { x, y } = clusterCoord(cluster);
+                    return x === 0 && y === 0;
+                },
+            ),
         ).toBe(true);
         await checkScene(world, cameras, edges);
+        const reviewCases: LightInput[] = [
+            { position: [0, 0, -65.00000381469727], range: 1 },
+            { position: [-4000, 0, -3000], range: 1 },
+        ];
+        const farView = cameraFrame(world, perspectiveCamera);
+        const precisionCenter = transformPoint(farView.view, reviewCases[0]!.position);
+        const sliceBoundsCenter = transformPoint(farView.view, reviewCases[1]!.position);
+        expect(
+            lightClusters(farView.projection, precisionCenter, 1 * (1 + RANGE_EPSILON)),
+        ).toContain(1715);
+        expect(
+            lightClusters(farView.projection, sliceBoundsCenter, 1 * (1 - RANGE_EPSILON)),
+        ).toContain(1607);
+        expect(clusterCoord(1607)).toEqual({ x: 2, y: 4, z: 23 });
+        await checkScene(world, cameras, reviewCases);
         for (const count of [1, 64, 256]) await checkScene(world, cameras, makeLights(count));
 
         // A populated-to-zero transition must clear every grid entry and both pool-header words.
@@ -388,7 +413,10 @@ test("GPU light clusters match the CPU oracle across projection, overflow, reset
         expect(overflow.compactEids.size).toBe(MAX_POINT_LIGHTS);
         expect(overflow.allocated).toBe(LIGHT_POOL);
         expect(overflow.dropped).toBeGreaterThan(0);
-        expect(overflow.allocated + overflow.dropped).toBe(overflow.totalExpected);
+        expect(overflow.allocated + overflow.dropped).toBeGreaterThanOrEqual(
+            overflow.expectedMinimum,
+        );
+        expect(overflow.allocated + overflow.dropped).toBeLessThanOrEqual(overflow.expectedMaximum);
         expect((await requestLightOverflow(world)).dropped).toBe(overflow.dropped);
         const cleared = await checkScene(world, cameras, []);
         expect(cleared.sourceCount).toBe(0);
@@ -404,7 +432,7 @@ test("GPU light clusters match the CPU oracle across projection, overflow, reset
         });
         const clusters = world.resource(Clusters);
         const committed = clusters.last.slice(0, 8);
-        world.storage(Camera).fov.set(perspectiveCamera, 90);
+        world.storage(Camera).fov.set(perspectiveCamera, 80);
         let abort = true;
         world.addSystem({
             group: "draw",
@@ -435,8 +463,6 @@ test("GPU light clusters match the CPU oracle across projection, overflow, reset
         });
         expect(new Uint8Array(rebuilt.bytes)).not.toEqual(new Uint8Array(before.bytes));
         world.step(0);
-        // Drain the final retry before app disposal releases the shared device.
-        await world.gpu.device.queue.onSubmittedWorkDone();
         expect(clusters.last.slice(0, 8)).not.toEqual(committed);
     } finally {
         app.dispose();

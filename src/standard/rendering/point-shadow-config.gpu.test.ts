@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, gpuRequirements } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, disposeGpuApps, gpuRequirements } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -116,6 +116,5 @@ test("PointShadows.atlas set in setup draws without a validation error", async (
 
 afterAll(() => {
     const { owner, apps } = subjects();
-    for (const app of [...apps.values()].reverse()) app.dispose();
-    owner.dispose();
+    return disposeGpuApps([owner, ...apps.values()]);
 });

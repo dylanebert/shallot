@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp } from "../app";
 import { rawDevice } from "./gpu";
@@ -28,9 +28,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     apps.push(app);
     return { app, reads: () => reads };
 });
-afterAll(() => {
-    for (const app of apps.reverse()) app.dispose();
-});
+afterAll(() => disposeGpuApps(apps));
 
 test("world devices resolve immutable capabilities once rather than invoking native getters during play", () => {
     const { app, reads } = subject();

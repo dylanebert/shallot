@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp } from "../../engine";
 import { Profile, ProfilePlugin } from "./index";
@@ -34,7 +34,7 @@ test("a profiler without timestamp-query runs and distinguishes missing GPU timi
         buffer.destroy();
         expect(stats.bufferBytes).toBe(before);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
         device.destroy();
     }
 });

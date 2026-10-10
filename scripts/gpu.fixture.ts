@@ -50,6 +50,33 @@ export function gpuRequirements(plugins: readonly Plugin[]): NonNullable<Plugin[
     };
 }
 
+type GpuApp = Awaited<ReturnType<typeof createApp>>;
+
+/** Wait for all fixture submissions before releasing the fixture's worlds. */
+export async function disposeGpuApps(apps: GpuApp[]): Promise<void> {
+    const devices = new Set<GPUDevice>();
+    for (const app of apps) {
+        try {
+            devices.add(rawDevice(app.world.gpu.device));
+        } catch {
+            // Continue teardown if a world was already disposed or lost its device.
+        }
+    }
+    try {
+        await Promise.all(
+            [...devices].map(async (device) => {
+                try {
+                    await device.queue.onSubmittedWorkDone();
+                } catch {
+                    // Device loss must not keep the fixture's owned worlds alive.
+                }
+            }),
+        );
+    } finally {
+        for (const app of apps.reverse()) app.dispose();
+    }
+}
+
 /** Prebuild independent worlds on one file device; never share pipelines between worlds. */
 export function gpuApps(
     path: string,
@@ -76,8 +103,6 @@ export function gpuApps(
         }
         return worlds;
     });
-    afterAll(() => {
-        for (const app of apps.reverse()) app.dispose();
-    });
+    afterAll(() => disposeGpuApps(apps));
     return subject;
 }

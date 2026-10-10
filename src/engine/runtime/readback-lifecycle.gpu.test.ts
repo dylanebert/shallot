@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { createApp } from "../app";
 import { probeBuffer } from "./probe";
@@ -25,8 +25,8 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     }
     return { worlds, counts };
 });
-afterAll(() => {
-    for (const app of worlds) app.dispose();
+afterAll(async () => {
+    await disposeGpuApps(worlds);
     for (const device of devices) device.destroy();
 });
 

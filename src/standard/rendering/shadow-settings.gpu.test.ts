@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, gpuRequirements } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, disposeGpuApps, gpuRequirements } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -96,7 +96,5 @@ test("a second app's shadow settings leave the first app's frame unchanged", asy
 
 afterAll(() => {
     const { owner, a, b } = subjects();
-    b.dispose();
-    a.dispose();
-    owner.dispose();
+    return disposeGpuApps([owner, a, b]);
 });
