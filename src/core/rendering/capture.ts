@@ -4,7 +4,7 @@
 
 import type { World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
-import { Views } from "./view";
+import { canvasFrameSource, Views } from "./view";
 
 interface CaptureIdentity {
     width: number;
@@ -78,12 +78,54 @@ export interface Capture {
 
 /**
  * Capture a running app's final canvas as tightly packed RGBA at the declared contract. A WebGPU canvas
- * reads as transparent black once its frame is presented, so the read runs in the next animation frame,
- * after the engine's callback presents. A held app presents no next frame; capture its page with a
- * Playwright page screenshot.
+ * copies its current swapchain texture before the browser presents it; an unbound canvas uses its own
+ * bitmap. A held app presents no next frame; capture its page with a Playwright page screenshot.
  */
 export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> {
     assertCaptureGeometry(canvas.width, canvas.height);
+    const source = await new Promise<ReturnType<typeof canvasFrameSource>>((done) =>
+        requestAnimationFrame(() => done(canvasFrameSource(canvas))),
+    );
+    if (source) {
+        const { device, texture } = source;
+        const width = texture.width;
+        const height = texture.height;
+        assertCaptureGeometry(width, height);
+        const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+        const buffer = device.createBuffer({
+            label: "canvas frame capture",
+            size: bytesPerRow * height,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+        try {
+            const encoder = device.createCommandEncoder({ label: "canvas frame capture" });
+            encoder.copyTextureToBuffer(
+                { texture },
+                { buffer, bytesPerRow, rowsPerImage: height },
+                { width, height, depthOrArrayLayers: 1 },
+            );
+            device.queue.submit([encoder.finish()]);
+            await buffer.mapAsync(GPUMapMode.READ);
+            const mapped = new Uint8Array(buffer.getMappedRange());
+            const rgba = new Uint8ClampedArray(width * height * 4);
+            for (let y = 0; y < height; y++) {
+                const sourceStart = y * bytesPerRow;
+                rgba.set(mapped.subarray(sourceStart, sourceStart + width * 4), y * width * 4);
+            }
+            buffer.unmap();
+            if (texture.format === "bgra8unorm" || texture.format === "bgra8unorm-srgb") {
+                for (let i = 0; i < rgba.length; i += 4) {
+                    const red = rgba[i + 2];
+                    rgba[i + 2] = rgba[i];
+                    rgba[i] = red;
+                }
+            }
+            return { rgba, width, height, identity: CAPTURE_CONTRACT };
+        } finally {
+            buffer.destroy();
+        }
+    }
+
     const url = await new Promise<string>((done) =>
         requestAnimationFrame(() => done(canvas.toDataURL("image/png"))),
     );

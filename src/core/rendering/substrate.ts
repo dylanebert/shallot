@@ -220,6 +220,7 @@ export const BeginFrameSystem: System = {
             view.framebuffer = null;
             view.framebufferFormat = undefined;
             view.present = null;
+            view.canvasTexture = undefined;
             // derive the backing store from the display size + the camera's `Resolution` pin before any
             // consumer reads view.width/height.
             sizeView(world, eid, view);
@@ -243,6 +244,7 @@ export const BeginFrameSystem: System = {
                 continue;
             }
             const texture = view.texture ?? view.context!.getCurrentTexture();
+            if (view.context) view.canvasTexture = texture;
             if (!texture) {
                 view.framebuffer = null;
                 view.present = null;
