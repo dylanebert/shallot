@@ -18,7 +18,7 @@ const pipelineCounts: Record<string, number> = {
     "Physics profiling": 0,
     Orbit: 0,
     profiling: 0,
-    "default plugins": 23, // Presentation also warms the rgba8unorm after-tonemapping output pipeline.
+    "default plugins": 27, // Cull -> z-slice, local/global allocation, count + populate (+4); tonemapping warms rgba8unorm.
 };
 
 for (const subject of compileSubjects) {
