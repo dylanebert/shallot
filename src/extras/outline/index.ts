@@ -95,6 +95,9 @@ export const Outline = component(
     },
 );
 
+const OUTLINE_MESH_QUERY = [Outline, MeshInstance];
+const OUTLINE_CAMERA_QUERY = [Camera];
+
 // the seed texture stores the nearest covered-pixel coordinate as an INTEGER pixel index — uint, not
 // f16: pixel-center fractions (x + 0.5) stop being f16-representable at 1024, which broke the
 // interior's d == 0 test (every covered pixel right of screen x 1024 read d = 0.5 to its own seed →
@@ -399,7 +402,7 @@ const OutlineSystem: System = {
         const _meshes = world.resource(Meshes);
 
         if (!_outlineState.gpu.maskPlain) return;
-        const eids = [...world.query([Outline, MeshInstance])];
+        const eids = [...world.query(OUTLINE_MESH_QUERY)];
         if (eids.length === 0) return; // bare path — no passes
         const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
         if (!globalTransforms) return;
@@ -450,7 +453,7 @@ const OutlineSystem: System = {
         const steps = jfaSteps(maxWidth);
         for (let k = 0; k < steps.length; k++) _outlineState.gpu.steps[k].write(steps[k]);
 
-        for (const camEid of world.query([Camera])) {
+        for (const camEid of world.query(OUTLINE_CAMERA_QUERY)) {
             const view = world.resource(Views).get(camEid);
             if (!view?.framebuffer) continue;
             // occlusion needs the shared depth lane; without another requester, the outline plugin supplies it.
@@ -759,7 +762,7 @@ export const OutlinePlugin: Plugin = {
         world.resource(DepthPrepassRequests).push((world, eid) => {
             if (!world.has(eid, StandardRenderer)) return false;
             const occlusion = world.storage(Outline).occlude;
-            for (const eid of world.query([Outline, MeshInstance])) {
+            for (const eid of world.query(OUTLINE_MESH_QUERY)) {
                 if (occlusion.get(eid) > 0.5) return true;
             }
             return false;

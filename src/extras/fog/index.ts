@@ -97,6 +97,9 @@ export const Fog = component(
 /** Camera marker that opts out of the world's {@link Fog} atmosphere. */
 export const NoFog = component("NoFog", {});
 
+const FOG_SINGLETON_QUERY = [Fog];
+const FOG_CAMERA_QUERY = [Camera, StandardRenderer];
+
 interface FogState {
     fog: {
         pipeline: TgpuComputePipeline | null;
@@ -206,13 +209,13 @@ const FogSystem: System = {
             !_fogState.fog.buffer
         )
             return;
-        const fogEid = world.only([Fog]);
+        const fogEid = world.only(FOG_SINGLETON_QUERY);
         if (fogEid < 0) return;
         packFog(world, fogEid, fogState(world).staging);
         _fogState.fog.buffer.write(fogState(world).staging.buffer as ArrayBuffer);
         // a null resource is a wiring bug, not a frame to skip (gpu firehose rule) — fogLights asserts them
         const lights = fogLights(world);
-        for (const eid of world.query([Camera, StandardRenderer])) {
+        for (const eid of world.query(FOG_CAMERA_QUERY)) {
             if (world.has(eid, NoFog)) continue;
             const view = world.resource(Views).get(eid);
             if (!view?.framebuffer || !view.depth) continue;
@@ -290,7 +293,7 @@ export const FogPlugin: Plugin = {
             .resource(DepthPrepassRequests)
             .push(
                 (world, eid) =>
-                    world.only([Fog]) >= 0 &&
+                    world.only(FOG_SINGLETON_QUERY) >= 0 &&
                     world.has(eid, StandardRenderer) &&
                     !world.has(eid, NoFog),
             );
