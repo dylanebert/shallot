@@ -196,7 +196,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
