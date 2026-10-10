@@ -101,6 +101,8 @@ export class ReadbackPool {
         }
         slot.busy = true;
         slot.lastFrame = frame;
+        // Software and unidentified adapters can take longer to finish the submitted work.
+        const timeout = this._world.gpu.adapter.class === "real" ? 750 : 2_000;
         let timer: ReturnType<typeof setTimeout> | undefined;
         const failure = new Promise<never>((_, reject) => {
             slot.reject = reject;
@@ -108,10 +110,10 @@ export class ReadbackPool {
                 () =>
                     reject(
                         new Error(
-                            `${label}: frame ${frame} tick ${fixedTick} readback map exceeded 750 ms`,
+                            `${label}: frame ${frame} tick ${fixedTick} readback map exceeded ${timeout} ms`,
                         ),
                     ),
-                750,
+                timeout,
             );
         });
         try {

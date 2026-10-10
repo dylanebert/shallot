@@ -74,8 +74,9 @@ test("the browser input adapter fails to record a real key press on the focused 
         "the real first-person canvas receives browser focus",
     ).toBe(true);
 
+    // Give a software adapter time to present several frames for each input observation.
     const idleBefore = await canvasImage(page);
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(2000);
     const idleAfter = await canvasImage(page);
     const idleChange = await changedFraction(page, idleBefore, idleAfter);
 
@@ -102,7 +103,7 @@ test("the browser input adapter fails to record a real key press on the focused 
 
     const outsideBefore = await canvasImage(page);
     await page.keyboard.down("w");
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(2000);
     const outsideAfter = await canvasImage(page);
     await page.keyboard.up("w");
     const unfocusedChange = await changedFraction(page, outsideBefore, outsideAfter);
@@ -116,7 +117,7 @@ test("the browser input adapter fails to record a real key press on the focused 
     await canvas.focus();
     const focusedBefore = await canvasImage(page);
     await page.keyboard.down("w");
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(2000);
     const focusedAfter = await canvasImage(page);
     await page.keyboard.up("w");
     const focusedChange = await changedFraction(page, focusedBefore, focusedAfter);

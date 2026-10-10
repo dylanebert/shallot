@@ -56,7 +56,7 @@ setDefaultTimeout(CEILING.node);
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
-const gpu = create(["backend=metal"]);
+const gpu = create([]);
 const proof: Plugin = {
     name: "FloorProof",
     dependencies: [SpritePlugin, TextPlugin, VignettePlugin, PointsPlugin],
@@ -86,7 +86,7 @@ const proof: Plugin = {
 
 test("the standard composition and points render every variant at the declared ten-buffer limit", async () => {
     const adapter = await gpu.requestAdapter();
-    if (!adapter) throw new Error("Metal adapter unavailable");
+    if (!adapter) throw new Error("WebGPU adapter unavailable");
     const requiredFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"] as const;
     const device = await adapter.requestDevice({
         requiredFeatures: [...requiredFeatures],
