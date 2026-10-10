@@ -7,6 +7,7 @@ import {
     CharacterPlugin,
     createApp,
     DrivePlayerSystem,
+    GlobalTransform,
     GroundState,
     LocalPlayer,
     Player,
@@ -101,15 +102,21 @@ async function checkDiagonalCarry(offset: number, velocityPrecision: number) {
     const { app, world, player, floor } = await scene(2, offset);
     try {
         world.storage(Player).gravity.set(player, 0);
-        let tick = 0;
+        const pose = world.storage(GlobalTransform).translation;
         world.addSystem({
             name: "platform",
             group: "fixed",
             before: [DrivePlayerSystem, ...CharacterPlugin.systems!],
             update() {
-                const distance = 2 * (tick + 1) * Time.FIXED_DT;
-                setKinematic(world, floor, [offset + distance, offset + distance, 0], [0, 0, 0, 1]);
-                tick++;
+                // Step from the published pose: the platform's order against body sync is undeclared, so
+                // its first call may precede the solver body and be ignored.
+                const step = 2 * Time.FIXED_DT;
+                setKinematic(
+                    world,
+                    floor,
+                    [pose.x.get(floor) + step, pose.y.get(floor) + step, 0],
+                    [0, 0, 0, 1],
+                );
             },
         });
         for (let i = 0; i < 30; i++) {
