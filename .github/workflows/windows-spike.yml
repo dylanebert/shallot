@@ -1,0 +1,41 @@
+name: Windows browser and Dawn diagnosis
+
+on:
+  push:
+    branches:
+      - spike/windows
+
+jobs:
+  browser:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: install dependencies
+        run: bun install --frozen-lockfile
+      - name: install Playwright Chromium
+        run: bunx playwright install chromium
+      - name: first-person fails fast on the missing adapter
+        run: bunx playwright test -c examples/first-person
+      - name: WebGPU adapter launch variants
+        if: always()
+        env:
+          DEBUG: pw:browser
+        run: bun scripts/windows-adapter-diagnostic.ts
+      - uses: oven-sh/setup-bun@v2
+        if: always()
+        with:
+          bun-version: 1.4.3
+      - name: Dawn backend and DLL-search diagnosis
+        if: always()
+        shell: pwsh
+        run: ./scripts/windows-dawn-diagnostic.ps1

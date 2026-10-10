@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import type { PlaywrightTestConfig } from "playwright/test";
 import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "../../scripts/chromium";
 
-const subject = fileURLToPath(new URL(".", import.meta.url));
+const subject = fileURLToPath(new URL(".", import.meta.url)).replaceAll("\\", "/");
 
 export const config = {
     testDir: ".",

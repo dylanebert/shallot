@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "playwright/test";
+import { expect, type Page, test } from "../../scripts/browser.fixture";
 import { CEILING } from "../../scripts/test-tiers";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
