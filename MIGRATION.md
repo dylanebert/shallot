@@ -284,7 +284,7 @@ In v0.10, authored light values use photometric units and a directional light sh
 
 `DirectionalLight`, `PointLight` and `SpotLight` use Bevy's defaults for their photometric values, range, radius, angles and per-kind shadow biases. Re-author scene values explicitly when preserving a previous look.
 
-At EV100 9.7, `exposure = 2^-9.7 / 1.2`. To preserve a former linear multiplier `m`, re-author ambient brightness as `m / exposure` cd/m2, directional illuminance as `πm / exposure` lux, and point/spot luminous flux as `4π2m / exposure` lumens. Keep `Exposure` at its EV100 value (the default is 9.7) or re-evaluate those authored values for another exposure. Example directional aim:
+At EV100 9.7, `exposure = 2 ** -9.7 / 1.2`. To preserve a former linear multiplier `m`, re-author ambient brightness as `m / exposure` cd/m², directional illuminance as `Math.PI * m / exposure` lux, and point/spot luminous flux as `4 * Math.PI ** 2 * m / exposure` lumens. Keep `Exposure` at its EV100 value (the default is 9.7) or re-evaluate those authored values for another exposure. Example directional aim:
 
 ```ts
 const q = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);

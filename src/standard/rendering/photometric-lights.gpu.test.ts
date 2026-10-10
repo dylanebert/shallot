@@ -13,7 +13,6 @@ import {
     GlobalAmbientLight,
     PointLight,
     SpotLight,
-    SUN_DISK_EARTH_ANGULAR_SIZE,
     SunDisk,
     Tonemapping,
     TonemappingMethod,
@@ -223,7 +222,7 @@ test("default light values match Bevy's photometric and shadow defaults", () => 
     expect(directional.depthBias.get(directionalEid)).toBeCloseTo(0.02, 6);
     expect(directional.shadowNormalBias.get(directionalEid)).toBeCloseTo(1.8, 6);
     const sunDisk = world.storage(SunDisk);
-    expect(sunDisk.angularSize.get(directionalEid)).toBeCloseTo(SUN_DISK_EARTH_ANGULAR_SIZE, 7);
+    expect(sunDisk.angularSize.get(directionalEid)).toBeCloseTo(0.00930842, 7);
     expect(sunDisk.intensity.get(directionalEid)).toBe(1);
     expect(sunDisk.glow.get(directionalEid)).toBe(0);
 

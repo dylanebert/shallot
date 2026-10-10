@@ -6,7 +6,6 @@ import {
     Camera,
     captureTexture,
     DirectionalLight,
-    SUN_DISK_EARTH_ANGULAR_SIZE,
     SunDisk,
     Tonemapping,
     TonemappingMethod,
@@ -59,7 +58,7 @@ test("the sky draws each SunDisk in its light color along its transformed direct
 
     const noDisk = await center(world, camera);
     const red = addDisk(world, 0xff0000, [0, 0, 1]);
-    expect(world.storage(SunDisk).angularSize.get(red)).toBeCloseTo(SUN_DISK_EARTH_ANGULAR_SIZE, 7);
+    expect(world.storage(SunDisk).angularSize.get(red)).toBeCloseTo(0.00930842, 7);
     const redSun = await center(world, camera);
     expect(redSun[0]).toBeGreaterThan(noDisk[0]);
     expect(redSun[1]).toBe(noDisk[1]);
