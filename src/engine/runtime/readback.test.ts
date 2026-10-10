@@ -32,7 +32,9 @@ test("disposing a world rejects a pending readback and late map completion canno
         const pool = world.readback;
         const pending = pool.request(4, "disposal result", copy);
         world.dispose();
-        await expect(pending).rejects.toThrow("disposed");
+        await expect(pending).rejects.toThrow(
+            "disposal result: frame 0 tick 0 readback failed: readback world disposed",
+        );
         slots[0].resolve([4, 3, 2, 1]);
         await Promise.resolve();
         expect(pool.allocated).toBe(0);
@@ -70,7 +72,9 @@ test("a rejected mapping releases staging and a later request recovers", async (
     await controlledReadback(async (world, slots) => {
         const pending = world.readback.request(4, "rejected map", copy);
         slots[0].reject(new Error("deliberate map rejection"));
-        await expect(pending).rejects.toThrow("deliberate map rejection");
+        await expect(pending).rejects.toThrow(
+            "rejected map: frame 0 tick 0 readback failed: deliberate map rejection",
+        );
         expect(world.readback.allocated).toBe(0);
         expect(slots[0].destroyed).toBe(true);
         const retry = world.readback.request(4, "recovery result", copy);
@@ -85,7 +89,9 @@ test("the first GPU validation error immediately rejects pending readback withou
         const event = new Event("uncapturederror");
         Object.defineProperty(event, "error", { value: new Error("first validation error") });
         errors.dispatchEvent(event);
-        await expect(pending).rejects.toThrow("first validation error");
+        await expect(pending).rejects.toThrow(
+            "validation result: frame 0 tick 0 readback failed: first validation error",
+        );
         expect(world.readback.allocated).toBe(0);
         expect(slots[0].destroyed).toBe(true);
     });

@@ -52,6 +52,7 @@ export async function controlledReadback(
     const world = new World();
     const device = {
         limits: { maxBufferSize: 1 << 20 },
+        lost: new Promise<GPUDeviceLostInfo>(() => {}),
         addEventListener: events.addEventListener.bind(events),
         removeEventListener: events.removeEventListener.bind(events),
         createCommandEncoder: () => ({ finish: () => ({}) }),

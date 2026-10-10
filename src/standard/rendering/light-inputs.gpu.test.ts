@@ -1,14 +1,21 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { PointLight, SpotLight, VolumetricLight } from "../../core/rendering";
+import {
+    attachTexture,
+    Camera,
+    PointLight,
+    SpotLight,
+    VolumetricLight,
+} from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
-import { lightInputKey } from "./cluster";
-import { StandardRenderingPlugin } from "./index";
+import { CLUSTER_COUNT, LIGHT_GRID_OFFSET, lightInputKey } from "./cluster";
+import { StandardRenderer, StandardRenderingPlugin } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
 const subjects = gpuApps(import.meta.path, [
+    { defaults: false, plugins: [StandardRenderingPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin] },
 ]);
@@ -44,6 +51,53 @@ test("render light inputs upload as active dense table rows", async () => {
         expect(data.getFloat32(4, true)).toBe(2.5);
         expect(data.getFloat32(8, true)).toBe(7);
         expect(data.getFloat32(12, true)).toBe(0.25);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("empty clustered-light grids skip culling and clear once when their last light is removed", async () => {
+    const app = subjects()[2];
+    try {
+        const { world } = app;
+        const culls: string[] = [];
+        world.gpu.span = (name) => {
+            if (name === "light:cull") culls.push(name);
+            return undefined;
+        };
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 6, 0] });
+        world.add(camera, Camera);
+        world.add(camera, StandardRenderer);
+        attachTexture(world, camera, { width: 8, height: 8 });
+
+        const grid = async () => {
+            const { bytes } = await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
+                offset: LIGHT_GRID_OFFSET,
+                size: CLUSTER_COUNT * 8,
+            });
+            return new Uint32Array(bytes);
+        };
+        const empty = (values: Uint32Array) =>
+            Array.from(values).every((value, index) => index % 2 === 0 || value === 0);
+
+        world.step(0);
+        expect(culls).toHaveLength(0);
+        expect(empty(await grid())).toBe(true);
+
+        const light = world.create();
+        world.add(light, Transform, { translation: [0, 0, 3, 0] });
+        world.add(light, PointLight, { intensity: 1, range: 20 });
+        world.step(0);
+        expect(culls).toHaveLength(1);
+        expect(empty(await grid())).toBe(false);
+
+        world.remove(light, PointLight);
+        world.step(0);
+        expect(culls).toHaveLength(1);
+        expect(empty(await grid())).toBe(true);
+        world.step(0);
+        expect(culls).toHaveLength(1);
     } finally {
         app.dispose();
     }

@@ -39,6 +39,7 @@ interface ClusterGpuState {
     compactGeneration: Int32Array;
     lightCountBuffer: GPUBuffer | null;
     lightCountValue: number;
+    lightGridPopulated: boolean;
     cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
     viewProj: Float32Array;
     clusterView: ClusterView;
@@ -71,7 +72,8 @@ function createClusterGpuState(): ClusterGpuState {
         compactBound: null,
         compactGeneration: new Int32Array(4).fill(-1),
         lightCountBuffer: null,
-        lightCountValue: -1,
+        lightCountValue: 0,
+        lightGridPopulated: false,
         cullBound: null,
         viewProj: new Float32Array(16),
         clusterView: { perspective: false, halfW: 0, halfH: 0, near: 0, far: 0 },
@@ -856,6 +858,26 @@ export const CullLightsSystem: System = {
         if (!_clusterGpu.compactPipe || !_clusterGpu.cullPipe || _render.shadeCount === 0) return;
         warnLightOverflow(world);
 
+        const lightCount = lightInputTable(world).count;
+        if (lightCount !== _clusterGpu.lightCountValue) {
+            lightCountData[0] = lightCount;
+            world.gpu.device.queue.writeBuffer(_clusterGpu.lightCountBuffer!, 0, lightCountData);
+            _clusterGpu.lightCountValue = lightCount;
+        }
+        if (lightCount === 0) {
+            if (!_clusterGpu.lightGridPopulated) return;
+            const encoder = world.frameEncoder()!;
+            encoder.clearBuffer(_lightCull.lights!, 0, 16);
+            encoder.clearBuffer(
+                _lightCull.lights!,
+                LIGHT_GRID_OFFSET,
+                MAX_VIEWS * CLUSTER_COUNT * 8,
+            );
+            encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
+            _clusterGpu.lightGridPopulated = false;
+            return;
+        }
+
         world.gpu.device.queue.writeBuffer(
             _lightCull.viewMats!,
             0,
@@ -867,24 +889,17 @@ export const CullLightsSystem: System = {
         encoder.clearBuffer(_lightCull.lights!, 0, 16);
         encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
         _clusterGpu.cullPass.timestampWrites = world.gpu.span?.("light:cull");
-        const lightCount = lightInputTable(world).count;
-        if (lightCount !== _clusterGpu.lightCountValue) {
-            lightCountData[0] = lightCount;
-            world.gpu.device.queue.writeBuffer(_clusterGpu.lightCountBuffer!, 0, lightCountData);
-            _clusterGpu.lightCountValue = lightCount;
-        }
-        const compact = lightCount > 0 ? bindCompact(world) : null;
+        const compact = bindCompact(world);
         const cull = bindCull(world);
         const pass = encoder.beginComputePass(_clusterGpu.cullPass);
-        if (compact) {
-            pass.setPipeline(compact.pipeline);
-            pass.setBindGroup(0, compact.group);
-            pass.dispatchWorkgroups(Math.ceil(lightCount / 64));
-        }
+        pass.setPipeline(compact.pipeline);
+        pass.setBindGroup(0, compact.group);
+        pass.dispatchWorkgroups(Math.ceil(lightCount / 64));
         pass.setPipeline(cull.pipeline);
         pass.setBindGroup(0, cull.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
         pass.end();
+        _clusterGpu.lightGridPopulated = true;
     },
 };
 
@@ -920,7 +935,8 @@ export function warmLightCull(world: World): void {
         size: 4,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    _clusterGpu.lightCountValue = -1;
+    _clusterGpu.lightCountValue = 0;
+    _clusterGpu.lightGridPopulated = false;
     world.gpu.buffers.set("lightClusters", _lightCull.lights);
     world.gpu.buffers.set("lightCount", _clusterGpu.lightCountBuffer);
 

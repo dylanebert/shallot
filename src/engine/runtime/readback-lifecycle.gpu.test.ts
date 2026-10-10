@@ -111,15 +111,19 @@ test("device loss rejects a pending request and releases staging", async () => {
     const source = app.world.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
     const pool = app.world.readback;
     try {
-        const pending = probeBuffer(app.world, source);
+        const pending = probeBuffer(app.world, source, { label: "lost counter" });
         // Install rejection observation before destroying the device.
         const outcome = pending.then(
-            () => undefined,
+            () => new Error("readback unexpectedly resolved"),
             (error: unknown) => error,
         );
         device.destroy();
         await bounded("pending readback device loss notification", device.lost);
-        expect(await outcome).toBeDefined();
+        const failure = await outcome;
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toMatch(
+            /^lost counter: frame \d+ tick \d+ readback failed: /,
+        );
         expect(pool.allocated).toBe(0);
     } finally {
         app.dispose();

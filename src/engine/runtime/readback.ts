@@ -8,6 +8,17 @@ interface Slot {
     reject?: (error: unknown) => void;
 }
 
+class ReadbackError extends Error {
+    constructor(label: string, frame: number, fixedTick: number, cause: unknown) {
+        const message =
+            typeof cause === "object" && cause !== null && "message" in cause
+                ? String(cause.message)
+                : String(cause);
+        super(`${label}: frame ${frame} tick ${fixedTick} readback failed: ${message}`, { cause });
+        this.name = "ReadbackError";
+    }
+}
+
 /** Copy-time identity of a one-shot GPU result. */
 export interface ReadbackStamp {
     readonly frame: number;
@@ -32,6 +43,12 @@ export class ReadbackPool {
         this._device = world.gpu.device;
         this._world = world;
         this._device.addEventListener("uncapturederror", this._onError);
+        const pool = new WeakRef(this);
+        void this._device.lost.then((info) => {
+            const owner = pool.deref();
+            if (owner && !owner._disposed)
+                owner.dispose(new Error(info.message || "GPU device lost"));
+        });
     }
 
     /** Release available staging after this many idle frames. Defaults to 10; zero releases at completion. */
@@ -52,7 +69,7 @@ export class ReadbackPool {
     /** @internal Called after each world frame, without creating a pool for an unused world. */
     advance(frame: number): void {
         if (deviceLost(this._device)) {
-            this.dispose();
+            this.dispose(new Error("GPU device lost"));
             return;
         }
         for (let i = this._slots.length - 1; i >= 0; i--) {
@@ -70,7 +87,7 @@ export class ReadbackPool {
         label: string,
         encode: (encoder: GPUCommandEncoder, staging: GPUBuffer) => void,
     ): Promise<ReadbackStamp & { bytes: ArrayBuffer }> {
-        if (deviceLost(this._device)) this.dispose();
+        if (deviceLost(this._device)) this.dispose(new Error("GPU device lost"));
         if (this._disposed) throw new Error(`${label}: readback world or device is disposed`);
         if (
             !Number.isSafeInteger(size) ||
@@ -101,18 +118,8 @@ export class ReadbackPool {
         }
         slot.busy = true;
         slot.lastFrame = frame;
-        let timer: ReturnType<typeof setTimeout> | undefined;
         const failure = new Promise<never>((_, reject) => {
-            slot.reject = reject;
-            timer = setTimeout(
-                () =>
-                    reject(
-                        new Error(
-                            `${label}: frame ${frame} tick ${fixedTick} readback map exceeded 750 ms`,
-                        ),
-                    ),
-                750,
-            );
+            slot.reject = (cause) => reject(new ReadbackError(label, frame, fixedTick, cause));
         });
         try {
             const encoder = this._device.createCommandEncoder({ label });
@@ -137,18 +144,28 @@ export class ReadbackPool {
                 };
             encode(encoder, slot.buffer);
             this._device.queue.submit([encoder.finish()]);
-            await Promise.race([slot.buffer.mapAsync(GPUMapMode.READ, 0, size), failure]);
-            if (this._disposed) throw new Error(`${label}: readback world is disposed`);
+            const mapping = slot.buffer.mapAsync(GPUMapMode.READ, 0, size).catch((cause) => {
+                throw new ReadbackError(label, frame, fixedTick, cause);
+            });
+            await Promise.race([mapping, failure]);
+            if (this._disposed)
+                throw new ReadbackError(
+                    label,
+                    frame,
+                    fixedTick,
+                    new Error("readback world disposed"),
+                );
             const bytes = slot.buffer.getMappedRange(0, size).slice(0);
             return { bytes, frame, fixedTick };
-        } catch (error) {
-            if (deviceLost(this._device)) this.dispose();
+        } catch (cause) {
+            if (deviceLost(this._device)) this.dispose(new Error("GPU device lost"));
             slot.buffer.destroy();
             const index = this._slots.indexOf(slot);
             if (index >= 0) this._slots.splice(index, 1);
-            throw error;
+            throw cause instanceof ReadbackError
+                ? cause
+                : new ReadbackError(label, frame, fixedTick, cause);
         } finally {
-            clearTimeout(timer);
             slot.reject = undefined;
             if (slot.buffer.mapState === "mapped") slot.buffer.unmap();
             slot.busy = false;
@@ -157,12 +174,12 @@ export class ReadbackPool {
         }
     }
 
-    dispose(): void {
+    dispose(reason: unknown = new Error("readback world disposed")): void {
         if (this._disposed) return;
         this._disposed = true;
         this._device.removeEventListener("uncapturederror", this._onError);
         for (const slot of this._slots) {
-            slot.reject?.(new Error("readback world disposed during request"));
+            slot.reject?.(reason);
             slot.buffer.destroy();
         }
         this._slots.length = 0;
