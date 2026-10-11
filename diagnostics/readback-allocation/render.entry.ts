@@ -56,6 +56,7 @@ export default async function create(_input = "", device?: GPUDevice) {
     if (world.resource(RenderContext).shadeCount === 0) throw new Error("allocation subject did not render a shaded view");
     return {
         world,
+        warmSamplingSessions: true,
         allocationExpressions: gpuAllocationExpressions,
         allocationFunctions: [
             world.gpu.sync,

@@ -54,16 +54,28 @@ export function subjectSite(frame, map, base, fallback, root = process.cwd()) {
  */
 
 /**
- * Preserve the ordered allocation stack beneath each run marker. V8 reports a function's source position;
- * exact WebGPU expressions are mapped separately to single-expression boundary functions.
+ * Collect and, for a subject that opts in, drain one unprofiled step before allocation sampling.
+ * @param {{ step(): void, wait?: () => Promise<void>, warmSamplingSessions?: boolean }} subject
+ * @param {() => void} collect
+ */
+export async function prepareSamplingSession(subject, collect) {
+    collect();
+    if (!subject.warmSamplingSessions) return;
+    subject.step();
+    await subject.wait?.();
+}
+
+/**
+ * Preserve the ordered allocation stack beneath each run marker. V8 reports a wrapper declaration position;
+ * source-checked single-expression boundaries identify the WebGPU calls admitted by the gate.
  * @param {{ head: ProfileNode, samples: { nodeId: number, size: number }[] }} profile
  * @param {(frame: CallFrame) => string | undefined} runSite names a run frame, else undefined
  * @param {(frame: CallFrame) => string | undefined} siteOf names a source-mapped frame, else undefined
- * @param {{ functionName: string, expressionSite: string, expression: string }[]} expressions
- * @returns {{ site: string, bytes: number, count: number, stack: { functionName: string, site: string, native: boolean, expression?: string }[], expression?: string }[]} most bytes first
+ * @param {{ functionName: string, wrapperSite: string, expression: string }[]} expressions
+ * @returns {{ site: string, bytes: number, count: number, stack: { functionName: string, site: string, native: boolean, boundary?: string }[], boundary?: string }[]} most bytes first
  */
 export function attribute(profile, runSite, siteOf, expressions = []) {
-    const expressionByFunction = new Map(expressions.map((entry) => [entry.functionName, entry]));
+    const boundaryByFunction = new Map(expressions.map((entry) => [entry.functionName, entry]));
     const paths = new Map();
     /** @param {ProfileNode} node @param {CallFrame[]} path */
     const visit = (node, path) => {
@@ -97,17 +109,17 @@ export function attribute(profile, runSite, siteOf, expressions = []) {
         }
         const top = stack[topJavaScript];
         const topFrame = path[runIndex + 1 + topJavaScript];
-        const candidate = top && expressionByFunction.get(top.functionName);
-        const expression =
+        const candidate = top && boundaryByFunction.get(top.functionName);
+        const boundary =
             candidate &&
             Number.isInteger(topFrame?.columnNumber) &&
-            top.site === `${candidate.functionName} ${candidate.expressionSite}`
+            top.site === `${candidate.functionName} ${candidate.wrapperSite}`
                 ? candidate
                 : undefined;
-        if (expression && topJavaScript >= 0) stack[topJavaScript].expression = expression.expressionSite;
-        const site = expression?.expressionSite ?? top?.site ?? "<no JavaScript frame>";
+        if (boundary && topJavaScript >= 0) stack[topJavaScript].boundary = boundary.wrapperSite;
+        const site = boundary?.wrapperSite ?? top?.site ?? "<no JavaScript frame>";
         const key = JSON.stringify({ site, stack });
-        const row = rows.get(key) ?? { site, bytes: 0, count: 0, stack, expression: expression?.expressionSite };
+        const row = rows.get(key) ?? { site, bytes: 0, count: 0, stack, boundary: boundary?.wrapperSite };
         row.bytes += size;
         row.count++;
         rows.set(key, row);
@@ -185,7 +197,7 @@ async function main() {
         await session.post("HeapProfiler.enable");
 
         async function sample(run, n, label = "transition") {
-            collect();
+            await prepareSamplingSession(subject, collect);
             await session.post("HeapProfiler.startSampling", {
                 samplingInterval: 1,
                 includeObjectsCollectedByMajorGC: true,
@@ -217,7 +229,7 @@ async function main() {
         subject = await create(readFileSync(inputFile, "utf8"));
         expressions = (subject.allocationExpressions ?? []).map((entry) => ({
             functionName: entry.fn.name,
-            expressionSite: entry.site,
+            wrapperSite: entry.wrapperSite,
             expression: entry.expression,
         }));
         // Preserve only the named attribution boundaries as stack frames; subject systems still tier normally.
@@ -318,7 +330,7 @@ async function main() {
                     frames: CHUNK, framesAtMost: CHUNK },
             ];
             const windows = await steadyWindows();
-            collect();
+            await prepareSamplingSession(subject, collect);
             await session.post("HeapProfiler.startSampling", { samplingInterval: 1 });
             spawnFrame();
             stepChunk();
