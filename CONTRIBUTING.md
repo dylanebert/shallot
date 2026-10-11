@@ -205,7 +205,8 @@ bun run format                   # biome
 - A memory claim creates and disposes its subject, returns to baseline and fails on a deliberately leaking control; retention is measured after GC, and sampler sites are diagnostics, not results.
 - Performance uses counted work and same-machine ratio oracles; real-hardware timings name the hardware and are reported, never asserted.
 - An oracle is a separate measurement: run when its claim or tool changes, its result recorded in its commit message, and repeated only for a named doubt; the tree keeps the tool, never a run's output.
-- The shared transparent-phase oracle measures CPU keying, sorting, preparation, draw recording and upload for 256, 1,024 and 8,192 items per view across 1, 2 and 8 views, with shared, alternating-mesh and alternating-material workloads. It excludes asynchronous GPU execution and sets no universal timing threshold; the 8,192-item, 8-view alternating-material case is dominated by draw recording, not sorting.
+- The shared transparent-phase oracle records CPU keying, sorting, preparation, draw recording and upload per frame at declared sizes, views and material mixes; it sets no timing threshold and excludes GPU execution.
+- `diagnostics/readback-allocation/render.oracle.ts` holds steady rendering to zero sampled heap outside the submission's single-use objects: the command encoder, each pass's begin and `end()`, `finish`, `submit` and the completion fence. Each admitted wrapper is one call, checked from source; the first frame after each profiler session is unmeasured. It reruns when the frame path, the sampler or its admission list changes.
 
 | Claim | Tool / tier |
 |---|---|
