@@ -219,25 +219,35 @@ export function tracedSample(
     const marked = new Set<string>();
     let label: string | undefined;
     let json: string | undefined;
-    for (const line of stdout.split(/\r?\n/)) {
-        if (line.startsWith("SHALLOT_SAMPLE_BEGIN ")) {
-            if (label !== undefined) throw new Error("nested allocation trace marker");
-            label = JSON.parse(line.slice("SHALLOT_SAMPLE_BEGIN ".length)) as string;
-            marked.add(label);
-        } else if (line === "SHALLOT_SAMPLE_END") {
-            if (label === undefined)
-                throw new Error(`unpaired allocation trace marker: ${JSON.stringify(line)}`);
-            label = undefined;
-        } else if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
-            const match = /<JSFunction(.*?) \(sfi =/.exec(line);
-            if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
-            const names = optimizations.get(label) ?? new Set<string>();
-            names.add(match[1].trim() || "(anonymous)");
-            optimizations.set(label, names);
-        } else if (line.startsWith('{"runtime":')) {
-            json = line;
+    const recordOutput = (text: string) => {
+        for (const line of text.split(/\r\n|\r|\n/)) {
+            if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
+                const match = /<JSFunction(.*?) \(sfi =/.exec(line);
+                if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
+                const names = optimizations.get(label) ?? new Set<string>();
+                names.add(match[1].trim() || "(anonymous)");
+                optimizations.set(label, names);
+            } else if (line.startsWith('{"runtime":')) {
+                json = line;
+            }
         }
+    };
+    const markers = /SHALLOT_SAMPLE_BEGIN ("(?:[^"\\]|\\.)*")|SHALLOT_SAMPLE_END/g;
+    let offset = 0;
+    for (const marker of stdout.matchAll(markers)) {
+        recordOutput(stdout.slice(offset, marker.index));
+        if (marker[1] !== undefined) {
+            if (label !== undefined) throw new Error("nested allocation trace marker");
+            label = JSON.parse(marker[1]) as string;
+            marked.add(label);
+        } else {
+            if (label === undefined)
+                throw new Error(`unpaired allocation trace marker: ${JSON.stringify(marker[0])}`);
+            label = undefined;
+        }
+        offset = marker.index + marker[0].length;
     }
+    recordOutput(stdout.slice(offset));
     if (label !== undefined || json === undefined) throw new Error("incomplete allocation trace");
     const sample = JSON.parse(json) as TransitionSample;
     for (const window of sample.windows) {

@@ -97,7 +97,7 @@ test("optimization traces refuse even a zero-byte window, including anonymous OS
         { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
     ] };
     const lines = [
-        'SHALLOT_SAMPLE_BEGIN "after warm 120"',
+        'V8 output without a trailing newlineSHALLOT_SAMPLE_BEGIN "after warm 120"',
         '[compiling method 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV), mode: ConcurrencyMode::kSynchronous]',
         '[completed compiling 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV)]',
         '[compiling method 0x1 <JSFunction (sfi = 0x3)> (target TURBOFAN_JS) OSR, mode: ConcurrencyMode::kSynchronous]',
