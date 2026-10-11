@@ -45,10 +45,15 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### GPU floor
 
-- Built-in layouts fit WebGPU's default eight storage-buffer bindings per shader stage, counted by declared visibility across all bind groups, including bindings a shader does not read.
-- `RenderingPlugin` requires `rg11b10ufloat-renderable`; `StandardRenderingPlugin` requires `indirect-first-instance` and ten storage-buffer bindings per shader stage.
-- GPU qualification supplies `config.device` requested with the composition's required features and limits, and records the resulting capabilities.
-- A layout repair preserves precision and capacity, and reports its uploads, passes and dispatches on named hardware.
+- Built-in pipelines and shipped renderer compositions fit WebGPU's default eight storage-buffer bindings per shader stage.
+- Count declared storage bindings across all bound groups by stage visibility; unused declarations still count.
+- `RenderingPlugin` requires `rg11b10ufloat-renderable`; `StandardRenderingPlugin` requires `indirect-first-instance`. `ProfilePlugin` only prefers `timestamp-query`; without it, profiling runs without GPU timings.
+- Device acquisition requests the enabled composition's declared required features and limits, never adapter maxima. The built-in renderer does not raise the default storage-buffer limit; an external plugin may require more and owns that compatibility choice.
+- A floor-device proof requests only the composition's required features, with no `requiredLimits`.
+- Record the real adapter identity, granted features and resulting limits.
+- Build and draw the covered pipeline families and examples on the floor device.
+- A built-in pipeline that exceeds the floor or lacks a required feature refuses with its owner and the stage/limit or feature named.
+- A layout repair preserves precision and capacity, and reports uploads, passes and dispatches on named hardware.
 
 ### Readback
 
