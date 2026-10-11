@@ -99,9 +99,9 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Each scheduler group end holds an ordered boundary set outside ordinary systems. Boundary edges obey the same refusal of contradictory and cyclic order as ordinary systems.
 - Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor.
 - `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` lane, `RenderPhases` and the tonemapping pass.
-- Core opens the prepass and one main render pass per view; renderers record opaque, then transparent, work into it with core's formats and sample count.
+- Core opens the depth prepass when the camera or a depth consumer requests it, and one main render pass per presenting view; renderers record opaque, then transparent, work into it with core's formats and sample count.
 - A renderer reaches an effect's depth input only by recording into that prepass lane.
-- Transparent work is ordered by renderer, not by object across renderers, since standard submits GPU-driven indirect draws per surface.
+- Transparent items are ordered by view-space depth across renderers for each view; renderers may batch only consecutive compatible items.
 - `Tonemapping` selects the operator, TonyMcMapface by default; `TonemappingMethod.None` skips it for display-ready linear images, but not grading or encoding.
 - `ColorGrading` grades the image, and presentation encodes it for the screen.
 - Effects are separate passes registered per camera in `EffectPasses`: before tonemapping they read linear HDR, after it they read encoded display-referred intermediates.
