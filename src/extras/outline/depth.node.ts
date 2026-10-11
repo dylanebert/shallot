@@ -8,7 +8,7 @@ import { DEFAULT_PLUGINS } from "../../standard";
 import { StandardRenderer } from "../../standard/rendering";
 import { Outline, OutlinePlugin } from ".";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },

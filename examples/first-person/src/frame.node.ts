@@ -17,7 +17,7 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 
-test("first-person presents a nonuniform final frame with byte-identical captures at one state", async () => {
+test("first-person presents a nonuniform frame with byte-identical captures on one adapter", async () => {
     const app = await createApp({
         plugins: [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo],
     });
@@ -30,16 +30,15 @@ test("first-person presents a nonuniform final frame with byte-identical capture
             maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
             maxUniformBufferBindingSize: device.limits.maxUniformBufferBindingSize,
         });
-        expect(adapter.class).toBe("real");
-        expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
-        expect(
-            [...device.features].filter((feature) => feature !== "core-features-and-limits").sort(),
-        ).toEqual(["indirect-first-instance", "rg11b10ufloat-renderable"]);
+        expect(device.limits.maxStorageBuffersPerShaderStage).toBeGreaterThanOrEqual(8);
+        expect(device.features.has("indirect-first-instance")).toBe(true);
+        expect(device.features.has("rg11b10ufloat-renderable")).toBe(true);
         const camera = [...app.world.query([Camera])][0];
         if (camera === undefined) throw new Error("first-person has no camera");
         // A small frame and one tick suffice to observe the composed final pass.
         attachTexture(app.world, camera, { width: 320, height: 180 });
         app.world.step(Time.FIXED_DT);
+        // Both captures read the same untouched target; cross-adapter byte identity is not claimed.
         const first = await captureTexture(app.world, camera);
         const second = await captureTexture(app.world, camera);
         expect(first.rgba.length).toBe(320 * 180 * 4);

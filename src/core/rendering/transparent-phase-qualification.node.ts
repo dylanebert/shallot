@@ -37,7 +37,7 @@ import {
 } from ".";
 import { computeViewProj } from "./camera";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 const TransitionParameters = d.struct({ color: d.vec4f });
 const transitionLayout = materialLayout(TransitionParameters, {});
 const TransitionContext = materialFragmentContext();

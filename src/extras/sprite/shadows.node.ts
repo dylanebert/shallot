@@ -13,7 +13,7 @@ import {
 } from "../../standard/rendering";
 import { Sprite, SpriteBillboard, SpriteFill, SpritePlugin } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [SpritePlugin] }]);
 const SHADOW_SIDE = 256;
 

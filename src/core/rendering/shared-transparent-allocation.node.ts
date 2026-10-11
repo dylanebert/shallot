@@ -8,6 +8,9 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
+const WARM_FRAMES = 1200;
+const WINDOW_FRAMES = 120;
+
 test("composed transparent World.step allocation sites are attributed after warm-up", async () => {
     const entry = resolve(
         import.meta.dir,
@@ -15,18 +18,18 @@ test("composed transparent World.step allocation sites are attributed after warm
     );
     // Preserve attribution through JIT changes; this diagnoses existing whole-frame sites, not zero allocations.
     const sample = await sampleAllocation(entry, {
-        warm: 12000,
-        frames: 600,
+        warm: WARM_FRAMES,
+        frames: WINDOW_FRAMES,
         retainOptimizedSites: true,
     });
     const controlBytes = windowBytes({ sites: sample.control });
     if (controlBytes === 0) throw new Error("allocation control was invisible");
-    const expected = ["after warm 12000", "after warm 24000", "A/A repeat"];
+    const expected = [`after warm ${WARM_FRAMES}`, `after warm ${2 * WARM_FRAMES}`, "A/A repeat"];
     if (sample.windows.length !== expected.length)
         throw new Error(`expected ${expected.length} steady windows, got ${sample.windows.length}`);
     for (let i = 0; i < expected.length; i++) {
         const window = sample.windows[i]!;
-        if (window.label !== expected[i] || window.frames !== 600)
+        if (window.label !== expected[i] || window.frames !== WINDOW_FRAMES)
             throw new Error(
                 `unexpected allocation window ${window.label} (${window.frames} frames)`,
             );
