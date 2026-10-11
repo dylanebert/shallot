@@ -6,7 +6,7 @@ import {
     type TransparentPhase,
 } from "../../core/rendering";
 import { component } from "../../engine";
-import { withPipelineOwner } from "../../engine/runtime";
+import { executeRenderBundles, withPipelineOwner } from "../../engine/runtime";
 import {
     CullLightsSystem,
     initializeClusterState,
@@ -137,6 +137,9 @@ interface StandardRendererState {
     frameCount: number;
     frameDrawPairs: (FrameDraw | undefined)[];
     framePairCount: number;
+    resolveCapacity: number;
+    resolveMeshCount: number;
+    resolveDrawCallback: ((draw: Draw) => void) | undefined;
     transparentEidsStage: ArrayBuffer;
     transparentEidsU32: Uint32Array;
     transparentArgsStage: ArrayBuffer;
@@ -159,7 +162,14 @@ interface StandardRendererState {
     pointFrames: PointShadowFrame[];
 }
 
-const standardRendererStateKey = { create: createStandardRendererState };
+const standardRendererStateKey = {
+    create(world: World): StandardRendererState {
+        const state = createStandardRendererState();
+        state.resolveDrawCallback = (draw) =>
+            resolveDraw(world, draw, state.resolveCapacity, state.resolveMeshCount);
+        return state;
+    },
+};
 
 function createStandardRendererState(): StandardRendererState {
     return {
@@ -168,6 +178,9 @@ function createStandardRendererState(): StandardRendererState {
         frameCount: 0,
         frameDrawPairs: [],
         framePairCount: 0,
+        resolveCapacity: 0,
+        resolveMeshCount: 0,
+        resolveDrawCallback: undefined,
         transparentEidsStage: new ArrayBuffer(0),
         transparentEidsU32: new Uint32Array(0),
         transparentArgsStage: new ArrayBuffer(0),
@@ -561,9 +574,9 @@ function resolveDraws(world: World, capacity: number): void {
     state.frameDrawPairs.fill(undefined, 0, state.framePairCount);
     state.framePairCount = pairCount;
     while (state.frameDrawPairs.length < pairCount) state.frameDrawPairs.push(undefined);
-    world.resource(Draws).forEach((draw) => {
-        resolveDraw(world, draw, capacity, meshCount);
-    });
+    state.resolveCapacity = capacity;
+    state.resolveMeshCount = meshCount;
+    world.resource(Draws).forEach(state.resolveDrawCallback!);
 }
 
 function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: number): void {
@@ -812,7 +825,7 @@ function renderColor(
         );
     }
 
-    if (pass.bundle) encoded.executeBundles(pass.replay);
+    if (pass.bundle) executeRenderBundles(encoded, pass.replay);
 
     // tally this camera's opaque indirect draws so the profiler derives the injected validation floor;
     // the honest count is post the `if (pipe)` skip, and excludes the backdrop's
@@ -862,6 +875,7 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     const placement = world.storage(GlobalTransform);
     const planes = world.resource(RenderContext).cullVolumeStaging;
     const planeBase = view.slot * CULL_VOLUME_FLOATS;
+    const position = phase.positionScratch;
     for (const instanceEid of world.query(TRANSPARENT_MESHES)) {
         const alphaMode = materials.alphaMode.get(instanceEid);
         if (!transparentAlpha(alphaMode)) continue;
@@ -904,7 +918,10 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
         const z = placement.translation.z.get(instanceEid) + lz + qw * tz + qx * ty - qy * tx;
         const worldRadius = radius * Math.max(Math.abs(sx), Math.abs(sy), Math.abs(sz));
         if (!sphereVisible(planes, planeBase, x, y, z, worldRadius)) continue;
-        phase.add(instanceEid, pair, x, y, z, instanceEid);
+        position[0] = x;
+        position[1] = y;
+        position[2] = z;
+        phase.addFromScratch(instanceEid, pair, instanceEid, 0);
     }
 }
 
@@ -1050,21 +1067,21 @@ function prepareTransparent(
     if (eidCount) {
         const bytes = eidCount * EIDS_BYTES;
         const offset = eidsBase * EIDS_BYTES;
-        const started = performance.now();
+        const started = phase.measureTimings ? performance.now() : 0;
         world.uploadGpuTable(
             world.gpu.root.unwrap(eids),
             offset,
             state.transparentEidsStage,
             bytes,
         );
-        phase.recordUpload(bytes, performance.now() - started);
+        phase.recordUpload(bytes, phase.measureTimings ? performance.now() - started : 0);
     }
     if (runCount) {
         const bytes = runCount * INDIRECT_BYTES;
         const offset = argsBase * INDIRECT_BYTES;
-        const started = performance.now();
+        const started = phase.measureTimings ? performance.now() : 0;
         world.uploadGpuTable(args, offset, state.transparentArgsStage, bytes);
-        phase.recordUpload(bytes, performance.now() - started);
+        phase.recordUpload(bytes, phase.measureTimings ? performance.now() - started : 0);
     }
 }
 

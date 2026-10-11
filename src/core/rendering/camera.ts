@@ -91,6 +91,12 @@ const _proj = new Float32Array(16);
 const _world = new Float32Array(16);
 const _view = new Float32Array(16);
 
+/** Compute the world→view matrix directly into reusable caller storage. */
+export function computeViewFromWorld(world: World, eid: number, out: Float32Array): void {
+    composeGlobalTransform(world, eid, _world);
+    out.set(invertMat4(_world, _view));
+}
+
 /**
  * compute viewProj for a camera entity. `aspect` is the bound surface's width / height.
  * `viewOut` optionally receives the world→view matrix alone (the light cull

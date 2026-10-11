@@ -362,6 +362,10 @@ world.add(lamp, VolumetricLight);
 
 `Camera` remains one component: `mode`, `fov`, `near`, `far`, `size`, `clearColor` and `antialias` are unchanged, including `fov` in degrees and `antialias: 1` for 4× MSAA. `CameraMode` and `Resolution.width`/`.height` are unchanged.
 
+## Indirect light sources use one shared input
+
+The v0.9.5 package had no indirect-light source registration API, so there is no old call to replace. In 0.10, `IndirectLightInput`, `IndirectLightSource`, `indirectLight`, `indirectLightSlot`, `indirectLightSources` and `registerIndirectLightSource` are new `/standard/rendering` exports. Register a TGSL `IndirectLightSource` during plugin initialization with `registerIndirectLightSource(world, name, source)`, before `StandardRenderingPlugin` warms its pipelines. The source receives `IndirectLightInput` (`worldPosition`, `normal`, `view`, `materialOcclusion` and effective `ambientRadiance`) and returns indirect radiance. Standard composes it after ambient light, scales each source by material occlusion, then applies material albedo and camera exposure. The same input is used by standard materials and fog; registration closes at warm.
+
 ## Component editor metadata and name lookups are removed
 
 Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. Component declarations keep `defaults` and add-only `requires`; `excludes` is removed and runtime `provides` becomes `requires`. System annotations remain.
@@ -538,7 +542,7 @@ world.resource(Materials).update(glass, { baseColor: [0.3, 0.7, 1, 0.6] }, {
 });
 ```
 
-Custom material types use the same `{ alphaMode }` option on `add`, `update` and `setAt`; their fragment shader must return the intended alpha. `Opaque` writes depth. `Mask(cutoff)` discards fragments below its per-row cutoff and writes depth; `Blend`, `Premultiplied`, `Add` and `Multiply` use transparent color pipelines without depth writes or shadows. `Premultiplied` expects premultiplied shader RGB; `Add` premultiplies RGB and shares its pipeline key, with shader output distinguishing the additive behavior. `AlphaToCoverage` selects per-sample coverage when multisampling is enabled and falls back to a 0.5 mask on a single-sample view. Transparent draws keep their existing order; this change does not sort them.
+Custom material types use the same `{ alphaMode }` option on `add`, `update` and `setAt`; their fragment shader must return the intended alpha. `Opaque` writes depth. `Mask(cutoff)` discards fragments below its per-row cutoff and writes depth; `Blend`, `Premultiplied`, `Add` and `Multiply` use transparent color pipelines without depth writes or shadows. `Premultiplied` expects premultiplied shader RGB; `Add` premultiplies RGB and shares its pipeline key, with shader output distinguishing the additive behavior. `AlphaToCoverage` emits a fragment `sample_mask` from alpha for multisampled views because the standard `rg11b10ufloat` HDR target has no alpha channel; it falls back to a 0.5 mask on a single-sample view. Transparent draws join the shared per-view phase and sort by view-space depth across renderers; see the shared `RenderPhases` contract below. This is not OIT and does not promise correct ordering for intersecting geometry.
 
 Do not move Text or Lines onto `AlphaMode`: they own their renderer pipelines and stay in the shared transparent phase. Sprite retains its `SpriteBlend` component API and maps Clip/Alpha to Mask/Blend on its one material type as described above.
 

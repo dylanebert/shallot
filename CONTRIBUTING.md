@@ -29,6 +29,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - GPU consumers bind tables, not authoring fields.
 - A table has one TypeGPU struct per row, shaped by access, update frequency and lifetime; a pass needing fewer fields reads a narrower table, not a second engine-wide layout.
+- Each mesh material type owns one typed GPU table whose row matches its parameter schema; `MeshMaterial` selects that World-local type and row. Do not bind one buffer per material instance or authoring field.
 - Rows are stable dense slots from a free list.
 - Draws and dispatches read compact active-row or instance lists, never the sparse eid range; eid-based lookups opt into the uploaded map.
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback. GPU-only tables have no CPU record source or upload.
@@ -47,6 +48,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - Built-in pipelines and shipped renderer compositions fit WebGPU's default eight storage-buffer bindings per shader stage.
 - Count declared storage bindings across all bound groups by stage visibility; unused declarations still count.
+- Pipeline creation is guarded against the granted per-stage limit: the World counts storage entries in each bound layout by visibility before calling WebGPU, then refuses an over-budget pipeline with its plugin, pipeline, stage and count. A layout that cannot be accounted against this World is refused rather than bypassing the floor.
 - `RenderingPlugin` requires `rg11b10ufloat-renderable`; `StandardRenderingPlugin` requires `indirect-first-instance`. `ProfilePlugin` only prefers `timestamp-query`; without it, profiling runs without GPU timings.
 - Device acquisition requests the enabled composition's declared required features and limits, never adapter maxima. The built-in renderer does not raise the default storage-buffer limit; an external plugin may require more and owns that compatibility choice.
 - A floor-device proof requests only the composition's required features, with no `requiredLimits`.
@@ -104,9 +106,13 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Each scheduler group end holds an ordered boundary set outside ordinary systems. Boundary edges obey the same refusal of contradictory and cyclic order as ordinary systems.
 - Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor.
 - `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` lane, `RenderPhases` and the tonemapping pass.
-- Core opens the depth prepass when the camera or a depth consumer requests it, and one main render pass per presenting view; renderers record opaque, then transparent, work into it with core's formats and sample count.
+- Plugins register per-camera depth predicates in `world.resource(DepthPrepassRequests)`. Core opens one shared lane when the camera has `DepthPrepass` or any predicate requests it; its sample count matches the main pass, and readers use sample zero. `NoFog` opts a camera out of scene fog only, not an explicit depth request.
+- Each presenting view has one main render pass; renderers record opaque, then transparent, work into it with core's formats and sample count.
 - A renderer reaches an effect's depth input only by recording into that prepass lane.
-- Transparent items are ordered by view-space depth across renderers for each view; renderers may batch only consecutive compatible items.
+- Transparent items are sorted back-to-front by view-space depth across renderers for each view, with deterministic identity ties; renderers may batch only consecutive compatible items in that order.
+- `AlphaMode` is per material row. StandardMaterial preserves base-color alpha; `Mask` writes depth, blended modes do not, and `AlphaToCoverage` emits a fragment sample mask because the `rg11b10ufloat` HDR target has no alpha channel (single-sample views use the 0.5 mask fallback).
+- Authored `DirectionalLight` illuminance is lux; `PointLight` and `SpotLight` intensity is lumens; ambient radiance is cd/m²; camera `Exposure` is EV100. Directional light follows transformed local `-Z`. At most one enabled directional casts shadows: greatest illuminance wins, then lower eid.
+- Presenting view state starts at one slot and grows as cameras become presenting without recompiling pipelines or layouts. The cull-volume uniform holds 585 slots under WebGPU's 64 KiB uniform-binding limit; 52 slots cover built-in shadow views, leaving `MAX_VIEWS = 533`. The 534th presenting camera is skipped with a warning.
 - `Tonemapping` selects the operator, TonyMcMapface by default; `TonemappingMethod.None` skips it for display-ready linear images, but not grading or encoding.
 - `ColorGrading` grades the image, and presentation encodes it for the screen.
 - Effects are separate passes registered per camera in `EffectPasses`: before tonemapping they read linear HDR, after it they read encoded display-referred intermediates.
@@ -199,6 +205,8 @@ bun run format                   # biome
 - A memory claim creates and disposes its subject, returns to baseline and fails on a deliberately leaking control; retention is measured after GC, and sampler sites are diagnostics, not results.
 - Performance uses counted work and same-machine ratio oracles; real-hardware timings name the hardware and are reported, never asserted.
 - An oracle is a separate measurement: run when its claim or tool changes, its result recorded in its commit message, and repeated only for a named doubt; the tree keeps the tool, never a run's output.
+- The shared transparent-phase oracle records CPU keying, sorting, preparation, draw recording and upload per frame at declared sizes, views and material mixes; it sets no timing threshold and excludes GPU execution.
+- `diagnostics/readback-allocation/render.oracle.ts` holds steady rendering to zero sampled heap outside the submission's single-use objects: the command encoder, each pass's begin and `end()`, `finish`, `submit` and the completion fence. Each admitted wrapper is one call, checked from source; the first frame after each profiler session is unmeasured. It reruns when the frame path, the sampler or its admission list changes.
 
 | Claim | Tool / tier |
 |---|---|

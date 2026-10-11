@@ -40,7 +40,7 @@ jobs:
         run: bun run check
       - name: cheap tier
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
+        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts'
 
   gpu:
     runs-on: ${{ matrix.os }}
@@ -187,16 +187,19 @@ jobs:
         run: bun crates/physics/scripts/build-kernel.ts --checked
       - name: cheap tier
         if: matrix.shard == '1/5'
-        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
+        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts'
       - name: Node tier
         run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
 
   browser:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest]
+        os: [macos-15, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -230,4 +233,4 @@ jobs:
       - name: install Playwright Chromium
         run: bunx playwright install chromium
       - name: browser tier
-        run: /usr/bin/time -p bun run test:browser
+        run: time -p bun run test:browser

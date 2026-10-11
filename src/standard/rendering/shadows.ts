@@ -1366,8 +1366,13 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         shadow.slotWarned = false;
     }
     // record the surviving winners as next frame's incumbents (the hysteresis basis)
-    shadow.lastCasters.clear();
-    for (let i = 0; i < count; i++) shadow.lastCasters.add(frames[i].light);
+    let sameCasters = shadow.lastCasters.size === count;
+    for (let i = 0; sameCasters && i < count; i++)
+        sameCasters = shadow.lastCasters.has(frames[i].light);
+    if (!sameCasters) {
+        shadow.lastCasters.clear();
+        for (let i = 0; i < count; i++) shadow.lastCasters.add(frames[i].light);
+    }
 
     // resolve each caster's tile pixel size + (for spots) the cone basis, now that sizes are known
     for (let i = 0; i < count; i++) {

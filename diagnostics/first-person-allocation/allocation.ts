@@ -2,13 +2,24 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileS
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-export interface AllocationSite {
-    /** attributed function name and original source line */
+export interface AllocationFrame {
+    functionName: string;
     site: string;
-    /** sampled bytes attributed to this site over the measured window, collected objects included */
+    native: boolean;
+    boundary?: string;
+}
+
+export interface AllocationSite {
+    /** top JavaScript frame's declaration position, admitted only for a checked API wrapper */
+    site: string;
+    /** sampled bytes attributed to this complete stack over the measured window, collected objects included */
     bytes: number;
-    /** samples attributed to this site over the window */
+    /** samples attributed to this stack over the window */
     count: number;
+    /** ordered from the run frame's caller through the allocation and any trailing native frames */
+    stack?: readonly AllocationFrame[];
+    /** checked API wrapper declaration position when the top JavaScript frame is that boundary */
+    boundary?: string;
 }
 
 export interface AllocationWindow {
@@ -106,7 +117,10 @@ export function allocationFailure(
     if (allocating.length > 0) {
         const sites = allocating.flatMap((window) =>
             window.sites.length > 0
-                ? window.sites.map((row) => `  ${window.label}: ${row.bytes} B at ${row.site}`)
+                ? window.sites.map((row) => {
+                      const stack = row.stack?.map((frame) => `${frame.functionName} ${frame.site}`).join(" <- ");
+                      return `  ${window.label}: ${row.bytes} B at ${row.site}${stack ? `\n    stack: ${stack}` : ""}`;
+                  })
                 : [`  ${window.label}: ${windowBytes(window)} B with no attributed sites`],
         );
         failures.push(
@@ -246,7 +260,12 @@ async function runBuiltSampler(
                 inputPath,
                 ...mode,
             ],
-            { cwd: dir, stdout: "pipe", stderr: "pipe" },
+            {
+                cwd: dir,
+                stdout: "pipe",
+                stderr: "pipe",
+                env: { ...process.env, SHALLOT_PROJECT_ROOT: process.cwd() },
+            },
         );
         const [stdout, stderr, code] = await Promise.all([
             new Response(proc.stdout).text(),

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve, sep } from "node:path";
+import { prepareSamplingSession } from "./allocation-sampler.mjs";
 import {
     type AllocationSample,
     allocatesNothing,
@@ -8,6 +9,23 @@ import {
     tracedSample,
     TIER_FLAGS,
 } from "./allocation";
+
+test("a sampling session starts after one collected and drained subject step", async () => {
+    const order: string[] = [];
+    await prepareSamplingSession(
+        {
+            warmSamplingSessions: true,
+            step: () => order.push("step"),
+            wait: async () => { order.push("wait"); },
+        },
+        () => order.push("collect"),
+    );
+    order.push("startSampling");
+    expect(order).toEqual(["collect", "step", "wait", "startSampling"]);
+    const otherSubject: string[] = [];
+    await prepareSamplingSession({ warmSamplingSessions: false, step: () => otherSubject.push("step") }, () => otherSubject.push("collect"));
+    expect(otherSubject).toEqual(["collect"]);
+});
 
 test("the sampler keeps lazy feedback and Chromium's existing timing flags", () => {
     expect(TIER_FLAGS).not.toContain("--no-lazy-feedback-allocation");

@@ -9,16 +9,29 @@ const chromiumArgs =
               "--enable-unsafe-webgpu",
               "--enable-features=Vulkan",
           ]
-        : [
-              "--enable-unsafe-webgpu",
-              "--enable-features=WebGPUDeveloperFeatures",
-              "--enable-webgpu-developer-features",
-              "--enable-gpu",
-          ];
+        : process.platform === "win32"
+          ? [
+                "--enable-unsafe-webgpu",
+                "--enable-features=WebGPUDeveloperFeatures",
+                "--enable-webgpu-developer-features",
+                "--enable-gpu",
+                "--ignore-gpu-blocklist",
+            ]
+          : [
+                "--enable-unsafe-webgpu",
+                "--enable-features=WebGPUDeveloperFeatures",
+                "--enable-webgpu-developer-features",
+                "--enable-gpu",
+            ];
+
+const chromiumLaunchOptions =
+    process.platform === "win32"
+        ? { args: chromiumArgs, ignoreDefaultArgs: ["--enable-unsafe-swiftshader"] }
+        : { args: chromiumArgs };
 
 export const CHROMIUM_USE = {
     channel: "chromium" as const,
-    launchOptions: { args: chromiumArgs },
+    launchOptions: chromiumLaunchOptions,
 };
 
 export const BROWSER_CONFIG = {

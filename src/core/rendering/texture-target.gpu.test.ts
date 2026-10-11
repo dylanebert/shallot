@@ -103,6 +103,13 @@ test("texture final frames capture tight RGBA and refuse missing presentation; o
     const destroyed = spyOn(texture, "destroy");
     world.gpu.device.pushErrorScope("validation");
     world.step(0);
+    const view = world.resource(Views).get(eid)!;
+    const surfaceTexture = view.surfaceTexture;
+    const surfaceView = view.present;
+    expect(surfaceTexture).toBe(texture);
+    world.step(0);
+    expect(view.surfaceTexture).toBe(surfaceTexture);
+    expect(view.present).toBe(surfaceView);
     const capture = await captureTexture(world, eid);
     expect(await world.gpu.device.popErrorScope()).toBeNull();
     const expected = new Uint8ClampedArray(7 * 3 * 4);
