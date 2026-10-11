@@ -5,7 +5,7 @@ function assertDawnHost(platform: string, execPath: string): void {
     const executable = execPath.split(/[\\/]/).at(-1)?.toLowerCase();
     if (platform === "win32" && executable !== "node.exe") {
         throw new UnsupportedError(
-            "On Windows, Dawn requires the process executable to be named node.exe; " +
+            "On Windows, dawn.node imports N-API directly from node.exe, so a host with another name crashes loading it; " +
                 "use Node, or run Bun from a copy named node.exe.",
         );
     }
