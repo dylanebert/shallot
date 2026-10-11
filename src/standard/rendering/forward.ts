@@ -137,6 +137,9 @@ interface StandardRendererState {
     frameCount: number;
     frameDrawPairs: (FrameDraw | undefined)[];
     framePairCount: number;
+    resolveCapacity: number;
+    resolveMeshCount: number;
+    resolveDrawCallback: ((draw: Draw) => void) | undefined;
     transparentEidsStage: ArrayBuffer;
     transparentEidsU32: Uint32Array;
     transparentArgsStage: ArrayBuffer;
@@ -159,7 +162,14 @@ interface StandardRendererState {
     pointFrames: PointShadowFrame[];
 }
 
-const standardRendererStateKey = { create: createStandardRendererState };
+const standardRendererStateKey = {
+    create(world: World): StandardRendererState {
+        const state = createStandardRendererState();
+        state.resolveDrawCallback = (draw) =>
+            resolveDraw(world, draw, state.resolveCapacity, state.resolveMeshCount);
+        return state;
+    },
+};
 
 function createStandardRendererState(): StandardRendererState {
     return {
@@ -168,6 +178,9 @@ function createStandardRendererState(): StandardRendererState {
         frameCount: 0,
         frameDrawPairs: [],
         framePairCount: 0,
+        resolveCapacity: 0,
+        resolveMeshCount: 0,
+        resolveDrawCallback: undefined,
         transparentEidsStage: new ArrayBuffer(0),
         transparentEidsU32: new Uint32Array(0),
         transparentArgsStage: new ArrayBuffer(0),
@@ -561,9 +574,9 @@ function resolveDraws(world: World, capacity: number): void {
     state.frameDrawPairs.fill(undefined, 0, state.framePairCount);
     state.framePairCount = pairCount;
     while (state.frameDrawPairs.length < pairCount) state.frameDrawPairs.push(undefined);
-    world.resource(Draws).forEach((draw) => {
-        resolveDraw(world, draw, capacity, meshCount);
-    });
+    state.resolveCapacity = capacity;
+    state.resolveMeshCount = meshCount;
+    world.resource(Draws).forEach(state.resolveDrawCallback!);
 }
 
 function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: number): void {
