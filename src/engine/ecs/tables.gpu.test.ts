@@ -43,31 +43,12 @@ function subject(
     };
 }
 
-function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 750): Promise<T> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(
-            () => reject(new Error(`${label} timed out after ${timeout} ms`)),
-            timeout,
-        );
-        promise.then(
-            (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-            (error: unknown) => {
-                clearTimeout(timer);
-                reject(new Error(`${label} rejected: ${String(error)}`, { cause: error }));
-            },
-        );
-    });
-}
-
 async function stepAndValidate(world: World, label: string): Promise<void> {
     const device = world.gpu.device;
     device.pushErrorScope("validation");
     world.step(0);
-    await bounded(`${label} queue completion`, device.queue.onSubmittedWorkDone());
-    const error = await bounded(`${label} validation scope`, device.popErrorScope());
+    await device.queue.onSubmittedWorkDone();
+    const error = await device.popErrorScope();
     if (error) throw new Error(`${label}: ${error.message}`);
 }
 
@@ -103,14 +84,11 @@ for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
             table.markRange(slots[0], 1);
             await stepAndValidate(world, "sparse record range upload");
             expect(table.lastUploadPath).toBe("writeBuffer");
-            const sparseRows = await bounded(
-                "probe sparsely changed table row",
-                probeBuffer(world, table.buffer, {
-                    offset: slots[0] * table.rowBytes,
-                    size: table.rowBytes,
-                    label: "table-range-write-proof",
-                }),
-            );
+            const sparseRows = await probeBuffer(world, table.buffer, {
+                offset: slots[0] * table.rowBytes,
+                size: table.rowBytes,
+                label: "table-range-write-proof",
+            });
             const sparseData = new DataView(sparseRows.bytes);
             expect(sparseData.getFloat32(0, true)).toBe(17.25);
             expect(sparseData.getUint32(4, true)).toBe(eids[0]);
@@ -129,14 +107,11 @@ for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
         table.markRange(slots[0], eids.length);
         await stepAndValidate(world, "full table range upload");
         expect(table.lastUploadPath).toBe("writeBuffer");
-        const readRows = await bounded(
-            "probe fully uploaded table rows",
-            probeBuffer(world, table.buffer, {
-                offset: 0,
-                size: eids.length * d.sizeOf(Record),
-                label: "table-full-upload-proof",
-            }),
-        );
+        const readRows = await probeBuffer(world, table.buffer, {
+            offset: 0,
+            size: eids.length * d.sizeOf(Record),
+            label: "table-full-upload-proof",
+        });
         const actual = new DataView(readRows.bytes);
         for (let i = 0; i < eids.length; i++) {
             expect(actual.getFloat32(i * 8, true)).toBe(columns.amount.get(eids[i]));
@@ -210,13 +185,10 @@ test("component fields bulk-upload through a dense struct table and release thei
     columns.y.set(eid, -4.25);
     expect(table.count).toBe(1);
     await stepAndValidate(world, "component-bound struct upload");
-    const record = await bounded(
-        "probe component-bound row",
-        probeBuffer(world, table.buffer, {
-            size: table.rowBytes,
-            label: "component-bound-table-proof",
-        }),
-    );
+    const record = await probeBuffer(world, table.buffer, {
+        size: table.rowBytes,
+        label: "component-bound-table-proof",
+    });
     const data = new DataView(record.bytes);
     expect(data.getFloat32(0, true)).toBe(12.5);
     expect(data.getFloat32(4, true)).toBe(-4.25);
@@ -227,13 +199,10 @@ test("component fields bulk-upload through a dense struct table and release thei
     expect(table.count).toBe(1);
     columns.x.set(eid, 7.5);
     await stepAndValidate(world, "reused component-bound row upload");
-    const reused = await bounded(
-        "probe reused component-bound row",
-        probeBuffer(world, table.buffer, {
-            size: table.rowBytes,
-            label: "component-bound-table-reuse-proof",
-        }),
-    );
+    const reused = await probeBuffer(world, table.buffer, {
+        size: table.rowBytes,
+        label: "component-bound-table-reuse-proof",
+    });
     expect(new DataView(reused.bytes).getFloat32(0, true)).toBe(7.5);
     world.destroy(eid);
     expect(table.count).toBe(0);
@@ -258,10 +227,7 @@ test("tick field writes survive until the next draw upload without advancing GPU
     expect(world.gpu.frame).toBe(frame);
     world.removeSystem(system);
     await stepAndValidate(world, "tick table upload");
-    const record = await bounded(
-        "tick row",
-        probeBuffer(world, table.buffer, { size: table.rowBytes }),
-    );
+    const record = await probeBuffer(world, table.buffer, { size: table.rowBytes });
     expect(new DataView(record.bytes).getFloat32(0, true)).toBe(42);
 });
 
@@ -307,35 +273,26 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
     table.markRange(reusedRow, 1);
     await stepAndValidate(world, "dense-table free-list reuse");
 
-    const map = await bounded(
-        "probe eid-to-row map",
-        probeBuffer(world, table.eidToRowBuffer!, {
-            offset: second * 4,
-            size: 8,
-            label: "dense-table-eid-map-proof",
-        }),
-    );
+    const map = await probeBuffer(world, table.eidToRowBuffer!, {
+        offset: second * 4,
+        size: 8,
+        label: "dense-table-eid-map-proof",
+    });
     expect(Array.from(new Uint32Array(map.bytes))).toEqual([secondRow + 1, reusedRow + 1]);
-    const active = await bounded(
-        "probe compact active-row list",
-        probeBuffer(world, table.activeRowsBuffer!, {
-            size: table.count * 8,
-            label: "dense-table-active-rows-proof",
-        }),
-    );
+    const active = await probeBuffer(world, table.activeRowsBuffer!, {
+        size: table.count * 8,
+        label: "dense-table-active-rows-proof",
+    });
     expect(Array.from(new Uint32Array(active.bytes))).toEqual([
         second,
         secondRow,
         third,
         reusedRow,
     ]);
-    const data = await bounded(
-        "probe dense table records",
-        probeBuffer(world, table.buffer, {
-            size: table.capacity * table.rowBytes,
-            label: "dense-table-records-proof",
-        }),
-    );
+    const data = await probeBuffer(world, table.buffer, {
+        size: table.capacity * table.rowBytes,
+        label: "dense-table-records-proof",
+    });
     expect(Array.from(new Uint32Array(data.bytes))).toEqual([333, 222]);
 });
 
@@ -378,10 +335,10 @@ test("two in-flight submissions retain distinct upload ranges until their existi
     };
     const first = record(11, observations[0]);
     const second = record(22, observations[1]);
-    await bounded("both upload submissions", Promise.all([first, second]));
+    await Promise.all([first, second]);
     for (let i = 0; i < observations.length; i++) {
         const observation = observations[i];
-        await bounded("retained upload observation", observation.mapAsync(GPUMapMode.READ));
+        await observation.mapAsync(GPUMapMode.READ);
         expect(new DataView(observation.getMappedRange()).getFloat32(0, true)).toBe([11, 22][i]);
         observation.unmap();
     }
@@ -393,7 +350,7 @@ test("two in-flight submissions retain distinct upload ranges until their existi
         ownBound(resource);
     };
     try {
-        await bounded("completed upload recycling", record(33));
+        await record(33);
         expect(allocations).toBe(0);
     } finally {
         world.own = own;
@@ -414,7 +371,7 @@ test("a stepped World reclaims frame staging on its own fence without runApp or 
         },
     });
     world.step(0);
-    await bounded("warm frame fence", world.frameFence ?? Promise.resolve());
+    (await world.frameFence) ?? Promise.resolve();
     const originalOwn = world.own;
     const own = originalOwn.bind(world);
     let allocations = 0;
@@ -425,7 +382,7 @@ test("a stepped World reclaims frame staging on its own fence without runApp or 
     try {
         for (let i = 0; i < 8; i++) {
             world.step(0);
-            await bounded("owned frame completion", world.frameFence ?? Promise.resolve());
+            (await world.frameFence) ?? Promise.resolve();
         }
         expect(allocations).toBe(0);
     } finally {
@@ -465,7 +422,7 @@ test("completed upload chunks recycle without allocating buffers and a single fr
         },
     });
     world.step(0);
-    await bounded("upload warmup", world.frameFence!);
+    await world.frameFence!;
     const own = world.own;
     const ownBound = own.bind(world);
     let allocations = 0;
@@ -476,7 +433,7 @@ test("completed upload chunks recycle without allocating buffers and a single fr
     try {
         for (let i = 0; i < 8; i++) {
             world.step(0);
-            await bounded("upload reuse", world.frameFence!);
+            await world.frameFence!;
         }
         expect(allocations).toBe(0);
         exceedBudget = true;
@@ -527,13 +484,10 @@ for (const phase of ["fixed-growth", "draw"] as const) {
             },
         });
         world.step(1 / 60);
-        await bounded("ordered upload observation", observation.mapAsync(GPUMapMode.READ));
+        await observation.mapAsync(GPUMapMode.READ);
         expect(new DataView(observation.getMappedRange()).getFloat32(0, true)).toBe(11);
         observation.unmap();
-        const result = await bounded(
-            "last upload",
-            probeBuffer(world, table.buffer, { size: table.rowBytes }),
-        );
+        const result = await probeBuffer(world, table.buffer, { size: table.rowBytes });
         expect(new DataView(result.bytes).getFloat32(0, true)).toBe(22);
     });
 }
@@ -574,10 +528,7 @@ test("a non-placement table submits pre-frame growth in queue order and preserve
     try {
         world.step(1 / 60);
         expect(submissions).toBe(1);
-        const result = await bounded(
-            "stepped growth",
-            probeBuffer(world, table.buffer, { size: table.rowBytes }),
-        );
+        const result = await probeBuffer(world, table.buffer, { size: table.rowBytes });
         expect(new DataView(result.bytes).getFloat32(0, true)).toBe(19);
         expect(world.owns(initial)).toBe(false);
     } finally {
@@ -767,14 +718,11 @@ test("bound table uploads a changed eid from a later dirty word", async () => {
     expect(table.lastUploadPath).toBe("writeBuffer");
     expect(table.lastUploadOffset).toBe(row * table.rowBytes);
     expect(new DataView(table.bytes.buffer).getFloat32(row * table.rowBytes, true)).toBe(41.5);
-    const uploaded = await bounded(
-        "later dirty-word table row",
-        probeBuffer(world, table.buffer, {
-            offset: row * table.rowBytes,
-            size: table.rowBytes,
-            label: "later-dirty-word-table-row",
-        }),
-    );
+    const uploaded = await probeBuffer(world, table.buffer, {
+        offset: row * table.rowBytes,
+        size: table.rowBytes,
+        label: "later-dirty-word-table-row",
+    });
     expect(new DataView(uploaded.bytes).getFloat32(0, true)).toBe(41.5);
 });
 

@@ -14,7 +14,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -223,8 +223,9 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(recipes).toEqual(["first-person", "loading-screen"]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
-    const packed = Bun.spawnSync(["tar", "-tzf", tarball], {
-        cwd: scratch,
+    // By file name from its directory: GNU tar, which Git Bash puts first on Windows, reads `C:` as a host.
+    const packed = Bun.spawnSync(["tar", "-tzf", basename(tarball)], {
+        cwd: dirname(tarball),
         stdout: "pipe",
         stderr: "pipe",
     });

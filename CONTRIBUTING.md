@@ -165,7 +165,7 @@ bun run format                   # biome
 ## Verification
 
 - Module promises are tested beside their owners and through public examples; test names state claims.
-- [Tier ceilings](scripts/test-tiers.ts) are hang and runaway backstops, not performance targets; a test sits far below its ceiling, and work needing more splits or moves to a heavier tier.
+- [Tier ceilings](scripts/test-tiers.ts) are hang and runaway backstops, not performance targets. A test runs under half its ceiling on every CI host, and CI warns on one that passes half; work needing more splits or moves to a heavier tier.
 
 | Tier | Files / budget |
 |---|---|
@@ -176,7 +176,7 @@ bun run format                   # biome
 | Build/startup | `CEILING.startup` |
 | Manual oracle | `*.oracle.ts`; unbounded, run by path |
 
-- GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.node` from `scripts/test-tiers.ts`; bounded GPU waits fit that ceiling.
+- GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.node` from `scripts/test-tiers.ts`. A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the ceiling catches a hang.
 - `bun run test` discovers cheap and GPU files with the cheap default; bare `bun test` uses Bun's default; Node and oracle files run explicitly.
 - Root `bunfig.toml` supplies the TypeGPU transform, as project preloads do.
 - A missing tier premise fails, never skips.
@@ -235,8 +235,9 @@ bun run format                   # biome
 
 ### CI coverage
 
-- [CI](.github/workflows/test.yml) owns host and tier commands.
-- Display-bound allocation stays manual, and CI does not qualify Windows or native packaging.
+- [CI](.github/workflows/test.yml) owns host and tier commands, and judges operating-system compatibility on the hosts each tier runs on; a local run does not.
+- Hardware claims on a real adapter, display-bound allocation and native packaging stay outside CI.
+- On Windows, Dawn loads only in a host named `node.exe` ([dawn-host.ts](src/engine/runtime/dawn-host.ts)), so CI runs Bun there from a copy with that name.
 
 ## Code
 

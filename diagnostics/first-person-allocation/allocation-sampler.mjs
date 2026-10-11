@@ -5,8 +5,8 @@
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
 // its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces;
-// writes window markers into this isolate's trace file and one JSON sample on stdout.
-import { openSync, readdirSync, readFileSync, realpathSync, writeSync } from "node:fs";
+// writes window markers into this isolate's trace file and one JSON sample to allocation-result.json in its working directory.
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
 import { dirname, relative, resolve } from "node:path";
@@ -152,6 +152,35 @@ export function measuredTrace() {
     return resolve(files[0]);
 }
 
+/**
+ * Window markers V8 itself writes into this isolate's code-trace file, in order with its own traces:
+ * each is a function named for its window that V8 compiles on call. The sampler never opens that file,
+ * because V8 reopens it for every trace scope (src/diagnostics/code-tracer.h) with `_wfopen_s` on
+ * Windows (src/base/platform/platform-win32.cc), whose files are not sharable: any handle the sampler
+ * held would fail V8's next reopen. Returns `{ begin, end }` for a label, created outside its window;
+ * only the never-optimized `compile` runs inside it. Needs --allow-natives-syntax.
+ */
+export function traceMarks() {
+    const compile = new Function(
+        "fn",
+        "%PrepareFunctionForOptimization(fn); fn(); fn(); %OptimizeFunctionOnNextCall(fn); fn();",
+    );
+    new Function("fn", "%NeverOptimizeFunction(fn)")(compile);
+    const named = (kind, label) =>
+        new Function(
+            `return function SHALLOT_SAMPLE_${kind}_${Buffer.from(label).toString("hex")}() { return 1; }`,
+        )();
+    return (label) => {
+        const begin = named("BEGIN", label);
+        const end = named("END", label);
+        // Bound functions run no JavaScript of their own, so nothing but the marker compiles.
+        return { begin: compile.bind(null, begin), end: compile.bind(null, end) };
+    };
+}
+
+/** The result file the sampler writes in its working directory. */
+export const SAMPLE_RESULT = "allocation-result.json";
+
 async function main() {
     const [bundle, warmArg, framesArg, inputFile, mode] = process.argv.slice(2);
     const warm = Number(warmArg);
@@ -203,23 +232,20 @@ async function main() {
                 includeObjectsCollectedByMajorGC: true,
                 includeObjectsCollectedByMinorGC: true,
             });
-            // These synchronous markers share this isolate's trace file and bracket the profiled run,
-            // excluding inspector and attribution work, just as the heap attribution does. V8 appends
-            // each trace as it happens, and so do these, so they interleave in order.
-            mark(`SHALLOT_SAMPLE_BEGIN ${JSON.stringify(label)}\n`);
+            // V8 writes these markers into this isolate's trace file as it writes its other traces, so
+            // they bracket the profiled run in order, excluding inspector and attribution work, just as
+            // the heap attribution does.
+            const window = mark(label);
+            window.begin();
             const running = run(n);
             if (running && typeof running.then === "function") await running;
-            mark("SHALLOT_SAMPLE_END\n");
+            window.end();
             const { profile } = await session.post("HeapProfiler.stopSampling");
             return sites(profile);
         }
 
-        // Warm marker writes separately so their first compiles do not land in subject runs. A
-        // descriptor, not appendFileSync, whose path handling tiers up late inside windows.
-        const trace = measuredTrace();
-        const traceFd = openSync(trace, "a");
-        const mark = (text) => writeSync(traceFd, text);
-        for (let i = 0; i < 10000; i++) mark("");
+        measuredTrace();
+        const mark = traceMarks();
 
         const { default: create, control } = await import(bundleUrl);
         if (typeof control !== "function")
@@ -355,7 +381,10 @@ async function main() {
         // empty site set is not a dead probe. It runs last, so it never reaches the windows' code.
         const controlSites = await sample(controls, frames, "control");
 
-        process.stdout.write(
+        // A file, not stdout: V8 prints some optimization traces to stdout through its own buffered
+        // stream, which on Windows can interleave inside this process's writes to the same pipe.
+        writeFileSync(
+            SAMPLE_RESULT,
             `${JSON.stringify({
                 runtime: `node ${process.version} ${process.execArgv.join(" ")}`,
                 warm,

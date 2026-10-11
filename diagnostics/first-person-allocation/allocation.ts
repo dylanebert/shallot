@@ -1,6 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { SAMPLE_RESULT } from "./allocation-sampler.mjs";
 
 export interface AllocationFrame {
     functionName: string;
@@ -267,13 +268,15 @@ async function runBuiltSampler(
                 env: { ...process.env, SHALLOT_PROJECT_ROOT: process.cwd() },
             },
         );
-        const [stdout, stderr, code] = await Promise.all([
+        const [, stderr, code] = await Promise.all([
             new Response(proc.stdout).text(),
             new Response(proc.stderr).text(),
             proc.exited,
         ]);
         if (code !== 0) throw new Error(`allocation sampler exited ${code}: ${stderr.trim()}`);
-        return tracedSample(`${measuredIsolateTrace(dir)}\n${stdout}`, { retainOptimizedSites });
+        return tracedSample(`${measuredIsolateTrace(dir)}\n${readFileSync(join(dir, SAMPLE_RESULT), "utf8")}`, {
+            retainOptimizedSites,
+        });
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
@@ -284,7 +287,7 @@ export function measuredIsolateTrace(dir: string): string {
     const marked = readdirSync(dir)
         .filter((file) => /^code-\d+-\d+\.asm$/.test(file))
         .map((file) => readFileSync(join(dir, file), "utf8"))
-        .filter((text) => text.includes("SHALLOT_SAMPLE_BEGIN "));
+        .filter((text) => text.includes("<JSFunction SHALLOT_SAMPLE_BEGIN_"));
     if (marked.length !== 1)
         throw new Error(`expected one marked isolate trace, found ${marked.length}`);
     return marked[0];
@@ -300,13 +303,20 @@ export function tracedSample(
     let label: string | undefined;
     let json: string | undefined;
     for (const line of stdout.split("\n")) {
-        if (line.startsWith("SHALLOT_SAMPLE_BEGIN ")) {
-            if (label !== undefined) throw new Error("nested allocation trace marker");
-            label = JSON.parse(line.slice("SHALLOT_SAMPLE_BEGIN ".length)) as string;
-            marked.add(label);
-        } else if (line === "SHALLOT_SAMPLE_END") {
-            if (label === undefined) throw new Error("unpaired allocation trace marker");
-            label = undefined;
+        // The sampler's markers are functions V8 compiles, named SHALLOT_SAMPLE_<BEGIN|END>_<label hex>;
+        // each logs a compiling and a completed line, and the completed one moves the window.
+        const marker = /<JSFunction SHALLOT_SAMPLE_(BEGIN|END|\w+?)_([0-9a-f]*) \(sfi =/.exec(line);
+        if (marker) {
+            if (!line.startsWith("[completed compiling ")) continue;
+            const named = Buffer.from(marker[2], "hex").toString();
+            if (marker[1] === "BEGIN") {
+                if (label !== undefined) throw new Error("nested allocation trace marker");
+                label = named;
+                marked.add(label);
+            } else if (marker[1] === "END") {
+                if (label !== named) throw new Error(`unpaired allocation trace marker: ${named}`);
+                label = undefined;
+            }
         } else if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
             const match = /<JSFunction(.*?) \(sfi =/.exec(line);
             if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
@@ -317,7 +327,8 @@ export function tracedSample(
             json = line;
         }
     }
-    if (label !== undefined || json === undefined) throw new Error("incomplete allocation trace");
+    if (label !== undefined) throw new Error(`incomplete allocation trace: window ${JSON.stringify(label)} has no end marker`);
+    if (json === undefined) throw new Error("incomplete allocation trace: no sampler result line");
     const sample = JSON.parse(json) as TransitionSample;
     for (const window of sample.windows) {
         if (!marked.has(window.label)) throw new Error(`missing allocation trace markers: ${window.label}`);

@@ -5,6 +5,15 @@ import { dirname, resolve } from "node:path";
 
 export type ViteCommand = "dev" | "build" | "preview";
 
+/**
+ * The directory Vite runs in, with Windows 8.3 short names expanded: Vite checks each request against
+ * its serving allow list, and a short-name cwd (`RUNNER~1`, as `os.tmpdir()` returns on Windows) and
+ * the long name a request resolves to fail that check with 403.
+ */
+function viteCwd(projectDir: string): string {
+    return realpathSync.native(resolve(projectDir));
+}
+
 /** Resolve the Vite CLI from this project without allowing a package-manager fetch. */
 export function resolveViteCli(projectDir: string): string {
     const base = realpathSync(resolve(projectDir));
@@ -46,7 +55,7 @@ export function runVite(
         return 1;
     }
     const result = Bun.spawnSync([process.execPath, viteCli, ...viteCliArgs(command, args)], {
-        cwd: projectDir,
+        cwd: viteCwd(projectDir),
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit",
@@ -92,7 +101,7 @@ export async function startViteDev(
     viteCli: string,
 ): Promise<ViteDevProcess> {
     const child = spawn(process.execPath, [viteCli, ...args], {
-        cwd: projectDir,
+        cwd: viteCwd(projectDir),
         stdio: ["inherit", "pipe", "pipe"],
     });
     const output: string[] = [];

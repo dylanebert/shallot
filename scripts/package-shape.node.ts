@@ -15,7 +15,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
@@ -192,7 +192,9 @@ test("a Bun test from the workspace root resolves TypeGPU from the package that 
         expect(existsSync(workspaceTypegpu)).toBe(false);
         const gameTypegpu = join(game, "node_modules/typegpu/package.json");
         expect(existsSync(gameTypegpu)).toBe(true);
-        expect(gameTypegpu).toContain("packages/game/node_modules/typegpu/package.json");
+        expect(gameTypegpu.replaceAll("\\", "/")).toContain(
+            "packages/game/node_modules/typegpu/package.json",
+        );
         writeFileSync(
             join(game, "tests/mono.test.ts"),
             `import { expect, test } from "bun:test";\nimport tgpu from "typegpu";\nimport { checkTgsl } from "@dylanebert/shallot/runtime";\n\ntest("workspace consumer and linked engine share one TypeGPU instance", () => {\n    expect(typeof tgpu.fn).toBe("function");\n    expect(() => checkTgsl()).not.toThrow();\n});\n`,
@@ -237,7 +239,7 @@ test("an out-of-range project TypeGPU fails before either module evaluates", () 
         expect(result.exitCode).not.toBe(0);
         expect(output).toContain("project has TypeGPU 0.13.0 at");
         expect(output).toContain(TYPEGPU_RANGE);
-        expect(output).toContain("node_modules/typegpu/package.json");
+        expect(output.replaceAll("\\", "/")).toContain("node_modules/typegpu/package.json");
         expect(output).not.toContain("TYPEGPU_PROJECT_COPY_EVALUATED");
         expect(output).not.toContain("TEST_MODULE_EVALUATED");
     } finally {
@@ -287,7 +289,12 @@ test("a staged overlay and bun install restore a published project pin", () => {
         expect(Bun.semver.satisfies(pinnedVersion, "^0.9.5")).toBe(true);
         console.log(`staged restore pin: @dylanebert/shallot@${pinnedVersion}`);
 
-        run(["bun", "add", "--no-save", tarball], project, "overlaying the packed Shallot tarball");
+        // A ./-relative tarball path, the same on every host.
+        run(
+            ["bun", "add", "--no-save", `./${relative(project, tarball).replaceAll("\\", "/")}`],
+            project,
+            "overlaying the packed Shallot tarball",
+        );
         expect(installed()).toBe(rootManifest.version);
         expect(readFileSync(join(project, "package.json"), "utf8")).toBe(manifestBefore);
         expect(readFileSync(join(project, "bun.lock"), "utf8")).toBe(lockBefore);

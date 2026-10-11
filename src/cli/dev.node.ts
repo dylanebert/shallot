@@ -255,7 +255,8 @@ test("native dev loads the complete local Vite URL when the project uses a base 
 
 test("shallot dev --port and vite --port serve the same page and project config", async () => {
     const root = resolve(import.meta.dir, "../..");
-    const project = mkdtempSync(join(tmpdir(), "shallot-vite-delegation-"));
+    // Vite run directly, as the comparison, needs the long-name cwd shallot dev gives it (vite-command.ts).
+    const project = realpathSync.native(mkdtempSync(join(tmpdir(), "shallot-vite-delegation-")));
     symlinkSync(join(root, "node_modules"), join(project, "node_modules"), "dir");
     const port = await freePort();
     writeFileSync(join(project, "index.html"), "<!doctype html><title>OWNED PAGE</title>\n");

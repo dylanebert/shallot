@@ -1,4 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { BUN_CHILD, bunCommand } from "../../scripts/bun-child";
 
 import { CEILING } from "../../scripts/test-tiers";
 
@@ -25,15 +26,30 @@ test("web preview belongs to Vite while native preview resolves its native shell
 test("a native debug process receives the Vite URL instead of its packaged asset URL", async () => {
     const project = mkdtempSync(join(tmpdir(), "shallot-native-dev-url-"));
     const name = basename(project);
-    const output = nativeOutDir(project, "linux", false, false);
+    // The host's own target: a Windows host launches an .exe, others a Linux executable script.
+    const windows = process.platform === "win32";
+    const output = nativeOutDir(project, windows ? "windows" : "linux", false, false);
     mkdirSync(output, { recursive: true });
     const observed = join(project, "observed-url.txt");
-    const app = join(output, name);
-    writeFileSync(app, `#!/bin/sh\nprintf '%s' "$SHALLOT_DEV_URL" > '${observed}'\n`);
-    chmodSync(app, 0o755);
+    if (windows) {
+        const source = join(project, "app.ts");
+        writeFileSync(
+            source,
+            `require("node:fs").writeFileSync(${JSON.stringify(observed)}, process.env.SHALLOT_DEV_URL ?? "");\n`,
+        );
+        const compiled = Bun.spawnSync(
+            bunCommand(["build", "--compile", source, "--outfile", join(output, `${name}.exe`)]),
+            { ...BUN_CHILD, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(compiled.exitCode, compiled.stderr.toString()).toBe(0);
+    } else {
+        const app = join(output, name);
+        writeFileSync(app, `#!/bin/sh\nprintf '%s' "$SHALLOT_DEV_URL" > '${observed}'\n`);
+        chmodSync(app, 0o755);
+    }
     try {
         const status = await previewProject(project, {
-            target: "linux",
+            target: windows ? "windows" : "linux",
             devUrl: "http://localhost:5173/",
         });
         expect(status).toBe(0);

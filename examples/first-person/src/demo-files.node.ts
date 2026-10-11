@@ -17,7 +17,9 @@ test("Git ignores first-person build outputs while reporting source and lockfile
     mkdirSync(root);
     mkdirSync(template);
     writeFileSync(globalExcludes, "dist/\n");
-    writeFileSync(globalConfig, `[core]\n\texcludesFile = ${globalExcludes}\n`);
+    // Git config reads backslashes as escapes and reports the path as written, so it is written with /.
+    const excludesPath = globalExcludes.replaceAll("\\", "/");
+    writeFileSync(globalConfig, `[core]\n\texcludesFile = ${excludesPath}\n`);
     const env: NodeJS.ProcessEnv = {
         ...process.env,
         HOME: scratch,
@@ -67,7 +69,7 @@ test("Git ignores first-person build outputs while reporting source and lockfile
         const distDecision = ignored.split("\n").find((line) => line.endsWith("dist/index.js"));
         expect(distDecision).toContain(".gitignore:");
         writeFileSync(join(root, ".gitignore"), ignore.replace(/^dist\/\n/m, ""));
-        expect(git("check-ignore", "-v", "dist/index.js")).toContain(globalExcludes);
+        expect(git("check-ignore", "-v", "dist/index.js")).toContain(excludesPath);
         expect(status).toContain("?? bun.lock");
         expect(status).toContain("?? src/demo.ts");
         expect(status).not.toContain("dist/");

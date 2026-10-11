@@ -14,12 +14,10 @@ test("a worker isolate's optimization inside a window does not refuse it, and th
         const sampler = pathToFileURL(resolve(import.meta.dir, "allocation-sampler.mjs")).href;
         writeFileSync(
             join(dir, "subject.mjs"),
-            `import { openSync, writeSync } from "node:fs";
-import { Worker } from "node:worker_threads";
-import { measuredTrace } from ${JSON.stringify(sampler)};
-const trace = measuredTrace();
-const fd = openSync(trace, "a");
-const mark = (text) => writeSync(fd, text);
+            `import { Worker } from "node:worker_threads";
+import { measuredTrace, traceMarks } from ${JSON.stringify(sampler)};
+measuredTrace();
+const mark = traceMarks();
 // The worker boots before the window and heats \`now\` inside it while this thread blocks, so the
 // window's only optimization is the worker's.
 const flag = new Int32Array(new SharedArrayBuffer(8));
@@ -31,20 +29,20 @@ for (let i = 0; i < 100000; i++) now();
 Atomics.store(flag, 1, 1);
 Atomics.notify(flag, 1);\`, { eval: true, workerData: flag });
 await new Promise((done) => worker.once("message", done));
-for (let i = 0; i < 1000; i++) mark("");
 const windows = ["after warm 120", "after warm 240", "A/A repeat"];
-mark(\`SHALLOT_SAMPLE_BEGIN \${JSON.stringify(windows[0])}\\n\`);
+const marks = windows.map(mark);
+marks[0].begin();
 Atomics.store(flag, 0, 1);
 Atomics.notify(flag, 0);
 Atomics.wait(flag, 1, 0);
-mark("SHALLOT_SAMPLE_END\\n");
+marks[0].end();
 await new Promise((done) => worker.on("exit", done));
-mark(\`SHALLOT_SAMPLE_BEGIN \${JSON.stringify(windows[1])}\\n\`);
+marks[1].begin();
 function late() { let s = 0; for (let i = 0; i < 100; i++) s += i; return s; }
 for (let i = 0; i < 100000; i++) late();
-mark("SHALLOT_SAMPLE_END\\n");
-mark(\`SHALLOT_SAMPLE_BEGIN \${JSON.stringify(windows[2])}\\n\`);
-mark("SHALLOT_SAMPLE_END\\n");
+marks[1].end();
+marks[2].begin();
+marks[2].end();
 console.log(JSON.stringify({ runtime: "isolates", warm: 120, frames: 120, control: [],
     windows: windows.map((label) => ({ label, sites: [], frames: 120, framesAtMost: 120 })) }));
 `,

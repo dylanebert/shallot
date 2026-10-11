@@ -114,16 +114,24 @@ test("optimization traces refuse even a zero-byte window, including anonymous OS
         { label: "after warm 240", sites: [], frames: 120, framesAtMost: 120 },
         { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
     ] };
+    // V8's own records of the sampler's marker compiles (allocation-sampler.mjs traceMarks).
+    const marker = (kind: "BEGIN" | "END", label: string) => {
+        const fn = `<JSFunction SHALLOT_SAMPLE_${kind}_${Buffer.from(label).toString("hex")} (sfi = 0x9)>`;
+        return [
+            `[compiling method 0x8 ${fn} (target TURBOFAN_JS), mode: ConcurrencyMode::kSynchronous]`,
+            `[completed compiling 0x8 ${fn} (target TURBOFAN_JS) - took 0.000, 0.029, 0.001 ms]`,
+        ];
+    };
     const lines = [
-        'SHALLOT_SAMPLE_BEGIN "after warm 120"',
+        ...marker("BEGIN", "after warm 120"),
         '[compiling method 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV), mode: ConcurrencyMode::kSynchronous]',
         '[completed compiling 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV)]',
         '[compiling method 0x1 <JSFunction (sfi = 0x3)> (target TURBOFAN_JS) OSR, mode: ConcurrencyMode::kSynchronous]',
-        'SHALLOT_SAMPLE_END',
-        'SHALLOT_SAMPLE_BEGIN "after warm 240"',
-        'SHALLOT_SAMPLE_END',
-        'SHALLOT_SAMPLE_BEGIN "A/A repeat"',
-        'SHALLOT_SAMPLE_END',
+        ...marker("END", "after warm 120"),
+        ...marker("BEGIN", "after warm 240"),
+        ...marker("END", "after warm 240"),
+        ...marker("BEGIN", "A/A repeat"),
+        ...marker("END", "A/A repeat"),
         JSON.stringify(sample),
     ];
     const result = tracedSample(lines.join("\n"));
@@ -131,7 +139,7 @@ test("optimization traces refuse even a zero-byte window, including anonymous OS
     expect(allocatesNothing(result)).toBe(false);
     expect(allocationFailure(result)).toContain("after warm 120; optimized late, (anonymous); no byte reading");
     expect(() => tracedSample(JSON.stringify(sample))).toThrow("missing allocation trace markers");
-    expect(() => tracedSample('SHALLOT_SAMPLE_BEGIN "A/A repeat"')).toThrow("incomplete allocation trace");
+    expect(() => tracedSample(marker("BEGIN", "A/A repeat").join("\n"))).toThrow('incomplete allocation trace: window "A/A repeat" has no end marker');
 });
 
 const steadySample = (sites: AllocationSample["windows"][number]["sites"]) => ({
