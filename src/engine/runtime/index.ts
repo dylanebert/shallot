@@ -4,6 +4,7 @@ export * from "./adapter";
 export {
     beginComputePass,
     beginRenderPass,
+    continueSubmissionFence,
     createFrameEncoder,
     dispatchWorkgroups,
     dispatchWorkgroups2,

@@ -18,6 +18,14 @@ export function submissionFence(queue: GPUQueue): Promise<void> {
     return queue.onSubmittedWorkDone();
 }
 
+export function continueSubmissionFence(
+    fence: Promise<void>,
+    complete: () => void,
+    settle: () => void,
+): void {
+    fence.then(complete, settle);
+}
+
 export function beginRenderPass(encoder: GPUCommandEncoder, descriptor: GPURenderPassDescriptor) {
     return encoder.beginRenderPass(descriptor);
 }
@@ -122,68 +130,73 @@ export const gpuAllocationExpressions = [
         expression: "queue.onSubmittedWorkDone()",
     },
     {
+        fn: continueSubmissionFence,
+        site: "src/engine/runtime/allocation-site.ts:26:5",
+        expression: "fence.then(complete, settle)",
+    },
+    {
         fn: beginRenderPass,
-        site: "src/engine/runtime/allocation-site.ts:22:12",
+        site: "src/engine/runtime/allocation-site.ts:30:12",
         expression: "encoder.beginRenderPass(descriptor)",
     },
     {
         fn: beginComputePass,
-        site: "src/engine/runtime/allocation-site.ts:26:12",
+        site: "src/engine/runtime/allocation-site.ts:34:12",
         expression: "encoder.beginComputePass(descriptor)",
     },
     {
         fn: setComputePipeline,
-        site: "src/engine/runtime/allocation-site.ts:33:5",
+        site: "src/engine/runtime/allocation-site.ts:41:5",
         expression: "pass.setPipeline(pipeline)",
     },
     {
         fn: setComputeBindGroup,
-        site: "src/engine/runtime/allocation-site.ts:41:5",
+        site: "src/engine/runtime/allocation-site.ts:49:5",
         expression: "pass.setBindGroup(index, group)",
     },
     {
         fn: executeRenderBundles,
-        site: "src/engine/runtime/allocation-site.ts:48:5",
+        site: "src/engine/runtime/allocation-site.ts:56:5",
         expression: "pass.executeBundles(bundles)",
     },
     {
         fn: dispatchWorkgroups,
-        site: "src/engine/runtime/allocation-site.ts:52:5",
+        site: "src/engine/runtime/allocation-site.ts:60:5",
         expression: "pass.dispatchWorkgroups(x)",
     },
     {
         fn: dispatchWorkgroups2,
-        site: "src/engine/runtime/allocation-site.ts:56:5",
+        site: "src/engine/runtime/allocation-site.ts:64:5",
         expression: "pass.dispatchWorkgroups(x, y)",
     },
     {
         fn: setIndexBuffer,
-        site: "src/engine/runtime/allocation-site.ts:64:5",
+        site: "src/engine/runtime/allocation-site.ts:72:5",
         expression: "pass.setIndexBuffer(buffer, format)",
     },
     {
         fn: setViewport,
-        site: "src/engine/runtime/allocation-site.ts:76:5",
+        site: "src/engine/runtime/allocation-site.ts:84:5",
         expression: "pass.setViewport(x, y, width, height, minDepth, maxDepth)",
     },
     {
         fn: drawIndexedIndirect,
-        site: "src/engine/runtime/allocation-site.ts:84:5",
+        site: "src/engine/runtime/allocation-site.ts:92:5",
         expression: "pass.drawIndexedIndirect(buffer, offset)",
     },
     {
         fn: setRenderPipeline,
-        site: "src/engine/runtime/allocation-site.ts:88:5",
+        site: "src/engine/runtime/allocation-site.ts:96:5",
         expression: "pass.setPipeline(pipeline)",
     },
     {
         fn: setRenderBindGroup,
-        site: "src/engine/runtime/allocation-site.ts:96:5",
+        site: "src/engine/runtime/allocation-site.ts:104:5",
         expression: "pass.setBindGroup(index, group)",
     },
     {
         fn: draw,
-        site: "src/engine/runtime/allocation-site.ts:100:5",
+        site: "src/engine/runtime/allocation-site.ts:108:5",
         expression: "pass.draw(vertexCount)",
     },
 ] as const;

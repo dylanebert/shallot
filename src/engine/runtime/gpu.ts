@@ -2,7 +2,7 @@ import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
 import type { Resource, World } from "../ecs";
 import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
-import { submissionFence } from "./allocation-site";
+import { continueSubmissionFence, submissionFence } from "./allocation-site";
 import { captureGpuLog } from "./log";
 import { now } from "./platform";
 
@@ -1290,6 +1290,7 @@ export async function requestGPU(
     beginArtifactSession(d);
     let inFlight = 0;
     const fences = { issued: 0, completed: 0 };
+    // Both reactions close over this World and are reused by every frame fence.
     const settle = (): void => {
         inFlight--;
     };
@@ -1302,7 +1303,7 @@ export async function requestGPU(
         inFlight++;
         fences.issued++;
         const fence = submissionFence(d.queue);
-        fence.then(complete, settle);
+        continueSubmissionFence(fence, complete, settle);
         return fence;
     }
     let pipelineGuardState: PipelineGuardState | undefined;

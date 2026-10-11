@@ -9,17 +9,17 @@ import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-si
 setDefaultTimeout(CEILING.node);
 
 /**
- * Only an exact WebGPU expression with no application JavaScript beneath its wrapper may admit a
- * sampled allocation. Submission cardinality is asserted separately in frame-encoder.gpu.test.ts.
+ * Only exact WebGPU expressions and the owned submission-fence reaction may admit sampled bytes,
+ * with no application JavaScript beneath their wrappers. Submission counts are tested separately.
  */
-const exactGpuExpressions = new Map(
+const exactAllocationExpressions = new Map(
     gpuAllocationExpressions.map((entry) => [
         entry.site,
         { functionName: entry.fn.name, frameSource: "src/engine/runtime/allocation-site.ts" },
     ]),
 );
 
-function isExactGpuApiSite(row: {
+function isExactAllocationSite(row: {
     expression?: string;
     stack?: readonly {
         functionName: string;
@@ -29,7 +29,7 @@ function isExactGpuApiSite(row: {
     }[];
 }): boolean {
     if (!row.expression || !row.stack) return false;
-    const expected = exactGpuExpressions.get(row.expression);
+    const expected = exactAllocationExpressions.get(row.expression);
     if (!expected) return false;
     let topJavaScript = -1;
     for (let i = row.stack.length - 1; i >= 0; i--) {
@@ -49,7 +49,7 @@ function isExactGpuApiSite(row: {
     );
 }
 
-test("GPU exceptions require exact API expressions, not their containing functions", () => {
+test("allocation exceptions require exact call expressions, not containing functions", () => {
     const source = readFileSync(
         resolve(import.meta.dir, "../../src/engine/runtime/allocation-site.ts"),
         "utf8",
@@ -63,7 +63,7 @@ test("GPU exceptions require exact API expressions, not their containing functio
     }
     const encoder = gpuAllocationExpressions[0]!;
     expect(
-        isExactGpuApiSite({
+        isExactAllocationSite({
             expression: encoder.site,
             stack: [
                 {
@@ -82,7 +82,7 @@ test("GPU exceptions require exact API expressions, not their containing functio
         }),
     ).toBe(true);
     expect(
-        isExactGpuApiSite({
+        isExactAllocationSite({
             expression: encoder.site,
             stack: [
                 {
@@ -94,7 +94,7 @@ test("GPU exceptions require exact API expressions, not their containing functio
         }),
     ).toBe(false);
     expect(
-        isExactGpuApiSite({
+        isExactAllocationSite({
             expression: encoder.site,
             stack: [
                 {
@@ -114,7 +114,7 @@ test("GPU exceptions require exact API expressions, not their containing functio
     ).toBe(false);
 });
 
-test("the WebGPU allocation exception leaves ordinary renderer sites red", () => {
+test("exact allocation exceptions leave ordinary renderer sites red", () => {
     const sample = {
         warm: 120,
         windows: [
@@ -134,11 +134,11 @@ test("the WebGPU allocation exception leaves ordinary renderer sites red", () =>
             { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
         ],
     };
-    expect(isExactGpuApiSite(sample.windows[0]!.sites[0]!)).toBe(false);
+    expect(isExactAllocationSite(sample.windows[0]!.sites[0]!)).toBe(false);
     expect(allocationFailure(sample)).toContain("queueTransparent src/standard/rendering/forward.ts:867");
 });
 
-test("rendering allocates no JavaScript heap beyond exact WebGPU API sites", async () => {
+test("rendering allocates no JavaScript heap beyond exact GPU and fence expressions", async () => {
     const sample = await sampleAllocation(resolve(import.meta.dir, "render.entry.ts"), {
         warm: 6000,
         frames: 600,
@@ -148,7 +148,7 @@ test("rendering allocates no JavaScript heap beyond exact WebGPU API sites", asy
         ...sample,
         windows: sample.windows.map((window) => ({
             ...window,
-            sites: window.sites.filter((row) => !isExactGpuApiSite(row)),
+            sites: window.sites.filter((row) => !isExactAllocationSite(row)),
         })),
     });
     if (failure) throw new Error(failure);
