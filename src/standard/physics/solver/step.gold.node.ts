@@ -1,3 +1,4 @@
+import { BUN_CHILD, bunCommand } from "../../../../scripts/bun-child";
 import { readContactManifolds } from "../collision/manifoldstore";
 // Active scene parity runs the immutable official command/bundle corpus. The historical 53 scene
 // fixtures remain under fixtures/ as migration evidence, but their predecessor hashes are not the
@@ -199,14 +200,14 @@ if (pooled) {
 } else {
     test("the Box3D corpus passes on a live pool in its own process", async () => {
         const child = Bun.spawn(
-            [
-                process.execPath,
+            bunCommand([
                 "test",
                 "--preload",
                 `${import.meta.dir}/step.pool.ts`,
                 import.meta.filename,
-            ],
+            ]),
             {
+                ...BUN_CHILD,
                 env: { ...process.env, PHYSICS_CORPUS_POOL: "1" },
                 stdout: "inherit",
                 stderr: "inherit",
