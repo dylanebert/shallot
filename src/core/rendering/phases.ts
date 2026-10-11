@@ -65,6 +65,9 @@ export class TransparentPhase {
     private _z2 = 1;
     private _z3 = 0;
 
+    /** @internal Enable clock reads for the explicit rendering oracle, not ordinary frames. */
+    measureTimings = false;
+
     readonly metrics = {
         items: 0,
         batches: 0,
@@ -172,7 +175,7 @@ export class TransparentPhase {
 
     /** Stable bottom-up merge sort by view Z, renderer namespace, stable id and stable part. */
     sort(): void {
-        const started = performance.now();
+        const started = this.measureTimings ? performance.now() : 0;
         const count = this._countValue;
         for (let width = 1; width < count; width *= 2) {
             for (let left = 0; left < count; left += width * 2) {
@@ -208,7 +211,7 @@ export class TransparentPhase {
             this._items = this._scratch;
             this._scratch = previous;
         }
-        this.metrics.sortMs += performance.now() - started;
+        if (this.measureTimings) this.metrics.sortMs += performance.now() - started;
     }
 
     /** @internal Record CPU time and bytes passed through World's ordered upload path. */
@@ -304,17 +307,17 @@ function recordMainPass(this: World, view: View, eid: number): void {
     let phase = phases.get(eid);
     if (!phase) phases.set(eid, (phase = new TransparentPhase()));
     phase.begin(this, eid, view);
-    let started = performance.now();
+    let started = phase.measureTimings ? performance.now() : 0;
     for (let renderer = 0; renderer < renderers.length; renderer++) {
         phase.useRenderer(renderer);
         renderers[renderer].transparent?.(this, eid, view, phase);
     }
-    phase.metrics.keyMs = performance.now() - started;
+    if (phase.measureTimings) phase.metrics.keyMs = performance.now() - started;
     phase.sort();
-    started = performance.now();
+    started = phase.measureTimings ? performance.now() : 0;
     for (let renderer = 0; renderer < renderers.length; renderer++)
         renderers[renderer].prepareTransparent?.(this, eid, view, phase, renderer);
-    phase.metrics.prepareMs = performance.now() - started;
+    if (phase.measureTimings) phase.metrics.prepareMs = performance.now() - started;
 
     const encoder = this.frameEncoder()!;
     const targets = colorTargets(
@@ -327,7 +330,7 @@ function recordMainPass(this: World, view: View, eid: number): void {
     const pass = encoder.beginRenderPass(colorPassDescriptor(this, eid, targets, view.framebuffer));
     for (let i = 0; i < renderers.length; i++) renderers[i].opaque?.(this, eid, view, pass);
     let index = 0;
-    started = performance.now();
+    started = phase.measureTimings ? performance.now() : 0;
     while (index < phase.length) {
         const item = phase.item(index);
         let end = index + 1;
@@ -346,7 +349,7 @@ function recordMainPass(this: World, view: View, eid: number): void {
         index = end;
     }
     pass.end();
-    phase.metrics.drawMs = performance.now() - started;
+    if (phase.measureTimings) phase.metrics.drawMs = performance.now() - started;
 }
 
 export const PrepassSystem: System = {

@@ -1067,21 +1067,27 @@ function prepareTransparent(
     if (eidCount) {
         const bytes = eidCount * EIDS_BYTES;
         const offset = eidsBase * EIDS_BYTES;
-        const started = performance.now();
+        const started = phase.measureTimings ? performance.now() : 0;
         world.uploadGpuTable(
             world.gpu.root.unwrap(eids),
             offset,
             state.transparentEidsStage,
             bytes,
         );
-        phase.recordUpload(bytes, performance.now() - started);
+        phase.recordUpload(
+            bytes,
+            phase.measureTimings ? performance.now() - started : 0,
+        );
     }
     if (runCount) {
         const bytes = runCount * INDIRECT_BYTES;
         const offset = argsBase * INDIRECT_BYTES;
-        const started = performance.now();
+        const started = phase.measureTimings ? performance.now() : 0;
         world.uploadGpuTable(args, offset, state.transparentArgsStage, bytes);
-        phase.recordUpload(bytes, performance.now() - started);
+        phase.recordUpload(
+            bytes,
+            phase.measureTimings ? performance.now() - started : 0,
+        );
     }
 }
 

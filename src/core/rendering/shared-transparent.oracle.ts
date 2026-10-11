@@ -185,6 +185,7 @@ async function measure(device: GPUDevice, viewCount: number, workload: Workload)
                 `standard MeshInstance storage has ${standardMeshInstanceRows} rows for ${itemCount} active items`,
             );
 
+        for (const eid of cameras) world.resource(TransparentPhases).get(eid)!.measureTimings = true;
         const samples: ViewMetrics[][] = [];
         const wholeFrameMs: number[] = [];
         for (let frame = 0; frame < MEASURED_FRAMES; frame++) {
@@ -193,6 +194,7 @@ async function measure(device: GPUDevice, viewCount: number, workload: Workload)
             wholeFrameMs.push(performance.now() - started);
             samples.push(metrics(world, cameras).perView);
         }
+        for (const eid of cameras) world.resource(TransparentPhases).get(eid)!.measureTimings = false;
         await device.queue.onSubmittedWorkDone();
 
         const perView: Record<string, unknown>[] = [];
