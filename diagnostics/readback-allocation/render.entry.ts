@@ -3,9 +3,20 @@ import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
 import {
+    dispatchWorkgroups,
+    dispatchWorkgroups2,
+    draw,
+    drawIndexedIndirect,
     endComputePass,
     endRenderPass,
+    executeRenderBundles,
     gpuAllocationExpressions,
+    setComputeBindGroup,
+    setComputePipeline,
+    setIndexBuffer,
+    setRenderBindGroup,
+    setRenderPipeline,
+    setViewport,
 } from "../../src/engine/runtime/allocation-site";
 
 
@@ -46,7 +57,22 @@ export default async function create(_input = "", device?: GPUDevice) {
     return {
         world,
         allocationExpressions: gpuAllocationExpressions,
-        allocationFunctions: [world.gpu.sync, endComputePass, endRenderPass],
+        allocationFunctions: [
+            world.gpu.sync,
+            endComputePass,
+            endRenderPass,
+            setComputePipeline,
+            setComputeBindGroup,
+            executeRenderBundles,
+            dispatchWorkgroups,
+            dispatchWorkgroups2,
+            setIndexBuffer,
+            setViewport,
+            drawIndexedIndirect,
+            setRenderPipeline,
+            setRenderBindGroup,
+            draw,
+        ],
         step: () => { if (validation) throw validation; world.step(1 / 60); },
         wait: async () => {
             await Promise.race([world.gpu.device.queue.onSubmittedWorkDone(), failed, lost]);

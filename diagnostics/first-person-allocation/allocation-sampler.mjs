@@ -15,12 +15,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 /**
  * A profile frame's original source and zero-based line through `map`, a `node:module` SourceMap whose
  * relative sources resolve from `base`; undefined where the map has no entry.
- * @param {{ lineNumber: number, columnNumber: number }} frame
+ * @param {{ lineNumber: number, columnNumber?: number }} frame
  * @param {import("node:module").SourceMap | undefined} map
  * @param {string} base
  * @returns {{ source: string, line: number, column: number } | undefined}
  */
 export function originalPosition(frame, map, base) {
+    if (!Number.isInteger(frame.columnNumber)) return undefined;
     const entry = map?.findEntry(frame.lineNumber, frame.columnNumber);
     if (entry === undefined || !("originalSource" in entry)) return undefined;
     const source = entry.originalSource.startsWith("file://")
@@ -32,7 +33,7 @@ export function originalPosition(frame, map, base) {
 /**
  * A frame's exact source position, including its column, or `fallback` and its generated position where
  * the map has no entry.
- * @param {{ functionName: string, lineNumber: number, columnNumber: number }} frame
+ * @param {{ functionName: string, lineNumber: number, columnNumber?: number }} frame
  * @param {import("node:module").SourceMap | undefined} map
  * @param {string} base
  * @param {string} fallback
@@ -43,12 +44,12 @@ export function subjectSite(frame, map, base, fallback, root = process.cwd()) {
     const name = frame.functionName || "(anonymous)";
     const at = originalPosition(frame, map, base);
     return at === undefined
-        ? `${name} ${fallback}:${frame.lineNumber + 1}:${frame.columnNumber + 1}`
+        ? `${name} ${fallback}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`
         : `${name} ${relative(root.replace(/^\/private/, ""), at.source.replace(/^\/private/, ""))}:${at.line + 1}:${at.column + 1}`;
 }
 
 /**
- * @typedef {{ functionName: string, url: string, scriptId: string, lineNumber: number, columnNumber: number }} CallFrame
+ * @typedef {{ functionName: string, url: string, scriptId: string, lineNumber: number, columnNumber?: number }} CallFrame
  * @typedef {{ id: number, callFrame: CallFrame, children: ProfileNode[] }} ProfileNode
  */
 
@@ -58,7 +59,7 @@ export function subjectSite(frame, map, base, fallback, root = process.cwd()) {
  * @param {{ head: ProfileNode, samples: { nodeId: number, size: number }[] }} profile
  * @param {(frame: CallFrame) => string | undefined} runSite names a run frame, else undefined
  * @param {(frame: CallFrame) => string | undefined} siteOf names a source-mapped frame, else undefined
- * @param {{ functionName: string, frameSource: string, expressionSite: string, expression: string }[]} expressions
+ * @param {{ functionName: string, expressionSite: string, expression: string }[]} expressions
  * @returns {{ site: string, bytes: number, count: number, stack: { functionName: string, site: string, native: boolean, expression?: string }[], expression?: string }[]} most bytes first
  */
 export function attribute(profile, runSite, siteOf, expressions = []) {
@@ -83,7 +84,7 @@ export function attribute(profile, runSite, siteOf, expressions = []) {
                 functionName: frame.functionName || "(anonymous)",
                 site: native
                     ? `${frame.functionName || "(native)"} <native>`
-                    : siteOf(frame) ?? `${frame.functionName || "(anonymous)"} ${frame.url}:${frame.lineNumber + 1}:${frame.columnNumber + 1}`,
+                    : siteOf(frame) ?? `${frame.functionName || "(anonymous)"} ${frame.url}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`,
                 native,
             };
         });
@@ -95,9 +96,12 @@ export function attribute(profile, runSite, siteOf, expressions = []) {
             }
         }
         const top = stack[topJavaScript];
+        const topFrame = path[runIndex + 1 + topJavaScript];
         const candidate = top && expressionByFunction.get(top.functionName);
         const expression =
-            candidate && top.site.startsWith(`${candidate.functionName} ${candidate.frameSource}:`)
+            candidate &&
+            Number.isInteger(topFrame?.columnNumber) &&
+            top.site === `${candidate.functionName} ${candidate.expressionSite}`
                 ? candidate
                 : undefined;
         if (expression && topJavaScript >= 0) stack[topJavaScript].expression = expression.expressionSite;
@@ -213,7 +217,6 @@ async function main() {
         subject = await create(readFileSync(inputFile, "utf8"));
         expressions = (subject.allocationExpressions ?? []).map((entry) => ({
             functionName: entry.fn.name,
-            frameSource: "src/engine/runtime/allocation-site.ts",
             expressionSite: entry.site,
             expression: entry.expression,
         }));

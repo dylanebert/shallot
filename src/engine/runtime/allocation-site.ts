@@ -153,61 +153,6 @@ export const gpuAllocationExpressions = [
         expression: "encoder.beginComputePass(descriptor)",
     },
     {
-        fn: setComputePipeline,
-        site: "src/engine/runtime/allocation-site.ts:41:5",
-        expression: "pass.setPipeline(pipeline)",
-    },
-    {
-        fn: setComputeBindGroup,
-        site: "src/engine/runtime/allocation-site.ts:49:5",
-        expression: "pass.setBindGroup(index, group)",
-    },
-    {
-        fn: executeRenderBundles,
-        site: "src/engine/runtime/allocation-site.ts:56:5",
-        expression: "pass.executeBundles(bundles)",
-    },
-    {
-        fn: dispatchWorkgroups,
-        site: "src/engine/runtime/allocation-site.ts:60:5",
-        expression: "pass.dispatchWorkgroups(x)",
-    },
-    {
-        fn: dispatchWorkgroups2,
-        site: "src/engine/runtime/allocation-site.ts:64:5",
-        expression: "pass.dispatchWorkgroups(x, y)",
-    },
-    {
-        fn: setIndexBuffer,
-        site: "src/engine/runtime/allocation-site.ts:72:5",
-        expression: "pass.setIndexBuffer(buffer, format)",
-    },
-    {
-        fn: setViewport,
-        site: "src/engine/runtime/allocation-site.ts:84:5",
-        expression: "pass.setViewport(x, y, width, height, minDepth, maxDepth)",
-    },
-    {
-        fn: drawIndexedIndirect,
-        site: "src/engine/runtime/allocation-site.ts:92:5",
-        expression: "pass.drawIndexedIndirect(buffer, offset)",
-    },
-    {
-        fn: setRenderPipeline,
-        site: "src/engine/runtime/allocation-site.ts:96:5",
-        expression: "pass.setPipeline(pipeline)",
-    },
-    {
-        fn: setRenderBindGroup,
-        site: "src/engine/runtime/allocation-site.ts:104:5",
-        expression: "pass.setBindGroup(index, group)",
-    },
-    {
-        fn: draw,
-        site: "src/engine/runtime/allocation-site.ts:108:5",
-        expression: "pass.draw(vertexCount)",
-    },
-    {
         fn: endRenderPass,
         site: "src/engine/runtime/allocation-site.ts:112:5",
         expression: "pass.end()",
