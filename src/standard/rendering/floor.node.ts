@@ -7,7 +7,7 @@ import {
     createTestGpuApp,
     expectAdapterNotice,
 } from "../../../scripts/gpu.fixture";
-import { expectError, expectWarning } from "../../../scripts/test-console";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
@@ -205,11 +205,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         requiredFeatures: [...requiredFeatures],
     });
     const classification = stampAdapter(adapter);
-    if (classification.class !== "real") {
-        expectWarning(
-            /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
-        );
-    }
+    expectAdapterNotice(classification);
     console.log("layout adapter", adapter.info, "classification", classification);
     console.log("layout device features", [...device.features]);
     console.log(

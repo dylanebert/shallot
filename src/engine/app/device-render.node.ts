@@ -10,8 +10,8 @@ import {
 } from "../../standard/rendering";
 import "../../standard";
 
-import { createTestGpuApp } from "../../../scripts/gpu.fixture";
-import { expectError, expectWarning } from "../../../scripts/test-console";
+import { createTestGpuApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Transform } from "../../core/transform";
 import { stampAdapter, Time, type World } from "../index";
@@ -56,11 +56,7 @@ for (const sharedDevice of [true, false]) {
             const adapter = await navigator.gpu.requestAdapter();
             if (!adapter) throw new Error("Dawn adapter unavailable");
             const verdict = stampAdapter(adapter);
-            if (verdict.class !== "real") {
-                expectWarning(
-                    /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
-                );
-            }
+            expectAdapterNotice(verdict);
             console.info("default renderer adapter:", verdict);
             const requiredLimits: Record<string, number> = {};
             for (const limit of [
