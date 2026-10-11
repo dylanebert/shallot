@@ -917,7 +917,7 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
         const z = placement.translation.z.get(instanceEid) + lz + qw * tz + qx * ty - qy * tx;
         const worldRadius = radius * Math.max(Math.abs(sx), Math.abs(sy), Math.abs(sz));
         if (!sphereVisible(planes, planeBase, x, y, z, worldRadius)) continue;
-        phase.add(instanceEid, pair, x, y, z, instanceEid);
+        phase.addStandard(instanceEid, pair, x, y, z, instanceEid);
     }
 }
 

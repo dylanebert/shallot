@@ -38,6 +38,19 @@ type MutableTransparentItem = {
     batch: number;
 };
 
+function invalidTransparentProducer(): never {
+    throw new Error("TransparentPhase.add must run from a RenderPhases transparent producer");
+}
+function invalidTransparentStableId(stableId: number): never {
+    throw new Error(`TransparentPhase.add received an invalid stable id: ${stableId}`);
+}
+function invalidTransparentStablePart(stablePart: number): never {
+    throw new Error(`TransparentPhase.add received an invalid stable part: ${stablePart}`);
+}
+function invalidTransparentSortKey(sortKey: number): never {
+    throw new Error(`TransparentPhase.add received a non-finite view-space Z: ${sortKey}`);
+}
+
 /** Per-view transparent queue, reused across frames and grown only when capacity is exceeded. */
 export class TransparentPhase {
     private _items: MutableTransparentItem[] = [];
@@ -108,22 +121,39 @@ export class TransparentPhase {
         stableId: number,
         stablePart = 0,
     ): void {
-        if (this._rendererValue < 0)
-            throw new Error(
-                "TransparentPhase.add must run from a RenderPhases transparent producer",
-            );
+        if (this._rendererValue < 0) invalidTransparentProducer();
         const sortKey = this._z0 * x + this._z1 * y + this._z2 * z + this._z3;
-        if (!Number.isSafeInteger(stableId) || stableId < 0)
-            throw new Error(`TransparentPhase.add received an invalid stable id: ${stableId}`);
+        if (!Number.isSafeInteger(stableId) || stableId < 0) invalidTransparentStableId(stableId);
         if (!Number.isSafeInteger(stablePart) || stablePart < 0)
-            throw new Error(`TransparentPhase.add received an invalid stable part: ${stablePart}`);
-        if (!Number.isFinite(sortKey))
-            throw new Error(`TransparentPhase.add received a non-finite view-space Z: ${sortKey}`);
+            invalidTransparentStablePart(stablePart);
+        if (!Number.isFinite(sortKey)) invalidTransparentSortKey(sortKey);
         this.ensureCapacity(this._countValue + 1);
         const item = this._items[this._countValue++];
         item.sortKey = sortKey;
         item.stableId = stableId;
         item.stablePart = stablePart;
+        item.renderer = this._rendererValue;
+        item.draw = draw;
+        item.batch = batch;
+        this.metrics.items++;
+    }
+
+    /** @internal Trusted standard path: its identities are ECS ids and a renderer-selected batch key. */
+    addStandard(
+        draw: number,
+        batch: number,
+        x: number,
+        y: number,
+        z: number,
+        stableId: number,
+    ): void {
+        const sortKey = this._z0 * x + this._z1 * y + this._z2 * z + this._z3;
+        if (!Number.isFinite(sortKey)) invalidTransparentSortKey(sortKey);
+        this.ensureCapacity(this._countValue + 1);
+        const item = this._items[this._countValue++];
+        item.sortKey = sortKey;
+        item.stableId = stableId;
+        item.stablePart = 0;
         item.renderer = this._rendererValue;
         item.draw = draw;
         item.batch = batch;
