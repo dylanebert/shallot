@@ -225,7 +225,8 @@ export function tracedSample(
             label = JSON.parse(line.slice("SHALLOT_SAMPLE_BEGIN ".length)) as string;
             marked.add(label);
         } else if (line === "SHALLOT_SAMPLE_END") {
-            if (label === undefined) throw new Error("unpaired allocation trace marker");
+            if (label === undefined)
+                throw new Error(`unpaired allocation trace marker: ${JSON.stringify(line)}`);
             label = undefined;
         } else if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
             const match = /<JSFunction(.*?) \(sfi =/.exec(line);
