@@ -97,7 +97,8 @@ jobs:
           Write-Output "Bun node.exe host: $hostDir"
       - name: Identify WARP adapter
         if: matrix.os == 'windows-latest'
-        run: node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then((adapter) => { if (!adapter) throw new Error('WARP adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (!/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); console.info('WARP adapter:', identity); })"
+        run: |
+          node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then((adapter) => { if (!adapter) throw new Error('WARP adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (!/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); console.info('WARP adapter:', identity); })"
       - name: GPU tier
         if: matrix.os != 'windows-latest'
         run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts --reporter=junit --reporter-outfile=gpu-junit.xml 2>&1 | tee gpu-test.log
@@ -190,13 +191,15 @@ jobs:
           Write-Output "Bun node.exe host: $hostDir"
       - name: Identify WARP adapter
         if: matrix.os == 'windows-latest'
-        run: node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then((adapter) => { if (!adapter) throw new Error('WARP adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (!/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); console.info('WARP adapter:', identity); })"
+        run: |
+          node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then((adapter) => { if (!adapter) throw new Error('WARP adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (!/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); console.info('WARP adapter:', identity); })"
       - name: Node tier
         if: matrix.os != 'windows-latest'
         run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee node-test.log
       - name: Node tier on WARP
         if: matrix.os == 'windows-latest'
-        run: time -p node -e "const child = Bun.spawn([process.execPath, 'test', '--reporter=junit', '--reporter-outfile=node-junit.xml', '--shard=${{ matrix.shard }}', ...process.argv.slice(1)], { argv0: 'bun.exe', env: { ...process.env, PATH: process.env.SHALLOT_REAL_NODE_DIR + ';' + process.env.PATH }, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); child.exited.then((code) => process.exit(code));" -- $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee node-test.log
+        run: |
+          time -p node -e "const child = Bun.spawn([process.execPath, 'test', '--reporter=junit', '--reporter-outfile=node-junit.xml', '--shard=${{ matrix.shard }}', ...process.argv.slice(1)], { argv0: 'bun.exe', env: { ...process.env, PATH: process.env.SHALLOT_REAL_NODE_DIR + ';' + process.env.PATH }, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); child.exited.then((code) => process.exit(code));" -- $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee node-test.log
       - name: report slow Node tests
         if: always()
         env:
