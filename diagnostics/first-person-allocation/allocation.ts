@@ -176,6 +176,9 @@ async function runSampler(
                 // One stdout carries every isolate's traces; a worker's optimization would refuse
                 // a main-thread window. Per-isolate files keep only the measured isolate's.
                 "--redirect-code-traces",
+                ...(process.platform === "win32"
+                    ? [`--redirect-code-traces-to=${join(dir, "code.asm")}`]
+                    : []),
                 "--allow-natives-syntax",
                 SAMPLER,
                 join(dir, "subject.mjs"),
@@ -201,7 +204,7 @@ async function runSampler(
 /** The one isolate trace in `dir` that carries the sampler's window markers; other isolates' are ignored. */
 export function measuredIsolateTrace(dir: string): string {
     const marked = readdirSync(dir)
-        .filter((file) => /^code-\d+-\d+\.asm$/.test(file))
+        .filter((file) => file.endsWith(".asm"))
         .map((file) => readFileSync(join(dir, file), "utf8"))
         .filter((text) => text.includes("SHALLOT_SAMPLE_BEGIN "));
     if (marked.length !== 1)

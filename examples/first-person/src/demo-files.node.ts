@@ -52,7 +52,7 @@ test("Git ignores first-person build outputs while reporting source and lockfile
             ".artifacts/run",
         ])
             writeFileSync(join(root, file), "fixture\n");
-        git("init", "-q", `--template=${template}`);
+        git("init", "-q", `--template=${template.replaceAll("\\", "/")}`);
 
         const ignored = git(
             "check-ignore",

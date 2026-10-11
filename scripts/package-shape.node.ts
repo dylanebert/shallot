@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
+import { spawnBunCli } from "./bun-cli";
 import { CEILING } from "./test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -56,7 +57,10 @@ test("files excludes no paths under the unlisted scripts directory", () => {
 });
 
 function run(command: string[], cwd: string, label: string): string {
-    const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
+    const result =
+        command[0] === "bun"
+            ? spawnBunCli(command.slice(1), { cwd, stdout: "pipe", stderr: "pipe" })
+            : Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
     if (result.exitCode !== 0) throw new Error(`${label} failed:\n${output}`);
     return output;
@@ -192,7 +196,9 @@ test("a Bun test from the workspace root resolves TypeGPU from the package that 
         expect(existsSync(workspaceTypegpu)).toBe(false);
         const gameTypegpu = join(game, "node_modules/typegpu/package.json");
         expect(existsSync(gameTypegpu)).toBe(true);
-        expect(gameTypegpu).toContain("packages/game/node_modules/typegpu/package.json");
+        expect(gameTypegpu.replaceAll("\\", "/")).toContain(
+            "packages/game/node_modules/typegpu/package.json",
+        );
         writeFileSync(
             join(game, "tests/mono.test.ts"),
             `import { expect, test } from "bun:test";\nimport tgpu from "typegpu";\nimport { checkTgsl } from "@dylanebert/shallot/runtime";\n\ntest("workspace consumer and linked engine share one TypeGPU instance", () => {\n    expect(typeof tgpu.fn).toBe("function");\n    expect(() => checkTgsl()).not.toThrow();\n});\n`,
@@ -228,7 +234,7 @@ test("an out-of-range project TypeGPU fails before either module evaluates", () 
             'import { test } from "bun:test";\ntest("incompatible TypeGPU is not loaded", async () => {\n    console.log("TEST_MODULE_EVALUATED");\n    await import("typegpu");\n});\n',
         );
 
-        const result = Bun.spawnSync(["bun", "test", "--preload=./preload.ts"], {
+        const result = spawnBunCli(["test", "--preload=./preload.ts"], {
             cwd: tests,
             stdout: "pipe",
             stderr: "pipe",
@@ -237,7 +243,7 @@ test("an out-of-range project TypeGPU fails before either module evaluates", () 
         expect(result.exitCode).not.toBe(0);
         expect(output).toContain("project has TypeGPU 0.13.0 at");
         expect(output).toContain(TYPEGPU_RANGE);
-        expect(output).toContain("node_modules/typegpu/package.json");
+        expect(output.replaceAll("\\", "/")).toContain("node_modules/typegpu/package.json");
         expect(output).not.toContain("TYPEGPU_PROJECT_COPY_EVALUATED");
         expect(output).not.toContain("TEST_MODULE_EVALUATED");
     } finally {

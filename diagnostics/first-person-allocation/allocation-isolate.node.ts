@@ -55,6 +55,9 @@ console.log(JSON.stringify({ runtime: "isolates", warm: 120, frames: 120, contro
                 ...TIER_FLAGS,
                 "--trace-opt",
                 "--redirect-code-traces",
+                ...(process.platform === "win32"
+                    ? [`--redirect-code-traces-to=${join(dir, "main.asm")}`]
+                    : []),
                 "--allow-natives-syntax",
                 "subject.mjs",
             ],

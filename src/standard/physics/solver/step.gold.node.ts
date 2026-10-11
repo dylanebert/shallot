@@ -207,6 +207,7 @@ if (pooled) {
                 import.meta.filename,
             ],
             {
+                argv0: process.platform === "win32" ? "bun.exe" : undefined,
                 env: { ...process.env, PHYSICS_CORPUS_POOL: "1" },
                 stdout: "inherit",
                 stderr: "inherit",

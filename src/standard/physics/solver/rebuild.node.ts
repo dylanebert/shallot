@@ -101,6 +101,7 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
 } else if (process.env.PHYSICS_REBUILD_POOL !== "1") {
     test("four-thread rebuild paths finish in an independent kernel runtime", async () => {
         const child = Bun.spawn([process.execPath, "test", import.meta.filename], {
+            argv0: process.platform === "win32" ? "bun.exe" : undefined,
             env: { ...process.env, PHYSICS_REBUILD_POOL: "1" },
             stdout: "inherit",
             stderr: "inherit",
@@ -111,6 +112,7 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
         const results = [];
         for (const count of [1, 4]) {
             const child = Bun.spawn([process.execPath, "test", import.meta.filename], {
+                argv0: process.platform === "win32" ? "bun.exe" : undefined,
                 env: { ...process.env, PHYSICS_REBUILD_BULLET: String(count) },
                 stdout: "pipe",
                 stderr: "inherit",

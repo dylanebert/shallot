@@ -1,5 +1,6 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 
+import { spawnBunCli } from "./bun-cli";
 import { CEILING } from "./test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -17,51 +18,71 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
+interface RootManifest {
+    version: string;
+    devDependencies: Record<string, string>;
+    scripts: Record<string, string>;
+}
+
+let scratch: string | undefined;
+let cliProject: string;
+let rootPackage: RootManifest;
+let tarball: string;
+let installedPackage: string;
+let recipes: string[];
 
 function run(command: string[], cwd: string, label: string): string {
-    const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
+    const result =
+        command[0] === "bun"
+            ? spawnBunCli(command.slice(1), { cwd, stdout: "pipe", stderr: "pipe" })
+            : Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
     if (result.exitCode !== 0) throw new Error(`${label} failed:\n${output}`);
     return output;
 }
 
-test("packed examples install by copy-out as isolated standalone projects", async () => {
-    const scratch = mkdtempSync(join(tmpdir(), "shallot-packed-install-"));
-    const cliProject = join(scratch, "cli");
-    const rootPackage = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const packageVersion = rootPackage.version as string;
-    const tarballName = `dylanebert-shallot-${packageVersion}.tgz`;
-    const tarball = join(scratch, tarballName);
+beforeAll(() => {
+    scratch = mkdtempSync(join(tmpdir(), "shallot-packed-install-"));
+    cliProject = join(scratch, "cli");
+    rootPackage = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    const tarballName = `dylanebert-shallot-${rootPackage.version}.tgz`;
+    tarball = join(scratch, tarballName);
     mkdirSync(cliProject);
-    try {
-        run(
-            ["bun", "pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
-            ROOT,
-            "packing Shallot",
-        );
-        if (!existsSync(tarball)) throw new Error(`packed tarball is missing: ${tarball}`);
+    run(
+        ["bun", "pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
+        ROOT,
+        "packing Shallot",
+    );
+    if (!existsSync(tarball)) throw new Error(`packed tarball is missing: ${tarball}`);
+});
 
-        writeFileSync(
-            join(cliProject, "package.json"),
-            JSON.stringify(
-                {
-                    name: "packed-install-cli",
-                    private: true,
-                    type: "module",
-                    dependencies: { "@dylanebert/shallot": `file:../${tarballName}` },
-                    devDependencies: {
-                        "@types/bun": rootPackage.devDependencies["@types/bun"],
-                        typescript: rootPackage.devDependencies.typescript,
-                        webgpu: rootPackage.devDependencies.webgpu,
-                    },
+afterAll(() => {
+    if (scratch) rmSync(scratch, { recursive: true, force: true });
+});
+
+test("a packed CLI install exposes only supported package exports", () => {
+    const tarballName = `dylanebert-shallot-${rootPackage.version}.tgz`;
+    writeFileSync(
+        join(cliProject, "package.json"),
+        JSON.stringify(
+            {
+                name: "packed-install-cli",
+                private: true,
+                type: "module",
+                dependencies: { "@dylanebert/shallot": `file:../${tarballName}` },
+                devDependencies: {
+                    "@types/bun": rootPackage.devDependencies["@types/bun"],
+                    typescript: rootPackage.devDependencies.typescript,
+                    webgpu: rootPackage.devDependencies.webgpu,
                 },
-                null,
-                2,
-            ),
-        );
-        writeFileSync(
-            join(cliProject, "fresh.test.ts"),
-            `import { expect, test } from "bun:test";
+            },
+            null,
+            2,
+        ),
+    );
+    writeFileSync(
+        join(cliProject, "fresh.test.ts"),
+        `import { expect, test } from "bun:test";
 import * as Rendering from "@dylanebert/shallot/rendering";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -114,105 +135,103 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(node.exitCode, node.stderr.toString()).toBe(0);
 });
 `,
-        );
-        const cliInstall = run(
-            ["bun", "install", "--linker=isolated", "--no-progress"],
-            cliProject,
-            "installing packed CLI project",
-        );
-        const installedPackage = join(cliProject, "node_modules/@dylanebert/shallot");
-        const installedManifest = JSON.parse(
-            readFileSync(join(installedPackage, "package.json"), "utf8"),
-        );
-        expect(installedManifest.exports["./brand"]).toBeUndefined();
-        expect(existsSync(join(installedPackage, "assets/branding"))).toBe(false);
-        expect(installedManifest.scripts.prepare).toBe(rootPackage.scripts.prepare);
-        expect(cliInstall).not.toContain("build-tooling: compiled dist/vite.js");
+    );
 
-        const publicExports = Object.keys(installedManifest.exports).filter(
-            (entry) => entry !== "./tsconfig.json",
-        );
-        expect(publicExports.length).toBeGreaterThan(0);
-        const publicImportSource = publicExports
-            .map((entry, index) => {
-                const specifier =
-                    entry === "."
-                        ? installedManifest.name
-                        : `${installedManifest.name}/${entry.slice(2)}`;
-                return `import * as publicExport${index} from ${JSON.stringify(specifier)};`;
-            })
-            .join("\n");
-        writeFileSync(join(cliProject, "public-exports.ts"), `${publicImportSource}\n`);
-        const typecheckConfig = join(cliProject, "tsconfig.public-exports.json");
-        writeFileSync(
-            typecheckConfig,
-            JSON.stringify(
-                {
-                    extends: "@dylanebert/shallot/tsconfig.json",
-                    include: ["public-exports.ts"],
-                },
-                null,
-                2,
-            ),
-        );
-        const typecheckCommand = [
-            "node",
-            join(cliProject, "node_modules/typescript/bin/tsc"),
-            "--project",
-            typecheckConfig,
-        ];
-        run(typecheckCommand, cliProject, "typechecking every public TypeScript export");
+    const cliInstall = run(
+        ["bun", "install", "--linker=isolated", "--no-progress"],
+        cliProject,
+        "installing packed CLI project",
+    );
+    installedPackage = join(cliProject, "node_modules/@dylanebert/shallot");
+    const installedManifest = JSON.parse(
+        readFileSync(join(installedPackage, "package.json"), "utf8"),
+    );
+    expect(installedManifest.exports["./brand"]).toBeUndefined();
+    expect(existsSync(join(installedPackage, "assets/branding"))).toBe(false);
+    expect(installedManifest.scripts.prepare).toBe(rootPackage.scripts.prepare);
+    expect(cliInstall).not.toContain("build-tooling: compiled dist/vite.js");
 
-        const packedProjectTests = run(
-            ["bun", "test"],
-            cliProject,
-            "testing packed project exports",
-        );
-        expect(packedProjectTests).toContain(
-            "the packed engine exposes no test-support namespace or capture helpers",
-        );
-        expect(packedProjectTests).toContain(
-            "the packed Vite entry imports in Node and exposes only shallot",
-        );
-        expect(packedProjectTests).toContain("3 pass");
+    const publicExports = Object.keys(installedManifest.exports).filter(
+        (entry) => entry !== "./tsconfig.json",
+    );
+    expect(publicExports.length).toBeGreaterThan(0);
+    const publicImportSource = publicExports
+        .map((entry, index) => {
+            const specifier =
+                entry === "."
+                    ? installedManifest.name
+                    : `${installedManifest.name}/${entry.slice(2)}`;
+            return `import * as publicExport${index} from ${JSON.stringify(specifier)};`;
+        })
+        .join("\n");
+    writeFileSync(join(cliProject, "public-exports.ts"), `${publicImportSource}\n`);
+    const typecheckConfig = join(cliProject, "tsconfig.public-exports.json");
+    writeFileSync(
+        typecheckConfig,
+        JSON.stringify(
+            {
+                extends: "@dylanebert/shallot/tsconfig.json",
+                include: ["public-exports.ts"],
+            },
+            null,
+            2,
+        ),
+    );
+    const typecheckCommand = [
+        "node",
+        join(cliProject, "node_modules/typescript/bin/tsc"),
+        "--project",
+        typecheckConfig,
+    ];
+    run(typecheckCommand, cliProject, "typechecking every public TypeScript export");
 
-        const recipes = readdirSync(join(ROOT, "examples"), { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
-            .map((entry) => entry.name)
-            .sort();
-        expect(recipes).toEqual(["first-person", "loading-screen"]);
-        expect(existsSync(join(scratch, "package.json"))).toBe(false);
+    const packedProjectTests = run(["bun", "test"], cliProject, "testing packed project exports");
+    expect(packedProjectTests).toContain(
+        "the packed engine exposes no test-support namespace or capture helpers",
+    );
+    expect(packedProjectTests).toContain(
+        "the packed Vite entry imports in Node and exposes only shallot",
+    );
+    expect(packedProjectTests).toContain("3 pass");
 
-        for (const name of recipes) {
-            const example = join(scratch, name);
-            run(
-                ["bun", "run", join(installedPackage, "bin/shallot.ts"), "add", name, example],
-                cliProject,
-                `shallot add ${name}`,
-            );
+    recipes = readdirSync(join(ROOT, "examples"), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+    expect(recipes).toEqual(["first-person", "loading-screen"]);
+    expect(existsSync(join(scratch!, "package.json"))).toBe(false);
+});
 
-            const examplePackagePath = join(example, "package.json");
-            const examplePackage = JSON.parse(readFileSync(examplePackagePath, "utf8"));
-            expect(examplePackage.dependencies["@dylanebert/shallot"]).toBe(packageVersion);
-            expect(examplePackage.devDependencies["@types/bun"]).toBe(
-                rootPackage.devDependencies["@types/bun"],
-            );
-            expect(examplePackage.devDependencies.typegpu).toBeUndefined();
-            expect(existsSync(join(scratch, "package.json"))).toBe(false);
-            expect(readFileSync(join(example, "tests/preload.ts"), "utf8")).toBe(
-                'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: import.meta.dir }));\n',
-            );
-            expect(readFileSync(join(example, "bunfig.toml"), "utf8")).toBe(
-                '[test]\npreload = ["./tests/preload.ts"]\n',
-            );
+async function installExample(name: string): Promise<void> {
+    const example = join(scratch!, name);
+    run(
+        ["bun", "run", join(installedPackage, "bin/shallot.ts"), "add", name, example],
+        cliProject,
+        `shallot add ${name}`,
+    );
 
-            const packedRange = `file:${relative(example, tarball).replaceAll("\\", "/")}`;
-            examplePackage.dependencies["@dylanebert/shallot"] = packedRange;
-            writeFileSync(examplePackagePath, `${JSON.stringify(examplePackage, null, 4)}\n`);
-            writeFileSync(join(example, "no-preload.toml"), "[test]\n");
-            writeFileSync(
-                join(example, "src/packed-tgsl.test.ts"),
-                `import { expect, test } from "bun:test";
+    const examplePackagePath = join(example, "package.json");
+    const examplePackage = JSON.parse(readFileSync(examplePackagePath, "utf8"));
+    expect(examplePackage.dependencies["@dylanebert/shallot"]).toBe(rootPackage.version);
+    expect(examplePackage.devDependencies["@types/bun"]).toBe(
+        rootPackage.devDependencies["@types/bun"],
+    );
+    expect(examplePackage.devDependencies.typegpu).toBeUndefined();
+    expect(existsSync(join(scratch!, "package.json"))).toBe(false);
+    expect(readFileSync(join(example, "tests/preload.ts"), "utf8")).toBe(
+        'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: import.meta.dir }));\n',
+    );
+    expect(readFileSync(join(example, "bunfig.toml"), "utf8")).toBe(
+        '[test]\npreload = ["./tests/preload.ts"]\n',
+    );
+
+    const packedRange = `file:${relative(example, tarball).replaceAll("\\", "/")}`;
+    examplePackage.dependencies["@dylanebert/shallot"] = packedRange;
+    writeFileSync(examplePackagePath, `${JSON.stringify(examplePackage, null, 4)}\n`);
+    writeFileSync(join(example, "no-preload.toml"), "[test]\n");
+    writeFileSync(
+        join(example, "src/packed-tgsl.test.ts"),
+        `import { expect, test } from "bun:test";
 import { linearToSrgb3 } from "@dylanebert/shallot/rendering";
 import { checkTgsl } from "@dylanebert/shallot/runtime";
 
@@ -224,61 +243,62 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     expect(encoded.z).toBeCloseTo(0.7353569, 5);
 });
 `,
-            );
+    );
 
-            const exampleInstall = run(
-                ["bun", "install", "--linker=isolated", "--no-progress"],
-                example,
-                `installing ${name} from its own manifest`,
-            );
-            expect(exampleInstall).not.toContain("build-tooling: compiled dist/vite.js");
-            expect(existsSync(join(example, "node_modules/@types/bun/package.json"))).toBe(true);
-            run(
-                [
-                    "node",
-                    join(example, "node_modules/typescript/bin/tsc"),
-                    "--project",
-                    "tsconfig.json",
-                ],
-                example,
-                `tsc ${name}`,
-            );
-            run(
-                ["bun", join(example, "node_modules/vite/bin/vite.js"), "build"],
-                example,
-                `vite build ${name}`,
-            );
-            expect(
-                readdirSync(join(example, "dist/assets")).some((file) =>
-                    file.startsWith("Inter-Regular"),
-                ),
-            ).toBe(false);
-            const testOutput = run(["bun", "test"], example, `bun test ${name}`);
-            expect(testOutput).toContain("1 pass");
+    const exampleInstall = run(
+        ["bun", "install", "--linker=isolated", "--no-progress"],
+        example,
+        `installing ${name} from its own manifest`,
+    );
+    expect(exampleInstall).not.toContain("build-tooling: compiled dist/vite.js");
+    expect(existsSync(join(example, "node_modules/@types/bun/package.json"))).toBe(true);
+    run(
+        ["node", join(example, "node_modules/typescript/bin/tsc"), "--project", "tsconfig.json"],
+        example,
+        `tsc ${name}`,
+    );
+    run(
+        ["bun", join(example, "node_modules/vite/bin/vite.js"), "build"],
+        example,
+        `vite build ${name}`,
+    );
+    expect(
+        readdirSync(join(example, "dist/assets")).some((file) => file.startsWith("Inter-Regular")),
+    ).toBe(false);
+    const testOutput = run(["bun", "test"], example, `bun test ${name}`);
+    expect(testOutput).toContain("1 pass");
 
-            const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
-                cwd: example,
-                stdout: "pipe",
-                stderr: "pipe",
-            });
-            const noPreloadOutput = `${noPreload.stdout.toString()}${noPreload.stderr.toString()}`;
-            expect(noPreload.exitCode).not.toBe(0);
-            expect(noPreloadOutput).toContain("TGSL metadata is missing");
-            expect(noPreloadOutput).toContain("unplugin-typegpu/bun");
-        }
+    const noPreload = spawnBunCli(["--config=no-preload.toml", "test"], {
+        cwd: example,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const noPreloadOutput = `${noPreload.stdout.toString()}${noPreload.stderr.toString()}`;
+    expect(noPreload.exitCode).not.toBe(0);
+    expect(noPreloadOutput).toContain("TGSL metadata is missing");
+    expect(noPreloadOutput).toContain("unplugin-typegpu/bun");
+}
 
-        const packed = Bun.spawnSync(["tar", "-tzf", tarball], {
-            cwd: scratch,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        expect(packed.exitCode).toBe(0);
-        expect(packed.stdout.toString()).toContain("tsconfig.base.json");
-        expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
-        expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
-        expect(packed.stdout.toString()).not.toContain("examples/first-person/package.json");
-        expect(packed.stdout.toString()).not.toContain("examples/loading-screen/package.json");
-    } finally {
-        rmSync(scratch, { recursive: true, force: true });
-    }
+test("first-person installs by copy-out as a standalone project", async () => {
+    expect(recipes).toContain("first-person");
+    await installExample("first-person");
+});
+
+test("loading-screen installs by copy-out as a standalone project", async () => {
+    expect(recipes).toContain("loading-screen");
+    await installExample("loading-screen");
+});
+
+test("the packed tarball includes project configuration but not example manifests", () => {
+    const packed = Bun.spawnSync(["tar", "-tzf", tarball], {
+        cwd: scratch,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    expect(packed.exitCode).toBe(0);
+    expect(packed.stdout.toString()).toContain("tsconfig.base.json");
+    expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
+    expect(packed.stdout.toString()).not.toContain("examples/first-person/package.json");
+    expect(packed.stdout.toString()).not.toContain("examples/loading-screen/package.json");
 });

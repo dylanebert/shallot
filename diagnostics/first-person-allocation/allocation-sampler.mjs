@@ -100,10 +100,7 @@ export function measuredTrace() {
     );
     optimize(shallotMeasuredIsolate);
     const files = readdirSync(".").filter(
-        (file) =>
-            file.startsWith(`code-${process.pid}-`) &&
-            file.endsWith(".asm") &&
-            readFileSync(file, "utf8").includes("shallotMeasuredIsolate"),
+        (file) => file.endsWith(".asm") && readFileSync(file, "utf8").includes("shallotMeasuredIsolate"),
     );
     if (files.length !== 1)
         throw new Error(`allocation sampler: expected one measured-isolate trace, found ${files.length}`);

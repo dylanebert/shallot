@@ -30,6 +30,13 @@ export function linuxPreviewEnv(
     return env;
 }
 
+export function previewEnvironment(
+    devUrl: string | undefined,
+    baseEnv: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+    return { ...baseEnv, ...(devUrl ? { SHALLOT_DEV_URL: devUrl } : {}) };
+}
+
 /** the powershell.exe command line that launches a windows build from its WSL-resolved host path. */
 export function windowsPreviewCommand(winPath: string, projectName: string): string {
     return `cd '${winPath}'; .\\${projectName}.exe`;
@@ -63,10 +70,7 @@ export async function previewProject(
             ? resolve(outputDir, `${name}.app`)
             : resolve(outputDir, `${name}${target.kind === "windows" ? ".exe" : ""}`);
     requireBuild(projectDir, target.kind, artifact);
-    const env = {
-        ...process.env,
-        ...(opts.devUrl ? { SHALLOT_DEV_URL: opts.devUrl } : {}),
-    };
+    const env = previewEnvironment(opts.devUrl, process.env);
 
     if (target.kind === "mac") {
         console.log(`\n  running ${name}...\n`);

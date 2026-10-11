@@ -172,6 +172,8 @@ jobs:
         shell: pwsh
         run: |
           $hostDir = Join-Path $env:RUNNER_TEMP 'bun-node'
+          $realNodeDir = Split-Path (Get-Command node -ErrorAction Stop).Source -Parent
+          Add-Content -Path $env:GITHUB_ENV -Value "SHALLOT_REAL_NODE_DIR=$realNodeDir"
           New-Item -ItemType Directory -Force -Path $hostDir | Out-Null
           Copy-Item (Get-Command bun).Source (Join-Path $hostDir 'node.exe')
           Add-Content -Path $env:GITHUB_PATH -Value $hostDir
@@ -184,7 +186,8 @@ jobs:
         run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
       - name: Node tier on WARP
         if: matrix.os == 'windows-latest'
-        run: time -p node test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
+        run: |
+          time -p node -e "const child = Bun.spawn([process.execPath, 'test', '--shard=${{ matrix.shard }}', ...process.argv.slice(1)], { argv0: 'bun.exe', env: { ...process.env, PATH: process.env.SHALLOT_REAL_NODE_DIR + ';' + process.env.PATH }, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); child.exited.then((code) => process.exit(code));" -- $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
       - name: compile time oracle
         if: matrix.shard == '1/2'
         run: bun test ./scripts/compile.oracle.ts

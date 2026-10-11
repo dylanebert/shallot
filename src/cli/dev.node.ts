@@ -204,7 +204,7 @@ test("shallot dev, build and preview run the Vite declared by the project", asyn
             );
             try {
                 const response = await waitForPage(`http://127.0.0.1:${port}/`);
-                expect(response.status).toBe(200);
+                expect(response.status, await response.clone().text()).toBe(200);
                 expect(await response.text()).toContain("PROJECT VITE");
             } finally {
                 try {
@@ -245,7 +245,7 @@ test("native dev loads the complete local Vite URL when the project uses a base 
         );
         expect(new URL(server.url).pathname).toBe("/game/");
         const response = await waitForPage(server.url);
-        expect(response.status).toBe(200);
+        expect(response.status, await response.clone().text()).toBe(200);
         expect(await response.text()).toContain("BASE PATH");
     } finally {
         await server?.close();
@@ -304,7 +304,7 @@ test("shallot dev --port and vite --port serve the same page and project config"
             "127.0.0.1",
         ]);
         expect(vite).toEqual(shallot);
-        expect(vite.status).toBe(200);
+        expect(vite.status, vite.body).toBe(200);
         expect(vite.header).toBe("same");
         expect(vite.body).toContain("OWNED PAGE");
     } finally {
@@ -357,6 +357,7 @@ test("native dev receives the actual local URL reported by the project's Vite se
         );
         const response = await waitForPage(server.url);
         expect(server.url).toMatch(/^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d+\/?$/);
+        expect(response.status, await response.clone().text()).toBe(200);
         expect(await response.text()).toContain("VITE URL");
     } finally {
         await server?.close();
