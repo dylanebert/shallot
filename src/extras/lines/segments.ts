@@ -30,6 +30,8 @@ interface SegmentState {
     count: number;
     publishedCount: number;
     args: (TgpuBuffer<typeof DrawIndirect> & { usableAsIndirect: true }) | null;
+    argsRaw: GPUBuffer | null;
+    argsStaging: Uint32Array;
 }
 
 const segmentStateKey = { create: createSegmentState };
@@ -47,6 +49,8 @@ function createSegmentState(): SegmentState {
         count: 0,
         publishedCount: 0,
         args: null,
+        argsRaw: null,
+        argsStaging: new Uint32Array([6, 0, 0, 0]),
     };
 }
 
@@ -324,10 +328,11 @@ export function warmSegments(world: World, _device: GPUDevice): void {
     resources.buffer = buffer;
     world.gpu.buffers.set("lineSegments", world.gpu.root.unwrap(buffer));
     world.gpu.typed.set("lineSegments", buffer);
-    world.resource(Lines).args = world.gpu.root
+    resources.args = world.gpu.root
         .createBuffer(DrawIndirect)
         .$usage("indirect")
         .$name("shallot-line-args");
+    resources.argsRaw = world.gpu.root.unwrap(resources.args);
 }
 
 // grow the GPU buffer to match the CPU staging (rare); republish so standard re-resolves the binding, then
@@ -336,7 +341,7 @@ export function flushSegments(world: World, device: GPUDevice): void {
     const _lines = world.resource(Lines);
 
     const resources = segmentState(world);
-    if (!resources.buffer || !_lines.args) return;
+    if (!resources.buffer || !_lines.args || !resources.argsRaw) return;
     if (resources.capacity * SEGMENT_BYTES > world.gpu.root.unwrap(resources.buffer).size) {
         const stale = resources.buffer;
         const buffer = world.gpu.root
@@ -359,12 +364,8 @@ export function flushSegments(world: World, device: GPUDevice): void {
             0,
             resources.count * SEGMENT_BYTES,
         );
-    args.write({
-        vertexCount: 6,
-        instanceCount: resources.count,
-        firstVertex: 0,
-        firstInstance: 0,
-    });
+    resources.argsStaging[1] = resources.count;
+    device.queue.writeBuffer(resources.argsRaw, 0, resources.argsStaging);
     segmentState(world).publishedCount = resources.count;
     segmentState(world).count = 0;
 }
@@ -375,6 +376,8 @@ export function disposeSegments(world: World): void {
     segmentState(world).buffer?.destroy();
     _lines.args?.destroy();
     segmentState(world).buffer = null;
+    segmentState(world).args = null;
+    segmentState(world).argsRaw = null;
     _lines.args = null;
     segmentState(world).count = 0;
 }
