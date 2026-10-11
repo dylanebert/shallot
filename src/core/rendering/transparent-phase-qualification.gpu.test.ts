@@ -1,12 +1,18 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import type { World } from "../../engine";
 import {
     AlphaMode,
+    MaterialPlugin,
     Materials,
     MeshMaterial,
     MeshRenderPlugin,
+    materialFragmentContext,
+    materialLayout,
+    materialType,
     StandardMaterial,
     StandardRenderer,
     StandardRenderingPlugin,
@@ -27,17 +33,37 @@ import {
     type TransparentPhase,
     TransparentPhases,
     type View,
+    Views,
 } from ".";
 import { computeViewProj } from "./camera";
 
 setDefaultTimeout(CEILING.gpu);
-const subjects = gpuApps(
-    import.meta.path,
-    Array.from({ length: 6 }, () => ({
+const TransitionParameters = d.struct({ color: d.vec4f });
+const transitionLayout = materialLayout(TransitionParameters, {});
+const TransitionContext = materialFragmentContext();
+const TransitionMaterial = materialType({
+    name: "TransparentQualificationTransition",
+    parameters: TransitionParameters,
+    layout: transitionLayout,
+    fragment: tgpu.fn(
+        [TransitionContext],
+        d.vec4f,
+    )((ctx) => {
+        "use gpu";
+        return TransitionParameters(transitionLayout.$.materialParameters[ctx.material]).color;
+    }),
+    defaults: { color: d.vec4f(1) },
+});
+const subjects = gpuApps(import.meta.path, [
+    ...Array.from({ length: 6 }, () => ({
         defaults: false,
         plugins: [StandardRenderingPlugin, MeshRenderPlugin],
     })),
-);
+    {
+        defaults: false,
+        plugins: [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(TransitionMaterial)],
+    },
+]);
 
 function addCamera(
     world: World,
@@ -123,6 +149,90 @@ async function frame(world: World, cameras: readonly number[]) {
     return Promise.all(cameras.map(async (camera) => (await captureTexture(world, camera)).rgba));
 }
 
+async function validatedFrame(
+    world: World,
+    camera: number,
+    sentinel: readonly [number, number, number, number],
+): Promise<Uint8ClampedArray> {
+    const device = world.gpu.device;
+    const texture = world.resource(Views).get(camera)?.texture;
+    if (!texture) throw new Error(`camera ${camera} has no final texture to clear`);
+    const uncaptured: string[] = [];
+    const listener = (event: GPUUncapturedErrorEvent) => uncaptured.push(event.error.message);
+    device.addEventListener("uncapturederror", listener);
+    device.pushErrorScope("validation");
+    let scopeOpen = true;
+    try {
+        const encoder = device.createCommandEncoder({
+            label: "transparent qualification sentinel",
+        });
+        const pass = encoder.beginRenderPass({
+            colorAttachments: [
+                {
+                    view: texture.createView(),
+                    loadOp: "clear",
+                    storeOp: "store",
+                    clearValue: { r: sentinel[0], g: sentinel[1], b: sentinel[2], a: sentinel[3] },
+                },
+            ],
+        });
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        await device.queue.onSubmittedWorkDone();
+        world.step(0);
+        if (!world.frameFence) throw new Error("measured render frame did not submit");
+        await world.frameFence;
+        const rgba = (await captureTexture(world, camera)).rgba;
+        await device.queue.onSubmittedWorkDone();
+        const validation = await device.popErrorScope();
+        scopeOpen = false;
+        if (validation)
+            throw new Error(`uncaptured render validation error: ${validation.message}`);
+        if (uncaptured.length) throw new Error(`uncaptured GPU errors: ${uncaptured.join("; ")}`);
+        return rgba;
+    } finally {
+        if (scopeOpen) await device.popErrorScope();
+        device.removeEventListener("uncapturederror", listener);
+    }
+}
+
+function expectPixelNear(actual: readonly number[], expected: readonly number[], tolerance = 1) {
+    expect(actual).toHaveLength(expected.length);
+    for (let channel = 0; channel < expected.length; channel++)
+        expect(Math.abs(actual[channel]! - expected[channel]!)).toBeLessThanOrEqual(tolerance);
+}
+
+function srgbByte(linear: number): number {
+    const encoded = linear <= 0.0031308 ? 12.92 * linear : 1.055 * linear ** (1 / 2.4) - 0.055;
+    return Math.round(encoded * 255);
+}
+
+function blendOverBlackPixel(
+    color: readonly [number, number, number],
+    alpha: number,
+    layers: number,
+) {
+    const result = [0, 0, 0];
+    for (let layer = 0; layer < layers; layer++)
+        for (let channel = 0; channel < 3; channel++)
+            result[channel] = color[channel]! * alpha + result[channel]! * (1 - alpha);
+    return result.map(srgbByte);
+}
+
+function expectedLayerComposite(
+    layers: readonly { eid: number; z: number; color: readonly [number, number, number] }[],
+    reverseView: boolean,
+): number[] {
+    const ordered = [...layers].sort(
+        (a, b) => (reverseView ? b.z - a.z : a.z - b.z) || a.eid - b.eid,
+    );
+    const result = [0, 0, 0];
+    for (const layer of ordered)
+        for (let channel = 0; channel < 3; channel++)
+            result[channel] = layer.color[channel]! * 0.25 + result[channel]! * 0.75;
+    return [...result.map(srgbByte), 255];
+}
+
 test("equal-depth composites are invariant to contribution order and snapshot restore", async () => {
     const { world } = subjects()[0];
     const camera = addCamera(world, { translation: [0, 0, 5, 0] });
@@ -188,19 +298,28 @@ test("transparent item and staging capacities grow mid-run while opposite views 
     });
     const entities: number[] = [];
     const depths = new Map<number, number>();
-    const addPane = (z: number, material: typeof red) => {
+    const layers: { eid: number; z: number; color: readonly [number, number, number] }[] = [];
+    const redColor = [1, 0.05, 0.02] as const;
+    const blueColor = [0.02, 0.1, 1] as const;
+    const addPane = (
+        z: number,
+        material: typeof red,
+        color: typeof redColor | typeof blueColor,
+    ) => {
         const eid = world.create();
         world.add(eid, Transform, { translation: [0, 0, z, 0], scale: [2, 2, 0.02, 0] });
         world.add(eid, MeshInstance);
         world.add(eid, MeshMaterial, material);
         entities.push(eid);
         depths.set(eid, z);
+        layers.push({ eid, z, color });
     };
-    addPane(0, red);
+    addPane(0, red, redColor);
     await frame(world, cameras);
     const before = world.gpu.root.unwrap(world.resource(MeshDrawBuffers).transparentEids!).size;
 
-    for (let i = 0; i < 70; i++) addPane(-0.8 + i * 0.02, i < 35 ? blue : red);
+    for (let i = 0; i < 70; i++)
+        addPane(-0.8 + i * 0.02, i < 35 ? blue : red, i < 35 ? blueColor : redColor);
     const [front, reverse] = await frame(world, cameras);
     const after = world.gpu.root.unwrap(world.resource(MeshDrawBuffers).transparentEids!).size;
     expect(after).toBeGreaterThan(before);
@@ -216,6 +335,8 @@ test("transparent item and staging capacities grow mid-run while opposite views 
     );
     expect(frontPhase.metrics.draws).toBe(1);
     expect(reversePhase.metrics.draws).toBe(1);
+    expectPixelNear(centerPixel(front), expectedLayerComposite(layers, false), 6);
+    expectPixelNear(centerPixel(reverse), expectedLayerComposite(layers, true), 6);
     expect(centerPixel(front)).not.toEqual(centerPixel(reverse));
 });
 
@@ -242,13 +363,20 @@ test("transparent pipelines follow MSAA changes and remove entities or alpha-mod
         world.add(eid, MeshMaterial, blend);
         entities.push(eid);
     }
-    const [singleSample] = await frame(world, [camera]);
+    await frame(world, [camera]);
+    const expected = blendOverBlackPixel([1, 0.1, 0.1], 0.3, 3);
+    const sentinel = [0, 1, 0, 1] as const;
     const phase = world.resource(TransparentPhases).get(camera)!;
     const blendBatch = phase.item(0).batch;
     world.storage(Camera).antialias.set(camera, 1);
-    const [multisample] = await frame(world, [camera]);
-    expect(centerPixel(multisample)).toEqual(centerPixel(singleSample));
+    const multisample = await validatedFrame(world, camera, sentinel);
+    expectPixelNear(centerPixel(multisample), [...expected, 255]);
+    expect(centerPixel(multisample)).not.toEqual([0, 255, 0, 255]);
     expect(world.resource(TransparentPhases).get(camera)!.length).toBe(3);
+
+    world.storage(Camera).antialias.set(camera, 0);
+    const singleSample = await validatedFrame(world, camera, sentinel);
+    expectPixelNear(centerPixel(singleSample), [...expected, 255]);
 
     world.destroy(entities[0]!);
     const meshMaterial = world.storage(MeshMaterial);
@@ -260,11 +388,54 @@ test("transparent pipelines follow MSAA changes and remove entities or alpha-mod
     meshMaterial.type.set(entities[2]!, multiply.type);
     meshMaterial.alphaMode.set(entities[2]!, multiply.alphaMode);
     meshMaterial.alphaCutoff.set(entities[2]!, multiply.alphaCutoff);
-    await frame(world, [camera]);
+    const [alphaChanged] = await frame(world, [camera]);
     const remaining = world.resource(TransparentPhases).get(camera)!;
+    expectPixelNear(centerPixel(alphaChanged), [0.055, 0.55, 0.1].map(srgbByte).concat(255), 2);
     expect(remaining.length).toBe(1);
     expect(remaining.item(0).stableId).toBe(entities[2]);
     expect(remaining.item(0).batch).not.toBe(blendBatch);
+});
+
+test("transparent type and alpha-mode transitions render from their new draws", async () => {
+    const { world } = subjects()[6];
+    const camera = addCamera(world, { translation: [0, 0, 5, 0] });
+    const standard = world.resource(Materials);
+    const red = standard.add(StandardMaterial({ baseColor: [1, 0, 0, 0.5], unlit: true }), {
+        alphaMode: AlphaMode.Blend,
+    });
+    const blue = world
+        .resource(TransitionMaterial)
+        .add({ color: d.vec4f(0, 0, 1, 0.5) }, { alphaMode: AlphaMode.Blend });
+    const greenOpaque = standard.add(StandardMaterial({ baseColor: [0, 1, 0, 0.25], unlit: true }));
+    const eid = world.create();
+    world.add(eid, Transform, { scale: [2, 2, 0.02, 0] });
+    world.add(eid, MeshInstance);
+    world.add(eid, MeshMaterial, red);
+
+    const [before] = await frame(world, [camera]);
+    expectPixelNear(centerPixel(before), [...blendOverBlackPixel([1, 0, 0], 0.5, 1), 255]);
+    const phase = world.resource(TransparentPhases).get(camera)!;
+    const redBatch = phase.item(0).batch;
+    const meshMaterial = world.storage(MeshMaterial);
+    const assign = (material: typeof red) => {
+        meshMaterial.type.set(eid, material.type);
+        meshMaterial.material.set(eid, material.material);
+        meshMaterial.alphaMode.set(eid, material.alphaMode);
+        meshMaterial.alphaCutoff.set(eid, material.alphaCutoff);
+    };
+
+    assign(blue);
+    const [afterType] = await frame(world, [camera]);
+    expectPixelNear(centerPixel(afterType), [...blendOverBlackPixel([0, 0, 1], 0.5, 1), 255]);
+    expect(phase.length).toBe(1);
+    expect(phase.item(0).batch).not.toBe(redBatch);
+    const blueBatch = phase.item(0).batch;
+
+    assign(greenOpaque);
+    const [afterAlphaMode] = await frame(world, [camera]);
+    expect(centerPixel(afterAlphaMode).slice(0, 3)).toEqual([0, 255, 0]);
+    expect(phase.length).toBe(0);
+    expect(blueBatch).not.toBe(redBatch);
 });
 
 test("transparent mesh instances are culled independently for each view", async () => {

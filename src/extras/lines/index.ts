@@ -91,12 +91,13 @@ export const Arrow = component(
 );
 
 const _m = new Float32Array(16);
+const RETAINED_LINES_QUERY = [Line, GlobalTransform];
 
 // each retained Line is one segment from the entity's world pos along its rotated offset; an Arrow on it
 // adds fletched heads at the endpoints. Appended on top of this frame's immediate segments. Small counts
 // (scene annotations) — the immediate API is the scale path
 function expandRetained(world: World): void {
-    for (const eid of world.query([Line, GlobalTransform])) {
+    for (const eid of world.query(RETAINED_LINES_QUERY)) {
         if (!world.storage(Line).visible.get(eid)) continue;
         composeGlobalTransform(world, eid, _m);
         const ox = world.storage(Line).offset.x.get(eid);

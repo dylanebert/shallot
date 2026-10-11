@@ -13,7 +13,7 @@ export interface AllocationSite {
 
 export interface AllocationWindow {
     label: string;
-    /** functions optimized during this window; its byte reading is refused */
+    /** functions optimized during this window; the strict allocation qualification refuses it */
     optimizations?: readonly string[];
     /** attributed sites, most bytes first; builtin bytes credit their caller */
     sites: readonly AllocationSite[];
@@ -123,9 +123,15 @@ export function allocationFailure(
  */
 export function sampleAllocation(
     entry: string,
-    options: { warm?: number; frames?: number; input?: string } = {},
+    options: {
+        warm?: number;
+        frames?: number;
+        input?: string;
+        /** Keep sampled sites for diagnosis even when a tier change makes strict qualification refuse a window. */
+        retainOptimizedSites?: boolean;
+    } = {},
 ): Promise<AllocationSample> {
-    return runSampler(entry, options, []);
+    return runSampler(entry, options, [], options.retainOptimizedSites ?? false);
 }
 
 /**
@@ -136,13 +142,14 @@ export function sampleTransition(
     entry: string,
     options: { warm?: number; frames?: number; input?: string } = {},
 ): Promise<TransitionSample> {
-    return runSampler(entry, options, ["transition"]) as Promise<TransitionSample>;
+    return runSampler(entry, options, ["transition"], false) as Promise<TransitionSample>;
 }
 
 async function runSampler(
     entry: string,
     { warm = 600, frames = 600, input = "" }: { warm?: number; frames?: number; input?: string },
     mode: string[],
+    retainOptimizedSites: boolean,
 ): Promise<AllocationSample> {
     const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-"));
     try {
@@ -185,7 +192,7 @@ async function runSampler(
             proc.exited,
         ]);
         if (code !== 0) throw new Error(`allocation sampler exited ${code}: ${stderr.trim()}`);
-        return tracedSample(`${measuredIsolateTrace(dir)}\n${stdout}`);
+        return tracedSample(`${measuredIsolateTrace(dir)}\n${stdout}`, { retainOptimizedSites });
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
@@ -203,7 +210,10 @@ export function measuredIsolateTrace(dir: string): string {
 }
 
 /** Read synchronous V8 optimization traces bracketed by the measured isolate's run markers. */
-export function tracedSample(stdout: string): AllocationSample {
+export function tracedSample(
+    stdout: string,
+    { retainOptimizedSites = false }: { retainOptimizedSites?: boolean } = {},
+): AllocationSample {
     const optimizations = new Map<string, Set<string>>();
     const marked = new Set<string>();
     let label: string | undefined;
@@ -233,7 +243,7 @@ export function tracedSample(stdout: string): AllocationSample {
         const names = optimizations.get(window.label);
         if (names?.size) {
             window.optimizations = [...names];
-            window.sites = [];
+            if (!retainOptimizedSites) window.sites = [];
         }
     }
     if (optimizations.has("transition"))
