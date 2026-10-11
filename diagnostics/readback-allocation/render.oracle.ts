@@ -42,6 +42,15 @@ function syntaxShape(node: any): unknown {
     );
 }
 
+function mentionsArguments(node: any): boolean {
+    if (Array.isArray(node)) return node.some(mentionsArguments);
+    if (!node || typeof node !== "object") return false;
+    if (node.type === "Identifier" && node.name === "arguments") return true;
+    return Object.entries(node)
+        .filter(([key]) => !parserMetadata.has(key))
+        .some(([, value]) => mentionsArguments(value));
+}
+
 function allocationWrapperFailure(
     sourceText: string,
     entry: (typeof gpuAllocationExpressions)[number],
@@ -49,7 +58,7 @@ function allocationWrapperFailure(
     const functionName = entry.fn.name;
     let source;
     try {
-        source = parse(sourceText, { sourceType: "module", plugins: ["typescript"] });
+        source = parse(sourceText, { sourceType: "module", plugins: ["typescript", "decorators-legacy"] });
     } catch {
         return `allocation exception wrapper ${functionName} source does not parse`;
     }
@@ -74,6 +83,22 @@ function allocationWrapperFailure(
     const wrapperSite = `src/engine/runtime/allocation-site.ts:${namePosition.line}:${namePosition.column + 1}`;
     if (wrapperSite !== entry.wrapperSite)
         return `allocation exception wrapper ${functionName} moved from ${entry.wrapperSite} to ${wrapperSite}`;
+    if (declaration.decorators?.length || declaration.params.some((parameter: any) => parameter.decorators?.length))
+        return `allocation exception wrapper ${functionName} must not have decorators`;
+    if (mentionsArguments(declaration.body))
+        return `allocation exception wrapper ${functionName} must not use arguments`;
+    let expectedDeclaration;
+    try {
+        const returnType = entry.returnType === undefined ? "" : `: ${entry.returnType}`;
+        expectedDeclaration = parse(
+            `function ${functionName}(${entry.parameters})${returnType} { ${entry.returns ? "return " : ""}${entry.expression}; }`,
+            { sourceType: "module", plugins: ["typescript", "decorators-legacy"] },
+        ).program.body[0];
+    } catch {
+        return `allocation exception wrapper ${functionName} has an invalid expected declaration`;
+    }
+    if (JSON.stringify(syntaxShape(declaration.params)) !== JSON.stringify(syntaxShape(expectedDeclaration?.params)))
+        return `allocation exception wrapper ${functionName} must have exactly parameters (${entry.parameters})`;
     if (declaration.body.body.length !== 1)
         return `allocation exception wrapper ${functionName} must contain only ${entry.returns ? "return " : ""}${entry.expression}`;
     const statement = declaration.body.body[0];
@@ -84,7 +109,7 @@ function allocationWrapperFailure(
         return `allocation exception wrapper ${functionName} must contain only ${entry.returns ? "return " : ""}${entry.expression}`;
     let expected;
     try {
-        expected = parse(entry.expression, { sourceType: "module", plugins: ["typescript"] }).program.body[0];
+        expected = parse(entry.expression, { sourceType: "module", plugins: ["typescript", "decorators-legacy"] }).program.body[0];
     } catch {
         return `allocation exception wrapper ${functionName} has invalid expected expression`;
     }
@@ -94,6 +119,8 @@ function allocationWrapperFailure(
         JSON.stringify(syntaxShape(actual)) !== JSON.stringify(syntaxShape(expected.expression))
     )
         return `allocation exception wrapper ${functionName} must contain only ${entry.returns ? "return " : ""}${entry.expression}`;
+    if (JSON.stringify(syntaxShape(declaration)) !== JSON.stringify(syntaxShape(expectedDeclaration)))
+        return `allocation exception wrapper ${functionName} must be a plain declaration containing only ${entry.returns ? "return " : ""}${entry.expression}`;
     return undefined;
 }
 
@@ -134,7 +161,7 @@ function isAdmittedAllocationSite(row: {
     );
 }
 
-test("allocation exceptions require each named wrapper to contain exactly its parsed API expression", () => {
+test("allocation exceptions require each named wrapper to keep its complete signature and API expression", () => {
     const source = allocationSource();
     assertAllocationWrappers(source);
     for (const entry of gpuAllocationExpressions)
@@ -144,12 +171,23 @@ test("allocation exceptions require each named wrapper to contain exactly its pa
     const expression = "    queue.submit(buffers);";
     const array = source.replace(expression, `${expression} const witness = new Array(16);`);
     const closure = source.replace(expression, `${expression} const witness = () => buffers.length;`);
-    expect(allocationWrapperFailure(array, submit)).toBe(
-        "allocation exception wrapper submitFrame must contain only queue.submit(buffers)",
+    const submitSignature = "submitFrame(queue: GPUQueue, buffers: readonly GPUCommandBuffer[]): void";
+    const rest = source.replace(
+        submitSignature,
+        "submitFrame(queue: GPUQueue, buffers: readonly GPUCommandBuffer[], ...spare: unknown[]): void",
     );
-    expect(allocationWrapperFailure(closure, submit)).toBe(
-        "allocation exception wrapper submitFrame must contain only queue.submit(buffers)",
+    const defaultParameter = source.replace(
+        submitSignature,
+        "submitFrame(queue: GPUQueue, buffers: readonly GPUCommandBuffer[] = []): void",
     );
+    const bodyFailure = "allocation exception wrapper submitFrame must contain only queue.submit(buffers)";
+    const parameterFailure = `allocation exception wrapper submitFrame must have exactly parameters (${submit.parameters})`;
+    expect(allocationWrapperFailure(array, submit)).toBe(bodyFailure);
+    expect(allocationWrapperFailure(closure, submit)).toBe(bodyFailure);
+    expect(allocationWrapperFailure(rest, submit)).toBe(parameterFailure);
+    expect(allocationWrapperFailure(defaultParameter, submit)).toBe(parameterFailure);
+    expect(() => assertAllocationWrappers(rest)).toThrow(parameterFailure);
+    expect(() => assertAllocationWrappers(defaultParameter)).toThrow(parameterFailure);
     const encoder = gpuAllocationExpressions[0]!;
     expect(
         isAdmittedAllocationSite({
@@ -331,7 +369,10 @@ test("the sampler admits a wrapper only at its declaration position", () => {
     expect(attributeAt()?.boundary).toBeUndefined();
 });
 
-test("rendering allocates no JavaScript heap beyond source-checked GPU and fence wrappers", async () => {
+test("steady rendering allocates no JavaScript heap beyond source-checked GPU and fence wrappers", async () => {
+    // The first frame after each profiler-session idle gap is collected but unprofiled.
+    // Session setup and post-idle work land together on it, so timing cannot separate them;
+    // one bounded allocation per gap is not the per-frame allocation that drives GC hitches.
     assertAllocationWrappers(allocationSource());
     const sample = await sampleAllocation(resolve(import.meta.dir, "render.entry.ts"), {
         warm: 6000,
