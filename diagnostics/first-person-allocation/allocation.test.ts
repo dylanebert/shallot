@@ -108,7 +108,7 @@ test("optimization traces refuse even a zero-byte window, including anonymous OS
         'SHALLOT_SAMPLE_END',
         JSON.stringify(sample),
     ];
-    const result = tracedSample(lines.join("\n"));
+    const result = tracedSample(lines.join("\r\n"));
     expect(result.windows[0].optimizations).toEqual(["late", "(anonymous)"]);
     expect(allocatesNothing(result)).toBe(false);
     expect(allocationFailure(result)).toContain("after warm 120; optimized late, (anonymous); no byte reading");

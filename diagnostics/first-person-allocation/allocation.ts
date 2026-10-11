@@ -219,7 +219,7 @@ export function tracedSample(
     const marked = new Set<string>();
     let label: string | undefined;
     let json: string | undefined;
-    for (const line of stdout.split("\n")) {
+    for (const line of stdout.split(/\r?\n/)) {
         if (line.startsWith("SHALLOT_SAMPLE_BEGIN ")) {
             if (label !== undefined) throw new Error("nested allocation trace marker");
             label = JSON.parse(line.slice("SHALLOT_SAMPLE_BEGIN ".length)) as string;
