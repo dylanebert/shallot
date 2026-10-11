@@ -13,7 +13,7 @@ const entry = resolve(
     import.meta.dir,
     "../../../diagnostics/first-person-allocation/shared-transparent.entry.ts",
 );
-const WARM_FRAMES = 720;
+const WARM_FRAMES = 360;
 const WINDOW_FRAMES = 60;
 let sampler: PreparedAllocationSampler | undefined;
 
