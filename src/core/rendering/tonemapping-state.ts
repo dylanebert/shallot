@@ -99,6 +99,13 @@ function destroyTargets(targets: Targets) {
     for (const t of targets.hdr) t.texture.destroy();
     for (const t of targets.display) t.texture.destroy();
 }
+
+function pruneTargets(this: World, targets: Targets, view: View): void {
+    if (this.resource(Views).get(targets.eid) !== view) {
+        destroyTargets(targets);
+        this.resource(tonemappingStateKey).targets.delete(view);
+    }
+}
 function intermediates(world: World, eid: number, view: View, before: number, after: number) {
     const state = world.resource(tonemappingStateKey);
     let targets = state.targets.get(view);
@@ -200,12 +207,7 @@ export const TonemappingSystem: System = {
                 input = output;
             }
         }
-        for (const [view, targets] of state.targets) {
-            if (world.resource(Views).get(targets.eid) !== view) {
-                destroyTargets(targets);
-                state.targets.delete(view);
-            }
-        }
+        state.targets.forEach(pruneTargets, world);
     },
 };
 
