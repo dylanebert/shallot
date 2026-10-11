@@ -6,7 +6,7 @@
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
 // its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces;
 // writes window markers into this isolate's trace file and one JSON sample on stdout.
-import { readdirSync, readFileSync, realpathSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
 import { dirname, relative, resolve } from "node:path";
@@ -177,6 +177,9 @@ export function traceMarks() {
         return { begin: compile.bind(null, begin), end: compile.bind(null, end) };
     };
 }
+
+/** The result file the sampler writes in its working directory. */
+export const SAMPLE_RESULT = "allocation-result.json";
 
 async function main() {
     const [bundle, warmArg, framesArg, inputFile, mode] = process.argv.slice(2);
@@ -378,7 +381,10 @@ async function main() {
         // empty site set is not a dead probe. It runs last, so it never reaches the windows' code.
         const controlSites = await sample(controls, frames, "control");
 
-        process.stdout.write(
+        // A file, not stdout: V8 prints some optimization traces to stdout through its own buffered
+        // stream, which on Windows can interleave inside this process's writes to the same pipe.
+        writeFileSync(
+            SAMPLE_RESULT,
             `${JSON.stringify({
                 runtime: `node ${process.version} ${process.execArgv.join(" ")}`,
                 warm,

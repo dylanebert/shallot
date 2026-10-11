@@ -1,6 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { SAMPLE_RESULT } from "./allocation-sampler.mjs";
 
 export interface AllocationFrame {
     functionName: string;
@@ -267,13 +268,15 @@ async function runBuiltSampler(
                 env: { ...process.env, SHALLOT_PROJECT_ROOT: process.cwd() },
             },
         );
-        const [stdout, stderr, code] = await Promise.all([
+        const [, stderr, code] = await Promise.all([
             new Response(proc.stdout).text(),
             new Response(proc.stderr).text(),
             proc.exited,
         ]);
         if (code !== 0) throw new Error(`allocation sampler exited ${code}: ${stderr.trim()}`);
-        return tracedSample(`${measuredIsolateTrace(dir)}\n${stdout}`, { retainOptimizedSites });
+        return tracedSample(`${measuredIsolateTrace(dir)}\n${readFileSync(join(dir, SAMPLE_RESULT), "utf8")}`, {
+            retainOptimizedSites,
+        });
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
