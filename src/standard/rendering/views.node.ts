@@ -1,10 +1,39 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Camera, createApp, StandardRenderingPlugin, Transform } from "@dylanebert/shallot";
+import {
+    Camera,
+    createApp,
+    PointLight,
+    StandardRenderingPlugin,
+    Transform,
+} from "@dylanebert/shallot";
 import { CEILING } from "../../../scripts/test-tiers";
-import { attachTexture, MAX_SLOTS, MAX_VIEWS, RenderContext, Views } from "../../core/rendering";
+import { MeshInstance } from "../../core/mesh";
+import {
+    attachTexture,
+    attachView,
+    captureTexture,
+    detachCanvas,
+    MAX_SLOTS,
+    MAX_VIEWS,
+    RenderContext,
+    Tonemapping,
+    TonemappingMethod,
+    Views,
+} from "../../core/rendering";
 import { tonemappingStateKey } from "../../core/rendering/tonemapping-state";
+import {
+    presentingViewRefusal,
+    presentingViewSlot,
+    viewResourcesKey,
+} from "../../core/rendering/view";
+import { Fog, FogPlugin } from "../../extras/fog";
+import { Outline, OutlinePlugin } from "../../extras/outline";
 import { CLUSTER_COUNT, CLUSTER_Z, Clusters, clusterGpuKey, LightCull } from "./cluster";
+import { StandardRenderer } from "./forward";
 import { MAX_POINT_LIGHTS } from "./lighting";
+import { Materials, MeshMaterial, StandardMaterial } from "./material";
+import { getGroup } from "./pipelines";
+import { Draws } from "./registry";
 
 setDefaultTimeout(CEILING.node);
 
@@ -14,6 +43,26 @@ await setupGlobals();
 
 async function withStandard() {
     return createApp({ plugins: [StandardRenderingPlugin] });
+}
+
+async function withVisualRendering() {
+    return createApp({ plugins: [StandardRenderingPlugin, FogPlugin, OutlinePlugin] });
+}
+
+function renderedCamera(
+    world: Awaited<ReturnType<typeof withStandard>>["world"],
+    antialias: number,
+    presenting = true,
+) {
+    const eid = world.create();
+    world.add(eid, Transform, { translation: [0, 0, 5, 0] });
+    world.add(eid, Camera);
+    world.add(eid, StandardRenderer);
+    world.add(eid, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
+    world.storage(Camera).antialias.set(eid, antialias);
+    if (presenting) attachTexture(world, eid, { width: 64, height: 64 });
+    else attachView(world, eid);
+    return eid;
 }
 
 function camera(world: Awaited<ReturnType<typeof withStandard>>["world"]): number {
@@ -29,6 +78,21 @@ test("the fixed cull uniform holds the presenting prefix and all 52 shadow slots
     expect(MAX_VIEWS).toBe(533);
 });
 
+test("CPU slot assignment accepts presenting camera 533 and refuses 534 without corruption", () => {
+    const slots: number[] = [];
+    let refusal: string | undefined;
+    for (let eid = 1; eid <= MAX_VIEWS + 1; eid++) {
+        const slot = presentingViewSlot(slots.length);
+        if (slot === undefined) refusal = presentingViewRefusal(eid);
+        else slots[slot] = eid;
+    }
+    expect(slots).toHaveLength(MAX_VIEWS);
+    expect(slots).toEqual(Array.from({ length: MAX_VIEWS }, (_, slot) => slot + 1));
+    expect(refusal).toBe(
+        `shallot: ${MAX_VIEWS} presenting-view cull limit reached; entity ${MAX_VIEWS + 1} skipped`,
+    );
+});
+
 test("a ninth presenting camera draws instead of being skipped", async () => {
     const app = await withStandard();
     try {
@@ -38,6 +102,179 @@ test("a ninth presenting camera draws instead of being skipped", async () => {
         expect(render.shadeCount).toBe(9);
         expect(render.viewCount).toBe(9);
         for (const eid of cameras) expect(app.world.resource(Views).get(eid)?.presented).toBe(true);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("growth keeps lit fogged outline pixels coherent with MSAA on and off", async () => {
+    for (const antialias of [0, 1]) {
+        const app = await withVisualRendering();
+        try {
+            const world = app.world;
+            const first = renderedCamera(world, antialias);
+            const fog = world.create();
+            world.add(fog, Fog, { density: 0.3, steps: 16, jitter: 0 });
+            const mesh = world.create();
+            world.add(mesh, Transform);
+            world.add(mesh, MeshInstance);
+            world.add(
+                mesh,
+                MeshMaterial,
+                world.resource(Materials).add(
+                    StandardMaterial({
+                        baseColor: [0.85, 0.08, 0.02, 1],
+                        perceptualRoughness: 0.8,
+                    }),
+                ),
+            );
+            world.add(mesh, Outline, { color: [0.1, 1, 0.2, 1], width: 3 });
+            const point = world.create();
+            world.add(point, Transform, { translation: [1, 1, 2, 0] });
+            world.add(point, PointLight, { color: 0xff8844, intensity: 315225.92, range: 10 });
+            const second = renderedCamera(world, antialias, false);
+
+            world.step(0);
+            world.step(0);
+            const beforeGrowth = await captureTexture(world, first);
+            const draw = [...world.resource(Draws).values()][0]!;
+            const entry = getGroup(world, draw.name)!;
+            const oldGroup = entry.engineCache.get(0);
+            expect(oldGroup).toBeDefined();
+            let greenOutlinePixels = 0;
+            for (let i = 0; i < beforeGrowth.rgba.length; i += 4) {
+                if (
+                    beforeGrowth.rgba[i + 1]! > beforeGrowth.rgba[i]! &&
+                    beforeGrowth.rgba[i + 1]! > beforeGrowth.rgba[i + 2]!
+                )
+                    greenOutlinePixels++;
+            }
+            expect(greenOutlinePixels).toBeGreaterThan(10);
+
+            detachCanvas(world, second);
+            attachTexture(world, second, { width: 64, height: 64 });
+            world.gpu.device.pushErrorScope("validation");
+            world.step(0);
+            world.step(0);
+            await world.gpu.device.queue.onSubmittedWorkDone();
+            const grownFirst = await captureTexture(world, first);
+            const grownSecond = await captureTexture(world, second);
+            expect(Buffer.from(grownFirst.rgba).equals(Buffer.from(grownSecond.rgba))).toBe(true);
+            expect(Buffer.from(beforeGrowth.rgba).equals(Buffer.from(grownFirst.rgba))).toBe(true);
+            const grownEntry = getGroup(world, draw.name)!;
+            expect(grownEntry).toBe(entry);
+            expect(grownEntry.engineCache.get(0)).not.toBe(oldGroup);
+            expect(await world.gpu.device.popErrorScope()).toBeNull();
+
+            for (const eid of [first, second]) {
+                const pixels = (await captureTexture(world, eid)).rgba;
+                let green = 0;
+                for (let i = 0; i < pixels.length; i += 4) {
+                    if (pixels[i + 1]! > pixels[i]! && pixels[i + 1]! > pixels[i + 2]!) green++;
+                }
+                expect(green).toBeGreaterThan(10);
+            }
+
+            const litCenter = (rgba: Uint8ClampedArray) => {
+                const at = (32 * 64 + 32) * 4;
+                return [...rgba.subarray(at, at + 3)];
+            };
+            const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
+            world.remove(fog, Fog);
+            world.step(0);
+            world.step(0);
+            const withoutFog = [
+                await captureTexture(world, first),
+                await captureTexture(world, second),
+            ];
+            for (let slot = 0; slot < 2; slot++) {
+                expect(lit[slot]).not.toEqual(litCenter(withoutFog[slot]!.rgba));
+            }
+
+            world.remove(point, PointLight);
+            world.step(0);
+            world.step(0);
+            const withoutPoint = [
+                await captureTexture(world, first),
+                await captureTexture(world, second),
+            ];
+            for (let slot = 0; slot < 2; slot++) {
+                expect(litCenter(withoutFog[slot]!.rgba)).not.toEqual(
+                    litCenter(withoutPoint[slot]!.rgba),
+                );
+            }
+
+            for (const eid of [first, second])
+                world.storage(Tonemapping).method.set(eid, TonemappingMethod.None);
+            world.step(0);
+            world.step(0);
+            const withoutOperator = [
+                await captureTexture(world, first),
+                await captureTexture(world, second),
+            ];
+            for (let slot = 0; slot < 2; slot++) {
+                expect(
+                    Buffer.from(withoutPoint[slot]!.rgba).equals(
+                        Buffer.from(withoutOperator[slot]!.rgba),
+                    ),
+                ).toBe(false);
+            }
+        } finally {
+            app.dispose();
+        }
+    }
+});
+
+test("removing a camera releases its targets and shifts the remaining tone group with its slot", async () => {
+    const app = await withStandard();
+    try {
+        const world = app.world;
+        const first = renderedCamera(world, 0);
+        const second = renderedCamera(world, 0);
+        world.storage(Tonemapping).method.set(second, TonemappingMethod.None);
+        const mesh = world.create();
+        world.add(mesh, Transform);
+        world.add(mesh, MeshInstance);
+        world.add(
+            mesh,
+            MeshMaterial,
+            world.resource(Materials).add(
+                StandardMaterial({
+                    baseColor: [0.85, 0.08, 0.02, 1],
+                    perceptualRoughness: 0.8,
+                }),
+            ),
+        );
+        const point = world.create();
+        world.add(point, Transform, { translation: [1, 1, 2, 0] });
+        world.add(point, PointLight, { color: 0xff8844, intensity: 315225.92, range: 10 });
+
+        world.step(0);
+        world.step(0);
+        const beforeRemoval = await captureTexture(world, second);
+        const removedView = world.resource(Views).get(first)!;
+        const viewResources = world.resource(viewResourcesKey);
+        const tonemapping = world.resource(tonemappingStateKey);
+        expect(viewResources.offscreen.has(first)).toBe(true);
+        expect(tonemapping.targets.has(removedView)).toBe(true);
+
+        world.remove(first, Camera);
+        world.step(0);
+        world.step(0);
+        expect(world.resource(Views).has(first)).toBe(false);
+        expect(world.resource(Views).get(second)?.slot).toBe(0);
+        expect(viewResources.offscreen.has(first)).toBe(false);
+        expect(tonemapping.targets.has(removedView)).toBe(false);
+        const afterRemoval = await captureTexture(world, second);
+        expect(Buffer.from(afterRemoval.rgba).equals(Buffer.from(beforeRemoval.rgba))).toBe(true);
+
+        world.storage(Tonemapping).method.set(second, TonemappingMethod.KhronosPbrNeutral);
+        world.step(0);
+        world.step(0);
+        const afterToneChange = await captureTexture(world, second);
+        expect(Buffer.from(afterToneChange.rgba).equals(Buffer.from(afterRemoval.rgba))).toBe(
+            false,
+        );
     } finally {
         app.dispose();
     }

@@ -64,7 +64,7 @@ const tonemappingState = () => {
         pipeline: null as GPURenderPipeline | null,
         displayPipeline: null as GPURenderPipeline | null,
         buffers: [] as GPUBuffer[],
-        groups: new WeakMap<View, { input: GPUTextureView; group: GPUBindGroup }>(),
+        groups: new WeakMap<View, { input: GPUTextureView; slot: number; group: GPUBindGroup }>(),
         targets: new Map<View, Targets>(),
         bytes,
         words: new Uint32Array(bytes.buffer),
@@ -169,9 +169,10 @@ export const TonemappingSystem: System = {
             state.words[5] = world.has(eid, Tonemapping) ? methods.method.get(eid) : 0;
             device.queue.writeBuffer(state.buffers[view.slot], 0, b);
             let cached = state.groups.get(view);
-            if (!cached || cached.input !== input) {
+            if (!cached || cached.input !== input || cached.slot !== view.slot) {
                 cached = {
                     input,
+                    slot: view.slot,
                     group: device.createBindGroup({
                         layout: world.gpu.root.unwrap(state.built.layout),
                         entries: [

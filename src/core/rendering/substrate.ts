@@ -54,8 +54,9 @@ import {
     INITIAL_VIEW_CAPACITY,
     initializeViewState,
     MAX_SLOTS,
-    MAX_VIEWS,
     offscreen,
+    presentingViewRefusal,
+    presentingViewSlot,
     pruneViews,
     sizeView,
     VIEW_BYTES,
@@ -316,10 +317,9 @@ export const BeginFrameSystem: System = {
                 depthOnly++;
                 continue;
             }
-            if (shadeCount >= MAX_VIEWS) {
-                console.warn(
-                    `shallot: ${MAX_VIEWS} presenting-view cull limit reached; entity ${eid} skipped`,
-                );
+            const slot = presentingViewSlot(shadeCount);
+            if (slot === undefined) {
+                console.warn(presentingViewRefusal(eid));
                 continue;
             }
             const texture = view.texture ?? view.context!.getCurrentTexture();
@@ -328,9 +328,9 @@ export const BeginFrameSystem: System = {
             view.present = texture.createView();
             view.framebuffer = offscreen(world, eid, view.width, view.height);
             view.framebufferFormat = _render.format;
-            presentingEids[shadeCount] = eid;
-            presentingViews[shadeCount] = view;
-            shadeCount++;
+            presentingEids[slot] = eid;
+            presentingViews[slot] = view;
+            shadeCount = slot + 1;
         }
 
         _renderFrame.presentingEids.length = shadeCount;

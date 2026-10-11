@@ -54,6 +54,16 @@ export const MAX_SHADOW_SLOTS = 52;
 /** Hardware-derived presenting ceiling after reserving every built-in shadow slot; buffers remain lazy-grown. */
 export const MAX_VIEWS = MAX_SLOTS - MAX_SHADOW_SLOTS;
 
+/** Assign a presenting camera's packed slot while keeping overflow out of the fixed tables. */
+export function presentingViewSlot(slot: number): number | undefined {
+    return slot < MAX_VIEWS ? slot : undefined;
+}
+
+/** The warning BeginFrameSystem emits when it refuses a presenting camera past the limit. */
+export function presentingViewRefusal(eid: number): string {
+    return `shallot: ${MAX_VIEWS} presenting-view cull limit reached; entity ${eid} skipped`;
+}
+
 /**
  * the byte size of the {@link ViewUniforms} uniform a surface statically reads, from the schema: projection,
  * camera basis, eye and inverse view-projection, followed by per-camera ambient radiance and exposure. Fog
