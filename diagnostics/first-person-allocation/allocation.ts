@@ -67,12 +67,15 @@ const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
  * Lower thresholds bring compiles into warm-up; synchronous compilation keeps installation in its run.
  * These flags do not guarantee a final tier, so Node refuses profiled runs that trace an optimization.
  * Keep production's lazy feedback: eager feedback changes steady allocation, not just compile timing.
+ * No WebAssembly inlining: the feedback it collects allocates on the JavaScript heap outside the optimization
+ * trace, and the sampler charges those bytes to the subject frame that called into the module.
  * Chromium receives these same timing flags, without the Node trace refusal.
  */
 export const TIER_FLAGS = [
     "--no-concurrent-recompilation",
     "--invocation-count-for-maglev=10",
     "--invocation-count-for-turbofan=10",
+    "--no-wasm-inlining",
 ];
 
 export const windowBytes = (window: { sites: readonly AllocationSite[] }) =>
