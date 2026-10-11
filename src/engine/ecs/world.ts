@@ -1,5 +1,11 @@
 import type * as d from "typegpu/data";
-import { ReadbackPool, type WorldGpu } from "../runtime";
+import {
+    createFrameEncoder,
+    finishFrameEncoder,
+    ReadbackPool,
+    submitFrame,
+    type WorldGpu,
+} from "../runtime";
 import { FieldColumns } from "./columns";
 import {
     type Component,
@@ -206,7 +212,8 @@ export class World {
         if (!this._inDrawGroup)
             throw new Error("World.frameEncoder is available only during the draw group of step()");
         if (!this._gpu) return undefined;
-        return (this._frameEncoder ??= this.gpu.device.createCommandEncoder(
+        return (this._frameEncoder ??= createFrameEncoder(
+            this.gpu.device,
             this._frameEncoderDescriptor,
         ));
     }
@@ -260,12 +267,12 @@ export class World {
     }
 
     private submitDrawEncoder(encoder: GPUCommandEncoder): void {
-        const commandBuffer = encoder.finish();
+        const commandBuffer = finishFrameEncoder(encoder);
         // Keep the spent wrapper reachable: V8 otherwise clears its weak method feedback and
         // recompiles this boundary after GC.
         this._lastSubmittedEncoder = encoder;
         this._commandBuffers[0] = commandBuffer;
-        this.gpu.device.queue.submit(this._commandBuffers);
+        submitFrame(this.gpu.device.queue, this._commandBuffers);
         for (const chunk of this._uploadChunks) {
             if (!chunk.used) continue;
             chunk.used = false;

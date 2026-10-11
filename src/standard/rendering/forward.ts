@@ -6,7 +6,7 @@ import {
     type TransparentPhase,
 } from "../../core/rendering";
 import { component } from "../../engine";
-import { withPipelineOwner } from "../../engine/runtime";
+import { executeRenderBundles, withPipelineOwner } from "../../engine/runtime";
 import {
     CullLightsSystem,
     initializeClusterState,
@@ -825,7 +825,7 @@ function renderColor(
         );
     }
 
-    if (pass.bundle) encoded.executeBundles(pass.replay);
+    if (pass.bundle) executeRenderBundles(encoded, pass.replay);
 
     // tally this camera's opaque indirect draws so the profiler derives the injected validation floor;
     // the honest count is post the `if (pipe)` skip, and excludes the backdrop's
@@ -1074,20 +1074,14 @@ function prepareTransparent(
             state.transparentEidsStage,
             bytes,
         );
-        phase.recordUpload(
-            bytes,
-            phase.measureTimings ? performance.now() - started : 0,
-        );
+        phase.recordUpload(bytes, phase.measureTimings ? performance.now() - started : 0);
     }
     if (runCount) {
         const bytes = runCount * INDIRECT_BYTES;
         const offset = argsBase * INDIRECT_BYTES;
         const started = phase.measureTimings ? performance.now() : 0;
         world.uploadGpuTable(args, offset, state.transparentArgsStage, bytes);
-        phase.recordUpload(
-            bytes,
-            phase.measureTimings ? performance.now() - started : 0,
-        );
+        phase.recordUpload(bytes, phase.measureTimings ? performance.now() - started : 0);
     }
 }
 

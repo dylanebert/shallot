@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  * @param {{ lineNumber: number, columnNumber: number }} frame
  * @param {import("node:module").SourceMap | undefined} map
  * @param {string} base
- * @returns {{ source: string, line: number } | undefined}
+ * @returns {{ source: string, line: number, column: number } | undefined}
  */
 export function originalPosition(frame, map, base) {
     const entry = map?.findEntry(frame.lineNumber, frame.columnNumber);
@@ -26,24 +26,25 @@ export function originalPosition(frame, map, base) {
     const source = entry.originalSource.startsWith("file://")
         ? new URL(entry.originalSource).pathname
         : resolve(base, entry.originalSource);
-    return { source, line: entry.originalLine };
+    return { source, line: entry.originalLine, column: entry.originalColumn };
 }
 
 /**
- * A subject frame's site: its function name and original source line, or `fallback` and its generated line
- * where the map has no entry.
+ * A frame's exact source position, including its column, or `fallback` and its generated position where
+ * the map has no entry.
  * @param {{ functionName: string, lineNumber: number, columnNumber: number }} frame
  * @param {import("node:module").SourceMap | undefined} map
  * @param {string} base
  * @param {string} fallback
+ * @param {string} root
  * @returns {string}
  */
-export function subjectSite(frame, map, base, fallback) {
+export function subjectSite(frame, map, base, fallback, root = process.cwd()) {
     const name = frame.functionName || "(anonymous)";
     const at = originalPosition(frame, map, base);
     return at === undefined
-        ? `${name} ${fallback}:${frame.lineNumber + 1}`
-        : `${name} ${relative(process.cwd(), at.source)}:${at.line + 1}`;
+        ? `${name} ${fallback}:${frame.lineNumber + 1}:${frame.columnNumber + 1}`
+        : `${name} ${relative(root.replace(/^\/private/, ""), at.source.replace(/^\/private/, ""))}:${at.line + 1}:${at.column + 1}`;
 }
 
 /**
@@ -52,37 +53,62 @@ export function subjectSite(frame, map, base, fallback) {
  */
 
 /**
- * Sum a sampling heap profile's bytes under a run frame by the nearest subject frame, or by the run frame
- * itself where the subject was inlined into it. A frame outside the subject (a builtin such as a typed-array
- * constructor, an iterator `next` or `Set.prototype.clear`, or the browser's own) credits the subject frame
- * above it. Samples outside every run frame, the profiler's and the harness's own, are not the subject's.
+ * Preserve the ordered allocation stack beneath each run marker. V8 reports a function's source position;
+ * exact WebGPU expressions are mapped separately to single-expression boundary functions.
  * @param {{ head: ProfileNode, samples: { nodeId: number, size: number }[] }} profile
  * @param {(frame: CallFrame) => string | undefined} runSite names a run frame, else undefined
- * @param {(frame: CallFrame) => string | undefined} siteOf names a subject frame, else undefined
- * Sample counts and bytes describe observed sites; attribution identifies a caller for diagnosis, not ownership.
- * @returns {{ site: string, bytes: number, count: number }[]} most bytes first
+ * @param {(frame: CallFrame) => string | undefined} siteOf names a source-mapped frame, else undefined
+ * @param {{ functionName: string, frameSource: string, expressionSite: string, expression: string }[]} expressions
+ * @returns {{ site: string, bytes: number, count: number, stack: { functionName: string, site: string, native: boolean, expression?: string }[], expression?: string }[]} most bytes first
  */
-export function attribute(profile, runSite, siteOf) {
-    const owner = new Map();
-    /** @param {ProfileNode} node @param {string | undefined} nearest */
-    const visit = (node, nearest) => {
-        const frame = node.callFrame;
-        const here = runSite(frame) ?? (nearest === undefined ? undefined : (siteOf(frame) ?? nearest));
-        if (here !== undefined) owner.set(node.id, here);
-        for (const child of node.children) visit(child, here);
+export function attribute(profile, runSite, siteOf, expressions = []) {
+    const expressionByFunction = new Map(expressions.map((entry) => [entry.functionName, entry]));
+    const paths = new Map();
+    /** @param {ProfileNode} node @param {CallFrame[]} path */
+    const visit = (node, path) => {
+        const current = [...path, node.callFrame];
+        paths.set(node.id, current);
+        for (const child of node.children) visit(child, current);
     };
-    visit(profile.head, undefined);
-    const bytes = new Map();
-    const counts = new Map();
+    visit(profile.head, []);
+    const rows = new Map();
     for (const { nodeId, size } of profile.samples) {
-        const key = owner.get(nodeId);
-        if (key === undefined) continue;
-        bytes.set(key, (bytes.get(key) ?? 0) + size);
-        counts.set(key, (counts.get(key) ?? 0) + 1);
+        const path = paths.get(nodeId);
+        if (!path) continue;
+        const runIndex = path.findIndex((frame) => runSite(frame) !== undefined);
+        if (runIndex < 0) continue;
+        const stack = path.slice(runIndex + 1).map((frame) => {
+            const native = frame.url === "" || frame.url === undefined || frame.url.startsWith("node:");
+            return {
+                functionName: frame.functionName || "(anonymous)",
+                site: native
+                    ? `${frame.functionName || "(native)"} <native>`
+                    : siteOf(frame) ?? `${frame.functionName || "(anonymous)"} ${frame.url}:${frame.lineNumber + 1}:${frame.columnNumber + 1}`,
+                native,
+            };
+        });
+        let topJavaScript = -1;
+        for (let i = stack.length - 1; i >= 0; i--) {
+            if (!stack[i].native) {
+                topJavaScript = i;
+                break;
+            }
+        }
+        const top = stack[topJavaScript];
+        const candidate = top && expressionByFunction.get(top.functionName);
+        const expression =
+            candidate && top.site.startsWith(`${candidate.functionName} ${candidate.frameSource}:`)
+                ? candidate
+                : undefined;
+        if (expression && topJavaScript >= 0) stack[topJavaScript].expression = expression.expressionSite;
+        const site = expression?.expressionSite ?? top?.site ?? "<no JavaScript frame>";
+        const key = JSON.stringify({ site, stack });
+        const row = rows.get(key) ?? { site, bytes: 0, count: 0, stack, expression: expression?.expressionSite };
+        row.bytes += size;
+        row.count++;
+        rows.set(key, row);
     }
-    return [...bytes]
-        .map(([name, size]) => ({ site: name, bytes: size, count: counts.get(name) ?? 0 }))
-        .sort((x, y) => y.bytes - x.bytes);
+    return [...rows.values()].sort((a, b) => b.bytes - a.bytes);
 }
 
 /**
@@ -130,6 +156,7 @@ async function main() {
         navigator.gpu = gpu;
 
         const bundlePath = realpathSync(bundle);
+        const projectRoot = process.env.SHALLOT_PROJECT_ROOT ?? process.cwd();
         const bundleUrl = pathToFileURL(bundlePath).href;
         const samplerUrl = import.meta.url;
 
@@ -144,9 +171,10 @@ async function main() {
                 : undefined;
         const bundleSite = (frame) =>
             frame.url === bundleUrl
-                ? subjectSite(frame, findSourceMap(bundlePath), dirname(bundlePath), "bundle")
+                ? subjectSite(frame, findSourceMap(bundlePath), dirname(bundlePath), "bundle", projectRoot)
                 : undefined;
-        const sites = (profile) => attribute(profile, runSite, bundleSite);
+        let expressions = [];
+        const sites = (profile) => attribute(profile, runSite, bundleSite, expressions);
 
         session.connect();
         connected = true;
@@ -183,6 +211,16 @@ async function main() {
         if (warm % CHUNK !== 0 || frames % CHUNK !== 0)
             throw new Error(`allocation sampler: warm and frames must be multiples of ${CHUNK}`);
         subject = await create(readFileSync(inputFile, "utf8"));
+        expressions = (subject.allocationExpressions ?? []).map((entry) => ({
+            functionName: entry.fn.name,
+            frameSource: "src/engine/runtime/allocation-site.ts",
+            expressionSite: entry.site,
+            expression: entry.expression,
+        }));
+        // Preserve only the named attribution boundaries as stack frames; subject systems still tier normally.
+        const neverOptimizeFunction = new Function("fn", "%NeverOptimizeFunction(fn)");
+        for (const entry of subject.allocationExpressions ?? []) neverOptimizeFunction(entry.fn);
+        for (const fn of subject.allocationFunctions ?? []) neverOptimizeFunction(fn);
         const stepChunk = () => {
             for (let i = 0; i < CHUNK; i++) subject.step();
         };
@@ -208,10 +246,11 @@ async function main() {
             const totals = new Map();
             for (let i = 0; i < n; i += CHUNK) {
                 for (const row of await sample(stepChunk, CHUNK, label)) {
-                    const current = totals.get(row.site) ?? { site: row.site, bytes: 0, count: 0 };
+                    const key = JSON.stringify([row.site, row.stack]);
+                    const current = totals.get(key) ?? { ...row, bytes: 0, count: 0 };
                     current.bytes += row.bytes;
                     current.count += row.count;
-                    totals.set(row.site, current);
+                    totals.set(key, current);
                 }
                 await subject.wait?.();
             }

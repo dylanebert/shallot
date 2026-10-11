@@ -4,6 +4,12 @@ import * as d from "typegpu/data";
 import type { Plugin, System, World } from "../../engine";
 import { ClearChangeMarksSystem, invertMat4, unpackColor } from "../../engine";
 import {
+    beginComputePass,
+    dispatchWorkgroups,
+    setComputeBindGroup,
+    setComputePipeline,
+} from "../../engine/runtime";
+import {
     composeGlobalTransform,
     PrepareGlobalTransformSystem,
     TransformPlugin,
@@ -391,10 +397,10 @@ export const BeginFrameSystem: System = {
                 : 0;
         if (globalTransformRuntime && globalTransformCount > 0) {
             const encoder = world.frameEncoder()!;
-            const pass = encoder.beginComputePass(GLOBAL_TRANSFORM_PASS);
-            pass.setPipeline(globalTransformRuntime.pipeline!);
-            pass.setBindGroup(0, globalTransformRuntime.group!);
-            pass.dispatchWorkgroups(Math.ceil(globalTransformCount / 64));
+            const pass = beginComputePass(encoder, GLOBAL_TRANSFORM_PASS);
+            setComputePipeline(pass, globalTransformRuntime.pipeline!);
+            setComputeBindGroup(pass, 0, globalTransformRuntime.group!);
+            dispatchWorkgroups(pass, Math.ceil(globalTransformCount / 64));
             pass.end();
         }
     },

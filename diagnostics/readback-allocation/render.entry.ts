@@ -2,6 +2,7 @@ import { createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLigh
 import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
+import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 
 
 export let controlSink: object;
@@ -40,6 +41,8 @@ export default async function create(_input = "", device?: GPUDevice) {
     if (world.resource(RenderContext).shadeCount === 0) throw new Error("allocation subject did not render a shaded view");
     return {
         world,
+        allocationExpressions: gpuAllocationExpressions,
+        allocationFunctions: [world.gpu.sync],
         step: () => { if (validation) throw validation; world.step(1 / 60); },
         wait: async () => {
             await Promise.race([world.gpu.device.queue.onSubmittedWorkDone(), failed, lost]);

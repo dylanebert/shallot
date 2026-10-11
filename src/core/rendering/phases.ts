@@ -1,4 +1,5 @@
 import type { Plugin, Resource, System, World } from "../../engine";
+import { beginRenderPass } from "../../engine/runtime";
 import { Camera, computeViewFromWorld } from "./camera";
 import { BeginFrameSystem, OverlaySystem, RenderingPlugin } from "./substrate";
 import {
@@ -290,7 +291,7 @@ function recordDepthPrepass(this: World, view: View, eid: number): void {
         }
     }
     if (!requested) return;
-    const pass = encoder.beginRenderPass(prepassDescriptor(this, eid, view));
+    const pass = beginRenderPass(encoder, prepassDescriptor(this, eid, view));
     const renderers = this.resource(RenderPhases);
     for (let i = 0; i < renderers.length; i++) renderers[i].prepass?.(this, eid, view, pass);
     pass.end();
@@ -327,7 +328,10 @@ function recordMainPass(this: World, view: View, eid: number): void {
         view.height,
         this.storage(Camera).antialias.get(eid) !== 0,
     );
-    const pass = encoder.beginRenderPass(colorPassDescriptor(this, eid, targets, view.framebuffer));
+    const pass = beginRenderPass(
+        encoder,
+        colorPassDescriptor(this, eid, targets, view.framebuffer),
+    );
     for (let i = 0; i < renderers.length; i++) renderers[i].opaque?.(this, eid, view, pass);
     let index = 0;
     started = phase.measureTimings ? performance.now() : 0;

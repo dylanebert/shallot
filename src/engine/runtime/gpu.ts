@@ -2,6 +2,7 @@ import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
 import type { Resource, World } from "../ecs";
 import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
+import { submissionFence } from "./allocation-site";
 import { captureGpuLog } from "./log";
 import { now } from "./platform";
 
@@ -1297,6 +1298,13 @@ export async function requestGPU(
         inFlight--;
         fences.completed++;
     };
+    function sync(): Promise<void> {
+        inFlight++;
+        fences.issued++;
+        const fence = submissionFence(d.queue);
+        fence.then(complete, settle);
+        return fence;
+    }
     let pipelineGuardState: PipelineGuardState | undefined;
     const trackedDevice = owner
         ? (() => {
@@ -1478,13 +1486,7 @@ export async function requestGPU(
         frame: 0,
         pending: () => inFlight,
         fences,
-        sync: () => {
-            inFlight++;
-            fences.issued++;
-            const fence = d.queue.onSubmittedWorkDone();
-            fence.then(complete, settle);
-            return fence;
-        },
+        sync,
         buffers: new Map<string, GPUBuffer>(),
         textures: new Map<string, GPUTexture>(),
         samplers: new Map<string, GPUSampler>(),

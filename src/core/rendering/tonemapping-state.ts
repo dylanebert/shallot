@@ -1,6 +1,12 @@
 import type { Plugin, System, World } from "../../engine";
 import { component, u32 } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import {
+    beginRenderPass,
+    draw,
+    precompile,
+    setRenderBindGroup,
+    setRenderPipeline,
+} from "../../engine/runtime";
 import { ColorGrading, GradingConfig } from "./color-grading";
 import {
     BeginFrameSystem,
@@ -195,10 +201,10 @@ export const TonemappingSystem: System = {
             const attachment = (state.pass.colorAttachments as GPURenderPassColorAttachment[])[0];
             attachment.view = after ? targets.display[0].view : view.present;
             state.pass.timestampWrites = world.gpu.span?.("tonemapping");
-            const pass = encoder.beginRenderPass(state.pass);
-            pass.setPipeline(after ? state.displayPipeline! : state.pipeline);
-            pass.setBindGroup(0, cached.group);
-            pass.draw(3);
+            const pass = beginRenderPass(encoder, state.pass);
+            setRenderPipeline(pass, after ? state.displayPipeline! : state.pipeline);
+            setRenderBindGroup(pass, 0, cached.group);
+            draw(pass, 3);
             pass.end();
             input = attachment.view;
             for (let i = 0; i < after; i++) {

@@ -16,7 +16,21 @@ import {
     VolumetricLight,
 } from "../../core/rendering";
 import type { System, World } from "../../engine";
-import { precompile, probeBuffer } from "../../engine/runtime";
+import {
+    beginComputePass,
+    beginRenderPass,
+    dispatchWorkgroups,
+    dispatchWorkgroups2,
+    drawIndexedIndirect,
+    precompile,
+    probeBuffer,
+    setComputeBindGroup,
+    setComputePipeline,
+    setIndexBuffer,
+    setRenderBindGroup,
+    setRenderPipeline,
+    setViewport,
+} from "../../engine/runtime";
 import { idiv, octEncodeNormal, srgbToLinear1, Xform, xformQuat } from "../../engine/utils";
 import {
     MAX_POINT_LIGHTS,
@@ -532,10 +546,10 @@ export const UpdateLightClustersSystem: System = {
         );
         _clusterGpu.gridPass.timestampWrites = world.gpu.span?.("cluster:aabbs");
         const grid = bindGrid(world);
-        const pass = world.frameEncoder()!.beginComputePass(_clusterGpu.gridPass);
-        pass.setPipeline(grid.pipeline);
-        pass.setBindGroup(0, grid.group);
-        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
+        const pass = beginComputePass(world.frameEncoder()!, _clusterGpu.gridPass);
+        setComputePipeline(pass, grid.pipeline);
+        setComputeBindGroup(pass, 0, grid.group);
+        dispatchWorkgroups2(pass, Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
         pass.end();
         _clusters.pending.set(_clusters.staging.subarray(0, used));
         _clusters.pendingUsed = used;
@@ -1409,17 +1423,17 @@ export const CullLightsSystem: System = {
         if (lightCount > 0) {
             const compact = bindCompact(world);
             _clusterGpu.compactPass.timestampWrites = world.gpu.span?.("light:compact");
-            const compactPass = encoder.beginComputePass(_clusterGpu.compactPass);
-            compactPass.setPipeline(compact.pipeline);
-            compactPass.setBindGroup(0, compact.group);
-            compactPass.dispatchWorkgroups(Math.ceil(lightCount / 64));
+            const compactPass = beginComputePass(encoder, _clusterGpu.compactPass);
+            setComputePipeline(compactPass, compact.pipeline);
+            setComputeBindGroup(compactPass, 0, compact.group);
+            dispatchWorkgroups(compactPass, Math.ceil(lightCount / 64));
             compactPass.end();
 
             _clusterGpu.zSlicePass.timestampWrites = world.gpu.span?.("light:z-slice");
-            const zSlicePass = encoder.beginComputePass(_clusterGpu.zSlicePass);
-            zSlicePass.setPipeline(zSlice.pipeline);
-            zSlicePass.setBindGroup(0, zSlice.group);
-            zSlicePass.dispatchWorkgroups(Math.ceil(MAX_POINT_LIGHTS / 64), _render.shadeCount);
+            const zSlicePass = beginComputePass(encoder, _clusterGpu.zSlicePass);
+            setComputePipeline(zSlicePass, zSlice.pipeline);
+            setComputeBindGroup(zSlicePass, 0, zSlice.group);
+            dispatchWorkgroups2(zSlicePass, Math.ceil(MAX_POINT_LIGHTS / 64), _render.shadeCount);
             zSlicePass.end();
 
             encodeLightRaster(
@@ -1433,20 +1447,21 @@ export const CullLightsSystem: System = {
         }
 
         _clusterGpu.allocationLocalPass.timestampWrites = world.gpu.span?.("light:allocate-local");
-        const localPass = encoder.beginComputePass(_clusterGpu.allocationLocalPass);
-        localPass.setPipeline(_clusterGpu.allocationLocalPipe);
-        localPass.setBindGroup(0, allocation);
-        localPass.dispatchWorkgroups(
+        const localPass = beginComputePass(encoder, _clusterGpu.allocationLocalPass);
+        setComputePipeline(localPass, _clusterGpu.allocationLocalPipe);
+        setComputeBindGroup(localPass, 0, allocation);
+        dispatchWorkgroups(
+            localPass,
             scratchCount(_clusterGpu.viewCapacity) / ALLOCATION_WORKGROUP_SIZE,
         );
         localPass.end();
 
         _clusterGpu.allocationGlobalPass.timestampWrites =
             world.gpu.span?.("light:allocate-global");
-        const globalPass = encoder.beginComputePass(_clusterGpu.allocationGlobalPass);
-        globalPass.setPipeline(_clusterGpu.allocationGlobalPipe);
-        globalPass.setBindGroup(0, allocation);
-        globalPass.dispatchWorkgroups(1);
+        const globalPass = beginComputePass(encoder, _clusterGpu.allocationGlobalPass);
+        setComputePipeline(globalPass, _clusterGpu.allocationGlobalPipe);
+        setComputeBindGroup(globalPass, 0, allocation);
+        dispatchWorkgroups(globalPass, 1);
         globalPass.end();
 
         if (lightCount > 0) {
@@ -1472,13 +1487,13 @@ function encodeLightRaster(
 ): void {
     const _clusterGpu = world.resource(clusterGpuKey);
     descriptor.timestampWrites = world.gpu.span?.(label);
-    const pass = world.frameEncoder()!.beginRenderPass(descriptor);
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, group);
-    pass.setIndexBuffer(_clusterGpu.rasterIndexBuffer!, "uint16");
-    pass.setViewport(0, 0, CLUSTER_X, CLUSTER_Y, 0, 1);
+    const pass = beginRenderPass(world.frameEncoder()!, descriptor);
+    setRenderPipeline(pass, pipeline);
+    setRenderBindGroup(pass, 0, group);
+    setIndexBuffer(pass, _clusterGpu.rasterIndexBuffer!, "uint16");
+    setViewport(pass, 0, 0, CLUSTER_X, CLUSTER_Y, 0, 1);
     for (let slot = 0; slot < shadeCount; slot++)
-        pass.drawIndexedIndirect(_clusterGpu.rasterArgs!, slot * RASTER_ARGS_SIZE);
+        drawIndexedIndirect(pass, _clusterGpu.rasterArgs!, slot * RASTER_ARGS_SIZE);
     pass.end();
     world.gpu.indirect?.(label, shadeCount);
 }
