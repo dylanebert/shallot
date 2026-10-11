@@ -16,7 +16,7 @@ import { Line, LinesPlugin } from "../lines";
 import { isolationFont } from "./font.fixture";
 import { internText, registerFont, Text, TextPlugin } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 let font = 0;
 const subjects = gpuApps(import.meta.path, [
     {
