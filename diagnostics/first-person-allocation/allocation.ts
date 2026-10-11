@@ -219,19 +219,38 @@ export function tracedSample(
     const marked = new Set<string>();
     let label: string | undefined;
     let json: string | undefined;
-    const recordOutput = (text: string) => {
-        for (const line of text.split(/\r\n|\r|\n/)) {
-            if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
-                const match = /<JSFunction(.*?) \(sfi =/.exec(line);
-                if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
-                const names = optimizations.get(label) ?? new Set<string>();
+    let line = "";
+    let lineLabels = new Set<string>();
+    const recordLine = () => {
+        if (lineLabels.size > 0 && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
+            const match = /<JSFunction(.*?) \(sfi =/.exec(line);
+            if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
+            for (const lineLabel of lineLabels) {
+                const names = optimizations.get(lineLabel) ?? new Set<string>();
                 names.add(match[1].trim() || "(anonymous)");
-                optimizations.set(label, names);
-            } else if (line.startsWith('{"runtime":')) {
-                json = line;
+                optimizations.set(lineLabel, names);
+            }
+        } else if (line.startsWith('{"runtime":')) {
+            json = line;
+        }
+        line = "";
+        lineLabels = new Set();
+    };
+    const recordOutput = (text: string) => {
+        for (let index = 0; index < text.length; index++) {
+            const character = text[index]!;
+            if (character === "\r") {
+                if (text[index + 1] === "\n") index++;
+                recordLine();
+            } else if (character === "\n") {
+                recordLine();
+            } else {
+                line += character;
+                if (label !== undefined) lineLabels.add(label);
             }
         }
     };
+    // V8 trace writes and synchronous marker writes can interleave in the middle of a stdout line.
     const markers = /SHALLOT_SAMPLE_BEGIN ("(?:[^"\\]|\\.)*")|SHALLOT_SAMPLE_END/g;
     let offset = 0;
     for (const marker of stdout.matchAll(markers)) {
@@ -248,6 +267,7 @@ export function tracedSample(
         offset = marker.index + marker[0].length;
     }
     recordOutput(stdout.slice(offset));
+    recordLine();
     if (label !== undefined || json === undefined) throw new Error("incomplete allocation trace");
     const sample = JSON.parse(json) as TransitionSample;
     for (const window of sample.windows) {

@@ -96,9 +96,10 @@ test("optimization traces refuse even a zero-byte window, including anonymous OS
         { label: "after warm 240", sites: [], frames: 120, framesAtMost: 120 },
         { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
     ] };
+    const begin = 'SHALLOT_SAMPLE_BEGIN "after warm 120"';
+    // Simulate V8 writing part of a trace line before the marker write to stdout.
     const lines = [
-        'V8 output without a trailing newlineSHALLOT_SAMPLE_BEGIN "after warm 120"',
-        '[compiling method 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV), mode: ConcurrencyMode::kSynchronous]',
+        `[compiling method 0x1 <JSFunction late (sfi = 0x2)> (target MA${begin}GLEV), mode: ConcurrencyMode::kSynchronous]`,
         '[completed compiling 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV)]',
         '[compiling method 0x1 <JSFunction (sfi = 0x3)> (target TURBOFAN_JS) OSR, mode: ConcurrencyMode::kSynchronous]',
         'SHALLOT_SAMPLE_END',
