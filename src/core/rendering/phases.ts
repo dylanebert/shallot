@@ -58,6 +58,8 @@ export class TransparentPhase {
     private _countValue = 0;
     private _rendererValue = -1;
     private readonly _viewFromWorld = new Float32Array(16);
+    /** @internal Reusable position input for renderers with their own typed staging. */
+    readonly positionScratch = new Float64Array(3);
     private _z0 = 0;
     private _z1 = 0;
     private _z2 = 1;
@@ -138,22 +140,23 @@ export class TransparentPhase {
         this.metrics.items++;
     }
 
-    /** @internal Trusted standard path: its identities are ECS ids and a renderer-selected batch key. */
-    addStandard(
-        draw: number,
-        batch: number,
-        x: number,
-        y: number,
-        z: number,
-        stableId: number,
-    ): void {
-        const sortKey = this._z0 * x + this._z1 * y + this._z2 * z + this._z3;
+    /** @internal Add an item from positionScratch using trusted built-in identities and batch keys. */
+    addFromScratch(draw: number, batch: number, stableId: number, stablePart = 0): void {
+        if (this._rendererValue < 0) invalidTransparentProducer();
+        if (!Number.isSafeInteger(stableId) || stableId < 0) invalidTransparentStableId(stableId);
+        if (!Number.isSafeInteger(stablePart) || stablePart < 0)
+            invalidTransparentStablePart(stablePart);
+        const sortKey =
+            this._z0 * this.positionScratch[0]! +
+            this._z1 * this.positionScratch[1]! +
+            this._z2 * this.positionScratch[2]! +
+            this._z3;
         if (!Number.isFinite(sortKey)) invalidTransparentSortKey(sortKey);
         this.ensureCapacity(this._countValue + 1);
         const item = this._items[this._countValue++];
         item.sortKey = sortKey;
         item.stableId = stableId;
-        item.stablePart = 0;
+        item.stablePart = stablePart;
         item.renderer = this._rendererValue;
         item.draw = draw;
         item.batch = batch;

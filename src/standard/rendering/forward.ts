@@ -875,6 +875,7 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     const placement = world.storage(GlobalTransform);
     const planes = world.resource(RenderContext).cullVolumeStaging;
     const planeBase = view.slot * CULL_VOLUME_FLOATS;
+    const position = phase.positionScratch;
     for (const instanceEid of world.query(TRANSPARENT_MESHES)) {
         const alphaMode = materials.alphaMode.get(instanceEid);
         if (!transparentAlpha(alphaMode)) continue;
@@ -917,7 +918,10 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
         const z = placement.translation.z.get(instanceEid) + lz + qw * tz + qx * ty - qy * tx;
         const worldRadius = radius * Math.max(Math.abs(sx), Math.abs(sy), Math.abs(sz));
         if (!sphereVisible(planes, planeBase, x, y, z, worldRadius)) continue;
-        phase.addStandard(instanceEid, pair, x, y, z, instanceEid);
+        position[0] = x;
+        position[1] = y;
+        position[2] = z;
+        phase.addFromScratch(instanceEid, pair, instanceEid, 0);
     }
 }
 

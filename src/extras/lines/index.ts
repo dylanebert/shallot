@@ -156,17 +156,13 @@ function queueLines(world: World, _eid: number, _view: View, phase: TransparentP
     const values = lineStaging(world);
     const stableIds = lineStableIds(world);
     const stableParts = lineStableParts(world);
+    const position = phase.positionScratch;
     for (let i = 0; i < count; i++) {
         const at = i * 8;
-        phase.add(
-            i,
-            0,
-            (values[at]! + values[at + 4]!) * 0.5,
-            (values[at + 1]! + values[at + 5]!) * 0.5,
-            (values[at + 2]! + values[at + 6]!) * 0.5,
-            stableIds[i]!,
-            stableParts[i]!,
-        );
+        position[0] = (values[at]! + values[at + 4]!) * 0.5;
+        position[1] = (values[at + 1]! + values[at + 5]!) * 0.5;
+        position[2] = (values[at + 2]! + values[at + 6]!) * 0.5;
+        phase.addFromScratch(i, 0, stableIds[i]!, stableParts[i]!);
     }
 }
 
