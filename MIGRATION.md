@@ -264,7 +264,6 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 |---|---|
 | `State`, and `state` in examples | `World`, `world` |
 | `Compute` | `world.gpu` |
-| Physics `World` | `PhysicsWorld` |
 | `Single`, `Pair`, `Quad`, field `Type` | `ScalarField`, `Vector2Field`, `Vector4Field`, `FieldType` |
 | `Transform.pos`, `.rot` | `translation`, `rotation` |
 | `Body.pos`, `.quat` | `position`, `rotation` |
@@ -570,7 +569,7 @@ Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallo
 - Replace `jump` with your input policy's velocity write. The local producer counts Space presses; `Player` buffers each new count once, and jump tuning belongs to `Player.jumpSpeed`.
 - Replace `globalTransform` with `world.storage(GlobalTransform).translation`; test membership with `world.has(eid, GlobalTransform)` when placement may not yet exist.
 - Replace `grounded` with `world.storage(Character).groundState.get(eid) === GroundState.OnGround`; steep ground is a separate state.
-- Replace `teleport` with `setKinematic(world, eid, position, rotation, true)` from `/standard/physics`, then clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn.
+- Replace the 0.9.5 character helper `teleport(eid, x, y, z)` with `setTransform(world, eid, position, rotation)` from `/standard/physics`, then clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn.
 - `PlayerPlugin` no longer installs `RenderingPlugin`: it authors the linked camera's pose without presentation. Keep rendering in the app's composition when presenting that camera.
 - Move gravity and jump tuning to `Player.gravity` (positive downward acceleration) and `Player.jumpSpeed`. Player owns acceleration, friction, sprint, coyote time (0.15 seconds), jump buffering (0.2 seconds) and platform carry. Its default speed is 6 m/s, sprint multiplier 1.5, jump speed 5 m/s and gravity 15 m/s².
 
@@ -747,90 +746,197 @@ if (presses !== state.lastPresses.get(eid)) {
 
 Advance `bufferTicks` once each fixed tick.
 
-## Shared physics data and standard simulation
+## Physics is authored and read through the ECS world
 
-Replace the old `Tumble`/`Physics` simulation plugin with `StandardPhysicsPlugin` from
-`@dylanebert/shallot/standard/physics`. It depends on core's `PhysicsPlugin`, which
-registers `Body` and the nine joint-kind components with their defaults but installs no solver.
-`createApp` includes that dependency automatically.
+Replace the 0.9.5 `TumblePlugin`/`AvbdPlugin` backend setup with `StandardPhysicsPlugin` from
+`@dylanebert/shallot/standard/physics`. It depends on core's `PhysicsPlugin`, which registers the
+shared physics components and installs no solver. `Physics.backend`, `PhysicsBackend`,
+`installBackend` and `uninstallBackend` are removed; `StepSystem` is now `StepPhysicsSystem`,
+and `ConstraintSystem` and `ComposeSystem` are internal to the plugin.
 
-Import shared components, `ShapeKind`, `Hulls`, `Hull`, `HullFace`, `UNIT_CUBE_ID`,
-`BodyState` from `@dylanebert/shallot/physics`. Import
-`StandardPhysicsPlugin`, `StepPhysicsSystem`, `PhysicsWorld`, `physicsWorld`,
-`readBody`, `setKinematic`, `setVelocity` and `hashPhysics` from `@dylanebert/shallot/standard/physics`. Both subpaths
-are also exported by the root barrel. Import `GlobalTransform` from the root or `/transform`,
-not `/physics`.
+In 0.9.5, `Tumble.world` exposed a `TumbleWorld` and `Tumble.body(eid)` returned a `TumbleBody`
+handle after the body was marshaled. Those handles, `Shape` and `Joint` handles, and `BodyState`
+are removed. The ECS `World` is the only physics world: author components and use World-first
+functions. Import `Body`, `Shape`, `ShapeKind`, `BodyType`, `Hulls`, `Hull`, `HullFace` and
+`UNIT_CUBE_ID` from `/physics`; import `StandardPhysicsPlugin`, `StepPhysicsSystem`, `hashPhysics`,
+`PhysicsWorldDefinition`, `PhysicsEvents`, the state-write and query functions, and `drawPhysics`
+from `/standard/physics`. Import `GlobalTransform` from the root or `/transform`.
 
-`Spring` and `Joint` are replaced by `DistanceJoint`, `FilterJoint`, `MotorJoint`,
-`ParallelJoint`, `PrismaticJoint`, `RevoluteJoint`, `SphericalJoint`, `WeldJoint`
-and `WheelJoint`. Each has body entity references `a` and `b`. Rename `rA` and
-`rB` to `localAnchorA` and `localAnchorB` (local-frame origins in meters), and
-write `localRotationA` and `localRotationB` as normalized `(x, y, z, w)`
-quaternions; both default to identity. Enable flags are authored as 0 or 1.
+### Bodies and shapes
 
-| Replaced authoring | Write instead |
-| --- | --- |
-| `Joint` with `stiffnessAng: 0` | `SphericalJoint` |
-| `Joint` with `stiffnessAng: Infinity` | `WeldJoint`; write frame B's `localRotationB` explicitly to preserve the old relative orientation (`inverse(bodyRotationB) * bodyRotationA` when frame A's rotation is identity). |
-| `Joint` with intermediate `stiffnessAng` | `WeldJoint` with `angularHertz` in Hz and an authored `angularDampingRatio`; stiffness is no longer converted. |
-| `Spring` with `rest` and `stiffness` | `DistanceJoint` with `enableSpring: 1`, `length` (formerly `rest`), `hertz` in Hz and `dampingRatio` (1 for critical damping); stiffness is no longer converted. |
+The 0.9.5 `Body.pos` and `Body.quat` become spawn-only `position` and `rotation`; scene-authored
+Euler degrees in `quat` must become an `(x, y, z, w)` quaternion. The new `type` field
+replaces the old mass-based motion choice. 0.9.5's default `mass` was 1,
+while 0.10 `Body` defaults to static, so author `type` explicitly. The other new Box3D body
+fields are `linearVelocity`, `angularVelocity`, `linearDamping`, `angularDamping`, `gravityScale`,
+`sleepThreshold`, `motionLocks`, `enableSleep`, `isAwake`, `isBullet`, `isEnabled`,
+`allowFastRotation` and `enableContactRecycling`. Initial velocities and `isAwake` are spawn-only;
+fields with Box3D setters apply at the next fixed sync.
 
-The constraint definitions, signatures and sync system are internal. Read body
-poses with `readBody`.
-
-`raycast`, `RayBody`, `RayHit`, `bodyCandidates`, `grabHit` and `worldToLocal`
-are removed. For picking, cast a camera ray through standard physics. Coordinates
-are CSS pixels relative to the camera's bound canvas; the ray length is in world units.
-A hit body's user data carries the entity id:
-
-```ts
-import type { World } from "@dylanebert/shallot";
-import { viewportToWorld } from "@dylanebert/shallot/rendering";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
-
-function pick(world: World, camera: number, x: number, y: number, maxDistance = 100) {
-    const ray = viewportToWorld(world, camera, x, y);
-    const physics = physicsWorld(world);
-    if (!ray || !physics) return null;
-    const hit = physics.castRayClosest(
-        { x: ray.origin[0], y: ray.origin[1], z: ray.origin[2] },
-        { x: ray.dir[0] * maxDistance, y: ray.dir[1] * maxDistance, z: ray.dir[2] * maxDistance },
-    );
-    if (!hit.hit || !hit.shape) return null;
-    return hit.shape.getBody().getUserData() as number;
-}
-```
-
-`Physics.backend` is gone. Read and drive bodies through World-first functions:
+Move the 0.9.5 `Body.shape`, `halfExtents`, `mass` and `friction` fields to `Shape`: `shape` becomes
+`Shape.kind`, `halfExtents.xyz` becomes `Shape.scale` for hulls, `mass` becomes per-shape density,
+and `friction` becomes `Shape.friction`. The old `.w` radius becomes `Shape.sphere.w` or
+`Shape.capsuleB.w`; a hull id moves to `Shape.geometry`. `ShapeKind.Box` becomes a scaled
+`ShapeKind.Hull`. Box3D computes mass from shape density and geometry, so do not copy total mass
+straight into density.
 
 ```ts
 // 0.9.5
-Physics.backend?.setKinematic(eid, position, rotation);
-const b = Tumble.body(eid);
+const eid = state.create();
+state.add(eid, Body);
+Body.shape.set(eid, ShapeKind.Box);
+Body.pos.set(eid, 0, 5, 0, 0);
+Body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
+Body.mass.set(eid, 1);
+Body.friction.set(eid, 0.5);
 ```
 
 ```ts
 // 0.10
-import { readBody, setKinematic } from "@dylanebert/shallot/standard/physics";
-setKinematic(world, eid, position, rotation);
-const b = readBody(world, eid);
+const eid = world.create();
+world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 5, 0, 0] });
+world.add(eid, Shape, {
+    kind: ShapeKind.Hull, geometry: UNIT_CUBE_ID, scale: [0.5, 0.5, 0.5, 0],
+    density: 1, friction: 0.5,
+});
 ```
 
-`Tumble.world` becomes `physicsWorld(world)`. `Tumble.body(eid)` becomes
-`physicsWorld(world)!.getBody(eid)`: a live solver handle for joint creation,
-or null before the authored body is marshaled. `readBody` returns pose and
-velocity instead of a mutable solver body.
-Read gravity through `physicsWorld(world)!.getGravity(out)` after
-warm-up and use `Time.FIXED_DT` for the step duration. There is no public
-substep setting.
-
-`getSensorEvents`, `getContactEvents` and `getJointEvents` now return arrays
-that the next step or the next call overwrites. Copy an array to keep it
-across a step; the events and handles inside it stay usable.
+0.9.5 `TumbleBody` could create several shapes directly; author each as a `Shape` entity instead:
 
 ```ts
-const hits = [...physicsWorld(world)!.getContactEvents().hitEvents];
+// 0.9.5
+const body = Tumble.body(eid);
+body?.createSphere({}, { center: { x: 1, y: 0, z: 0 }, radius: 0.25 });
 ```
+
+```ts
+// 0.10
+const collider = world.create();
+world.add(collider, Shape, { body: eid, kind: ShapeKind.Sphere, sphere: [1, 0, 0, 0.25] });
+```
+
+The 0.9.5 `Spring` and `Joint` components become `DistanceJoint`, `FilterJoint`, `MotorJoint`,
+`ParallelJoint`, `PrismaticJoint`, `RevoluteJoint`, `SphericalJoint`, `WeldJoint` and `WheelJoint`
+components. Their body references are `a` and `b`; rename `rA`/`rB` to `localAnchorA`/`localAnchorB`
+and author normalized `localRotationA`/`localRotationB` quaternions. For joints created through
+`Tumble.world`, add the corresponding component to a joint entity instead of retaining its handle:
+
+```ts
+// 0.9.5
+Tumble.world?.createRevoluteJoint(Tumble.body(a)!, Tumble.body(b)!, config);
+```
+
+```ts
+// 0.10
+world.add(jointEid, RevoluteJoint, { a, b });
+```
+
+| 0.9.5 authoring | 0.10 component |
+| --- | --- |
+| `Joint` with `stiffnessAng: 0` | `SphericalJoint` |
+| `Joint` with `stiffnessAng: Infinity` | `WeldJoint`; set `localRotationB` explicitly to preserve the old relative orientation (`inverse(bodyRotationB) * bodyRotationA` when frame A's rotation is identity). |
+| `Joint` with intermediate `stiffnessAng` | `WeldJoint` with `angularHertz` and `angularDampingRatio`; stiffness is no longer converted. |
+| `Spring` with `rest` and `stiffness` | `DistanceJoint` with `enableSpring: 1`, `length`, `hertz` and `dampingRatio`; stiffness is no longer converted. |
+
+### State writes and reads
+
+The 0.9.5 backend's `setKinematic` becomes `setTargetTransform` for motion and `setTransform` for
+teleporting. Box3D derives target velocities, so the old optional velocity override is removed.
+`setVelocity` becomes `setLinearVelocity`; the other body state writes are World-first functions
+mapped to Box3D operations (`setAngularVelocity`, `setAwake`, force, torque and impulse functions):
+
+```ts
+// 0.9.5
+Physics.backend?.setKinematic(eid, position, rotation);
+Physics.backend?.setKinematic(eid, respawnPosition, rotation, true);
+Physics.backend?.setVelocity(eid, vx, vy, vz);
+```
+
+```ts
+// 0.10
+setTargetTransform(world, eid, position, rotation);
+setTransform(world, eid, respawnPosition, rotation);
+setLinearVelocity(world, eid, { x: vx, y: vy, z: vz });
+```
+
+The 0.9.5 backend's `readBody(eid)` returned `pos`, `quat` and `vel`; read them from
+`GlobalTransform.translation`, `rotation` and `linearVelocity` columns. `Tumble.world.getBodyEvents()`
+is consumed internally to publish pose:
+
+```ts
+// 0.9.5
+const pose = Physics.backend?.readBody(eid);
+const x = pose?.pos[0];
+```
+
+```ts
+// 0.10
+const global = world.storage(GlobalTransform);
+const x = global.translation.column[eid * 4];
+```
+
+### World settings, events and callbacks
+
+The 0.9.5 `TumblePlugin` used gravity `(0, -10, 0)` and four substeps. `Tumble.world.setGravity`
+becomes a write to `PhysicsWorldDefinition`; substeps are now authored there too. Changes apply
+at the next fixed sync:
+
+```ts
+// 0.9.5
+Tumble.world?.setGravity({ x: 0, y: -9.8, z: 0 });
+const gravity = Tumble.world?.getGravity();
+```
+
+```ts
+// 0.10
+const definition = world.resource(PhysicsWorldDefinition);
+definition.gravity = { x: 0, y: -9.8, z: 0 };
+definition.subStepCount = 6;
+const gravity = definition.gravity;
+```
+
+Replace `Tumble.world.getSensorEvents()`, `getContactEvents()` and `getJointEvents()` with
+`world.resource(PhysicsEvents)`. Its `sensorBegin`, `sensorEnd`, `contactBegin`, `contactEnd`,
+`contactHit` and `joints` entries hold records and a count for the last fixed step. Where 0.9.5 events carried shape or joint handles,
+these records carry generation-aware `EntityRef`s; resolve them with `world.resolve(ref)`:
+
+```ts
+// 0.9.5
+const begins = Tumble.world?.getContactEvents().beginEvents;
+```
+
+```ts
+// 0.10
+const begins = world.resource(PhysicsEvents).contactBegin;
+for (let i = 0; i < begins.count; i++) world.resolve(begins.records[i]!.shapeA);
+```
+
+Custom-filter and pre-solve callbacks are new in 0.10; they receive the owning `World` and
+shape `EntityRef`s, with no 0.9.5 callback to replace. Move friction and restitution mix callbacks
+to `PhysicsWorldDefinition`; their old `(a, idA, b, idB)` arguments stay, with `World` added first.
+
+### Queries and debug drawing
+
+Replace `Tumble.world` methods with World-first functions. `castRay`, `castRayClosest`, `castShape`,
+`castShapeClosest`, `overlapAABB` and `overlapShape` report ECS shape/body ids; closest-hit functions
+write to caller-owned output. `draw` becomes `drawPhysics`:
+
+```ts
+// 0.9.5
+Tumble.world?.castRay(origin, translation, (hit) => hit.fraction);
+Tumble.world?.draw(draw);
+```
+
+```ts
+// 0.10
+castRay(world, origin, translation, (hit) => hit.fraction);
+drawPhysics(world, draw);
+```
+
+The 0.9.5 backend-neutral `raycast`, `RayBody`, `RayHit`, `bodyCandidates`, `grabHit` and
+`worldToLocal` helpers are removed. For camera picking, use `viewportToWorld` from `/rendering`, then pass its ray to `castRay` or
+`castRayClosest` (with caller-owned output); coordinates are CSS pixels relative to the camera's
+bound canvas, and ray length is in world units.
 
 ## `/avbd` is gone
 

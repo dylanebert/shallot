@@ -118,9 +118,16 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### Physics
 
-- `PhysicsPlugin` (`core/physics`) registers `Body` and the joint kinds with their defaults, and owns `ShapeKind`, the `Hulls` registry and solver-neutral observation of body poses; it knows no solver and installs no simulation.
-- `StandardPhysicsPlugin` (`standard/physics`) owns the whole Box3D-based simulation at `Time.FIXED_DT`. A body belongs to one simulation: a replacement backend consumes core's data and replaces all of standard physics, not single phases.
-- Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions and defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests.
+- `PhysicsPlugin` (`core/physics`) registers `Body`, `Shape`, the joint kinds and the geometry registries with their defaults; it knows no solver and installs no simulation.
+- `StandardPhysicsPlugin` (`standard/physics`) owns the whole Box3D-based simulation at `Time.FIXED_DT`, including `PhysicsWorldDefinition`. A body belongs to one simulation: a replacement backend consumes core's data and replaces all of standard physics, not single phases.
+- The ECS `World` is the only public physics world; the kernel world is an internal resource of it.
+- Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions whole, with their defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests.
+- A definition field with a Box3D setter applies through that setter at the next fixed sync; a field without one applies at spawn, and its JSDoc says so.
+- A state write is a function over the `World` that maps to one Box3D setter.
+- A read is the published column: pose and linear velocity are `GlobalTransform`'s. A read function exists only for state not yet published.
+- A marked field stays a candidate until physics' next fixed sync, which compares it with the kernel's current value; physics keeps no copy of ECS values.
+- Event records and world callbacks name entities by `EntityRef`, which outlives a recycled eid; a query reports the eids of shapes and bodies live when it runs.
+- The kernel's free functions are the internal Box3D-shaped API; the parity oracles call them as their native C files call Box3D, call for call.
 - Each phase has one implementation, in the kernel, built into the shared and single-thread artifacts from one source, since a page without cross-origin isolation has no shared memory; the worker count schedules it and is not a code path. TypeScript only coordinates: the public API, the ECS and `GlobalTransform` bridge, pool dispatch, and user callbacks at serial points.
 - Every host Shallot owns serves cross-origin isolation: `shallot()`'s `dev` and `preview`, the native shell and every publish target. Elsewhere the kernel steps the single-thread artifact after one log naming the missing headers, and no game branches on which.
 - Standard physics publishes the mover queries and `CharacterPlugin`; movement feel belongs to `extras/player`, over published names only.
@@ -181,7 +188,7 @@ bun run format                   # biome
 - Simulation lives in registered components and declared plugin recovery participants. `world.snapshot()` captures ECS identity, allocation, membership, fields, fixed tick and participants; `world.restore()` restores ECS and clock before plugin participants; derived presentation reconciles through a participant too.
 - A plugin declares recovery for state it owns that its own or another plugin's fixed systems read, not only state fixed systems write. It declares `recovery: "stateless"` when components or per-call reconstruction hold that state, or binds hidden state with `recovery(world)`, returning a pair `{ snapshot(), restore(state) }`. Snapshot images are independent and reusable, and may share immutable values; host handles, GPU state and pacing stay outside recovery.
 - Every fixed system has a recovery owner. Snapshot refuses an undeclared fixed plugin by name and an unattributed fixed system by system name. This registration guard does not prove that participants capture all simulation inputs.
-- Core physics recovers its mutable `Hulls` registry, read by fixed body synchronization. Standard physics participates with its solver image and ECS bindings. `PhysicsWorld.snapshot()` and `restore()` remain solver-only APIs; a physics hash does not prove ECS or gameplay recovery.
+- Core physics recovers its geometry registries, read by fixed body synchronization. Standard physics recovers its solver image and ECS bindings; a physics hash does not prove ECS or gameplay recovery.
 - `fixed` reads per-tick actions and `draw` presents. Recovery does not turn live device reads into replayable inputs.
 - Determinism holds within one runtime and engine version; hashes detect divergence across versions.
 - Frame evidence uses the cheapest observable: CPU state, then GPU readback, then browser pixels, then a person.
