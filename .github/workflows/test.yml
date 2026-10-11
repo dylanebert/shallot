@@ -40,10 +40,18 @@ jobs:
         run: bun run check
       - name: cheap tier
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts'
+        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts' --reporter=junit --reporter-outfile=cheap-junit.xml 2>&1 | tee cheap-test.log
+      - name: report slow cheap tests
+        if: always() && steps.install.outcome == 'success'
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts cheap-junit.xml cheap-test.log
 
   gpu:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +87,12 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: GPU tier
-        run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts
+        run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts --reporter=junit --reporter-outfile=gpu-junit.xml 2>&1 | tee gpu-test.log
+      - name: report slow GPU tests
+        if: always()
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts gpu-junit.xml gpu-test.log
 
   cargo:
     runs-on: ubuntu-latest
@@ -95,6 +108,9 @@ jobs:
 
   node:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -137,13 +153,21 @@ jobs:
           rustflags: ""
       - run: bun install --frozen-lockfile
       - name: Node tier
-        run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
+        run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee node-test.log
+      - name: report slow Node tests
+        if: always()
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts node-junit.xml node-test.log
       - name: compile time oracle
         if: matrix.shard == '1/2'
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -187,9 +211,19 @@ jobs:
         run: bun crates/physics/scripts/build-kernel.ts --checked
       - name: cheap tier
         if: matrix.shard == '1/5'
-        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts'
+        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts' --reporter=junit --reporter-outfile=checked-cheap-junit.xml 2>&1 | tee checked-cheap-test.log
+      - name: report slow cheap tests
+        if: always() && matrix.shard == '1/5'
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts checked-cheap-junit.xml checked-cheap-test.log
       - name: Node tier
-        run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
+        run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=checked-node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee checked-node-test.log
+      - name: report slow Node tests
+        if: always()
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts checked-node-junit.xml checked-node-test.log
 
   browser:
     runs-on: ${{ matrix.os }}
