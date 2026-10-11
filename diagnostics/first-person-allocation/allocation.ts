@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -145,15 +145,58 @@ export function sampleTransition(
     return runSampler(entry, options, ["transition"], false) as Promise<TransitionSample>;
 }
 
+export interface AllocationSamplerOptions {
+    warm?: number;
+    frames?: number;
+    input?: string;
+    /** Keep sampled sites for diagnosis even when a tier change makes strict qualification refuse a window. */
+    retainOptimizedSites?: boolean;
+}
+
+export interface PreparedAllocationSampler {
+    sample(options?: AllocationSamplerOptions): Promise<AllocationSample>;
+    dispose(): void;
+}
+
+/** Build an entry once, then sample it in fresh Node isolates without rebuilding the bundle. */
+export async function prepareAllocationSampler(entry: string): Promise<PreparedAllocationSampler> {
+    const bundle = await buildAllocationBundle(entry);
+    let disposed = false;
+    return {
+        sample(options = {}) {
+            if (disposed) throw new Error("allocation sampler was disposed");
+            return runBuiltSampler(
+                bundle,
+                options,
+                [],
+                options.retainOptimizedSites ?? false,
+            );
+        },
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            rmSync(bundle.dir, { recursive: true, force: true });
+        },
+    };
+}
+
 async function runSampler(
     entry: string,
-    { warm = 600, frames = 600, input = "" }: { warm?: number; frames?: number; input?: string },
+    options: { warm?: number; frames?: number; input?: string },
     mode: string[],
     retainOptimizedSites: boolean,
 ): Promise<AllocationSample> {
+    const bundle = await buildAllocationBundle(entry);
+    try {
+        return await runBuiltSampler(bundle, options, mode, retainOptimizedSites);
+    } finally {
+        rmSync(bundle.dir, { recursive: true, force: true });
+    }
+}
+
+async function buildAllocationBundle(entry: string): Promise<{ dir: string; path: string }> {
     const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-"));
     try {
-        writeFileSync(join(dir, "input.txt"), input);
         const { shallot } = await import("@dylanebert/shallot/bun");
         const built = await Bun.build({
             entrypoints: [entry],
@@ -166,6 +209,25 @@ async function runSampler(
         });
         if (!built.success)
             throw new Error(`allocation bundle failed: ${built.logs.map(String).join("\n")}`);
+        return { dir, path: join(dir, "subject.mjs") };
+    } catch (error) {
+        rmSync(dir, { recursive: true, force: true });
+        throw error;
+    }
+}
+
+async function runBuiltSampler(
+    bundle: { dir: string; path: string },
+    { warm = 600, frames = 600, input = "" }: { warm?: number; frames?: number; input?: string },
+    mode: string[],
+    retainOptimizedSites: boolean,
+): Promise<AllocationSample> {
+    const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-run-"));
+    try {
+        const subject = join(dir, "subject.mjs");
+        symlinkSync(bundle.path, subject);
+        const inputPath = join(dir, "input.txt");
+        writeFileSync(inputPath, input);
         const proc = Bun.spawn(
             [
                 "node",
@@ -178,10 +240,10 @@ async function runSampler(
                 "--redirect-code-traces",
                 "--allow-natives-syntax",
                 SAMPLER,
-                join(dir, "subject.mjs"),
+                subject,
                 String(warm),
                 String(frames),
-                join(dir, "input.txt"),
+                inputPath,
                 ...mode,
             ],
             { cwd: dir, stdout: "pipe", stderr: "pipe" },
