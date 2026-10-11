@@ -14,7 +14,7 @@ const materialMixingScenes = [
         input: `mesh:${start}`,
         warm: 2400,
     })),
-    { label: "compound contacts", input: "compound", warm: 6000 },
+    { label: "compound contacts", input: "compound", warm: 3000 },
 ];
 
 for (const { label, input, warm } of materialMixingScenes) {

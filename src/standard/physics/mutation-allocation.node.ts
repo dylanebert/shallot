@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,11 +13,10 @@ import { createTestWorld, destroyTestWorld } from "./testing";
 import type { WorldState } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
-test("warmed type, filter, joint, event-flag and destroy/create mutations match native WASM allocation counts", async () => {
+let countedKernelBytes: ArrayBuffer | undefined;
+
+beforeAll(async () => {
     const dir = mkdtempSync(join(tmpdir(), "shallot-mutation-alloc-"));
-    const runtime = kernelState(undefined);
-    const previous = runtime.instance;
-    let world: WorldState | undefined;
     try {
         const build = Bun.spawnSync(
             [
@@ -36,9 +35,21 @@ test("warmed type, filter, joint, event-flag and destroy/create mutations match 
             { cwd: resolve(import.meta.dir, "../../..") },
         );
         if (build.exitCode !== 0) throw new Error(build.stderr.toString());
-        const bytes = await Bun.file(
+        countedKernelBytes = await Bun.file(
             join(dir, "wasm32-unknown-unknown/release/shallot_physics.wasm"),
         ).arrayBuffer();
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}, CEILING.startup);
+
+test("warmed type, filter, joint, event-flag and destroy/create mutations match native WASM allocation counts", async () => {
+    const bytes = countedKernelBytes;
+    if (!bytes) throw new Error("counting kernel was not built");
+    const runtime = kernelState(undefined);
+    const previous = runtime.instance;
+    let world: WorldState | undefined;
+    try {
         const built = await WebAssembly.instantiate(bytes, {
             env: {
                 now: clockImport(() => k.memory),
@@ -70,7 +81,6 @@ test("warmed type, filter, joint, event-flag and destroy/create mutations match 
     } finally {
         if (world) destroyTestWorld(world);
         runtime.instance = previous;
-        rmSync(dir, { recursive: true, force: true });
     }
 });
 test("warmed type, filter, joint, event-flag and destroy/create mutations allocate no JavaScript heap", async () => {
