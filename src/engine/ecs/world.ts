@@ -58,6 +58,9 @@ export class World {
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
     private _frameEncoder: GPUCommandEncoder | undefined;
+    private readonly _frameEncoderDescriptor: GPUCommandEncoderDescriptor = {
+        label: "shallot-frame",
+    };
     private _lastSubmittedEncoder: GPUCommandEncoder | undefined;
     private readonly _commandBuffers: GPUCommandBuffer[] = [];
     private _frameFence: Promise<void> | undefined;
@@ -203,9 +206,9 @@ export class World {
         if (!this._inDrawGroup)
             throw new Error("World.frameEncoder is available only during the draw group of step()");
         if (!this._gpu) return undefined;
-        return (this._frameEncoder ??= this.gpu.device.createCommandEncoder({
-            label: "shallot-frame",
-        }));
+        return (this._frameEncoder ??= this.gpu.device.createCommandEncoder(
+            this._frameEncoderDescriptor,
+        ));
     }
 
     private runDrawGroup(run: () => void): void {
