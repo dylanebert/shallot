@@ -27,7 +27,7 @@ import {
 } from "./index";
 import { MeshRenderPlugin } from "./mesh-render";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 const parameters = d.struct({ unused: d.u32 });
 const varyings = { tint: d.vec4f };

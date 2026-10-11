@@ -36,7 +36,7 @@ import {
     writeLighting,
 } from "./lighting";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 const subjects = gpuApps(import.meta.path, [
