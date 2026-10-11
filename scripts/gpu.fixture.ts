@@ -2,6 +2,7 @@ import { afterAll, beforeAll } from "bun:test";
 import { relative } from "node:path";
 import { createApp, type Plugin } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
+import type { AdapterVerdict } from "../src/engine/runtime/adapter";
 import { expectWarning } from "./test-console";
 import { CEILING } from "./test-tiers";
 
@@ -58,13 +59,15 @@ export async function createTestGpuApp(
     config: Parameters<typeof createApp>[0],
 ): ReturnType<typeof createApp> {
     const app = await createApp(config);
-    const adapter = app.world.gpuIfAvailable?.adapter;
-    if (adapter && adapter.class !== "real") {
-        expectWarning(
-            /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
-        );
-    }
+    expectAdapterNotice(app.world.gpuIfAvailable?.adapter);
     return app;
+}
+
+/** Declare the exact notice `stampAdapter` prints for this acquisition's verdict, if it prints one. */
+export function expectAdapterNotice(verdict: AdapterVerdict | undefined): void {
+    if (!verdict || verdict.class === "real") return;
+    const notice = `[shallot] ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}`;
+    expectWarning(new RegExp(`^${notice.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
 }
 
 /** Wait for all fixture submissions before releasing the fixture's worlds. */

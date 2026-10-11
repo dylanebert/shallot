@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { expectError, expectWarning } from "../../../scripts/test-console";
+import { createTestGpuApp as createApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { RenderingPlugin } from "../../core/rendering";
 import { type Plugin, runApp } from "./index";
@@ -164,11 +164,8 @@ test("runApp waits on the engine frame fence instead of issuing a second complet
             });
         },
     };
-    expectWarning(
-        /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
-        { optional: true },
-    );
     const app = await runApp({ defaults: false, plugins: [RenderingPlugin, observed] });
+    expectAdapterNotice(app.world.gpuIfAvailable?.adapter);
     try {
         const deadline = performance.now() + CEILING.node / 2;
         while (app.world.gpu.frame < 3) {

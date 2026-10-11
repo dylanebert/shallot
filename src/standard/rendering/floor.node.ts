@@ -2,7 +2,11 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { create, globals } from "webgpu";
-import { createTestGpuApp as createApp, createTestGpuApp } from "../../../scripts/gpu.fixture";
+import {
+    createTestGpuApp as createApp,
+    createTestGpuApp,
+    expectAdapterNotice,
+} from "../../../scripts/gpu.fixture";
 import { expectError, expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Meshes, MeshInstance } from "../../core/mesh";
@@ -25,6 +29,7 @@ import { PointsPlugin } from "../../core/rendering/points.fixture";
 import { Transform } from "../../core/transform";
 import type { Plugin } from "../../engine";
 import { probeBuffer, stampAdapter } from "../../engine/runtime";
+import { type AdapterInfoFacts, classifyAdapter } from "../../engine/runtime/adapter";
 import { packColor } from "../../engine/utils";
 import { Line, LinesPlugin } from "../../extras/lines";
 import { lineLayout, viewLayout as lineViewLayout } from "../../extras/lines/pipeline";
@@ -167,9 +172,9 @@ test("pipeline creation refuses the ten-binding light-compact mutation and build
         });
         app.dispose();
 
-        expectWarning(
-            /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
-            { optional: true },
+        // The refused build stamps the supplied adapter before it throws.
+        expectAdapterNotice(
+            classifyAdapter({ present: true, info: adapter.info as AdapterInfoFacts }),
         );
         const message = await createApp({
             defaults: false,

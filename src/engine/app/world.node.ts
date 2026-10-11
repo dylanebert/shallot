@@ -1,8 +1,9 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
 import { expectError, expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { component, idOf } from "../ecs";
+import { classifyAdapter } from "../runtime/adapter";
 
 setDefaultTimeout(CEILING.node);
 
@@ -586,9 +587,8 @@ test("nested and asynchronous lifecycle hooks retain explicit field, resource an
             // Nested build waits for the build lock; direct lifecycle invocation exercises nesting
             // without asking that serialization contract to become reentrant.
             const child = new World();
-            expectWarning(/\[shallot\] WebGPU reports an adapter with no identity/, {
-                optional: true,
-            });
+            // A device without its adapter is stamped unidentified (requestGPU).
+            expectAdapterNotice(classifyAdapter({ present: true }));
             child.attachGpu(await requestGPU(parent!.gpu.device));
             try {
                 await childPlugin.initialize(child);

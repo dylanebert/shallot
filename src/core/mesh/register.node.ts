@@ -1,9 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { createTestGpuApp, gpuApps } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp, expectAdapterNotice, gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import type { createApp, Plugin, World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
+import { classifyAdapter } from "../../engine/runtime/adapter";
 import {
     MeshRenderPlugin,
     StandardRenderer,
@@ -187,12 +188,9 @@ test("three reruns of MeshPlugin.initialize destroy every family but the live on
 
 test("a mesh registered in setup, before MeshPlugin initializes, is refused by name", async () => {
     const owner = subjects()[0];
-    const adapter = owner.world.gpuIfAvailable?.adapter;
-    if (adapter && adapter.class !== "real") {
-        expectWarning(
-            /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
-        );
-    }
+    // The build below supplies a device without its adapter, which acquisition stamps unidentified
+    // whatever the owner's adapter is (src/engine/runtime/gpu.ts, requestGPU).
+    expectAdapterNotice(classifyAdapter({ present: true }));
     const device = rawDevice(owner.world.gpu.device);
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {

@@ -392,7 +392,9 @@ async function checkClusterScene(world: World): Promise<void> {
     expect(empty.dropped).toBe(0);
 
     expectWarning(
-        new RegExp(`shallot: 300 point lights exceed the ${MAX_POINT_LIGHTS} cap; \\d+ ignored`),
+        new RegExp(
+            `shallot: 300 point lights exceed the ${MAX_POINT_LIGHTS} cap; ${300 - MAX_POINT_LIGHTS} ignored`,
+        ),
     );
     const overflow = await checkScene(
         world,

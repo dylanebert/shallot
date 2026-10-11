@@ -276,7 +276,9 @@ test("the selected directional shadow caster is brightest, then lowest eid, and 
     const low = makeLight(5000);
     const tie = makeLight(5000);
     const bright = makeLight(8000);
-    expectWarning(/shallot: 3 directional lights request shadows; entity \d+ casts/);
+    expectWarning(
+        new RegExp(`shallot: 3 directional lights request shadows; entity ${bright} casts`),
+    );
     expect(shadowDirectionalLight(world)).toBe(bright);
     world.storage(DirectionalLight).illuminance.set(bright, 5000);
     expect(shadowDirectionalLight(world)).toBe(low);

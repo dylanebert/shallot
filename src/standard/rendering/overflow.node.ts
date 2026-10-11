@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
-import { expectWarning } from "../../../scripts/test-console";
+import { expectAdapterNotice } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { PointLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -14,11 +14,8 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 await setupGlobals();
 
 test("light culling clamps an overflowing index pool without readback and exposes drops only on request", async () => {
-    expectWarning(
-        /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
-        { optional: true },
-    );
     const subject = await createRenderedSubject();
+    expectAdapterNotice(subject.world.gpuIfAvailable?.adapter);
     const world = subject.world;
     try {
         for (let i = 0; i < 35; i++) {

@@ -30,7 +30,9 @@ test("recycled Shape geometry retries and placement warnings preserve restored b
         world.add(eid, Shape, { kind: ShapeKind.Hull, geometry: 999, scale: [1, 1, 1, 0] });
         world.add(eid, Transform);
         expectWarning(new RegExp(`physics-sync: entity ${eid} carries both Body and Transform`));
-        expectWarning(/Shape \d+ was not attached:.*missing hull 999/);
+        expectWarning(
+            new RegExp(`^\\[physics\\] Shape ${eid} was not attached:.*missing hull 999`),
+        );
         world.step(Time.FIXED_DT);
         world.step(Time.FIXED_DT);
         expect(worldCounters(physicsState(world)!).bodyCount).toBe(1);
@@ -83,7 +85,7 @@ for (const constraint of [SphericalJoint, DistanceJoint]) {
             expect(replacement).toBe(bob);
             world.add(replacement, Body, { type: BodyType.Dynamic, position: [0, 1, 0, 0] });
             expect(physicsBodyIndex(world, replacement)).toBe(-1);
-            expectWarning(/endpoint unavailable/);
+            expectWarning(new RegExp(`^\\[physics\\] \\w+Joint ${link} endpoint unavailable`));
             world.step(Time.FIXED_DT);
             expect(physicsBodyIndex(world, replacement)).toBeGreaterThanOrEqual(0);
             expect(worldCounters(solver).jointCount).toBe(0);
