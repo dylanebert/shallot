@@ -5,7 +5,7 @@
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
 // its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces;
-// writes window markers into this isolate's trace file and one JSON sample on stdout.
+// writes window markers into this isolate's trace file and one JSON sample to allocation-result.json in its working directory.
 import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
