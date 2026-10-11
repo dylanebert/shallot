@@ -284,7 +284,7 @@ export function measuredIsolateTrace(dir: string): string {
     const marked = readdirSync(dir)
         .filter((file) => /^code-\d+-\d+\.asm$/.test(file))
         .map((file) => readFileSync(join(dir, file), "utf8"))
-        .filter((text) => text.includes("SHALLOT_SAMPLE_BEGIN "));
+        .filter((text) => text.includes("<JSFunction SHALLOT_SAMPLE_BEGIN_"));
     if (marked.length !== 1)
         throw new Error(`expected one marked isolate trace, found ${marked.length}`);
     return marked[0];
@@ -300,13 +300,20 @@ export function tracedSample(
     let label: string | undefined;
     let json: string | undefined;
     for (const line of stdout.split("\n")) {
-        if (line.startsWith("SHALLOT_SAMPLE_BEGIN ")) {
-            if (label !== undefined) throw new Error("nested allocation trace marker");
-            label = JSON.parse(line.slice("SHALLOT_SAMPLE_BEGIN ".length)) as string;
-            marked.add(label);
-        } else if (line === "SHALLOT_SAMPLE_END") {
-            if (label === undefined) throw new Error("unpaired allocation trace marker");
-            label = undefined;
+        // The sampler's markers are functions V8 compiles, named SHALLOT_SAMPLE_<BEGIN|END>_<label hex>;
+        // each logs a compiling and a completed line, and the completed one moves the window.
+        const marker = /<JSFunction SHALLOT_SAMPLE_(BEGIN|END|\w+?)_([0-9a-f]*) \(sfi =/.exec(line);
+        if (marker) {
+            if (!line.startsWith("[completed compiling ")) continue;
+            const named = Buffer.from(marker[2], "hex").toString();
+            if (marker[1] === "BEGIN") {
+                if (label !== undefined) throw new Error("nested allocation trace marker");
+                label = named;
+                marked.add(label);
+            } else if (marker[1] === "END") {
+                if (label !== named) throw new Error(`unpaired allocation trace marker: ${named}`);
+                label = undefined;
+            }
         } else if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
             const match = /<JSFunction(.*?) \(sfi =/.exec(line);
             if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
