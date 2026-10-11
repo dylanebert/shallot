@@ -89,6 +89,38 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 const gpu = create([]);
+
+function storageLimitPlugin(bindings: number): Plugin {
+    return {
+        name: "StandardRendering",
+        gpu: {},
+        async warm(world) {
+            const device = world.gpu.device!;
+            // Same owner, pipeline label and storage count as a compact-layout mutation, without
+            // poisoning later builds by mutating the shared built-in schema.
+            const group = device.createBindGroupLayout({
+                label: "shallot-light-compact-mutation",
+                entries: Array.from({ length: bindings }, (_, binding) => ({
+                    binding,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" as const },
+                })),
+            });
+            const layout = device.createPipelineLayout({ bindGroupLayouts: [group] });
+            await device.createComputePipelineAsync({
+                label: "shallot-light-compact",
+                layout,
+                compute: {
+                    module: device.createShaderModule({
+                        code: "@compute @workgroup_size(1) fn main() {}",
+                    }),
+                    entryPoint: "main",
+                },
+            });
+        },
+    };
+}
+
 function storageCount(layout: unknown, stage: "vertex" | "fragment"): number {
     const entries = (
         layout as {
@@ -117,6 +149,42 @@ const proof: Plugin = {
         );
     },
 };
+
+test("pipeline creation refuses the ten-binding light-compact mutation and builds at eight", async () => {
+    const adapter = await gpu.requestAdapter();
+    if (!adapter) throw new Error("WebGPU adapter unavailable");
+    const device = await adapter.requestDevice({
+        requiredLimits: { maxStorageBuffersPerShaderStage: 8 },
+    });
+    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
+    try {
+        const app = await createApp({
+            defaults: false,
+            plugins: [storageLimitPlugin(8)],
+            device,
+            adapter,
+        });
+        app.dispose();
+
+        const message = await createApp({
+            defaults: false,
+            plugins: [storageLimitPlugin(10)],
+            device,
+            adapter,
+        }).then(
+            (app) => {
+                app.dispose();
+                return "build unexpectedly succeeded";
+            },
+            (error: unknown) => (error instanceof Error ? error.message : String(error)),
+        );
+        expect(message).toContain(
+            'Plugin "StandardRendering" pipeline "shallot-light-compact" uses 10 compute storage-buffer bindings; maxStorageBuffersPerShaderStage is 8',
+        );
+    } finally {
+        device.destroy();
+    }
+});
 
 test("standard, custom-material and extras layouts stay within eight buffers", async () => {
     const adapter = await gpu.requestAdapter();

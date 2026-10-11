@@ -1557,5 +1557,7 @@ export async function warmLightCull(world: World): Promise<void> {
         .createComputePipeline({ compute: compactKernel() })
         .$name("shallot-light-compact");
     await warmLightRaster(world);
-    precompile(world, "shallot-light-compact", () => [bindCompact(world).pipeline]);
+    precompile(world, "shallot-light-compact", () => [bindCompact(world).pipeline], {
+        owner: "StandardRendering",
+    });
 }

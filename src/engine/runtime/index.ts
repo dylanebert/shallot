@@ -21,6 +21,7 @@ export {
     UnsupportedError,
     validateGpu,
     type WorldGpu,
+    withPipelineOwner,
 } from "./gpu";
 export { drainLog, type GpuLog } from "./log";
 export { now, Runtime, readBinary, readFile, requestFrame } from "./platform";

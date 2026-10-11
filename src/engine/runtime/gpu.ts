@@ -19,6 +19,131 @@ export class UnsupportedError extends Error {
     }
 }
 
+export interface PipelineStorageBindingCounts {
+    vertex: number;
+    fragment: number;
+    compute: number;
+}
+
+const PIPELINE_STAGES = [
+    ["vertex", 1],
+    ["fragment", 2],
+    ["compute", 4],
+] as const;
+
+/** Count storage-buffer declarations across every group, once for each visible shader stage. */
+export function countPipelineStorageBindings(
+    groups: readonly (readonly GPUBindGroupLayoutEntry[])[],
+): PipelineStorageBindingCounts {
+    const counts: PipelineStorageBindingCounts = { vertex: 0, fragment: 0, compute: 0 };
+    for (const group of groups) {
+        for (const entry of group) {
+            if (entry.buffer?.type !== "storage" && entry.buffer?.type !== "read-only-storage")
+                continue;
+            for (const [stage, mask] of PIPELINE_STAGES) {
+                if ((entry.visibility & mask) !== 0) counts[stage]++;
+            }
+        }
+    }
+    return counts;
+}
+
+/** Refuse a pipeline before WebGPU creation when any bound group exceeds the granted stage limit. */
+export function checkPipelineStorageBindings(
+    plugin: string,
+    pipeline: string,
+    counts: PipelineStorageBindingCounts,
+    limit: number,
+): void {
+    for (const [stage] of PIPELINE_STAGES) {
+        const count = counts[stage];
+        if (count > limit) {
+            throw new UnsupportedError(
+                `Plugin "${plugin}" pipeline "${pipeline}" uses ${count} ${stage} storage-buffer bindings; ` +
+                    `maxStorageBuffersPerShaderStage is ${limit}`,
+            );
+        }
+    }
+}
+
+function wgslFunctions(code: string): Map<string, string> {
+    const functions = new Map<string, string>();
+    const signature = /\bfn\s+([A-Za-z_]\w*)\s*\(/g;
+    for (let match = signature.exec(code); match; match = signature.exec(code)) {
+        const open = code.indexOf("{", signature.lastIndex);
+        if (open < 0) break;
+        let depth = 1;
+        let close = open + 1;
+        for (; close < code.length && depth > 0; close++) {
+            if (code[close] === "{") depth++;
+            else if (code[close] === "}") depth--;
+        }
+        if (depth !== 0) break;
+        functions.set(match[1]!, code.slice(open + 1, close - 1));
+        signature.lastIndex = close;
+    }
+    return functions;
+}
+
+/** Count statically-used storage globals for one entry point when WebGPU infers an `auto` layout. */
+function wgslEntryStorageBindings(
+    code: string,
+    entryPoint: string | undefined,
+    stage: "vertex" | "fragment" | "compute",
+): number | undefined {
+    const functions = wgslFunctions(code);
+    const entry =
+        entryPoint ??
+        code.match(new RegExp(`@${stage}\\b(?:[^\\n]*\\n)*?\\s*fn\\s+([A-Za-z_]\\w*)\\s*\\(`))?.[1];
+    if (!entry || !functions.has(entry)) return undefined;
+    const storageNames = [
+        ...code.matchAll(
+            /@group\s*\(\s*\d+\s*\)\s*@binding\s*\(\s*\d+\s*\)\s*var\s*<\s*storage\b[^>]*>\s*([A-Za-z_]\w*)\s*:/g,
+        ),
+    ].map((match) => match[1]!);
+    const visited = new Set<string>();
+    const pending = [entry];
+    const identifier = /\b([A-Za-z_]\w*)\s*\(/g;
+    while (pending.length > 0) {
+        const name = pending.pop()!;
+        if (visited.has(name)) continue;
+        visited.add(name);
+        const body = functions.get(name)!;
+        for (let match = identifier.exec(body); match; match = identifier.exec(body)) {
+            if (functions.has(match[1]!) && !visited.has(match[1]!)) pending.push(match[1]!);
+        }
+    }
+    const reachable = [...visited].map((name) => functions.get(name)!).join("\\n");
+    return new Set(storageNames.filter((name) => new RegExp(`\\b${name}\\b`).test(reachable))).size;
+}
+
+function autoPipelineStorageBindings(
+    shaderSources: WeakMap<GPUShaderModule, string>,
+    descriptor: GPUComputePipelineDescriptor | GPURenderPipelineDescriptor,
+): PipelineStorageBindingCounts | undefined {
+    const counts: PipelineStorageBindingCounts = { vertex: 0, fragment: 0, compute: 0 };
+    if ("compute" in descriptor) {
+        const code = shaderSources.get(descriptor.compute.module);
+        if (!code) return undefined;
+        const count = wgslEntryStorageBindings(code, descriptor.compute.entryPoint, "compute");
+        if (count === undefined) return undefined;
+        counts.compute = count;
+        return counts;
+    }
+    for (const [stage, state] of [
+        ["vertex", descriptor.vertex],
+        ["fragment", descriptor.fragment],
+    ] as const) {
+        if (!state) continue;
+        const code = shaderSources.get(state.module);
+        if (!code) return undefined;
+        const count = wgslEntryStorageBindings(code, state.entryPoint, stage);
+        if (count === undefined) return undefined;
+        counts[stage] = count;
+    }
+    return counts;
+}
+
 /** one labeled WebGPU failure crossing a validation boundary. @internal */
 export class GpuDiagnosticError extends Error {
     readonly label: string;
@@ -527,6 +652,29 @@ function endArtifactScope(scope: ArtifactScope | undefined): void {
 const _observedDevices = new WeakSet<GPUDevice>();
 const _lostDevices = new WeakSet<GPUDevice>();
 const _rawDevices = new WeakMap<GPUDevice, GPUDevice>();
+interface PipelineGuardState {
+    plugin?: string;
+    bindGroups: WeakMap<GPUBindGroupLayout, PipelineStorageBindingCounts>;
+    layouts: WeakMap<GPUPipelineLayout, PipelineStorageBindingCounts | null>;
+}
+const _pipelineGuards = new WeakMap<GPUDevice, PipelineGuardState>();
+
+/** Attribute synchronous pipeline creation inside a plugin lifecycle or precompile to its owning plugin. @internal */
+export function withPipelineOwner<T>(
+    device: GPUDevice | undefined,
+    plugin: string | undefined,
+    operation: () => T,
+): T {
+    const guard = device && _pipelineGuards.get(device);
+    if (!guard || !plugin) return operation();
+    const previous = guard.plugin;
+    guard.plugin = plugin;
+    try {
+        return operation();
+    } finally {
+        guard.plugin = previous;
+    }
+}
 
 /** Native device identity for host APIs such as GPUCanvasContext.configure. Use the world's
  * device for resource creation so allocations remain world-owned. */
@@ -743,6 +891,7 @@ interface Forcer {
     force: () => unknown;
     after: readonly string[];
     order: number;
+    owner?: string;
 }
 
 // pipelines queued for a forced compile at the end of warm, and whether that drain has already run for
@@ -796,13 +945,14 @@ function compile({ label, force }: Forcer): unknown {
  * anything else truthy is a labelled throw. A nullish return also throws, since it would hand the
  * compile back to frame one without a word. `label` names the pipeline in either failure and must be
  * unique within the build. `options.after` names other queued labels that must drain first. Unknown
- * labels are ignored because the plugin that owns a predecessor may be absent.
+ * labels are ignored because the plugin that owns a predecessor may be absent. `options.owner` attributes
+ * pipeline-limit refusals when registration happens after an async warm boundary.
  */
 export function precompile(
     world: World,
     label: string,
     force: () => unknown,
-    options: { after?: readonly string[] } = {},
+    options: { after?: readonly string[]; owner?: string } = {},
 ): Promise<void> {
     const _precompileState = world.resource(precompileState);
 
@@ -810,7 +960,13 @@ export function precompile(
         throw new Error(`duplicate precompile label "${label}"`);
     }
     _precompileState.labels.add(label);
-    const forcer = { label, force, after: options.after ?? [], order: _precompileState.order++ };
+    const forcer = {
+        label,
+        force,
+        after: options.after ?? [],
+        order: _precompileState.order++,
+        owner: options.owner ?? _pipelineGuards.get(world.gpu.device)?.plugin,
+    };
     if (_precompileState.drained) {
         const completion = _precompileState.late.then(
             () => compileValidated(world, forcer),
@@ -893,15 +1049,18 @@ function ordered(forcers: readonly Forcer[]): Forcer[][] {
  * shared scope. Timing brackets only this forcer's work, not the shared scope's push and pop.
  */
 async function compileBody(
+    world: World,
     forcer: Forcer,
 ): Promise<{ warmed: boolean; start: number; end: number }> {
     const start = now();
     let warmed = false;
-    const pipeline = compile(forcer);
+    const pipeline = withPipelineOwner(world.gpu.device, forcer.owner, () => compile(forcer));
     // the drain classifies a forcer's return exhaustively:
     // (a) a typegpu pipeline (compute / render / guarded) exposes initAsync → await it
     if (typeof (pipeline as { initAsync?: unknown }).initAsync === "function") {
-        await (pipeline as { initAsync(): Promise<void> }).initAsync();
+        await withPipelineOwner(world.gpu.device, forcer.owner, () =>
+            (pipeline as { initAsync(): Promise<void> }).initAsync(),
+        );
         warmed = true;
     } else if (Array.isArray(pipeline)) {
         // (b) an array is awaited element-wise — the natural generalization of the standard renderer's
@@ -914,7 +1073,9 @@ async function compileBody(
         const awaited = await Promise.all(
             pipeline.map((entry) =>
                 typeof (entry as { initAsync?: unknown })?.initAsync === "function"
-                    ? (entry as { initAsync(): Promise<void> }).initAsync().then(() => true)
+                    ? withPipelineOwner(world.gpu.device, forcer.owner, () =>
+                          (entry as { initAsync(): Promise<void> }).initAsync(),
+                      ).then(() => true)
                     : false,
             ),
         );
@@ -978,7 +1139,7 @@ function reportCompile(
  *  single-member level, for a forcer registered after the drain, and to re-drain a failed batch. */
 async function compileValidated(world: World, forcer: Forcer): Promise<void> {
     const { warmed, start, end } = await validateGpu(world.gpu.device, forcer.label, () =>
-        compileBody(forcer),
+        compileBody(world, forcer),
     );
     reportCompile(world, forcer, warmed, start, end);
 }
@@ -1035,7 +1196,10 @@ export async function precompileAll(world: World): Promise<void> {
             try {
                 results = await validateGpu(world.gpu.device, scopeLabel, () =>
                     Promise.all(
-                        level.map(async (forcer) => ({ forcer, ...(await compileBody(forcer)) })),
+                        level.map(async (forcer) => ({
+                            forcer,
+                            ...(await compileBody(world, forcer)),
+                        })),
                     ),
                 );
             } catch {
@@ -1133,6 +1297,7 @@ export async function requestGPU(
         inFlight--;
         fences.completed++;
     };
+    let pipelineGuardState: PipelineGuardState | undefined;
     const trackedDevice = owner
         ? (() => {
               const deviceOverrides = new Map<PropertyKey, unknown>();
@@ -1141,6 +1306,96 @@ export async function requestGPU(
               const granted = d.features;
               const queue = d.queue;
               const queueOverrides = new Map<PropertyKey, unknown>();
+              const bindGroupLayouts = new WeakMap<
+                  GPUBindGroupLayout,
+                  PipelineStorageBindingCounts
+              >();
+              const pipelineLayouts = new WeakMap<
+                  GPUPipelineLayout,
+                  PipelineStorageBindingCounts | null
+              >();
+              const shaderSources = new WeakMap<GPUShaderModule, string>();
+              pipelineGuardState = {
+                  bindGroups: bindGroupLayouts,
+                  layouts: pipelineLayouts,
+              };
+              const createShaderModule = d.createShaderModule.bind(d);
+              const createBindGroupLayout = d.createBindGroupLayout.bind(d);
+              const createPipelineLayout = d.createPipelineLayout.bind(d);
+              const createComputePipeline = d.createComputePipeline.bind(d);
+              const createComputePipelineAsync = d.createComputePipelineAsync.bind(d);
+              const createRenderPipeline = d.createRenderPipeline.bind(d);
+              const createRenderPipelineAsync = d.createRenderPipelineAsync.bind(d);
+              const trackedShaderModule = (descriptor: GPUShaderModuleDescriptor) => {
+                  const module = createShaderModule(descriptor);
+                  shaderSources.set(module, descriptor.code);
+                  return module;
+              };
+              const trackedBindGroupLayout = (descriptor: GPUBindGroupLayoutDescriptor) => {
+                  const layout = createBindGroupLayout(descriptor);
+                  bindGroupLayouts.set(layout, countPipelineStorageBindings([descriptor.entries]));
+                  return layout;
+              };
+              const trackedPipelineLayout = (descriptor: GPUPipelineLayoutDescriptor) => {
+                  const counts: PipelineStorageBindingCounts = {
+                      vertex: 0,
+                      fragment: 0,
+                      compute: 0,
+                  };
+                  let known = true;
+                  for (const bindGroup of descriptor.bindGroupLayouts) {
+                      if (bindGroup === null) continue;
+                      const groupCounts = bindGroupLayouts.get(bindGroup);
+                      if (!groupCounts) {
+                          known = false;
+                          break;
+                      }
+                      counts.vertex += groupCounts.vertex;
+                      counts.fragment += groupCounts.fragment;
+                      counts.compute += groupCounts.compute;
+                  }
+                  const layout = createPipelineLayout(descriptor);
+                  pipelineLayouts.set(layout, known ? counts : null);
+                  return layout;
+              };
+              const checkPipeline = (
+                  descriptor: GPUComputePipelineDescriptor | GPURenderPipelineDescriptor,
+              ) => {
+                  const name = descriptor.label || "<unnamed>";
+                  const plugin = pipelineGuardState?.plugin ?? "unattributed";
+                  const counts =
+                      descriptor.layout === "auto"
+                          ? autoPipelineStorageBindings(shaderSources, descriptor)
+                          : pipelineLayouts.get(descriptor.layout);
+                  if (!counts) {
+                      throw new UnsupportedError(
+                          `Plugin "${plugin}" pipeline "${name}" cannot be checked against ` +
+                              `maxStorageBuffersPerShaderStage because its layout is auto-generated or was not created through this World`,
+                      );
+                  }
+                  checkPipelineStorageBindings(
+                      plugin,
+                      name,
+                      counts,
+                      limits.maxStorageBuffersPerShaderStage,
+                  );
+              };
+              const trackedComputePipeline = (descriptor: GPUComputePipelineDescriptor) => {
+                  checkPipeline(descriptor);
+                  return createComputePipeline(descriptor);
+              };
+              const trackedComputePipelineAsync = (descriptor: GPUComputePipelineDescriptor) => {
+                  checkPipeline(descriptor);
+                  return createComputePipelineAsync(descriptor);
+              };
+              const trackedRenderPipeline = (descriptor: GPURenderPipelineDescriptor) => {
+                  checkPipeline(descriptor);
+                  return createRenderPipeline(descriptor);
+              };
+              const trackedRenderPipelineAsync = (descriptor: GPURenderPipelineDescriptor) => {
+                  checkPipeline(descriptor);
+                  return createRenderPipelineAsync(descriptor);
+              };
               const queueMethods: MethodCache = new Map();
               const deviceMethods: MethodCache = new Map();
               const trackedQueue = new Proxy(queue, {
@@ -1177,6 +1432,13 @@ export async function requestGPU(
                       if (key === "features") return granted;
                       if (key === "createBuffer") return ownedBuffer;
                       if (key === "createTexture") return ownedTexture;
+                      if (key === "createShaderModule") return trackedShaderModule;
+                      if (key === "createBindGroupLayout") return trackedBindGroupLayout;
+                      if (key === "createPipelineLayout") return trackedPipelineLayout;
+                      if (key === "createComputePipeline") return trackedComputePipeline;
+                      if (key === "createComputePipelineAsync") return trackedComputePipelineAsync;
+                      if (key === "createRenderPipeline") return trackedRenderPipeline;
+                      if (key === "createRenderPipelineAsync") return trackedRenderPipelineAsync;
                       return cachedMember(target, key, deviceMethods);
                   },
                   set(_target, key, value) {
@@ -1187,6 +1449,7 @@ export async function requestGPU(
           })()
         : d;
     _rawDevices.set(trackedDevice, d);
+    if (pipelineGuardState) _pipelineGuards.set(trackedDevice, pipelineGuardState);
     const root = adopt(trackedDevice, owner);
     const rootMethods: MethodCache = new Map();
     const ownedRootBuffer = (...args: unknown[]) => {

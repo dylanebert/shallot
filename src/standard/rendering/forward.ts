@@ -6,6 +6,7 @@ import {
     type TransparentPhase,
 } from "../../core/rendering";
 import { component } from "../../engine";
+import { withPipelineOwner } from "../../engine/runtime";
 import {
     CullLightsSystem,
     initializeClusterState,
@@ -1318,8 +1319,10 @@ export const StandardRenderingPlugin: Plugin = {
         sealIndirectLightSources(world);
         if (!world.gpu.device) return;
         warmClusters(world);
-        await warmLightCull(world);
-        await prepareStandardRenderer(world, world.gpu.device, world.entityHighWater);
+        await withPipelineOwner(world.gpu.device, "StandardRendering", () => warmLightCull(world));
+        await withPipelineOwner(world.gpu.device, "StandardRendering", () =>
+            prepareStandardRenderer(world, world.gpu.device!, world.entityHighWater),
+        );
     },
 
     dispose(world) {

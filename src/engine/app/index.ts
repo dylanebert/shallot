@@ -11,6 +11,7 @@ import {
     requestFrame,
     requestGPU,
     validateGpu,
+    withPipelineOwner,
 } from "../runtime";
 import { coalesce, frameDelta, median } from "./coalesce";
 import { resolvePlugins } from "./compose";
@@ -134,10 +135,12 @@ export async function warmPlugins(
         const results = await Promise.allSettled(
             plugins.map(async (plugin, i) => {
                 try {
-                    await plugin.warm!(world, (p) => {
-                        perPlugin[i] = Math.max(perPlugin[i], p);
-                        report();
-                    });
+                    await withPipelineOwner(device, plugin.name, () =>
+                        plugin.warm!(world, (p) => {
+                            perPlugin[i] = Math.max(perPlugin[i], p);
+                            report();
+                        }),
+                    );
                 } catch (error) {
                     throw pluginHookError(plugin, "warm", error);
                 } finally {
@@ -322,7 +325,9 @@ async function buildNow(config: AppConfig): Promise<App> {
                 : undefined;
             initialized.push(sorted[i]);
             try {
-                await sorted[i].initialize?.(world, onProgress);
+                await withPipelineOwner(world.gpuIfAvailable?.device, sorted[i].name, () =>
+                    sorted[i].initialize?.(world, onProgress),
+                );
             } catch (error) {
                 throw pluginHookError(sorted[i], "initialize", error);
             }
@@ -638,7 +643,9 @@ export async function swapPlugins(
     // and let the caller's rebuild fallback recover, never wedge on an unhandled throw
     for (const nextPlugin of nextByName.values()) {
         try {
-            await nextPlugin.initialize?.(world);
+            await withPipelineOwner(world.gpuIfAvailable?.device, nextPlugin.name, () =>
+                nextPlugin.initialize?.(world),
+            );
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             return { ok: false, reason: `${nextPlugin.name}: initialize threw — ${msg}` };
