@@ -58,6 +58,7 @@ export class World {
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
     private _frameEncoder: GPUCommandEncoder | undefined;
+    private _lastSubmittedEncoder: GPUCommandEncoder | undefined;
     private _frameFence: Promise<void> | undefined;
     private _inDrawGroup = false;
     private _retiredBuffers: GPUBuffer[] = [];
@@ -255,7 +256,11 @@ export class World {
     }
 
     private submitDrawEncoder(encoder: GPUCommandEncoder): void {
-        this.gpu.device.queue.submit([encoder.finish()]);
+        const commandBuffer = encoder.finish();
+        // Keep the spent wrapper reachable: V8 otherwise clears its weak method feedback and
+        // recompiles this boundary after GC.
+        this._lastSubmittedEncoder = encoder;
+        this.gpu.device.queue.submit([commandBuffer]);
         for (const chunk of this._uploadChunks) {
             if (!chunk.used) continue;
             chunk.used = false;
@@ -927,6 +932,7 @@ export class World {
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
         this._frameEncoder = undefined;
+        this._lastSubmittedEncoder = undefined;
         this._inDrawGroup = false;
         for (const buffer of this._retiredBuffers) buffer.destroy();
         this._retiredBuffers.length = 0;
