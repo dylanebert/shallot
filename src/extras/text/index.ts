@@ -19,8 +19,10 @@ import {
     PrepassSystem,
     RenderContext,
     RenderPhases,
+    type TransparentPhase,
+    type View,
 } from "../../core/rendering";
-import { GlobalTransform } from "../../core/transform";
+import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import { f32, type Plugin, Registry, type System, u32, vec2, type World } from "../../engine";
 import { packColor, type Xform } from "../../engine/utils";
 import { DrawIndexedIndirect } from "../../standard/rendering";
@@ -112,6 +114,7 @@ const TEXT_TRANSFORM_QUERY = [Text, GlobalTransform];
 const INITIAL = 1 << 12;
 
 interface LabelGlyph {
+    label: number;
     eid: number;
     x: number;
     y: number;
@@ -122,6 +125,15 @@ interface LabelGlyph {
     u1: number;
     v1: number;
     color: number;
+}
+
+interface TextLabelDraw {
+    eid: number;
+    font: number;
+    start: number;
+    count: number;
+    centerX: number;
+    centerY: number;
 }
 
 interface TextState {
@@ -141,9 +153,14 @@ interface TextState {
     quadBase: number;
     sig: number;
     byFont: LabelGlyph[][];
+    labelDraws: TextLabelDraw[];
     ranges: { start: number; count: number }[];
+    lastPipeline: import("typegpu").TgpuRenderPipeline | null;
+    lastViewGroup: GPUBindGroup | null;
+    lastFontGroup: GPUBindGroup | null;
     bits: Float32Array;
     bitsU: Uint32Array;
+    transformScratch: Float32Array;
     colorPipelines: {
         single: import("typegpu").TgpuRenderPipeline | null;
         multisample: import("typegpu").TgpuRenderPipeline | null;
@@ -173,9 +190,14 @@ function createTextState(): TextState {
         quadBase: 0,
         sig: -1,
         byFont: [],
+        labelDraws: [],
         ranges: [],
+        lastPipeline: null,
+        lastViewGroup: null,
+        lastFontGroup: null,
         bits,
         bitsU: new Uint32Array(bits.buffer),
+        transformScratch: new Float32Array(16),
         colorPipelines: { single: null, multisample: null },
         bindGroups: [],
         bindKeys: [],
@@ -231,6 +253,7 @@ function grow(world: World, min: number): void {
 // and write each font's indirect record. Runs only on a signature change
 function rebuild(world: World, device: GPUDevice): void {
     const _textState = world.resource(textStateKey);
+    _textState.labelDraws.length = 0;
 
     while (_textState.byFont.length < _textState.atlases.length) _textState.byFont.push([]);
     while (_textState.ranges.length < _textState.atlases.length)
@@ -253,8 +276,19 @@ function rebuild(world: World, device: GPUDevice): void {
             world.storage(Text).color.get(eid),
             world.storage(Text).opacity.get(eid),
         );
+        const label = layout.glyphs.length
+            ? _textState.labelDraws.push({
+                  eid,
+                  font: fontId,
+                  start: 0,
+                  count: 0,
+                  centerX: ox + layout.width * 0.5,
+                  centerY: oy + layout.height * 0.5,
+              }) - 1
+            : -1;
         for (const g of layout.glyphs) {
             _textState.byFont[fontId].push({
+                label,
                 eid,
                 x: ox + g.x,
                 y: oy + g.y,
@@ -278,6 +312,9 @@ function rebuild(world: World, device: GPUDevice): void {
     for (let id = 0; id < _textState.atlases.length; id++) {
         _textState.ranges[id].start = n;
         for (const g of _textState.byFont[id] ?? []) {
+            const label = _textState.labelDraws[g.label];
+            if (label.count === 0) label.start = n;
+            label.count++;
             const o = n * GLYPH_FLOATS;
             _textState.f32[o + GLYPH_AT.pos] = g.x;
             _textState.f32[o + GLYPH_AT.pos + 1] = g.y;
@@ -357,22 +394,28 @@ const TextSystem: System = {
 };
 
 const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?-:;'\"()";
-
-function renderText(
-    world: World,
-    eid: number,
-    view: import("../../core/rendering").View,
-    pass: GPURenderPassEncoder,
-): void {
+function queueText(world: World, _eid: number, _view: View, phase: TransparentPhase): void {
     const state = world.resource(textStateKey);
-    if (!state.argBuf || !state.glyphBuf || !state.quad || !world.gpu.device) return;
-    const mesh = world.resource(Meshes).get(state.quad);
-    if (!mesh?.quant) return;
-    const table = globalTransformTable(world);
-    const context = world.resource(RenderContext);
-    const viewBuffer = context.viewBuffers[view.slot];
-    if (!viewBuffer) return;
+    if (!state.glyphBuf || !state.quad) return;
+    for (let i = 0; i < state.labelDraws.length; i++) {
+        const label = state.labelDraws[i];
+        if (!label.count || !world.exists(label.eid) || !world.has(label.eid, GlobalTransform))
+            continue;
+        composeGlobalTransform(world, label.eid, state.transformScratch);
+        const transform = state.transformScratch;
+        const x = transform[12] + transform[0] * label.centerX + transform[4] * label.centerY;
+        const y = transform[13] + transform[1] * label.centerX + transform[5] * label.centerY;
+        const z = transform[14] + transform[2] * label.centerX + transform[6] * label.centerY;
+        phase.add(i, label.font, x, y, z);
+    }
+}
 
+function ensureTextViewGroup(world: World, view: View, state: TextState): GPUBindGroup | null {
+    if (!state.quad) return null;
+    const mesh = world.resource(Meshes).get(state.quad);
+    if (!mesh?.quant) return null;
+    const viewBuffer = world.resource(RenderContext).viewBuffers[view.slot];
+    if (!viewBuffer) return null;
     let viewGroup = state.viewGroups.get(view.slot);
     if (!viewGroup || viewGroup.buffer !== viewBuffer || viewGroup.quant !== mesh.quant) {
         const group = world.gpu.root.createBindGroup(viewLayout, {
@@ -386,58 +429,119 @@ function renderText(
         };
         state.viewGroups.set(view.slot, viewGroup);
     }
+    return viewGroup.group;
+}
 
-    const aa = world.storage(Camera).antialias.get(eid) !== 0;
-    const pipeline = aa ? state.colorPipelines.multisample : state.colorPipelines.single;
-    if (!pipeline) return;
-    pass.setPipeline(world.gpu.root.unwrap(pipeline));
-    pass.setBindGroup(0, viewGroup.group);
-    pass.setIndexBuffer(world.gpu.root.unwrap(mesh.indices), "uint32");
-
-    const glyphs = state.glyphBuf;
-    const transforms = table.typed;
+function ensureTextFontGroup(world: World, state: TextState, font: number): GPUBindGroup | null {
+    if (!state.glyphBuf || !state.quad) return null;
+    const mesh = world.resource(Meshes).get(state.quad);
+    const atlas = state.atlases[font];
+    const table = globalTransformTable(world);
     const rows = table.eidToRowTyped;
-    if (!rows) return;
-    for (let id = 0; id < state.atlases.length; id++) {
-        const atlas = state.atlases[id];
-        if (!atlas || !state.ranges[id]?.count) continue;
-        let group = state.bindGroups[id];
-        const previous = state.bindKeys[id];
-        if (
-            !group ||
-            !previous ||
-            previous[0] !== mesh.vertices ||
-            previous[1] !== mesh.quant ||
-            previous[2] !== glyphs ||
-            previous[3] !== transforms ||
-            previous[4] !== rows ||
-            previous[5] !== atlas.texture ||
-            previous[6] !== state.sampler
-        ) {
-            group = world.gpu.root.unwrap(
-                world.gpu.root.createBindGroup(textLayout, {
-                    vertices: mesh.vertices,
-                    glyphs,
-                    globalTransforms: transforms as TgpuBuffer<d.WgslArray<typeof Xform>> &
-                        StorageFlag,
-                    globalTransformRows: rows as TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag,
-                    atlas: atlas.texture.createView(),
-                    sampler: state.sampler!,
-                }),
-            );
-            state.bindGroups[id] = group;
-            state.bindKeys[id] = [
-                mesh.vertices,
-                mesh.quant,
-                glyphs,
-                transforms,
-                rows,
-                atlas.texture,
-                state.sampler!,
-            ];
-        }
-        pass.setBindGroup(1, group);
-        pass.drawIndexedIndirect(world.gpu.root.unwrap(state.argBuf), id * 20);
+    if (!mesh?.quant || !atlas || !rows) return null;
+    let group = state.bindGroups[font];
+    const previous = state.bindKeys[font];
+    if (
+        !group ||
+        !previous ||
+        previous[0] !== mesh.vertices ||
+        previous[1] !== mesh.quant ||
+        previous[2] !== state.glyphBuf ||
+        previous[3] !== table.typed ||
+        previous[4] !== rows ||
+        previous[5] !== atlas.texture ||
+        previous[6] !== state.sampler
+    ) {
+        group = world.gpu.root.unwrap(
+            world.gpu.root.createBindGroup(textLayout, {
+                vertices: mesh.vertices,
+                glyphs: state.glyphBuf,
+                globalTransforms: table.typed as TgpuBuffer<d.WgslArray<typeof Xform>> &
+                    StorageFlag,
+                globalTransformRows: rows as TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag,
+                atlas: atlas.texture.createView(),
+                sampler: state.sampler!,
+            }),
+        );
+        state.bindGroups[font] = group;
+        state.bindKeys[font] = [
+            mesh.vertices,
+            mesh.quant,
+            state.glyphBuf,
+            table.typed,
+            rows,
+            atlas.texture,
+            state.sampler!,
+        ];
+    }
+    return group;
+}
+
+function prepareText(
+    world: World,
+    eid: number,
+    view: View,
+    phase: TransparentPhase,
+    renderer: number,
+): void {
+    const state = world.resource(textStateKey);
+    if (!ensureTextViewGroup(world, view, state)) return;
+    state.lastPipeline = null;
+    state.lastViewGroup = null;
+    state.lastFontGroup = null;
+    const pipeline =
+        world.storage(Camera).antialias.get(eid) !== 0
+            ? state.colorPipelines.multisample
+            : state.colorPipelines.single;
+    if (!pipeline) return;
+    for (let i = 0; i < phase.length; i++) {
+        const item = phase.item(i);
+        if (item.renderer === renderer) ensureTextFontGroup(world, state, item.batch);
+    }
+}
+
+function drawText(
+    world: World,
+    eid: number,
+    view: View,
+    phase: TransparentPhase,
+    start: number,
+    end: number,
+    pass: GPURenderPassEncoder,
+    renderer: number,
+): void {
+    const state = world.resource(textStateKey);
+    const viewGroup = ensureTextViewGroup(world, view, state);
+    if (!viewGroup || !state.quad) return;
+    const mesh = world.resource(Meshes).get(state.quad);
+    if (!mesh) return;
+    const pipeline =
+        world.storage(Camera).antialias.get(eid) !== 0
+            ? state.colorPipelines.multisample
+            : state.colorPipelines.single;
+    if (!pipeline) return;
+    const previous = start > 0 ? phase.item(start - 1) : undefined;
+    if (previous?.renderer !== renderer) {
+        state.lastPipeline = null;
+        state.lastViewGroup = null;
+        state.lastFontGroup = null;
+    }
+    const fontGroup = ensureTextFontGroup(world, state, phase.item(start).batch);
+    if (!fontGroup) return;
+    pass.setPipeline(world.gpu.root.unwrap(pipeline));
+    pass.setBindGroup(0, viewGroup);
+    pass.setBindGroup(1, fontGroup);
+    pass.setIndexBuffer(world.gpu.root.unwrap(mesh.indices), "uint32");
+    if (state.lastPipeline !== pipeline) phase.metrics.pipelineChanges++;
+    if (state.lastViewGroup !== viewGroup) phase.metrics.bindGroupChanges++;
+    if (state.lastFontGroup !== fontGroup) phase.metrics.bindGroupChanges++;
+    state.lastPipeline = pipeline;
+    state.lastViewGroup = viewGroup;
+    state.lastFontGroup = fontGroup;
+    for (let i = start; i < end; i++) {
+        const label = state.labelDraws[phase.item(i).draw];
+        pass.drawIndexed(6, label.count, mesh.indexBase, 0, label.start);
+        phase.metrics.draws++;
     }
 }
 
@@ -459,7 +563,11 @@ export const TextPlugin: Plugin = {
 
         _textState;
         initializeSdfState(world);
-        world.resource(RenderPhases).push({ transparent: renderText });
+        world.resource(RenderPhases).push({
+            transparent: queueText,
+            prepareTransparent: prepareText,
+            drawTransparent: drawText,
+        });
         _textState.loaded = [];
         _textState.atlases = [];
         _textState.glyphBuf = null;

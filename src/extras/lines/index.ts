@@ -16,6 +16,8 @@ import {
     PrepassSystem,
     RenderContext,
     RenderPhases,
+    type TransparentPhase,
+    type View,
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
@@ -28,6 +30,8 @@ import {
     head,
     initializeSegmentState,
     Lines,
+    lineCount,
+    lineStaging,
     push,
     ready,
     resetCount,
@@ -124,6 +128,9 @@ interface LineRendererState {
     viewGroups: Map<number, { buffer: GPUBuffer; group: GPUBindGroup }>;
     segmentBuffer: object | null;
     segmentGroup: GPUBindGroup | null;
+    lastPipeline: import("typegpu").TgpuRenderPipeline | null;
+    lastViewGroup: GPUBindGroup | null;
+    lastSegmentGroup: GPUBindGroup | null;
 }
 const lineRendererKey = {
     create: (): LineRendererState => ({
@@ -132,20 +139,33 @@ const lineRendererKey = {
         viewGroups: new Map(),
         segmentBuffer: null,
         segmentGroup: null,
+        lastPipeline: null,
+        lastViewGroup: null,
+        lastSegmentGroup: null,
     }),
 };
 
-function renderLines(
-    world: World,
-    eid: number,
-    view: import("../../core/rendering").View,
-    pass: GPURenderPassEncoder,
-): void {
+function queueLines(world: World, _eid: number, _view: View, phase: TransparentPhase): void {
+    const count = lineCount(world);
+    if (!count || !world.resource(Lines).buffer) return;
+    const values = lineStaging(world);
+    for (let i = 0; i < count; i++) {
+        const at = i * 8;
+        phase.add(
+            i,
+            0,
+            (values[at]! + values[at + 4]!) * 0.5,
+            (values[at + 1]! + values[at + 5]!) * 0.5,
+            (values[at + 2]! + values[at + 6]!) * 0.5,
+        );
+    }
+}
+
+function prepareLines(world: World, _eid: number, view: View): void {
     const lines = world.resource(Lines);
-    if (!lines.args || !lines.buffer) return;
+    if (!lineCount(world) || !lines.buffer) return;
     const state = world.resource(lineRendererKey);
-    const context = world.resource(RenderContext);
-    const viewBuffer = context.viewBuffers[view.slot];
+    const viewBuffer = world.resource(RenderContext).viewBuffers[view.slot];
     if (!viewBuffer) return;
     let viewGroup = state.viewGroups.get(view.slot);
     if (!viewGroup || viewGroup.buffer !== viewBuffer) {
@@ -158,13 +178,47 @@ function renderLines(
         state.segmentBuffer = lines.buffer;
         state.segmentGroup = world.gpu.root.unwrap(group);
     }
+    state.lastPipeline = null;
+    state.lastViewGroup = null;
+    state.lastSegmentGroup = null;
+}
+
+function drawLines(
+    world: World,
+    eid: number,
+    view: View,
+    phase: TransparentPhase,
+    start: number,
+    end: number,
+    pass: GPURenderPassEncoder,
+    renderer: number,
+): void {
+    const state = world.resource(lineRendererKey);
+    const viewGroup = state.viewGroups.get(view.slot)?.group;
+    const segmentGroup = state.segmentGroup;
+    if (!viewGroup || !segmentGroup) return;
     const pipeline =
         world.storage(Camera).antialias.get(eid) !== 0 ? state.multisample : state.single;
     if (!pipeline) return;
+    const previous = start > 0 ? phase.item(start - 1) : undefined;
+    if (previous?.renderer !== renderer) {
+        state.lastPipeline = null;
+        state.lastViewGroup = null;
+        state.lastSegmentGroup = null;
+    }
     pass.setPipeline(world.gpu.root.unwrap(pipeline));
-    pass.setBindGroup(0, viewGroup.group);
-    pass.setBindGroup(1, state.segmentGroup);
-    pass.drawIndirect(world.gpu.root.unwrap(lines.args), 0);
+    pass.setBindGroup(0, viewGroup);
+    pass.setBindGroup(1, segmentGroup);
+    if (state.lastPipeline !== pipeline) phase.metrics.pipelineChanges++;
+    if (state.lastViewGroup !== viewGroup) phase.metrics.bindGroupChanges++;
+    if (state.lastSegmentGroup !== segmentGroup) phase.metrics.bindGroupChanges++;
+    state.lastPipeline = pipeline;
+    state.lastViewGroup = viewGroup;
+    state.lastSegmentGroup = segmentGroup;
+    for (let i = start; i < end; i++) {
+        pass.draw(6, 1, 0, phase.item(i).draw);
+        phase.metrics.draws++;
+    }
 }
 
 const LinesSystem: System = {
@@ -195,7 +249,11 @@ export const LinesPlugin: Plugin = {
     initialize(world) {
         initializeSegmentState(world);
         resetCount(world);
-        world.resource(RenderPhases).push({ transparent: renderLines });
+        world.resource(RenderPhases).push({
+            transparent: queueLines,
+            prepareTransparent: prepareLines,
+            drawTransparent: drawLines,
+        });
     },
 
     warm(world: World) {
@@ -213,6 +271,9 @@ export const LinesPlugin: Plugin = {
         state.viewGroups.clear();
         state.segmentBuffer = null;
         state.segmentGroup = null;
+        state.lastPipeline = null;
+        state.lastViewGroup = null;
+        state.lastSegmentGroup = null;
         state.single = null;
         state.multisample = null;
     },

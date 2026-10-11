@@ -73,6 +73,10 @@ export interface MeshDrawBuffers {
     drawArgs: DrawBuffer | null;
     /** packed entity identities, one dense list per view slot; null until `warmMeshPreprocess` */
     packedEids: InstanceBuffer | null;
+    /** sorted transparent identities, bound in place of `eids` for the transparent draw */
+    transparentEids: InstanceBuffer | null;
+    /** per-view transparent indirect records, CPU-staged after sorting */
+    transparentArgs: GPUBuffer | null;
 }
 
 interface MeshPreprocessState {
@@ -125,7 +129,12 @@ function createMeshInstanceTable(world: World) {
 
 function createMeshPreprocessState(): MeshPreprocessState {
     return {
-        meshDraws: { drawArgs: null, packedEids: null },
+        meshDraws: {
+            drawArgs: null,
+            packedEids: null,
+            transparentEids: null,
+            transparentArgs: null,
+        },
         counts: null,
         meshBounds: null,
         cullParams: null,
@@ -447,6 +456,8 @@ function syncBuffers(world: World): void {
     }
 
     let stalePacked: InstanceBuffer | null = null;
+    let staleTransparentEids: InstanceBuffer | null = null;
+    let staleTransparentArgs: GPUBuffer | null = null;
     if (growView || growRows || !_meshDraws.packedEids) {
         stalePacked = _meshDraws.packedEids;
         const listCapacity = _meshPreprocess.viewDim * _meshPreprocess.rowCapacity;
@@ -456,6 +467,19 @@ function syncBuffers(world: World): void {
             .$name("shallot-packed-eids");
         world.gpu.buffers.set("eids", world.gpu.root.unwrap(_meshDraws.packedEids));
         world.gpu.typed.set("eids", _meshDraws.packedEids);
+
+        staleTransparentEids = _meshDraws.transparentEids;
+        _meshDraws.transparentEids = world.gpu.root
+            .createBuffer(d.arrayOf(d.vec4u, listCapacity))
+            .$usage("storage")
+            .$name("shallot-transparent-eids");
+        staleTransparentArgs = _meshDraws.transparentArgs;
+        _meshDraws.transparentArgs = device.createBuffer({
+            label: "shallot-transparent-args",
+            size: Math.max(20, listCapacity * d.sizeOf(DrawIndexedIndirect)),
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.INDIRECT,
+        });
+        world.own(_meshDraws.transparentArgs);
     }
 
     // meshBounds is indexed by mesh handle — rebuild only when a mesh registers
@@ -468,9 +492,10 @@ function syncBuffers(world: World): void {
     unbind(world);
     registerDraws(world);
 
-    const stale = [...staleArgs, stalePacked, staleBounds];
+    const stale = [...staleArgs, stalePacked, staleTransparentEids, staleBounds];
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
     for (const buffer of stale) buffer?.destroy();
+    staleTransparentArgs?.destroy();
 }
 
 /**
@@ -609,6 +634,8 @@ export function warmMeshPreprocess(world: World): void {
     _meshPreprocess.viewDim = 1;
     _meshDraws.drawArgs = null;
     _meshDraws.packedEids = null;
+    _meshDraws.transparentEids = null;
+    _meshDraws.transparentArgs = null;
     _meshPreprocess.counts = null;
     _meshPreprocess.meshBounds = null;
     _meshPreprocess.rowCapacity = 0;

@@ -3,6 +3,7 @@ import {
     MainPassSystem,
     PrepassSystem,
     RenderPhases,
+    type TransparentPhase,
 } from "../../core/rendering";
 import { component } from "../../engine";
 import {
@@ -41,15 +42,26 @@ import type { TgpuBindGroupLayout, TgpuBuffer, TgpuRenderPipeline } from "typegp
 import { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
-import { type MeshBinding, Meshes, type MeshIndex, MeshPlugin } from "../../core/mesh";
+import {
+    type MeshBinding,
+    Meshes,
+    type MeshHandle,
+    type MeshIndex,
+    MeshInstance,
+    MeshPlugin,
+} from "../../core/mesh";
 import type { View } from "../../core/rendering";
 import {
     BeginFrameSystem,
     Camera,
+    CULL_FRUSTUM,
+    CULL_VOLUME_FLOATS,
     DEPTH_FORMAT,
+    globalTransformTable,
     RenderContext,
     SAMPLE_COUNT,
 } from "../../core/rendering";
+import { GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
 import { u32 } from "../../engine";
 import {
@@ -72,8 +84,12 @@ import type { BundleDraw, PassBundle } from "./bundle";
 import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
 import { type Background, Backgrounds } from "./contract";
 import { engineLayout } from "./engine";
+import { MeshMaterial } from "./material-data";
 import {
+    ALPHA_PIPELINE_KEY_COUNT,
+    AlphaModeCode,
     AlphaPipelineKey,
+    alphaPipelineKey,
     type MaterialType,
     materialTypes,
     registerMaterialType,
@@ -97,9 +113,9 @@ import {
     resetPipelineCaches,
     setGroup,
 } from "./pipelines";
+import { MeshDrawBuffers, meshInstanceTable } from "./preprocess";
 import { initializeRegatherState, prepareRegather } from "./regather";
-import type { Draw } from "./registry";
-import { Draws } from "./registry";
+import { type Draw, DrawIndexedIndirect, Draws } from "./registry";
 import {
     cascadeCount,
     destroyCascades,
@@ -118,6 +134,21 @@ interface StandardRendererState {
     warned: Set<string>;
     frameDraws: FrameDraw[];
     frameCount: number;
+    frameDrawPairs: (FrameDraw | undefined)[];
+    framePairCount: number;
+    transparentEidsStage: ArrayBuffer;
+    transparentEidsU32: Uint32Array;
+    transparentArgsStage: ArrayBuffer;
+    transparentArgsU32: Uint32Array;
+    transparentRunStarts: number[];
+    transparentRunOffsets: number[];
+    transparentRunDraws: (FrameDraw | undefined)[];
+    transparentRunCount: number;
+    transparentRunCursor: number;
+    lastTransparentPipeline: TgpuRenderPipeline<any> | null;
+    lastTransparentGroup0: GPUBindGroup | null;
+    lastTransparentGroup1: GPUBindGroup | null;
+    lastTransparentGroup2: GPUBindGroup | null;
     colorBundleDesc: GPURenderBundleEncoderDescriptor & { colorFormats: GPUTextureFormat[] };
     colorBundles: Map<number, PassBundle>;
     colorProgram: BundleDraw[];
@@ -134,6 +165,21 @@ function createStandardRendererState(): StandardRendererState {
         warned: new Set(),
         frameDraws: [],
         frameCount: 0,
+        frameDrawPairs: [],
+        framePairCount: 0,
+        transparentEidsStage: new ArrayBuffer(0),
+        transparentEidsU32: new Uint32Array(0),
+        transparentArgsStage: new ArrayBuffer(0),
+        transparentArgsU32: new Uint32Array(0),
+        transparentRunStarts: [],
+        transparentRunOffsets: [],
+        transparentRunDraws: [],
+        transparentRunCount: 0,
+        transparentRunCursor: 0,
+        lastTransparentPipeline: null,
+        lastTransparentGroup0: null,
+        lastTransparentGroup1: null,
+        lastTransparentGroup2: null,
         colorBundleDesc: {
             label: "standard-color",
             colorFormats: [],
@@ -461,6 +507,9 @@ function recordMaterial(
         layout: surface.layout,
         quant: root.unwrap(mesh.quant),
         color: surfaceGroup(world, resolved.values, surface.layout, mesh.vertices),
+        transparentColor: null,
+        transparentEids: null,
+        values: resolved.values,
         // Blended modes compile no depth-side pipelines, so they need no depth-shape groups
         depth: transparent
             ? null
@@ -504,17 +553,27 @@ function recordMaterial(
  * render every camera against that one list
  */
 function resolveDraws(world: World, capacity: number): void {
-    world.resource(standardRendererStateKey).frameCount = 0;
+    const state = world.resource(standardRendererStateKey);
+    const meshCount = world.resource(Meshes).size;
+    const pairCount = materialTypes(world).length * ALPHA_PIPELINE_KEY_COUNT * meshCount;
+    state.frameCount = 0;
+    state.frameDrawPairs.fill(undefined, 0, state.framePairCount);
+    state.framePairCount = pairCount;
+    while (state.frameDrawPairs.length < pairCount) state.frameDrawPairs.push(undefined);
     world.resource(Draws).forEach((draw) => {
-        resolveDraw(world, draw, capacity);
+        resolveDraw(world, draw, capacity, meshCount);
     });
 }
 
-function resolveDraw(world: World, draw: Draw, capacity: number): void {
-    const _standardRendererState = world.resource(standardRendererStateKey);
-
+function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: number): void {
+    const state = world.resource(standardRendererStateKey);
     const item = record(world, draw, capacity);
-    if (item) _standardRendererState.frameDraws[_standardRendererState.frameCount++] = item;
+    if (!item) return;
+    state.frameDraws[state.frameCount++] = item;
+    const pair =
+        (draw.materialType * ALPHA_PIPELINE_KEY_COUNT + draw.alphaPipelineKey) * meshCount +
+        draw.mesh;
+    if (pair < state.framePairCount) state.frameDrawPairs[pair] = item;
 }
 
 /** Records opaque, masked and alpha-to-coverage materials into core's shared depth prepass.
@@ -675,7 +734,6 @@ function renderColor(
     items: FrameDraw[],
     count: number,
     encoded: GPURenderPassEncoder,
-    transparent: boolean,
     bg: BackdropPick | null = null,
 ): void {
     const _render = world.resource(RenderContext);
@@ -694,7 +752,7 @@ function renderColor(
     for (let i = 0; i < count; i++) {
         const item = items[i];
         if (!aa) ensureSingle(world, item.r.t);
-        const pipe = !transparent ? (aa ? item.r.t.color : item.r.t.single?.color) : null;
+        const pipe = aa ? item.r.t.color : item.r.t.single?.color;
         if (pipe) {
             drawColor(
                 world,
@@ -708,11 +766,9 @@ function renderColor(
             indirect++;
         }
     }
-    // the backdrop: a fullscreen triangle at the far plane, after opaque (the depth test masks it to
-    // un-rendered pixels) and before blend (so transparent draws composite over it). The bg pipeline
-    // carries the shadow group 1 in its layout (unused) like every color pipeline, so the group bound at
-    // the pass top survives the switch for the blend draws after it
-    if (bg && !transparent) {
+    // The backdrop is masked to far-plane pixels, after opaque geometry and before the shared
+    // transparent phase. Its group 1 is declared but unread, matching the color pipeline layout.
+    if (bg) {
         // a backdrop: the shared engine group 0 (a never-read `bgQuant()` fills the meshQuant
         // slot — a background pulls no mesh), the shadow group 1 (declared-but-unused, the
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
@@ -730,28 +786,7 @@ function renderColor(
             step.offset = 3;
         }
     }
-    for (let i = 0; i < count; i++) {
-        const item = items[i];
-        const pipe = transparent
-            ? aa
-                ? item.r.t.transparent
-                : item.r.t.single?.transparent
-            : null;
-        if (pipe) {
-            drawColor(
-                world,
-                _standardRendererState.colorProgram,
-                draws++,
-                item,
-                pipe,
-                view.slot,
-                shadow,
-            );
-            indirect++;
-        }
-    }
-
-    const bundleKey = eid * 2 + Number(transparent);
+    const bundleKey = eid * 2;
     let pass = _standardRendererState.colorBundles.get(bundleKey);
     if (!pass) {
         pass = newPassBundle();
@@ -778,13 +813,315 @@ function renderColor(
 
     if (pass.bundle) encoded.executeBundles(pass.replay);
 
-    // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
-    // validation floor; the honest count is post the `if (pipe)` skip, and excludes the backdrop's
+    // tally this camera's opaque indirect draws so the profiler derives the injected validation floor;
+    // the honest count is post the `if (pipe)` skip, and excludes the backdrop's
     // three-vertex draw, which is not indirect
     world.gpu.indirect?.("standard:color", indirect);
 }
 
-// the StandardRenderer camera query terms, and the point caster frames `ShadowCameraSystem` ranks into (a capacity pool
+const TRANSPARENT_MESHES = [MeshInstance, GlobalTransform];
+const EIDS_BYTES = 16;
+const INDIRECT_BYTES = d.sizeOf(DrawIndexedIndirect);
+
+function transparentAlpha(alphaMode: number): boolean {
+    return (
+        alphaMode === AlphaModeCode.Blend ||
+        alphaMode === AlphaModeCode.Premultiplied ||
+        alphaMode === AlphaModeCode.Add ||
+        alphaMode === AlphaModeCode.Multiply
+    );
+}
+
+function sphereVisible(
+    planes: Float32Array,
+    base: number,
+    x: number,
+    y: number,
+    z: number,
+    radius: number,
+): boolean {
+    if (planes[base] !== CULL_FRUSTUM) return true;
+    for (let i = 0; i < 6; i++) {
+        const at = base + 4 + i * 4;
+        if (planes[at] * x + planes[at + 1] * y + planes[at + 2] * z + planes[at + 3] < -radius)
+            return false;
+    }
+    return true;
+}
+
+/** Queue one standard item per visible blended MeshInstance, not per GPU-compacted pair. */
+function queueTransparent(world: World, eid: number, view: View, phase: TransparentPhase): void {
+    const buffers = world.resource(MeshDrawBuffers);
+    if (!world.has(eid, StandardRenderer) || !buffers.transparentEids) return;
+    const state = world.resource(standardRendererStateKey);
+    const meshRegistry = world.resource(Meshes);
+    const meshCount = meshRegistry.size;
+    const instances = world.storage(MeshInstance);
+    const materials = world.storage(MeshMaterial);
+    const placement = world.storage(GlobalTransform);
+    const planes = world.resource(RenderContext).cullVolumeStaging;
+    const planeBase = view.slot * CULL_VOLUME_FLOATS;
+    for (const instanceEid of world.query(TRANSPARENT_MESHES)) {
+        const alphaMode = materials.alphaMode.get(instanceEid);
+        if (!transparentAlpha(alphaMode)) continue;
+        const meshId = instances.mesh.get(instanceEid);
+        const mesh = meshRegistry.get(meshId as MeshHandle);
+        if (!mesh || mesh.pending) continue;
+        const type = materials.type.get(instanceEid);
+        const key = alphaPipelineKey(alphaMode);
+        const pair = (type * ALPHA_PIPELINE_KEY_COUNT + key) * meshCount + meshId;
+        if (!state.frameDrawPairs[pair]) continue;
+
+        let bx = mesh.bounds?.[0] ?? 0;
+        let by = mesh.bounds?.[1] ?? 0;
+        let bz = mesh.bounds?.[2] ?? 0;
+        let radius = mesh.bounds?.[3] ?? 1e30;
+        const override = instances.cullBounds;
+        const overrideRadius = override.w.get(instanceEid);
+        if (overrideRadius >= 0) {
+            bx = override.x.get(instanceEid);
+            by = override.y.get(instanceEid);
+            bz = override.z.get(instanceEid);
+            radius = overrideRadius;
+        }
+
+        const sx = placement.scale.x.get(instanceEid);
+        const sy = placement.scale.y.get(instanceEid);
+        const sz = placement.scale.z.get(instanceEid);
+        const lx = bx * sx;
+        const ly = by * sy;
+        const lz = bz * sz;
+        const qx = placement.rotation.x.get(instanceEid);
+        const qy = placement.rotation.y.get(instanceEid);
+        const qz = placement.rotation.z.get(instanceEid);
+        const qw = placement.rotation.w.get(instanceEid);
+        const tx = 2 * (qy * lz - qz * ly);
+        const ty = 2 * (qz * lx - qx * lz);
+        const tz = 2 * (qx * ly - qy * lx);
+        const x = placement.translation.x.get(instanceEid) + lx + qw * tx + qy * tz - qz * ty;
+        const y = placement.translation.y.get(instanceEid) + ly + qw * ty + qz * tx - qx * tz;
+        const z = placement.translation.z.get(instanceEid) + lz + qw * tz + qx * ty - qy * tx;
+        const worldRadius = radius * Math.max(Math.abs(sx), Math.abs(sy), Math.abs(sz));
+        if (!sphereVisible(planes, planeBase, x, y, z, worldRadius)) continue;
+        phase.add(instanceEid, pair, x, y, z);
+    }
+}
+
+function ensureTransparentStages(
+    world: World,
+    state: StandardRendererState,
+    draws: MeshDrawBuffers,
+): void {
+    const eids = draws.transparentEids!;
+    const args = draws.transparentArgs!;
+    const eidSize = world.gpu.root.unwrap(eids).size;
+    if (state.transparentEidsStage.byteLength < eidSize) {
+        state.transparentEidsStage = new ArrayBuffer(eidSize);
+        state.transparentEidsU32 = new Uint32Array(state.transparentEidsStage);
+    }
+    if (state.transparentArgsStage.byteLength < args.size) {
+        state.transparentArgsStage = new ArrayBuffer(args.size);
+        state.transparentArgsU32 = new Uint32Array(state.transparentArgsStage);
+    }
+}
+
+function ensureTransparentRunCapacity(state: StandardRendererState, required: number): void {
+    if (required <= state.transparentRunStarts.length) return;
+    let capacity = Math.max(32, state.transparentRunStarts.length * 2);
+    while (capacity < required) capacity *= 2;
+    state.transparentRunStarts.length = capacity;
+    state.transparentRunOffsets.length = capacity;
+    state.transparentRunDraws.length = capacity;
+}
+
+function transparentPipeline(
+    world: World,
+    item: FrameDraw,
+    eids: NonNullable<MeshDrawBuffers["transparentEids"]>,
+    antialias: boolean,
+): TgpuRenderPipeline<any> | null {
+    const { r } = item;
+    const pipe = antialias ? r.t.transparent : r.t.single?.transparent;
+    if (!pipe) return null;
+    if (r.g.transparentEids !== eids || !r.g.transparentColor) {
+        r.g.transparentEids = eids;
+        const mesh = world.resource(Meshes).get(item.draw.mesh);
+        if (!mesh) return null;
+        r.g.transparentColor = surfaceGroup(world, r.g.values, r.g.layout, mesh.vertices, {
+            eids: eids as unknown as BindResource,
+        });
+    }
+    return pipe;
+}
+
+/** Build the per-view sorted identity lane and one indirect record per compatible consecutive run. */
+function prepareTransparent(
+    world: World,
+    eid: number,
+    view: View,
+    phase: TransparentPhase,
+    renderer: number,
+): void {
+    if (!world.has(eid, StandardRenderer)) return;
+    const state = world.resource(standardRendererStateKey);
+    const draws = world.resource(MeshDrawBuffers);
+    const eids = draws.transparentEids;
+    const args = draws.transparentArgs;
+    if (!eids || !args) return;
+    ensureTransparentStages(world, state, draws);
+    const rowCapacity = meshInstanceTable(world).capacity;
+    const transforms = globalTransformTable(world);
+    const instances = meshInstanceTable(world);
+    const eidsBase = view.slot * rowCapacity;
+    const argsBase = view.slot * rowCapacity;
+    let itemStart = 0;
+    let eidCount = 0;
+    let runCount = 0;
+    const antialias = world.storage(Camera).antialias.get(eid) !== 0;
+    state.lastTransparentPipeline = null;
+    state.lastTransparentGroup0 = null;
+    state.lastTransparentGroup1 = null;
+    state.lastTransparentGroup2 = null;
+
+    while (itemStart < phase.length) {
+        const item = phase.item(itemStart);
+        if (item.renderer !== renderer) {
+            itemStart++;
+            continue;
+        }
+        let end = itemStart + 1;
+        while (end < phase.length) {
+            const next = phase.item(end);
+            if (next.renderer !== renderer || next.batch !== item.batch) break;
+            end++;
+        }
+        const draw = state.frameDrawPairs[item.batch];
+        if (!draw) {
+            itemStart = end;
+            continue;
+        }
+        const mesh = world.resource(Meshes).get(draw.draw.mesh);
+        if (!mesh) {
+            itemStart = end;
+            continue;
+        }
+        if (!antialias) ensureSingle(world, draw.r.t);
+        const bound = transparentPipeline(world, draw, eids, antialias);
+        if (!bound) {
+            itemStart = end;
+            continue;
+        }
+        const count = end - itemStart;
+        if (eidCount + count > rowCapacity || runCount >= rowCapacity)
+            throw new Error(
+                `standard transparent phase exceeds per-view MeshInstance capacity ${rowCapacity}`,
+            );
+        ensureTransparentRunCapacity(state, runCount + 1);
+        state.transparentRunStarts[runCount] = itemStart;
+        state.transparentRunOffsets[runCount] = (argsBase + runCount) * INDIRECT_BYTES;
+        state.transparentRunDraws[runCount] = draw;
+        const firstInstance = eidsBase + eidCount;
+        for (let i = itemStart; i < end; i++) {
+            const instanceEid = phase.item(i).draw;
+            const transformRow = transforms.rowIndex(instanceEid);
+            const instanceRow = instances.rowIndex(instanceEid);
+            if (transformRow < 0 || instanceRow < 0)
+                throw new Error(`standard transparent item ${instanceEid} lost its GPU table row`);
+            const at = (firstInstance + i - itemStart) * 4;
+            state.transparentEidsU32[at] = instanceEid;
+            state.transparentEidsU32[at + 1] = transformRow;
+            state.transparentEidsU32[at + 2] = instanceRow + 1;
+            state.transparentEidsU32[at + 3] = 0;
+        }
+        const argAt = (argsBase + runCount) * 5;
+        state.transparentArgsU32[argAt] = mesh.indexCount;
+        state.transparentArgsU32[argAt + 1] = count;
+        state.transparentArgsU32[argAt + 2] = mesh.indexBase;
+        state.transparentArgsU32[argAt + 3] = 0;
+        state.transparentArgsU32[argAt + 4] = firstInstance;
+        runCount++;
+        eidCount += count;
+        itemStart = end;
+    }
+
+    state.transparentRunCount = runCount;
+    state.transparentRunCursor = 0;
+    if (eidCount) {
+        const bytes = eidCount * EIDS_BYTES;
+        const offset = eidsBase * EIDS_BYTES;
+        const started = performance.now();
+        world.uploadGpuTable(
+            world.gpu.root.unwrap(eids),
+            offset,
+            state.transparentEidsStage,
+            bytes,
+        );
+        phase.recordUpload(bytes, performance.now() - started);
+    }
+    if (runCount) {
+        const bytes = runCount * INDIRECT_BYTES;
+        const offset = argsBase * INDIRECT_BYTES;
+        const started = performance.now();
+        world.uploadGpuTable(args, offset, state.transparentArgsStage, bytes);
+        phase.recordUpload(bytes, performance.now() - started);
+    }
+}
+
+/** Draw one sorted compatible run without moving it across another renderer's item. */
+function drawTransparent(
+    world: World,
+    eid: number,
+    view: View,
+    phase: TransparentPhase,
+    start: number,
+    end: number,
+    pass: GPURenderPassEncoder,
+    renderer: number,
+): void {
+    if (!world.has(eid, StandardRenderer)) return;
+    const state = world.resource(standardRendererStateKey);
+    const run = state.transparentRunCursor++;
+    if (
+        run >= state.transparentRunCount ||
+        state.transparentRunStarts[run] !== start ||
+        phase.item(start).renderer !== renderer
+    )
+        throw new Error(`standard transparent run ${start}..${end} was not prepared`);
+    const item = state.transparentRunDraws[run]!;
+    const previous = start > 0 ? phase.item(start - 1) : undefined;
+    if (previous?.renderer !== renderer) {
+        state.lastTransparentPipeline = null;
+        state.lastTransparentGroup0 = null;
+        state.lastTransparentGroup1 = null;
+        state.lastTransparentGroup2 = null;
+    }
+    const eids = world.resource(MeshDrawBuffers).transparentEids!;
+    const antialias = world.storage(Camera).antialias.get(eid) !== 0;
+    const pipeline = transparentPipeline(world, item, eids, antialias)!;
+    const group0 = engineGroup(world, item.r.g.engineCache, view.slot, item.r.g.quant);
+    const group1 = shadowGroup(world);
+    const rawPipeline = world.gpu.root.unwrap(pipeline);
+    pass.setPipeline(rawPipeline);
+    pass.setBindGroup(0, group0);
+    pass.setBindGroup(1, group1);
+    pass.setBindGroup(2, item.r.g.transparentColor!);
+    pass.setIndexBuffer(world.gpu.root.unwrap(item.r.index), "uint32");
+    pass.drawIndexedIndirect(
+        world.resource(MeshDrawBuffers).transparentArgs!,
+        state.transparentRunOffsets[run],
+    );
+    if (state.lastTransparentPipeline !== pipeline) phase.metrics.pipelineChanges++;
+    if (state.lastTransparentGroup0 !== group0) phase.metrics.bindGroupChanges++;
+    if (state.lastTransparentGroup1 !== group1) phase.metrics.bindGroupChanges++;
+    if (state.lastTransparentGroup2 !== item.r.g.transparentColor) phase.metrics.bindGroupChanges++;
+    state.lastTransparentPipeline = pipeline;
+    state.lastTransparentGroup0 = group0;
+    state.lastTransparentGroup1 = group1;
+    state.lastTransparentGroup2 = item.r.g.transparentColor;
+    phase.metrics.draws++;
+}
+
+// the StandardRenderer camera query terms, and the point caster frames `ShadowCameraSystem` ranks into (a capacity
 // `updatePointShadows` grows and rewrites in place)
 const STANDARD_RENDERER_CAMERAS = [Camera, StandardRenderer];
 
@@ -945,15 +1282,12 @@ export const StandardRenderingPlugin: Plugin = {
                     state.frameDraws,
                     state.frameCount,
                     pass,
-                    false,
                     backdrop(world, eid),
                 );
             },
-            transparent(world, eid, view, pass) {
-                if (!world.has(eid, StandardRenderer)) return;
-                const state = world.resource(standardRendererStateKey);
-                renderColor(world, eid, view, state.frameDraws, state.frameCount, pass, true);
-            },
+            transparent: queueTransparent,
+            prepareTransparent,
+            drawTransparent,
         });
         initializeClusterState(world);
         initializeLightingState(world);

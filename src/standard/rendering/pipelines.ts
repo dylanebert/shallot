@@ -214,6 +214,10 @@ export type MaterialGroupEntry = {
     layout: MaterialLayout<Record<string, MaterialBinding>, AnyWgslStruct>;
     quant: GPUBuffer;
     color: GPUBindGroup;
+    /** The same material bindings with standard's per-view sorted identity table in place of `eids`. */
+    transparentColor: GPUBindGroup | null;
+    transparentEids: object | null;
+    values: Record<string, unknown>;
     depth: GPUBindGroup | null;
     point: GPUBindGroup | null;
     cascade: GPUBindGroup | null;

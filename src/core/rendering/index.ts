@@ -2,8 +2,12 @@ export { GlobalTransformHistory, globalTransformTable } from "./global-transform
 export {
     CorePipelinePlugin,
     MainPassSystem,
+    type PhaseRenderer,
     PrepassSystem,
     RenderPhases,
+    TransparentPhase,
+    type TransparentPhaseItem,
+    TransparentPhases,
 } from "./phases";
 export * from "./substrate";
 export { TonemappingMethod } from "./tonemap";

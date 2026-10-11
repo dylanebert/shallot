@@ -26,6 +26,7 @@ interface SegmentState {
     u32: Uint32Array;
     capacity: number;
     count: number;
+    publishedCount: number;
     args: (TgpuBuffer<typeof DrawIndirect> & { usableAsIndirect: true }) | null;
 }
 
@@ -40,6 +41,7 @@ function createSegmentState(): SegmentState {
         u32: new Uint32Array(staging),
         capacity: INITIAL,
         count: 0,
+        publishedCount: 0,
         args: null,
     };
 }
@@ -210,9 +212,20 @@ export function ready(world: World): boolean {
     return !!segmentState(world).buffer && !!world.resource(Lines).args;
 }
 
+/** Segment data published by the latest draw update, indexed by `instance_index`. */
+export function lineStaging(world: World): Float32Array {
+    return segmentState(world).f32;
+}
+
+/** Number of segments published by the latest draw update. */
+export function lineCount(world: World): number {
+    return segmentState(world).publishedCount;
+}
+
 /** reset the segment count without touching the GPU buffers (reload-safe pre-warm init) */
 export function resetCount(world: World): void {
     segmentState(world).count = 0;
+    segmentState(world).publishedCount = 0;
 }
 
 /** allocate the segment storage + indirect-args buffers and publish `lineSegments` */
@@ -222,6 +235,7 @@ export function warmSegments(world: World, _device: GPUDevice): void {
     segmentState(world).f32 = new Float32Array(segmentState(world).staging);
     segmentState(world).u32 = new Uint32Array(segmentState(world).staging);
     segmentState(world).count = 0;
+    segmentState(world).publishedCount = 0;
     const resources = segmentState(world);
     const buffer = world.gpu.root
         .createBuffer(d.arrayOf(Segment, INITIAL))
@@ -271,6 +285,7 @@ export function flushSegments(world: World, device: GPUDevice): void {
         firstVertex: 0,
         firstInstance: 0,
     });
+    segmentState(world).publishedCount = resources.count;
     segmentState(world).count = 0;
 }
 
