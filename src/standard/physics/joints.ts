@@ -1,32 +1,17 @@
 import type { ScalarField, Vector4Field, World } from "../../engine";
-import type { Quat, Body as SolverBody, Transform, Vec3 } from "./api";
-import {
-    DistanceJoint,
-    Joint,
-    MotorJoint,
-    ParallelJoint,
-    PrismaticJoint,
-    RevoluteJoint,
-    type DistanceJoint as SolverDistanceJoint,
-    type Joint as SolverJoint,
-    type MotorJoint as SolverMotorJoint,
-    type PrismaticJoint as SolverPrismaticJoint,
-    type RevoluteJoint as SolverRevoluteJoint,
-    type SphericalJoint as SolverSphericalJoint,
-    type WheelJoint as SolverWheelJoint,
-    type PhysicsWorld as SolverWorld,
-    SphericalJoint,
-    WeldJoint,
-    WheelJoint,
-} from "./api";
+import type { Quat, Transform, Vec3 } from "./api";
+import { makeJointId } from "./api/config";
 import type { JointBinding, JointDef } from "./authoring";
 import { JOINT_KIND_COUNT, jointDef } from "./authoring";
+import type { EntityId } from "./common/ids";
+import { froundConfig } from "./common/math";
 import {
     clearFieldCandidates,
     createFieldCandidates,
     type FieldCandidates,
     markFieldCandidate,
 } from "./field-candidates";
+import * as C from "./kernel/columns";
 import {
     DJ_LOWER_SPRING_FORCE,
     DJ_UPPER_SPRING_FORCE,
@@ -39,12 +24,44 @@ import {
     SJ_MOTOR_VELOCITY,
     SJ_TARGET_ROTATION,
 } from "./kernel/columns";
-import { readJointFloat, readJointQuat, readJointVec3 } from "./kernel/jointcolumns";
-import { JointField, jointDrawScale, jointField, setJointDrawScale } from "./kernel/jointrecords";
+import {
+    readJointFlag,
+    readJointFloat,
+    readJointQuat,
+    readJointVec3,
+    writeJointFloat,
+    writeJointQuat,
+    writeJointTransform,
+    writeJointVec3,
+} from "./kernel/jointcolumns";
+import {
+    JointField,
+    jointDrawScale,
+    jointField,
+    jointViews,
+    setJointDrawScale,
+} from "./kernel/jointrecords";
+import { kernel } from "./kernel/kernel";
+import { createDistanceJoint, defaultDistanceJointDef } from "./solver/distanceJoint";
+import {
+    createFilterJoint,
+    defaultJointDef,
+    destroyJointInternal,
+    jointIsValid,
+    setJointCollideConnected,
+    wakeJointBodies,
+} from "./solver/joint";
+import { createMotorJoint, defaultMotorJointDef } from "./solver/motorJoint";
+import { createParallelJoint, defaultParallelJointDef } from "./solver/parallelJoint";
+import { createPrismaticJoint, defaultPrismaticJointDef } from "./solver/prismaticJoint";
+import { createRevoluteJoint, defaultRevoluteJointDef } from "./solver/revoluteJoint";
+import { createSphericalJoint, defaultSphericalJointDef } from "./solver/sphericalJoint";
+import { createWeldJoint, defaultWeldJointDef } from "./solver/weldJoint";
+import { createWheelJoint, defaultWheelJointDef } from "./solver/wheelJoint";
 import type { WorldState } from "./world/world";
 
 export interface ConstraintCache {
-    liveJoints: Map<number, Map<number, SolverJoint>>;
+    liveJoints: Map<number, Map<number, EntityId>>;
     candidates: FieldCandidates[];
     warnedJoints: Set<number>;
 }
@@ -111,12 +128,12 @@ function clearFieldWarning(
 }
 
 function endpoints(
-    bodies: ReadonlyMap<number, SolverBody>,
+    bodies: ReadonlyMap<number, EntityId>,
     def: JointDef,
     isDeferred: (eid: number) => boolean,
     warned: Set<number>,
     key: number,
-): [SolverBody, SolverBody] | null {
+): [EntityId, EntityId] | null {
     const a = bodies.get(def.a);
     const b = bodies.get(def.b);
     if (a && b) return [a, b];
@@ -192,13 +209,13 @@ export function invalidJointField(def: JointDef): string | null {
     return null;
 }
 function createJoint(
-    world: SolverWorld,
-    bodies: ReadonlyMap<number, SolverBody>,
+    state: WorldState,
+    bodies: ReadonlyMap<number, EntityId>,
     def: JointDef,
     isDeferred: (eid: number) => boolean,
     warned: Set<number>,
     key: number,
-): SolverJoint | null {
+): EntityId | null {
     const pair = endpoints(bodies, def, isDeferred, warned, key);
     if (!pair) return null;
     const invalid = invalidJointField(def);
@@ -211,27 +228,76 @@ function createJoint(
         return null;
     }
     const [a, b] = pair;
-    const config = def.config;
+    const config = froundConfig(def.config);
+    const base = {
+        ...defaultJointDef(),
+        bodyIdA: a.index1 - 1,
+        bodyIdB: b.index1 - 1,
+        ...config,
+    };
+    let joint: number;
     switch (def.kind) {
         case "Distance":
-            return world.createDistanceJoint(a, b, config);
+            joint = createDistanceJoint(state, {
+                ...defaultDistanceJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
         case "Filter":
-            return world.createFilterJoint(a, b, config);
+            joint = createFilterJoint(state, base).joint;
+            break;
         case "Motor":
-            return world.createMotorJoint(a, b, config);
+            joint = createMotorJoint(state, {
+                ...defaultMotorJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
         case "Parallel":
-            return world.createParallelJoint(a, b, config);
+            joint = createParallelJoint(state, {
+                ...defaultParallelJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
         case "Prismatic":
-            return world.createPrismaticJoint(a, b, config);
+            joint = createPrismaticJoint(state, {
+                ...defaultPrismaticJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
         case "Revolute":
-            return world.createRevoluteJoint(a, b, config);
+            joint = createRevoluteJoint(state, {
+                ...defaultRevoluteJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
         case "Spherical":
-            return world.createSphericalJoint(a, b, config);
+            joint = createSphericalJoint(state, {
+                ...defaultSphericalJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
         case "Weld":
-            return world.createWeldJoint(a, b, config);
+            joint = createWeldJoint(state, {
+                ...defaultWeldJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
         case "Wheel":
-            return world.createWheelJoint(a, b, config);
+            joint = createWheelJoint(state, {
+                ...defaultWheelJointDef(base),
+                ...config,
+                base,
+            } as never).joint;
+            break;
     }
+    return makeJointId(state, joint);
 }
 
 const frame: Transform = {
@@ -339,6 +405,157 @@ const JOINT_SCALAR_EDITS: Record<JointBinding["kind"], readonly ScalarEdit[]> = 
         ["enableSteeringLimit", "isSteeringLimitEnabled", "enableSteeringLimit"],
     ],
 };
+const JOINT_SCALAR_COLUMNS: Record<JointBinding["kind"], Record<string, number>> = {
+    Distance: {
+        length: C.DJ_LENGTH,
+        hertz: C.DJ_HERTZ,
+        dampingRatio: C.DJ_DAMPING_RATIO,
+        maxMotorForce: C.DJ_MAX_MOTOR_FORCE,
+        motorSpeed: C.DJ_MOTOR_SPEED,
+    },
+    Filter: {},
+    Motor: {
+        maxVelocityForce: C.MJ_MAX_VELOCITY_FORCE,
+        maxVelocityTorque: C.MJ_MAX_VELOCITY_TORQUE,
+        linearHertz: C.MJ_LINEAR_HERTZ,
+        linearDampingRatio: C.MJ_LINEAR_DAMPING_RATIO,
+        maxSpringForce: C.MJ_MAX_SPRING_FORCE,
+        angularHertz: C.MJ_ANGULAR_HERTZ,
+        angularDampingRatio: C.MJ_ANGULAR_DAMPING_RATIO,
+        maxSpringTorque: C.MJ_MAX_SPRING_TORQUE,
+    },
+    Parallel: {
+        hertz: C.PLJ_HERTZ,
+        dampingRatio: C.PLJ_DAMPING_RATIO,
+        maxTorque: C.PLJ_MAX_TORQUE,
+    },
+    Prismatic: {
+        hertz: C.PJ_HERTZ,
+        dampingRatio: C.PJ_DAMPING_RATIO,
+        targetTranslation: C.PJ_TARGET_TRANSLATION,
+        maxMotorForce: C.PJ_MAX_MOTOR_FORCE,
+        motorSpeed: C.PJ_MOTOR_SPEED,
+    },
+    Revolute: {
+        targetAngle: C.RJ_TARGET_ANGLE,
+        hertz: C.RJ_HERTZ,
+        dampingRatio: C.RJ_DAMPING_RATIO,
+        maxMotorTorque: C.RJ_MAX_MOTOR_TORQUE,
+        motorSpeed: C.RJ_MOTOR_SPEED,
+    },
+    Spherical: {
+        hertz: C.SJ_HERTZ,
+        dampingRatio: C.SJ_DAMPING_RATIO,
+        coneAngle: C.SJ_CONE_ANGLE,
+        maxMotorTorque: C.SJ_MAX_MOTOR_TORQUE,
+    },
+    Weld: {
+        linearHertz: C.WJ_LINEAR_HERTZ,
+        linearDampingRatio: C.WJ_LINEAR_DAMPING_RATIO,
+        angularHertz: C.WJ_ANGULAR_HERTZ,
+        angularDampingRatio: C.WJ_ANGULAR_DAMPING_RATIO,
+    },
+    Wheel: {
+        suspensionHertz: C.WHJ_SUSPENSION_HERTZ,
+        suspensionDampingRatio: C.WHJ_SUSPENSION_DAMPING_RATIO,
+        maxSpinTorque: C.WHJ_MAX_SPIN_TORQUE,
+        spinSpeed: C.WHJ_SPIN_SPEED,
+        steeringHertz: C.WHJ_STEERING_HERTZ,
+        steeringDampingRatio: C.WHJ_STEERING_DAMPING_RATIO,
+        targetSteeringAngle: C.WHJ_TARGET_STEERING_ANGLE,
+        maxSteeringTorque: C.WHJ_MAX_STEERING_TORQUE,
+    },
+};
+type JointFlag = readonly [field: number, mask: number];
+const JOINT_SCALAR_FLAGS: Partial<Record<JointBinding["kind"], Record<string, JointFlag>>> = {
+    Distance: {
+        enableSpring: [C.DJ_ENABLE, C.DJ_ENABLE_SPRING],
+        enableLimit: [C.DJ_ENABLE, C.DJ_ENABLE_LIMIT],
+        enableMotor: [C.DJ_ENABLE, C.DJ_ENABLE_MOTOR],
+    },
+    Prismatic: {
+        enableSpring: [C.PJ_ENABLE, C.PJ_ENABLE_SPRING],
+        enableLimit: [C.PJ_ENABLE, C.PJ_ENABLE_LIMIT],
+        enableMotor: [C.PJ_ENABLE, C.PJ_ENABLE_MOTOR],
+    },
+    Revolute: {
+        enableSpring: [C.RJ_ENABLE, C.RJ_ENABLE_SPRING],
+        enableLimit: [C.RJ_ENABLE, C.RJ_ENABLE_LIMIT],
+        enableMotor: [C.RJ_ENABLE, C.RJ_ENABLE_MOTOR],
+    },
+    Spherical: {
+        enableSpring: [C.SJ_ENABLE, C.SJ_ENABLE_SPRING],
+        enableConeLimit: [C.SJ_ENABLE, C.SJ_ENABLE_CONE_LIMIT],
+        enableTwistLimit: [C.SJ_ENABLE, C.SJ_ENABLE_TWIST_LIMIT],
+        enableMotor: [C.SJ_ENABLE, C.SJ_ENABLE_MOTOR],
+    },
+    Wheel: {
+        enableSuspensionSpring: [C.WHJ_ENABLE, C.WHJ_ENABLE_SUSPENSION_SPRING],
+        enableSuspensionLimit: [C.WHJ_ENABLE, C.WHJ_ENABLE_SUSPENSION_LIMIT],
+        enableSpinMotor: [C.WHJ_ENABLE, C.WHJ_ENABLE_SPIN_MOTOR],
+        enableSteering: [C.WHJ_ENABLE, C.WHJ_ENABLE_STEERING],
+        enableSteeringLimit: [C.WHJ_ENABLE, C.WHJ_ENABLE_STEERING_LIMIT],
+    },
+};
+function readJointScalar(
+    state: WorldState,
+    id: number,
+    kind: JointBinding["kind"],
+    field: string,
+): number {
+    if (field === "collideConnected") return jointField(state, id, JointField.collideConnected);
+    const flagAccess = JOINT_SCALAR_FLAGS[kind]?.[field];
+    if (flagAccess) return Number(readJointFlag(state, id, flagAccess[0], flagAccess[1]));
+    const column =
+        field === "forceThreshold"
+            ? C.J_FORCE_THRESHOLD
+            : field === "torqueThreshold"
+              ? C.J_TORQUE_THRESHOLD
+              : JOINT_SCALAR_COLUMNS[kind][field];
+    if (column === undefined) throw new Error(`physics: unknown ${kind} joint field ${field}`);
+    return readJointFloat(state, id, column);
+}
+function writeJointScalar(
+    state: WorldState,
+    id: number,
+    kind: JointBinding["kind"],
+    field: string,
+    value: number,
+): void {
+    if (field === "collideConnected") {
+        setJointCollideConnected(state, id, flag(value));
+        return;
+    }
+    const flagAccess = JOINT_SCALAR_FLAGS[kind]?.[field];
+    if (flagAccess) {
+        kernel(state.ecsState).jointEnable(state.worldId, id, flagAccess[1], Boolean(value));
+        return;
+    }
+    if (field === "length") {
+        kernel(state.ecsState).distanceJointSetLength(state.worldId, id, value);
+        return;
+    }
+    if (field === "maxSpringForce" || field === "maxSpringTorque") {
+        kernel(state.ecsState).motorJointSetMaxSpring(
+            state.worldId,
+            id,
+            field === "maxSpringTorque",
+            value,
+        );
+        return;
+    }
+    const column =
+        field === "forceThreshold"
+            ? C.J_FORCE_THRESHOLD
+            : field === "torqueThreshold"
+              ? C.J_TORQUE_THRESHOLD
+              : JOINT_SCALAR_COLUMNS[kind][field];
+    if (column === undefined) throw new Error(`physics: unknown ${kind} joint field ${field}`);
+    writeJointFloat(state, id, column, value);
+    if (field === "motorSpeed" || field === "spinSpeed" || field === "targetSteeringAngle")
+        wakeJointBodies(state, id);
+}
+
 function setterAccepts(kind: JointBinding["kind"], field: string, value: number): boolean {
     const finite = Number.isFinite(value);
     const nonnegative = finite && value >= 0;
@@ -400,30 +617,39 @@ function rejectFieldEdit(
 function applyScalarEdits(
     binding: JointBinding,
     eid: number,
-    joint: SolverJoint,
+    state: WorldState,
+    id: number,
     mask: number,
     edits: readonly ScalarEdit[],
     warned: Set<number>,
     key: number,
 ): void {
-    const numeric = joint as unknown as Record<string, (...args: number[]) => number | void>;
-    const flags = joint as unknown as Record<string, (...args: boolean[]) => boolean | void>;
-    for (let i = 0; i < edits.length; i++) {
-        const edit = edits[i];
-        if (edit === REVOLUTE_MOTOR_SPEED) continue;
-        const field = edit[0];
+    for (const [field] of edits) {
         if (!fieldChanged(binding, mask, field)) continue;
         const value = jointValue(binding, eid, field);
-        if (!setterAccepts(binding.kind, field, value)) {
+        const finiteMotorSpeed =
+            field === "motorSpeed" && (binding.kind === "Prismatic" || binding.kind === "Revolute");
+        const accepted = finiteMotorSpeed
+            ? Number.isFinite(value)
+            : setterAccepts(binding.kind, field, value);
+        if (!accepted) {
             rejectFieldEdit(warned, key, binding, eid, field);
             continue;
         }
         clearFieldWarning(warned, binding, key, field);
-        if (field.startsWith("enable") || field === "collideConnected") {
-            const next = flag(value);
-            if (flags[edit[1]].call(joint) !== next) flags[edit[2]].call(joint, next);
-        } else if (differs(value, numeric[edit[1]].call(joint) as number)) {
-            numeric[edit[2]].call(joint, value);
+        if (differs(value, readJointScalar(state, id, binding.kind, field))) {
+            if (field === "motorSpeed") {
+                const k = kernel(state.ecsState);
+                k.bodySetActiveWorld(state.worldId);
+                const column = JOINT_SCALAR_COLUMNS[binding.kind][field];
+                jointViews(k).floats[(k.jointSimPtr(id) >>> 2) + column] = Math.fround(value);
+                // The kernel wake is idempotent for awake/static bodies; avoid probing them in JS.
+                state.locked = true;
+                k.jointWakeBodies(state.worldId, id);
+                state.locked = false;
+            } else {
+                writeJointScalar(state, id, binding.kind, field, value);
+            }
         }
     }
 }
@@ -431,14 +657,13 @@ function applyScalarEdits(
 function applyBaseFields(
     binding: JointBinding,
     eid: number,
-    joint: SolverJoint,
+    state: WorldState,
+    id: number,
     mask: number,
     warned: Set<number>,
     key: number,
 ): void {
-    applyScalarEdits(binding, eid, joint, mask, BASE_SCALAR_EDITS, warned, key);
-    const id = joint.id.index1 - 1;
-    const state = joint.world;
+    applyScalarEdits(binding, eid, state, id, mask, BASE_SCALAR_EDITS, warned, key);
     if (
         fieldChanged(binding, mask, "constraintHertz") ||
         fieldChanged(binding, mask, "constraintDampingRatio")
@@ -452,8 +677,10 @@ function applyBaseFields(
             if (
                 differs(hertz, readJointFloat(state, id, J_CONSTRAINT_HERTZ)) ||
                 differs(damping, readJointFloat(state, id, J_CONSTRAINT_DAMPING))
-            )
-                joint.setConstraintTuning(hertz, damping);
+            ) {
+                writeJointFloat(state, id, J_CONSTRAINT_HERTZ, hertz);
+                writeJointFloat(state, id, J_CONSTRAINT_DAMPING, damping);
+            }
         }
     }
     if (fieldChanged(binding, mask, "drawScale")) {
@@ -464,18 +691,19 @@ function applyBaseFields(
         fieldChanged(binding, mask, "localAnchorA") ||
         fieldChanged(binding, mask, "localRotationA")
     )
-        applyLocalFrame(binding, eid, joint, "A", J_LOCAL_FRAME_A, warned, key);
+        applyLocalFrame(binding, eid, state, id, "A", J_LOCAL_FRAME_A, warned, key);
     if (
         fieldChanged(binding, mask, "localAnchorB") ||
         fieldChanged(binding, mask, "localRotationB")
     )
-        applyLocalFrame(binding, eid, joint, "B", J_LOCAL_FRAME_B, warned, key);
+        applyLocalFrame(binding, eid, state, id, "B", J_LOCAL_FRAME_B, warned, key);
 }
 
 function applyLocalFrame(
     binding: JointBinding,
     eid: number,
-    joint: SolverJoint,
+    state: WorldState,
+    id: number,
     suffix: "A" | "B",
     offset: number,
     warned: Set<number>,
@@ -496,13 +724,13 @@ function applyLocalFrame(
     const qz = localRotation.z.get(eid),
         qw = localRotation.w.get(eid);
     if (
-        !differs(x, readJointFloat(joint.world, joint.id.index1 - 1, offset)) &&
-        !differs(y, readJointFloat(joint.world, joint.id.index1 - 1, offset + 1)) &&
-        !differs(z, readJointFloat(joint.world, joint.id.index1 - 1, offset + 2)) &&
-        !differs(qx, readJointFloat(joint.world, joint.id.index1 - 1, offset + 3)) &&
-        !differs(qy, readJointFloat(joint.world, joint.id.index1 - 1, offset + 4)) &&
-        !differs(qz, readJointFloat(joint.world, joint.id.index1 - 1, offset + 5)) &&
-        !differs(qw, readJointFloat(joint.world, joint.id.index1 - 1, offset + 6))
+        !differs(x, readJointFloat(state, id, offset)) &&
+        !differs(y, readJointFloat(state, id, offset + 1)) &&
+        !differs(z, readJointFloat(state, id, offset + 2)) &&
+        !differs(qx, readJointFloat(state, id, offset + 3)) &&
+        !differs(qy, readJointFloat(state, id, offset + 4)) &&
+        !differs(qz, readJointFloat(state, id, offset + 5)) &&
+        !differs(qw, readJointFloat(state, id, offset + 6))
     )
         return;
     frame.p.x = x;
@@ -517,36 +745,35 @@ function applyLocalFrame(
         return;
     }
     clearFieldWarning(warned, binding, key, localFrameName);
-    if (suffix === "A") joint.setLocalFrameA(frame);
-    else joint.setLocalFrameB(frame);
+    writeJointTransform(state, id, offset, frame);
 }
 
 function applyJointFields(
     binding: JointBinding,
     eid: number,
-    joint: SolverJoint,
+    state: WorldState,
+    id: number,
     mask: number,
     warned: Set<number>,
     key: number,
 ): void {
-    applyBaseFields(binding, eid, joint, mask, warned, key);
-    applyScalarEdits(binding, eid, joint, mask, JOINT_SCALAR_EDITS[binding.kind], warned, key);
+    applyBaseFields(binding, eid, state, id, mask, warned, key);
+    applyScalarEdits(binding, eid, state, id, mask, JOINT_SCALAR_EDITS[binding.kind], warned, key);
     const storage = binding.storage;
-    const id = joint.id.index1 - 1;
     switch (binding.kind) {
         case "Distance": {
-            const j = joint as SolverDistanceJoint;
             const lowerForce = jointValue(binding, eid, "lowerSpringForce");
             const upperForce = jointValue(binding, eid, "upperSpringForce");
             if (
                 (fieldChanged(binding, mask, "lowerSpringForce") ||
                     fieldChanged(binding, mask, "upperSpringForce")) &&
-                (differs(lowerForce, readJointFloat(j.world, id, DJ_LOWER_SPRING_FORCE)) ||
-                    differs(upperForce, readJointFloat(j.world, id, DJ_UPPER_SPRING_FORCE)))
+                (differs(lowerForce, readJointFloat(state, id, DJ_LOWER_SPRING_FORCE)) ||
+                    differs(upperForce, readJointFloat(state, id, DJ_UPPER_SPRING_FORCE)))
             ) {
                 if (lowerForce <= upperForce) {
                     clearFieldWarning(warned, binding, key, "lowerSpringForce/upperSpringForce");
-                    j.setSpringForceRange(lowerForce, upperForce);
+                    writeJointFloat(state, id, DJ_LOWER_SPRING_FORCE, lowerForce);
+                    writeJointFloat(state, id, DJ_UPPER_SPRING_FORCE, upperForce);
                 } else {
                     rejectFieldEdit(warned, key, binding, eid, "lowerSpringForce/upperSpringForce");
                 }
@@ -556,9 +783,10 @@ function applyJointFields(
             if (
                 (fieldChanged(binding, mask, "minLength") ||
                     fieldChanged(binding, mask, "maxLength")) &&
-                (differs(minLength, j.getMinLength()) || differs(maxLength, j.getMaxLength()))
+                (differs(minLength, readJointFloat(state, id, C.DJ_MIN_LENGTH)) ||
+                    differs(maxLength, readJointFloat(state, id, C.DJ_MAX_LENGTH)))
             )
-                j.setLengthRange(minLength, maxLength);
+                kernel(state.ecsState).jointSetLimits(state.worldId, id, minLength, maxLength);
             break;
         }
         case "Filter":
@@ -566,29 +794,27 @@ function applyJointFields(
         case "Weld":
             break;
         case "Motor": {
-            const j = joint as SolverMotorJoint;
             if (fieldChanged(binding, mask, "linearVelocity")) {
                 const linear = storage.linearVelocity as Vector4Field;
                 vector.x = linear.x.get(eid);
                 vector.y = linear.y.get(eid);
                 vector.z = linear.z.get(eid);
-                readJointVec3(j.world, id, MJ_LINEAR_VELOCITY, kinVector);
+                readJointVec3(state, id, MJ_LINEAR_VELOCITY, kinVector);
                 if (vectorDiffers(vector.x, vector.y, vector.z, kinVector))
-                    j.setLinearVelocity(vector);
+                    writeJointVec3(state, id, MJ_LINEAR_VELOCITY, vector);
             }
             if (fieldChanged(binding, mask, "angularVelocity")) {
                 const angular = storage.angularVelocity as Vector4Field;
                 vector.x = angular.x.get(eid);
                 vector.y = angular.y.get(eid);
                 vector.z = angular.z.get(eid);
-                readJointVec3(j.world, id, MJ_ANGULAR_VELOCITY, kinVector);
+                readJointVec3(state, id, MJ_ANGULAR_VELOCITY, kinVector);
                 if (vectorDiffers(vector.x, vector.y, vector.z, kinVector))
-                    j.setAngularVelocity(vector);
+                    writeJointVec3(state, id, MJ_ANGULAR_VELOCITY, vector);
             }
             break;
         }
         case "Prismatic": {
-            const j = joint as SolverPrismaticJoint;
             if (
                 fieldChanged(binding, mask, "lowerTranslation") ||
                 fieldChanged(binding, mask, "upperTranslation")
@@ -599,24 +825,16 @@ function applyJointFields(
                     rejectFieldEdit(warned, key, binding, eid, "lowerTranslation/upperTranslation");
                 } else {
                     clearFieldWarning(warned, binding, key, "lowerTranslation/upperTranslation");
-                    if (differs(lower, j.getLowerLimit()) || differs(upper, j.getUpperLimit()))
-                        j.setLimits(lower, upper);
+                    if (
+                        differs(lower, readJointFloat(state, id, C.PJ_LOWER_TRANSLATION)) ||
+                        differs(upper, readJointFloat(state, id, C.PJ_UPPER_TRANSLATION))
+                    )
+                        kernel(state.ecsState).jointSetLimits(state.worldId, id, lower, upper);
                 }
             }
             break;
         }
         case "Revolute": {
-            const j = joint as SolverRevoluteJoint;
-            // Keep this allocation-sensitive edit on concrete Box3D methods.
-            if (fieldChanged(binding, mask, REVOLUTE_MOTOR_SPEED[0])) {
-                const speed = jointValue(binding, eid, REVOLUTE_MOTOR_SPEED[0]);
-                if (!Number.isFinite(speed))
-                    rejectFieldEdit(warned, key, binding, eid, REVOLUTE_MOTOR_SPEED[0]);
-                else {
-                    clearFieldWarning(warned, binding, key, REVOLUTE_MOTOR_SPEED[0]);
-                    if (differs(speed, j.getMotorSpeed())) j.setMotorSpeed(speed);
-                }
-            }
             if (
                 fieldChanged(binding, mask, "lowerAngle") ||
                 fieldChanged(binding, mask, "upperAngle")
@@ -627,14 +845,16 @@ function applyJointFields(
                     rejectFieldEdit(warned, key, binding, eid, "lowerAngle/upperAngle");
                 } else {
                     clearFieldWarning(warned, binding, key, "lowerAngle/upperAngle");
-                    if (differs(lower, j.getLowerLimit()) || differs(upper, j.getUpperLimit()))
-                        j.setLimits(lower, upper);
+                    if (
+                        differs(lower, readJointFloat(state, id, C.RJ_LOWER_ANGLE)) ||
+                        differs(upper, readJointFloat(state, id, C.RJ_UPPER_ANGLE))
+                    )
+                        kernel(state.ecsState).jointSetLimits(state.worldId, id, lower, upper);
                 }
             }
             break;
         }
         case "Spherical": {
-            const j = joint as SolverSphericalJoint;
             if (fieldChanged(binding, mask, "targetRotation")) {
                 const target = storage.targetRotation as Vector4Field;
                 rotation.v.x = target.x.get(eid);
@@ -645,7 +865,7 @@ function applyJointFields(
                     rejectFieldEdit(warned, key, binding, eid, "targetRotation");
                 } else {
                     clearFieldWarning(warned, binding, key, "targetRotation");
-                    readJointQuat(j.world, id, SJ_TARGET_ROTATION, kinRotation);
+                    readJointQuat(state, id, SJ_TARGET_ROTATION, kinRotation);
                     if (
                         rotationDiffers(
                             rotation.v.x,
@@ -655,7 +875,7 @@ function applyJointFields(
                             kinRotation,
                         )
                     )
-                        j.setTargetRotation(rotation);
+                        writeJointQuat(state, id, SJ_TARGET_ROTATION, rotation);
                 }
             }
             if (
@@ -669,10 +889,10 @@ function applyJointFields(
                 } else {
                     clearFieldWarning(warned, binding, key, "lowerTwistAngle/upperTwistAngle");
                     if (
-                        differs(lower, j.getLowerTwistLimit()) ||
-                        differs(upper, j.getUpperTwistLimit())
+                        differs(lower, readJointFloat(state, id, C.SJ_LOWER_TWIST_ANGLE)) ||
+                        differs(upper, readJointFloat(state, id, C.SJ_UPPER_TWIST_ANGLE))
                     )
-                        j.setTwistLimits(lower, upper);
+                        kernel(state.ecsState).jointSetLimits(state.worldId, id, lower, upper);
                 }
             }
             if (fieldChanged(binding, mask, "motorVelocity")) {
@@ -684,15 +904,14 @@ function applyJointFields(
                     rejectFieldEdit(warned, key, binding, eid, "motorVelocity");
                 } else {
                     clearFieldWarning(warned, binding, key, "motorVelocity");
-                    readJointVec3(j.world, id, SJ_MOTOR_VELOCITY, kinVector);
+                    readJointVec3(state, id, SJ_MOTOR_VELOCITY, kinVector);
                     if (vectorDiffers(vector.x, vector.y, vector.z, kinVector))
-                        j.setMotorVelocity(vector);
+                        writeJointVec3(state, id, SJ_MOTOR_VELOCITY, vector);
                 }
             }
             break;
         }
         case "Wheel": {
-            const j = joint as SolverWheelJoint;
             if (
                 fieldChanged(binding, mask, "lowerSuspensionLimit") ||
                 fieldChanged(binding, mask, "upperSuspensionLimit")
@@ -707,10 +926,12 @@ function applyJointFields(
                         "lowerSuspensionLimit/upperSuspensionLimit",
                     );
                     if (
-                        differs(lower, j.getLowerSuspensionLimit()) ||
-                        differs(upper, j.getUpperSuspensionLimit())
-                    )
-                        j.setSuspensionLimits(lower, upper);
+                        differs(lower, readJointFloat(state, id, C.WHJ_LOWER_SUSPENSION_LIMIT)) ||
+                        differs(upper, readJointFloat(state, id, C.WHJ_UPPER_SUSPENSION_LIMIT))
+                    ) {
+                        writeJointFloat(state, id, C.WHJ_LOWER_SUSPENSION_LIMIT, lower);
+                        writeJointFloat(state, id, C.WHJ_UPPER_SUSPENSION_LIMIT, upper);
+                    }
                 } else {
                     rejectFieldEdit(
                         warned,
@@ -735,10 +956,12 @@ function applyJointFields(
                         "lowerSteeringLimit/upperSteeringLimit",
                     );
                     if (
-                        differs(lower, j.getLowerSteeringLimit()) ||
-                        differs(upper, j.getUpperSteeringLimit())
-                    )
-                        j.setSteeringLimits(lower, upper);
+                        differs(lower, readJointFloat(state, id, C.WHJ_LOWER_STEERING_LIMIT)) ||
+                        differs(upper, readJointFloat(state, id, C.WHJ_UPPER_STEERING_LIMIT))
+                    ) {
+                        writeJointFloat(state, id, C.WHJ_LOWER_STEERING_LIMIT, lower);
+                        writeJointFloat(state, id, C.WHJ_UPPER_STEERING_LIMIT, upper);
+                    }
                 } else {
                     rejectFieldEdit(
                         warned,
@@ -760,36 +983,24 @@ function finiteVec3(value: Vec3): boolean {
 const kinVector: Vec3 = { x: 0, y: 0, z: 0 };
 const kinRotation: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 
-const constructors = [
-    DistanceJoint,
-    Joint,
-    MotorJoint,
-    ParallelJoint,
-    PrismaticJoint,
-    RevoluteJoint,
-    SphericalJoint,
-    WeldJoint,
-    WheelJoint,
-] as const;
-
 function bodyEndpointsMatch(
     state: WorldState,
-    joint: SolverJoint,
-    bodyA: SolverBody | undefined,
-    bodyB: SolverBody | undefined,
+    joint: EntityId,
+    bodyA: EntityId | undefined,
+    bodyB: EntityId | undefined,
 ): boolean {
-    if (!bodyA || !bodyB || !joint.isValid()) return false;
-    const id = joint.id.index1 - 1;
+    if (!bodyA || !bodyB || !jointIsValid(state, joint)) return false;
+    const id = joint.index1 - 1;
     return (
-        jointField(state, id, JointField.bodyIdA) === bodyA.id.index1 - 1 &&
-        jointField(state, id, JointField.bodyIdB) === bodyB.id.index1 - 1
+        jointField(state, id, JointField.bodyIdA) === bodyA.index1 - 1 &&
+        jointField(state, id, JointField.bodyIdB) === bodyB.index1 - 1
     );
 }
 
 export function syncJoints(
     cache: ConstraintCache,
-    world: SolverWorld,
-    bodies: ReadonlyMap<number, SolverBody>,
+    state: WorldState,
+    bodies: ReadonlyMap<number, EntityId>,
     ecs: World,
     bindings: readonly JointBinding[],
     isDeferred: (eid: number) => boolean,
@@ -805,7 +1016,8 @@ export function syncJoints(
             const key = identity(binding.index, eid);
             const joint = live?.get(eid);
             if (!ecs.has(eid, binding.component)) {
-                if (joint?.isValid()) joint.destroy();
+                if (joint && jointIsValid(state, joint))
+                    destroyJointInternal(state, joint.index1 - 1, true);
                 live?.delete(eid);
                 clearJointWarnings(cache.warnedJoints, key);
                 continue;
@@ -814,14 +1026,23 @@ export function syncJoints(
             const b = (binding.storage.b as import("../../engine").ScalarField).get(eid);
             const bodyA = bodies.get(a);
             const bodyB = bodies.get(b);
-            if (joint && bodyEndpointsMatch(world.state, joint, bodyA, bodyB)) {
-                applyJointFields(binding, eid, joint, fieldMask, cache.warnedJoints, key);
+            if (joint && bodyEndpointsMatch(state, joint, bodyA, bodyB)) {
+                applyJointFields(
+                    binding,
+                    eid,
+                    state,
+                    joint.index1 - 1,
+                    fieldMask,
+                    cache.warnedJoints,
+                    key,
+                );
                 continue;
             }
-            if (joint?.isValid()) joint.destroy();
+            if (joint && jointIsValid(state, joint))
+                destroyJointInternal(state, joint.index1 - 1, true);
             live?.delete(eid);
             const def = jointDef(ecs, binding, eid);
-            const created = createJoint(world, bodies, def, isDeferred, cache.warnedJoints, key);
+            const created = createJoint(state, bodies, def, isDeferred, cache.warnedJoints, key);
             if (created) {
                 live ??= new Map();
                 live.set(eid, created);
@@ -837,11 +1058,12 @@ export interface ConstraintIds {
     joints: [number, number, number, number][];
     candidates: [number, number, number][];
 }
-export function captureConstraints(cache: ConstraintCache): ConstraintIds {
+export function captureConstraints(cache: ConstraintCache, state: WorldState): ConstraintIds {
     const joints: ConstraintIds["joints"] = [];
     for (const [index, live] of cache.liveJoints)
         for (const [eid, joint] of live)
-            if (joint.isValid()) joints.push([index, eid, joint.id.index1, joint.id.generation]);
+            if (jointIsValid(state, joint))
+                joints.push([index, eid, joint.index1, joint.generation]);
     const candidates: ConstraintIds["candidates"] = [];
     for (let index = 0; index < cache.candidates.length; index++) {
         const pending = cache.candidates[index];
@@ -855,19 +1077,13 @@ export function captureConstraints(cache: ConstraintCache): ConstraintIds {
 export function restoreConstraints(
     cache: ConstraintCache,
     ids: ConstraintIds,
-    world: SolverWorld,
+    state: WorldState,
 ): void {
-    const liveJoints = new Map<number, Map<number, SolverJoint>>();
+    const liveJoints = new Map<number, Map<number, EntityId>>();
     for (const [index, eid, index1, generation] of ids.joints) {
-        const Constructor = constructors[index] as typeof Joint;
-        const joint = new Constructor(world.state, {
-            index1,
-            world0: world.state.worldId,
-            generation,
-        });
         let live = liveJoints.get(index);
         if (!live) liveJoints.set(index, (live = new Map()));
-        live.set(eid, joint);
+        live.set(eid, { index1, world0: state.worldId, generation });
     }
     cache.liveJoints = liveJoints;
     for (const candidates of cache.candidates) clearFieldCandidates(candidates);

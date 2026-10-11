@@ -1,14 +1,30 @@
 import { expect, test } from "bun:test";
-import { BodyType, PhysicsWorld } from "../api/index";
+import { restore, snapshot } from "../api/snapshot";
 import { NULL_INDEX } from "../common/array";
 import { GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/constants";
+import { BodyType } from "../common/types";
 import { DJ_IMPULSE, DJ_MOTOR_IMPULSE, J_JOINT_ID, JOINT_STRIDE } from "../kernel/columns";
 import { jointArrayCount, jointArrayKey, jointAt, writeJointFloat } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { solverSetCount } from "../kernel/solversetcolumns";
+import { createTestBody, createTestWorld, destroyTestWorld } from "../testing";
+import { bodySetAwake, bodySetType } from "../world/body";
 import type { WorldState } from "../world/world";
+import { createDistanceJoint, defaultDistanceJointDef } from "./distanceJoint";
+import { defaultJointDef, destroyJointInternal } from "./joint";
 import { jointIds } from "./joint.fixture";
+
+function distanceJoint(
+    world: WorldState,
+    a: number,
+    b: number,
+    config: Record<string, unknown> = {},
+) {
+    const base = { ...defaultJointDef(), bodyIdA: a, bodyIdB: b };
+    const def = { ...defaultDistanceJointDef(base), ...config };
+    return createDistanceJoint(world, def).joint;
+}
 
 function records(world: WorldState): Map<number, number[]> {
     const k = kernel(world.ecsState);
@@ -41,104 +57,99 @@ function records(world: WorldState): Map<number, number[]> {
 }
 
 test("sleeping joint arrays wake in their original order, including overflow, and restoring one world leaves a sibling's arrays untouched", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
-    const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const sibling = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
-        const hubs = [];
+        const hubs: number[] = [];
         for (const subject of [world, sibling]) {
-            const hub = subject.createBody({ type: BodyType.Dynamic });
+            const hub = createTestBody(subject, { type: BodyType.Dynamic });
             hubs.push(hub);
             for (let i = 0; i < 28; ++i) {
-                const body = subject.createBody({
+                const body = createTestBody(subject, {
                     type: BodyType.Dynamic,
                     position: { x: i + 1, y: 0, z: 0 },
                 });
-                const joint = subject.createDistanceJoint(hub, body, {
-                    length: i + 1,
-                    hertz: i + 2,
-                });
-                writeJointFloat(subject.state, joint.id.index1 - 1, DJ_IMPULSE, i + 0.125);
+                const joint = distanceJoint(subject, hub, body, { length: i + 1, hertz: i + 2 });
+                writeJointFloat(subject, joint, DJ_IMPULSE, i + 0.125);
             }
         }
-        expect(jointArrayCount(world.state, OVERFLOW_INDEX)).toBeGreaterThan(0);
-        const before = records(world.state);
-        const siblingBefore = records(sibling.state);
-        const hub = hubs[0];
-        hub.setAwake(false);
-        expect(records(world.state)).toEqual(before);
-        const setIndex = jointField(world.state, 0, JointField.setIndex);
+        expect(jointArrayCount(world, OVERFLOW_INDEX)).toBeGreaterThan(0);
+        const before = records(world);
+        const siblingBefore = records(sibling);
+        const hub = hubs[0]!;
+        bodySetAwake(world, hub, false);
+        expect(records(world)).toEqual(before);
+        const setIndex = jointField(world, 0, JointField.setIndex);
         const key = GRAPH_COLOR_COUNT + setIndex;
-        const order = Array.from({ length: jointArrayCount(world.state, key) }, (_, i) =>
-            jointAt(world.state, key, i),
+        const order = Array.from({ length: jointArrayCount(world, key) }, (_, i) =>
+            jointAt(world, key, i),
         );
-        const snapshot = world.snapshot();
-        hub.setAwake(true);
-        expect(records(world.state)).toEqual(before);
+        const saved = snapshot(world);
+        bodySetAwake(world, hub, true);
+        expect(records(world)).toEqual(before);
         const actual: number[] = [];
-        for (let color = 0; color < GRAPH_COLOR_COUNT; ++color) {
-            for (let i = 0; i < jointArrayCount(world.state, color); ++i)
-                actual.push(jointAt(world.state, color, i));
-        }
+        for (let color = 0; color < GRAPH_COLOR_COUNT; ++color)
+            for (let i = 0; i < jointArrayCount(world, color); ++i)
+                actual.push(jointAt(world, color, i));
         expect(actual).toEqual(order);
-        world.restore(snapshot);
-        expect(records(world.state)).toEqual(before);
-        expect(records(sibling.state)).toEqual(siblingBefore);
-        hub.setAwake(true);
-        expect(records(world.state)).toEqual(before);
+        restore(world, saved);
+        expect(records(world)).toEqual(before);
+        expect(records(sibling)).toEqual(siblingBefore);
+        bodySetAwake(world, hub, true);
+        expect(records(world)).toEqual(before);
     } finally {
-        world.destroy();
-        sibling.destroy();
+        destroyTestWorld(world);
+        destroyTestWorld(sibling);
     }
 });
 
 test("joint-array moves preserve every record word and fix local indices through sleep, wake, neighbor removal, recolor and snapshot restore", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         const pairs = Array.from({ length: 5 }, (_, i) => {
-            const a = world.createBody({
+            const a = createTestBody(world, {
                 type: BodyType.Dynamic,
                 position: { x: i * 10, y: 0, z: 0 },
             });
-            const b = world.createBody({
+            const b = createTestBody(world, {
                 type: BodyType.Dynamic,
                 position: { x: i * 10 + 1, y: 0, z: 0 },
             });
-            const joint = world.createDistanceJoint(a, b, {
+            const joint = distanceJoint(world, a, b, {
                 length: i + 1,
                 hertz: i + 2,
                 enableMotor: true,
                 motorSpeed: i + 3,
             });
-            const record = joint.id.index1 - 1;
-            writeJointFloat(world.state, record, DJ_IMPULSE, i + 0.25);
-            writeJointFloat(world.state, record, DJ_MOTOR_IMPULSE, -i - 0.5);
+            writeJointFloat(world, joint, DJ_IMPULSE, i + 0.25);
+            writeJointFloat(world, joint, DJ_MOTOR_IMPULSE, -i - 0.5);
             return { a, b, joint };
         });
-        const before = records(world.state);
-        const snapshot = world.snapshot();
+        const before = records(world);
+        const saved = snapshot(world);
         const assertUnchanged = () => {
-            for (const [id, words] of records(world.state)) expect(words).toEqual(before.get(id)!);
+            for (const [id, words] of records(world)) expect(words).toEqual(before.get(id)!);
         };
-        pairs[1].a.setAwake(false);
-        expect(
-            jointField(world.state, pairs[1].joint.id.index1 - 1, JointField.setIndex),
-        ).toBeGreaterThanOrEqual(SetType.FirstSleeping);
+        bodySetAwake(world, pairs[1]!.a, false);
+        expect(jointField(world, pairs[1]!.joint, JointField.setIndex)).toBeGreaterThanOrEqual(
+            SetType.FirstSleeping,
+        );
         assertUnchanged();
-        pairs[1].b.setAwake(true);
+        bodySetAwake(world, pairs[1]!.b, true);
         assertUnchanged();
-        pairs[0].joint.destroy(false);
+        destroyJointInternal(world, pairs[0]!.joint, false);
         assertUnchanged();
-        pairs[2].a.setType(BodyType.Static);
+        bodySetType(world, pairs[2]!.a, BodyType.Static);
         assertUnchanged();
-        pairs[2].a.setType(BodyType.Dynamic);
+        bodySetType(world, pairs[2]!.a, BodyType.Dynamic);
         assertUnchanged();
-        world.restore(snapshot);
-        expect(records(world.state)).toEqual(before);
-        pairs[3].a.setAwake(false);
+        restore(world, saved);
+        expect(records(world)).toEqual(before);
+        bodySetAwake(world, pairs[3]!.a, false);
         assertUnchanged();
-        pairs[3].b.setAwake(true);
+        bodySetAwake(world, pairs[3]!.b, true);
         assertUnchanged();
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

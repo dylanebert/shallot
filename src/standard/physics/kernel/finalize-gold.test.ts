@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { BodyType, PhysicsWorld } from "../api";
+import { BodyType } from "../common/types";
+import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "../testing";
 import { BodyFlags } from "../world/body";
 import { BodyField, bodyField } from "./bodyrecords";
 import { S2_CENTER0, S2_FLAGS, S2_MIN_EXTENT, SIM_STRIDE, STATE_STRIDE } from "./columns";
@@ -38,21 +39,21 @@ function assertBits(value: number, hex: string) {
 }
 
 function fixture(count: number, dt: number, continuous: boolean, invDt = 1 / dt) {
-    const world = new PhysicsWorld({
+    const world = createTestWorld({
         gravity: { x: 0, y: 0, z: 0 },
         enableSleep: false,
         enableContinuous: continuous,
     });
-    for (let i = 0; i < count; ++i) world.createBody({ type: BodyType.Dynamic });
+    for (let i = 0; i < count; ++i) createTestBody(world, { type: BodyType.Dynamic });
     // Initializes the real step context, arenas and finalize bookkeeping before the direct task run.
-    world.step(dt, 1);
-    const k = kernel(world.state.ecsState);
+    stepTestWorld(world, dt, 1);
+    const k = kernel(world.ecsState);
     // The frozen phase inputs supply dt and invDt independently.
     const context = new Float32Array(k.memory.buffer, k.stepContext(dt, 1, 0, 0), 10);
     context[1] = invDt;
     k.stepSolveBuild(1, 1, 0, 0, 0, 1000, 0, false, 0, 0, continuous);
-    world.state.bodyStore.refreshViews();
-    return { world, k, store: world.state.bodyStore };
+    world.bodyStore.refreshViews();
+    return { world, k, store: world.bodyStore };
 }
 function finalize(k: ReturnType<typeof kernel>, count: number) {
     k.parallelFor(7, count, 1, 0);
@@ -78,9 +79,9 @@ test("finalize maxMotion gold decides the exact fast boundary", () => {
                 store.simF.set(store.simF.slice(7, 10), S2_CENTER0);
                 finalize(k, 1);
                 expect((store.sim2U[S2_FLAGS] & BodyFlags.isFast) !== 0).toBe(below);
-                assertBits(bodyField(world.state, 0, BodyField.sleepVelocity), c.out[0]);
+                assertBits(bodyField(world, 0, BodyField.sleepVelocity), c.out[0]);
             } finally {
-                world.destroy();
+                destroyTestWorld(world);
             }
         }
     }
@@ -97,11 +98,11 @@ test("finalize matches frozen C vectors through resident WASM records", () => {
             for (let i = 0; i < simMap.length; ++i) assertBits(store.simF[simMap[i]], c.outSim[i]);
             for (let i = 0; i < finMap.length; ++i) assertBits(store.simF[finMap[i]], c.outFin[i]);
             for (let i = 0; i < c.outState.length; ++i) assertBits(store.stateF[i], c.outState[i]);
-            assertBits(bodyField(world.state, 0, BodyField.sleepVelocity), c.out[0]);
+            assertBits(bodyField(world, 0, BodyField.sleepVelocity), c.out[0]);
             for (let i = 0; i < 3; ++i) assertBits(store.simF[S2_CENTER0 + i], c.outFin[i]);
             for (let i = 0; i < 4; ++i) assertBits(store.simF[S2_ROTATION0 + i], c.outSim[28 + i]);
         } finally {
-            world.destroy();
+            destroyTestWorld(world);
         }
     }
 });
@@ -135,11 +136,9 @@ for (const continuous of [true, false]) {
                 expect(
                     Array.from(store.simF.slice(s + S2_ROTATION0, s + S2_ROTATION0 + 4)),
                 ).toEqual(Array.from(store.simF.slice(s + 3, s + 7)));
-                expect(bodyField(world.state, index, BodyField.sleepVelocity)).toBe(
-                    Math.fround(0.2),
-                );
+                expect(bodyField(world, index, BodyField.sleepVelocity)).toBe(Math.fround(0.2));
             } finally {
-                world.destroy();
+                destroyTestWorld(world);
             }
         });
     }

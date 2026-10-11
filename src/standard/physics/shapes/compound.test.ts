@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { PhysicsWorld } from "../api/world";
 import type { ShapeProxy } from "../collision/distance";
 import { kernelCast, kernelMover, kernelOverlap, kernelRay } from "../collision/shape_query_gold";
 import {
@@ -15,7 +14,9 @@ import {
 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import { assertQueryWorld, kernel, rethrowQueryError, setQueryCallback } from "../kernel/kernel";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { readNode } from "../kernel/treecolumns";
+import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
 import {
     type CompoundData,
     type CompoundDef,
@@ -27,7 +28,7 @@ import { type Capsule, computeCapsuleAABB, computeSphereAABB, type Sphere } from
 import gold from "./geometry.gold.json";
 import { computeHullAABB, type HullData, makeBoxHull } from "./hull";
 import { computeMeshAABB, createBoxMesh, type MeshData } from "./mesh";
-import { computeShapeAABB } from "./shape";
+import { computeShapeAABB, createCompoundShape, destroyShape, shapeIsValid } from "./shape";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -215,15 +216,19 @@ function buildMaterials(): CompoundData {
 
 // Mirrors the transforms scene: the same box hull at two instance transforms (one rotated), sharing one
 // material, plus a sphere with a second material.
-function exercisePublicCompoundShape(compound: CompoundData): void {
-    const physicsWorld = new PhysicsWorld();
-    const body = physicsWorld.createBody({ type: BodyType.Static });
-    const shape = body.createCompound({}, compound);
-    expect(shape.isValid(), "public compound shape is kernel-live").toBe(true);
-    shape.destroy(false);
-    expect(shape.isValid(), "destroyed compound handle is stale").toBe(false);
-    body.destroy();
-    physicsWorld.destroy();
+function exerciseCompoundShape(compound: CompoundData): void {
+    const world = createTestWorld();
+    const body = createTestBody(world, { type: BodyType.Static });
+    const shape = createCompoundShape(world, body, testShapeDef(), compound)!;
+    const id = {
+        index1: shape + 1,
+        world0: world.worldId,
+        generation: shapeField(world, shape, ShapeField.generation),
+    };
+    expect(shapeIsValid(world, id), "compound shape is kernel-live").toBe(true);
+    destroyShape(world, shape, false);
+    expect(shapeIsValid(world, id), "destroyed compound id is stale").toBe(false);
+    destroyTestWorld(world);
 }
 
 function buildTransforms(): CompoundData {
@@ -254,7 +259,7 @@ test("a compound's materials, inner tree nodes and resolved child transforms dri
         const goldName = name.split(" ")[0];
         vector(name, () => {
             const authored = build();
-            if (name.startsWith("mixed")) exercisePublicCompoundShape(authored);
+            if (name.startsWith("mixed")) exerciseCompoundShape(authored);
             assertCompound(authored, cGold(goldName));
         });
     }
@@ -481,25 +486,24 @@ test("a compound's child index stops resolving to the right child shape, its inn
 
     vector("CompoundQuery — inner-tree AABB query visits the overlapping children", () => {
         const c = buildMixed();
-        const world = new PhysicsWorld();
+        const world = createTestWorld();
         try {
-            const body = world.createBody({ type: BodyType.Static });
-            const shape = body.createCompound({}, c);
+            const body = createTestBody(world, { type: BodyType.Static });
+            const shape = createCompoundShape(world, body, testShapeDef(), c)!;
             // Child order: capsule (0), hull (1), mesh (2), sphere @+5 (3), sphere @-5 (4).
             const visit = (box: { lowerBound: Vec3; upperBound: Vec3 }): number[] => {
                 const hits: number[] = [];
-                const state = world.state;
-                assertQueryWorld(state.ecsState, state.worldId);
-                const previous = setQueryCallback(state.ecsState, (_kind, childIndex) => {
+                assertQueryWorld(world.ecsState, world.worldId);
+                const previous = setQueryCallback(world.ecsState, (_kind, childIndex) => {
                     hits.push(childIndex);
                     return 1;
                 });
                 try {
                     const lo = box.lowerBound,
                         hi = box.upperBound;
-                    kernel(state.ecsState).shapeQueryCompound(
-                        state.worldId,
-                        shape.id.index1 - 1,
+                    kernel(world.ecsState).shapeQueryCompound(
+                        world.worldId,
+                        shape,
                         lo.x,
                         lo.y,
                         lo.z,
@@ -507,9 +511,9 @@ test("a compound's child index stops resolving to the right child shape, its inn
                         hi.y,
                         hi.z,
                     );
-                    rethrowQueryError(state.ecsState);
+                    rethrowQueryError(world.ecsState);
                 } finally {
-                    setQueryCallback(state.ecsState, previous);
+                    setQueryCallback(world.ecsState, previous);
                 }
                 return hits.sort((a, b) => a - b);
             };
@@ -524,17 +528,17 @@ test("a compound's child index stops resolving to the right child shape, its inn
                 0, 1, 2, 3, 4,
             ]);
         } finally {
-            world.destroy();
+            destroyTestWorld(world);
         }
     });
 
     vector("CompoundAABBContainsChildren — root AABB contains every child's AABB", () => {
         const c = buildMixed();
-        const world = new PhysicsWorld();
+        const world = createTestWorld();
         try {
-            const body = world.createBody({ type: BodyType.Static });
-            const shape = body.createCompound({}, c);
-            const root = computeShapeAABB(world.state, shape.id.index1 - 1, xf.identity());
+            const body = createTestBody(world, { type: BodyType.Static });
+            const shape = createCompoundShape(world, body, testShapeDef(), c)!;
+            const root = computeShapeAABB(world, shape, xf.identity());
             const childCount =
                 c.capsules.length + c.hulls.length + c.meshes.length + c.spheres.length;
             for (let i = 0; i < childCount; ++i) {
@@ -559,7 +563,7 @@ test("a compound's child index stops resolving to the right child shape, its inn
                 expect(aabb.contains(root, box)).toBe(true);
             }
         } finally {
-            world.destroy();
+            destroyTestWorld(world);
         }
     });
 });

@@ -3,8 +3,7 @@ import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { createApp, type EntityRef, Time } from "../../engine";
 import { hashPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
-// This private lookup is used only to inspect the solver's applied config; callback behavior below uses ECS entities.
-import { physicsWorld } from "./runtime";
+import { physicsState } from "./runtime";
 
 test("a world gravity write after warm changes acceleration on the next tick", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
@@ -47,7 +46,7 @@ test("world settings apply at the next fixed sync", async () => {
         definition.subStepCount = 2;
         world.tick();
 
-        const state = physicsWorld(world)!.state;
+        const state = physicsState(world)!;
         expect(state.gravity.y).toBe(-3);
         expect(state.restitutionThreshold).toBe(0.25);
         expect(state.hitEventThreshold).toBe(2);

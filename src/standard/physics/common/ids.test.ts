@@ -1,76 +1,81 @@
 import { expect, test } from "bun:test";
-import { PhysicsWorld } from "../api/world";
 import { kernel } from "../kernel/kernel";
+import { createTestBody, createTestWorld, destroyTestWorld } from "../testing";
+import { bodyIsValid, destroyBody, makeBodyId } from "../world/body";
+import { worldCounters } from "../world/world";
 import { BodyType } from "./types";
 
 test("body generations wrap at sixteen bits as Box3D handles do", () => {
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const k = kernel(undefined);
+        const k = kernel(world.ecsState);
         for (let generation = 1; generation <= 0x10001; ++generation) {
-            const id = k.bodyCreate(world.state.worldId);
+            const id = k.bodyCreate(world.worldId);
             expect(id).toBe(0);
-            expect(k.bodyGeneration(world.state.worldId, id)).toBe(generation & 0xffff);
-            k.bodyDestroy(world.state.worldId, id);
+            expect(k.bodyGeneration(world.worldId, id)).toBe(generation & 0xffff);
+            k.bodyDestroy(world.worldId, id);
         }
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("body lifecycle records lose a sibling world's validity, generation, LIFO reuse, or count when another world grows the kernel capacity", () => {
-    const growing = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
-    const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
-    const survivor = sibling.createBody({ type: BodyType.Dynamic });
-    const freedA = sibling.createBody({ type: BodyType.Dynamic });
-    const freedB = sibling.createBody({ type: BodyType.Dynamic });
-    const freedAGeneration = freedA.id.generation;
-    const freedBGeneration = freedB.id.generation;
-    freedA.destroy();
-    freedB.destroy();
-    expect(sibling.getCounters().bodyCount).toBe(1);
+    const growing = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const sibling = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const survivor = createTestBody(sibling, { type: BodyType.Dynamic });
+    const freedA = createTestBody(sibling, { type: BodyType.Dynamic });
+    const freedB = createTestBody(sibling, { type: BodyType.Dynamic });
+    const freedAGeneration = makeBodyId(sibling, freedA).generation;
+    const freedBGeneration = makeBodyId(sibling, freedB).generation;
+    destroyBody(sibling, freedA);
+    destroyBody(sibling, freedB);
+    expect(worldCounters(sibling).bodyCount).toBe(1);
 
     const initialCapacity = kernel(undefined).bodyCap();
-    const growingBodies = [];
+    const growingBodies: number[] = [];
     while (kernel(undefined).bodyCap() === initialCapacity) {
-        growingBodies.push(growing.createBody({ type: BodyType.Dynamic }));
+        growingBodies.push(createTestBody(growing, { type: BodyType.Dynamic }));
     }
 
-    expect(survivor.id.index1 - 1).toBe(0);
-    expect(survivor.isValid()).toBe(true);
-    expect(kernel(undefined).bodyGeneration(sibling.state.worldId, 0)).toBe(survivor.id.generation);
-    expect(sibling.getCounters().bodyCount).toBe(1);
+    expect(survivor).toBe(0);
+    expect(bodyIsValid(sibling, makeBodyId(sibling, survivor))).toBe(true);
+    expect(kernel(undefined).bodyGeneration(sibling.worldId, 0)).toBe(
+        makeBodyId(sibling, survivor).generation,
+    );
+    expect(worldCounters(sibling).bodyCount).toBe(1);
 
-    const reusedB = sibling.createBody({ type: BodyType.Dynamic });
-    const reusedA = sibling.createBody({ type: BodyType.Dynamic });
-    expect(reusedB.id.index1 - 1).toBe(freedB.id.index1 - 1);
-    expect(reusedA.id.index1 - 1).toBe(freedA.id.index1 - 1);
-    expect(reusedB.id.generation).not.toBe(freedBGeneration);
-    expect(reusedA.id.generation).not.toBe(freedAGeneration);
-    expect(sibling.getCounters().bodyCount).toBe(3);
+    const reusedB = createTestBody(sibling, { type: BodyType.Dynamic });
+    const reusedA = createTestBody(sibling, { type: BodyType.Dynamic });
+    expect(reusedB).toBe(freedB);
+    expect(reusedA).toBe(freedA);
+    expect(makeBodyId(sibling, reusedB).generation).not.toBe(freedBGeneration);
+    expect(makeBodyId(sibling, reusedA).generation).not.toBe(freedAGeneration);
+    expect(worldCounters(sibling).bodyCount).toBe(3);
 
-    survivor.destroy();
-    expect(survivor.isValid()).toBe(false);
-    expect(sibling.getCounters().bodyCount).toBe(2);
-    for (const body of growingBodies) body.destroy();
-    growing.destroy();
-    sibling.destroy();
+    destroyBody(sibling, survivor);
+    expect(bodyIsValid(sibling, makeBodyId(sibling, survivor))).toBe(false);
+    expect(worldCounters(sibling).bodyCount).toBe(2);
+    for (const body of growingBodies) destroyBody(growing, body);
+    destroyTestWorld(growing);
+    destroyTestWorld(sibling);
 });
 
-test("the public body id pool leaves holes in its dense range, miscounts live ids against capacity, or recycles freed ids in the wrong order", () => {
-    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
-    const a = physicsWorld.createBody({ type: BodyType.Dynamic });
-    const b = physicsWorld.createBody({ type: BodyType.Dynamic });
-    const c = physicsWorld.createBody({ type: BodyType.Dynamic });
-    expect([a.id.index1 - 1, b.id.index1 - 1, c.id.index1 - 1]).toEqual([0, 1, 2]);
-    expect(physicsWorld.getCounters().bodyCount).toBe(3);
+test("the body id pool leaves holes in its dense range, miscounts live ids against capacity, or recycles freed ids in the wrong order", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const a = createTestBody(world, { type: BodyType.Dynamic });
+    const b = createTestBody(world, { type: BodyType.Dynamic });
+    const c = createTestBody(world, { type: BodyType.Dynamic });
+    expect([a, b, c]).toEqual([0, 1, 2]);
+    expect(worldCounters(world).bodyCount).toBe(3);
 
-    a.destroy();
-    b.destroy();
-    expect(physicsWorld.getCounters().bodyCount).toBe(1);
-    const reusedB = physicsWorld.createBody({ type: BodyType.Dynamic });
-    const reusedA = physicsWorld.createBody({ type: BodyType.Dynamic });
-    expect(reusedB.id.index1 - 1).toBe(1);
-    expect(reusedA.id.index1 - 1).toBe(0);
-    expect(physicsWorld.createBody({ type: BodyType.Dynamic }).id.index1 - 1).toBe(3);
+    destroyBody(world, a);
+    destroyBody(world, b);
+    expect(worldCounters(world).bodyCount).toBe(1);
+    const reusedB = createTestBody(world, { type: BodyType.Dynamic });
+    const reusedA = createTestBody(world, { type: BodyType.Dynamic });
+    expect(reusedB).toBe(1);
+    expect(reusedA).toBe(0);
+    expect(createTestBody(world, { type: BodyType.Dynamic })).toBe(3);
+    destroyTestWorld(world);
 });

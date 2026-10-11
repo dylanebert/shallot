@@ -1,6 +1,13 @@
 import type { CustomFilterCallback, PreSolveCallback } from "../api/config";
+import { SetType } from "../common/constants";
 import { jointCount } from "../kernel/jointrecords";
-import { createSolverSet } from "../kernel/solversetcolumns";
+import {
+    createSolverSet,
+    setBodyCount,
+    solverSetCount,
+    solverSetIndex,
+    wakeSolverSet,
+} from "../kernel/solversetcolumns";
 import type {
     WorldCustomFilterCallback,
     WorldMixCallback,
@@ -268,7 +275,7 @@ export function getWorld(id: WorldId): WorldState | undefined {
         return undefined;
     }
     const w = worlds[i];
-    if (w === undefined || w.worldId !== i || w.generation !== id.generation) {
+    if (w === undefined || w.inUse === false || w.worldId !== i || w.generation !== id.generation) {
         return undefined;
     }
     return w;
@@ -279,8 +286,93 @@ export function worldIsValid(id: WorldId): boolean {
     return getWorld(id) !== undefined;
 }
 
+export function worldStateIsValid(state: WorldState): boolean {
+    const id = state.worldId;
+    return id >= 0 && id < MAX_WORLDS && worlds[id] === state && state.inUse;
+}
+
+export function worldSetGravity(world: WorldState, gravity: Vec3): void {
+    if (!world.inUse || world.locked) return;
+    world.gravity.x = f32(gravity.x);
+    world.gravity.y = f32(gravity.y);
+    world.gravity.z = f32(gravity.z);
+}
+
+export function worldSetHitEventThreshold(world: WorldState, value: number): void {
+    if (!world.inUse || world.locked) return;
+    world.hitEventThreshold = maxf(0, f32(value));
+}
+
+export function worldSetRestitutionThreshold(world: WorldState, value: number): void {
+    if (!world.inUse || world.locked) return;
+    world.restitutionThreshold = maxf(0, f32(value));
+}
+
+export function worldSetContactTuning(
+    world: WorldState,
+    hertz: number,
+    dampingRatio: number,
+    contactSpeed: number,
+): void {
+    if (!world.inUse || world.locked) return;
+    world.contactHertz = maxf(0, f32(hertz));
+    world.contactDampingRatio = maxf(0, f32(dampingRatio));
+    world.contactSpeed = maxf(0, f32(contactSpeed));
+}
+
+export function worldSetContactRecycleDistance(world: WorldState, distance: number): void {
+    if (!world.inUse || world.locked) return;
+    world.contactRecycleDistance = maxf(0, f32(distance));
+}
+
+export function worldSetMaximumLinearSpeed(world: WorldState, speed: number): void {
+    if (!(speed > 0)) throw new RangeError("physics: maximum linear speed must be positive");
+    if (!world.inUse || world.locked) return;
+    world.maxLinearSpeed = f32(speed);
+}
+
+/** Install the standalone native-shape filter callback, preserving the ECS callback gate. */
+export function worldSetCustomFilterCallback(
+    world: WorldState,
+    callback: CustomFilterCallback | null,
+): void {
+    if (!world.inUse || world.locked) return;
+    world.customFilterCallback = callback;
+    kernel(world.ecsState).worldSetCustomFilterCallback(
+        world.worldId,
+        callback !== null || world.worldCustomFilterCallback !== null,
+    );
+}
+
+/** Install the standalone pre-solve callback, preserving the ECS callback gate. */
+export function worldSetPreSolveCallback(
+    world: WorldState,
+    callback: PreSolveCallback | null,
+): void {
+    if (!world.inUse || world.locked) return;
+    world.preSolveCallback = callback;
+    kernel(world.ecsState).worldSetPreSolveCallback(
+        world.worldId,
+        callback !== null || world.worldPreSolveCallback !== null,
+    );
+}
+
+/** Enable or disable body sleeping, waking every sleeping solver set when disabled. */
+export function worldEnableSleeping(world: WorldState, enabled: boolean): void {
+    if (!world.inUse || world.locked || world.enableSleep === enabled) return;
+    world.enableSleep = enabled;
+    if (!enabled) {
+        const count = solverSetCount(world);
+        for (let set = SetType.FirstSleeping; set < count; set++) {
+            if (solverSetIndex(world, set) >= 0 && setBodyCount(world, set) > 0)
+                wakeSolverSet(world, set);
+        }
+    }
+}
+
 /** Destroy a world and everything in it (b3DestroyWorld). */
 export function destroyWorld(world: WorldState): void {
+    if (!world.inUse || world.locked) return;
     world.locked = true;
 
     kernel(world.ecsState).worldDestroyKernel(world.worldId);

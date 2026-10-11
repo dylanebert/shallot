@@ -8,11 +8,16 @@ test("a kept reference resolves while alive and reads missing after destruction 
         const ref = world.ref(eid);
         expect(Number.isSafeInteger(ref)).toBe(true);
         expect(world.resolve(ref)).toBe(eid);
+        const generation = Math.floor(ref / 2 ** 32);
+        expect(world.matchesEntityGeneration(eid, generation)).toBe(true);
         world.destroy(eid);
         expect(Number(world.ref(eid))).toBe(0);
         expect(world.resolve(ref)).toBe(0);
         expect(world.create()).toBe(eid);
         expect(world.resolve(ref)).toBe(0);
+        expect(world.matchesEntityGeneration(eid, generation)).toBe(false);
+        const reusedGeneration = Math.floor(world.ref(eid) / 2 ** 32);
+        expect(world.matchesEntityGeneration(eid, reusedGeneration)).toBe(true);
         expect(world.resolve(world.ref(eid))).toBe(eid);
         expect(world.resolve(world.ref(0))).toBe(0);
     } finally {

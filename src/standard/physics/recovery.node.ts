@@ -28,7 +28,8 @@ import {
 import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
-import { physicsWorld } from "./runtime";
+import { physicsState } from "./runtime";
+import { worldCounters } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();
@@ -90,7 +91,7 @@ test("world recovery includes gameplay, identity, allocation, clock and physics 
         expect(world.resource(Score).value).toBe(capturedScore);
         expect(world.resolve(first.ref)).toBe(0);
         expect(world.exists(first.spawned)).toBe(false);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(worldCounters(physicsState(world)!).bodyCount).toBe(1);
         expect(advance()).toEqual(first);
         world.restore(saved);
         expect(advance()).toEqual(first);
@@ -109,18 +110,18 @@ test("recovery restores a Shape on another entity with its body reference and so
         world.tick();
         const saved = world.snapshot();
         const hash = hashPhysics(world);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        expect(worldCounters(physicsState(world)!).shapeCount).toBe(1);
 
         world.destroy(collider);
         world.tick();
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        expect(worldCounters(physicsState(world)!).shapeCount).toBe(0);
         world.restore(saved);
 
         expect(world.exists(collider)).toBe(true);
         expect(world.has(collider, Shape)).toBe(true);
         expect(world.storage(Shape).body.get(collider)).toBe(body);
         expect(world.storage(Shape).friction.get(collider)).toBe(0.25);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        expect(worldCounters(physicsState(world)!).shapeCount).toBe(1);
         expect(hashPhysics(world)).toBe(hash);
     } finally {
         app.dispose();
@@ -183,15 +184,15 @@ test("recovery restores Shape authoring and its hull registry before fixed sync"
         const saved = world.snapshot();
         world.tick();
         const expected = hashPhysics(world);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        expect(worldCounters(physicsState(world)!).bodyCount).toBe(1);
+        expect(worldCounters(physicsState(world)!).shapeCount).toBe(0);
         const cube = structuredClone(hulls.get(hulls.name(0)!)!);
         expect(hulls.register({ ...cube, name: "future-hull" })).toBe(1);
         world.restore(saved);
         world.tick();
         expect(hashPhysics(world)).toBe(expected);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        expect(worldCounters(physicsState(world)!).bodyCount).toBe(1);
+        expect(worldCounters(physicsState(world)!).shapeCount).toBe(0);
         expect(world.resource(Hulls)).toBe(hulls);
         expect(hulls.size).toBe(1);
         expect(hulls.id("future-hull")).toBeUndefined();

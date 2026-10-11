@@ -1,6 +1,6 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { jointAllocationSubject } from "../joint-allocation.fixture";
-import { physicsWorld } from "../runtime";
+import { physicsState } from "../runtime";
 
 export let controlSink: { frame: number } | undefined;
 export function control() {
@@ -12,7 +12,7 @@ export default async function create(input: string) {
     const ecs = app.world;
     return {
         step: jointAllocationSubject(
-            physicsWorld(ecs)!,
+            physicsState(ecs)!,
             input === "allocating" ? control : undefined,
         ),
         dispose: () => app.dispose(),

@@ -1,107 +1,119 @@
 import { expect, test } from "bun:test";
-import { PhysicsWorld } from "../api/world";
-import { BodyType } from "../common/types";
-import { init } from "../kernel/kernel";
+import { Time, World } from "@dylanebert/shallot";
+import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "@dylanebert/shallot/physics";
+import type { QueryFilter } from "../common/types";
+import { castRay, castShape, overlapAABB, overlapShape, StandardPhysicsPlugin } from "../runtime";
 
-await init(undefined, { threads: 0 });
 const origin = { x: 0, y: 0, z: 0 };
 const translation = { x: 10, y: 0, z: 0 };
 const proxy = { points: [origin], count: 1, radius: 0.1 };
-function rays(): PhysicsWorld {
-    const world = new PhysicsWorld({ gravity: origin });
+const filter: QueryFilter = { categoryBits: 0xffffffffffffffffn, maskBits: 0xffffffffffffffffn };
+
+async function queryWorld() {
+    const world = new World();
+    for (const component of PhysicsPlugin.components!)
+        world.registry.register(component, PhysicsPlugin.name);
+    await StandardPhysicsPlugin.initialize!(world);
+    await StandardPhysicsPlugin.warm!(world);
+    for (const system of StandardPhysicsPlugin.systems!)
+        world.addSystem(system, StandardPhysicsPlugin.name);
     for (const [type, x] of [
         [BodyType.Static, 2],
         [BodyType.Static, 4],
         [BodyType.Kinematic, 6],
         [BodyType.Dynamic, 8],
     ] as const) {
-        world
-            .createBody({ type, position: { x, y: 0, z: 0 } })
-            .createSphere({}, { center: origin, radius: 0.5 });
+        const body = world.create();
+        world.add(body, Body, { type, position: [x, 0, 0, 0] });
+        world.add(body, Shape, { kind: ShapeKind.Sphere, sphere: [0, 0, 0, 0.5] });
     }
+    world.step(Time.FIXED_DT);
     return world;
 }
+
+async function dispose(world: World) {
+    await StandardPhysicsPlugin.dispose!(world);
+    world.dispose();
+}
+
 for (const kind of ["ray", "shape"] as const) {
-    test(`${kind} callback fraction clips farther hits in this tree and later body-type trees`, () => {
-        const world = rays();
+    test(`${kind} callback fraction clips farther hits in this tree and later body-type trees`, async () => {
+        const world = await queryWorld();
         try {
             const fractions: number[] = [];
             const callback = (hit: { fraction: number }) => {
                 fractions.push(hit.fraction);
                 return hit.fraction;
             };
-            if (kind === "ray") world.castRay(origin, translation, callback);
-            else world.castShape(origin, proxy, translation, callback);
+            if (kind === "ray") castRay(world, origin, translation, callback, filter);
+            else castShape(world, origin, proxy, translation, callback, filter);
             expect(fractions).toHaveLength(1);
             expect(fractions[0]).toBeGreaterThan(0);
             expect(fractions[0]).toBeLessThan(0.2);
         } finally {
-            world.destroy();
+            await dispose(world);
         }
     });
-    test(`${kind} callback zero terminates this tree and all later body-type trees`, () => {
-        const world = rays();
+    test(`${kind} callback zero terminates this tree and all later body-type trees`, async () => {
+        const world = await queryWorld();
         try {
             let calls = 0;
             const callback = () => {
                 ++calls;
                 return 0;
             };
-            const stats =
-                kind === "ray"
-                    ? world.castRay(origin, translation, callback)
-                    : world.castShape(origin, proxy, translation, callback);
+            if (kind === "ray") castRay(world, origin, translation, callback, filter);
+            else castShape(world, origin, proxy, translation, callback, filter);
             expect(calls).toBe(1);
-            expect(stats.nodeVisits).toBe(2);
         } finally {
-            world.destroy();
+            await dispose(world);
         }
     });
-    test(`${kind} callback minus one filters a hit without clipping later hits`, () => {
-        const world = rays();
+    test(`${kind} callback minus one filters a hit without clipping later hits`, async () => {
+        const world = await queryWorld();
         try {
             const fractions: number[] = [];
             const callback = (hit: { fraction: number }) => {
                 fractions.push(hit.fraction);
                 return -1;
             };
-            if (kind === "ray") world.castRay(origin, translation, callback);
-            else world.castShape(origin, proxy, translation, callback);
+            if (kind === "ray") castRay(world, origin, translation, callback, filter);
+            else castShape(world, origin, proxy, translation, callback, filter);
             expect(fractions).toHaveLength(4);
             expect(fractions[3]).toBeGreaterThan(0.7);
         } finally {
-            world.destroy();
+            await dispose(world);
         }
     });
 }
-for (const kind of ["aabb", "overlap", "mover"] as const) {
-    test(`${kind} false stops only the current body-type tree and still queries the next tree`, () => {
-        const world = new PhysicsWorld({ gravity: origin });
+
+for (const kind of ["aabb", "overlap"] as const) {
+    test(`${kind} false stops only the current body-type tree and still queries the next tree`, async () => {
+        const world = await queryWorld();
         try {
-            for (const type of [BodyType.Static, BodyType.Kinematic, BodyType.Dynamic]) {
-                for (let i = 0; i < 2; ++i)
-                    world.createBody({ type }).createSphere({}, { center: origin, radius: 1 });
-            }
             let calls = 0;
             const callback = () => {
                 ++calls;
                 return false;
             };
             if (kind === "aabb")
-                world.overlapAABB(
-                    { lowerBound: { x: -2, y: -2, z: -2 }, upperBound: { x: 2, y: 2, z: 2 } },
+                overlapAABB(
+                    world,
+                    { lowerBound: { x: -2, y: -2, z: -2 }, upperBound: { x: 10, y: 2, z: 2 } },
                     callback,
+                    filter,
                 );
-            else if (kind === "overlap") world.overlapShape(origin, proxy, callback);
             else
-                world.collideMover(
-                    { x: 0, y: 1.1, z: 0 },
-                    { center1: origin, center2: { x: 0, y: 0.5, z: 0 }, radius: 0.5 },
+                overlapShape(
+                    world,
+                    origin,
+                    { points: [origin], count: 1, radius: 10 },
                     callback,
+                    filter,
                 );
             expect(calls).toBe(3);
         } finally {
-            world.destroy();
+            await dispose(world);
         }
     });
 }

@@ -1,5 +1,5 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { physicsWorld } from "../runtime";
+import { physicsState } from "../runtime";
 import { shapeAllocationSubject } from "../shape-allocation.fixture";
 
 export let controlSink: object | undefined;
@@ -8,7 +8,7 @@ export const control = () => {
 };
 export default async function create(input: string) {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const step = shapeAllocationSubject(physicsWorld(app.world)!, true, input === "upload");
+    const step = shapeAllocationSubject(physicsState(app.world)!, true, input === "upload");
     const allocating = input === "allocating";
     return {
         step: () => {

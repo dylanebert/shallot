@@ -1,78 +1,123 @@
 import { expect, test } from "bun:test";
-import { BodyType, PhysicsWorld } from "../api";
+import { restore, snapshot } from "../api/snapshot";
+import { BodyType } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { setSplitIslandCandidate, splitIslandCandidate } from "../kernel/islandcolumns";
+import { queryColumns } from "../kernel/querycolumns";
+import { createSphereShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { bodyIsAwake, bodySetAwake, bodySetLinearVelocity } from "../world/body";
+import { createFilterJoint, defaultJointDef, destroyJointInternal } from "./joint";
+
+function castRayClosest(
+    world: ReturnType<typeof createTestWorld>,
+    origin: { x: number; y: number; z: number },
+    translation: { x: number; y: number; z: number },
+) {
+    const q = queryColumns(world);
+    const k = q.prepare(origin);
+    q.translation(translation);
+    k.worldQuery(world.worldId, 3, 0);
+    const shape = q.resultU[0]!;
+    if (shape === 0xffffffff)
+        return { hit: false, shape, point: { x: 0, y: 0, z: 0 }, fraction: 0 };
+    return {
+        hit: true,
+        shape,
+        point: {
+            x: origin.x + q.resultF[6]!,
+            y: origin.y + q.resultF[7]!,
+            z: origin.z + q.resultF[8]!,
+        },
+        fraction: q.resultF[5]!,
+    };
+}
 
 test("joint creation and destruction wake every sleeping endpoint-set body and keep their shape-query outputs current", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         const bodies = [0, 10, 20].map((x) =>
-            world.createBody({ type: BodyType.Dynamic, position: { x, y: 0, z: 0 } }),
+            createTestBody(world, { type: BodyType.Dynamic, position: { x, y: 0, z: 0 } }),
         );
-        const shapes = bodies.map((body) =>
-            body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 }),
+        const shapes = bodies.map(
+            (body) =>
+                createSphereShape(world, body, testShapeDef(), {
+                    center: { x: 0, y: 0, z: 0 },
+                    radius: 0.5,
+                })!,
         );
-        world.createFilterJoint(bodies[0], bodies[1]);
-        bodies[0].setAwake(false);
-        expect(bodies[0].isAwake()).toBe(false);
-        expect(bodies[1].isAwake()).toBe(false);
-        const connector = world.createFilterJoint(bodies[1], bodies[2]);
+        const first = createFilterJoint(world, {
+            ...defaultJointDef(),
+            bodyIdA: bodies[0]!,
+            bodyIdB: bodies[1]!,
+        }).joint;
+        bodySetAwake(world, bodies[0]!, false);
+        expect(bodyIsAwake(world, bodies[0]!)).toBe(false);
+        expect(bodyIsAwake(world, bodies[1]!)).toBe(false);
+        const connector = createFilterJoint(world, {
+            ...defaultJointDef(),
+            bodyIdA: bodies[1]!,
+            bodyIdB: bodies[2]!,
+        }).joint;
         const verify = (offset: number) => {
             for (const body of bodies) {
-                expect(body.isAwake()).toBe(true);
-                body.setLinearVelocity({ x: 60, y: 0, z: 0 });
+                expect(bodyIsAwake(world, body)).toBe(true);
+                bodySetLinearVelocity(world, body, { x: 60, y: 0, z: 0 });
             }
-            world.step(1 / 60);
+            stepTestWorld(world, 1 / 60);
             for (let i = 0; i < bodies.length; ++i) {
-                const ray = world.castRayClosest(
+                const ray = castRayClosest(
+                    world,
                     { x: i * 10 + offset, y: -2, z: 0 },
                     { x: 0, y: 4, z: 0 },
                 );
-                expect({
-                    hit: ray.hit,
-                    shape: ray.shape?.id,
-                    point: ray.point,
-                    fraction: ray.fraction,
-                }).toEqual({
+                expect(ray).toEqual({
                     hit: true,
-                    shape: shapes[i].id,
+                    shape: shapes[i],
                     point: { x: i * 10 + offset, y: -0.5, z: 0 },
                     fraction: 0.375,
                 });
             }
         };
         verify(1);
-        bodies[0].setAwake(false);
-        for (const body of bodies) expect(body.isAwake()).toBe(false);
-        connector.destroy(true);
+        bodySetAwake(world, bodies[0]!, false);
+        for (const body of bodies) expect(bodyIsAwake(world, body)).toBe(false);
+        destroyJointInternal(world, connector, true);
         verify(2);
+        destroyJointInternal(world, first, true);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("a kernel joint merge clears a destroyed island's split candidate and snapshots retain the candidate without touching a sibling", () => {
-    const world = new PhysicsWorld();
-    const sibling = new PhysicsWorld();
+    const world = createTestWorld();
+    const sibling = createTestWorld();
     try {
-        const a = world.createBody({ type: BodyType.Dynamic });
-        const b = world.createBody({ type: BodyType.Dynamic });
-        const other = sibling.createBody({ type: BodyType.Dynamic });
-        const candidate = bodyField(world.state, b.id.index1 - 1, BodyField.islandId);
-        const otherCandidate = bodyField(sibling.state, other.id.index1 - 1, BodyField.islandId);
-        setSplitIslandCandidate(world.state, candidate);
-        setSplitIslandCandidate(sibling.state, otherCandidate);
-        const saved = world.snapshot();
-        world.createFilterJoint(a, b);
-        expect(splitIslandCandidate(world.state)).toBe(-1);
-        expect(splitIslandCandidate(sibling.state)).toBe(otherCandidate);
-        world.restore(saved);
-        expect(splitIslandCandidate(world.state)).toBe(candidate);
-        expect(splitIslandCandidate(sibling.state)).toBe(otherCandidate);
-        world.createFilterJoint(a, b);
-        expect(splitIslandCandidate(world.state)).toBe(-1);
+        const a = createTestBody(world, { type: BodyType.Dynamic });
+        const b = createTestBody(world, { type: BodyType.Dynamic });
+        const other = createTestBody(sibling, { type: BodyType.Dynamic });
+        const candidate = bodyField(world, b, BodyField.islandId);
+        const otherCandidate = bodyField(sibling, other, BodyField.islandId);
+        setSplitIslandCandidate(world, candidate);
+        setSplitIslandCandidate(sibling, otherCandidate);
+        const saved = snapshot(world);
+        createFilterJoint(world, { ...defaultJointDef(), bodyIdA: a, bodyIdB: b });
+        expect(splitIslandCandidate(world)).toBe(-1);
+        expect(splitIslandCandidate(sibling)).toBe(otherCandidate);
+        restore(world, saved);
+        expect(splitIslandCandidate(world)).toBe(candidate);
+        expect(splitIslandCandidate(sibling)).toBe(otherCandidate);
+        createFilterJoint(world, { ...defaultJointDef(), bodyIdA: a, bodyIdB: b });
+        expect(splitIslandCandidate(world)).toBe(-1);
     } finally {
-        world.destroy();
-        sibling.destroy();
+        destroyTestWorld(world);
+        destroyTestWorld(sibling);
     }
 });

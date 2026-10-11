@@ -8,19 +8,24 @@ import {
     ShapeMaterials,
 } from "../../core/physics";
 import type { World } from "../../engine";
-import {
-    createHull,
-    defaultShapeDef,
-    type Filter,
-    type ShapeDef,
-    type Body as SolverBody,
-    type Shape as SolverShape,
-    type SurfaceMaterial,
-} from "./api";
+import { makeShapeId } from "./api/config";
+import type { EntityId } from "./common/ids";
+import { defaultShapeDef, type Filter, type ShapeDef, type SurfaceMaterial } from "./common/types";
 import type { CompoundData } from "./shapes/compound";
 import type { HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
+import { createHull } from "./shapes/hull";
 import type { MeshData } from "./shapes/mesh";
+import {
+    createCapsuleShape,
+    createCompoundShape,
+    createHeightFieldShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+    shapeIsValid,
+} from "./shapes/shape";
+import type { WorldState } from "./world/world";
 
 function geometryData<T>(
     registry: {
@@ -64,7 +69,7 @@ export function authoredShapeFilter(world: World, eid: number): Filter {
     };
 }
 
-function definition(world: World, eid: number): Partial<ShapeDef> {
+function definition(world: World, eid: number): ShapeDef {
     const shape = world.storage(ShapeComponent);
     const defaults = defaultShapeDef();
     const materialSetId = shape.materialSet.get(eid);
@@ -142,22 +147,28 @@ function localCapsule(world: World, eid: number) {
 }
 
 /** Adds one ECS Shape to its already-created Box3D body. */
-export function marshalShape(world: World, body: SolverBody, eid: number): SolverShape {
+export function marshalShape(
+    world: World,
+    state: WorldState,
+    body: EntityId,
+    eid: number,
+): EntityId {
     const shape = world.storage(ShapeComponent);
     const kind = shape.kind.get(eid);
     const def = definition(world, eid);
-    let result: SolverShape;
+    const bodyIndex = body.index1 - 1;
+    let shapeId: number | null;
     if (kind === ShapeKind.Sphere) {
-        result = body.createSphere(def, localSphere(world, eid));
+        shapeId = createSphereShape(state, bodyIndex, def, localSphere(world, eid));
     } else if (kind === ShapeKind.Capsule) {
-        result = body.createCapsule(def, localCapsule(world, eid));
+        shapeId = createCapsuleShape(state, bodyIndex, def, localCapsule(world, eid));
     } else if (kind === ShapeKind.Hull) {
-        result = body.createHull(def, shapeHullGeometry(world, eid));
+        shapeId = createHullShape(state, bodyIndex, def, shapeHullGeometry(world, eid));
     } else if (kind === ShapeKind.Mesh) {
         const data = geometryData<MeshData>(world.resource(PhysicsMeshes), shape.geometry.get(eid));
         if (!data)
             throw new Error(`physics: Shape ${eid} names missing mesh ${shape.geometry.get(eid)}`);
-        result = body.createMesh(def, data, {
+        shapeId = createMeshShape(state, bodyIndex, def, data, {
             x: shape.scale.x.get(eid),
             y: shape.scale.y.get(eid),
             z: shape.scale.z.get(eid),
@@ -171,20 +182,20 @@ export function marshalShape(world: World, body: SolverBody, eid: number): Solve
             throw new Error(
                 `physics: Shape ${eid} names missing height-field ${shape.geometry.get(eid)}`,
             );
-        result = body.createHeightField(def, data);
+        shapeId = createHeightFieldShape(state, bodyIndex, def, data);
     } else if (kind === ShapeKind.Compound) {
         const data = geometryData<CompoundData>(world.resource(Compounds), shape.geometry.get(eid));
         if (!data)
             throw new Error(
                 `physics: Shape ${eid} names missing compound ${shape.geometry.get(eid)}`,
             );
-        result = body.createCompound(def, data);
+        shapeId = createCompoundShape(state, bodyIndex, def, data);
     } else {
         throw new Error(`physics: Shape ${eid} has unknown kind ${kind}`);
     }
-    if (!result.isValid())
+    if (shapeId === null || !shapeIsValid(state, makeShapeId(state, shapeId)))
         throw new Error(`physics: Shape ${eid} could not be attached to its body`);
-    return result;
+    return makeShapeId(state, shapeId);
 }
 
 /** Build the Box3D primitive values from the authored Shape columns. */

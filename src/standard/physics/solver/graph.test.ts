@@ -1,19 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { PhysicsWorld } from "../api";
 import { DYNAMIC_COLOR_COUNT, OVERFLOW_INDEX } from "../common/constants";
 import { BodyType } from "../common/types";
 import { type Kernel, kernel } from "../kernel/kernel";
+import { createTestWorld, destroyTestWorld } from "../testing";
 
-// Direct PhysicsWorld use is an internal graph-colorer correctness test until stage 8.
-
-let world: PhysicsWorld;
+let world: ReturnType<typeof createTestWorld>;
 function createGraph(_capacity: number): Kernel {
-    world = new PhysicsWorld();
-    const k = kernel(world.state.ecsState);
-    k.bodySetActiveWorld(world.state.worldId);
+    world = createTestWorld();
+    const k = kernel(world.ecsState);
+    k.bodySetActiveWorld(world.worldId);
     return k;
 }
-afterEach(() => world.destroy());
+afterEach(() => destroyTestWorld(world));
 function assign(graph: Kernel, a: number, b: number, ta: number, tb: number): number {
     return graph.graphAssignColor(a, b, ta, tb);
 }

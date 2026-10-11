@@ -1,6 +1,7 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { Body, BodyType, RevoluteJoint } from "@dylanebert/shallot/physics";
-import { physicsWorld, SyncPhysicsConstraintsSystem } from "../runtime";
+import { physicsState, SyncPhysicsConstraintsSystem } from "../runtime";
+import { jointIds } from "../solver/joint.fixture";
 
 export let controlSink: { frame: number } | undefined;
 export function control() {
@@ -26,7 +27,7 @@ export default async function create(input: string) {
     world.tick();
     // Exact ticks omit the frame upload that normally clears these marks.
     world.clearChanges();
-    if (physicsWorld(world)!.getCounters().jointCount !== 1)
+    if (jointIds(physicsState(world)!).length !== 1)
         throw new Error("allocation subject did not create its revolute joint");
     for (const system of StandardPhysicsPlugin.systems!) world.removeSystem(system);
     world.addSystem(SyncPhysicsConstraintsSystem, StandardPhysicsPlugin.name);

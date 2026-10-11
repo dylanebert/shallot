@@ -7,29 +7,52 @@ import {
     Hulls,
     PhysicsMeshes,
     PhysicsPlugin,
+    PrismaticJoint,
     RevoluteJoint,
     Shape,
     ShapeKind,
     ShapeMaterials,
+    WheelJoint,
 } from "@dylanebert/shallot/physics";
 import {
     StandardPhysicsPlugin,
     setAwake,
+    setLinearVelocity,
     setTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { GlobalTransform, Transform } from "@dylanebert/shallot/transform";
-import { Body as SolverBody } from "./api/body";
-import { makeJointId, makeShapeId } from "./api/config";
-import { RevoluteJoint as SolverRevoluteJoint } from "./api/joint";
-
-// Solver handles here are internal bridge probes, not consumer APIs; public ECS behavior is covered separately.
-import { Shape as SolverShape } from "./api/shape";
+import { makeShapeId } from "./api/config";
+import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { RJ_MOTOR_SPEED } from "./kernel/columns";
-import { readJointFloat } from "./kernel/jointcolumns";
+import { readJointFloat, writeJointFloat } from "./kernel/jointcolumns";
 import { JointField, jointField } from "./kernel/jointrecords";
-import { physicsWorld } from "./runtime";
+import { kernel } from "./kernel/kernel";
+import { ShapeField, ShapeFlags, shapeField, shapeFlag } from "./kernel/shaperecords";
+import { physicsBodyIndex, physicsState } from "./runtime";
 import { createMesh } from "./shapes/mesh";
+import {
+    getShapeDensity,
+    getShapeFilter,
+    getShapeGeometryReference,
+    getShapeGeometryScale,
+    getShapeMaterials,
+    getShapeType,
+    isSensorShape,
+    readShapeCapsule,
+    readShapeSphere,
+    setShapeFriction,
+    shapeIsValid,
+} from "./shapes/shape";
 import { jointIds } from "./solver/joint.fixture";
+import {
+    BodyProperty,
+    bodyGetLinearVelocity,
+    bodyGetProperty,
+    bodyGetTransform,
+    bodyGetType,
+    bodyIsAwake,
+} from "./world/body";
+import { worldCounters } from "./world/world";
 
 async function createPhysicsWorld(): Promise<World> {
     const world = new World();
@@ -55,9 +78,20 @@ async function withPhysics(run: (world: World) => void | Promise<void>): Promise
     }
 }
 
-function solverShape(world: World, index = 0): SolverShape {
-    const state = physicsWorld(world)!.state;
-    return new SolverShape(state, makeShapeId(state, index));
+function stateFor(world: World) {
+    const state = physicsState(world);
+    if (!state) throw new Error("physics state is unavailable");
+    return state;
+}
+
+function bodyIndex(world: World, eid: number): number {
+    const index = physicsBodyIndex(world, eid);
+    if (index < 0) throw new Error(`physics body for entity ${eid} is unavailable`);
+    return index;
+}
+
+function shapeId(world: World, index = 0) {
+    return makeShapeId(stateFor(world), index);
 }
 
 test("a Body type edit after spawn reaches the solver", async () => {
@@ -69,7 +103,7 @@ test("a Body type edit after spawn reaches the solver", async () => {
         world.storage(Body).type.set(eid, BodyType.Static);
         world.tick();
 
-        expect(physicsWorld(world)!.getBody(eid)!.getType()).toBe(BodyType.Static);
+        expect(bodyGetType(stateFor(world), bodyIndex(world, eid))).toBe(BodyType.Static);
     });
 });
 
@@ -97,14 +131,14 @@ test("a post-spawn awake write survives the spawn-time Body mark", async () => {
         world.add(eid, Shape);
         world.step(Time.FIXED_DT);
 
-        const solver = physicsWorld(world)!.getBody(eid)!;
-        expect(solver.getMass()).toBeGreaterThan(0);
-        expect(solver.isAwake()).toBe(true);
+        const solver = bodyIndex(world, eid);
+        expect(bodyField(stateFor(world), solver, BodyField.mass)).toBeGreaterThan(0);
+        expect(bodyIsAwake(stateFor(world), solver)).toBe(true);
         setAwake(world, eid, false);
-        expect(solver.isAwake()).toBe(false);
+        expect(bodyIsAwake(stateFor(world), solver)).toBe(false);
 
         world.step(Time.FIXED_DT);
-        expect(solver.isAwake()).toBe(false);
+        expect(bodyIsAwake(stateFor(world), solver)).toBe(false);
     });
 });
 
@@ -114,13 +148,13 @@ test("Shape material, filter and event writes reach Box3D setters only when valu
         world.add(eid, Body, { type: BodyType.Dynamic });
         world.add(eid, Shape);
         world.tick();
-        const shape = solverShape(world);
+        const shape = shapeId(world);
+        const k = kernel(world);
         const setters = [
-            spyOn(SolverShape.prototype, "setDensity"),
-            spyOn(SolverShape.prototype, "setFriction"),
-            spyOn(SolverShape.prototype, "setRestitution"),
-            spyOn(SolverShape.prototype, "setSurfaceMaterial"),
-            spyOn(SolverShape.prototype, "setFilter"),
+            spyOn(k, "shapeSetDensity"),
+            spyOn(k, "shapeSetFriction"),
+            spyOn(k, "shapeSetRestitution"),
+            spyOn(k, "shapeSetSurfaceMaterial"),
         ] as const;
         try {
             const authored = world.storage(Shape);
@@ -141,29 +175,31 @@ test("Shape material, filter and event writes reach Box3D setters only when valu
             authored.enablePreSolveEvents.set(eid, 1);
             world.tick();
 
-            expect(shape.getDensity()).toBe(1250);
-            const material = shape.getSurfaceMaterial();
+            const shapeSlot = shape.index1 - 1;
+            const state = stateFor(world);
+            expect(getShapeDensity(state, shapeSlot)).toBe(1250);
+            const material = getShapeMaterials(state, shapeSlot)[0]!;
             expect(material.friction).toBe(0.25);
             expect(material.restitution).toBeCloseTo(0.4);
             expect(material.rollingResistance).toBeCloseTo(0.2);
             expect(material.tangentVelocity).toEqual({ x: 1, y: 2, z: 3 });
             expect(material.userMaterialId).toBe(0x9abcdef012345678n);
             expect(material.customColor).toBe(0xff00ff);
-            expect(shape.getFilter()).toEqual({
+            expect(getShapeFilter(state, shapeSlot)).toEqual({
                 categoryBits: 0xffffffff00001234n,
                 maskBits: 0x00005678ffffffffn,
                 groupIndex: -4,
             });
-            expect(shape.areSensorEventsEnabled()).toBe(true);
-            expect(shape.areContactEventsEnabled()).toBe(true);
-            expect(shape.areHitEventsEnabled()).toBe(true);
-            expect(shape.arePreSolveEventsEnabled()).toBe(true);
-            expect(setters.map((setter) => setter.mock.calls.length)).toEqual([1, 1, 1, 1, 1]);
+            expect(shapeFlag(state, shapeSlot, ShapeFlags.enableSensorEvents)).toBe(true);
+            expect(shapeFlag(state, shapeSlot, ShapeFlags.enableContactEvents)).toBe(true);
+            expect(shapeFlag(state, shapeSlot, ShapeFlags.enableHitEvents)).toBe(true);
+            expect(shapeFlag(state, shapeSlot, ShapeFlags.enablePreSolveEvents)).toBe(true);
+            expect(setters.map((setter) => setter.mock.calls.length)).toEqual([1, 1, 1, 1]);
 
             authored.friction.set(eid, 0.25);
             world.tick();
             expect(setters[1]).toHaveBeenCalledTimes(1);
-            expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+            expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
         } finally {
             for (const setter of setters) setter.mockRestore();
         }
@@ -180,28 +216,42 @@ test("Sphere and capsule Shape geometry writes use Box3D setters and getters", a
         world.add(capsuleBody, Shape, { kind: ShapeKind.Capsule });
         world.tick();
 
-        const sphere = solverShape(world, 0);
-        const capsule = solverShape(world, 1);
-        const setSphere = spyOn(SolverShape.prototype, "setSphere");
-        const setCapsule = spyOn(SolverShape.prototype, "setCapsule");
+        const sphere = shapeId(world, 0);
+        const capsule = shapeId(world, 1);
+        const k = kernel(world);
+        const setSphere = spyOn(k, "shapeSetSphere");
+        const setCapsule = spyOn(k, "shapeSetCapsule");
         try {
             world.storage(Shape).sphere.set(sphereBody, 0.25, -0.5, 0.75, 0.8);
             world.storage(Shape).capsuleA.set(capsuleBody, -1, 0, 0, 0);
             world.storage(Shape).capsuleB.set(capsuleBody, 1, 0, 0, 0.4);
             world.tick();
 
-            expect(sphere.isValid()).toBe(true);
-            expect(sphere.getType()).toBe(ShapeKind.Sphere);
-            expect(sphere.getSphere().center).toEqual({ x: 0.25, y: -0.5, z: 0.75 });
-            expect(sphere.getSphere().radius).toBeCloseTo(0.8);
-            expect(capsule.isValid()).toBe(true);
-            expect(capsule.getType()).toBe(ShapeKind.Capsule);
-            expect(capsule.getCapsule().center1).toEqual({ x: -1, y: 0, z: 0 });
-            expect(capsule.getCapsule().center2).toEqual({ x: 1, y: 0, z: 0 });
-            expect(capsule.getCapsule().radius).toBeCloseTo(0.4);
+            const state = stateFor(world);
+            expect(shapeIsValid(state, sphere)).toBe(true);
+            expect(getShapeType(state, sphere.index1 - 1)).toBe(ShapeKind.Sphere);
+            expect(readShapeSphere(state, sphere.index1 - 1).center).toEqual({
+                x: 0.25,
+                y: -0.5,
+                z: 0.75,
+            });
+            expect(readShapeSphere(state, sphere.index1 - 1).radius).toBeCloseTo(0.8);
+            expect(shapeIsValid(state, capsule)).toBe(true);
+            expect(getShapeType(state, capsule.index1 - 1)).toBe(ShapeKind.Capsule);
+            expect(readShapeCapsule(state, capsule.index1 - 1).center1).toEqual({
+                x: -1,
+                y: 0,
+                z: 0,
+            });
+            expect(readShapeCapsule(state, capsule.index1 - 1).center2).toEqual({
+                x: 1,
+                y: 0,
+                z: 0,
+            });
+            expect(readShapeCapsule(state, capsule.index1 - 1).radius).toBeCloseTo(0.4);
             expect(setSphere).toHaveBeenCalledTimes(1);
             expect(setCapsule).toHaveBeenCalledTimes(1);
-            expect(physicsWorld(world)!.getCounters().shapeCount).toBe(2);
+            expect(worldCounters(stateFor(world)).shapeCount).toBe(2);
         } finally {
             setSphere.mockRestore();
             setCapsule.mockRestore();
@@ -215,18 +265,20 @@ test("a hull scale edit reaches b3Shape_SetHull without replacing the ECS-bound 
         world.add(eid, Body, { type: BodyType.Dynamic });
         world.add(eid, Shape);
         world.tick();
-        const shape = solverShape(world);
-        const previousGeometry = shape.getGeometryReference();
-        const setHull = spyOn(SolverShape.prototype, "setHull");
+        const shape = shapeId(world);
+        const previousGeometry = getShapeGeometryReference(stateFor(world), shape.index1 - 1);
+        const setHull = spyOn(kernel(world), "shapeSetHull");
         try {
             world.storage(Shape).scale.x.set(eid, 1);
             world.tick();
 
-            expect(shape.isValid()).toBe(true);
-            expect(shape.getType()).toBe(ShapeKind.Hull);
-            expect(shape.getGeometryReference()).not.toBe(previousGeometry);
+            expect(shapeIsValid(stateFor(world), shape)).toBe(true);
+            expect(getShapeType(stateFor(world), shape.index1 - 1)).toBe(ShapeKind.Hull);
+            expect(getShapeGeometryReference(stateFor(world), shape.index1 - 1)).not.toBe(
+                previousGeometry,
+            );
             expect(setHull).toHaveBeenCalledTimes(1);
-            expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+            expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
         } finally {
             setHull.mockRestore();
         }
@@ -272,21 +324,26 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
         world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry: firstId });
         world.tick();
 
-        const shape = solverShape(world);
-        const previousGeometry = shape.getGeometryReference();
-        const setMesh = spyOn(SolverShape.prototype, "setMesh");
-        const setMaterial = spyOn(SolverShape.prototype, "setMeshMaterial");
+        const shape = shapeId(world);
+        const previousGeometry = getShapeGeometryReference(stateFor(world), shape.index1 - 1);
+        const k = kernel(world);
+        const setMesh = spyOn(k, "shapeSetMesh");
+        const setMaterial = spyOn(k, "shapeSetMeshMaterial");
         try {
             world.storage(Shape).geometry.set(eid, secondId);
             world.storage(Shape).scale.set(eid, 2, 0.5, 1, 0);
             world.storage(Shape).materialSet.set(eid, 1);
             world.tick();
 
-            expect(shape.isValid()).toBe(true);
-            expect(shape.getType()).toBe(ShapeKind.Mesh);
-            expect(shape.getGeometryReference()).not.toBe(previousGeometry);
-            expect(shape.getGeometryScale()).toEqual({ x: 2, y: 0.5, z: 1 });
-            expect(shape.getMaterials()).toEqual([
+            expect(shapeIsValid(stateFor(world), shape)).toBe(true);
+            expect(getShapeType(stateFor(world), shape.index1 - 1)).toBe(ShapeKind.Mesh);
+            expect(getShapeGeometryReference(stateFor(world), shape.index1 - 1)).not.toBe(
+                previousGeometry,
+            );
+            const state = stateFor(world);
+            const shapeSlot = shape.index1 - 1;
+            expect(getShapeGeometryScale(state, shapeSlot)).toEqual({ x: 2, y: 0.5, z: 1 });
+            expect(getShapeMaterials(state, shapeSlot)).toEqual([
                 {
                     friction: Math.fround(0.15),
                     restitution: Math.fround(0.35),
@@ -301,7 +358,7 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
             world.storage(Shape).materialSet.set(eid, 1);
             world.tick();
             expect(setMaterial).toHaveBeenCalledTimes(1);
-            expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+            expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
         } finally {
             setMesh.mockRestore();
             setMaterial.mockRestore();
@@ -319,14 +376,23 @@ test("changing Shape.body reattaches the collider to its new Body entity", async
         world.add(shapeEntity, Shape, { body: firstBody });
         world.tick();
 
-        const previous = solverShape(world);
-        expect(previous.getBody().getPosition().x).toBe(1);
+        const previous = shapeId(world);
+        const state = stateFor(world);
+        const body = shapeField(state, previous.index1 - 1, ShapeField.bodyId);
+        const pose = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+        bodyGetTransform(state, body, pose);
+        expect(pose.p.x).toBe(1);
         world.storage(Shape).body.set(shapeEntity, secondBody);
         world.tick();
 
-        expect(previous.isValid()).toBe(false);
-        expect(solverShape(world).getBody().getPosition().x).toBe(2);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        expect(shapeIsValid(stateFor(world), previous)).toBe(false);
+        const nextState = stateFor(world);
+        const shape = shapeId(world);
+        const nextBody = shapeField(nextState, shape.index1 - 1, ShapeField.bodyId);
+        const nextPose = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+        bodyGetTransform(nextState, nextBody, nextPose);
+        expect(nextPose.p.x).toBe(2);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
     });
 });
 
@@ -337,18 +403,18 @@ test("an external Shape waits while its Body is removed and attaches when it ret
         const collider = world.create();
         world.add(collider, Shape, { body });
         world.tick();
-        const previous = solverShape(world);
-        expect(previous.isValid()).toBe(true);
+        const previous = shapeId(world);
+        expect(shapeIsValid(stateFor(world), previous)).toBe(true);
 
         world.remove(body, Body);
         world.tick();
-        expect(previous.isValid()).toBe(false);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        expect(shapeIsValid(stateFor(world), previous)).toBe(false);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(0);
 
         world.add(body, Body);
         world.tick();
-        expect(solverShape(world).isValid()).toBe(true);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        expect(shapeIsValid(stateFor(world), shapeId(world))).toBe(true);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
     });
 });
 
@@ -359,20 +425,20 @@ test("changing updateBodyMass does not recreate a Shape and later density writes
         world.add(eid, Shape, { kind: ShapeKind.Sphere, density: 2 });
         world.tick();
 
-        const shape = solverShape(world);
-        const body = physicsWorld(world)!.getBody(eid)!;
-        const mass = body.getMass();
+        const shape = shapeId(world);
+        const body = bodyIndex(world, eid);
+        const mass = bodyField(stateFor(world), body, BodyField.mass);
         expect(mass).toBeGreaterThan(0);
 
         world.storage(Shape).updateBodyMass.set(eid, 0);
         world.tick();
-        expect(shape.isValid()).toBe(true);
-        expect(body.getMass()).toBe(mass);
+        expect(shapeIsValid(stateFor(world), shape)).toBe(true);
+        expect(bodyField(stateFor(world), body, BodyField.mass)).toBe(mass);
 
         world.storage(Shape).density.set(eid, 4);
         world.tick();
-        expect(shape.getDensity()).toBe(4);
-        expect(body.getMass()).toBe(mass);
+        expect(getShapeDensity(stateFor(world), shape.index1 - 1)).toBe(4);
+        expect(bodyField(stateFor(world), body, BodyField.mass)).toBe(mass);
     });
 });
 
@@ -394,15 +460,15 @@ test("recreating a Shape with updateBodyMass disabled preserves body mass", asyn
         });
         world.tick();
 
-        const body = physicsWorld(world)!.getBody(bodyEid)!;
-        const mass = body.getMass();
-        const previous = solverShape(world, 1);
+        const body = bodyIndex(world, bodyEid);
+        const mass = bodyField(stateFor(world), body, BodyField.mass);
+        const previous = shapeId(world, 1);
         world.storage(Shape).isSensor.set(sensorEid, 1);
         world.tick();
 
-        expect(previous.isValid()).toBe(false);
-        expect(solverShape(world, 1).isSensor()).toBe(true);
-        expect(body.getMass()).toBe(mass);
+        expect(shapeIsValid(stateFor(world), previous)).toBe(false);
+        expect(isSensorShape(stateFor(world), shapeId(world, 1).index1 - 1)).toBe(true);
+        expect(bodyField(stateFor(world), body, BodyField.mass)).toBe(mass);
     });
 });
 
@@ -413,13 +479,13 @@ test("a marked friction write compares against the live Box3D value", async () =
         world.add(eid, Shape, { kind: ShapeKind.Sphere });
         world.tick();
 
-        const shape = solverShape(world);
+        const shape = shapeId(world);
         const authored = world.storage(Shape).friction.get(eid);
-        shape.setFriction(0.125);
+        setShapeFriction(stateFor(world), shape.index1 - 1, 0.125);
         world.storage(Shape).friction.set(eid, authored);
         world.tick();
 
-        expect(shape.getFriction()).toBe(authored);
+        expect(getShapeMaterials(stateFor(world), shape.index1 - 1)[0]!.friction).toBe(authored);
     });
 });
 
@@ -429,17 +495,17 @@ test("changing the spawn-only sensor flag recreates its Box3D shape definition",
         world.add(eid, Body, { type: BodyType.Dynamic });
         world.add(eid, Shape);
         world.tick();
-        const previous = solverShape(world);
-        expect(previous.isSensor()).toBe(false);
+        const previous = shapeId(world);
+        expect(isSensorShape(stateFor(world), previous.index1 - 1)).toBe(false);
 
         world.storage(Shape).isSensor.set(eid, 1);
         world.tick();
 
-        expect(previous.isValid()).toBe(false);
-        const current = solverShape(world);
-        expect(current.isValid()).toBe(true);
-        expect(current.isSensor()).toBe(true);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
+        expect(shapeIsValid(stateFor(world), previous)).toBe(false);
+        const current = shapeId(world);
+        expect(shapeIsValid(stateFor(world), current)).toBe(true);
+        expect(isSensorShape(stateFor(world), current.index1 - 1)).toBe(true);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
     });
 });
 
@@ -467,7 +533,7 @@ test("Body definition writes reach Box3D through its setters after spawn", async
         world.add(eid, Shape);
         world.tick();
         const authored = world.storage(Body);
-        const solver = physicsWorld(world)!.getBody(eid)!;
+        const solver = bodyIndex(world, eid);
 
         authored.type.set(eid, BodyType.Kinematic);
         authored.linearDamping.set(eid, 0.25);
@@ -481,34 +547,44 @@ test("Body definition writes reach Box3D through its setters after spawn", async
         authored.enableContactRecycling.set(eid, 0);
         world.tick();
 
-        expect(solver.getType()).toBe(BodyType.Kinematic);
-        expect(solver.getLinearDamping()).toBe(0.25);
-        expect(solver.getAngularDamping()).toBe(0.5);
-        expect(solver.getGravityScale()).toBe(0.75);
-        expect(solver.getSleepThreshold()).toBeCloseTo(0.2);
-        expect(solver.getMotionLocks()).toBe(BodyMotionLock.linearX | BodyMotionLock.angularZ);
-        expect(solver.isSleepEnabled()).toBe(false);
-        expect(solver.isBullet()).toBe(true);
-        expect(solver.isFastRotationAllowed()).toBe(true);
-        expect(solver.isContactRecyclingEnabled()).toBe(false);
+        expect(bodyGetType(stateFor(world), solver)).toBe(BodyType.Kinematic);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.linearDamping)).toBe(0.25);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.angularDamping)).toBe(0.5);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.gravityScale)).toBe(0.75);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.sleepThreshold)).toBeCloseTo(
+            0.2,
+        );
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.motionLocks)).toBe(
+            BodyMotionLock.linearX | BodyMotionLock.angularZ,
+        );
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.enableSleep) !== 0).toBe(
+            false,
+        );
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.isBullet) !== 0).toBe(true);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.allowFastRotation) !== 0).toBe(
+            true,
+        );
+        expect(
+            bodyGetProperty(stateFor(world), solver, BodyProperty.enableContactRecycling) !== 0,
+        ).toBe(false);
 
         authored.type.set(eid, BodyType.Dynamic);
         world.tick();
         authored.enableSleep.set(eid, 1);
         world.tick();
-        expect(solver.isSleepEnabled()).toBe(true);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.enableSleep) !== 0).toBe(true);
         setAwake(world, eid, false);
         world.tick();
-        expect(solver.isAwake()).toBe(false);
+        expect(bodyIsAwake(stateFor(world), solver)).toBe(false);
         setAwake(world, eid, true);
         world.tick();
-        expect(solver.isAwake()).toBe(true);
+        expect(bodyIsAwake(stateFor(world), solver)).toBe(true);
         authored.isEnabled.set(eid, 0);
         world.tick();
-        expect(solver.isEnabled()).toBe(false);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.isEnabled) !== 0).toBe(false);
         authored.isEnabled.set(eid, 1);
         world.tick();
-        expect(solver.isEnabled()).toBe(true);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.isEnabled) !== 0).toBe(true);
     });
 });
 
@@ -535,20 +611,13 @@ test("unchanged Body definition writes call no Box3D body setter", async () => {
         });
         world.add(eid, Shape);
         world.tick();
+        const k = kernel(world);
         const setters = [
-            ["setType", spyOn(SolverBody.prototype, "setType")],
-            ["setLinearDamping", spyOn(SolverBody.prototype, "setLinearDamping")],
-            ["setAngularDamping", spyOn(SolverBody.prototype, "setAngularDamping")],
-            ["setGravityScale", spyOn(SolverBody.prototype, "setGravityScale")],
-            ["setSleepThreshold", spyOn(SolverBody.prototype, "setSleepThreshold")],
-            ["setMotionLocks", spyOn(SolverBody.prototype, "setMotionLocks")],
-            ["enableSleep", spyOn(SolverBody.prototype, "enableSleep")],
-            ["setAwake", spyOn(SolverBody.prototype, "setAwake")],
-            ["setBullet", spyOn(SolverBody.prototype, "setBullet")],
-            ["allowFastRotation", spyOn(SolverBody.prototype, "allowFastRotation")],
-            ["enableContactRecycling", spyOn(SolverBody.prototype, "enableContactRecycling")],
-            ["enable", spyOn(SolverBody.prototype, "enable")],
-            ["disable", spyOn(SolverBody.prototype, "disable")],
+            ["bodySetType", spyOn(k, "bodySetType")],
+            ["bodySetProperty", spyOn(k, "bodySetProperty")],
+            ["bodySetAwake", spyOn(k, "bodySetAwake")],
+            ["bodyEnable", spyOn(k, "bodyEnable")],
+            ["bodyDisable", spyOn(k, "bodyDisable")],
         ] as const;
         try {
             const authored = world.storage(Body);
@@ -598,14 +667,14 @@ test("Body.isAwake is spawn-only", async () => {
         });
         world.add(eid, Shape);
         world.step(Time.FIXED_DT);
-        const solver = physicsWorld(world)!.getBody(eid)!;
-        expect(solver.isAwake()).toBe(true);
+        const solver = bodyIndex(world, eid);
+        expect(bodyIsAwake(stateFor(world), solver)).toBe(true);
 
-        const setter = spyOn(SolverBody.prototype, "setAwake");
+        const setter = spyOn(kernel(world), "bodySetAwake");
         try {
             world.storage(Body).isAwake.set(eid, 0);
             world.step(Time.FIXED_DT);
-            expect(solver.isAwake()).toBe(true);
+            expect(bodyIsAwake(stateFor(world), solver)).toBe(true);
             expect(setter).not.toHaveBeenCalled();
         } finally {
             setter.mockRestore();
@@ -631,17 +700,21 @@ test("a Body field edit survives frame mark clearing and snapshot restore", asyn
         world.add(eid, Shape);
         world.tick();
         const authored = world.storage(Body).linearDamping;
-        const solver = physicsWorld(world)!.getBody(eid)!;
+        const solver = bodyIndex(world, eid);
         authored.set(eid, 0.2);
         const saved = world.snapshot();
         world.step(0);
         authored.set(eid, 0.3);
         world.tick();
-        expect(solver.getLinearDamping()).toBeCloseTo(0.3);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.linearDamping)).toBeCloseTo(
+            0.3,
+        );
 
         world.restore(saved);
         world.tick();
-        expect(solver.getLinearDamping()).toBeCloseTo(0.2);
+        expect(bodyGetProperty(stateFor(world), solver, BodyProperty.linearDamping)).toBeCloseTo(
+            0.2,
+        );
     });
 });
 
@@ -653,18 +726,25 @@ test("a corrected dynamic body's published velocity agrees with its solver body 
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 0.5, 0, 0] });
         world.tick();
-        physicsWorld(world)!.getBody(eid)!.setLinearVelocity({ x: 4, y: 0, z: 0 });
+        setLinearVelocity(world, eid, { x: 4, y: 0, z: 0 });
         const saved = world.snapshot();
         world.tick();
         world.restore(saved);
 
-        const body = physicsWorld(world)!.getBody(eid)!;
-        const position = body.getPosition();
+        const body = bodyIndex(world, eid);
+        const position = bodyGetTransform(stateFor(world), body, {
+            p: { x: 0, y: 0, z: 0 },
+            q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+        }).p;
         setTransform(world, eid, [position.x, position.y, position.z], [0, 0, 0, 1]);
         world.tick();
 
         const published = world.storage(GlobalTransform).linearVelocity;
-        const solved = physicsWorld(world)!.getBody(eid)!.getLinearVelocity();
+        const solved = bodyGetLinearVelocity(stateFor(world), bodyIndex(world, eid), {
+            x: 0,
+            y: 0,
+            z: 0,
+        });
         expect(published.x.get(eid)).toBeCloseTo(solved.x, 5);
         expect(published.y.get(eid)).toBeCloseTo(solved.y, 5);
         expect(published.z.get(eid)).toBeCloseTo(solved.z, 5);
@@ -695,21 +775,170 @@ test("a RevoluteJoint motor-speed edit reuses its solver joint", async () => {
         expect(
             world.storage(RevoluteJoint).localRotationA.read(joint, new Float32Array(4)),
         ).toEqual(new Float32Array([0, 0, 0, 1]));
-        const solver = physicsWorld(world)!;
-        expect(solver.getCounters().jointCount).toBe(1);
-        const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === world.ref(joint),
-        );
+        const state = stateFor(world);
+        expect(worldCounters(state).jointCount).toBe(1);
+        const solverId = jointIds(state).find((id) => state.jointUserData[id] === world.ref(joint));
         if (solverId === undefined) throw new Error("authored RevoluteJoint was not created");
-        const generation = jointField(solver.state, solverId!, JointField.generation);
-        const create = spyOn(solver, "createRevoluteJoint");
+        const generation = jointField(state, solverId!, JointField.generation);
+        const create = spyOn(kernel(world), "jointCreateRevolute");
         world.storage(RevoluteJoint).motorSpeed.set(joint, 4);
         world.tick();
 
         expect(create).not.toHaveBeenCalled();
-        expect(jointIds(solver.state)).toContain(solverId);
-        expect(jointField(solver.state, solverId!, JointField.generation)).toBe(generation);
-        expect(readJointFloat(solver.state, solverId!, RJ_MOTOR_SPEED)).toBe(4);
+        expect(jointIds(state)).toContain(solverId);
+        expect(jointField(state, solverId!, JointField.generation)).toBe(generation);
+        expect(readJointFloat(state, solverId!, RJ_MOTOR_SPEED)).toBe(4);
+    });
+});
+
+function addDynamicMotorPair(world: World): [number, number] {
+    const a = world.create();
+    const b = world.create();
+    for (const [eid, x] of [
+        [a, -1],
+        [b, 1],
+    ] as const) {
+        world.add(eid, Body, {
+            type: BodyType.Dynamic,
+            position: [x, 0, 0, 0],
+            gravityScale: 0,
+            linearDamping: 0,
+            angularDamping: 0,
+        });
+        world.add(eid, Shape, {
+            kind: ShapeKind.Sphere,
+            sphere: [0, 0, 0, 0.25],
+            density: 1,
+            friction: 0,
+        });
+    }
+    return [a, b];
+}
+
+function movedFrom(
+    before: ReturnType<typeof bodyGetTransform>,
+    after: ReturnType<typeof bodyGetTransform>,
+) {
+    return (
+        Math.abs(after.p.x - before.p.x) +
+            Math.abs(after.p.y - before.p.y) +
+            Math.abs(after.p.z - before.p.z) +
+            Math.abs(after.q.v.x - before.q.v.x) +
+            Math.abs(after.q.v.y - before.q.v.y) +
+            Math.abs(after.q.v.z - before.q.v.z) >
+        1e-5
+    );
+}
+
+async function expectSleepingMotorEditToWakeAndMove(
+    world: World,
+    a: number,
+    b: number,
+    edit: () => void,
+): Promise<void> {
+    world.tick();
+    const state = stateFor(world);
+    const bodyA = bodyIndex(world, a);
+    const bodyB = bodyIndex(world, b);
+    setAwake(world, a, false);
+    setAwake(world, b, false);
+    expect(bodyIsAwake(state, bodyA)).toBe(false);
+    expect(bodyIsAwake(state, bodyB)).toBe(false);
+    const beforeA = bodyGetTransform(state, bodyA, {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    });
+    const beforeB = bodyGetTransform(state, bodyB, {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    });
+    edit();
+    world.tick();
+    expect(bodyIsAwake(state, bodyA)).toBe(true);
+    expect(bodyIsAwake(state, bodyB)).toBe(true);
+    for (let i = 0; i < 12; i++) world.tick();
+    const afterA = bodyGetTransform(state, bodyA, {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    });
+    const afterB = bodyGetTransform(state, bodyB, {
+        p: { x: 0, y: 0, z: 0 },
+        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+    });
+    expect(movedFrom(beforeA, afterA) || movedFrom(beforeB, afterB)).toBe(true);
+}
+
+test("RevoluteJoint motor-speed ECS edits wake sleeping endpoints and move them", async () => {
+    await withPhysics((world) => {
+        const [a, b] = addDynamicMotorPair(world);
+        const joint = world.create();
+        world.add(joint, RevoluteJoint, {
+            a,
+            b,
+            localAnchorA: [1, 0, 0, 0],
+            localAnchorB: [-1, 0, 0, 0],
+            enableMotor: 1,
+            maxMotorTorque: 1000,
+        });
+        return expectSleepingMotorEditToWakeAndMove(world, a, b, () => {
+            world.storage(RevoluteJoint).motorSpeed.set(joint, 8);
+        });
+    });
+});
+
+test("PrismaticJoint motor-speed ECS edits wake sleeping endpoints and move them", async () => {
+    await withPhysics((world) => {
+        const [a, b] = addDynamicMotorPair(world);
+        const joint = world.create();
+        world.add(joint, PrismaticJoint, {
+            a,
+            b,
+            localAnchorA: [1, 0, 0, 0],
+            localAnchorB: [-1, 0, 0, 0],
+            enableMotor: 1,
+            maxMotorForce: 1000,
+        });
+        return expectSleepingMotorEditToWakeAndMove(world, a, b, () => {
+            world.storage(PrismaticJoint).motorSpeed.set(joint, 3);
+        });
+    });
+});
+
+test("WheelJoint spin-speed ECS edits wake sleeping endpoints and move them", async () => {
+    await withPhysics((world) => {
+        const [a, b] = addDynamicMotorPair(world);
+        const joint = world.create();
+        world.add(joint, WheelJoint, {
+            a,
+            b,
+            localAnchorA: [1, 0, 0, 0],
+            localAnchorB: [-1, 0, 0, 0],
+            enableSpinMotor: 1,
+            maxSpinTorque: 1000,
+        });
+        return expectSleepingMotorEditToWakeAndMove(world, a, b, () => {
+            world.storage(WheelJoint).spinSpeed.set(joint, 8);
+        });
+    });
+});
+
+test("WheelJoint steering-angle ECS edits wake sleeping endpoints and move them", async () => {
+    await withPhysics((world) => {
+        const [a, b] = addDynamicMotorPair(world);
+        const joint = world.create();
+        world.add(joint, WheelJoint, {
+            a,
+            b,
+            localAnchorA: [1, 0, 0, 0],
+            localAnchorB: [-1, 0, 0, 0],
+            enableSteering: 1,
+            steeringHertz: 10,
+            steeringDampingRatio: 0.7,
+            maxSteeringTorque: 1000,
+        });
+        return expectSleepingMotorEditToWakeAndMove(world, a, b, () => {
+            world.storage(WheelJoint).targetSteeringAngle.set(joint, 0.6);
+        });
     });
 });
 
@@ -717,28 +946,28 @@ test("a joint field write survives a frame with no fixed tick", async () => {
     await withPhysics((world) => {
         const joint = addRevoluteMotor(world);
         world.tick();
-        const solver = physicsWorld(world)!;
-        const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === world.ref(joint),
+        const state = stateFor(world);
+        const solverId = jointIds(state).find(
+            (id) => state.jointUserData[id] === world.ref(joint),
         )!;
-        const generation = jointField(solver.state, solverId, JointField.generation);
-        const create = spyOn(solver, "createRevoluteJoint");
+        const generation = jointField(state, solverId, JointField.generation);
+        const create = spyOn(kernel(world), "jointCreateRevolute");
 
         world.storage(RevoluteJoint).motorSpeed.set(joint, 6);
         const saved = world.snapshot();
         world.step(0);
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(0);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(0);
 
         world.storage(RevoluteJoint).motorSpeed.set(joint, 8);
         world.tick();
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(8);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(8);
 
         world.restore(saved);
         world.tick();
 
         expect(create).not.toHaveBeenCalled();
-        expect(jointField(solver.state, solverId, JointField.generation)).toBe(generation);
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(6);
+        expect(jointField(state, solverId, JointField.generation)).toBe(generation);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(6);
     });
 });
 
@@ -747,11 +976,11 @@ test("a CPU-only draw edit survives frame mark clearing without a fixed tick", a
         const joint = addRevoluteMotor(world);
         world.storage(RevoluteJoint).motorSpeed.set(joint, 11);
         world.tick();
-        const solver = physicsWorld(world)!;
-        const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === world.ref(joint),
+        const state = stateFor(world);
+        const solverId = jointIds(state).find(
+            (id) => state.jointUserData[id] === world.ref(joint),
         )!;
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(11);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(11);
 
         world.addSystem(
             {
@@ -766,7 +995,7 @@ test("a CPU-only draw edit survives frame mark clearing without a fixed tick", a
         world.step(0);
         world.tick();
 
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(12);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(12);
     });
 });
 
@@ -776,11 +1005,11 @@ test("a CPU-only draw edit followed by a throw reaches the next joint sync", asy
         const motorSpeed = world.storage(RevoluteJoint).motorSpeed;
         motorSpeed.set(joint, 12);
         world.tick();
-        const solver = physicsWorld(world)!;
-        const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === world.ref(joint),
+        const state = stateFor(world);
+        const solverId = jointIds(state).find(
+            (id) => state.jointUserData[id] === world.ref(joint),
         )!;
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(12);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(12);
         world.clearChanges();
 
         const brokenDraw = {
@@ -799,7 +1028,7 @@ test("a CPU-only draw edit followed by a throw reaches the next joint sync", asy
 
         world.tick();
 
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(13);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(13);
     });
 });
 
@@ -809,20 +1038,19 @@ test("a dirty field is applied when its ECS value matches an earlier value", asy
         const authored = world.storage(RevoluteJoint).motorSpeed;
         authored.set(joint, 6);
         world.tick();
-        const solver = physicsWorld(world)!;
-        const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === world.ref(joint),
+        const state = stateFor(world);
+        const solverId = jointIds(state).find(
+            (id) => state.jointUserData[id] === world.ref(joint),
         )!;
-        const handle = new SolverRevoluteJoint(solver.state, makeJointId(solver.state, solverId));
-        handle.setMotorSpeed(8);
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(8);
+        writeJointFloat(state, solverId, RJ_MOTOR_SPEED, 8);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(8);
 
-        const create = spyOn(solver, "createRevoluteJoint");
+        const create = spyOn(kernel(world), "jointCreateRevolute");
         authored.set(joint, 6);
         world.tick();
 
         expect(create).not.toHaveBeenCalled();
-        expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(6);
+        expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(6);
     });
 });
 
@@ -835,31 +1063,25 @@ test("joint snapshots restore the matching live constraints when worlds have dif
         world.remove(first, RevoluteJoint);
         const second = addRevoluteMotor(world);
         world.tick();
-        expect(physicsWorld(world)!.getCounters().jointCount).toBe(1);
-        expect(
-            jointIds(physicsWorld(world)!.state).map(
-                (id) => physicsWorld(world)!.state.jointUserData[id],
-            ),
-        ).toEqual([world.ref(second)]);
+        expect(worldCounters(stateFor(world)).jointCount).toBe(1);
+        expect(jointIds(stateFor(world)).map((id) => stateFor(world).jointUserData[id])).toEqual([
+            world.ref(second),
+        ]);
         const secondSnapshot = world.snapshot();
 
         world.restore(firstSnapshot);
         world.tick();
-        expect(physicsWorld(world)!.getCounters().jointCount).toBe(1);
-        expect(
-            jointIds(physicsWorld(world)!.state).map(
-                (id) => physicsWorld(world)!.state.jointUserData[id],
-            ),
-        ).toEqual([world.ref(first)]);
+        expect(worldCounters(stateFor(world)).jointCount).toBe(1);
+        expect(jointIds(stateFor(world)).map((id) => stateFor(world).jointUserData[id])).toEqual([
+            world.ref(first),
+        ]);
 
         world.restore(secondSnapshot);
         world.tick();
-        expect(physicsWorld(world)!.getCounters().jointCount).toBe(1);
-        expect(
-            jointIds(physicsWorld(world)!.state).map(
-                (id) => physicsWorld(world)!.state.jointUserData[id],
-            ),
-        ).toEqual([world.ref(second)]);
+        expect(worldCounters(stateFor(world)).jointCount).toBe(1);
+        expect(jointIds(stateFor(world)).map((id) => stateFor(world).jointUserData[id])).toEqual([
+            world.ref(second),
+        ]);
     });
 });
 
@@ -867,12 +1089,12 @@ test("joint endpoint changes recreate the solver joint", async () => {
     await withPhysics((world) => {
         const joint = addRevoluteMotor(world);
         world.tick();
-        const solver = physicsWorld(world)!;
-        const originalId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === world.ref(joint),
+        const state = stateFor(world);
+        const originalId = jointIds(state).find(
+            (id) => state.jointUserData[id] === world.ref(joint),
         )!;
-        const generation = jointField(solver.state, originalId, JointField.generation);
-        const create = spyOn(solver, "createRevoluteJoint");
+        const generation = jointField(state, originalId, JointField.generation);
+        const create = spyOn(kernel(state.ecsState), "jointCreateRevolute");
         const replacement = world.create();
         world.add(replacement, Body, { type: BodyType.Static });
         world.tick();
@@ -880,13 +1102,9 @@ test("joint endpoint changes recreate the solver joint", async () => {
         world.tick();
 
         expect(create).toHaveBeenCalledTimes(1);
-        const newId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === world.ref(joint),
-        )!;
-        expect(jointField(solver.state, newId, JointField.generation)).not.toBe(generation);
-        expect(jointIds(solver.state).map((id) => solver.state.jointUserData[id])).toEqual([
-            world.ref(joint),
-        ]);
+        const newId = jointIds(state).find((id) => state.jointUserData[id] === world.ref(joint))!;
+        expect(jointField(state, newId, JointField.generation)).not.toBe(generation);
+        expect(jointIds(state).map((id) => state.jointUserData[id])).toEqual([world.ref(joint)]);
     });
 });
 
@@ -897,7 +1115,7 @@ test("physics sync warns when Transform is added to a bound Body", async () => {
             const eid = world.create();
             world.add(eid, Body);
             world.tick();
-            expect(physicsWorld(world)!.getBody(eid)?.isValid()).toBe(true);
+            expect(physicsBodyIndex(world, eid) >= 0).toBe(true);
 
             world.add(eid, Transform);
             world.tick();
@@ -920,18 +1138,18 @@ test("physics sync walks Bodies added before a restored snapshot was bound", asy
         const second = world.create();
         world.add(second, Body);
         const saved = world.snapshot();
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
 
         world.tick();
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(2);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(2);
         world.restore(saved);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
 
         world.tick();
 
         expect(world.has(second, Body)).toBe(true);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(2);
-        expect(physicsWorld(world)!.getBody(second)?.isValid()).toBe(true);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(2);
+        expect(physicsBodyIndex(world, second) >= 0).toBe(true);
     });
 });
 
@@ -942,16 +1160,16 @@ test("physics sync retries a missing Shape hull when the registry grows", async 
         world.add(eid, Body);
         world.add(eid, Shape, { kind: ShapeKind.Hull, geometry: 1, scale: [1, 1, 1, 0] });
         world.tick();
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(0);
 
         const cube = structuredClone(hulls.get(hulls.name(0)!)!);
         expect(hulls.register({ ...cube, name: "runtime-sync-recovery-hull" })).toBe(1);
         world.tick();
 
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
-        expect(physicsWorld(world)!.getBody(eid)?.isValid()).toBe(true);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
+        expect(physicsBodyIndex(world, eid) >= 0).toBe(true);
     });
 });
 
@@ -965,8 +1183,8 @@ test("physics sync visits changed Bodies beyond the first eid word", async () =>
 
         world.tick();
 
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getBody(eid)?.isValid()).toBe(true);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
+        expect(physicsBodyIndex(world, eid) >= 0).toBe(true);
     });
 });
 
@@ -975,14 +1193,14 @@ test("physics sync forgets a Body destroyed before the next tick", async () => {
         const eid = world.create();
         world.add(eid, Body);
         world.tick();
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
 
         world.destroy(eid);
         world.tick();
 
         expect(world.exists(eid)).toBe(false);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(0);
-        expect(physicsWorld(world)!.getBody(eid)).toBeNull();
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(0);
+        expect(physicsBodyIndex(world, eid)).toBe(-1);
     });
 });
 
@@ -993,22 +1211,22 @@ test("physics sync restores a pending Shape hull when its registry snapshot pred
         world.add(eid, Body);
         world.add(eid, Shape, { kind: ShapeKind.Hull, geometry: 1, scale: [1, 1, 1, 0] });
         world.tick();
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(0);
 
         const cube = structuredClone(hulls.get(hulls.name(0)!)!);
         hulls.register({ ...cube, name: "runtime-sync-restored-hull" });
         const saved = world.snapshot();
         world.tick();
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
         world.restore(saved);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(0);
 
         world.tick();
 
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(1);
-        expect(physicsWorld(world)!.getBody(eid)?.isValid()).toBe(true);
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
+        expect(physicsBodyIndex(world, eid) >= 0).toBe(true);
     });
 });

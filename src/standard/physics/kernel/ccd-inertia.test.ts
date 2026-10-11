@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
-import { BodyType, makeBoxHull, PhysicsWorld } from "../api";
 import { mat3 } from "../common/math";
+import { BodyType } from "../common/types";
+import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
 import { BodyFlags, getBodySim } from "../world/body";
 import {
     readSimInvInertiaLocal,
@@ -10,32 +19,32 @@ import {
 } from "./bodycolumns";
 
 test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
     try {
-        const ground = world.createBody({
+        const ground = createTestBody(world, {
             type: BodyType.Static,
             position: { x: 0, y: -0.5, z: 0 },
         });
-        ground.createHull({}, makeBoxHull(5, 0.5, 5));
-        const body = world.createBody({
+        createHullShape(world, ground, testShapeDef(), makeBoxHull(5, 0.5, 5));
+        const body = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 0, y: 1, z: 0 },
             linearVelocity: { x: 0, y: -120, z: 0 },
             angularVelocity: { x: 0, y: 0, z: 20 },
         });
-        body.createHull({ density: 1 }, makeBoxHull(0.2, 0.5, 0.1));
-        world.step(1 / 60, 4);
-        const sim = getBodySim(world.state, body.id.index1 - 1);
-        expect(simFlags(world.state, sim) & BodyFlags.isFast).not.toBe(0);
-        expect(simFlags(world.state, sim) & BodyFlags.hadTimeOfImpact).not.toBe(0);
+        createHullShape(world, body, testShapeDef({ density: 1 }), makeBoxHull(0.2, 0.5, 0.1));
+        stepTestWorld(world, 1 / 60, 4);
+        const sim = getBodySim(world, body);
+        expect(simFlags(world, sim) & BodyFlags.isFast).not.toBe(0);
+        expect(simFlags(world, sim) & BodyFlags.hadTimeOfImpact).not.toBe(0);
         const rotation = mat3.fromQuat(
-            readSimTransform(world.state, sim, {
+            readSimTransform(world, sim, {
                 p: { x: 0, y: 0, z: 0 },
                 q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
             }).q,
         );
         expect(
-            readSimInvInertiaWorld(world.state, sim, {
+            readSimInvInertiaWorld(world, sim, {
                 cx: { x: 0, y: 0, z: 0 },
                 cy: { x: 0, y: 0, z: 0 },
                 cz: { x: 0, y: 0, z: 0 },
@@ -44,7 +53,7 @@ test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", (
             mat3.mul(
                 mat3.mul(
                     rotation,
-                    readSimInvInertiaLocal(world.state, sim, {
+                    readSimInvInertiaLocal(world, sim, {
                         cx: { x: 0, y: 0, z: 0 },
                         cy: { x: 0, y: 0, z: 0 },
                         cz: { x: 0, y: 0, z: 0 },
@@ -54,6 +63,6 @@ test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", (
             ),
         );
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

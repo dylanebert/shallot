@@ -1,3 +1,4 @@
+import { f32 } from "../common/math";
 import type { WorldState } from "../world/world";
 import { type Kernel, kernel } from "./kernel";
 
@@ -64,7 +65,7 @@ export function jointDrawScale(world: WorldState, id: number): number {
 }
 export function setJointDrawScale(world: WorldState, id: number, value: number): void {
     const k = jointKernel(world);
-    jointViews(k).floats[(k.jointRecordPtr() >>> 2) + id * JOINT_RECORD_WORDS + 12] = value;
+    jointViews(k).floats[(k.jointRecordPtr() >>> 2) + id * JOINT_RECORD_WORDS + 12] = f32(value);
 }
 export function jointCapacity(world: WorldState): number {
     return jointKernel(world).jointRecordCapacity();

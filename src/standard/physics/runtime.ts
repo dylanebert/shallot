@@ -4,24 +4,19 @@ import { Body, BodyType, Hulls, PhysicsPlugin, Shape as ShapeComponent } from ".
 import { GlobalTransform, Transform, teleport as teleportPlacement } from "../../core/transform";
 import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
 import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
+import { init, type PhysicsSnapshot, shutdown } from "./api";
 import {
-    hash as hashWorld,
-    init,
-    type PhysicsSnapshot,
-    PhysicsWorld,
     restore as restoreWorld,
-    Body as SolverBody,
-    shutdown,
+    snapshotBindings,
     snapshot as snapshotWorld,
-} from "./api";
-import { Shape as SolverShape } from "./api/shape";
-import { snapshotBindings } from "./api/snapshot";
+} from "./api/snapshot";
 import { bodyBinding, jointBindings, shapeBinding } from "./authoring";
 import { syncBodyFields } from "./body-sync";
 import type { ShapeProxy } from "./collision/distance";
-import { DEFAULT_MASK_BITS } from "./common/constants";
+import { DEFAULT_MASK_BITS, SetType } from "./common/constants";
+import type { EntityId } from "./common/ids";
 import { f32, maxf } from "./common/math";
-import type { QueryFilter, WorldDef } from "./common/types";
+import { defaultWorldDef, type QueryFilter, type WorldDef } from "./common/types";
 import {
     clearPhysicsEvents,
     type PhysicsContactEvent,
@@ -60,11 +55,51 @@ import {
     writeQueryReturn,
 } from "./kernel/kernel";
 import { queryColumns } from "./kernel/querycolumns";
+import {
+    setBodyCount,
+    solverSetCount,
+    solverSetIndex,
+    wakeSolverSet,
+} from "./kernel/solversetcolumns";
 import { marshalBody } from "./marshal";
 import { marshalShape } from "./marshal-shape";
 import { captureShapeRecreationState, shapeNeedsRecreation, syncShapeFields } from "./shape-sync";
+import { destroyShape, shapeIsValid } from "./shapes/shape";
+import { step as stepWorld } from "./solver/step";
+import {
+    bodyApplyAngularImpulse,
+    bodyApplyForce,
+    bodyApplyForceToCenter,
+    bodyApplyLinearImpulse,
+    bodyApplyLinearImpulseToCenter,
+    bodyApplyTorque,
+    bodyGetLinearVelocity,
+    bodyGetTransform,
+    bodyGetType,
+    bodyIsAwake,
+    bodyIsValid,
+    bodySetAngularVelocity,
+    bodySetAwake,
+    bodySetLinearVelocity,
+    bodySetTargetTransform,
+    bodySetTransform,
+    destroyBody,
+} from "./world/body";
 import { type DebugDraw, worldDraw } from "./world/draw";
+import { hashWorldState } from "./world/hash";
 import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
+import {
+    createWorld,
+    destroyWorld,
+    getWorld,
+    worldSetContactRecycleDistance,
+    worldSetContactTuning,
+    worldSetGravity,
+    worldSetHitEventThreshold,
+    worldSetMaximumLinearSpeed,
+    worldSetRestitutionThreshold,
+    worldStateIsValid,
+} from "./world/world";
 import {
     copyPhysicsWorldDefinition,
     PhysicsWorldDefinition,
@@ -83,7 +118,7 @@ interface PhysicsRuntime {
     bodyCandidates: FieldCandidates;
     shapeCandidates: FieldCandidates;
     warnedBodyFields: Set<number>;
-    shapes: Map<number, SolverShape>;
+    shapes: Map<number, EntityId>;
     shapeBodies: Map<number, number>;
     shapeEntities: ShapeEntityMap;
     queryContexts: QueryContext[];
@@ -93,9 +128,8 @@ interface PhysicsRuntime {
     shapeStamps: Map<number, EntityRef>;
     shapeRecreationState: Map<number, Float64Array>;
     warnedShapes: Set<number>;
-    physicsWorld: PhysicsWorld | null;
-    bodies: Map<number, SolverBody>;
-    stamps: Map<number, EntityRef>;
+    physicsWorld: WorldState | null;
+    bodies: Map<number, BoundBodyId>;
     placementWarnings: Map<number, EntityRef>;
     failed: Map<number, { stamp: EntityRef; hulls: number }>;
     constraints: ConstraintCache;
@@ -140,6 +174,8 @@ interface QueryContext {
     hit: PhysicsQueryHit;
 }
 
+type BoundBodyId = EntityId & { stamp: EntityRef };
+
 interface ShapeEntityBinding {
     slot: number;
     generation: number;
@@ -178,7 +214,6 @@ function newRuntime(): PhysicsRuntime {
         warnedShapes: new Set(),
         physicsWorld: null,
         bodies: new Map(),
-        stamps: new Map(),
         placementWarnings: new Map(),
         failed,
         constraints: createConstraintCache(),
@@ -199,7 +234,7 @@ function newRuntime(): PhysicsRuntime {
 
 function fillQueryHit(
     hit: PhysicsQueryHit,
-    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    state: WorldState,
     shapeId: number,
     shapeEid: number,
     bodyEid: number,
@@ -231,7 +266,7 @@ function castQueryCallback(
     data: number,
 ): number {
     const context = this.queryContexts[this.queryDepth - 1];
-    const state = this.physicsWorld!.state;
+    const state = this.physicsWorld!;
     if (!queryShapeEntities(context.world!, this, shapeId, context)) {
         writeQueryReturn(state.ecsState, -1);
         return 1;
@@ -277,7 +312,7 @@ function queryShapeEntities(
         const bodyEid = world.resolve(binding.body);
         if (!bodyEid || !world.has(bodyEid, Body)) continue;
         const shape = runtime.shapes.get(shapeEid);
-        if (!shape || shape.id.index1 !== shapeId + 1 || shape.id.generation !== binding.generation)
+        if (!shape || shape.index1 !== shapeId + 1 || shape.generation !== binding.generation)
             continue;
         context.shapeEid = shapeEid;
         context.bodyEid = bodyEid;
@@ -371,44 +406,44 @@ function endQuery(runtime: PhysicsRuntime): void {
 function rememberShapeEntity(
     world: World,
     runtime: PhysicsRuntime,
-    shape: SolverShape,
+    shape: EntityId,
     shapeEid: number,
     bodyEid: number,
 ): void {
-    const slot = shape.id.index1 - 1;
+    const slot = shape.index1 - 1;
     const map = runtime.shapeEntities.slots;
     if (slot >= map.length) map.length = Math.max(slot + 1, map.length * 2);
     const bindings = (map[slot] ??= []);
     const reference = world.ref(shapeEid);
-    const state = runtime.physicsWorld?.state;
-    if (state) state.shapeEntityRefs[slot] = { generation: shape.id.generation, reference };
+    const state = runtime.physicsWorld;
+    if (state) state.shapeEntityRefs[slot] = { generation: shape.generation, reference };
     for (const binding of bindings)
-        if (binding.generation !== shape.id.generation && !binding.retiring) {
+        if (binding.generation !== shape.generation && !binding.retiring) {
             binding.retiring = true;
             runtime.shapeEntities.retiring.push(binding);
         }
     for (const binding of bindings)
-        if (binding.generation === shape.id.generation) {
+        if (binding.generation === shape.generation) {
             binding.shape = reference;
             binding.body = world.ref(bodyEid);
             return;
         }
     bindings.push({
         slot,
-        generation: shape.id.generation,
+        generation: shape.generation,
         shape: reference,
         body: world.ref(bodyEid),
         retiring: false,
     });
 }
 
-function retireShapeEntity(runtime: PhysicsRuntime, shape: SolverShape | undefined): void {
+function retireShapeEntity(runtime: PhysicsRuntime, shape: EntityId | undefined): void {
     if (!shape) return;
-    const slot = shape.id.index1 - 1;
+    const slot = shape.index1 - 1;
     const bindings = runtime.shapeEntities.slots[slot];
     if (!bindings) return;
     for (const binding of bindings)
-        if (binding.generation === shape.id.generation && !binding.retiring) {
+        if (binding.generation === shape.generation && !binding.retiring) {
             binding.retiring = true;
             runtime.shapeEntities.retiring.push(binding);
             return;
@@ -418,7 +453,7 @@ function retireShapeEntity(runtime: PhysicsRuntime, shape: SolverShape | undefin
 function clearShapeEntities(runtime: PhysicsRuntime): void {
     runtime.shapeEntities.slots.fill(undefined);
     runtime.shapeEntities.retiring.length = 0;
-    if (runtime.physicsWorld) runtime.physicsWorld.state.shapeEntityRefs.length = 0;
+    if (runtime.physicsWorld) runtime.physicsWorld.shapeEntityRefs.length = 0;
 }
 
 function pruneShapeEntities(runtime: PhysicsRuntime): void {
@@ -473,9 +508,10 @@ const spawnTransform: WorldTransform = {
     q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
 };
 const spawnVelocity: Vec3 = { x: 0, y: 0, z: 0 };
-function seedGlobalTransform(world: World, eid: number, body: SolverBody): void {
-    const pose = body.getTransform(spawnTransform);
-    body.getLinearVelocity(spawnVelocity);
+function seedGlobalTransform(world: World, eid: number, state: WorldState, body: EntityId): void {
+    const record = body.index1 - 1;
+    const pose = bodyGetTransform(state, record, spawnTransform);
+    bodyGetLinearVelocity(state, record, spawnVelocity);
     writeGlobalTransform(
         world,
         eid,
@@ -488,7 +524,9 @@ function seedGlobalTransform(world: World, eid: number, body: SolverBody): void 
 function forget(runtime: PhysicsRuntime, eid: number): void {
     for (const [shapeEid, bodyEid] of runtime.shapeBodies)
         if (bodyEid === eid) retireShapeEntity(runtime, runtime.shapes.get(shapeEid));
-    runtime.bodies.get(eid)?.destroy();
+    const body = runtime.bodies.get(eid);
+    const state = runtime.physicsWorld;
+    if (body && state && bodyIsValid(state, body)) destroyBody(state, body.index1 - 1);
     runtime.bodies.delete(eid);
     for (const [shapeEid, bodyEid] of runtime.shapeBodies)
         if (bodyEid === eid) {
@@ -504,9 +542,11 @@ function forget(runtime: PhysicsRuntime, eid: number): void {
 }
 
 function clearBodies(runtime: PhysicsRuntime): void {
-    for (const body of runtime.bodies.values()) body.destroy();
+    const state = runtime.physicsWorld;
+    if (state)
+        for (const body of runtime.bodies.values())
+            if (bodyIsValid(state, body)) destroyBody(state, body.index1 - 1);
     runtime.bodies.clear();
-    runtime.stamps.clear();
     runtime.shapes.clear();
     runtime.shapeBodies.clear();
     clearShapeEntities(runtime);
@@ -523,20 +563,29 @@ function clearBodies(runtime: PhysicsRuntime): void {
 
 /** Internal access to a world's Box3D state for the ECS bridge and solver-only tests. */
 
-export function physicsWorld(world: World): PhysicsWorld | null {
-    const physicsWorld = runtimeFor(world).physicsWorld;
-    return physicsWorld ? physicsWorld : null;
+function stateIsValid(state: WorldState): boolean {
+    return worldStateIsValid(state);
 }
 
 export function physicsState(world: World): WorldState | null {
-    const physicsWorld = runtimeFor(world).physicsWorld;
-    return physicsWorld?.isValid() ? physicsWorld.state : null;
+    const state = runtimeFor(world).physicsWorld;
+    return state && stateIsValid(state) ? state : null;
 }
 
 export function physicsBodyIndex(world: World, eid: number): number {
     const runtime = runtimeFor(world);
     const body = runtime.bodies.get(eid);
-    return runtime.physicsWorld?.isValid() && body?.isValid() ? body.id.index1 - 1 : -1;
+    const physicsWorld = runtime.physicsWorld;
+    if (!physicsWorld || !stateIsValid(physicsWorld) || !world.has(eid, Body) || !body) {
+        return -1;
+    }
+    const stamp = body.stamp;
+    const generation = Math.floor(stamp / 2 ** 32);
+    return stamp >>> 0 === eid &&
+        world.matchesEntityGeneration(eid, generation) &&
+        bodyIsValid(physicsWorld, body)
+        ? body.index1 - 1
+        : -1;
 }
 
 const queryZeroOrigin: Pos = { x: 0, y: 0, z: 0 };
@@ -556,7 +605,7 @@ export function castRay(
     const runtime = runtimeFor(world);
     const physicsWorld = runtime.physicsWorld;
     if (!physicsWorld) return;
-    const state = physicsWorld.state;
+    const state = physicsWorld;
     const q = queryColumns(state);
     const k = q.prepare(origin, filter);
     q.translation(translation);
@@ -583,7 +632,7 @@ export function castRayClosest(
     filter?: QueryFilter,
 ): boolean {
     const runtime = runtimeFor(world);
-    const state = runtime.physicsWorld?.state;
+    const state = runtime.physicsWorld;
     if (!state) {
         clearQueryHit(out);
         return false;
@@ -620,7 +669,7 @@ export function castShape(
     const runtime = runtimeFor(world);
     const physicsWorld = runtime.physicsWorld;
     if (!physicsWorld) return;
-    const state = physicsWorld.state;
+    const state = physicsWorld;
     const q = queryColumns(state);
     const k = q.prepare(origin, filter);
     q.proxy(proxy);
@@ -651,7 +700,7 @@ export function castShapeClosest(
         clearQueryHit(out);
         return false;
     }
-    const state = physicsWorld.state;
+    const state = physicsWorld;
     const q = queryColumns(state);
     const k = q.prepare(origin, filter);
     q.proxy(proxy);
@@ -682,7 +731,7 @@ export function overlapAABB(
     const runtime = runtimeFor(world);
     const physicsWorld = runtime.physicsWorld;
     if (!physicsWorld) return;
-    const state = physicsWorld.state;
+    const state = physicsWorld;
     const q = queryColumns(state);
     const k = q.prepare(queryZeroOrigin, filter);
     q.bounds(bounds);
@@ -711,7 +760,7 @@ export function overlapShape(
     const runtime = runtimeFor(world);
     const physicsWorld = runtime.physicsWorld;
     if (!physicsWorld) return;
-    const state = physicsWorld.state;
+    const state = physicsWorld;
     const q = queryColumns(state);
     const k = q.prepare(origin, filter);
     q.proxy(proxy);
@@ -733,7 +782,7 @@ export function drawPhysics(
     maskBits: bigint = DEFAULT_MASK_BITS,
 ): void {
     const physicsWorld = runtimeFor(world).physicsWorld;
-    if (physicsWorld) worldDraw(physicsWorld.state, draw, maskBits);
+    if (physicsWorld) worldDraw(physicsWorld, draw, maskBits);
 }
 
 // Body methods copy these reusable views synchronously.
@@ -757,8 +806,8 @@ function stateTransform(
     stateQuat.s = rotation[3];
     return stateTarget;
 }
-function publishBodyVelocity(world: World, eid: number, body: SolverBody): void {
-    body.getLinearVelocity(stateVelocity);
+function publishBodyVelocity(world: World, eid: number, state: WorldState, body: EntityId): void {
+    bodyGetLinearVelocity(state, body.index1 - 1, stateVelocity);
     world
         .storage(GlobalTransform)
         .linearVelocity.set(eid, stateVelocity.x, stateVelocity.y, stateVelocity.z, 0);
@@ -778,12 +827,16 @@ export function setTargetTransform(
     timeStep = fixedDeltaTime,
     wake = true,
 ): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body || body.getType() === BodyType.Static) return;
-    body.setTargetTransform(stateTransform(position, rotation), timeStep, wake);
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
+    const record = body.index1 - 1;
+    if (bodyGetType(state, record) === BodyType.Static) return;
+    bodySetTargetTransform(state, record, stateTransform(position, rotation), timeStep, wake);
     // Box3D leaves sub-threshold target motion asleep without adopting its pose.
-    if (!body.isAwake()) return;
-    body.getLinearVelocity(stateVelocity);
+    if (!bodyIsAwake(state, record)) return;
+    bodyGetLinearVelocity(state, record, stateVelocity);
     stateVelocityTuple[0] = stateVelocity.x;
     stateVelocityTuple[1] = stateVelocity.y;
     stateVelocityTuple[2] = stateVelocity.z;
@@ -797,10 +850,13 @@ export function setTransform(
     position: readonly [number, number, number],
     rotation: readonly [number, number, number, number],
 ): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
-    body.setTransform(stateTransform(position, rotation).p, stateQuat);
-    body.getLinearVelocity(stateVelocity);
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
+    const record = body.index1 - 1;
+    bodySetTransform(state, record, stateTransform(position, rotation).p, stateQuat);
+    bodyGetLinearVelocity(state, record, stateVelocity);
     stateVelocityTuple[0] = stateVelocity.x;
     stateVelocityTuple[1] = stateVelocity.y;
     stateVelocityTuple[2] = stateVelocity.z;
@@ -810,56 +866,68 @@ export function setTransform(
 
 /** Sets center-of-mass velocity in meters per second; nonzero values wake the body. Box3D ignores static bodies. */
 export function setLinearVelocity(world: World, eid: number, velocity: Vec3): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
+    const record = body.index1 - 1;
     stateVector.x = velocity.x;
     stateVector.y = velocity.y;
     stateVector.z = velocity.z;
-    body.setLinearVelocity(stateVector);
-    if (body.getType() !== BodyType.Static) publishBodyVelocity(world, eid, body);
+    bodySetLinearVelocity(state, record, stateVector);
+    if (bodyGetType(state, record) !== BodyType.Static)
+        publishBodyVelocity(world, eid, state, body);
 }
 
 /** Sets angular velocity in radians per second; nonzero values wake the body and locked axes are zeroed. Box3D ignores static bodies. */
 export function setAngularVelocity(world: World, eid: number, velocity: Vec3): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
     stateVector.x = velocity.x;
     stateVector.y = velocity.y;
     stateVector.z = velocity.z;
-    body.setAngularVelocity(stateVector);
+    bodySetAngularVelocity(state, body.index1 - 1, stateVector);
 }
 
 /** Accumulates world force in newtons at a world point for the next step; an off-center point adds torque. `wake` defaults true. Box3D ignores static and kinematic bodies. */
 export function applyForce(world: World, eid: number, force: Vec3, point: Pos, wake = true): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
     stateVector.x = force.x;
     stateVector.y = force.y;
     stateVector.z = force.z;
     statePos.x = point.x;
     statePos.y = point.y;
     statePos.z = point.z;
-    body.applyForce(stateVector, statePos, wake);
+    bodyApplyForce(state, body.index1 - 1, stateVector, statePos, wake);
 }
 
 /** Accumulates world force in newtons at the center of mass for the next step; `wake` defaults true. Box3D ignores static and kinematic bodies. */
 export function applyForceToCenter(world: World, eid: number, force: Vec3, wake = true): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
     stateVector.x = force.x;
     stateVector.y = force.y;
     stateVector.z = force.z;
-    body.applyForceToCenter(stateVector, wake);
+    bodyApplyForceToCenter(state, body.index1 - 1, stateVector, wake);
 }
 
 /** Accumulates world torque in newton-meters for the next step; `wake` defaults true. Box3D ignores static and kinematic bodies. */
 export function applyTorque(world: World, eid: number, torque: Vec3, wake = true): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
     stateVector.x = torque.x;
     stateVector.y = torque.y;
     stateVector.z = torque.z;
-    body.applyTorque(stateVector, wake);
+    bodyApplyTorque(state, body.index1 - 1, stateVector, wake);
 }
 
 /** Applies a one-shot world impulse in newton-seconds at a world point; off-center impulses also change angular velocity. `wake` defaults true. Box3D ignores static and kinematic bodies. */
@@ -870,15 +938,17 @@ export function applyLinearImpulse(
     point: Pos,
     wake = true,
 ): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
     stateVector.x = impulse.x;
     stateVector.y = impulse.y;
     stateVector.z = impulse.z;
     statePos.x = point.x;
     statePos.y = point.y;
     statePos.z = point.z;
-    body.applyLinearImpulse(stateVector, statePos, wake);
+    bodyApplyLinearImpulse(state, body.index1 - 1, stateVector, statePos, wake);
 }
 
 /** Applies a one-shot center-of-mass impulse in newton-seconds; `wake` defaults true. Box3D ignores static and kinematic bodies. */
@@ -888,27 +958,34 @@ export function applyLinearImpulseToCenter(
     impulse: Vec3,
     wake = true,
 ): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
     stateVector.x = impulse.x;
     stateVector.y = impulse.y;
     stateVector.z = impulse.z;
-    body.applyLinearImpulseToCenter(stateVector, wake);
+    bodyApplyLinearImpulseToCenter(state, body.index1 - 1, stateVector, wake);
 }
 
 /** Applies a one-shot angular impulse in kilogram-meter-squared per second; `wake` defaults true. Box3D ignores static and kinematic bodies. */
 export function applyAngularImpulse(world: World, eid: number, impulse: Vec3, wake = true): void {
-    const body = runtimeFor(world).bodies.get(eid);
-    if (!body) return;
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
     stateVector.x = impulse.x;
     stateVector.y = impulse.y;
     stateVector.z = impulse.z;
-    body.applyAngularImpulse(stateVector, wake);
+    bodyApplyAngularImpulse(state, body.index1 - 1, stateVector, wake);
 }
 
 /** Wakes a body and its island, or asks Box3D to put the whole island to sleep. */
 export function setAwake(world: World, eid: number, awake: boolean): void {
-    runtimeFor(world).bodies.get(eid)?.setAwake(awake);
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (state && body) bodySetAwake(state, body.index1 - 1, awake);
 }
 export function physicsCounters(world: World): PhysicsCounters {
     return { ...runtimeFor(world).counters };
@@ -938,7 +1015,7 @@ interface Bindings {
     hulls: number;
 }
 
-function warmWorld(runtime: PhysicsRuntime): PhysicsWorld {
+function warmWorld(runtime: PhysicsRuntime): WorldState {
     const physicsWorld = runtime.physicsWorld;
     if (!physicsWorld) throw new Error("physics: world is not warm");
     return physicsWorld;
@@ -956,13 +1033,13 @@ function captureBodyCandidates(candidates: FieldCandidates): [number, number][] 
 function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
     const bodies: number[] = [];
     for (const [eid, body] of runtime.bodies)
-        bodies.push(eid, body.id.index1, body.id.generation, runtime.stamps.get(eid)!);
+        bodies.push(eid, body.index1, body.generation, body.stamp);
     const shapes: number[] = [];
     for (const [eid, shape] of runtime.shapes)
         shapes.push(
             eid,
-            shape.id.index1,
-            shape.id.generation,
+            shape.index1,
+            shape.generation,
             runtime.shapeBodies.get(eid)!,
             runtime.shapeStamps.get(eid)!,
         );
@@ -978,7 +1055,7 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
             values.slice(),
         ]),
         failed,
-        constraints: captureConstraints(runtime.constraints),
+        constraints: captureConstraints(runtime.constraints, warmWorld(runtime)),
         bodyCandidates: captureBodyCandidates(runtime.bodyCandidates),
         changed: runtime.anyChanged ? runtime.changed.slice() : null,
         full: runtime.full,
@@ -989,16 +1066,15 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
 function restoreBindings(
     world: World,
     runtime: PhysicsRuntime,
-    physicsWorld: PhysicsWorld,
+    physicsWorld: WorldState,
     b: Bindings,
 ): void {
     Object.assign(
         world.resource(PhysicsWorldDefinition),
         copyPhysicsWorldDefinition(b.worldDefinition),
     );
-    const state = physicsWorld.state;
+    const state = physicsWorld;
     runtime.bodies.clear();
-    runtime.stamps.clear();
     runtime.shapes.clear();
     runtime.shapeBodies.clear();
     clearShapeEntities(runtime);
@@ -1006,23 +1082,20 @@ function restoreBindings(
     runtime.shapeRecreationState.clear();
     for (let i = 0; i < b.bodies.length; i += 4) {
         const eid = b.bodies[i];
-        runtime.bodies.set(
-            eid,
-            new SolverBody(state, {
-                index1: b.bodies[i + 1],
-                world0: state.worldId,
-                generation: b.bodies[i + 2],
-            }),
-        );
-        runtime.stamps.set(eid, b.bodies[i + 3] as EntityRef);
+        runtime.bodies.set(eid, {
+            index1: b.bodies[i + 1],
+            world0: state.worldId,
+            generation: b.bodies[i + 2],
+            stamp: b.bodies[i + 3] as EntityRef,
+        });
     }
     for (let i = 0; i < b.shapes.length; i += 5) {
         const eid = b.shapes[i];
-        const shape = new SolverShape(state, {
+        const shape: EntityId = {
             index1: b.shapes[i + 1],
             world0: state.worldId,
             generation: b.shapes[i + 2],
-        });
+        };
         runtime.shapes.set(eid, shape);
         runtime.shapeBodies.set(eid, b.shapes[i + 3]);
         runtime.shapeStamps.set(eid, b.shapes[i + 4] as EntityRef);
@@ -1080,25 +1153,21 @@ function solverWorldDefinition(def: PhysicsWorldDefinitionConfig): Partial<World
     };
 }
 
-function syncWorldDefinition(
-    physicsWorld: PhysicsWorld,
-    definition: PhysicsWorldDefinitionConfig,
-): void {
-    const state = physicsWorld.state;
+function syncWorldDefinition(state: WorldState, definition: PhysicsWorldDefinitionConfig): void {
     const gravity = definition.gravity;
     if (
         state.gravity.x !== f32(gravity.x) ||
         state.gravity.y !== f32(gravity.y) ||
         state.gravity.z !== f32(gravity.z)
     )
-        physicsWorld.setGravity(gravity);
+        worldSetGravity(state, gravity);
 
     const restitutionThreshold = maxf(0, f32(definition.restitutionThreshold));
     if (state.restitutionThreshold !== restitutionThreshold)
-        physicsWorld.setRestitutionThreshold(definition.restitutionThreshold);
+        worldSetRestitutionThreshold(state, definition.restitutionThreshold);
     const hitEventThreshold = maxf(0, f32(definition.hitEventThreshold));
     if (state.hitEventThreshold !== hitEventThreshold)
-        physicsWorld.setHitEventThreshold(definition.hitEventThreshold);
+        worldSetHitEventThreshold(state, definition.hitEventThreshold);
     const contactHertz = maxf(0, f32(definition.contactHertz));
     const contactDampingRatio = maxf(0, f32(definition.contactDampingRatio));
     const contactSpeed = maxf(0, f32(definition.contactSpeed));
@@ -1107,33 +1176,52 @@ function syncWorldDefinition(
         state.contactDampingRatio !== contactDampingRatio ||
         state.contactSpeed !== contactSpeed
     )
-        physicsWorld.setContactTuning(
+        worldSetContactTuning(
+            state,
             definition.contactHertz,
             definition.contactDampingRatio,
             definition.contactSpeed,
         );
     const recycleDistance = maxf(0, f32(definition.contactRecycleDistance));
     if (state.contactRecycleDistance !== recycleDistance)
-        physicsWorld.setContactRecycleDistance(definition.contactRecycleDistance);
+        worldSetContactRecycleDistance(state, definition.contactRecycleDistance);
     const maximumLinearSpeed = f32(definition.maximumLinearSpeed);
     if (state.maxLinearSpeed !== maximumLinearSpeed)
-        physicsWorld.setMaximumLinearSpeed(definition.maximumLinearSpeed);
-    if (state.enableSleep !== definition.enableSleep)
-        physicsWorld.enableSleeping(definition.enableSleep);
+        worldSetMaximumLinearSpeed(state, definition.maximumLinearSpeed);
+    if (state.enableSleep !== definition.enableSleep) {
+        state.enableSleep = definition.enableSleep;
+        if (!definition.enableSleep) {
+            const count = solverSetCount(state);
+            for (let set = SetType.FirstSleeping; set < count; set++)
+                if (solverSetIndex(state, set) >= 0 && setBodyCount(state, set) > 0)
+                    wakeSolverSet(state, set);
+        }
+    }
     if (state.enableContinuous !== definition.enableContinuous)
-        physicsWorld.enableContinuous(definition.enableContinuous);
+        state.enableContinuous = definition.enableContinuous;
     if (state.enableWarmStarting !== definition.enableWarmStarting)
-        physicsWorld.enableWarmStarting(definition.enableWarmStarting);
+        state.enableWarmStarting = definition.enableWarmStarting;
     if (state.enableSpeculative !== definition.enableSpeculative)
-        physicsWorld.enableSpeculative(definition.enableSpeculative);
-    if (state.worldCustomFilterCallback !== definition.customFilterCallback)
-        physicsWorld.setWorldCustomFilterCallback(definition.customFilterCallback);
-    if (state.worldPreSolveCallback !== definition.preSolveCallback)
-        physicsWorld.setWorldPreSolveCallback(definition.preSolveCallback);
+        state.enableSpeculative = definition.enableSpeculative;
+    const k = kernel(state.ecsState);
+    if (state.worldCustomFilterCallback !== definition.customFilterCallback) {
+        state.worldCustomFilterCallback = definition.customFilterCallback;
+        k.worldSetCustomFilterCallback(
+            state.worldId,
+            definition.customFilterCallback !== null || state.customFilterCallback !== null,
+        );
+    }
+    if (state.worldPreSolveCallback !== definition.preSolveCallback) {
+        state.worldPreSolveCallback = definition.preSolveCallback;
+        k.worldSetPreSolveCallback(
+            state.worldId,
+            definition.preSolveCallback !== null || state.preSolveCallback !== null,
+        );
+    }
     if (state.worldFrictionCallback !== definition.frictionCallback)
-        physicsWorld.setWorldFrictionCallback(definition.frictionCallback);
+        state.worldFrictionCallback = definition.frictionCallback;
     if (state.worldRestitutionCallback !== definition.restitutionCallback)
-        physicsWorld.setWorldRestitutionCallback(definition.restitutionCallback);
+        state.worldRestitutionCallback = definition.restitutionCallback;
 }
 
 function capturePhysics(world: World): PhysicsSnapshot {
@@ -1155,7 +1243,7 @@ function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
     // scans are overwritten on each step; solver history and binding caches are the participant.
 }
 export function hashPhysics(world: World): bigint {
-    return hashWorld(warmWorld(runtimeFor(world)));
+    return hashWorldState(warmWorld(runtimeFor(world)));
 }
 
 function eventShapeBinding(
@@ -1228,7 +1316,7 @@ function jointRecordAt(
 
 function fillSensorRecords(
     runtime: PhysicsRuntime,
-    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    state: WorldState,
     list: PhysicsEventRecords<PhysicsSensorEvent>,
     kind: number,
 ): void {
@@ -1250,7 +1338,7 @@ function fillSensorRecords(
 
 function fillContactRecords(
     runtime: PhysicsRuntime,
-    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    state: WorldState,
     list: PhysicsEventRecords<PhysicsContactEvent>,
     kind: number,
 ): void {
@@ -1274,7 +1362,7 @@ function fillContactRecords(
 
 function fillHitRecords(
     runtime: PhysicsRuntime,
-    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    state: WorldState,
     list: PhysicsEventRecords<PhysicsHitEvent>,
 ): void {
     const k = kernel(state.ecsState);
@@ -1323,7 +1411,7 @@ function fillHitRecords(
 
 function fillJointRecords(
     world: World,
-    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    state: WorldState,
     list: PhysicsEventRecords<PhysicsJointEvent>,
 ): void {
     const count = eventCount(state, EventKind.Joint);
@@ -1348,7 +1436,7 @@ function fillJointRecords(
 }
 
 function rebuildPhysicsEvents(world: World, runtime: PhysicsRuntime): void {
-    const state = runtime.physicsWorld!.state;
+    const state = runtime.physicsWorld!;
     const events = world.resource(PhysicsEvents);
     fillSensorRecords(runtime, state, events.sensorBegin, EventKind.SensorBegin);
     fillSensorRecords(runtime, state, events.sensorEnd, EventKind.SensorEnd);
@@ -1367,12 +1455,16 @@ export const StepPhysicsSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
-        physicsWorld.step(fixedDeltaTime, world.resource(PhysicsWorldDefinition).subStepCount);
+        stepWorld(
+            physicsWorld,
+            fixedDeltaTime,
+            world.resource(PhysicsWorldDefinition).subStepCount,
+        );
         rebuildPhysicsEvents(world, runtime);
         const record = world.recordSink;
         if (record) {
-            readStepProfile(physicsWorld.state);
-            const profile = physicsWorld.state.profile;
+            readStepProfile(physicsWorld);
+            const profile = physicsWorld.profile;
             for (let i = 0; i < phaseFields.length; i++) {
                 const ms = profile[phaseFields[i]];
                 if (ms !== 0) record(phaseNames[i], ms);
@@ -1380,7 +1472,7 @@ export const StepPhysicsSystem: System = {
         }
         runtime.counters.bytesUploaded = 0;
         const global = world.storage(GlobalTransform);
-        const rows = physicsWorld.state.bodyStore.movedRows();
+        const rows = physicsWorld.bodyStore.movedRows();
         global.translation.writeEncoded(rows.eids, rows.pos);
         global.rotation.writeEncoded(rows.eids, rows.quat);
         global.linearVelocity.writeEncoded(rows.eids, rows.vel);
@@ -1468,7 +1560,7 @@ function collectStale(this: StaleScan, _body: unknown, eid: number): void {
 function visitBody(
     world: World,
     runtime: PhysicsRuntime,
-    physicsWorld: PhysicsWorld,
+    physicsWorld: WorldState,
     eid: number,
 ): boolean {
     const stamp = world.ref(eid);
@@ -1481,8 +1573,9 @@ function visitBody(
             runtime.placementWarnings.set(eid, stamp);
         }
     }
-    if (runtime.bodies.has(eid)) {
-        if (world.resolve(runtime.stamps.get(eid)!)) return false;
+    const bound = runtime.bodies.get(eid);
+    if (bound) {
+        if (world.resolve(bound.stamp)) return false;
         forget(runtime, eid); // recycled to a new Body in one update
     }
     const f = runtime.failed.get(eid);
@@ -1493,19 +1586,20 @@ function visitBody(
         return false;
     }
     runtime.failed.delete(eid);
-    kernel(world).bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
-    runtime.bodies.set(eid, tb);
+    kernel(world).bodySetEntity(tb.world0, tb.index1 - 1, eid);
+    runtime.bodies.set(eid, { ...tb, stamp });
     clearFieldCandidate(runtime.bodyCandidates, eid);
-    runtime.stamps.set(eid, stamp);
-    seedGlobalTransform(world, eid, tb);
+    seedGlobalTransform(world, eid, physicsWorld, tb);
     teleportPlacement(world, eid);
     return true;
 }
 
 function removeShape(runtime: PhysicsRuntime, eid: number, updateBodyMass = true): void {
     const shape = runtime.shapes.get(eid);
+    const state = runtime.physicsWorld;
     retireShapeEntity(runtime, shape);
-    if (shape?.isValid()) shape.destroy(updateBodyMass);
+    if (shape && state && shapeIsValid(state, shape))
+        destroyShape(state, shape.index1 - 1, updateBodyMass);
     runtime.shapes.delete(eid);
     runtime.shapeBodies.delete(eid);
     runtime.shapeStamps.delete(eid);
@@ -1524,6 +1618,8 @@ function warnShape(runtime: PhysicsRuntime, eid: number, error: unknown): void {
 }
 
 function syncShapes(world: World, runtime: PhysicsRuntime): void {
+    const state = runtime.physicsWorld;
+    if (!state) return;
     const candidates = runtime.shapeCandidates;
     const binding = shapeBinding(world);
     const count = candidates.count;
@@ -1558,24 +1654,24 @@ function syncShapes(world: World, runtime: PhysicsRuntime): void {
             continue;
         }
         const body = runtime.bodies.get(bodyEid);
-        if (!body || !world.resolve(runtime.stamps.get(bodyEid)!)) {
+        if (!body || !world.resolve(body.stamp)) {
             candidates.eids[pending++] = eid;
             continue;
         }
 
         let shape = runtime.shapes.get(eid);
-        if (shape && !shape.isValid()) {
+        if (shape && !shapeIsValid(state, shape)) {
             removeShape(runtime, eid, updateBodyMass);
             shape = undefined;
         }
         if (shape) {
             const previous = runtime.shapeRecreationState.get(eid);
             try {
-                if (shapeNeedsRecreation(world, binding, eid, mask, previous, shape)) {
+                if (shapeNeedsRecreation(world, binding, eid, mask, previous, shape, state)) {
                     removeShape(runtime, eid, updateBodyMass);
                     shape = undefined;
                 } else {
-                    syncShapeFields(world, binding, eid, mask, shape);
+                    syncShapeFields(world, state, binding, eid, mask, shape);
                 }
             } catch (error) {
                 warnShape(runtime, eid, error);
@@ -1585,7 +1681,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime): void {
         }
         if (!shape) {
             try {
-                shape = marshalShape(world, body, eid);
+                shape = marshalShape(world, state, body, eid);
                 runtime.shapes.set(eid, shape);
                 runtime.shapeBodies.set(eid, bodyEid);
                 runtime.shapeStamps.set(eid, runtime.shapeStamps.get(eid) ?? world.ref(eid));
@@ -1666,11 +1762,11 @@ const SyncSystem: System = {
             for (let i = 0; i < stale.count; i++) {
                 const eid = stale.eids[i];
                 forget(runtime, eid);
-                runtime.stamps.delete(eid);
                 bodySetChanged = true;
             }
         }
         syncBodyFields(
+            physicsWorld,
             runtime.bodyCandidates,
             bodyBinding(world),
             runtime.bodies,
@@ -1754,13 +1850,13 @@ export const StandardPhysicsPlugin: Plugin = {
     async warm(world) {
         const runtime = runtimeFor(world);
         await init(world); // async wasm compile — the browser main thread can't compile it synchronously
-        runtime.physicsWorld?.destroy();
+        if (runtime.physicsWorld) destroyWorld(runtime.physicsWorld);
         const definition = world.resource(PhysicsWorldDefinition);
-        runtime.physicsWorld = new PhysicsWorld(solverWorldDefinition(definition), world, (eid) => {
-            const ref = runtime.stamps.get(eid);
-            if (!world.has(eid, Body) || !ref || !world.resolve(ref)) return null;
-            return runtime.bodies.get(eid) ?? null;
+        const id = createWorld(world, {
+            ...defaultWorldDef(),
+            ...solverWorldDefinition(definition),
         });
+        runtime.physicsWorld = getWorld(id)!;
         syncWorldDefinition(runtime.physicsWorld, definition);
         clearBodies(runtime);
         clearPhysicsEvents(world.resource(PhysicsEvents));
@@ -1770,7 +1866,7 @@ export const StandardPhysicsPlugin: Plugin = {
         const runtime = runtimeFor(world);
         clearBodies(runtime);
         clearPhysicsEvents(world.resource(PhysicsEvents));
-        runtime.physicsWorld?.destroy();
+        if (runtime.physicsWorld) destroyWorld(runtime.physicsWorld);
         runtime.physicsWorld = null;
         void shutdown(world);
     },

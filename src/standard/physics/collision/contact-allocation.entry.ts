@@ -3,8 +3,11 @@ import { awakeContactCount } from "../collision/contact";
 import { SetType } from "../common/constants";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
-import { physicsWorld } from "../runtime";
+import { physicsBodyIndex, physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import { createTestBody, testShapeDef } from "../testing";
+import { bodySetLinearVelocity } from "../world/body";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -18,7 +21,7 @@ export default async function create(input: string) {
     const count = Number(input);
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const world = app.world;
-    const physics = physicsWorld(world)!;
+    const state = physicsState(world)!;
     const platform = world.create();
     world.add(platform, Body, {
         type: BodyType.Kinematic,
@@ -29,7 +32,7 @@ export default async function create(input: string) {
     const side = Math.ceil(Math.sqrt(count));
     const boxes: number[] = [];
     for (let i = 0; i < count; i++) {
-        const box = physics.createBody({
+        const box = createTestBody(state, {
             type: BodyType.Dynamic,
             position: {
                 x: (i % side) * 3 - side * 1.5,
@@ -37,24 +40,27 @@ export default async function create(input: string) {
                 z: Math.floor(i / side) * 3 - side * 1.5,
             },
         });
-        box.createHull(
-            {
+        createHullShape(
+            state,
+            box,
+            testShapeDef({
                 density: 1,
                 baseMaterial: { ...defaultSurfaceMaterial(), userMaterialId: BigInt(i + 1) },
-            },
+            }),
             hull,
         );
-        boxes.push(box.id.index1 - 1);
+        boxes.push(box);
     }
     world.step(1 / 60);
+    const platformBody = physicsBodyIndex(world, platform);
+    if (platformBody < 0) throw new Error("allocation subject platform has no solver body");
     const velocity = { x: 0, y: 0, z: 0 };
     let tick = 0;
     return {
         step: () => {
             velocity.x = tick++ % 240 < 120 ? 0.5 : -0.5;
-            physics.getBody(platform)!.setLinearVelocity(velocity);
+            bodySetLinearVelocity(state, platformBody, velocity);
             world.step(1 / 60);
-            const state = physics.state;
             if (awakeContactCount(state) !== count)
                 throw new Error("allocation subject lost its awake box contacts");
             for (let i = 0; i < count; i++) {

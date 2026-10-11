@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import { PhysicsWorld } from "../api/world";
 import { f32, type Transform, type Vec3, xf } from "../common/math";
 import { BodyType } from "../common/types";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
+import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
+import { destroyBody } from "../world/body";
 import {
     type Capsule,
     computeCapsuleAABB,
@@ -12,7 +14,14 @@ import {
     type Sphere,
 } from "./geometry";
 import gold from "./geometry.gold.json";
-import { computeShapeAABBOut } from "./shape";
+import {
+    computeShapeAABBOut,
+    computeShapeMass,
+    createCapsuleShape,
+    createSphereShape,
+    destroyShape,
+    shapeIsValid,
+} from "./shape";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -31,6 +40,14 @@ function bitEqual(got: number, want: string, label: string) {
 }
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
+
+function shapeEntityId(world: ReturnType<typeof createTestWorld>, shape: number) {
+    return {
+        index1: shape + 1,
+        world0: world.worldId,
+        generation: shapeField(world, shape, ShapeField.generation),
+    };
+}
 
 type MassGold = { name: string; mass: string; center: string[]; inertia: string[] };
 
@@ -58,48 +75,75 @@ const capsuleGold = (name: string) => gold.capsules.find((c) => c.name === name)
 
 /** Keep the authoring gold on its existing builders while driving shape lifetime through production. */
 function exercisePublicShapeLifecycle(): void {
-    const physicsWorld = new PhysicsWorld();
-    const body = physicsWorld.createBody({ type: BodyType.Dynamic });
-    const stale = body.createSphere({}, { center: v(0, 0, 0), radius: 0.5 });
-    const capsule = body.createCapsule(
-        {},
-        {
-            center1: v(0, -1, 0),
-            center2: v(0, 1, 0),
-            radius: 0.25,
-        },
+    const world = createTestWorld();
+    const body = createTestBody(world, { type: BodyType.Dynamic });
+    const stale = createSphereShape(world, body, testShapeDef(), {
+        center: v(0, 0, 0),
+        radius: 0.5,
+    })!;
+    const capsule = createCapsuleShape(world, body, testShapeDef(), {
+        center1: v(0, -1, 0),
+        center2: v(0, 1, 0),
+        radius: 0.25,
+    })!;
+    expect(shapeIsValid(world, shapeEntityId(world, stale)), "shape slot is kernel-live").toBe(
+        true,
     );
-    expect(stale.isValid(), "public sphere shape is kernel-live").toBe(true);
-    expect(capsule.isValid(), "public capsule shape is kernel-live").toBe(true);
-    stale.destroy(false);
-    expect(stale.isValid(), "destroyed shape handle is stale").toBe(false);
-    const reused = body.createSphere({}, { center: v(0, 0, 0), radius: 0.5 });
-    expect(reused.isValid(), "reused shape slot is kernel-live").toBe(true);
-    expect(reused.id.generation).not.toBe(stale.id.generation);
-    capsule.destroy(false);
-    reused.destroy(false);
-    body.destroy();
-    physicsWorld.destroy();
+    expect(shapeIsValid(world, shapeEntityId(world, capsule)), "shape slot is kernel-live").toBe(
+        true,
+    );
+    const staleId = shapeEntityId(world, stale);
+    destroyShape(world, stale, false);
+    expect(shapeIsValid(world, staleId), "destroyed shape id is stale").toBe(false);
+    const reused = createSphereShape(world, body, testShapeDef(), {
+        center: v(0, 0, 0),
+        radius: 0.5,
+    })!;
+    expect(reused).toBe(stale);
+    expect(shapeIsValid(world, staleId), "reused shape slot rejects the old generation").toBe(
+        false,
+    );
+    expect(
+        shapeIsValid(world, shapeEntityId(world, reused)),
+        "reused shape slot is kernel-live",
+    ).toBe(true);
+    expect(shapeEntityId(world, reused).generation).not.toBe(staleId.generation);
+    destroyShape(world, capsule, false);
+    destroyShape(world, reused, false);
+    destroyBody(world, body);
+    destroyTestWorld(world);
 }
 
 test("computeSphereMass or computeCapsuleMass drifts from the Box3D C reference's f32 bits for a sphere or capsule vector, including the ragdoll bone capsule where an unrounded 0.4 sphere-inertia literal costs a ULP", () => {
     exercisePublicShapeLifecycle();
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const body = world.createBody({ type: BodyType.Dynamic });
+        const body = createTestBody(world, { type: BodyType.Dynamic });
         // f32-round non-exact literals (0.35, 0.3) to match the C float inputs bit-for-bit.
         const unit: Sphere = { center: v(0, 0, 0), radius: 1 };
-        assertMass(body.createSphere({ density: 1 }, unit).computeMassData(), sphereGold("unit"));
+        assertMass(
+            computeShapeMass(
+                world,
+                createSphereShape(world, body, testShapeDef({ density: 1 }), unit)!,
+            ),
+            sphereGold("unit"),
+        );
 
         const offset: Sphere = { center: v(0.5, -1, 2), radius: f32(0.35) };
         assertMass(
-            body.createSphere({ density: 2.5 }, offset).computeMassData(),
+            computeShapeMass(
+                world,
+                createSphereShape(world, body, testShapeDef({ density: 2.5 }), offset)!,
+            ),
             sphereGold("offset"),
         );
 
         const vertical: Capsule = { center1: v(0, -1, 0), center2: v(0, 1, 0), radius: 0.5 };
         assertMass(
-            body.createCapsule({ density: 1 }, vertical).computeMassData(),
+            computeShapeMass(
+                world,
+                createCapsuleShape(world, body, testShapeDef({ density: 1 }), vertical)!,
+            ),
             capsuleGold("vertical"),
         );
 
@@ -108,7 +152,13 @@ test("computeSphereMass or computeCapsuleMass drifts from the Box3D C reference'
             center2: v(1.5, -0.5, 0.75),
             radius: f32(0.3),
         };
-        assertMass(body.createCapsule({ density: 3 }, skew).computeMassData(), capsuleGold("skew"));
+        assertMass(
+            computeShapeMass(
+                world,
+                createCapsuleShape(world, body, testShapeDef({ density: 3 }), skew)!,
+            ),
+            capsuleGold("skew"),
+        );
 
         // Regression: an x-axis ragdoll bone (r = 0.12, water density). The sphere-inertia 0.4f
         // literal must be f32-rounded — f64 0.4 vs C 0.4f round differently for this mass, so the
@@ -120,11 +170,14 @@ test("computeSphereMass or computeCapsuleMass drifts from the Box3D C reference'
             radius: f32(0.12),
         };
         assertMass(
-            body.createCapsule({ density: 1000 }, bone).computeMassData(),
+            computeShapeMass(
+                world,
+                createCapsuleShape(world, body, testShapeDef({ density: 1000 }), bone)!,
+            ),
             capsuleGold("bone"),
         );
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
@@ -168,20 +221,21 @@ test("computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule
         p: v(1, 2, 3),
         q: { v: v(0, 0, Math.SQRT1_2), s: Math.SQRT1_2 },
     };
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const body = world.createBody({ type: BodyType.Dynamic });
-        const shape = body.createCapsule(
-            {},
-            { center1: v(0, -1, 0), center2: v(0, 1, 0), radius: 0.5 },
-        );
-        expect(computeShapeAABBOut(world.state, shape.id.index1 - 1, rotated, output)).toBe(output);
+        const body = createTestBody(world, { type: BodyType.Dynamic });
+        const shape = createCapsuleShape(world, body, testShapeDef(), {
+            center1: v(0, -1, 0),
+            center2: v(0, 1, 0),
+            radius: 0.5,
+        })!;
+        expect(computeShapeAABBOut(world, shape, rotated, output)).toBe(output);
         expect(output).toEqual({
             lowerBound: v(fromBits("0xbefffffe"), 1.5, 2.5),
             upperBound: v(2.5, 2.5, 3.5),
         });
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 

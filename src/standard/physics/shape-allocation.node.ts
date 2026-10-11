@@ -7,7 +7,6 @@ import {
     sampleAllocation,
 } from "../../../diagnostics/first-person-allocation/allocation";
 import { CEILING } from "../../../scripts/test-tiers";
-import { PhysicsWorld } from "./api/world";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "./common/types";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { hullDatabaseIndex } from "./kernel/geocolumns";
@@ -18,6 +17,17 @@ import { createCompound } from "./shapes/compound";
 import { createGrid } from "./shapes/heightfield";
 import { makeBoxHull } from "./shapes/hull";
 import { createGridMesh } from "./shapes/mesh";
+import {
+    createCompoundShape,
+    createHeightFieldShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+    destroyShape,
+} from "./shapes/shape";
+import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "./testing";
+import { bodyIsAwake, bodySetAwake, destroyBody } from "./world/body";
+import type { WorldState } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 const entry = resolve(import.meta.dir, "fixtures/shape-allocation.entry.ts");
@@ -26,7 +36,7 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
     const dir = mkdtempSync(join(tmpdir(), "shallot-shape-alloc-"));
     const runtime = kernelState(undefined);
     const previous = runtime.instance;
-    let world: PhysicsWorld | undefined;
+    let world: WorldState | undefined;
     try {
         const build = Bun.spawnSync(
             [
@@ -67,24 +77,24 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
             allocationControl(): void;
         };
         runtime.instance = k;
-        world = new PhysicsWorld();
+        world = createTestWorld();
+        const state = world;
         for (const type of [BodyType.Static, BodyType.Kinematic]) {
-            const body = world.createBody({ type });
-            const id = body.id.index1 - 1;
+            const id = createTestBody(world, { type });
             // A high shape count must not reserve temporary mass storage for non-dynamic bodies.
-            setBodyField(world.state, id, BodyField.shapeCount, 1024);
+            setBodyField(world, id, BodyField.shapeCount, 1024);
             const massBefore = k.allocationCount();
-            k.bodyUpdateMass(world.state.worldId, id);
+            k.bodyUpdateMass(world.worldId, id);
             expect(k.allocationCount() - massBefore).toBe(0);
-            setBodyField(world.state, id, BodyField.shapeCount, 0);
-            body.destroy();
+            setBodyField(world, id, BodyField.shapeCount, 0);
+            destroyBody(world, id);
         }
         const step = shapeAllocationSubject(world, false);
         for (let i = 0; i < 1200; ++i) step();
         const before = k.allocationCount();
         for (let i = 0; i < 600; ++i) step();
         expect(k.allocationCount() - before).toBe(0);
-        const ground = world.createBody({
+        const ground = createTestBody(world, {
             type: BodyType.Static,
             position: { x: 100, y: 0, z: 0 },
         });
@@ -96,52 +106,58 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
                 },
             ],
         })!;
-        ground.createCompound({}, compound);
+        createCompoundShape(world, ground, testShapeDef(), compound);
         for (let i = 0; i < 32; ++i) {
-            const warm = ground.createCompound({}, compound)!;
-            warm.destroy();
+            const warm = createCompoundShape(world, ground, testShapeDef(), compound)!;
+            destroyShape(world, warm, true);
         }
         for (let i = 0; i < 32; ++i) {
             const createBefore = k.allocationCount();
-            const shape = ground.createCompound({}, compound)!;
+            const shape = createCompoundShape(world, ground, testShapeDef(), compound)!;
             // Native compounds own even their single material; this path is not a zero span.
             expect(k.allocationCount() - createBefore).toBe(1);
             const destroyBefore = k.allocationCount();
-            shape.destroy();
+            destroyShape(world, shape, true);
             expect(k.allocationCount() - destroyBefore).toBe(0);
         }
-        const sleeper = world.createBody({ type: BodyType.Dynamic });
-        sleeper.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        const sleeper = createTestBody(world, { type: BodyType.Dynamic });
+        createSphereShape(world, sleeper, testShapeDef(), {
+            center: { x: 0, y: 0, z: 0 },
+            radius: 0.5,
+        });
         // Warm the awake set's capacity for the newly added body before measuring recycled wake.
-        sleeper.setAwake(false);
-        sleeper.setAwake(true);
+        bodySetAwake(world, sleeper, false);
+        bodySetAwake(world, sleeper, true);
         for (let i = 0; i < 32; ++i) {
             // Sleeping rebuilds Box3D's four owned solver-set buffers; only wake is allocation-free.
-            sleeper.setAwake(false);
-            expect(sleeper.isAwake()).toBe(false);
+            bodySetAwake(world, sleeper, false);
+            expect(bodyIsAwake(world, sleeper)).toBe(false);
             const wakeBefore = k.allocationCount();
-            sleeper.setAwake(true);
-            expect(sleeper.isAwake()).toBe(true);
+            bodySetAwake(world, sleeper, true);
+            expect(bodyIsAwake(world, sleeper)).toBe(true);
             expect(k.allocationCount() - wakeBefore).toBe(0);
         }
         const missingHull = makeBoxHull(0.625, 0.375, 0.875);
-        for (let i = 0; i < 32; ++i) ground.createHull({}, missingHull).destroy();
         for (let i = 0; i < 32; ++i) {
-            const count = k.hullDatabaseCount(world.state.worldId);
+            const shape = createHullShape(world, ground, testShapeDef(), missingHull)!;
+            destroyShape(world, shape, true);
+        }
+        for (let i = 0; i < 32; ++i) {
+            const count = k.hullDatabaseCount(world.worldId);
             const missBefore = k.allocationCount();
-            const shape = ground.createHull({}, missingHull);
-            const handle = hullDatabaseIndex(world.state, missingHull);
-            expect(k.hullDatabaseCount(world.state.worldId)).toBe(count + 1);
+            const shape = createHullShape(world, ground, testShapeDef(), missingHull)!;
+            const handle = hullDatabaseIndex(world, missingHull);
+            expect(k.hullDatabaseCount(world.worldId)).toBe(count + 1);
             expect(k.allocationCount() - missBefore).toBe(1);
             const hitBefore = k.allocationCount();
-            const duplicate = ground.createHull({}, missingHull);
-            expect(k.hullDatabaseRefs(world.state.worldId, handle)).toBe(2);
+            const duplicate = createHullShape(world, ground, testShapeDef(), missingHull)!;
+            expect(k.hullDatabaseRefs(world.worldId, handle)).toBe(2);
             expect(k.allocationCount() - hitBefore).toBe(0);
             const destroyBefore = k.allocationCount();
-            shape.destroy();
-            expect(k.hullDatabaseRefs(world.state.worldId, handle)).toBe(1);
-            duplicate.destroy();
-            expect(k.hullDatabaseCount(world.state.worldId)).toBe(count);
+            destroyShape(world, shape, true);
+            expect(k.hullDatabaseRefs(world.worldId, handle)).toBe(1);
+            destroyShape(world, duplicate, true);
+            expect(k.hullDatabaseCount(world.worldId)).toBe(count);
             // b3AddHullToDatabase clones on a miss; a hit and releasing either reference allocate nothing.
             expect(k.allocationCount() - destroyBefore).toBe(0);
         }
@@ -156,33 +172,38 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
             ],
         })!;
         const geometryCases = [
-            { kind: ShapeType.Mesh, create: () => ground.createMesh({}, meshData)! },
+            {
+                kind: ShapeType.Mesh,
+                create: () =>
+                    createMeshShape(state, ground, testShapeDef(), meshData, { x: 1, y: 1, z: 1 })!,
+            },
             {
                 kind: ShapeType.HeightField,
-                create: () => ground.createHeightField({}, heightData)!,
+                create: () => createHeightFieldShape(state, ground, testShapeDef(), heightData)!,
             },
-            { kind: ShapeType.Compound, create: () => ground.createCompound({}, compoundData)! },
+            {
+                kind: ShapeType.Compound,
+                create: () => createCompoundShape(state, ground, testShapeDef(), compoundData)!,
+            },
         ];
         for (const { kind, create } of geometryCases) {
-            for (let i = 0; i < 12; ++i) create().destroy();
+            for (let i = 0; i < 12; ++i) destroyShape(world, create(), true);
             for (let i = 0; i < 12; ++i) {
                 const missBefore = k.allocationCount();
                 const first = create();
-                const firstIndex = first.id.index1 - 1;
-                const pointer =
-                    world.state.shapeStore.shapeU[firstIndex * SHAPE_STRIDE + S_GEO_REFERENCE];
+                const pointer = world.shapeStore.shapeU[first * SHAPE_STRIDE + S_GEO_REFERENCE];
                 expect(k.allocationCount() - missBefore).toBeGreaterThan(0);
-                expect(k.geometryDatabaseRefs(world.state.worldId, kind, pointer)).toBe(1);
+                expect(k.geometryDatabaseRefs(world.worldId, kind, pointer)).toBe(1);
                 const hitBefore = k.allocationCount();
                 const duplicate = create();
                 // Box3D creates an owned material for every compound; database hits add nothing else.
                 expect(k.allocationCount() - hitBefore).toBe(kind === ShapeType.Compound ? 1 : 0);
-                expect(k.geometryDatabaseRefs(world.state.worldId, kind, pointer)).toBe(2);
+                expect(k.geometryDatabaseRefs(world.worldId, kind, pointer)).toBe(2);
                 const releaseBefore = k.allocationCount();
-                first.destroy();
-                expect(k.geometryDatabaseRefs(world.state.worldId, kind, pointer)).toBe(1);
-                duplicate.destroy();
-                expect(k.geometryDatabaseRefs(world.state.worldId, kind, pointer)).toBe(0);
+                destroyShape(world, first, true);
+                expect(k.geometryDatabaseRefs(world.worldId, kind, pointer)).toBe(1);
+                destroyShape(world, duplicate, true);
+                expect(k.geometryDatabaseRefs(world.worldId, kind, pointer)).toBe(0);
                 expect(k.allocationCount() - releaseBefore).toBe(0);
             }
         }
@@ -192,7 +213,7 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
         expect(allocated).toBeGreaterThan(0);
         expect(() => expect(allocated).toBe(0)).toThrow();
     } finally {
-        world?.destroy();
+        if (world) destroyTestWorld(world);
         runtime.instance = previous;
         rmSync(dir, { recursive: true, force: true });
     }

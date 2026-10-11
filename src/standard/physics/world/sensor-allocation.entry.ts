@@ -1,9 +1,14 @@
 import { Body, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { awakeContactCount } from "../collision/contact";
 import { BodyType } from "../common/types";
+import { EventKind } from "../kernel/eventbuffers";
 import { kernel } from "../kernel/kernel";
-import { physicsWorld } from "../runtime";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
+import { physicsBodyIndex, physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import { createTestBody, testShapeDef } from "../testing";
+import { bodySetLinearVelocity } from "./body";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -17,7 +22,7 @@ export default async function create(input: string) {
     const count = Number(input);
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const world = app.world;
-    const physics = physicsWorld(world)!;
+    const state = physicsState(world)!;
     const platform = world.create();
     world.add(platform, Body, {
         type: BodyType.Kinematic,
@@ -27,7 +32,7 @@ export default async function create(input: string) {
     const hull = makeBoxHull(0.5, 0.5, 0.5);
     const side = Math.ceil(Math.sqrt(count));
     for (let i = 0; i < count; i++) {
-        const box = physics.createBody({
+        const box = createTestBody(state, {
             type: BodyType.Dynamic,
             position: {
                 x: (i % side) * 3 - side * 1.5,
@@ -35,44 +40,42 @@ export default async function create(input: string) {
                 z: Math.floor(i / side) * 3 - side * 1.5,
             },
         });
-        box.createHull({ density: 1, enableSensorEvents: true }, hull);
+        createHullShape(state, box, testShapeDef({ density: 1, enableSensorEvents: true }), hull);
     }
-    const sensorBody = physics.createBody({
+    const sensorBody = createTestBody(state, {
         type: BodyType.Static,
         position: { x: 0, y: 0.5, z: 0 },
     });
-    const sensor = sensorBody.createHull(
-        { isSensor: true, enableSensorEvents: true },
+    const sensor = createHullShape(
+        state,
+        sensorBody,
+        testShapeDef({ isSensor: true, enableSensorEvents: true }),
         makeBoxHull(side * 1.5 + 2, 1, side * 1.5 + 2),
-    );
+    )!;
     world.step(1 / 60);
-    if (sensor.getSensorOverlaps().length !== count)
+    const sensorIndex = shapeField(state, sensor, ShapeField.sensorIndex);
+    if (kernel(state.ecsState).sensorVisitorCount(state.worldId, sensorIndex) !== count)
         throw new Error("allocation subject's sensor does not hold every box");
+    const platformBody = physicsBodyIndex(world, platform);
+    if (platformBody < 0) throw new Error("allocation subject platform has no solver body");
     const velocity = { x: 0, y: 0, z: 0 };
+    const k = kernel(state.ecsState);
     let tick = 0;
     return {
         step: () => {
             velocity.x = tick++ % 240 < 120 ? 0.5 : -0.5;
-            physics.getBody(platform)!.setLinearVelocity(velocity);
+            bodySetLinearVelocity(state, platformBody, velocity);
             world.step(1 / 60);
-            const state = physics.state;
             if (
-                kernel(state.ecsState).eventCount(state.worldId, 0) !== 0 ||
-                kernel(state.ecsState).eventCount(state.worldId, 7) !== 0
+                k.eventCount(state.worldId, EventKind.SensorBegin) !== 0 ||
+                k.eventCount(state.worldId, EventKind.SensorEnd) !== 0 ||
+                k.eventCount(state.worldId, EventKind.ContactBegin) !== 0 ||
+                k.eventCount(state.worldId, EventKind.ContactEnd) !== 0 ||
+                k.eventCount(state.worldId, EventKind.ContactHit) !== 0 ||
+                k.eventCount(state.worldId, EventKind.Joint) !== 0 ||
+                k.eventCount(state.worldId, EventKind.PendingSensorEnd) !== 0
             )
                 throw new Error("allocation subject's sensor overlaps changed in steady play");
-            const sensorEvents = physics.getSensorEvents();
-            const contactEvents = physics.getContactEvents();
-            if (
-                sensorEvents.beginEvents.length +
-                    sensorEvents.endEvents.length +
-                    contactEvents.beginEvents.length +
-                    contactEvents.endEvents.length +
-                    contactEvents.hitEvents.length +
-                    physics.getJointEvents().length !==
-                0
-            )
-                throw new Error("allocation subject polled events in steady play");
             if (awakeContactCount(state) !== count)
                 throw new Error("allocation subject lost its awake box contacts");
         },

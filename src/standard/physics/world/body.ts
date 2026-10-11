@@ -1,9 +1,10 @@
 // body.c bindings (Box3D, Erin Catto, MIT).
 
 import { NULL_INDEX } from "../common/array";
-import { BODY_NAME_LENGTH } from "../common/constants";
+import { BODY_NAME_LENGTH, SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import {
+    f32,
     type Mat3,
     mat3,
     type Pos,
@@ -12,8 +13,13 @@ import {
     type WorldTransform,
 } from "../common/math";
 import type { BodyDef, BodyType } from "../common/types";
-import { readSimLocalCenter, readSimTransform } from "../kernel/bodycolumns";
+import {
+    readSimLocalCenter,
+    readSimTransform,
+    readStateLinearVelocity,
+} from "../kernel/bodycolumns";
 import { BodyField, bodyField, bodyInertia } from "../kernel/bodyrecords";
+import { bodyType } from "../kernel/filtercolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
@@ -83,6 +89,43 @@ export function getBodyState(world: WorldState, body: number): number | null {
     const index = kernel(world.ecsState).bodyStateIndex(world.worldId, body);
     return index < 0 ? null : index;
 }
+export function bodyIsValid(world: WorldState, id: EntityId): boolean {
+    if (!world.inUse) return false;
+    const body = id.index1 - 1;
+    const k = kernel(world.ecsState);
+    return (
+        body >= 0 &&
+        body < k.bodyLength(world.worldId) &&
+        k.bodyAlive(world.worldId, body) !== 0 &&
+        k.bodyGeneration(world.worldId, body) === id.generation
+    );
+}
+
+export function bodyGetType(world: WorldState, body: number): BodyType {
+    return bodyType(world, bodyField(world, body, BodyField.id));
+}
+
+export function bodyGetTransform(
+    world: WorldState,
+    body: number,
+    out: WorldTransform,
+): WorldTransform {
+    return readSimTransform(world, getBodySim(world, body), out);
+}
+
+export function bodyGetLinearVelocity(world: WorldState, body: number, out: Vec3): Vec3 {
+    const state = getBodyState(world, body);
+    if (state !== null) return readStateLinearVelocity(world, state, out);
+    out.x = 0;
+    out.y = 0;
+    out.z = 0;
+    return out;
+}
+
+export function bodyIsAwake(world: WorldState, body: number): boolean {
+    return bodyField(world, body, BodyField.setIndex) === SetType.Awake;
+}
+
 export function makeBodyId(world: WorldState, bodyId: number): EntityId {
     if (bodyId === NULL_INDEX) return { index1: 0, world0: 0, generation: 0 };
     return {
@@ -102,10 +145,17 @@ export function syncBodyFlags(world: WorldState, body: number): void {
     kernel(world.ecsState).bodySyncFlags(world.worldId, body);
 }
 export function bodySetLinearVelocity(world: WorldState, body: number, v: Vec3): void {
-    kernel(world.ecsState).bodyVelocitySet(world.worldId, body, false, v.x, v.y, v.z);
+    kernel(world.ecsState).bodyVelocitySet(
+        world.worldId,
+        body,
+        false,
+        f32(v.x),
+        f32(v.y),
+        f32(v.z),
+    );
 }
 export function bodySetAngularVelocity(world: WorldState, body: number, v: Vec3): void {
-    kernel(world.ecsState).bodyVelocitySet(world.worldId, body, true, v.x, v.y, v.z);
+    kernel(world.ecsState).bodyVelocitySet(world.worldId, body, true, f32(v.x), f32(v.y), f32(v.z));
 }
 export function bodySetTargetTransform(
     world: WorldState,
@@ -122,10 +172,10 @@ export function bodySetTargetTransform(
         p.x,
         p.y,
         p.z,
-        q.v.x,
-        q.v.y,
-        q.v.z,
-        q.s,
+        f32(q.v.x),
+        f32(q.v.y),
+        f32(q.v.z),
+        f32(q.s),
         timeStep,
         wake,
     );
@@ -141,12 +191,12 @@ export function bodyApplyForce(
         world.worldId,
         body,
         0,
-        force.x,
-        force.y,
-        force.z,
-        point.x,
-        point.y,
-        point.z,
+        f32(force.x),
+        f32(force.y),
+        f32(force.z),
+        f32(point.x),
+        f32(point.y),
+        f32(point.z),
         world.maxLinearSpeed,
         wake,
     );
@@ -161,9 +211,9 @@ export function bodyApplyForceToCenter(
         world.worldId,
         body,
         1,
-        force.x,
-        force.y,
-        force.z,
+        f32(force.x),
+        f32(force.y),
+        f32(force.z),
         0,
         0,
         0,
@@ -181,9 +231,9 @@ export function bodyApplyTorque(
         world.worldId,
         body,
         2,
-        torque.x,
-        torque.y,
-        torque.z,
+        f32(torque.x),
+        f32(torque.y),
+        f32(torque.z),
         0,
         0,
         0,
@@ -202,12 +252,12 @@ export function bodyApplyLinearImpulse(
         world.worldId,
         body,
         3,
-        impulse.x,
-        impulse.y,
-        impulse.z,
-        point.x,
-        point.y,
-        point.z,
+        f32(impulse.x),
+        f32(impulse.y),
+        f32(impulse.z),
+        f32(point.x),
+        f32(point.y),
+        f32(point.z),
         world.maxLinearSpeed,
         wake,
     );
@@ -222,9 +272,9 @@ export function bodyApplyLinearImpulseToCenter(
         world.worldId,
         body,
         4,
-        impulse.x,
-        impulse.y,
-        impulse.z,
+        f32(impulse.x),
+        f32(impulse.y),
+        f32(impulse.z),
         0,
         0,
         0,
@@ -242,9 +292,9 @@ export function bodyApplyAngularImpulse(
         world.worldId,
         body,
         5,
-        impulse.x,
-        impulse.y,
-        impulse.z,
+        f32(impulse.x),
+        f32(impulse.y),
+        f32(impulse.z),
         0,
         0,
         0,
@@ -261,13 +311,13 @@ export function bodySetTransform(
     kernel(world.ecsState).bodySetPose(
         world.worldId,
         body,
-        position.x,
-        position.y,
-        position.z,
-        rotation.v.x,
-        rotation.v.y,
-        rotation.v.z,
-        rotation.s,
+        f32(position.x),
+        f32(position.y),
+        f32(position.z),
+        f32(rotation.v.x),
+        f32(rotation.v.y),
+        f32(rotation.v.z),
+        f32(rotation.s),
     );
 }
 export const BodyProperty = {
@@ -295,7 +345,7 @@ export function bodySetProperty(
 ): void {
     if (world.locked) return;
     world.locked = true;
-    kernel(world.ecsState).bodySetProperty(world.worldId, body, property, value);
+    kernel(world.ecsState).bodySetProperty(world.worldId, body, property, f32(value));
     world.bodyStore.refreshViews();
     world.locked = false;
 }

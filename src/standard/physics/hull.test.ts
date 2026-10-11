@@ -9,12 +9,13 @@ import {
     UNIT_CUBE_ID,
 } from "../../core/physics";
 import { World } from "../../engine";
-import { PhysicsWorld } from "./api";
 import { marshalShape } from "./marshal-shape";
+import { createTestBody, createTestWorld, destroyTestWorld } from "./testing";
+import { getMassData, makeBodyId } from "./world/body";
 
 test("two worlds marshal their own hull registered under the same name", () => {
     const worlds = [new World(), new World()];
-    const solver = new PhysicsWorld();
+    const solvers = worlds.map((world) => createTestWorld({}, world));
     try {
         const bodies = worlds.map((world, i) => {
             for (const component of PhysicsPlugin.components!)
@@ -37,14 +38,15 @@ test("two worlds marshal their own hull registered under the same name", () => {
                 scale: [1, 1, 1, 0],
                 density: 1 / (8 * scale ** 3),
             });
-            const body = solver.createBody({ type: BodyType.Dynamic });
-            marshalShape(world, body, eid);
-            return body;
+            const state = solvers[i]!;
+            const body = createTestBody(state, { type: BodyType.Dynamic });
+            marshalShape(world, state, makeBodyId(state, body), eid);
+            return { state, body };
         });
-        expect(bodies[0]!.getMassData().inertia.cx.x).toBeCloseTo(2 / 3, 5);
-        expect(bodies[1]!.getMassData().inertia.cx.x).toBeCloseTo(8 / 3, 5);
+        expect(getMassData(bodies[0]!.state, bodies[0]!.body).inertia.cx.x).toBeCloseTo(2 / 3, 5);
+        expect(getMassData(bodies[1]!.state, bodies[1]!.body).inertia.cx.x).toBeCloseTo(8 / 3, 5);
     } finally {
-        solver.destroy();
+        for (const solver of solvers) destroyTestWorld(solver);
         for (const world of worlds) world.dispose();
     }
 });

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { BodyType, PhysicsWorld } from "../api";
+import { restore, snapshot } from "../api/snapshot";
 import { SetType } from "../common/constants";
+import { BodyType } from "../common/types";
 import { bodySimSlot, setSimField, simBodyId } from "../kernel/bodycolumns";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE } from "../kernel/columns";
@@ -15,10 +16,17 @@ import {
     solverSetCount,
     solverSetIndex,
 } from "../kernel/solversetcolumns";
+import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
+import { defaultJointDef } from "../solver/joint";
 import { jointIds } from "../solver/joint.fixture";
-
-// Internal solver-set invariants remain covered directly through the kernel until stage 8.
+import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "../testing";
+import { bodyGetLinearVelocity, bodyIsAwake, bodySetAwake, destroyBody } from "../world/body";
 import type { WorldState } from "./world";
+
+function distanceJoint(world: WorldState, a: number, b: number, length = 1) {
+    const base = { ...defaultJointDef(), bodyIdA: a, bodyIdB: b };
+    return createDistanceJoint(world, { ...defaultDistanceJointDef(base), length }).joint;
+}
 
 function sims(world: WorldState) {
     world.bodyStore.refreshViews();
@@ -58,84 +66,84 @@ function sims(world: WorldState) {
     }
     return result;
 }
+
 test("solver-set moves preserve all sim fields and fix body/island/joint slots through sleep, wake, id reuse and snapshot restore", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
-    const sibling = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const sibling = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         const pairs = Array.from({ length: 6 }, (_, i) => {
-            const a = world.createBody({
+            const a = createTestBody(world, {
                 type: BodyType.Dynamic,
                 position: { x: i * 10, y: i, z: 0 },
             });
-            const b = world.createBody({
+            const b = createTestBody(world, {
                 type: BodyType.Dynamic,
                 position: { x: i * 10 + 1, y: i, z: 0 },
             });
-            world.createDistanceJoint(a, b, { length: 1 });
-            const record = a.id.index1 - 1;
+            distanceJoint(world, a, b);
             const slot = bodySimSlot(
-                bodyField(world.state, record, BodyField.setIndex),
-                bodyField(world.state, record, BodyField.localIndex),
+                bodyField(world, a, BodyField.setIndex),
+                bodyField(world, a, BodyField.localIndex),
             );
-            setSimField(world.state, slot, "force", { x: i + 0.25, y: -i, z: 2 });
-            setSimField(world.state, slot, "torque", { x: 3, y: i + 0.5, z: -1 });
-            setSimField(world.state, slot, "center0", { x: 7, y: 8, z: i + 0.75 });
+            setSimField(world, slot, "force", { x: i + 0.25, y: -i, z: 2 });
+            setSimField(world, slot, "torque", { x: 3, y: i + 0.5, z: -1 });
+            setSimField(world, slot, "center0", { x: 7, y: 8, z: i + 0.75 });
             return { a, b };
         });
-        sibling.createBody({ type: BodyType.Static, position: { x: 99, y: 88, z: 77 } });
-        const before = sims(world.state),
-            other = sims(sibling.state),
-            snapshot = world.snapshot();
-        pairs[1].a.setAwake(false);
-        expect(sims(world.state)).toEqual(before);
-        const first = bodyField(world.state, pairs[1].a.id.index1 - 1, BodyField.setIndex);
-        pairs[4].a.setAwake(false);
-        expect(sims(world.state)).toEqual(before);
-        const asleep = world.snapshot();
-        pairs[1].b.setAwake(true);
-        expect(sims(world.state)).toEqual(before);
-        pairs[2].a.setAwake(false);
-        expect(bodyField(world.state, pairs[2].a.id.index1 - 1, BodyField.setIndex)).toBe(first);
-        expect(sims(world.state)).toEqual(before);
-        world.restore(asleep);
-        expect(sims(world.state)).toEqual(before);
-        expect(sims(sibling.state)).toEqual(other);
-        pairs[1].b.setAwake(true);
-        pairs[4].b.setAwake(true);
-        expect(sims(world.state)).toEqual(before);
-        world.restore(snapshot);
-        expect(sims(world.state)).toEqual(before);
-        pairs[0].a.destroy();
-        const remaining = sims(world.state);
+        createTestBody(sibling, { type: BodyType.Static, position: { x: 99, y: 88, z: 77 } });
+        const before = sims(world),
+            other = sims(sibling),
+            saved = snapshot(world);
+        bodySetAwake(world, pairs[1]!.a, false);
+        expect(sims(world)).toEqual(before);
+        const first = bodyField(world, pairs[1]!.a, BodyField.setIndex);
+        bodySetAwake(world, pairs[4]!.a, false);
+        expect(sims(world)).toEqual(before);
+        const asleep = snapshot(world);
+        bodySetAwake(world, pairs[1]!.b, true);
+        expect(sims(world)).toEqual(before);
+        bodySetAwake(world, pairs[2]!.a, false);
+        expect(bodyField(world, pairs[2]!.a, BodyField.setIndex)).toBe(first);
+        expect(sims(world)).toEqual(before);
+        restore(world, asleep);
+        expect(sims(world)).toEqual(before);
+        expect(sims(sibling)).toEqual(other);
+        bodySetAwake(world, pairs[1]!.b, true);
+        bodySetAwake(world, pairs[4]!.b, true);
+        expect(sims(world)).toEqual(before);
+        restore(world, saved);
+        expect(sims(world)).toEqual(before);
+        destroyBody(world, pairs[0]!.a);
+        const remaining = sims(world);
         expect(remaining.size).toBe(before.size - 1);
         for (const [id, sim] of remaining) expect(sim).toEqual(before.get(id)!);
     } finally {
-        world.destroy();
-        sibling.destroy();
+        destroyTestWorld(world);
+        destroyTestWorld(sibling);
     }
 });
+
 test("body transfers swap-remove awake, static and disabled sim rows and discard the source awake state", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         const bodies = Array.from({ length: 4 }, () =>
-            world.createBody({ type: BodyType.Dynamic, linearVelocity: { x: 1, y: 2, z: 3 } }),
+            createTestBody(world, { type: BodyType.Dynamic, linearVelocity: { x: 1, y: 2, z: 3 } }),
         );
-        const body = bodies[1].id.index1 - 1;
-        const before = sims(world.state);
-        kernel(world.state.ecsState).bodyTransfer(
-            world.state.worldId,
-            body,
-            SetType.Disabled,
-            true,
-        );
-        expect(sims(world.state)).toEqual(before);
-        kernel(world.state.ecsState).bodyTransfer(world.state.worldId, body, SetType.Static, true);
-        expect(sims(world.state)).toEqual(before);
-        kernel(world.state.ecsState).bodyTransfer(world.state.worldId, body, SetType.Awake, true);
-        expect(sims(world.state)).toEqual(before);
-        expect(bodies[1].getLinearVelocity()).toEqual({ x: 0, y: 0, z: 0 });
+        const body = bodies[1]!;
+        const before = sims(world);
+        kernel(world.ecsState).bodyTransfer(world.worldId, body, SetType.Disabled, true);
+        expect(sims(world)).toEqual(before);
+        kernel(world.ecsState).bodyTransfer(world.worldId, body, SetType.Static, true);
+        expect(sims(world)).toEqual(before);
+        kernel(world.ecsState).bodyTransfer(world.worldId, body, SetType.Awake, true);
+        expect(sims(world)).toEqual(before);
+        expect(bodyGetLinearVelocity(world, body, { x: 0, y: 0, z: 0 })).toEqual({
+            x: 0,
+            y: 0,
+            z: 0,
+        });
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
@@ -145,71 +153,63 @@ test("joint creation merges sleeping sets in append order without waking bodies"
         [3, 2],
         [2, 2],
     ]) {
-        const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+        const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
         try {
             const groups = sizes.map((size, group) => {
                 const bodies = Array.from({ length: size }, (_, i) =>
-                    world.createBody({
+                    createTestBody(world, {
                         type: BodyType.Dynamic,
                         position: { x: group * 10 + i, y: 0, z: 0 },
                     }),
                 );
-                for (let i = 1; i < size; ++i)
-                    world.createDistanceJoint(bodies[i - 1], bodies[i], { length: 1 });
-                bodies[0].setAwake(false);
+                for (let i = 1; i < size; ++i) distanceJoint(world, bodies[i - 1]!, bodies[i]!);
+                bodySetAwake(world, bodies[0]!, false);
                 return bodies;
             });
-            const sets = groups.map((group) =>
-                bodyField(world.state, group[0].id.index1 - 1, BodyField.setIndex),
-            );
+            const sets = groups.map((group) => bodyField(world, group[0]!, BodyField.setIndex));
             expect(sets[0]).not.toBe(sets[1]);
-            const before = sims(world.state);
+            const before = sims(world);
             const jointOrder = sets.map((set) =>
-                jointIds(world.state)
-                    .filter((joint) => jointField(world.state, joint, JointField.setIndex) === set)
+                jointIds(world)
+                    .filter((joint) => jointField(world, joint, JointField.setIndex) === set)
                     .sort(
                         (a, b) =>
-                            jointField(world.state, a, JointField.localIndex) -
-                            jointField(world.state, b, JointField.localIndex),
+                            jointField(world, a, JointField.localIndex) -
+                            jointField(world, b, JointField.localIndex),
                     )
-                    .map((joint) => jointField(world.state, joint, JointField.jointId)),
+                    .map((joint) => jointField(world, joint, JointField.jointId)),
             );
-            const newJointId = jointCapacity(world.state);
-            const survivor = sizes[0] >= sizes[1] ? 0 : 1;
-            world.createDistanceJoint(groups[0][0], groups[1][0], { length: 10 });
-            jointOrder[1].push(newJointId);
-            const expectedJoints = [...jointOrder[survivor], ...jointOrder[1 - survivor]];
-            const mergedJoints = jointIds(world.state)
-                .filter(
-                    (joint) =>
-                        jointField(world.state, joint, JointField.setIndex) === sets[survivor],
-                )
+            const newJointId = jointCapacity(world);
+            const survivor = sizes[0]! >= sizes[1]! ? 0 : 1;
+            distanceJoint(world, groups[0]![0]!, groups[1]![0]!, 10);
+            jointOrder[1]!.push(newJointId);
+            const expectedJoints = [...jointOrder[survivor]!, ...jointOrder[1 - survivor]!];
+            const mergedJoints = jointIds(world)
+                .filter((joint) => jointField(world, joint, JointField.setIndex) === sets[survivor])
                 .sort(
                     (a, b) =>
-                        jointField(world.state, a, JointField.localIndex) -
-                        jointField(world.state, b, JointField.localIndex),
+                        jointField(world, a, JointField.localIndex) -
+                        jointField(world, b, JointField.localIndex),
                 )
-                .map((joint) => jointField(world.state, joint, JointField.jointId));
+                .map((joint) => jointField(world, joint, JointField.jointId));
             expect(mergedJoints).toEqual(expectedJoints);
-            expect(solverSetIndex(world.state, sets[1 - survivor])).toBe(-1);
-            expect(setBodyCount(world.state, sets[survivor])).toBe(sizes[0] + sizes[1]);
-            const order = [...groups[survivor], ...groups[1 - survivor]];
+            expect(solverSetIndex(world, sets[1 - survivor]!)).toBe(-1);
+            expect(setBodyCount(world, sets[survivor]!)).toBe(sizes[0]! + sizes[1]!);
+            const order = [...groups[survivor]!, ...groups[1 - survivor]!];
             for (let i = 0; i < order.length; ++i) {
-                const body = order[i];
-                expect(body.isAwake()).toBe(false);
-                expect(simBodyId(world.state, bodySimSlot(sets[survivor], i))).toBe(
-                    body.id.index1 - 1,
-                );
+                const body = order[i]!;
+                expect(bodyIsAwake(world, body)).toBe(false);
+                expect(simBodyId(world, bodySimSlot(sets[survivor]!, i))).toBe(body);
             }
-            expect(sims(world.state)).toEqual(before);
-            expect(setArrayCount(world.state, sets[survivor], 1)).toBe(1);
-            world.step(1 / 60);
-            for (const body of order) expect(body.isAwake()).toBe(false);
-            groups[0][0].setAwake(true);
-            for (const body of order) expect(body.isAwake()).toBe(true);
-            sims(world.state);
+            expect(sims(world)).toEqual(before);
+            expect(setArrayCount(world, sets[survivor]!, 1)).toBe(1);
+            stepTestWorld(world, 1 / 60);
+            for (const body of order) expect(bodyIsAwake(world, body)).toBe(false);
+            bodySetAwake(world, groups[0]![0]!, true);
+            for (const body of order) expect(bodyIsAwake(world, body)).toBe(true);
+            sims(world);
         } finally {
-            world.destroy();
+            destroyTestWorld(world);
         }
     }
 });

@@ -1,30 +1,30 @@
-import type { Manifold } from "../collision/contact";
-import type { PlaneResult } from "../collision/mover";
 import type { EntityId } from "../common/ids";
 import type { Pos, Quat, Transform, Vec3 } from "../common/math";
 import { JointField, jointField } from "../kernel/jointrecords";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 import type { Shape as ShapeRecord } from "../shapes/shape";
-import type { JointDef, Joint as JointRecord } from "../solver/joint";
+import type { Joint as JointRecord } from "../solver/joint";
 import type { WorldState } from "../world/world";
-import type { Body } from "./body";
-import type { Joint } from "./joint";
-import type { Contact, Shape } from "./shape";
 
-/** Return false to reject a collision pair. Called only when either shape enables custom filtering.
- * Runs synchronously during the step; the world must not be modified from this callback.
- * Kernel re-entry is refused: worlds sharing an instance also share its active driver.
- * Use the supplied inspection values or cached user data, not kernel operations, in the callback. */
-export type CustomFilterCallback = (shapeA: Shape, shapeB: Shape) => boolean;
+/** Return false to reject a collision pair. Arguments are generation-aware IDs for the two shapes.
+ * Called only when either shape enables custom filtering. Runs synchronously during the step; the
+ * world must not be modified from this callback. Kernel re-entry is refused because worlds sharing
+ * an instance also share its active driver. */
+export type CustomFilterCallback = (shapeA: EntityId, shapeB: EntityId) => boolean;
 
 /** Return false to disable a contact for this step. The point is Box3D's inspection position in
  * world meters. The normal follows the contact or TOI orientation: internally flipped compound
  * sphere/capsule children receive shapes in convex-dispatch order, not contact order.
- * Point and normal are independent values, not writable solver storage.
- * Called only for enabled pre-solve events, not sensors. Runs synchronously during the step;
- * the world must not be modified. Kernel operations (including stepping any world sharing the
- * instance) are refused from the callback because that instance has one active driver. */
-export type PreSolveCallback = (shapeA: Shape, shapeB: Shape, point: Pos, normal: Vec3) => boolean;
+ * Point and normal are independent values, not writable solver storage. Shape arguments are
+ * generation-aware IDs. Called only for enabled pre-solve events, not sensors. Runs synchronously
+ * during the step; the world must not be modified. Kernel operations are refused from the callback
+ * because that instance has one active driver. */
+export type PreSolveCallback = (
+    shapeA: EntityId,
+    shapeB: EntityId,
+    point: Pos,
+    normal: Vec3,
+) => boolean;
 
 export function makeShapeId(world: WorldState, shape: ShapeRecord): EntityId {
     return {
@@ -54,28 +54,6 @@ export type BaseJointConfig = {
     drawScale: number;
     userData: unknown;
 };
-
-/** Resolve the shared base joint definition from a config, filling gaps from the ported defaults. */
-export function baseJointDef(
-    bodyA: Body,
-    bodyB: Body,
-    cfg: Partial<BaseJointConfig>,
-    d: JointDef,
-): JointDef {
-    return {
-        bodyIdA: bodyA.id.index1 - 1,
-        bodyIdB: bodyB.id.index1 - 1,
-        localFrameA: cfg.localFrameA ?? d.localFrameA,
-        localFrameB: cfg.localFrameB ?? d.localFrameB,
-        forceThreshold: cfg.forceThreshold ?? d.forceThreshold,
-        torqueThreshold: cfg.torqueThreshold ?? d.torqueThreshold,
-        constraintHertz: cfg.constraintHertz ?? d.constraintHertz,
-        constraintDampingRatio: cfg.constraintDampingRatio ?? d.constraintDampingRatio,
-        drawScale: cfg.drawScale ?? d.drawScale,
-        collideConnected: cfg.collideConnected ?? d.collideConnected,
-        userData: cfg.userData ?? d.userData,
-    };
-}
 
 /** Revolute-specific options, on top of the shared base (all optional). */
 export type RevoluteJointConfig = BaseJointConfig & {
@@ -200,135 +178,3 @@ export type SoftJointConfig = BaseJointConfig & {
     /** Rest distance from the world anchor to the body anchor. */
     length: number;
 };
-
-/** A single ray/shape-cast hit reported to a query callback. */
-export type CastHit = {
-    shape: Shape;
-    /** World hit point. */
-    point: Pos;
-    /** World surface normal at the hit. */
-    normal: Vec3;
-    /** Fraction of the input translation at the hit. */
-    fraction: number;
-    /** User material id at the hit (per-triangle for mesh/height-field/child-mesh shapes). */
-    userMaterialId: bigint;
-    /** Triangle index for mesh/height-field hits, else -1/0. */
-    triangleIndex: number;
-    /** Compound child index for compound hits, else 0. */
-    childIndex: number;
-};
-
-/** The closest hit returned by {@link World.castRayClosest} (b3RayResult). `hit` false ⇒ invalid. */
-export type RayResult = {
-    shape: Shape | null;
-    point: Pos;
-    normal: Vec3;
-    fraction: number;
-    userMaterialId: bigint;
-    triangleIndex: number;
-    childIndex: number;
-    hit: boolean;
-};
-
-/**
- * Called once per ray/shape-cast hit. Return the new max fraction to clip the query (typically
- * `hit.fraction` for closest-hit), 0 to stop immediately, 1 to continue, or -1 to ignore this shape.
- */
-export type CastCallback = (hit: CastHit) => number;
-
-/** Called per overlapping shape. False stops the current body-type tree (static, kinematic,
- * dynamic); world queries still traverse the next tree. */
-export type OverlapCallback = (shape: Shape) => boolean;
-
-/** The closest hit returned by {@link Body.castRay}/{@link Body.castShape}. `hit` false ⇒ invalid. */
-export type BodyCastHit = {
-    shape: Shape | null;
-    point: Pos;
-    normal: Vec3;
-    fraction: number;
-    triangleIndex: number;
-    userMaterialId: bigint;
-    hit: boolean;
-};
-
-/**
- * Called once per shape a mover touches, with that shape and its collision planes (see
- * {@link solvePlanes}). False stops the current body-type tree (static, kinematic, dynamic);
- * the next tree is still queried. Used by {@link World.collideMover}.
- */
-export type PlaneResultCallback = (shape: Shape, planes: PlaneResult[]) => boolean;
-
-/** Per-shape accept filter for {@link World.castMover}; return false to skip the shape. */
-export type MoverFilterCallback = (shape: Shape) => boolean;
-
-/** One collision plane between a mover and a body shape, from {@link Body.collideMover}. */
-export type BodyPlane = {
-    shape: Shape;
-    plane: PlaneResult;
-};
-
-/** A sensor begin- or end-touch event (b3SensorBeginTouchEvent / b3SensorEndTouchEvent). */
-export type SensorTouchEvent = { sensor: Shape; visitor: Shape };
-
-/**
- * Sensor events since the last step (b3SensorEvents), from {@link World.getSensorEvents}. Reused: the
- * next step or the next call overwrites the object and its arrays.
- */
-export type SensorEvents = { beginEvents: SensorTouchEvent[]; endEvents: SensorTouchEvent[] };
-
-/** A contact begin- or end-touch event (b3ContactBeginTouchEvent / b3ContactEndTouchEvent). */
-export type ContactTouchEvent = {
-    shapeA: Shape;
-    shapeB: Shape;
-    contact: Contact;
-    /** Sum of the solved normal impulses at the contact's manifold points for the begin step. */
-    normalImpulse: number;
-};
-
-/** A contact hit event (b3ContactHitEvent): a collision faster than the world hit threshold. */
-export type ContactHitEvent = {
-    shapeA: Shape;
-    shapeB: Shape;
-    contact: Contact;
-    /** Mid-point between the two surfaces at the start of the step. */
-    point: Pos;
-    /** Normal pointing from shape A to shape B. */
-    normal: Vec3;
-    /** The speed the shapes approached at, always positive (m/s). */
-    approachSpeed: number;
-    userMaterialIdA: bigint;
-    userMaterialIdB: bigint;
-};
-
-/**
- * Contact events since the last {@link World.step} (b3ContactEvents), from
- * {@link World.getContactEvents}. Reused: the next step or the next call overwrites the object and its
- * arrays.
- */
-export type ContactEvents = {
-    beginEvents: ContactTouchEvent[];
-    endEvents: ContactTouchEvent[];
-    hitEvents: ContactHitEvent[];
-};
-
-/** A body move event (b3BodyMoveEvent): a body that moved this step. */
-export type BodyMoveEvent = {
-    body: Body;
-    transform: Transform;
-    userData: unknown;
-    /** Did the body fall asleep this step? Sleep the associated game object too. */
-    fellAsleep: boolean;
-};
-
-/**
- * Body events since the last {@link World.step} (b3BodyEvents). `moveEvents` is a reused pool that keeps
- * its high-water length; read only entries `0..count-1` (the bodies that moved) — valid until the next
- * step or the next `getBodyEvents`.
- */
-export type BodyEvents = { moveEvents: BodyMoveEvent[]; count: number };
-
-/** A joint event (b3JointEvent): an awake joint over its force/torque threshold. */
-export type JointEvent = { joint: Joint; userData: unknown };
-
-/** Contact data from {@link Contact.getData} (b3ContactData), with independent manifold snapshots. */
-export type ContactData = { contact: Contact; shapeA: Shape; shapeB: Shape; manifolds: Manifold[] };

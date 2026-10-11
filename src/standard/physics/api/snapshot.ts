@@ -2,7 +2,7 @@ import { assertQueryWorld, kernel } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
 import type { CheckpointStore } from "../kernel/views";
 import type { WorldState } from "../world/world";
-import type { PhysicsWorld } from "./world";
+import { worldIsValid } from "../world/world";
 
 /**
  * Reusable snapshot of a wasm-backed physics world. Caller-owned geometry identities remain opaque
@@ -169,8 +169,7 @@ type SnapshotState = {
 
 /** Capture logical state and kernel regions, retaining opaque userData values, with an owner's plain
  * `bindings`. Refuses a stepping world or a sibling snapshot during a callback on the same kernel. */
-export function snapshot(physicsWorld: PhysicsWorld, bindings?: unknown): PhysicsSnapshot {
-    const state = physicsWorld.state;
+export function snapshot(state: WorldState, bindings?: unknown): PhysicsSnapshot {
     if (state.locked) throw new Error("physics: cannot snapshot a world while it is stepping");
     assertQueryWorld(state.ecsState, state.worldId);
     const k = kernel(state.ecsState);
@@ -209,7 +208,7 @@ export function snapshotBindings(snapshot: PhysicsSnapshot): unknown {
 
 /** Restore into a live compatible World, preserving its identity and every sibling's state.
  * Refuses a stepping world or a sibling restore during a callback on the same kernel. */
-export function restore(physicsWorld: PhysicsWorld, snapshot: PhysicsSnapshot): void {
+export function restore(state: WorldState, snapshot: PhysicsSnapshot): void {
     if (
         snapshot === null ||
         typeof snapshot !== "object" ||
@@ -219,10 +218,8 @@ export function restore(physicsWorld: PhysicsWorld, snapshot: PhysicsSnapshot): 
     )
         throw new Error("physics: invalid world snapshot");
 
-    if (!physicsWorld.isValid())
+    if (!worldIsValid({ index1: state.worldId + 1, generation: state.generation }))
         throw new Error("physics: cannot restore a snapshot because its target World is not live");
-
-    const state = physicsWorld.state;
     if (state.locked) throw new Error("physics: cannot restore a world while it is stepping");
     assertQueryWorld(state.ecsState, state.worldId);
     const identity = {

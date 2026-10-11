@@ -1,39 +1,97 @@
 import { expect, test } from "bun:test";
-import { type Body, BodyType, type Joint, PhysicsWorld } from "../api/index";
+import { BodyType } from "../common/types";
 import * as J from "../kernel/joint-layout";
 import { kernel } from "../kernel/kernel";
+import { createTestBody, createTestWorld, destroyTestWorld } from "../testing";
+import type { WorldState } from "../world/world";
+import { createDistanceJoint, defaultDistanceJointDef } from "./distanceJoint";
+import { createFilterJoint, defaultJointDef, destroyJointInternal } from "./joint";
+import { createMotorJoint, defaultMotorJointDef } from "./motorJoint";
+import { createParallelJoint, defaultParallelJointDef } from "./parallelJoint";
+import { createPrismaticJoint, defaultPrismaticJointDef } from "./prismaticJoint";
+import { createRevoluteJoint, defaultRevoluteJointDef } from "./revoluteJoint";
+import { createSphericalJoint, defaultSphericalJointDef } from "./sphericalJoint";
+import { createWeldJoint, defaultWeldJointDef } from "./weldJoint";
+import { createWheelJoint, defaultWheelJointDef } from "./wheelJoint";
 
 const range = (start: number, count: number) => Array.from({ length: count }, (_, i) => start + i);
 const flagWord = (field: number) => (field & ~(1 << 16)) >>> 2;
-// Definition fields moved among impulses and scratch in the typed per-kind payloads.
-const kinds: [string, (world: PhysicsWorld, a: Body, b: Body) => Joint, number[]][] = [
+const kinds: [string, (world: WorldState, a: number, b: number) => number, number[]][] = [
     [
         "distance",
-        (w, a, b) => w.createDistanceJoint(a, b),
+        (w, a, b) =>
+            createDistanceJoint(
+                w,
+                defaultDistanceJointDef({ ...defaultJointDef(), bodyIdA: a, bodyIdB: b }),
+            ).joint,
         [...range(J.DJ_LENGTH, 9), flagWord(J.DJ_ENABLE)],
     ],
-    ["filter", (w, a, b) => w.createFilterJoint(a, b), []],
-    ["motor", (w, a, b) => w.createMotorJoint(a, b), range(J.MJ_LINEAR_VELOCITY, 14)],
-    ["parallel", (w, a, b) => w.createParallelJoint(a, b), range(J.PLJ_HERTZ, 3)],
+    [
+        "filter",
+        (w, a, b) => createFilterJoint(w, { ...defaultJointDef(), bodyIdA: a, bodyIdB: b }).joint,
+        [],
+    ],
+    [
+        "motor",
+        (w, a, b) =>
+            createMotorJoint(
+                w,
+                defaultMotorJointDef({ ...defaultJointDef(), bodyIdA: a, bodyIdB: b }),
+            ).joint,
+        range(J.MJ_LINEAR_VELOCITY, 14),
+    ],
+    [
+        "parallel",
+        (w, a, b) =>
+            createParallelJoint(
+                w,
+                defaultParallelJointDef({ ...defaultJointDef(), bodyIdA: a, bodyIdB: b }),
+            ).joint,
+        range(J.PLJ_HERTZ, 3),
+    ],
     [
         "prismatic",
-        (w, a, b) => w.createPrismaticJoint(a, b),
+        (w, a, b) =>
+            createPrismaticJoint(
+                w,
+                defaultPrismaticJointDef({ ...defaultJointDef(), bodyIdA: a, bodyIdB: b }),
+            ).joint,
         [...range(J.PJ_HERTZ, 7), flagWord(J.PJ_ENABLE)],
     ],
     [
         "revolute",
-        (w, a, b) => w.createRevoluteJoint(a, b),
+        (w, a, b) =>
+            createRevoluteJoint(
+                w,
+                defaultRevoluteJointDef({ ...defaultJointDef(), bodyIdA: a, bodyIdB: b }),
+            ).joint,
         [...range(J.RJ_HERTZ, 7), flagWord(J.RJ_ENABLE)],
     ],
     [
         "spherical",
-        (w, a, b) => w.createSphericalJoint(a, b),
+        (w, a, b) =>
+            createSphericalJoint(
+                w,
+                defaultSphericalJointDef({ ...defaultJointDef(), bodyIdA: a, bodyIdB: b }),
+            ).joint,
         [...range(J.SJ_HERTZ, 13), flagWord(J.SJ_ENABLE)],
     ],
-    ["weld", (w, a, b) => w.createWeldJoint(a, b), range(J.WJ_LINEAR_HERTZ, 4)],
+    [
+        "weld",
+        (w, a, b) =>
+            createWeldJoint(
+                w,
+                defaultWeldJointDef({ ...defaultJointDef(), bodyIdA: a, bodyIdB: b }),
+            ).joint,
+        range(J.WJ_LINEAR_HERTZ, 4),
+    ],
     [
         "wheel",
-        (w, a, b) => w.createWheelJoint(a, b),
+        (w, a, b) =>
+            createWheelJoint(
+                w,
+                defaultWheelJointDef({ ...defaultJointDef(), bodyIdA: a, bodyIdB: b }),
+            ).joint,
         [
             ...range(J.WHJ_MAX_SPIN_TORQUE, 2),
             ...range(J.WHJ_LOWER_SUSPENSION_LIMIT, 4),
@@ -46,36 +104,32 @@ const kinds: [string, (world: PhysicsWorld, a: Body, b: Body) => Joint, number[]
 
 for (const [name, create, fields] of kinds) {
     test(`${name} creation rebuilds its definition and zeroes impulses and solver scratch in a reused slot`, () => {
-        const world = new PhysicsWorld();
+        const world = createTestWorld();
         try {
-            const a = world.createBody();
-            const b = world.createBody({ type: BodyType.Dynamic });
-            const k = kernel(world.state.ecsState);
-            const words = (joint: Joint) => {
-                k.bodySetActiveWorld(world.state.worldId);
-                return new Uint32Array(
-                    k.memory.buffer,
-                    k.jointSimPtr(joint.id.index1 - 1),
-                    J.JOINT_STRIDE,
-                );
+            const a = createTestBody(world);
+            const b = createTestBody(world, { type: BodyType.Dynamic });
+            const k = kernel(world.ecsState);
+            const words = (joint: number) => {
+                k.bodySetActiveWorld(world.worldId);
+                return new Uint32Array(k.memory.buffer, k.jointSimPtr(joint), J.JOINT_STRIDE);
             };
             const scratch = range(J.J_PAYLOAD, J.JOINT_STRIDE - J.J_PAYLOAD).filter(
                 (i) => !fields.includes(i),
             );
-            const definition = (joint: Joint) => fields.map((i) => words(joint)[i]);
-            const zeroes = (joint: Joint) => scratch.map((i) => words(joint)[i]);
+            const definition = (joint: number) => fields.map((i) => words(joint)[i]);
+            const zeroes = (joint: number) => scratch.map((i) => words(joint)[i]);
             const first = create(world, a, b);
             const expectedDefinition = definition(first);
             expect(zeroes(first)).toEqual(Array(scratch.length).fill(0));
             words(first).fill(0x41200000, J.J_PAYLOAD, J.JOINT_STRIDE);
-            const id = first.id.index1;
-            first.destroy();
+            const index1 = first + 1;
+            destroyJointInternal(world, first, true);
             const second = create(world, a, b);
-            expect(second.id.index1).toBe(id);
+            expect(second + 1).toBe(index1);
             expect(definition(second)).toEqual(expectedDefinition);
             expect(zeroes(second)).toEqual(Array(scratch.length).fill(0));
         } finally {
-            world.destroy();
+            destroyTestWorld(world);
         }
     });
 }

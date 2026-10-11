@@ -14,8 +14,12 @@ import {
     islandKernel,
     removeIslandBody,
 } from "../kernel/islandcolumns";
-import { physicsWorld } from "../runtime";
+import { physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
+import { defaultJointDef } from "../solver/joint";
+import { createTestBody, testShapeDef } from "../testing";
 import { PhysicsWorldDefinition } from "../world-definition";
 
 export let controlSink: { frame: number } | undefined;
@@ -25,19 +29,26 @@ export const control = () => {
 
 export default async function create() {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const physics = physicsWorld(app.world)!;
+    const state = physicsState(app.world)!;
     app.world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
     const hull = makeBoxHull(0.5, 0.5, 0.5);
     const bodies = [0, 0.9, 1.8].map((x) => {
-        const body = physics.createBody({ type: BodyType.Dynamic, position: { x, y: 0, z: 0 } });
-        body.createHull({ density: 1 }, hull);
+        const body = createTestBody(state, { type: BodyType.Dynamic, position: { x, y: 0, z: 0 } });
+        createHullShape(state, body, testShapeDef({ density: 1 }), hull);
         return body;
     });
-    physics.createDistanceJoint(bodies[0], bodies[1], { length: 0.9, collideConnected: true });
+    createDistanceJoint(state, {
+        ...defaultDistanceJointDef({
+            ...defaultJointDef(),
+            bodyIdA: bodies[0]!,
+            bodyIdB: bodies[1]!,
+            collideConnected: true,
+        }),
+        length: 0.9,
+    });
     app.world.step(1 / 60);
-    const state = physics.state;
     const kernel = islandKernel(state);
-    const ids = bodies.map((body) => body.id.index1 - 1);
+    const ids = bodies;
     const contacts = Array.from({ length: awakeContactCount(state) }, (_, i) =>
         awakeContactGet(state, i),
     );

@@ -1,771 +1,562 @@
-import { JointField, setJointField } from "../kernel/jointrecords";
-// Fast-tier joint behavior (Box3D's test_joint.c essence + the collideConnected filter). The
-// bit-exact solve math is covered by step.fixture.ts; here we exercise the public handle lifecycle,
-// the joint-connected contact filter, and that each joint type actually constrains its bodies.
-
+// Direct-state joint behavior checks. Wrapper-specific accessor tests left with the removed handle API;
+// kernel creation, ordering, filtering, solver response and output are exercised over state and IDs.
 import { expect, test } from "bun:test";
+import { f32, froundConfig, quat, type Vec3, vec3 } from "../common/math";
+import { BodyType, type WorldDef } from "../common/types";
+import { readSimCenter, readStateAngularVelocity } from "../kernel/bodycolumns";
+import { JointField, jointField, setJointField } from "../kernel/jointrecords";
+import { makeBoxHull, makeCubeHull } from "../shapes/hull";
+import { createHullShape, createSphereShape } from "../shapes/shape";
+import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
 import {
-    type Body,
-    BodyType,
-    type Joint,
+    createFilterJoint,
+    defaultJointDef,
+    destroyJointInternal,
+    getJointConstraintForce,
+    getJointConstraintTorque,
+    type JointDef,
     JointType,
-    makeBoxHull,
-    makeCubeHull,
-    PhysicsWorld,
-    type Vec3,
-} from "../api/index";
-import { LINEAR_SLOP } from "../common/constants";
-import { f32, froundConfig, PI, quat, vec3 } from "../common/math";
-
-function frame(x: number, y: number, z: number) {
-    return { p: { x, y, z }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-}
+    jointIsValid,
+} from "../solver/joint";
+import { createMotorJoint, defaultMotorJointDef } from "../solver/motorJoint";
+import { createParallelJoint, defaultParallelJointDef } from "../solver/parallelJoint";
+import {
+    createPrismaticJoint,
+    defaultPrismaticJointDef,
+    prismaticJointSpeed,
+} from "../solver/prismaticJoint";
+import { createRevoluteJoint, defaultRevoluteJointDef } from "../solver/revoluteJoint";
+import { createSphericalJoint, defaultSphericalJointDef } from "../solver/sphericalJoint";
+import { createWeldJoint, defaultWeldJointDef } from "../solver/weldJoint";
+import { createWheelJoint, defaultWheelJointDef } from "../solver/wheelJoint";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import {
+    bodyGetLinearVelocity,
+    bodyIsAwake,
+    getBodySim,
+    getBodyState,
+    getMassData,
+    readBodyTransform,
+} from "../world/body";
+import type { WorldState } from "../world/world";
+import { worldCounters } from "../world/world";
 
 const len = (v: Vec3): number => Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+const frame = (x = 0, y = 0, z = 0) => ({ p: { x, y, z }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } });
+const identityPose = () => ({ p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } });
+const baseDef = (a: number, b: number, fields: Partial<JointDef> = {}): JointDef => ({
+    ...defaultJointDef(),
+    bodyIdA: a,
+    bodyIdB: b,
+    ...fields,
+});
+function addHull(
+    world: WorldState,
+    body: number,
+    hull: ReturnType<typeof makeBoxHull>,
+    density = 1,
+): void {
+    createHullShape(world, body, testShapeDef({ density }), hull);
+}
+const baseJointKeys = [
+    "localFrameA",
+    "localFrameB",
+    "collideConnected",
+    "constraintHertz",
+    "constraintDampingRatio",
+    "forceThreshold",
+    "torqueThreshold",
+    "drawScale",
+    "userData",
+];
+function splitJointFields(
+    fields: Record<string, unknown>,
+): [Partial<JointDef>, Record<string, unknown>] {
+    const base: Record<string, unknown> = {};
+    const specific = { ...fields };
+    for (const key of baseJointKeys) {
+        if (key in fields) {
+            base[key] = fields[key];
+            delete specific[key];
+        }
+    }
+    return [base as Partial<JointDef>, specific];
+}
+function revolute(world: WorldState, a: number, b: number, fields: Record<string, unknown> = {}) {
+    const [base, specific] = splitJointFields(fields);
+    return createRevoluteJoint(world, {
+        ...defaultRevoluteJointDef(baseDef(a, b, base)),
+        ...specific,
+    } as Parameters<typeof createRevoluteJoint>[1]).joint;
+}
+function prismatic(world: WorldState, a: number, b: number, fields: Record<string, unknown> = {}) {
+    const [base, specific] = splitJointFields(fields);
+    return createPrismaticJoint(world, {
+        ...defaultPrismaticJointDef(baseDef(a, b, base)),
+        ...specific,
+    } as Parameters<typeof createPrismaticJoint>[1]).joint;
+}
+function spherical(world: WorldState, a: number, b: number, fields: Record<string, unknown> = {}) {
+    const [base, specific] = splitJointFields(fields);
+    return createSphericalJoint(world, {
+        ...defaultSphericalJointDef(baseDef(a, b, base)),
+        ...specific,
+    } as Parameters<typeof createSphericalJoint>[1]).joint;
+}
+function weld(world: WorldState, a: number, b: number, fields: Record<string, unknown> = {}) {
+    const [base, specific] = splitJointFields(fields);
+    return createWeldJoint(world, {
+        ...defaultWeldJointDef(baseDef(a, b, base)),
+        ...specific,
+    } as Parameters<typeof createWeldJoint>[1]).joint;
+}
+function parallel(world: WorldState, a: number, b: number, fields: Record<string, unknown> = {}) {
+    const [base, specific] = splitJointFields(fields);
+    return createParallelJoint(world, {
+        ...defaultParallelJointDef(baseDef(a, b, base)),
+        ...specific,
+    } as Parameters<typeof createParallelJoint>[1]).joint;
+}
+function motor(world: WorldState, a: number, b: number, fields: Record<string, unknown> = {}) {
+    const [base, specific] = splitJointFields(fields);
+    return createMotorJoint(world, {
+        ...defaultMotorJointDef(baseDef(a, b, base)),
+        ...specific,
+    } as Parameters<typeof createMotorJoint>[1]).joint;
+}
+function wheel(world: WorldState, a: number, b: number, fields: Record<string, unknown> = {}) {
+    const [base, specific] = splitJointFields(fields);
+    return createWheelJoint(world, {
+        ...defaultWheelJointDef(baseDef(a, b, base)),
+        ...specific,
+    } as Parameters<typeof createWheelJoint>[1]).joint;
+}
+function distance(world: WorldState, a: number, b: number, fields: Record<string, unknown> = {}) {
+    const [base, specific] = splitJointFields(fields);
+    return createDistanceJoint(world, {
+        ...defaultDistanceJointDef(baseDef(a, b, base)),
+        ...specific,
+    } as Parameters<typeof createDistanceJoint>[1]).joint;
+}
+function position(world: WorldState, body: number) {
+    return readBodyTransform(world, body, identityPose()).p;
+}
+function angularVelocity(world: WorldState, body: number): Vec3 {
+    const state = getBodyState(world, body);
+    return state === null ? vec3.zero() : readStateAngularVelocity(world, state, vec3.zero());
+}
+function rig(def: Partial<WorldDef> = {}) {
+    const world = createTestWorld({ gravity: vec3.zero(), ...def });
+    const anchor = createTestBody(world);
+    const body = createTestBody(world, { type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
+    addHull(world, body, makeCubeHull(0.5));
+    return { world, anchor, body };
+}
 
-test("joint generations wrap at sixteen bits as Box3D handles do", () => {
-    const world = new PhysicsWorld();
+// A recycled numeric slot is not a live joint identity unless its generation also matches.
+test("joint generations wrap at sixteen bits in the kernel slot", () => {
+    const { world, anchor, body } = rig();
     try {
-        const a = world.createBody();
-        const b = world.createBody({ type: BodyType.Dynamic });
-        const first = world.createFilterJoint(a, b);
-        const index = first.id.index1 - 1;
-        first.destroy();
-        setJointField(world.state, index, JointField.generation, 0xfffe);
-        const last = world.createFilterJoint(a, b);
-        expect(last.id.generation).toBe(0xffff);
-        last.destroy();
-        const wrapped = world.createFilterJoint(a, b);
-        expect(wrapped.id.index1 - 1).toBe(index);
-        expect(wrapped.id.generation).toBe(0);
-        expect(last.isValid()).toBe(false);
-        wrapped.destroy();
-        expect(world.createFilterJoint(a, b).id.generation).toBe(1);
+        const first = createFilterJoint(world, baseDef(anchor, body)).joint;
+        setJointField(world, first, JointField.generation, 0xfffe);
+        const stale = { index1: first + 1, world0: world.worldId, generation: 0xfffe };
+        destroyJointInternal(world, first, true);
+        const last = createFilterJoint(world, baseDef(anchor, body)).joint;
+        expect(last).toBe(first);
+        expect(jointField(world, last, JointField.generation)).toBe(0xffff);
+        expect(jointIsValid(world, stale)).toBe(false);
+        destroyJointInternal(world, last, true);
+        const wrapped = createFilterJoint(world, baseDef(anchor, body)).joint;
+        expect(wrapped).toBe(first);
+        expect(jointField(world, wrapped, JointField.generation)).toBe(0);
+        destroyJointInternal(world, wrapped, true);
+        expect(
+            jointField(
+                world,
+                createFilterJoint(world, baseDef(anchor, body)).joint,
+                JointField.generation,
+            ),
+        ).toBe(1);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
-function pendulum(): { physicsWorld: PhysicsWorld; joint: Joint } {
-    const physicsWorld = new PhysicsWorld({
-        gravity: { x: 0, y: -10, z: 0 },
-        enableContinuous: false,
-    });
-    const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
-    const arm = physicsWorld.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
-    arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-    const joint = physicsWorld.createRevoluteJoint(anchor, arm, {
-        localFrameA: frame(0, 0, 0),
-        localFrameB: frame(-1, 0, 0),
-    });
-    return { physicsWorld, joint };
-}
-
-test("prismatic speed scratch preserves the f32 anchor and rotating-axis terms", () => {
-    const world = new PhysicsWorld({ gravity: vec3.zero() });
+test("prismatic speed uses f32 anchors, center offsets and rotating-axis terms", () => {
+    const world = createTestWorld({ gravity: vec3.zero() });
     try {
-        const a = world.createBody({
+        const a = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 1.2, y: 2.3, z: 3.4 },
             rotation: quat.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4),
             linearVelocity: { x: 0.1, y: 0.2, z: 0.3 },
             angularVelocity: { x: 0.4, y: 0.5, z: 0.6 },
         });
-        const b = world.createBody({
+        const b = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 4.5, y: 5.6, z: 6.7 },
             rotation: quat.fromAxisAngle({ x: 1, y: 0, z: 0 }, 0.7),
             linearVelocity: { x: 0.7, y: 0.8, z: 0.9 },
             angularVelocity: { x: 1.1, y: 1.2, z: 1.3 },
         });
-        a.createSphere({}, { center: { x: 0.2, y: 0.3, z: 0.4 }, radius: 0.5 });
-        b.createSphere({}, { center: { x: 0.3, y: 0.4, z: 0.5 }, radius: 0.5 });
+        createSphereShape(world, a, testShapeDef(), {
+            center: { x: 0.2, y: 0.3, z: 0.4 },
+            radius: 0.5,
+        });
+        createSphereShape(world, b, testShapeDef(), {
+            center: { x: 0.3, y: 0.4, z: 0.5 },
+            radius: 0.5,
+        });
         const localFrameA = froundConfig({
             p: { x: 0.6, y: 0.7, z: 0.8 },
             q: quat.fromAxisAngle({ x: 0, y: 0, z: 1 }, 0.3),
         });
         const localFrameB = froundConfig(frame(0.9, 1.1, 1.2));
-        const joint = world.createPrismaticJoint(a, b, { localFrameA, localFrameB });
-        const qA = a.getRotation();
-        const qB = b.getRotation();
-        const axis = quat.rotate(qA, quat.rotate(localFrameA.q, vec3.axisX()));
-        const rA = quat.rotate(qA, vec3.sub(localFrameA.p, a.getMassData().center));
-        const rB = quat.rotate(qB, vec3.sub(localFrameB.p, b.getMassData().center));
-        const d = vec3.add(
-            vec3.sub(b.getWorldCenterOfMass(), a.getWorldCenterOfMass()),
-            vec3.sub(rB, rA),
-        );
-        const wA = a.getAngularVelocity();
-        const wB = b.getAngularVelocity();
-        const vRel = vec3.sub(
-            vec3.add(b.getLinearVelocity(), vec3.cross(wB, rB)),
-            vec3.add(a.getLinearVelocity(), vec3.cross(wA, rA)),
-        );
+        const joint = prismatic(world, a, b, { localFrameA, localFrameB });
+        const poseA = readBodyTransform(world, a, identityPose());
+        const poseB = readBodyTransform(world, b, identityPose());
+        const centerA = getMassData(world, a).center;
+        const centerB = getMassData(world, b).center;
+        const axis = quat.rotate(poseA.q, quat.rotate(localFrameA.q, vec3.axisX()));
+        const rA = quat.rotate(poseA.q, vec3.sub(localFrameA.p, centerA));
+        const rB = quat.rotate(poseB.q, vec3.sub(localFrameB.p, centerB));
+        const centerAWorld = readSimCenter(world, getBodySim(world, a), vec3.zero());
+        const centerBWorld = readSimCenter(world, getBodySim(world, b), vec3.zero());
+        const d = vec3.add(vec3.sub(centerBWorld, centerAWorld), vec3.sub(rB, rA));
+        const wA = angularVelocity(world, a);
+        const wB = angularVelocity(world, b);
+        const vA = bodyGetLinearVelocity(world, a, vec3.zero());
+        const vB = bodyGetLinearVelocity(world, b, vec3.zero());
+        const vRel = vec3.sub(vec3.add(vB, vec3.cross(wB, rB)), vec3.add(vA, vec3.cross(wA, rA)));
         const expected = f32(vec3.dot(d, vec3.cross(wA, axis)) + vec3.dot(axis, vRel));
-        expect(joint.getSpeed()).toBe(expected);
-        expect(joint.getSpeed()).toBe(expected);
+        expect(prismaticJointSpeed(world, joint)).toBe(expected);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
-test("a joint handle kept past its destroy resolves again once its slot is reused, so a stale reference would silently drive somebody else's constraint", () => {
-    const { physicsWorld, joint } = pendulum();
-    const anchor = joint.getBodies()[0];
-    joint.destroy();
-    // Recreate: same slot, bumped generation — the stale handle must not resolve.
-    const arm2 = physicsWorld.createBody({
-        type: BodyType.Dynamic,
-        position: { x: 1, y: 5, z: 0 },
-    });
-    arm2.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-    physicsWorld.createRevoluteJoint(anchor, arm2, { localFrameA: frame(0, 0, 0) });
-    expect(joint.isValid()).toBe(false);
-    physicsWorld.destroy();
-});
-
-test("the joint-connected contact filter ignores collideConnected, so two jointed touching bodies would either fight their own contact or pass through each other against the caller's setting", () => {
-    // Two adjacent dynamic boxes that touch. With collideConnected off (default) the joint must
-    // filter the contact between them; on, the contact is created.
-    function twoTouching(collide: boolean): number {
-        const physicsWorld = new PhysicsWorld({
-            gravity: { x: 0, y: 0, z: 0 },
-            enableContinuous: false,
-        });
-        const a = physicsWorld.createBody({
-            type: BodyType.Dynamic,
-            position: { x: 0, y: 5, z: 0 },
-        });
-        a.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
-        const b = physicsWorld.createBody({
-            type: BodyType.Dynamic,
-            position: { x: 1, y: 5, z: 0 },
-        });
-        b.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
-        physicsWorld.createRevoluteJoint(a, b, {
-            localFrameA: frame(0.5, 0, 0),
-            localFrameB: frame(-0.5, 0, 0),
-            collideConnected: collide,
-        });
-        physicsWorld.step(1 / 60, 4);
-        const contacts = physicsWorld.getCounters().contactCount;
-        physicsWorld.destroy();
-        return contacts;
-    }
-
-    expect(twoTouching(false)).toBe(0);
-    expect(twoTouching(true)).toBe(1);
-});
-
-test("a revolute joint does not hold its hinge point, so a pendulum arm would drift away from its anchor or carry no constraint force", () => {
-    const { physicsWorld, joint } = pendulum();
-    for (let i = 0; i < 60; ++i) {
-        physicsWorld.step(1 / 60, 4);
-    }
-    // The arm's pivot (its local (-1,0,0)) must stay near the anchor at (0,5,0): the arm swings
-    // down but the hinge point holds, so the arm center stays ~1 unit from the anchor.
-    const arm = joint.getBodies()[1];
-    const c = arm.getPosition();
-    const dist = len({ x: c.x - 0, y: c.y - 5, z: c.z - 0 });
-    expect(dist).toBeGreaterThan(0.9);
-    expect(dist).toBeLessThan(1.1);
-    // Under gravity the hinge carries load, so the constraint force is non-zero.
-    const force = len(joint.getConstraintForce());
-    expect(force).toBeGreaterThan(0);
-    physicsWorld.destroy();
-});
-
-test("a weld joint lets its body sag, so a welded box would fall away from its start pose under gravity", () => {
-    const physicsWorld = new PhysicsWorld({
-        gravity: { x: 0, y: -10, z: 0 },
-        enableContinuous: false,
-    });
-    const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
-    const box = physicsWorld.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
-    box.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
-    const joint = physicsWorld.createWeldJoint(anchor, box, {
-        localFrameA: frame(0, -1, 0),
-        localFrameB: frame(0, 0, 0),
-    });
-    for (let i = 0; i < 90; ++i) physicsWorld.step(1 / 60, 4);
-    // Welded to the static anchor, the box hangs at its start pose; the weld carries its weight.
-    const p = box.getPosition();
-    expect(len({ x: p.x, y: p.y - 4, z: p.z })).toBeLessThan(0.05);
-    expect(len(joint.getConstraintForce())).toBeGreaterThan(0);
-    physicsWorld.destroy();
-});
-
-test("a parallel joint carries no constraint torque, so a body spinning off its partner's axis would never be pulled back into alignment", () => {
-    const physicsWorld = new PhysicsWorld({
-        gravity: { x: 0, y: -10, z: 0 },
-        enableContinuous: false,
-    });
-    const a = physicsWorld.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
-    a.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-    const b = physicsWorld.createBody({
-        type: BodyType.Dynamic,
-        position: { x: 1, y: 5, z: 0 },
-        angularVelocity: { x: 3, y: 2, z: 0 },
-    });
-    b.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-    const joint = physicsWorld.createParallelJoint(a, b, { maxTorque: 5 });
-    for (let i = 0; i < 30; ++i) physicsWorld.step(1 / 60, 4);
-    // The joint resists the off-axis spin, so it carries a non-zero constraint torque.
-    expect(joint.getType()).toBe(JointType.Parallel);
-    expect(len(joint.getConstraintTorque())).toBeGreaterThan(0);
-    physicsWorld.destroy();
-});
-
-test("a motor joint's target angular velocity does not set which way its body turns, so a driven arm would spin the same way whatever sign the caller asks for", () => {
-    // The arm's absolute spin mixes the motor drive with the gravity-driven swing, so assert the
-    // motor's *effect*: flipping the target's sign flips which way the arm ends up spinning.
-    function armSpinZ(targetZ: number): number {
-        const physicsWorld = new PhysicsWorld({
-            gravity: { x: 0, y: -10, z: 0 },
-            enableContinuous: false,
-        });
-        const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const arm = physicsWorld.createBody({
-            type: BodyType.Dynamic,
-            position: { x: 1, y: 5, z: 0 },
-        });
-        arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-        physicsWorld.createMotorJoint(anchor, arm, {
-            localFrameA: frame(0, 0, 0),
-            localFrameB: frame(-1, 0, 0),
-            maxVelocityForce: 1000,
-            angularVelocity: { x: 0, y: 0, z: targetZ },
-            maxVelocityTorque: 500,
-        });
-        for (let i = 0; i < 60; ++i) physicsWorld.step(1 / 60, 4);
-        const wz = arm.getAngularVelocity().z;
-        physicsWorld.destroy();
-        return wz;
-    }
-
-    expect(armSpinZ(5)).toBeGreaterThan(armSpinZ(-5));
-});
-
-test("a prismatic joint ignores its translation limit or lets gravity pull the slider off its axis, so a driven slider would overshoot or drop off its rail", () => {
-    const physicsWorld = new PhysicsWorld({
-        gravity: { x: 0, y: -10, z: 0 },
-        enableContinuous: false,
-    });
-    const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
-    const slider = physicsWorld.createBody({
-        type: BodyType.Dynamic,
-        position: { x: 0, y: 5, z: 0 },
-    });
-    slider.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
-    const joint = physicsWorld.createPrismaticJoint(anchor, slider, {
-        enableMotor: true,
-        motorSpeed: 3,
-        maxMotorForce: 1000,
-        enableLimit: true,
-        lowerTranslation: -2,
-        upperTranslation: 2,
-    });
-    for (let i = 0; i < 180; ++i) physicsWorld.step(1 / 60, 4);
-    // The motor drives it along body A's x to the upper limit (~2); the point-to-line + rotation
-    // constraints hold it on the axis, so gravity never drops it off y = 5.
-    const p = slider.getPosition();
-    expect(p.x).toBeGreaterThan(1.8);
-    expect(p.x).toBeLessThan(2.05);
-    expect(Math.abs(p.y - 5)).toBeLessThan(0.1);
-    expect(len(joint.getConstraintForce())).toBeGreaterThan(0);
-    physicsWorld.destroy();
-});
-
-test("a spherical joint does not pin its pivot point, so a ball-jointed arm would drift off its socket while it swings", () => {
-    const physicsWorld = new PhysicsWorld({
-        gravity: { x: 0, y: -10, z: 0 },
-        enableContinuous: false,
-    });
-    const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
-    const arm = physicsWorld.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 5, z: 0 } });
-    arm.createHull({}, makeBoxHull(1.0, 0.2, 0.2));
-    const joint = physicsWorld.createSphericalJoint(anchor, arm, { localFrameB: frame(-1, 0, 0) });
-    for (let i = 0; i < 90; ++i) physicsWorld.step(1 / 60, 4);
-    const c = arm.getPosition();
-    const dist = len({ x: c.x, y: c.y - 5, z: c.z });
-    expect(dist).toBeGreaterThan(0.9);
-    expect(dist).toBeLessThan(1.1);
-    expect(len(joint.getConstraintForce())).toBeGreaterThan(0);
-    physicsWorld.destroy();
-});
-
-test("a wheel joint's spin motor ignores the sign of its target speed, so a vehicle wheel would turn the same way in forward and reverse", () => {
-    function wheelSpin(speed: number): number {
-        const physicsWorld = new PhysicsWorld({
-            gravity: { x: 0, y: -10, z: 0 },
-            enableContinuous: false,
-        });
-        const chassis = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
-        const wheel = physicsWorld.createBody({
-            type: BodyType.Dynamic,
-            position: { x: 0, y: 5, z: 0 },
-        });
-        wheel.createHull({}, makeBoxHull(0.3, 0.3, 0.3));
-        physicsWorld.createWheelJoint(chassis, wheel, {
-            enableSpinMotor: true,
-            spinSpeed: speed,
-            maxSpinTorque: 50,
-        });
-        for (let i = 0; i < 60; ++i) physicsWorld.step(1 / 60, 4);
-        const wz = wheel.getAngularVelocity().z;
-        physicsWorld.destroy();
-        return wz;
-    }
-
-    expect(wheelSpin(10)).toBeGreaterThan(wheelSpin(-10));
-});
-
-test("a filter joint fails to suppress the contact between its pair, so two overlapping bodies deliberately excluded from each other would still push apart", () => {
-    // A filter joint carries no constraint; it exists only to suppress the contact between its bodies.
-    function twoTouching(filtered: boolean): number {
-        const physicsWorld = new PhysicsWorld({
-            gravity: { x: 0, y: 0, z: 0 },
-            enableContinuous: false,
-        });
-        const a = physicsWorld.createBody({
-            type: BodyType.Dynamic,
-            position: { x: 0, y: 5, z: 0 },
-        });
-        a.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
-        const b = physicsWorld.createBody({
-            type: BodyType.Dynamic,
-            position: { x: 1, y: 5, z: 0 },
-        });
-        b.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
-        if (filtered) {
-            const joint = physicsWorld.createFilterJoint(a, b);
-            expect(joint.getType()).toBe(JointType.Filter);
+test("joint filtering suppresses a touching pair only when collideConnected is false", () => {
+    function contacts(collide: boolean): number {
+        const world = createTestWorld({ gravity: vec3.zero(), enableContinuous: false });
+        try {
+            const a = createTestBody(world, {
+                type: BodyType.Dynamic,
+                position: { x: 0, y: 5, z: 0 },
+            });
+            const b = createTestBody(world, {
+                type: BodyType.Dynamic,
+                position: { x: 1, y: 5, z: 0 },
+            });
+            addHull(world, a, makeBoxHull(0.5, 0.5, 0.5));
+            addHull(world, b, makeBoxHull(0.5, 0.5, 0.5));
+            revolute(world, a, b, {
+                collideConnected: collide,
+                localFrameA: frame(0.5),
+                localFrameB: frame(-0.5),
+            });
+            stepTestWorld(world, 1 / 60, 4);
+            return worldCounters(world).contactCount;
+        } finally {
+            destroyTestWorld(world);
         }
-        physicsWorld.step(1 / 60, 4);
-        const contacts = physicsWorld.getCounters().contactCount;
-        physicsWorld.destroy();
-        return contacts;
     }
-
-    expect(twoTouching(true)).toBe(0);
-    expect(twoTouching(false)).toBe(1);
+    expect(contacts(false)).toBe(0);
+    expect(contacts(true)).toBe(1);
 });
 
-test("a multi-joint island never reaches sleep, so a settled ragdoll would keep every one of its bodies awake and burning solver time forever", () => {
-    // A mixed-joint island (torso + 2 spherical-shouldered arms + 2 revolute-hipped legs) falls
-    // onto the ground, settles, and sleeps as a unit.
-    const physicsWorld = new PhysicsWorld({
-        gravity: { x: 0, y: -10, z: 0 },
-        enableContinuous: false,
-    });
-    const ground = physicsWorld.createBody({ position: { x: 0, y: -1, z: 0 } });
-    ground.createHull({}, makeBoxHull(20, 1, 20));
-    const torso = physicsWorld.createBody({
-        type: BodyType.Dynamic,
-        position: { x: 0, y: 3, z: 0 },
-        angularDamping: 0.5,
-        linearDamping: 0.5,
-    });
-    torso.createHull({}, makeBoxHull(0.25, 0.5, 0.25));
-    const mkLimb = (x: number, y: number, box: [number, number, number]) => {
-        const b = physicsWorld.createBody({
+test("revolute joint holds a pendulum pivot and carries load", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    try {
+        const anchor = createTestBody(world, { position: { x: 0, y: 5, z: 0 } });
+        const arm = createTestBody(world, {
             type: BodyType.Dynamic,
-            position: { x, y, z: 0 },
+            position: { x: 1, y: 5, z: 0 },
+        });
+        addHull(world, arm, makeBoxHull(1, 0.2, 0.2));
+        const joint = revolute(world, anchor, arm, {
+            localFrameA: frame(),
+            localFrameB: frame(-1),
+        });
+        for (let i = 0; i < 60; ++i) stepTestWorld(world, 1 / 60, 4);
+        const p = position(world, arm);
+        const radius = len({ x: p.x, y: p.y - 5, z: p.z });
+        expect(radius).toBeGreaterThan(0.9);
+        expect(radius).toBeLessThan(1.1);
+        expect(len(getJointConstraintForce(world, joint))).toBeGreaterThan(0);
+    } finally {
+        destroyTestWorld(world);
+    }
+});
+
+test("weld joint keeps its body at the authored pose and carries load", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    try {
+        const anchor = createTestBody(world, { position: { x: 0, y: 5, z: 0 } });
+        const box = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 4, z: 0 },
+        });
+        addHull(world, box, makeBoxHull(0.25, 0.25, 0.25));
+        const joint = weld(world, anchor, box, { localFrameA: frame(0, -1), localFrameB: frame() });
+        for (let i = 0; i < 90; ++i) stepTestWorld(world, 1 / 60, 4);
+        expect(
+            len({
+                x: position(world, box).x,
+                y: position(world, box).y - 4,
+                z: position(world, box).z,
+            }),
+        ).toBeLessThan(0.05);
+        expect(len(getJointConstraintForce(world, joint))).toBeGreaterThan(0);
+    } finally {
+        destroyTestWorld(world);
+    }
+});
+
+test("parallel joint resists off-axis spin with constraint torque", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    try {
+        const a = createTestBody(world, { type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
+        const b = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 1, y: 5, z: 0 },
+            angularVelocity: { x: 3, y: 2, z: 0 },
+        });
+        addHull(world, a, makeBoxHull(0.2, 0.2, 0.2));
+        addHull(world, b, makeBoxHull(0.2, 0.2, 0.2));
+        const joint = parallel(world, a, b, { maxTorque: 5 });
+        for (let i = 0; i < 30; ++i) stepTestWorld(world, 1 / 60, 4);
+        expect(jointField(world, joint, JointField.type)).toBe(JointType.Parallel);
+        expect(len(getJointConstraintTorque(world, joint))).toBeGreaterThan(0);
+    } finally {
+        destroyTestWorld(world);
+    }
+});
+
+test("motor joint target speed controls which way its body spins", () => {
+    function spin(targetZ: number): number {
+        const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+        try {
+            const anchor = createTestBody(world, { position: { x: 0, y: 5, z: 0 } });
+            const arm = createTestBody(world, {
+                type: BodyType.Dynamic,
+                position: { x: 1, y: 5, z: 0 },
+            });
+            addHull(world, arm, makeBoxHull(1, 0.2, 0.2));
+            motor(world, anchor, arm, {
+                localFrameA: frame(),
+                localFrameB: frame(-1),
+                maxVelocityForce: 1000,
+                angularVelocity: { x: 0, y: 0, z: targetZ },
+                maxVelocityTorque: 500,
+            });
+            for (let i = 0; i < 60; ++i) stepTestWorld(world, 1 / 60, 4);
+            return angularVelocity(world, arm).z;
+        } finally {
+            destroyTestWorld(world);
+        }
+    }
+    expect(spin(5)).toBeGreaterThan(spin(-5));
+});
+
+test("prismatic joint motor reaches its translation limit without falling off the axis", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    try {
+        const anchor = createTestBody(world, { position: { x: 0, y: 5, z: 0 } });
+        const slider = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 5, z: 0 },
+        });
+        addHull(world, slider, makeBoxHull(0.25, 0.25, 0.25));
+        const joint = prismatic(world, anchor, slider, {
+            enableMotor: true,
+            motorSpeed: 3,
+            maxMotorForce: 1000,
+            enableLimit: true,
+            lowerTranslation: -2,
+            upperTranslation: 2,
+        });
+        for (let i = 0; i < 180; ++i) stepTestWorld(world, 1 / 60, 4);
+        const p = position(world, slider);
+        expect(p.x).toBeGreaterThan(1.8);
+        expect(p.x).toBeLessThan(2.1);
+        expect(Math.abs(p.y - 5)).toBeLessThan(0.1);
+        expect(len(getJointConstraintForce(world, joint))).toBeGreaterThan(0);
+    } finally {
+        destroyTestWorld(world);
+    }
+});
+
+test("spherical joint holds its pivot while its arm swings", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    try {
+        const anchor = createTestBody(world, { position: { x: 0, y: 5, z: 0 } });
+        const arm = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 1, y: 5, z: 0 },
+        });
+        addHull(world, arm, makeBoxHull(1, 0.2, 0.2));
+        const joint = spherical(world, anchor, arm, { localFrameB: frame(-1) });
+        for (let i = 0; i < 90; ++i) stepTestWorld(world, 1 / 60, 4);
+        const p = position(world, arm);
+        const radius = len({ x: p.x, y: p.y - 5, z: p.z });
+        expect(radius).toBeGreaterThan(0.9);
+        expect(radius).toBeLessThan(1.1);
+        expect(len(getJointConstraintForce(world, joint))).toBeGreaterThan(0);
+    } finally {
+        destroyTestWorld(world);
+    }
+});
+
+test("wheel joint spin motor follows the sign of its target speed", () => {
+    function spin(speed: number): number {
+        const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+        try {
+            const chassis = createTestBody(world, { position: { x: 0, y: 5, z: 0 } });
+            const body = createTestBody(world, {
+                type: BodyType.Dynamic,
+                position: { x: 0, y: 5, z: 0 },
+            });
+            addHull(world, body, makeBoxHull(0.3, 0.3, 0.3));
+            wheel(world, chassis, body, {
+                enableSpinMotor: true,
+                spinSpeed: speed,
+                maxSpinTorque: 50,
+            });
+            for (let i = 0; i < 60; ++i) stepTestWorld(world, 1 / 60, 4);
+            return angularVelocity(world, body).z;
+        } finally {
+            destroyTestWorld(world);
+        }
+    }
+    expect(spin(10)).toBeGreaterThan(spin(-10));
+});
+
+test("filter joint suppresses contact without adding a solver constraint", () => {
+    function contacts(filtered: boolean): number {
+        const world = createTestWorld({ gravity: vec3.zero(), enableContinuous: false });
+        try {
+            const a = createTestBody(world, {
+                type: BodyType.Dynamic,
+                position: { x: 0, y: 5, z: 0 },
+            });
+            const b = createTestBody(world, {
+                type: BodyType.Dynamic,
+                position: { x: 1, y: 5, z: 0 },
+            });
+            addHull(world, a, makeBoxHull(0.5, 0.5, 0.5));
+            addHull(world, b, makeBoxHull(0.5, 0.5, 0.5));
+            if (filtered) {
+                const joint = createFilterJoint(world, baseDef(a, b)).joint;
+                expect(jointField(world, joint, JointField.type)).toBe(JointType.Filter);
+            }
+            stepTestWorld(world, 1 / 60, 4);
+            return worldCounters(world).contactCount;
+        } finally {
+            destroyTestWorld(world);
+        }
+    }
+    expect(contacts(true)).toBe(0);
+    expect(contacts(false)).toBe(1);
+});
+
+test("mixed-joint island sleeps as one unit", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    try {
+        const ground = createTestBody(world, { position: { x: 0, y: -1, z: 0 } });
+        addHull(world, ground, makeBoxHull(20, 1, 20));
+        const torso = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 3, z: 0 },
             angularDamping: 0.5,
             linearDamping: 0.5,
         });
-        b.createHull({}, makeBoxHull(box[0], box[1], box[2]));
-        return b;
-    };
-    const armL = mkLimb(-0.75, 3.5, [0.5, 0.125, 0.125]);
-    const armR = mkLimb(0.75, 3.5, [0.5, 0.125, 0.125]);
-    const legL = mkLimb(-0.25, 2.0, [0.125, 0.5, 0.125]);
-    const legR = mkLimb(0.25, 2.0, [0.125, 0.5, 0.125]);
-    physicsWorld.createSphericalJoint(torso, armL, {
-        localFrameA: frame(-0.25, 0.5, 0),
-        localFrameB: frame(0.5, 0, 0),
-    });
-    physicsWorld.createSphericalJoint(torso, armR, {
-        localFrameA: frame(0.25, 0.5, 0),
-        localFrameB: frame(-0.5, 0, 0),
-    });
-    physicsWorld.createRevoluteJoint(torso, legL, {
-        localFrameA: frame(-0.25, -0.5, 0),
-        localFrameB: frame(0, 0.5, 0),
-    });
-    physicsWorld.createRevoluteJoint(torso, legR, {
-        localFrameA: frame(0.25, -0.5, 0),
-        localFrameB: frame(0, 0.5, 0),
-    });
-    for (let i = 0; i < 300; ++i) physicsWorld.step(1 / 60, 4);
-    // The whole ragdoll sleeps as one island, so every dynamic body reports not-awake.
-    expect(torso.isAwake()).toBe(false);
-    expect(armL.isAwake()).toBe(false);
-    expect(legR.isAwake()).toBe(false);
-    physicsWorld.destroy();
-});
-
-test("a rigid distance joint lets its length change under load, so a swinging ball on a fixed rope would stretch away from its anchor", () => {
-    const physicsWorld = new PhysicsWorld({
-        gravity: { x: 0, y: -10, z: 0 },
-        enableContinuous: false,
-    });
-    const anchor = physicsWorld.createBody({ position: { x: 0, y: 5, z: 0 } });
-    const ball = physicsWorld.createBody({
-        type: BodyType.Dynamic,
-        position: { x: 2, y: 5, z: 0 },
-    });
-    ball.createHull({}, makeBoxHull(0.2, 0.2, 0.2));
-    const joint = physicsWorld.createDistanceJoint(anchor, ball, { length: 2 });
-    for (let i = 0; i < 120; ++i) physicsWorld.step(1 / 60, 4);
-    // The rigid joint pins the ball at length 2 from the anchor regardless of where it swings.
-    const p = ball.getPosition();
-    const dist = len({ x: p.x - 0, y: p.y - 5, z: p.z - 0 });
-    expect(dist).toBeGreaterThan(1.9);
-    expect(dist).toBeLessThan(2.1);
-    expect(len(joint.getConstraintForce())).toBeGreaterThan(0);
-    physicsWorld.destroy();
-});
-
-// Port of test_joint.c: one check per joint type. Each creates the joint, exercises the shared base
-// API plus every type-specific accessor, then steps to make sure it solves without tripping a
-// validation assert. Values are compared through f32() because the C literals are f32.
-
-function frameP(x: number, y: number, z: number) {
-    return { p: { x, y, z }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-}
-
-// Static ground + a dynamic box, anchored so a point-coincident joint starts satisfied. Gravity off
-// so the body stays put across the handful of steps each check takes.
-function fixture() {
-    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
-    const ground = physicsWorld.createBody({});
-    const body = physicsWorld.createBody({
-        type: BodyType.Dynamic,
-        position: { x: 0, y: 4, z: 0 },
-    });
-    body.createHull({ density: 1 }, makeCubeHull(0.5));
-    return { physicsWorld, ground, body };
-}
-
-// Anchor at the dynamic body so both local frames map to the same world point.
-const commonFrames = {
-    localFrameA: frameP(0, 4, 0),
-    localFrameB: frameP(0, 0, 0),
-};
-
-function finish(joint: Joint, physicsWorld: PhysicsWorld) {
-    for (let i = 0; i < 8; ++i) physicsWorld.step(1 / 60, 4);
-    joint.destroy(true);
-    expect(joint.isValid()).toBe(false);
-    physicsWorld.destroy();
-}
-
-// Exercise the API shared by every joint type. Frames are saved and restored.
-function exerciseBase(joint: Joint, physicsWorld: PhysicsWorld, expectedType: JointType) {
-    expect(joint.isValid()).toBe(true);
-    expect(joint.getType()).toBe(expectedType);
-    const [a, b] = joint.getBodies();
-    expect(a.getType()).toBe(BodyType.Static);
-    expect(b.getType()).toBe(BodyType.Dynamic);
-    expect(joint.getWorld().state).toBe(physicsWorld.state);
-
-    const originalA = joint.getLocalFrameA();
-    const originalB = joint.getLocalFrameB();
-
-    joint.setLocalFrameA(frameP(0.1, 0.2, 0.3));
-    const gotA = joint.getLocalFrameA();
-    expect(gotA.p.x).toBe(f32(0.1));
-    expect(gotA.p.y).toBe(f32(0.2));
-    expect(gotA.p.z).toBe(f32(0.3));
-
-    joint.setLocalFrameB(frameP(-0.4, 0.5, -0.6));
-    const gotB = joint.getLocalFrameB();
-    expect(gotB.p.x).toBe(f32(-0.4));
-    expect(gotB.p.y).toBe(f32(0.5));
-    expect(gotB.p.z).toBe(f32(-0.6));
-
-    joint.setCollideConnected(true);
-    expect(joint.getCollideConnected()).toBe(true);
-    joint.setCollideConnected(false);
-    expect(joint.getCollideConnected()).toBe(false);
-
-    const userData = {};
-    joint.setUserData(userData);
-    expect(joint.getUserData()).toBe(userData);
-
-    joint.setConstraintTuning(90, 3);
-    const tuning = joint.getConstraintTuning();
-    expect(tuning.hertz).toBe(90);
-    expect(tuning.dampingRatio).toBe(3);
-
-    joint.setForceThreshold(100);
-    expect(joint.getForceThreshold()).toBe(100);
-    joint.setTorqueThreshold(200);
-    expect(joint.getTorqueThreshold()).toBe(200);
-
-    joint.wakeBodies();
-
-    joint.setLocalFrameA(originalA);
-    joint.setLocalFrameB(originalB);
-}
-
-type Accessor = [setter: string, args: unknown[], expected: Record<string, unknown>];
-
-const f32v = (x: number, y: number, z: number) => ({ x: f32(x), y: f32(y), z: f32(z) });
-const spring = (hertz: number, ratio: number): Accessor[] => [
-    ["enableSpring", [true], { isSpringEnabled: true }],
-    ["setSpringHertz", [hertz], { getSpringHertz: hertz }],
-    ["setSpringDampingRatio", [ratio], { getSpringDampingRatio: f32(ratio) }],
-];
-const motor = (speed: number): Accessor[] => [
-    ["enableMotor", [true], { isMotorEnabled: true }],
-    ["setMotorSpeed", [speed], { getMotorSpeed: speed }],
-];
-
-const accessorTable: {
-    type: JointType;
-    create: (physicsWorld: PhysicsWorld, ground: Body, body: Body) => Joint;
-    accessors: Accessor[];
-}[] = [
-    {
-        type: JointType.Parallel,
-        create: (w, g, b) =>
-            w.createParallelJoint(g, b, {
-                ...commonFrames,
-                hertz: 2,
-                dampingRatio: 0.5,
-                maxTorque: 100,
-            }),
-        accessors: [
-            ["setSpringHertz", [5], { getSpringHertz: 5 }],
-            ["setSpringDampingRatio", [0.7], { getSpringDampingRatio: f32(0.7) }],
-            ["setMaxTorque", [250], { getMaxTorque: 250 }],
-        ],
-    },
-    {
-        type: JointType.Distance,
-        create: (w, g, b) => w.createDistanceJoint(g, b, { ...commonFrames, length: 2 }),
-        accessors: [
-            ["setLength", [3], { getLength: 3 }],
-            [
-                "setSpringForceRange",
-                [-50, 75],
-                { getSpringForceRange: { lowerForce: -50, upperForce: 75 } },
-            ],
-            ...spring(4, 0.6),
-            ["enableLimit", [true], { isLimitEnabled: true }],
-            ["setLengthRange", [1, 5], { getMinLength: 1, getMaxLength: 5 }],
-            ...motor(1.5),
-            ["setMaxMotorForce", [25], { getMaxMotorForce: 25 }],
-        ],
-    },
-    { type: JointType.Filter, create: (w, g, b) => w.createFilterJoint(g, b), accessors: [] },
-    {
-        type: JointType.Motor,
-        create: (w, g, b) => w.createMotorJoint(g, b, { ...commonFrames }),
-        accessors: [
-            [
-                "setLinearVelocity",
-                [{ x: 1, y: 2, z: 3 }],
-                { getLinearVelocity: { x: 1, y: 2, z: 3 } },
-            ],
-            [
-                "setAngularVelocity",
-                [{ x: 0.1, y: 0.2, z: 0.3 }],
-                { getAngularVelocity: f32v(0.1, 0.2, 0.3) },
-            ],
-            ["setMaxVelocityForce", [500], { getMaxVelocityForce: 500 }],
-            ["setMaxVelocityTorque", [600], { getMaxVelocityTorque: 600 }],
-            ["setLinearHertz", [3], { getLinearHertz: 3 }],
-            ["setLinearDampingRatio", [0.8], { getLinearDampingRatio: f32(0.8) }],
-            ["setAngularHertz", [4], { getAngularHertz: 4 }],
-            ["setAngularDampingRatio", [0.9], { getAngularDampingRatio: f32(0.9) }],
-            ["setMaxSpringForce", [700], { getMaxSpringForce: 700 }],
-            ["setMaxSpringTorque", [800], { getMaxSpringTorque: 800 }],
-        ],
-    },
-    {
-        type: JointType.Prismatic,
-        create: (w, g, b) => w.createPrismaticJoint(g, b, { ...commonFrames }),
-        accessors: [
-            ...spring(5, 0.5),
-            ["setTargetTranslation", [1], { getTargetTranslation: 1 }],
-            ["enableLimit", [true], { isLimitEnabled: true }],
-            ["setLimits", [-2, 2], { getLowerLimit: -2, getUpperLimit: 2 }],
-            ...motor(1.5),
-            ["setMaxMotorForce", [30], { getMaxMotorForce: 30 }],
-        ],
-    },
-    {
-        type: JointType.Revolute,
-        create: (w, g, b) => w.createRevoluteJoint(g, b, { ...commonFrames }),
-        accessors: [
-            ...spring(5, 0.5),
-            ["setTargetAngle", [0.5], { getTargetAngle: 0.5 }],
-            ["enableLimit", [true], { isLimitEnabled: true }],
-            ["setLimits", [-1, 1], { getLowerLimit: -1, getUpperLimit: 1 }],
-            ...motor(2),
-            ["setMaxMotorTorque", [40], { getMaxMotorTorque: 40 }],
-        ],
-    },
-    {
-        type: JointType.Spherical,
-        create: (w, g, b) => w.createSphericalJoint(g, b, { ...commonFrames }),
-        accessors: [
-            ["enableConeLimit", [true], { isConeLimitEnabled: true }],
-            ["setConeLimit", [0.5], { getConeLimit: 0.5 }],
-            ["enableTwistLimit", [true], { isTwistLimitEnabled: true }],
-            ["setTwistLimits", [-0.5, 0.5], { getLowerTwistLimit: -0.5, getUpperTwistLimit: 0.5 }],
-            ...spring(5, 0.5),
-            [
-                "setTargetRotation",
-                [{ v: { x: 0, y: 0, z: Math.SQRT1_2 }, s: Math.SQRT1_2 }],
-                { getTargetRotation: { v: f32v(0, 0, Math.SQRT1_2), s: f32(Math.SQRT1_2) } },
-            ],
-            ["enableMotor", [true], { isMotorEnabled: true }],
-            [
-                "setMotorVelocity",
-                [{ x: 0.1, y: 0.2, z: 0.3 }],
-                { getMotorVelocity: f32v(0.1, 0.2, 0.3) },
-            ],
-            ["setMaxMotorTorque", [50], { getMaxMotorTorque: 50 }],
-        ],
-    },
-    {
-        type: JointType.Weld,
-        create: (w, g, b) => w.createWeldJoint(g, b, { ...commonFrames }),
-        accessors: [
-            ["setLinearHertz", [3], { getLinearHertz: 3 }],
-            ["setLinearDampingRatio", [0.5], { getLinearDampingRatio: 0.5 }],
-            ["setAngularHertz", [4], { getAngularHertz: 4 }],
-            ["setAngularDampingRatio", [0.7], { getAngularDampingRatio: f32(0.7) }],
-        ],
-    },
-    {
-        type: JointType.Wheel,
-        create: (w, g, b) => w.createWheelJoint(g, b, { ...commonFrames }),
-        accessors: [
-            ["enableSuspension", [true], { isSuspensionEnabled: true }],
-            ["setSuspensionHertz", [5], { getSuspensionHertz: 5 }],
-            ["setSuspensionDampingRatio", [0.5], { getSuspensionDampingRatio: 0.5 }],
-            ["enableSuspensionLimit", [true], { isSuspensionLimitEnabled: true }],
-            [
-                "setSuspensionLimits",
-                [-1, 1],
-                { getLowerSuspensionLimit: -1, getUpperSuspensionLimit: 1 },
-            ],
-            ["enableSpinMotor", [true], { isSpinMotorEnabled: true }],
-            ["setSpinMotorSpeed", [6], { getSpinMotorSpeed: 6 }],
-            ["setMaxSpinTorque", [35], { getMaxSpinTorque: 35 }],
-            ["enableSteering", [true], { isSteeringEnabled: true }],
-            ["setSteeringHertz", [7], { getSteeringHertz: 7 }],
-            ["setSteeringDampingRatio", [0.8], { getSteeringDampingRatio: f32(0.8) }],
-            ["setMaxSteeringTorque", [45], { getMaxSteeringTorque: 45 }],
-            ["enableSteeringLimit", [true], { isSteeringLimitEnabled: true }],
-            [
-                "setSteeringLimits",
-                [-0.6, 0.6],
-                { getLowerSteeringLimit: f32(-0.6), getUpperSteeringLimit: f32(0.6) },
-            ],
-            ["setTargetSteeringAngle", [0.25], { getTargetSteeringAngle: 0.25 }],
-        ],
-    },
-];
-
-test("a joint type's type-specific setter does not reach the storage its getter reads, so retuning a hinge, slider, rope, motor, weld, wheel or ball socket from script would silently keep the old value", () => {
-    for (const row of accessorTable) {
-        const { physicsWorld, ground, body } = fixture();
-        const joint = row.create(physicsWorld, ground, body);
-        exerciseBase(joint, physicsWorld, row.type);
-        const methods = joint as unknown as Record<string, (...args: unknown[]) => unknown>;
-        for (const [setter, args, expected] of row.accessors) {
-            methods[setter](...args);
-            for (const [getter, value] of Object.entries(expected)) {
-                expect({ type: row.type, getter, value: methods[getter]() }).toEqual({
-                    type: row.type,
-                    getter,
-                    value,
-                });
-            }
-        }
-        finish(joint, physicsWorld);
+        addHull(world, torso, makeBoxHull(0.25, 0.5, 0.25));
+        const limb = (x: number, y: number, box: [number, number, number]) => {
+            const body = createTestBody(world, {
+                type: BodyType.Dynamic,
+                position: { x, y, z: 0 },
+                angularDamping: 0.5,
+                linearDamping: 0.5,
+            });
+            addHull(world, body, makeBoxHull(...box));
+            return body;
+        };
+        const armL = limb(-0.75, 3.5, [0.5, 0.125, 0.125]);
+        const armR = limb(0.75, 3.5, [0.5, 0.125, 0.125]);
+        const legL = limb(-0.25, 2, [0.125, 0.5, 0.125]);
+        const legR = limb(0.25, 2, [0.125, 0.5, 0.125]);
+        spherical(world, torso, armL, { localFrameA: frame(-0.25, 0.5), localFrameB: frame(0.5) });
+        spherical(world, torso, armR, { localFrameA: frame(0.25, 0.5), localFrameB: frame(-0.5) });
+        revolute(world, torso, legL, {
+            localFrameA: frame(-0.25, -0.5),
+            localFrameB: frame(0, 0.5),
+        });
+        revolute(world, torso, legR, {
+            localFrameA: frame(0.25, -0.5),
+            localFrameB: frame(0, 0.5),
+        });
+        for (let i = 0; i < 300; ++i) stepTestWorld(world, 1 / 60, 4);
+        expect(bodyIsAwake(world, torso)).toBe(false);
+        expect(bodyIsAwake(world, armL)).toBe(false);
+        expect(bodyIsAwake(world, legR)).toBe(false);
+    } finally {
+        destroyTestWorld(world);
     }
 });
 
-// The accessor table above round-trips every accessor with in-order, in-bounds values, so they step
-// past the ordering + clamp branches in the limit/length/force setters. These pin those branches,
-// each observable through the public getters (Box3D's b3*_SetLimits / SetLength / SetMaxSpring*).
-
-function rig() {
-    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
-    const a = physicsWorld.createBody({});
-    const b = physicsWorld.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
-    b.createHull({ density: 1 }, makeCubeHull(0.5));
-    return { physicsWorld, a, b };
-}
-
-test("revolute setLimits stores its arguments unordered or unclamped, so a hinge given reversed or out-of-range angles would hold an empty or wrapped limit range", () => {
-    const { physicsWorld, a, b } = rig();
-    const j = physicsWorld.createRevoluteJoint(a, b);
-    j.setLimits(1, -1); // reversed, so ordered low..high
-    expect(j.getLowerLimit()).toBe(-1);
-    expect(j.getUpperLimit()).toBe(1);
-    const bound = f32(0.99 * PI);
-    j.setLimits(-10, 10); // out of range, so clamped
-    expect(j.getLowerLimit()).toBe(-bound);
-    expect(j.getUpperLimit()).toBe(bound);
-    physicsWorld.destroy();
+test("distance joint holds its authored length under gravity", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    try {
+        const anchor = createTestBody(world, { position: { x: 0, y: 5, z: 0 } });
+        const ball = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 2, y: 5, z: 0 },
+        });
+        addHull(world, ball, makeBoxHull(0.2, 0.2, 0.2));
+        const joint = distance(world, anchor, ball, { length: 2 });
+        for (let i = 0; i < 120; ++i) stepTestWorld(world, 1 / 60, 4);
+        const p = position(world, ball);
+        const d = len({ x: p.x, y: p.y - 5, z: p.z });
+        expect(d).toBeGreaterThan(1.9);
+        expect(d).toBeLessThan(2.1);
+        expect(len(getJointConstraintForce(world, joint))).toBeGreaterThan(0);
+    } finally {
+        destroyTestWorld(world);
+    }
 });
 
-test("prismatic setLimits stores its arguments unordered, so a slider given reversed translations would hold an empty limit range and jam", () => {
-    const { physicsWorld, a, b } = rig();
-    const j = physicsWorld.createPrismaticJoint(a, b);
-    j.setLimits(2, -2);
-    expect(j.getLowerLimit()).toBe(-2);
-    expect(j.getUpperLimit()).toBe(2);
-    physicsWorld.destroy();
-});
-
-test("spherical setTwistLimits stores its arguments unordered or unclamped, so a ball socket given reversed or out-of-range twist angles would hold an empty or wrapped range", () => {
-    const { physicsWorld, a, b } = rig();
-    const j = physicsWorld.createSphericalJoint(a, b);
-    j.setTwistLimits(0.5, -0.5);
-    expect(j.getLowerTwistLimit()).toBe(-0.5);
-    expect(j.getUpperTwistLimit()).toBe(0.5);
-    const bound = f32(0.99 * PI);
-    j.setTwistLimits(-10, 10);
-    expect(j.getLowerTwistLimit()).toBe(-bound);
-    expect(j.getUpperTwistLimit()).toBe(bound);
-    physicsWorld.destroy();
-});
-
-test("distance setLength accepts a zero or negative length, so a collapsed rope would divide by its own degenerate axis in the solver", () => {
-    const { physicsWorld, a, b } = rig();
-    const j = physicsWorld.createDistanceJoint(a, b, { length: 2 });
-    j.setLength(0);
-    expect(j.getLength()).toBe(LINEAR_SLOP);
-    physicsWorld.destroy();
-});
-
-test("distance setLengthRange orders before clamping or skips one of the two, so a reversed range with a degenerate low end would survive into the solver", () => {
-    const { physicsWorld, a, b } = rig();
-    const j = physicsWorld.createDistanceJoint(a, b, { length: 2 });
-    // Reversed, and the smaller falls below the slop: clamp each to [slop, huge], then order.
-    j.setLengthRange(5, 0);
-    expect(j.getMinLength()).toBe(LINEAR_SLOP);
-    expect(j.getMaxLength()).toBe(5);
-    physicsWorld.destroy();
-});
-
-test("motor setMaxSpringForce and setMaxSpringTorque keep a negative cap, so a mis-set motor would drive its spring backwards instead of disabling it", () => {
-    const { physicsWorld, a, b } = rig();
-    const j = physicsWorld.createMotorJoint(a, b);
-    j.setMaxSpringForce(-5);
-    expect(j.getMaxSpringForce()).toBe(0);
-    j.setMaxSpringTorque(-7);
-    expect(j.getMaxSpringTorque()).toBe(0);
-    j.setMaxSpringForce(12); // a positive value passes through unclamped
-    expect(j.getMaxSpringForce()).toBe(12);
-    physicsWorld.destroy();
+test("all kernel joint constructors retain their declared kind", () => {
+    const { world, anchor, body } = rig();
+    try {
+        const joints = [
+            parallel(world, anchor, body),
+            distance(world, anchor, body),
+            createFilterJoint(world, baseDef(anchor, body)).joint,
+            motor(world, anchor, body),
+            prismatic(world, anchor, body),
+            revolute(world, anchor, body),
+            spherical(world, anchor, body),
+            weld(world, anchor, body),
+            wheel(world, anchor, body),
+        ];
+        expect(joints.map((joint) => jointField(world, joint, JointField.type))).toEqual([
+            JointType.Parallel,
+            JointType.Distance,
+            JointType.Filter,
+            JointType.Motor,
+            JointType.Prismatic,
+            JointType.Revolute,
+            JointType.Spherical,
+            JointType.Weld,
+            JointType.Wheel,
+        ]);
+    } finally {
+        destroyTestWorld(world);
+    }
 });

@@ -1,7 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../../scripts/test-tiers";
-import { PhysicsWorld } from "../api/world";
 import { BodyType } from "../common/types";
+import { createSphereShape } from "../shapes/shape";
+import { createTestBody, createTestWorld, stepTestWorld, testShapeDef } from "../testing";
 import { init, kernel, kernelState, shutdown } from "./kernel";
 import { KERNEL_SHARED_WASM_BASE64, SHARED_STACK_SIZE } from "./kernel.shared.wasm";
 import { createPool } from "./pool";
@@ -26,18 +27,20 @@ if (process.env.PHYSICS_SCHEDULER_FAULT === "1") {
             0,
         );
         state.resolved = 4;
-        const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+        const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
         for (let i = 0; i < 512; ++i) {
-            world
-                .createBody({
-                    type: BodyType.Dynamic,
-                    position: { x: i % 16, y: Math.floor(i / 16), z: 0 },
-                })
-                .createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.6 });
+            const body = createTestBody(world, {
+                type: BodyType.Dynamic,
+                position: { x: i % 16, y: Math.floor(i / 16), z: 0 },
+            });
+            createSphereShape(world, body, testShapeDef(), {
+                center: { x: 0, y: 0, z: 0 },
+                radius: 0.6,
+            });
         }
-        expect(() => world.step(1 / 60, 1)).toThrow("a physics worker faulted");
+        expect(() => stepTestWorld(world, 1 / 60, 1)).toThrow("a physics worker faulted");
         expect(state.dead).toBe(true);
-        expect(() => world.step(1 / 60, 1)).toThrow();
+        expect(() => stepTestWorld(world, 1 / 60, 1)).toThrow();
         await state.pool.terminate();
     });
 } else {

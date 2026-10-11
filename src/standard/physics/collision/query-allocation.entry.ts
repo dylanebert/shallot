@@ -18,11 +18,20 @@ import {
 import { xf } from "../common/math";
 import { defaultQueryFilter, defaultSurfaceMaterial } from "../common/types";
 import { queryColumns } from "../kernel/querycolumns";
-import { physicsWorld } from "../runtime";
+import { physicsState } from "../runtime";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
 import { makeBoxHull } from "../shapes/hull";
 import { createGridMesh } from "../shapes/mesh";
+import {
+    createCapsuleShape,
+    createCompoundShape,
+    createHeightFieldShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+} from "../shapes/shape";
+import { createTestBody, testShapeDef } from "../testing";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -31,7 +40,7 @@ export const control = () => {
 
 export default async function create() {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const physics = physicsWorld(app.world)!;
+    const state = physicsState(app.world)!;
     const entityApp = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const entityWorld = entityApp.world;
     const hull = makeBoxHull(1, 0.25, 1);
@@ -42,23 +51,32 @@ export default async function create() {
         center2: { x: 0, y: 0.5, z: 0 },
         radius: 0.4,
     };
-    physics
-        .createBody({ position: { x: 0, y: 0, z: 0 } })
-        .createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 1 });
-    physics.createBody({ position: { x: 8, y: 0, z: 0 } }).createCapsule({}, capsule);
-    physics.createBody({ position: { x: 16, y: 0, z: 0 } }).createHull({}, hull);
-    physics
-        .createBody({ position: { x: 24, y: 0, z: 0 } })
-        .createMesh({}, createGridMesh(4, 4, 1, 0, true));
-    physics
-        .createBody({ position: { x: 32, y: 0, z: 0 } })
-        .createHeightField({}, createGrid(8, 8, { x: 1, y: 1, z: 1 }, false));
-    physics.createBody({ position: { x: 40, y: 0, z: 0 } }).createCompound({}, compound);
+    const first = createTestBody(state, { position: { x: 0, y: 0, z: 0 } });
+    createSphereShape(state, first, testShapeDef(), { center: { x: 0, y: 0, z: 0 }, radius: 1 });
+    const second = createTestBody(state, { position: { x: 8, y: 0, z: 0 } });
+    createCapsuleShape(state, second, testShapeDef(), capsule);
+    const third = createTestBody(state, { position: { x: 16, y: 0, z: 0 } });
+    createHullShape(state, third, testShapeDef(), hull);
+    const fourth = createTestBody(state, { position: { x: 24, y: 0, z: 0 } });
+    createMeshShape(state, fourth, testShapeDef(), createGridMesh(4, 4, 1, 0, true), {
+        x: 1,
+        y: 1,
+        z: 1,
+    });
+    const fifth = createTestBody(state, { position: { x: 32, y: 0, z: 0 } });
+    createHeightFieldShape(
+        state,
+        fifth,
+        testShapeDef(),
+        createGrid(8, 8, { x: 1, y: 1, z: 1 }, false),
+    );
+    const sixth = createTestBody(state, { position: { x: 40, y: 0, z: 0 } });
+    createCompoundShape(state, sixth, testShapeDef(), compound);
     const origin = { x: 0, y: 0.75, z: 0 };
     const rayOrigin = { x: 0, y: 3, z: 0 };
     const translation = { x: 0, y: -4, z: 0 };
     const filter = defaultQueryFilter();
-    const q = queryColumns(physics.state);
+    const q = queryColumns(state);
     const body = entityWorld.create();
     entityWorld.add(body, Body, { type: BodyType.Static });
     const shape = entityWorld.create();
@@ -104,10 +122,10 @@ export default async function create() {
             for (let i = 0; i < 6; ++i) {
                 q.headerF[10] = 8 * i;
                 q.headerF[11] = origin.y;
-                k.worldQuery(physics.state.worldId, 5, 0);
+                k.worldQuery(state.worldId, 5, 0);
                 q.headerF[11] = rayOrigin.y;
-                k.worldQuery(physics.state.worldId, 6, 0);
-                k.worldQuery(physics.state.worldId, 3, 0);
+                k.worldQuery(state.worldId, 6, 0);
+                k.worldQuery(state.worldId, 3, 0);
             }
             castRay(entityWorld, queryOrigin, queryTranslation, cast, filter);
             castRayClosest(entityWorld, queryOrigin, queryTranslation, output, filter);

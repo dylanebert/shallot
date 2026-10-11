@@ -1,41 +1,97 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { World } from "../../engine";
-import { hash } from "./api";
-import { PhysicsWorld } from "./api/world";
+import { restore, snapshot } from "./api/snapshot";
 import { moveCount } from "./collision/broadphase";
-import { BodyType } from "./common/types";
+import { BodyType, defaultQueryFilter } from "./common/types";
+import { EventKind, eventCount } from "./kernel/eventbuffers";
+import { queryColumns } from "./kernel/querycolumns";
+import { createSphereShape } from "./shapes/shape";
+import { createFilterJoint, defaultJointDef } from "./solver/joint";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "./testing";
+import { bodySetTransform } from "./world/body";
+import { hashWorldState } from "./world/hash";
+import type { WorldState } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 
-function scene(filtered: boolean) {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
-    const mover = world.createBody({ type: BodyType.Kinematic, position: { x: 4, y: 0, z: 0 } });
-    mover.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
-    const probe = world.createBody({ type: BodyType.Dynamic, position: { x: 5.25, y: 0, z: 0 } });
-    probe.createSphere(
-        { enableContactEvents: true },
-        { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
-    );
+function scene(filtered: boolean, owner?: World): WorldState {
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false }, owner);
+    const mover = createTestBody(world, {
+        type: BodyType.Kinematic,
+        position: { x: 4, y: 0, z: 0 },
+    });
+    createSphereShape(world, mover, testShapeDef(), {
+        center: { x: 0, y: 0, z: 0 },
+        radius: 0.5,
+    });
+    const probe = createTestBody(world, {
+        type: BodyType.Dynamic,
+        position: { x: 5.25, y: 0, z: 0 },
+    });
+    createSphereShape(world, probe, testShapeDef({ enableContactEvents: true }), {
+        center: { x: 0, y: 0, z: 0 },
+        radius: 0.5,
+    });
     const bodies = filtered
         ? [0, 0.25].map((x) => {
-              const body = world.createBody({
+              const body = createTestBody(world, {
                   type: BodyType.Dynamic,
                   position: { x, y: 0, z: 0 },
               });
-              body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+              createSphereShape(world, body, testShapeDef(), {
+                  center: { x: 0, y: 0, z: 0 },
+                  radius: 0.5,
+              });
               return body;
           })
         : [];
-    if (filtered) world.createFilterJoint(bodies[0], bodies[1]);
-    world.step(1 / 60);
+    if (filtered)
+        createFilterJoint(world, {
+            ...defaultJointDef(),
+            bodyIdA: bodies[0]!,
+            bodyIdB: bodies[1]!,
+        });
+    stepTestWorld(world, 1 / 60);
     for (let i = 0; i < bodies.length; i++) {
         const rotation = { v: { x: 0, y: 0, z: 0 }, s: 1 };
-        bodies[i].setTransform({ x: i * 0.25 + 2, y: 0, z: 0 }, rotation);
-        bodies[i].setTransform({ x: i * 0.25, y: 0, z: 0 }, rotation);
+        bodySetTransform(world, bodies[i]!, { x: i * 0.25 + 2, y: 0, z: 0 }, rotation);
+        bodySetTransform(world, bodies[i]!, { x: i * 0.25, y: 0, z: 0 }, rotation);
     }
-    mover.setTransform({ x: 5, y: 0, z: 0 }, { v: { x: 0, y: 0, z: 0 }, s: 1 });
+    bodySetTransform(world, mover, { x: 5, y: 0, z: 0 }, { v: { x: 0, y: 0, z: 0 }, s: 1 });
     return world;
+}
+
+function castRayClosest(
+    world: WorldState,
+    x = 5,
+): {
+    hit: boolean;
+    fraction: number;
+    point: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+} {
+    const origin = { x, y: 2, z: 0 };
+    const query = queryColumns(world);
+    const k = query.prepare(origin, defaultQueryFilter());
+    query.translation({ x: 0, y: -4, z: 0 });
+    k.worldQuery(world.worldId, 3, 0);
+    const f = query.resultF;
+    const hit = query.resultU[0] !== 0xffffffff;
+    return {
+        hit,
+        fraction: hit ? f[5]! : 0,
+        point: hit
+            ? { x: origin.x + f[6]!, y: origin.y + f[7]!, z: origin.z + f[8]! }
+            : { x: 0, y: 0, z: 0 },
+        normal: hit ? { x: f[9]!, y: f[10]!, z: f[11]! } : { x: 0, y: 0, z: 0 },
+    };
 }
 
 for (const filtered of [false, true]) {
@@ -43,37 +99,28 @@ for (const filtered of [false, true]) {
         const solo = scene(filtered);
         let expected: bigint;
         try {
-            solo.step(1 / 60);
-            expect(solo.getContactEvents().beginEvents.length).toBe(1);
-            expected = hash(solo);
+            stepTestWorld(solo, 1 / 60);
+            expect(eventCount(solo, EventKind.ContactBegin)).toBe(1);
+            expected = hashWorldState(solo);
         } finally {
-            solo.destroy();
+            destroyTestWorld(solo);
         }
-        const a = scene(filtered);
-        let b: PhysicsWorld | undefined;
+        const owner = new World();
+        const a = scene(filtered, owner);
+        let b: WorldState | undefined;
         try {
-            expect(a.castRayClosest({ x: 5, y: 2, z: 0 }, { x: 0, y: -4, z: 0 }).hit).toBe(true);
-            b = new PhysicsWorld();
-            expect(a.castRayClosest({ x: 5, y: 2, z: 0 }, { x: 0, y: -4, z: 0 }).hit).toBe(true);
-            a.step(1 / 60);
-            // The pending mover must discover the previously separated probe, while the
-            // overlapping joint-filtered pair must remain non-colliding.
-            expect(a.getContactEvents().beginEvents.length).toBe(1);
-            expect(hash(a)).toBe(expected);
+            expect(castRayClosest(a).hit).toBe(true);
+            b = createTestWorld({}, owner);
+            expect(castRayClosest(a).hit).toBe(true);
+            stepTestWorld(a, 1 / 60);
+            expect(eventCount(a, EventKind.ContactBegin)).toBe(1);
+            expect(hashWorldState(a)).toBe(expected);
         } finally {
-            // B has never claimed or stepped; this does not assert interleaved stepping support.
-            b?.destroy();
-            a.destroy();
+            if (b) destroyTestWorld(b);
+            destroyTestWorld(a);
+            owner.dispose();
         }
     });
-}
-
-function ray(world: PhysicsWorld) {
-    const { hit, fraction, point, normal } = world.castRayClosest(
-        { x: 0, y: 2, z: 0 },
-        { x: 0, y: -4, z: 0 },
-    );
-    return { hit, fraction, point, normal };
 }
 
 for (const claimed of [false, true]) {
@@ -81,65 +128,70 @@ for (const claimed of [false, true]) {
         test(`snapshot reinstates resident initialization, proxies, moves, ray and tick hashes: ${claimed ? "claimed" : "unclaimed"}, ${previouslyOwned ? "previous owner" : "fresh kernel"}`, () => {
             const owner = new World();
             if (previouslyOwned) {
-                const prior = new PhysicsWorld({}, owner);
-                const body = prior.createBody({ type: BodyType.Dynamic });
-                body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
-                prior.step(1 / 60);
-                prior.destroy();
+                const prior = createTestWorld({}, owner);
+                const body = createTestBody(prior, { type: BodyType.Dynamic });
+                createSphereShape(prior, body, testShapeDef(), {
+                    center: { x: 0, y: 0, z: 0 },
+                    radius: 0.5,
+                });
+                stepTestWorld(prior, 1 / 60);
+                destroyTestWorld(prior);
             }
-            const source = new PhysicsWorld(
+            const source = createTestWorld(
                 { gravity: { x: 0, y: 0, z: 0 }, enableSleep: false },
                 owner,
             );
             if (claimed) {
                 const bodies = [0, 0.25, 4, 4.25].map((x) => {
-                    const body = source.createBody({
+                    const body = createTestBody(source, {
                         type: BodyType.Dynamic,
                         position: { x, y: 0, z: 0 },
                     });
-                    body.createSphere(
-                        { enableContactEvents: true },
-                        { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
-                    );
+                    createSphereShape(source, body, testShapeDef({ enableContactEvents: true }), {
+                        center: { x: 0, y: 0, z: 0 },
+                        radius: 0.5,
+                    });
                     return body;
                 });
-                source.createFilterJoint(bodies[2], bodies[3]);
+                createFilterJoint(source, {
+                    ...defaultJointDef(),
+                    bodyIdA: bodies[2]!,
+                    bodyIdB: bodies[3]!,
+                });
             }
-            // Capture before a query or step can claim an empty source.
-            const saved = source.snapshot();
-            const proxies = source.state.broadPhase.trees.map((tree) => tree.proxyCount);
-            const moves = moveCount(source.state.broadPhase);
+            const saved = snapshot(source);
+            const proxies = source.broadPhase.trees.map((tree) => tree.proxyCount);
+            const moves = moveCount(source.broadPhase);
             expect(proxies).toEqual([0, 0, claimed ? 4 : 0]);
             expect(moves).toBe(claimed ? 4 : 0);
-            const expectedRay = ray(source);
+            const expectedRay = castRayClosest(source, 0);
             expect(expectedRay.hit).toBe(claimed);
             const expected: bigint[] = [];
             try {
                 for (let tick = 0; tick < 12; tick++) {
-                    source.step(1 / 60);
+                    stepTestWorld(source, 1 / 60);
                     if (tick === 0)
-                        expect(source.getContactEvents().beginEvents.length).toBe(claimed ? 1 : 0);
-                    expected.push(hash(source));
+                        expect(eventCount(source, EventKind.ContactBegin)).toBe(claimed ? 1 : 0);
+                    expected.push(hashWorldState(source));
                 }
             } finally {
-                source.destroy();
+                destroyTestWorld(source);
             }
-            const target = new PhysicsWorld({}, owner);
+            const target = createTestWorld({}, owner);
             try {
-                target.restore(saved);
-                expect(target.state.broadPhase.trees.map((tree) => tree.proxyCount)).toEqual(
-                    proxies,
-                );
-                expect(moveCount(target.state.broadPhase)).toBe(moves);
-                expect(ray(target)).toEqual(expectedRay);
+                restore(target, saved);
+                expect(target.broadPhase.trees.map((tree) => tree.proxyCount)).toEqual(proxies);
+                expect(moveCount(target.broadPhase)).toBe(moves);
+                expect(castRayClosest(target, 0)).toEqual(expectedRay);
                 for (let tick = 0; tick < expected.length; tick++) {
-                    target.step(1 / 60);
-                    expect(hash(target), `tick ${tick}`).toBe(expected[tick]);
+                    stepTestWorld(target, 1 / 60);
+                    expect(hashWorldState(target), `tick ${tick}`).toBe(expected[tick]);
                     if (tick === 0)
-                        expect(target.getContactEvents().beginEvents.length).toBe(claimed ? 1 : 0);
+                        expect(eventCount(target, EventKind.ContactBegin)).toBe(claimed ? 1 : 0);
                 }
             } finally {
-                target.destroy();
+                destroyTestWorld(target);
+                owner.dispose();
             }
         });
     }

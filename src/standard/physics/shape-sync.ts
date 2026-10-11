@@ -1,16 +1,41 @@
 import { PhysicsMeshes, ShapeKind, ShapeMaterials } from "../../core/physics";
 import type { World } from "../../engine";
-import type { Filter, SurfaceMaterial } from "./api";
-import type { Shape as SolverShape } from "./api/shape";
 import type { ShapeBinding } from "./authoring";
+import type { EntityId } from "./common/ids";
+import type { Filter, SurfaceMaterial } from "./common/types";
 import { geometryIdentity, hullDatabaseIndex } from "./kernel/geocolumns";
 import { kernel } from "./kernel/kernel";
+import { ShapeFlags, setShapeFlag, shapeFlag } from "./kernel/shaperecords";
 import {
     authoredShapeFilter,
     authoredShapeMaterial,
     shapeGeometry,
     shapeHullGeometry,
 } from "./marshal-shape";
+import {
+    getShapeDensity,
+    getShapeFilter,
+    getShapeGeometryReference,
+    getShapeGeometryScale,
+    getShapeMaterial,
+    getShapeMaterialCount,
+    getShapeMaterials,
+    getShapeType,
+    isSensorShape,
+    readShapeCapsule,
+    readShapeSphere,
+    setShapeCapsule,
+    setShapeDensity,
+    setShapeFilter,
+    setShapeFriction,
+    setShapeHull,
+    setShapeMesh,
+    setShapeMeshMaterial,
+    setShapeRestitution,
+    setShapeSphere,
+    setShapeSurfaceMaterial,
+} from "./shapes/shape";
+import type { WorldState } from "./world/world";
 
 function scalar(binding: ShapeBinding, eid: number, field: string): number {
     return (binding.storage[field] as { get(eid: number): number }).get(eid);
@@ -83,6 +108,14 @@ const FILTER_FIELDS = [
     "filterGroupIndex",
 ] as const;
 const BASE_MATERIAL_FIELDS = ["friction", "restitution", ...MATERIAL_FIELDS];
+const shapeMaterialScratch: SurfaceMaterial = {
+    friction: 0,
+    restitution: 0,
+    rollingResistance: 0,
+    tangentVelocity: { x: 0, y: 0, z: 0 },
+    userMaterialId: 0n,
+    customColor: 0,
+};
 
 function equalFilter(a: Filter, b: Filter): boolean {
     return (
@@ -133,10 +166,12 @@ export function shapeNeedsRecreation(
     eid: number,
     mask: number,
     previous: Float64Array | undefined,
-    shape: SolverShape,
+    shape: EntityId,
+    state: WorldState,
 ): boolean {
+    const record = shape.index1 - 1;
     const kind = scalar(binding, eid, "kind");
-    if (kind !== shape.getType()) return true;
+    if (kind !== getShapeType(state, record)) return true;
     if (
         changed(binding, mask, "explosionScale") &&
         fieldDiffersFromSnapshot(binding, eid, "explosionScale", previous)
@@ -159,7 +194,7 @@ export function shapeNeedsRecreation(
         return true;
     if (changed(binding, mask, "isSensor")) {
         const next = scalar(binding, eid, "isSensor") !== 0;
-        if (next !== shape.isSensor()) return true;
+        if (next !== isSensorShape(state, record)) return true;
     }
     if (
         changed(binding, mask, "geometry") &&
@@ -173,19 +208,21 @@ export function shapeNeedsRecreation(
     ) {
         const materials = materialSet(world, binding, eid);
         const expectedCount = materials?.length || 1;
-        if (shape.getMeshMaterialCount() !== expectedCount) return true;
+        if (getShapeMaterialCount(state, record) !== expectedCount) return true;
     }
     return false;
 }
 
-/** Applies marked Box3D shape fields by comparing them with getters on the live shape. */
+/** Applies marked Box3D shape fields by comparing them with the live shape record. */
 export function syncShapeFields(
     world: World,
+    state: WorldState,
     binding: ShapeBinding,
     eid: number,
     mask: number,
-    shape: SolverShape,
+    id: EntityId,
 ): void {
+    const shape = id.index1 - 1;
     const kind = scalar(binding, eid, "kind");
     const materialSetChanged = changed(binding, mask, "materialSet");
     const hasMeshMaterials = kind === ShapeKind.Mesh || kind === ShapeKind.HeightField;
@@ -196,61 +233,74 @@ export function syncShapeFields(
             : undefined;
     if (changed(binding, mask, "density")) {
         const next = scalar(binding, eid, "density");
-        if (Number.isFinite(next) && next >= 0 && next !== shape.getDensity())
-            shape.setDensity(next, scalar(binding, eid, "updateBodyMass") !== 0);
+        if (Number.isFinite(next) && next >= 0 && next !== getShapeDensity(state, shape))
+            setShapeDensity(state, shape, next, scalar(binding, eid, "updateBodyMass") !== 0);
     }
     if (changed(binding, mask, "friction") && !liveMaterials?.length) {
         const next = scalar(binding, eid, "friction");
-        if (Number.isFinite(next) && next >= 0 && next !== shape.getFriction())
-            shape.setFriction(next);
+        if (
+            Number.isFinite(next) &&
+            next >= 0 &&
+            next !== getShapeMaterial(state, shape, shapeMaterialScratch).friction
+        )
+            setShapeFriction(state, shape, next);
     }
     if (changed(binding, mask, "restitution") && !liveMaterials?.length) {
         const next = scalar(binding, eid, "restitution");
-        if (Number.isFinite(next) && next >= 0 && next !== shape.getRestitution())
-            shape.setRestitution(next);
+        if (
+            Number.isFinite(next) &&
+            next >= 0 &&
+            next !== getShapeMaterial(state, shape, shapeMaterialScratch).restitution
+        )
+            setShapeRestitution(state, shape, next);
     }
     if (anyChanged(binding, mask, MATERIAL_FIELDS) && !liveMaterials?.length) {
         const next = authoredShapeMaterial(world, eid);
-        if (!equalMaterial(next, shape.getSurfaceMaterial())) shape.setSurfaceMaterial(next);
+        if (!equalMaterial(next, getShapeMaterial(state, shape, shapeMaterialScratch)))
+            setShapeSurfaceMaterial(state, shape, next);
     }
     if (anyChanged(binding, mask, FILTER_FIELDS)) {
         const next = authoredShapeFilter(world, eid);
-        if (!equalFilter(next, shape.getFilter())) shape.setFilter(next);
+        if (!equalFilter(next, getShapeFilter(state, shape))) setShapeFilter(state, shape, next);
     }
     if (changed(binding, mask, "enableSensorEvents")) {
         const next = scalar(binding, eid, "enableSensorEvents") !== 0;
-        if (next !== shape.areSensorEventsEnabled()) shape.enableSensorEvents(next);
+        if (next !== shapeFlag(state, shape, ShapeFlags.enableSensorEvents))
+            setShapeFlag(state, shape, ShapeFlags.enableSensorEvents, next);
     }
     if (changed(binding, mask, "enableContactEvents")) {
         const next = scalar(binding, eid, "enableContactEvents") !== 0;
-        if (next !== shape.areContactEventsEnabled()) shape.enableContactEvents(next);
+        if (next !== shapeFlag(state, shape, ShapeFlags.enableContactEvents))
+            setShapeFlag(state, shape, ShapeFlags.enableContactEvents, next);
     }
     if (changed(binding, mask, "enableHitEvents")) {
         const next = scalar(binding, eid, "enableHitEvents") !== 0;
-        if (next !== shape.areHitEventsEnabled()) shape.enableHitEvents(next);
+        if (next !== shapeFlag(state, shape, ShapeFlags.enableHitEvents))
+            setShapeFlag(state, shape, ShapeFlags.enableHitEvents, next);
     }
     if (changed(binding, mask, "enablePreSolveEvents")) {
         const next = scalar(binding, eid, "enablePreSolveEvents") !== 0;
-        if (next !== shape.arePreSolveEventsEnabled()) shape.enablePreSolveEvents(next);
+        if (next !== shapeFlag(state, shape, ShapeFlags.enablePreSolveEvents))
+            setShapeFlag(state, shape, ShapeFlags.enablePreSolveEvents, next);
     }
 
     if (kind === ShapeKind.Sphere && changed(binding, mask, "sphere")) {
         const sphere = shapeGeometry(world, eid).sphere;
-        const current = shape.getSphere();
+        const current = readShapeSphere(state, shape);
         if (
             Math.fround(sphere.center.x) !== current.center.x ||
             Math.fround(sphere.center.y) !== current.center.y ||
             Math.fround(sphere.center.z) !== current.center.z ||
             Math.fround(sphere.radius) !== current.radius
         )
-            shape.setSphere(sphere);
+            setShapeSphere(state, shape, sphere);
     }
     if (
         kind === ShapeKind.Capsule &&
         (changed(binding, mask, "capsuleA") || changed(binding, mask, "capsuleB"))
     ) {
         const capsule = shapeGeometry(world, eid).capsule;
-        const current = shape.getCapsule();
+        const current = readShapeCapsule(state, shape);
         if (
             Math.fround(capsule.center1.x) !== current.center1.x ||
             Math.fround(capsule.center1.y) !== current.center1.y ||
@@ -260,7 +310,7 @@ export function syncShapeFields(
             Math.fround(capsule.center2.z) !== current.center2.z ||
             Math.fround(capsule.radius) !== current.radius
         )
-            shape.setCapsule(capsule);
+            setShapeCapsule(state, shape, capsule);
     }
     if (
         kind === ShapeKind.Hull &&
@@ -269,12 +319,15 @@ export function syncShapeFields(
         const hull = shapeHullGeometry(world, eid);
         let nextReference: number | undefined;
         try {
-            nextReference = hullDatabaseIndex(shape.world, hull);
+            nextReference = hullDatabaseIndex(state, hull);
         } catch {
             nextReference = undefined;
         }
-        if (nextReference === undefined || shape.getGeometryReference() !== nextReference)
-            shape.setHull(hull);
+        if (
+            nextReference === undefined ||
+            getShapeGeometryReference(state, shape) !== nextReference
+        )
+            setShapeHull(state, shape, hull);
     }
     if (
         kind === ShapeKind.Mesh &&
@@ -285,28 +338,29 @@ export function syncShapeFields(
         const mesh = name === undefined ? undefined : world.resource(PhysicsMeshes).get(name)?.data;
         if (!mesh) throw new Error(`physics: Shape ${eid} names missing mesh ${id}`);
         const expectedScale = expectedMeshScale(binding, eid);
-        const currentScale = shape.getGeometryScale();
+        const currentScale = getShapeGeometryScale(state, shape);
         const identity = geometryIdentity(mesh as object);
-        const reference =
-            kernel(world).geometryDatabaseLookup(shape.world.worldId, 4, identity) >>> 0;
+        const reference = kernel(world).geometryDatabaseLookup(state.worldId, 4, identity) >>> 0;
+        const currentReference = getShapeGeometryReference(state, shape);
         if (
-            reference !== shape.getGeometryReference() ||
+            reference !== currentReference ||
             expectedScale.x !== currentScale.x ||
             expectedScale.y !== currentScale.y ||
             expectedScale.z !== currentScale.z
         )
-            shape.setMesh(mesh as import("./shapes/mesh").MeshData, expectedScale);
+            setShapeMesh(state, shape, mesh as import("./shapes/mesh").MeshData, expectedScale);
     }
     if (materialSetChanged && hasMeshMaterials) {
         const materials = liveMaterials;
-        const current = shape.getMaterials();
+        const current = getShapeMaterials(state, shape);
         const next = materials?.length ? materials : undefined;
         if (next) {
             for (let i = 0; i < next.length; i++)
-                if (!equalMaterial(next[i], current[i])) shape.setMeshMaterial(next[i], i);
+                if (!equalMaterial(next[i], current[i]))
+                    setShapeMeshMaterial(state, shape, next[i], i);
         } else if (current.length === 1) {
             const base = authoredShapeMaterial(world, eid);
-            if (!equalMaterial(base, current[0])) shape.setMeshMaterial(base, 0);
+            if (!equalMaterial(base, current[0])) setShapeMeshMaterial(state, shape, base, 0);
         }
     }
 }

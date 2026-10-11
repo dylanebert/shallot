@@ -2,13 +2,35 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp } from "../../src/engine";
 import { Body, BodyMotionLock, BodyType } from "../../src/core/physics";
 import { hashPhysics, StandardPhysicsPlugin } from "../../src/standard/physics";
+import { init } from "../../src/standard/physics/api";
+import { defaultSurfaceMaterial } from "../../src/standard/physics/common/types";
 import {
-    defaultSurfaceMaterial,
-    hash,
-    init,
-    makeBoxHull,
-    PhysicsWorld,
-} from "../../src/standard/physics/api";
+    BodyProperty,
+    bodyDisable,
+    bodyEnable,
+    bodyGetProperty,
+    bodyGetType,
+    bodyIsAwake,
+    bodySetAngularVelocity,
+    bodySetAwake,
+    bodySetLinearVelocity,
+    bodySetProperty,
+    bodySetTransform,
+    bodySetType,
+    getMassData,
+} from "../../src/standard/physics/world/body";
+import { hashWorldState } from "../../src/standard/physics/world/hash";
+import { worldCounters } from "../../src/standard/physics/world/world";
+import { createHullShape, createSphereShape } from "../../src/standard/physics/shapes/shape";
+import { makeBoxHull } from "../../src/standard/physics/shapes/hull";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../../src/standard/physics/testing";
+import type { WorldState } from "../../src/standard/physics/world/world";
 import { nativeSseOutput } from "./native-evidence";
 import { assertPublicOracleKernel } from "./oracle-kernel";
 
@@ -67,29 +89,25 @@ const floatBits = (value: number) => {
     return floatStorage.getUint32(0, true);
 };
 
-function expectNativeSnapshot(
-    world: PhysicsWorld,
-    body: ReturnType<PhysicsWorld["createBody"]>,
-    index: number,
-    label: string,
-): void {
+function expectNativeSnapshot(world: WorldState, body: number, index: number, label: string): void {
     const expected = native[index];
     if (expected === undefined) throw new Error(`${label}: missing native snapshot at ${index}`);
-    const mass = body.getMassData();
+    const mass = getMassData(world, body);
+    const property = (key: number) => bodyGetProperty(world, body, key);
     const actual = [
-        hash(world),
-        body.getType(),
-        floatBits(body.getLinearDamping()),
-        floatBits(body.getAngularDamping()),
-        floatBits(body.getGravityScale()),
-        floatBits(body.getSleepThreshold()),
-        Number(body.isSleepEnabled()),
-        Number(body.isEnabled()),
-        Number(body.isBullet()),
-        body.getMotionLocks(),
-        Number(body.isFastRotationAllowed()),
-        Number(body.isContactRecyclingEnabled()),
-        Number(body.isAwake()),
+        hashWorldState(world),
+        bodyGetType(world, body),
+        floatBits(property(BodyProperty.linearDamping)),
+        floatBits(property(BodyProperty.angularDamping)),
+        floatBits(property(BodyProperty.gravityScale)),
+        floatBits(property(BodyProperty.sleepThreshold)),
+        Number(property(BodyProperty.enableSleep)),
+        Number(property(BodyProperty.isEnabled)),
+        Number(property(BodyProperty.isBullet)),
+        property(BodyProperty.motionLocks),
+        Number(property(BodyProperty.allowFastRotation)),
+        Number(property(BodyProperty.enableContactRecycling)),
+        Number(bodyIsAwake(world, body)),
         floatBits(mass.mass),
         floatBits(mass.center.x),
         floatBits(mass.center.y),
@@ -132,9 +150,9 @@ test("a default ECS Body hashes equal to native Box3D", async () => {
 });
 
 test("each live Body-definition setter matches native at its mutation boundary", () => {
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const body = world.createBody({
+        const body = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 1, y: 4, z: -2 },
             linearVelocity: { x: 0.3, y: 0.1, z: -0.2 },
@@ -142,103 +160,114 @@ test("each live Body-definition setter matches native at its mutation boundary",
         });
         const material = defaultSurfaceMaterial();
         material.friction = 0.5;
-        body.createSphere(
-            { density: 1, baseMaterial: material },
+        createSphereShape(
+            world,
+            body,
+            testShapeDef({ density: 1, baseMaterial: material }),
             { center: { x: 0.25, y: 0.1, z: -0.15 }, radius: 0.5 },
         );
         let index = 1;
         const compare = (label: string) => expectNativeSnapshot(world, body, index++, label);
+        const setProperty = (property: number, value: number) =>
+            bodySetProperty(world, body, property, value);
 
         compare("spawn body definition and shape");
-        body.setLinearDamping(0.23);
+        setProperty(BodyProperty.linearDamping, 0.23);
         compare("setLinearDamping");
-        body.setAngularDamping(0.31);
+        setProperty(BodyProperty.angularDamping, 0.31);
         compare("setAngularDamping");
-        body.setGravityScale(0.4);
+        setProperty(BodyProperty.gravityScale, 0.4);
         compare("setGravityScale");
-        body.setSleepThreshold(0.12);
+        setProperty(BodyProperty.sleepThreshold, 0.12);
         compare("setSleepThreshold");
 
         const linearXAndAngularZ = BodyMotionLock.linearX | BodyMotionLock.angularZ;
-        body.setMotionLocks(linearXAndAngularZ);
+        setProperty(BodyProperty.motionLocks, linearXAndAngularZ);
         compare("setMotionLocks partial rotation locks");
         const fullyLockedRotation =
             BodyMotionLock.linearX |
             BodyMotionLock.angularX |
             BodyMotionLock.angularY |
             BodyMotionLock.angularZ;
-        const inertiaBeforeFixedRotation = body.getMassData().inertia.cx.x;
-        body.setMotionLocks(fullyLockedRotation);
+        const inertiaBeforeFixedRotation = getMassData(world, body).inertia.cx.x;
+        setProperty(BodyProperty.motionLocks, fullyLockedRotation);
         compare("setMotionLocks into fixed rotation and mass update");
-        expect(body.getMassData().inertia.cx.x).toBe(0);
-        body.setMotionLocks(BodyMotionLock.linearX);
+        expect(getMassData(world, body).inertia.cx.x).toBe(0);
+        setProperty(BodyProperty.motionLocks, BodyMotionLock.linearX);
         compare("setMotionLocks out of fixed rotation and mass update");
-        expect(body.getMassData().inertia.cx.x).toBe(inertiaBeforeFixedRotation);
+        expect(getMassData(world, body).inertia.cx.x).toBe(inertiaBeforeFixedRotation);
 
-        body.enableSleep(false);
+        setProperty(BodyProperty.enableSleep, 0);
         compare("enableSleep(false)");
-        body.enableSleep(true);
+        setProperty(BodyProperty.enableSleep, 1);
         compare("enableSleep(true)");
-        body.setBullet(true);
+        setProperty(BodyProperty.isBullet, 1);
         compare("setBullet(true)");
-        body.allowFastRotation(true);
+        setProperty(BodyProperty.allowFastRotation, 1);
         compare("allowFastRotation(true)");
-        body.setLinearVelocity({ x: 0, y: 0, z: 0 });
+        bodySetLinearVelocity(world, body, { x: 0, y: 0, z: 0 });
         compare("setLinearVelocity(zero) before sleep");
-        body.setAngularVelocity({ x: 0, y: 0, z: 0 });
+        bodySetAngularVelocity(world, body, { x: 0, y: 0, z: 0 });
         compare("setAngularVelocity(zero) before sleep");
-        body.setAwake(false);
+        bodySetAwake(world, body, false);
         compare("setAwake(false)");
-        body.setAwake(true);
+        bodySetAwake(world, body, true);
         compare("setAwake(true)");
-        body.setType(BodyType.Kinematic);
+        bodySetType(world, body, BodyType.Kinematic);
         compare("setType(kinematic)");
-        body.setType(BodyType.Dynamic);
+        bodySetType(world, body, BodyType.Dynamic);
         compare("setType(dynamic)");
-        body.disable();
+        bodyDisable(world, body);
         compare("disable");
-        body.enable();
+        bodyEnable(world, body);
         compare("enable");
         expect(index).toBe(21);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("enableContactRecycling matches native through real contact creation", () => {
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     const identity = { v: { x: 0, y: 0, z: 0 }, s: 1 };
     try {
-        const floor = world.createBody({ position: { x: 0, y: -0.5, z: 0 } });
-        floor.createHull({ baseMaterial: defaultSurfaceMaterial() }, makeBoxHull(5, 0.5, 5));
-        const body = world.createBody({
+        const floor = createTestBody(world, { position: { x: 0, y: -0.5, z: 0 } });
+        createHullShape(
+            world,
+            floor,
+            testShapeDef({ baseMaterial: defaultSurfaceMaterial() }),
+            makeBoxHull(5, 0.5, 5),
+        );
+        const body = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 0, y: 3, z: 0 },
         });
-        body.createHull(
-            { density: 1, baseMaterial: defaultSurfaceMaterial() },
+        createHullShape(
+            world,
+            body,
+            testShapeDef({ density: 1, baseMaterial: defaultSurfaceMaterial() }),
             makeBoxHull(0.5, 0.5, 0.5),
         );
         let index = 21;
         const compare = (label: string) => expectNativeSnapshot(world, body, index++, label);
 
-        body.enableContactRecycling(false);
+        bodySetProperty(world, body, BodyProperty.enableContactRecycling, 0);
         compare("enableContactRecycling(false)");
-        body.setTransform({ x: 0, y: 0.4, z: 0 }, identity);
-        world.step(1 / 60, 4);
-        expect(world.getCounters().contactCount).toBeGreaterThan(0);
+        bodySetTransform(world, body, { x: 0, y: 0.4, z: 0 }, identity);
+        stepTestWorld(world, 1 / 60, 4);
+        expect(worldCounters(world).contactCount).toBeGreaterThan(0);
         compare("contact created with recycling disabled");
 
-        body.enableContactRecycling(true);
+        bodySetProperty(world, body, BodyProperty.enableContactRecycling, 1);
         compare("enableContactRecycling(true)");
-        body.setTransform({ x: 0, y: 3, z: 0 }, identity);
-        world.step(1 / 60, 4);
-        body.setTransform({ x: 0, y: 0.4, z: 0 }, identity);
-        world.step(1 / 60, 4);
-        expect(world.getCounters().contactCount).toBeGreaterThan(0);
+        bodySetTransform(world, body, { x: 0, y: 3, z: 0 }, identity);
+        stepTestWorld(world, 1 / 60, 4);
+        bodySetTransform(world, body, { x: 0, y: 0.4, z: 0 }, identity);
+        stepTestWorld(world, 1 / 60, 4);
+        expect(worldCounters(world).contactCount).toBeGreaterThan(0);
         compare("contact recreated with recycling enabled");
         expect(index).toBe(25);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

@@ -4,7 +4,9 @@ import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { CEILING } from "../../../scripts/test-tiers";
-import { physicsWorld } from "./runtime";
+import { physicsBodyIndex, physicsState } from "./runtime";
+import { defaultJointDef } from "./solver/joint";
+import { createRevoluteJoint, defaultRevoluteJointDef } from "./solver/revoluteJoint";
 
 setDefaultTimeout(CEILING.node);
 
@@ -26,22 +28,31 @@ test("the solver world's entity lookup lets a revolute joint constrain two autho
         world.add(free, Body, { type: BodyType.Dynamic, position: [4, 1, 0, 0] });
         world.add(free, Shape);
         const empty = world.create();
-        const solver = physicsWorld(world)!;
-        expect(solver.getBody(bob)).toBeNull();
-        expect(solver.getBody(empty)).toBeNull();
+        expect(physicsBodyIndex(world, bob)).toBe(-1);
+        expect(physicsBodyIndex(world, empty)).toBe(-1);
         world.step(Time.FIXED_DT);
-        const fixedBody = solver.getBody(anchor)!;
-        const movingBody = solver.getBody(bob)!;
-        expect(fixedBody).not.toBeNull();
-        expect(movingBody).not.toBeNull();
-        solver.createRevoluteJoint(fixedBody, movingBody, {
-            localFrameB: { p: { x: 0, y: 2, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
-        });
+        const state = physicsState(world)!;
+        const fixedBody = physicsBodyIndex(world, anchor);
+        const movingBody = physicsBodyIndex(world, bob);
+        expect(fixedBody).toBeGreaterThanOrEqual(0);
+        expect(movingBody).toBeGreaterThanOrEqual(0);
+        createRevoluteJoint(
+            state,
+            defaultRevoluteJointDef({
+                ...defaultJointDef(),
+                bodyIdA: fixedBody,
+                bodyIdB: movingBody,
+                localFrameB: {
+                    p: { x: 0, y: 2, z: 0 },
+                    q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+                },
+            }),
+        );
         for (let tick = 0; tick < 120; tick++) world.step(Time.FIXED_DT);
         expect(world.storage(GlobalTransform).translation.y.get(bob)).toBeCloseTo(1, 1);
         expect(world.storage(GlobalTransform).translation.y.get(free)).toBeLessThan(-10);
         world.remove(bob, Body);
-        expect(solver.getBody(bob)).toBeNull();
+        expect(physicsBodyIndex(world, bob)).toBe(-1);
     } finally {
         app.dispose();
     }

@@ -1,8 +1,16 @@
 import { createApp } from "@dylanebert/shallot";
-import { PhysicsWorld } from "../api/world";
 import { BodyType } from "../common/types";
 import { init, shutdown } from "../kernel/kernel";
 import * as tree from "../kernel/treecolumns";
+import { createSphereShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { bodySetTransform } from "../world/body";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -11,18 +19,21 @@ export const control = () => {
 
 export default async function create() {
     await init(undefined, { threads: 0 });
-    const solver = new PhysicsWorld({
+    const solver = createTestWorld({
         gravity: { x: 0, y: 0, z: 0 },
         enableSleep: false,
         enableContinuous: false,
     });
-    const bodies: ReturnType<PhysicsWorld["createBody"]>[] = [];
+    const bodies: number[] = [];
     for (let i = 0; i < 64; i++) {
-        const body = solver.createBody({
+        const body = createTestBody(solver, {
             type: BodyType.Kinematic,
             position: { x: (i % 32) * 3, y: 1, z: Math.floor(i / 32) * 3 },
         });
-        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        createSphereShape(solver, body, testShapeDef(), {
+            center: { x: 0, y: 0, z: 0 },
+            radius: 0.5,
+        });
         bodies.push(body);
     }
     const position = { x: 0, y: 1, z: 0 };
@@ -43,14 +54,14 @@ export default async function create() {
                             for (let i = 0; i < bodies.length; i++) {
                                 position.x = (i % 32) * 3 + (frame % 2);
                                 position.z = Math.floor(i / 32) * 3;
-                                bodies[i].setTransform(position, rotation);
+                                bodySetTransform(solver, bodies[i]!, position, rotation);
                             }
-                            const t = solver.state.broadPhase.trees[BodyType.Kinematic];
+                            const t = solver.broadPhase.trees[BodyType.Kinematic];
                             const proxy = tree.createProxy(t, box, 0, 1, 0);
                             tree.enlargeProxy(t, proxy, box);
                             tree.destroyProxy(t, proxy);
                             tree.rebuild(t, false);
-                            solver.step(1 / 60, 4);
+                            stepTestWorld(solver, 1 / 60, 4);
                         },
                     },
                 ],
@@ -61,7 +72,7 @@ export default async function create() {
         step: () => app.world.step(1 / 60),
         dispose: async () => {
             app.dispose();
-            solver.destroy();
+            destroyTestWorld(solver);
             await shutdown(undefined);
         },
     };

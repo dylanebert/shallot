@@ -1,88 +1,139 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { World } from "../../engine";
-import { BodyType, createHeightField, createMesh, hash, makeBoxHull, PhysicsWorld } from "./api";
+import { BodyType, defaultShapeDef } from "./common/types";
+import { queryColumns } from "./kernel/querycolumns";
+import { createHeightField } from "./shapes/heightfield";
+import { makeBoxHull } from "./shapes/hull";
+import { createMesh } from "./shapes/mesh";
+import {
+    createHeightFieldShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+} from "./shapes/shape";
+import { createFilterJoint, defaultJointDef } from "./solver/joint";
+import { createRevoluteJoint, defaultRevoluteJointDef } from "./solver/revoluteJoint";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "./testing";
+import { bodySetAwake } from "./world/body";
+import { hashWorldState } from "./world/hash";
+import type { WorldState } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 
-function scene(owner: World, variant: number) {
-    const world = new PhysicsWorld({}, owner);
-    const ground = world.createBody({ type: BodyType.Static });
-    ground.createHull({}, makeBoxHull(12, 0.25 + variant * 0.1, 12));
+function scene(owner: World, variant: number): { world: WorldState; sleeper: number } {
+    const world = createTestWorld({}, owner);
+    const ground = createTestBody(world, { type: BodyType.Static });
+    createHullShape(world, ground, defaultShapeDef(), makeBoxHull(12, 0.25 + variant * 0.1, 12));
     const sphere = (x: number, y: number, z = 0) => {
-        const body = world.createBody({ type: BodyType.Dynamic, position: { x, y, z } });
-        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        const body = createTestBody(world, { type: BodyType.Dynamic, position: { x, y, z } });
+        createSphereShape(world, body, testShapeDef(), {
+            center: { x: 0, y: 0, z: 0 },
+            radius: 0.5,
+        });
         return body;
     };
     sphere(0, 0.75 + variant * 0.1);
     sphere(0, 1.75 + variant * 0.1);
     const sleeper = sphere(3, 0.75 + variant * 0.1);
-    sleeper.setAwake(false);
+    bodySetAwake(world, sleeper, false);
     const filteredA = sphere(-3, 2);
     const filteredB = sphere(-3, 2.25);
-    world.createFilterJoint(filteredA, filteredB);
+    createFilterJoint(world, {
+        ...defaultJointDef(),
+        bodyIdA: filteredA,
+        bodyIdB: filteredB,
+    });
     const arm = sphere(6, 3);
-    world.createRevoluteJoint(ground, arm, {
-        localFrameA: { p: { x: 6, y: 3, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
+    createRevoluteJoint(world, {
+        ...defaultRevoluteJointDef({
+            ...defaultJointDef(),
+            bodyIdA: ground,
+            bodyIdB: arm,
+            localFrameA: {
+                p: { x: 6, y: 3, z: 0 },
+                q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+            },
+        }),
         enableMotor: true,
         maxMotorTorque: 10,
         motorSpeed: 1 + variant,
     });
-    const hull = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 4, z: 1 } });
-    hull.createHull({}, makeBoxHull(0.4, 0.6, 0.3));
-    const mesh = world.createBody({ type: BodyType.Static, position: { x: 0, y: 1, z: 5 } });
-    mesh.createMesh(
-        {},
-        createMesh({
-            vertices: [
-                { x: -2, y: 0, z: -2 },
-                { x: 2, y: 0, z: -2 },
-                { x: 2, y: 0, z: 2 },
-                { x: -2, y: 0, z: 2 },
-            ],
-            indices: [0, 2, 1, 0, 3, 2],
-        })!,
-    );
+    const hull = createTestBody(world, {
+        type: BodyType.Dynamic,
+        position: { x: 1, y: 4, z: 1 },
+    });
+    createHullShape(world, hull, testShapeDef(), makeBoxHull(0.4, 0.6, 0.3));
+    const meshBody = createTestBody(world, {
+        type: BodyType.Static,
+        position: { x: 0, y: 1, z: 5 },
+    });
+    const mesh = createMesh({
+        vertices: [
+            { x: -2, y: 0, z: -2 },
+            { x: 2, y: 0, z: -2 },
+            { x: 2, y: 0, z: 2 },
+            { x: -2, y: 0, z: 2 },
+        ],
+        indices: [0, 2, 1, 0, 3, 2],
+    })!;
+    createMeshShape(world, meshBody, defaultShapeDef(), mesh, { x: 1, y: 1, z: 1 });
     sphere(0, 1.5, 5);
-    const terrain = world.createBody({ type: BodyType.Static, position: { x: -6, y: 1, z: 5 } });
-    terrain.createHeightField(
-        {},
-        createHeightField({
-            heights: [0, 0, 0, 0],
-            materialIndices: null,
-            scale: { x: 3, y: 1, z: 3 },
-            countX: 2,
-            countZ: 2,
-            globalMinimumHeight: 0,
-            globalMaximumHeight: 1,
-            clockwiseWinding: false,
-        }),
-    );
+    const terrain = createTestBody(world, {
+        type: BodyType.Static,
+        position: { x: -6, y: 1, z: 5 },
+    });
+    const heightField = createHeightField({
+        heights: [0, 0, 0, 0],
+        materialIndices: null,
+        scale: { x: 3, y: 1, z: 3 },
+        countX: 2,
+        countZ: 2,
+        globalMinimumHeight: 0,
+        globalMaximumHeight: 1,
+        clockwiseWinding: false,
+    });
+    createHeightFieldShape(world, terrain, defaultShapeDef(), heightField);
     sphere(-5, 1.5, 6);
-    const bullet = world.createBody({
+    const bullet = createTestBody(world, {
         type: BodyType.Dynamic,
         position: { x: 0, y: 8, z: 2 },
         isBullet: true,
         linearVelocity: { x: 0, y: -100, z: 0 },
     });
-    bullet.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.1 });
+    createSphereShape(world, bullet, testShapeDef(), {
+        center: { x: 0, y: 0, z: 0 },
+        radius: 0.1,
+    });
     return { world, sleeper };
 }
 
-function tick(subject: ReturnType<typeof scene>, index: number, ray = true) {
-    if (index === 30) subject.sleeper.setAwake(true);
-    if (ray) subject.world.castRayClosest({ x: 0, y: 10, z: 0 }, { x: 0, y: -20, z: 0 });
-    subject.world.step(1 / 60);
-    return hash(subject.world);
+function tick(subject: ReturnType<typeof scene>, index: number, ray = true): bigint {
+    if (index === 30) bodySetAwake(subject.world, subject.sleeper, true);
+    if (ray) {
+        const query = queryColumns(subject.world);
+        const k = query.prepare({ x: 0, y: 10, z: 0 });
+        query.translation({ x: 0, y: -20, z: 0 });
+        k.worldQuery(subject.world.worldId, 3, 0);
+    }
+    stepTestWorld(subject.world, 1 / 60);
+    return hashWorldState(subject.world);
 }
 
-function solo(variant: number) {
+function solo(variant: number): bigint[] {
     const owner = new World();
     const subject = scene(owner, variant);
     try {
         return Array.from({ length: 120 }, (_, i) => tick(subject, i));
     } finally {
-        subject.world.destroy();
+        destroyTestWorld(subject.world);
+        owner.dispose();
     }
 }
 
@@ -99,15 +150,16 @@ for (const ray of [false, true]) {
                     if (transient) {
                         b = scene(owner, 1);
                         tick(b, 0, ray);
-                        b.world.destroy();
+                        destroyTestWorld(b.world);
                         b = undefined;
                     }
                     expect(tick(a, i, ray), `target tick ${i}`).toBe(expectedA[i]);
                     if (b) expect(tick(b, i, ray), `sibling tick ${i}`).toBe(expectedB[i]);
                 }
             } finally {
-                b?.world.destroy();
-                a.world.destroy();
+                if (b) destroyTestWorld(b.world);
+                destroyTestWorld(a.world);
+                owner.dispose();
             }
         });
     }

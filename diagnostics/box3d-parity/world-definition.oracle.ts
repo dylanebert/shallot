@@ -1,7 +1,15 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp } from "../../src/engine";
 import { hashPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from "../../src/standard/physics";
-import { BodyType, hash, init, PhysicsWorld } from "../../src/standard/physics/api";
+import { BodyType, init } from "../../src/standard/physics/api";
+import { createSphereShape } from "../../src/standard/physics/shapes/shape";
+import { bodyIsAwake } from "../../src/standard/physics/world/body";
+import { hashWorldState } from "../../src/standard/physics/world/hash";
+import {
+    worldEnableSleeping,
+    worldSetGravity,
+} from "../../src/standard/physics/world/world";
+import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld, testShapeDef } from "../../src/standard/physics/testing";
 import { nativeSseOutput } from "./native-evidence";
 import { assertPublicOracleKernel } from "./oracle-kernel";
 
@@ -25,33 +33,39 @@ test("default ECS world definition hashes equal native Box3D", async () => {
 });
 
 test("a live gravity setter hashes equal to native Box3D", () => {
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const body = world.createBody({
+        const body = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 0, y: 10, z: 0 },
         });
-        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
-        world.step(1 / 60, 4);
-        world.setGravity({ x: 0, y: -2, z: 0 });
-        world.step(1 / 60, 4);
-        expect(hash(world)).toBe(nativeGravity);
+        createSphereShape(world, body, testShapeDef(), {
+            center: { x: 0, y: 0, z: 0 },
+            radius: 0.5,
+        });
+        stepTestWorld(world, 1 / 60, 4);
+        worldSetGravity(world, { x: 0, y: -2, z: 0 });
+        stepTestWorld(world, 1 / 60, 4);
+        expect(hashWorldState(world)).toBe(nativeGravity);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("disabling sleeping wakes existing bodies like native Box3D", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
-        const body = world.createBody({ type: BodyType.Dynamic });
-        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
-        for (let i = 0; i < 60; i++) world.step(1 / 60, 4);
-        expect(body.isAwake()).toBe(false);
-        world.enableSleeping(false);
-        expect(body.isAwake()).toBe(true);
-        expect(hash(world)).toBe(nativeSleeping);
+        const body = createTestBody(world, { type: BodyType.Dynamic });
+        createSphereShape(world, body, testShapeDef(), {
+            center: { x: 0, y: 0, z: 0 },
+            radius: 0.5,
+        });
+        for (let i = 0; i < 60; i++) stepTestWorld(world, 1 / 60, 4);
+        expect(bodyIsAwake(world, body)).toBe(false);
+        worldEnableSleeping(world, false);
+        expect(bodyIsAwake(world, body)).toBe(true);
+        expect(hashWorldState(world)).toBe(nativeSleeping);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

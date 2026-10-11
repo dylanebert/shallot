@@ -1,8 +1,24 @@
 import { createApp } from "@dylanebert/shallot";
-import { PhysicsWorld } from "../api/world";
 import { BodyType } from "../common/types";
 import { init, shutdown, threads } from "../kernel/kernel";
 import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { createDistanceJoint, defaultDistanceJointDef } from "./distanceJoint";
+import { createFilterJoint, defaultJointDef } from "./joint";
+import { createMotorJoint, defaultMotorJointDef } from "./motorJoint";
+import { createParallelJoint, defaultParallelJointDef } from "./parallelJoint";
+import { createPrismaticJoint, defaultPrismaticJointDef } from "./prismaticJoint";
+import { createRevoluteJoint, defaultRevoluteJointDef } from "./revoluteJoint";
+import { createSphericalJoint, defaultSphericalJointDef } from "./sphericalJoint";
+import { createWeldJoint, defaultWeldJointDef } from "./weldJoint";
+import { createWheelJoint, defaultWheelJointDef } from "./wheelJoint";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -14,7 +30,7 @@ export default async function create(input: string) {
     await init(undefined, { threads: count });
     if (threads(undefined) !== (count || 1))
         throw new Error("joint allocation requires the requested schedule");
-    const solver = new PhysicsWorld({
+    const state = createTestWorld({
         gravity: { x: 0, y: 0, z: 0 },
         enableSleep: false,
         enableContinuous: false,
@@ -32,39 +48,40 @@ export default async function create(input: string) {
         "Wheel",
     ] as const;
     for (let i = 0; i < kinds.length; i++) {
-        const anchor = solver.createBody({ position: { x: i * 4, y: 0, z: 0 } });
-        const body = solver.createBody({
+        const anchor = createTestBody(state, { position: { x: i * 4, y: 0, z: 0 } });
+        const body = createTestBody(state, {
             type: BodyType.Dynamic,
             position: { x: i * 4, y: 1, z: 0 },
         });
-        body.createHull({}, hull);
+        createHullShape(state, body, testShapeDef(), hull);
+        const base = { ...defaultJointDef(), bodyIdA: anchor, bodyIdB: body };
         switch (kinds[i]) {
             case "Parallel":
-                solver.createParallelJoint(anchor, body, {});
+                createParallelJoint(state, defaultParallelJointDef(base));
                 break;
             case "Distance":
-                solver.createDistanceJoint(anchor, body, { length: 1 });
+                createDistanceJoint(state, defaultDistanceJointDef({ ...base }));
                 break;
             case "Filter":
-                solver.createFilterJoint(anchor, body);
+                createFilterJoint(state, base);
                 break;
             case "Motor":
-                solver.createMotorJoint(anchor, body, {});
+                createMotorJoint(state, defaultMotorJointDef(base));
                 break;
             case "Prismatic":
-                solver.createPrismaticJoint(anchor, body, {});
+                createPrismaticJoint(state, defaultPrismaticJointDef(base));
                 break;
             case "Revolute":
-                solver.createRevoluteJoint(anchor, body, {});
+                createRevoluteJoint(state, defaultRevoluteJointDef(base));
                 break;
             case "Spherical":
-                solver.createSphericalJoint(anchor, body, {});
+                createSphericalJoint(state, defaultSphericalJointDef(base));
                 break;
             case "Weld":
-                solver.createWeldJoint(anchor, body, {});
+                createWeldJoint(state, defaultWeldJointDef(base));
                 break;
             case "Wheel":
-                solver.createWheelJoint(anchor, body, {});
+                createWheelJoint(state, defaultWheelJointDef(base));
                 break;
         }
     }
@@ -74,7 +91,11 @@ export default async function create(input: string) {
             {
                 name: "joint-allocation",
                 systems: [
-                    { name: "joint-step", group: "fixed", update: () => solver.step(1 / 60, 4) },
+                    {
+                        name: "joint-step",
+                        group: "fixed",
+                        update: () => stepTestWorld(state, 1 / 60, 4),
+                    },
                 ],
             },
         ],
@@ -83,7 +104,7 @@ export default async function create(input: string) {
         step: () => app.world.step(1 / 60),
         dispose: async () => {
             app.dispose();
-            solver.destroy();
+            destroyTestWorld(state);
             await shutdown(undefined);
         },
     };

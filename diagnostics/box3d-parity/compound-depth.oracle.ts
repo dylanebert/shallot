@@ -1,10 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import {
-    BodyType,
-    createCompound,
-    defaultSurfaceMaterial,
-    PhysicsWorld,
-} from "../../src/standard/physics/api";
+import { BodyType, defaultShapeDef, defaultSurfaceMaterial } from "../../src/standard/physics/common/types";
+import { createCompound } from "../../src/standard/physics/shapes/compound";
+import { createCompoundShape } from "../../src/standard/physics/shapes/shape";
+import { createTestBody, createTestWorld, destroyTestWorld } from "../../src/standard/physics/testing";
+import { bodyGetTransform } from "../../src/standard/physics/world/body";
+import { BodyField, bodyField } from "../../src/standard/physics/kernel/bodyrecords";
+import { setQueryCallback } from "../../src/standard/physics/kernel/kernel";
+import { queryColumns } from "../../src/standard/physics/kernel/querycolumns";
 import { nativeSseOutput } from "./native-evidence";
 import { assertPublicOracleKernel } from "./oracle-kernel";
 
@@ -53,20 +55,40 @@ function measure(leaves: number) {
     }
     node(2 * depth, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5], depth - 1, 0, 5);
     tree.ni[2 * depth * 12 + 8] = depth;
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
-        const body = world.createBody({ type: BodyType.Static });
-        body.createCompound({}, compound);
+        const body = createTestBody(world, { type: BodyType.Static });
+        createCompoundShape(world, body, defaultShapeDef(), compound);
         const origin = { x: 0, y: 0, z: 0 };
         const proxy = { points: [origin], count: 1, radius: 0.25 };
+        const q = queryColumns(world);
+        const k = q.prepare(origin);
+        q.proxy(proxy);
         let count = 0;
-        world.overlapShape(origin, proxy, () => {
+        const previous = setQueryCallback(world.ecsState, () => {
             ++count;
-            return true;
+            return 1;
         });
-        return [leaves, count, Number(body.overlapShape(origin, proxy, body.getTransform()))];
+        try {
+            k.worldQuery(world.worldId, 1, 1);
+        } finally {
+            setQueryCallback(world.ecsState, previous);
+        }
+        const bodyKernel = q.prepare(origin);
+        q.placement(bodyGetTransform(world, body, {
+            p: { x: 0, y: 0, z: 0 },
+            q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+        }), origin);
+        q.proxy(proxy);
+        bodyKernel.bodyQuery(
+            world.worldId,
+            2,
+            bodyField(world, body, BodyField.headShapeId),
+            0,
+        );
+        return [leaves, count, Number(q.resultU[0] !== 0xffffffff)];
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 }
 const actual = native.map((row) => measure(row[0]));

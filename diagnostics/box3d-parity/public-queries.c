@@ -175,6 +175,33 @@ static bool mover_filter(b3ShapeId shape, void* context)
     return true;
 }
 
+typedef struct ClosestCast
+{
+    bool hit;
+    b3ShapeId shape;
+    b3Pos point;
+    b3Vec3 normal;
+    float fraction;
+    uint64_t userMaterialId;
+    int triangleIndex;
+    int childIndex;
+} ClosestCast;
+
+static float closest_cast_callback(b3ShapeId shape, b3Pos point, b3Vec3 normal, float fraction,
+                                   uint64_t userMaterialId, int triangleIndex, int childIndex, void* context)
+{
+    ClosestCast* out = context;
+    out->hit = true;
+    out->shape = shape;
+    out->point = point;
+    out->normal = normal;
+    out->fraction = fraction;
+    out->userMaterialId = userMaterialId;
+    out->triangleIndex = triangleIndex;
+    out->childIndex = childIndex;
+    return fraction;
+}
+
 static void emit_plane(const b3PlaneResult* plane)
 {
     vector(plane->plane.normal);
@@ -302,6 +329,13 @@ static void query_case(unsigned operation, int kind, const uint32_t* bits)
         word((uint32_t)count);
         for (int i = 0; i < count; ++i) { word(tag(planes[i].shapeId)); emit_plane(&planes[i].result); }
     }
+    else if (operation == 13)
+    {
+        ClosestCast closest = {0};
+        b3World_CastShape(f.world, origin, &proxy, translation, filter, closest_cast_callback, &closest);
+        emit_cast(closest.hit, closest.shape, closest.point, closest.normal, closest.fraction,
+                  closest.userMaterialId, closest.triangleIndex, closest.childIndex, true);
+    }
     putchar('\n');
     destroy_fixture(&f);
 }
@@ -363,6 +397,11 @@ static void contact_case(int kind, int convexKind, const uint32_t* bits)
         word(tag(event->shapeIdA)); word(tag(event->shapeIdB));
         word((uint32_t)b3Contact_IsValid(event->contactId));
         b3ContactData data = b3Contact_GetData(event->contactId);
+        float normalImpulse = 0.0f;
+        for (int j = 0; j < data.manifoldCount; ++j)
+            for (int k = 0; k < data.manifolds[j].pointCount; ++k)
+                normalImpulse += data.manifolds[j].points[k].totalNormalImpulse;
+        scalar(normalImpulse);
         word(tag(data.shapeIdA)); word(tag(data.shapeIdB));
         word((uint32_t)data.manifoldCount);
         for (int j = 0; j < data.manifoldCount; ++j) emit_manifold(data.manifolds + j);

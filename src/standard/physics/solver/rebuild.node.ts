@@ -1,11 +1,42 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../../scripts/test-tiers";
-import { PhysicsWorld } from "../api/world";
 import { contactCount } from "../collision/contact";
-import { BodyType } from "../common/types";
+import type { WorldTransform } from "../common/math";
+import { type BodyDef, BodyType } from "../common/types";
+import { EventKind, eventCount } from "../kernel/eventbuffers";
 import { init, shutdown, threads } from "../kernel/kernel";
+import { createSphereShape } from "../shapes/shape";
+import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
+import {
+    bodyGetTransform,
+    bodyIsAwake,
+    bodySetLinearVelocity,
+    updateBodyMassData,
+} from "../world/body";
+import type { WorldState } from "../world/world";
+import { step as stepWorld } from "./step";
 
 setDefaultTimeout(CEILING.node);
+
+const zero = { x: 0, y: 0, z: 0 };
+const sphere = { center: zero, radius: 0.5 };
+function bodyTransform(state: WorldState, body: number) {
+    const out: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: zero, s: 1 } };
+    bodyGetTransform(state, body, out);
+    return { p: { ...out.p }, q: { v: { ...out.q.v }, s: out.q.s } };
+}
+function addSphere(
+    state: WorldState,
+    type: BodyType,
+    def: Partial<BodyDef> = {},
+    radius = 0.5,
+): number {
+    const body = createTestBody(state, { type, ...def });
+    if (createSphereShape(state, body, testShapeDef(), { ...sphere, radius }) === null)
+        throw new Error("rebuild sphere creation failed");
+    updateBodyMassData(state, body);
+    return body;
+}
 
 if (process.env.PHYSICS_REBUILD_BULLET) {
     const count = Number(process.env.PHYSICS_REBUILD_BULLET);
@@ -13,7 +44,7 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
     expect(threads(undefined)).toBe(count);
     afterAll(() => shutdown(undefined));
     test("a bullet hits a dynamic body after moving proxies rebuild the dynamic tree", () => {
-        const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+        const state = createTestWorld({ gravity: zero, enableSleep: false });
         try {
             let seed = 42;
             const random = () => {
@@ -22,50 +53,49 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
             };
             const bodies = [];
             for (let i = 0; i < 40; ++i) {
-                const body = world.createBody({
-                    type: BodyType.Dynamic,
-                    position: {
-                        x: random() * 20 - 10,
-                        y: random() * 20 - 10,
-                        z: random() * 20 - 10,
-                    },
-                    linearVelocity: {
-                        x: random() * 10 - 5,
-                        y: random() * 10 - 5,
-                        z: random() * 10 - 5,
-                    },
-                });
-                body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
-                body.applyMassFromShapes();
-                bodies.push(body);
+                bodies.push(
+                    addSphere(state, BodyType.Dynamic, {
+                        position: {
+                            x: random() * 20 - 10,
+                            y: random() * 20 - 10,
+                            z: random() * 20 - 10,
+                        },
+                        linearVelocity: {
+                            x: random() * 10 - 5,
+                            y: random() * 10 - 5,
+                            z: random() * 10 - 5,
+                        },
+                    }),
+                );
             }
             for (let i = 0; i < 8; ++i) {
-                world.step(1 / 60, 1);
-                expect(contactCount(world.state)).toBeLessThan(256 * 3);
+                stepWorld(state, 1 / 60, 1);
+                expect(contactCount(state)).toBeLessThan(256 * 3);
             }
-            const target = bodies[2];
-            target.setLinearVelocity({ x: 0, y: 0, z: 0 });
-            const position = target.getPosition();
-            const bullet = world.createBody({
-                type: BodyType.Dynamic,
-                isBullet: true,
-                position: { x: position.x - 5, y: position.y, z: position.z },
-                linearVelocity: { x: 600, y: 0, z: 0 },
-            });
-            bullet.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.2 });
-            bullet.applyMassFromShapes();
-            const root = world.state.broadPhase.trees[BodyType.Dynamic].root;
+            const target = bodies[2]!;
+            bodySetLinearVelocity(state, target, zero);
+            const position = bodyTransform(state, target).p;
+            const bullet = addSphere(
+                state,
+                BodyType.Dynamic,
+                {
+                    isBullet: true,
+                    position: { x: position.x - 5, y: position.y, z: position.z },
+                    linearVelocity: { x: 600, y: 0, z: 0 },
+                },
+                0.2,
+            );
+            const root = state.broadPhase.trees[BodyType.Dynamic]!.root;
             const poses = [];
             for (let i = 0; i < 3; ++i) {
-                world.step(1 / 60, 1);
-                expect(contactCount(world.state)).toBeLessThan(256 * 3);
-                if (i === 0)
-                    expect(world.state.broadPhase.trees[BodyType.Dynamic].root).not.toBe(root);
-                poses.push(bullet.getPosition(), target.getPosition());
+                stepWorld(state, 1 / 60, 1);
+                expect(contactCount(state)).toBeLessThan(256 * 3);
+                if (i === 0) expect(state.broadPhase.trees[BodyType.Dynamic]!.root).not.toBe(root);
+                poses.push(bodyTransform(state, bullet), bodyTransform(state, target));
             }
             console.log(`BULLET_POSES=${JSON.stringify(poses)}`);
         } finally {
-            world.destroy();
+            destroyTestWorld(state);
         }
     });
 } else if (process.env.PHYSICS_REBUILD_POOL !== "1") {
@@ -91,7 +121,7 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
             if (!record) throw new Error("bullet child did not publish poses");
             results.push(JSON.parse(record.slice("BULLET_POSES=".length)));
         }
-        expect(results[0][0].x).toBeLessThan(results[0][1].x);
+        expect(results[0][0].p.x).toBeLessThan(results[0][1].p.x);
         expect(results[1]).toEqual(results[0]);
     });
 } else {
@@ -107,28 +137,24 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
     ] as const) {
         test(`trees finish rebuilding before refit or the end of a four-thread ${name}`, () => {
             expect(threads(undefined)).toBe(4);
-            const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+            const state = createTestWorld({ gravity: zero });
             try {
                 for (let i = 0; i < count; ++i) {
-                    const body = world.createBody({
-                        type,
+                    const body = addSphere(state, type, {
                         isAwake: type === BodyType.Dynamic,
                         linearVelocity: { x: type === BodyType.Dynamic ? 1 : 0, y: 0, z: 0 },
                     });
-                    body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 1 });
-                    body.applyMassFromShapes();
-                    expect(body.isAwake()).toBe(type === BodyType.Dynamic);
+                    expect(bodyIsAwake(state, body)).toBe(type === BodyType.Dynamic);
                 }
-                world.step(dt, 1);
-                if (name === "forked collide")
-                    expect(contactCount(world.state)).toBeGreaterThan(256 * 3);
+                stepWorld(state, dt, 1);
+                if (name === "forked collide") expect(contactCount(state)).toBeGreaterThan(256 * 3);
                 if (name === "unforked collide with moving bodies") {
-                    expect(contactCount(world.state)).toBeGreaterThan(0);
-                    expect(contactCount(world.state)).toBeLessThan(256 * 3);
-                    expect(world.getBodyEvents().count).toBe(2);
+                    expect(contactCount(state)).toBeGreaterThan(0);
+                    expect(contactCount(state)).toBeLessThan(256 * 3);
+                    expect(eventCount(state, EventKind.BodyMove)).toBe(2);
                 }
             } finally {
-                world.destroy();
+                destroyTestWorld(state);
             }
         });
     }

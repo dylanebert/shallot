@@ -2,10 +2,31 @@ import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { contactIds, createContact, destroyContact } from "../collision/contact";
 import { BodyType } from "../common/types";
 import { readStateAngularVelocity } from "../kernel/bodycolumns";
-import { physicsWorld } from "../runtime";
+import { physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
+import { defaultJointDef } from "../solver/joint";
+import { createTestBody, testShapeDef } from "../testing";
 import { PhysicsWorldDefinition } from "../world-definition";
-import { bodyDisable, bodyEnable, getBodyState } from "./body";
+import {
+    bodyApplyAngularImpulse,
+    bodyApplyForce,
+    bodyApplyForceToCenter,
+    bodyApplyLinearImpulse,
+    bodyApplyLinearImpulseToCenter,
+    bodyApplyTorque,
+    bodyDisable,
+    bodyEnable,
+    bodyGetLinearVelocity,
+    bodyGetTransform,
+    bodySetAngularVelocity,
+    bodySetAwake,
+    bodySetLinearVelocity,
+    bodySetTargetTransform,
+    bodySetTransform,
+    getBodyState,
+} from "./body";
 
 export let controlSink: object | undefined;
 export const control = () => {
@@ -14,24 +35,42 @@ export const control = () => {
 
 export default async function create(input: string) {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const physics = physicsWorld(app.world)!;
+    const state = physicsState(app.world)!;
     app.world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
     const hull = makeBoxHull(0.5, 0.5, 0.5);
-    const a = physics.createBody({ type: BodyType.Dynamic });
-    const b = physics.createBody({ type: BodyType.Dynamic, position: { x: 0.9, y: 0, z: 0 } });
-    const shapeA = a.createHull({ density: 1, enableContactEvents: false }, hull);
-    const shapeB = b.createHull({ density: 1, enableContactEvents: false }, hull);
-    const sleeper = physics.createBody({ type: BodyType.Dynamic, position: { x: 10, y: 0, z: 0 } });
-    sleeper.createHull({ density: 1 }, hull);
-    const partner = physics.createBody({ type: BodyType.Dynamic, position: { x: 11, y: 0, z: 0 } });
-    physics.createDistanceJoint(sleeper, partner, { length: 1 });
+    const a = createTestBody(state, { type: BodyType.Dynamic });
+    const b = createTestBody(state, { type: BodyType.Dynamic, position: { x: 0.9, y: 0, z: 0 } });
+    const shapeA = createHullShape(
+        state,
+        a,
+        testShapeDef({ density: 1, enableContactEvents: false }),
+        hull,
+    )!;
+    const shapeB = createHullShape(
+        state,
+        b,
+        testShapeDef({ density: 1, enableContactEvents: false }),
+        hull,
+    )!;
+    const sleeper = createTestBody(state, {
+        type: BodyType.Dynamic,
+        position: { x: 10, y: 0, z: 0 },
+    });
+    createHullShape(state, sleeper, testShapeDef({ density: 1 }), hull);
+    const partner = createTestBody(state, {
+        type: BodyType.Dynamic,
+        position: { x: 11, y: 0, z: 0 },
+    });
+    createDistanceJoint(
+        state,
+        defaultDistanceJointDef({ ...defaultJointDef(), bodyIdA: sleeper, bodyIdB: partner }),
+    );
     app.world.step(1 / 60);
-    const state = physics.state;
     const ids = contactIds(state);
     if (ids.length !== 1) throw new Error("body allocation requires one contact");
     const contact = ids[0];
-    const first = shapeA.id.index1 - 1;
-    const second = shapeB.id.index1 - 1;
+    const first = shapeA;
+    const second = shapeB;
     const velocity = { x: 0.1, y: 0.2, z: 0.3 };
     const angular = { x: 0.2, y: 0.3, z: 0.4 };
     const force = { x: 0.1, y: 0.1, z: 0.1 };
@@ -43,30 +82,29 @@ export default async function create(input: string) {
     return {
         step: () => {
             for (let i = 0; i < 16; ++i) {
-                a.setLinearVelocity(velocity);
-                a.setAngularVelocity(angular);
-                a.getLinearVelocity(readVelocity);
-                readStateAngularVelocity(
-                    state,
-                    getBodyState(state, a.id.index1 - 1)!,
-                    readVelocity,
-                );
-                a.getTransform(pose);
-                a.setTransform(pose.p, pose.q);
-                a.setTargetTransform(pose, 1 / 60);
-                a.applyForce(force, point, true);
-                a.applyForceToCenter(force, true);
-                a.applyTorque(force, true);
-                a.applyLinearImpulse(impulse, point, true);
-                a.applyLinearImpulseToCenter(impulse, true);
-                a.applyAngularImpulse(impulse, true);
-                sleeper.setAwake(false);
-                sleeper.setAwake(true);
-                bodyDisable(state, sleeper.id.index1 - 1);
-                bodyEnable(state, sleeper.id.index1 - 1);
+                bodySetLinearVelocity(state, a, velocity);
+                bodySetAngularVelocity(state, a, angular);
+                bodyGetLinearVelocity(state, a, readVelocity);
+                readStateAngularVelocity(state, getBodyState(state, a)!, readVelocity);
+                bodyGetTransform(state, a, pose);
+                bodySetTransform(state, a, pose.p, pose.q);
+                bodySetTargetTransform(state, a, pose, 1 / 60, false);
+                bodyApplyForce(state, a, force, point, true);
+                bodyApplyForceToCenter(state, a, force, true);
+                bodyApplyTorque(state, a, force, true);
+                bodyApplyLinearImpulse(state, a, impulse, point, true);
+                bodyApplyLinearImpulseToCenter(state, a, impulse, true);
+                bodyApplyAngularImpulse(state, a, impulse, true);
+                bodySetAwake(state, sleeper, false);
+                bodySetAwake(state, sleeper, true);
+                bodyDisable(state, sleeper);
+                bodyEnable(state, sleeper);
                 destroyContact(state, contact, false);
                 createContact(state, first, second, -1);
-                if (allocating) controlSink = { velocity: a.getLinearVelocity() };
+                if (allocating)
+                    controlSink = {
+                        velocity: bodyGetLinearVelocity(state, a, { x: 0, y: 0, z: 0 }),
+                    };
             }
         },
         dispose: () => app.dispose(),

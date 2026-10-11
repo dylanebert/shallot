@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { createApp, Time, Transform } from "@dylanebert/shallot";
+import { createApp, GlobalTransform, Time, Transform } from "@dylanebert/shallot";
 import {
     Body,
     BodyType,
@@ -10,7 +10,8 @@ import {
 } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
-import { physicsWorld } from "./runtime";
+import { physicsBodyIndex, physicsState } from "./runtime";
+import { worldCounters } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 
@@ -30,8 +31,8 @@ test("recycled Shape geometry retries and placement warnings preserve restored b
         world.step(Time.FIXED_DT);
         world.step(Time.FIXED_DT);
         expect(warning).toHaveBeenCalledTimes(2);
-        expect(physicsWorld(world)!.getCounters().bodyCount).toBe(1);
-        expect(physicsWorld(world)!.getCounters().shapeCount).toBe(0);
+        expect(worldCounters(physicsState(world)!).bodyCount).toBe(1);
+        expect(worldCounters(physicsState(world)!).shapeCount).toBe(0);
         const failed = world.snapshot();
         world.destroy(eid);
         expect(world.create()).toBe(eid);
@@ -46,19 +47,17 @@ test("recycled Shape geometry retries and placement warnings preserve restored b
         world.add(eid, Transform);
         world.step(Time.FIXED_DT);
         expect(warning).toHaveBeenCalledTimes(3);
-        const solver = physicsWorld(world)!;
-        expect(solver.getBody(eid)).not.toBeNull();
+        const solver = physicsState(world)!;
+        expect(physicsBodyIndex(world, eid)).toBeGreaterThanOrEqual(0);
         const live = world.snapshot();
         world.destroy(eid);
         expect(world.create()).toBe(eid);
         world.add(eid, Body, { position: [0, 7, 0, 0] });
         world.restore(live);
-        expect(solver.getBody(eid)).not.toBeNull();
+        expect(physicsBodyIndex(world, eid)).toBeGreaterThanOrEqual(0);
         world.step(Time.FIXED_DT);
-        const position = { x: 0, y: 0, z: 0 };
-        solver.getBody(eid)!.getPosition(position);
-        expect(position.y).toBe(0);
-        expect(solver.getCounters().bodyCount).toBe(1);
+        expect(world.storage(GlobalTransform).translation.y.get(eid)).toBe(0);
+        expect(worldCounters(solver).bodyCount).toBe(1);
     } finally {
         warning.mockRestore();
         app.dispose();
@@ -77,15 +76,16 @@ for (const constraint of [SphericalJoint, DistanceJoint]) {
             const link = world.create();
             world.add(link, constraint, { a: anchor, b: bob });
             world.step(Time.FIXED_DT);
-            const solver = physicsWorld(world)!;
-            expect(solver.getCounters().jointCount).toBe(1);
+            const solver = physicsState(world)!;
+            expect(worldCounters(solver).jointCount).toBe(1);
             world.destroy(bob);
             const replacement = world.create();
             expect(replacement).toBe(bob);
             world.add(replacement, Body, { type: BodyType.Dynamic, position: [0, 1, 0, 0] });
+            expect(physicsBodyIndex(world, replacement)).toBe(-1);
             world.step(Time.FIXED_DT);
-            expect(solver.getBody(replacement)).not.toBeNull();
-            expect(solver.getCounters().jointCount).toBe(0);
+            expect(physicsBodyIndex(world, replacement)).toBeGreaterThanOrEqual(0);
+            expect(worldCounters(solver).jointCount).toBe(0);
         } finally {
             app.dispose();
         }

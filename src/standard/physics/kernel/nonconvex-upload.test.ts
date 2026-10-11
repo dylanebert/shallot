@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { PhysicsWorld } from "../api/world";
 import { xf } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { createCompound } from "../shapes/compound";
@@ -7,15 +6,18 @@ import { createGrid } from "../shapes/heightfield";
 import { makeBoxHull } from "../shapes/hull";
 import { hash64NonZero } from "../shapes/hullbytes";
 import { createBoxMesh, createGridMesh } from "../shapes/mesh";
+import { createCompoundShape, createHeightFieldShape, createMeshShape } from "../shapes/shape";
+import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
+import type { WorldState } from "../world/world";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 import { ShapeField, shapeField } from "./shaperecords";
 
-function image(world: PhysicsWorld, shape: number): Uint8Array {
-    const store = world.state.shapeStore;
+function image(world: WorldState, shape: number): Uint8Array {
+    const store = world.shapeStore;
     store.refreshViews();
     const u = store.materialU;
     const record = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
-    const sizeWord = shapeField(world.state, shape, ShapeField.type) === ShapeType.Compound ? 2 : 4;
+    const sizeWord = shapeField(world, shape, ShapeField.type) === ShapeType.Compound ? 2 : 4;
     return new Uint8Array(u.buffer, record, u[record / 4 + sizeWord]);
 }
 function checkHash(bytes: Uint8Array): void {
@@ -29,14 +31,14 @@ function checkHash(bytes: Uint8Array): void {
 }
 
 test("mesh and height-field uploads have native headers, packed nodes, byte flags/materials and short heights", () => {
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const body = world.createBody({ type: BodyType.Static });
+        const body = createTestBody(world, { type: BodyType.Static });
         const mesh = createGridMesh(4, 4, 1, 0, true);
-        const meshShape = body.createMesh({}, mesh)!;
+        const meshShape = createMeshShape(world, body, testShapeDef(), mesh, { x: 1, y: 1, z: 1 })!;
         const field = createGrid(4, 4, { x: 1, y: 1, z: 1 }, false);
-        const fieldShape = body.createHeightField({}, field)!;
-        const meshBytes = image(world, meshShape.id.index1 - 1);
+        const fieldShape = createHeightFieldShape(world, body, testShapeDef(), field)!;
+        const meshBytes = image(world, meshShape);
         const m = new DataView(meshBytes.buffer, meshBytes.byteOffset, meshBytes.byteLength);
         expect(m.getBigUint64(0, true)).toBe(0xaaab9a00f1a8aaf7n);
         expect(m.getUint32(56, true)).toBe(96);
@@ -68,7 +70,7 @@ test("mesh and height-field uploads have native headers, packed nodes, byte flag
             ),
         ).toEqual(mesh.flags);
         checkHash(meshBytes);
-        const fieldBytes = image(world, fieldShape.id.index1 - 1);
+        const fieldBytes = image(world, fieldShape);
         const h = new DataView(fieldBytes.buffer, fieldBytes.byteOffset, fieldBytes.byteLength);
         expect(h.getBigUint64(0, true)).toBe(0x8e41e5fb084848f8n);
         expect(h.getUint32(76, true)).toBe(96);
@@ -101,14 +103,14 @@ test("mesh and height-field uploads have native headers, packed nodes, byte flag
         ).toEqual(field.flags);
         checkHash(fieldBytes);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("compound uploads use Box3D header, tree, material and child-blob offsets", () => {
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const body = world.createBody({ type: BodyType.Static });
+        const body = createTestBody(world, { type: BodyType.Static });
         const hull = makeBoxHull(0.5, 0.5, 0.5);
         const meshData = createBoxMesh({ x: 0, y: 0, z: 0 }, { x: 0.5, y: 0.5, z: 0.5 }, false);
         const compound = createCompound({
@@ -139,8 +141,8 @@ test("compound uploads use Box3D header, tree, material and child-blob offsets",
                 },
             ],
         })!;
-        const shape = body.createCompound({}, compound)!;
-        const bytes = image(world, shape.id.index1 - 1);
+        const shape = createCompoundShape(world, body, testShapeDef(), compound)!;
+        const bytes = image(world, shape);
         const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const u = (word: number) => v.getUint32(word * 4, true);
         expect(v.getBigUint64(0, true)).toBe(
@@ -167,6 +169,6 @@ test("compound uploads use Box3D header, tree, material and child-blob offsets",
             new DataView(bytes.buffer, bytes.byteOffset + meshBlobOffset, 8).getBigUint64(0, true),
         ).toBe(0xaaab9a00f1a8aaf7n);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

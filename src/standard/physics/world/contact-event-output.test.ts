@@ -1,48 +1,66 @@
 import { expect, test } from "bun:test";
-import { BodyType, makeBoxHull, PhysicsWorld } from "../api";
-import { ContactField, contactCount, setContactField } from "../collision/contact";
+import { ContactField, contactCount, contactIsValid, setContactField } from "../collision/contact";
 import { updateBroadPhasePairs } from "../collision/pairs";
-
-// Low-level generation-width ABI parity test; the consumer-visible impulse sequence is in ecs-event-claims.test.ts.
+import { BodyType } from "../common/types";
+import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
+import { kernel } from "../kernel/kernel";
+import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { destroyBody } from "../world/body";
 
 test("contact begin, hit and end events retain a full u32 generation and the solved begin impulse", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     try {
-        world
-            .createBody({ position: { x: 0, y: -0.5, z: 0 } })
-            .createHull({}, makeBoxHull(10, 0.5, 10));
-        const body = world.createBody({
+        const ground = createTestBody(world, { position: { x: 0, y: -0.5, z: 0 } });
+        createHullShape(world, ground, testShapeDef(), makeBoxHull(10, 0.5, 10));
+        const body = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 0, y: 0.5, z: 0 },
             linearVelocity: { x: 0, y: -10, z: 0 },
         });
-        body.createHull(
-            { enableContactEvents: true, enableHitEvents: true },
+        createHullShape(
+            world,
+            body,
+            testShapeDef({ enableContactEvents: true, enableHitEvents: true }),
             makeBoxHull(0.5, 0.5, 0.5),
         );
-        updateBroadPhasePairs(world.state);
-        expect(contactCount(world.state)).toBe(1);
+        updateBroadPhasePairs(world);
+        expect(contactCount(world)).toBe(1);
         const generation = 65536;
-        setContactField(world.state, 0, ContactField.generation, generation);
-        world.step(1 / 60, 4);
-        const events = world.getContactEvents();
-        expect(events.beginEvents).toHaveLength(1);
-        const begin = events.beginEvents[0];
-        expect(begin.contact.id.generation).toBe(generation);
-        expect(begin.contact.isValid()).toBe(true);
-        expect(begin.normalImpulse).toBeGreaterThan(0);
-        expect(events.hitEvents).toHaveLength(1);
-        expect(events.hitEvents[0].contact.id.generation).toBe(generation);
-        expect(events.hitEvents[0].contact.isValid()).toBe(true);
-        const impulse = begin.normalImpulse;
-        body.destroy();
-        expect(world.getContactEvents().beginEvents[0].normalImpulse).toBe(impulse);
-        world.step(1 / 60, 4);
-        const end = world.getContactEvents().endEvents;
-        expect(end).toHaveLength(1);
-        expect(end[0].contact.id.generation).toBe(generation);
-        expect(end[0].contact.isValid()).toBe(false);
+        setContactField(world, 0, ContactField.generation, generation);
+        stepTestWorld(world, 1 / 60, 4);
+        expect(eventCount(world, EventKind.ContactBegin)).toBe(1);
+        const beginContact = eventId(world, EventKind.ContactBegin, 0, 4);
+        expect(beginContact.generation).toBe(generation);
+        expect(contactIsValid(world, beginContact)).toBe(true);
+        const impulse = kernel(world.ecsState).eventFloat(
+            world.worldId,
+            EventKind.ContactBegin,
+            0,
+            7,
+        );
+        expect(impulse).toBeGreaterThan(0);
+        expect(eventCount(world, EventKind.ContactHit)).toBe(1);
+        const hitContact = eventId(world, EventKind.ContactHit, 0, 4);
+        expect(hitContact.generation).toBe(generation);
+        expect(contactIsValid(world, hitContact)).toBe(true);
+        destroyBody(world, body);
+        expect(kernel(world.ecsState).eventFloat(world.worldId, EventKind.ContactBegin, 0, 7)).toBe(
+            impulse,
+        );
+        stepTestWorld(world, 1 / 60, 4);
+        expect(eventCount(world, EventKind.ContactEnd)).toBe(1);
+        const endContact = eventId(world, EventKind.ContactEnd, 0, 4);
+        expect(endContact.generation).toBe(generation);
+        expect(contactIsValid(world, endContact)).toBe(false);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

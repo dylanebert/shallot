@@ -17,6 +17,7 @@ import {
     WheelJoint,
 } from "../../../core/physics";
 import { createApp, Time } from "../../../engine";
+import { DEFAULT_MASK_BITS } from "../common/constants";
 import type { AABB, WorldTransform } from "../common/math";
 import { quat } from "../common/math";
 import { defaultSurfaceMaterial } from "../common/types";
@@ -28,7 +29,8 @@ import type { Sphere } from "../shapes/geometry";
 import { createHeightField } from "../shapes/heightfield";
 import { makeBoxHull } from "../shapes/hull";
 import { createGridMesh } from "../shapes/mesh";
-import { defaultDebugDraw } from "./draw";
+import { destroyTestWorld } from "../testing";
+import { defaultDebugDraw, worldDraw } from "./draw";
 import { drawScene, reactionScene } from "./draw-scene";
 
 test("drawPhysics preserves ECS-authored sphere geometry and placement", async () => {
@@ -357,7 +359,7 @@ test("debug draw visits each authored shape kind and drawing primitive", () => {
             calls.push(structuredClone([key, ...args]));
         };
     }
-    world.draw(draw);
+    worldDraw(world, draw, DEFAULT_MASK_BITS);
     const kinds = calls.map((call) => (call as unknown[])[0]);
     expect(kinds).toEqual(
         expect.arrayContaining([
@@ -373,7 +375,7 @@ test("debug draw visits each authored shape kind and drawing primitive", () => {
             "drawString",
         ]),
     );
-    world.destroy();
+    destroyTestWorld(world);
 });
 
 test("debug draw reports nonzero stepped joint force and torque", () => {
@@ -396,7 +398,7 @@ test("debug draw reports nonzero stepped joint force and torque", () => {
         };
     }
     try {
-        world.draw(draw);
+        worldDraw(world, draw, DEFAULT_MASK_BITS);
         const labels = calls.filter(
             (call) => call[0] === "drawString" && String(call[2]).startsWith("f = "),
         );
@@ -406,7 +408,7 @@ test("debug draw reports nonzero stepped joint force and torque", () => {
         );
         expect(labels.some((call) => Number(/t = (.+)/.exec(String(call[2]))![1]) > 0)).toBe(true);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
@@ -430,7 +432,7 @@ test("a shapes-only nested draw from the first callback preserves the full outer
     ] as const) {
         draw[key] = (...args: unknown[]) => baseline.push(structuredClone([key, ...args]));
     }
-    world.draw(draw);
+    worldDraw(world, draw, DEFAULT_MASK_BITS);
     let entered = false;
     for (const key of [
         "drawSolidSphere",
@@ -448,15 +450,15 @@ test("a shapes-only nested draw from the first callback preserves the full outer
             calls.push(structuredClone([key, ...args]));
             if (!entered) {
                 entered = true;
-                world.draw(nested);
+                worldDraw(world, nested, DEFAULT_MASK_BITS);
             }
         };
     }
     try {
-        world.draw(draw);
+        worldDraw(world, draw, DEFAULT_MASK_BITS);
         expect(calls).toEqual(baseline);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
@@ -469,16 +471,16 @@ test("a throwing nested callback releases both pending streams", () => {
         throw error;
     };
     draw.drawSolidHull = () => {
-        world.draw(nested);
+        worldDraw(world, nested, DEFAULT_MASK_BITS);
     };
-    const k = kernel(world.state.ecsState);
+    const k = kernel(world.ecsState);
     try {
-        expect(() => world.draw(draw)).toThrow(error);
+        expect(() => worldDraw(world, draw, DEFAULT_MASK_BITS)).toThrow(error);
         expect(k.worldDrawLen()).toBe(0);
-        expect(() => world.draw(defaultDebugDraw())).not.toThrow();
+        expect(() => worldDraw(world, defaultDebugDraw(), DEFAULT_MASK_BITS)).not.toThrow();
         expect(k.worldDrawLen()).toBe(0);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
@@ -496,7 +498,7 @@ test("draw snapshots flags and bounds and hands out fresh callback values", () =
     draw.drawAabb = (aabb) => {
         bounds.push(aabb);
     };
-    world.draw(draw);
+    worldDraw(world, draw, DEFAULT_MASK_BITS);
     expect(bounds.length).toBe(6);
     expect(new Set(bounds).size).toBe(bounds.length);
     const center = spheres[0].center.x;
@@ -504,8 +506,8 @@ test("draw snapshots flags and bounds and hands out fresh callback values", () =
     frames[0].p.x = 500;
     draw.drawBounds = true;
     draw.drawingBounds.lowerBound.x = -100;
-    world.draw(draw);
+    worldDraw(world, draw, DEFAULT_MASK_BITS);
     expect(spheres[1].center.x).toBe(center);
     expect(frames[1].p.x).toBe(1);
-    world.destroy();
+    destroyTestWorld(world);
 });

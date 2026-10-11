@@ -1,12 +1,15 @@
 import { shapeSensorIndex, writeShapeFilterValue } from "../kernel/filtercolumns";
 import { acquireCompoundData, acquireHeightFieldData, acquireMeshData } from "../kernel/geocolumns";
-import { ShapeField, shapeField } from "../kernel/shaperecords";
+import { ShapeField, shapeField, shapeScalar } from "../kernel/shaperecords";
 // Shape API and authoring bridge to Box3D's shape.c operations in the kernel (Erin Catto, MIT).
 
 import type * as bp from "../collision/broadphase";
 import { NULL_INDEX } from "../common/array";
+import { hi32, lo32 } from "../common/bits";
+import type { EntityId } from "../common/ids";
 import {
     type AABB,
+    f32,
     mat3,
     type Transform,
     type Vec3,
@@ -42,6 +45,19 @@ export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };
 
 /** Shape identity; the kernel column is its only nongeometry record. */
 export type Shape = number;
+export function shapeIsValid(world: WorldState, id: EntityId): boolean {
+    if (!world.inUse) return false;
+    world.shapeStore.refreshViews();
+    const shape = id.index1 - 1;
+    const k = kernel(world.ecsState);
+    return (
+        shape >= 0 &&
+        shape < world.shapeStore.shapeU.length / SHAPE_STRIDE &&
+        k.shapeAlive(world.worldId, shape) !== 0 &&
+        k.shapeGeneration(world.worldId, shape) === id.generation
+    );
+}
+
 export function readShapeSphere(world: WorldState, shape: Shape): Sphere {
     world.shapeStore.refreshViews();
     const f = world.shapeStore.shapeF,
@@ -87,6 +103,36 @@ export function getShapeMaterial(
     out: SurfaceMaterial,
 ): SurfaceMaterial {
     return world.shapeStore.readMaterialAt(shape, 0, out);
+}
+
+export function getShapeType(world: WorldState, shape: Shape): ShapeType {
+    return shapeField(world, shape, ShapeField.type) as ShapeType;
+}
+
+export function getShapeDensity(world: WorldState, shape: Shape): number {
+    return shapeScalar(world, shape, ShapeField.density);
+}
+
+export function getShapeGeometryReference(world: WorldState, shape: Shape): number {
+    return kernel(world.ecsState).shapeGetGeometryReference(world.worldId, shape);
+}
+
+export function getShapeGeometryScale(world: WorldState, shape: Shape): Vec3 {
+    world.shapeStore.refreshViews();
+    const offset = shape * SHAPE_STRIDE + 49;
+    const values = world.shapeStore.shapeF;
+    return { x: values[offset], y: values[offset + 1], z: values[offset + 2] };
+}
+
+export function getShapeFilter(world: WorldState, shape: Shape): Filter {
+    world.shapeStore.refreshViews();
+    const offset = shape * SHAPE_STRIDE;
+    const words = world.shapeStore.shapeU;
+    return {
+        categoryBits: (BigInt(words[offset + 39] >>> 0) << 32n) | BigInt(words[offset + 38] >>> 0),
+        maskBits: (BigInt(words[offset + 41] >>> 0) << 32n) | BigInt(words[offset + 40] >>> 0),
+        groupIndex: words[offset + 42] | 0,
+    };
 }
 
 /**
@@ -447,6 +493,115 @@ export function createCompoundShape(
     compound: CompoundData,
 ): Shape | null {
     return createShape(world, body, def, compound, ShapeType.Compound);
+}
+
+export function setShapeSphere(world: WorldState, shape: Shape, sphere: Sphere): void {
+    kernel(world.ecsState).shapeSetSphere(
+        world.worldId,
+        shape,
+        f32(sphere.center.x),
+        f32(sphere.center.y),
+        f32(sphere.center.z),
+        f32(sphere.radius),
+    );
+    releaseGeometryIdentities(world);
+}
+
+export function setShapeCapsule(world: WorldState, shape: Shape, capsule: Capsule): void {
+    kernel(world.ecsState).shapeSetCapsule(
+        world.worldId,
+        shape,
+        f32(capsule.center1.x),
+        f32(capsule.center1.y),
+        f32(capsule.center1.z),
+        f32(capsule.center2.x),
+        f32(capsule.center2.y),
+        f32(capsule.center2.z),
+        f32(capsule.radius),
+    );
+    releaseGeometryIdentities(world);
+}
+
+export function setShapeHull(world: WorldState, shape: Shape, hull: HullData): void {
+    const handle = addHullToDatabase(world, hull);
+    kernel(world.ecsState).shapeSetHull(world.worldId, shape, handle);
+    releaseGeometryIdentities(world);
+}
+
+export function setShapeMesh(world: WorldState, shape: Shape, mesh: MeshData, scale: Vec3): void {
+    const handle = acquireMeshData(world, mesh);
+    kernel(world.ecsState).shapeSetMesh(
+        world.worldId,
+        shape,
+        handle,
+        f32(scale.x),
+        f32(scale.y),
+        f32(scale.z),
+    );
+    releaseGeometryIdentities(world);
+}
+
+export function setShapeDensity(
+    world: WorldState,
+    shape: Shape,
+    density: number,
+    updateBodyMass: boolean,
+): void {
+    kernel(world.ecsState).shapeSetDensity(world.worldId, shape, f32(density), updateBodyMass);
+}
+
+export function setShapeSurfaceMaterial(
+    world: WorldState,
+    shape: Shape,
+    material: SurfaceMaterial,
+): void {
+    const userMaterialId = BigInt.asUintN(64, material.userMaterialId);
+    kernel(world.ecsState).shapeSetSurfaceMaterial(
+        world.worldId,
+        shape,
+        f32(material.friction),
+        f32(material.restitution),
+        f32(material.rollingResistance),
+        f32(material.tangentVelocity.x),
+        f32(material.tangentVelocity.y),
+        f32(material.tangentVelocity.z),
+        lo32(userMaterialId),
+        hi32(userMaterialId),
+        material.customColor >>> 0,
+    );
+}
+
+export function setShapeFriction(world: WorldState, shape: Shape, friction: number): void {
+    kernel(world.ecsState).shapeSetFriction(world.worldId, shape, f32(friction));
+}
+
+export function setShapeRestitution(world: WorldState, shape: Shape, restitution: number): void {
+    kernel(world.ecsState).shapeSetRestitution(world.worldId, shape, f32(restitution));
+}
+
+export function setShapeMeshMaterial(
+    world: WorldState,
+    shape: Shape,
+    material: SurfaceMaterial,
+    index: number,
+): void {
+    if (!Number.isInteger(index) || index < 0 || index >= getShapeMaterialCount(world, shape))
+        throw new RangeError("physics: mesh material index is out of range");
+    const userMaterialId = BigInt.asUintN(64, material.userMaterialId);
+    kernel(world.ecsState).shapeSetMeshMaterial(
+        world.worldId,
+        shape,
+        index,
+        f32(material.friction),
+        f32(material.restitution),
+        f32(material.rollingResistance),
+        f32(material.tangentVelocity.x),
+        f32(material.tangentVelocity.y),
+        f32(material.tangentVelocity.z),
+        lo32(userMaterialId),
+        hi32(userMaterialId),
+        material.customColor >>> 0,
+    );
 }
 
 export function destroyShape(world: WorldState, shape: Shape, updateBodyMass: boolean): void {

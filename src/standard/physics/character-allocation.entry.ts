@@ -6,7 +6,10 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { characterScratch } from "./character";
 import { BodyType } from "./common/types";
-import { physicsWorld } from "./runtime";
+import { physicsBodyIndex, physicsState } from "./runtime";
+import { createSphereShape } from "./shapes/shape";
+import { createTestBody, testShapeDef } from "./testing";
+import { bodySetLinearVelocity } from "./world/body";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -17,12 +20,17 @@ export default async function create(input: string) {
     const app = await createApp({ defaults: false, plugins: [CharacterPlugin] });
     const world = app.world;
     const pushing = input === "push";
-    const physics = physicsWorld(world)!;
+    const state = physicsState(world)!;
     if (pushing) {
         world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
-        physics
-            .createBody({ type: BodyType.Dynamic, position: { x: 0.8, y: 2, z: 0 } })
-            .createSphere({ density: 1 }, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        const body = createTestBody(state, {
+            type: BodyType.Dynamic,
+            position: { x: 0.8, y: 2, z: 0 },
+        });
+        createSphereShape(state, body, testShapeDef({ density: 1 }), {
+            center: { x: 0, y: 0, z: 0 },
+            radius: 0.5,
+        });
     }
     const platform = world.create();
     world.add(platform, Body, {
@@ -40,7 +48,11 @@ export default async function create(input: string) {
     world.storage(Shape).capsuleB.set(eid, 0, 0.5, 0, 0.3);
     world.add(eid, Character);
     world.step(1 / 60);
-    if (!pushing) physics.getBody(platform)!.setLinearVelocity({ x: 2, y: 0, z: 0 });
+    if (!pushing) {
+        const platformBody = physicsBodyIndex(world, platform);
+        if (platformBody < 0) throw new Error("allocation subject platform has no solver body");
+        bodySetLinearVelocity(state, platformBody, { x: 2, y: 0, z: 0 });
+    }
     const velocity = world.storage(Character).velocity;
     let tick = 0;
     return {

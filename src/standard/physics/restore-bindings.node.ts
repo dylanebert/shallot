@@ -8,7 +8,9 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
-import { physicsWorld } from "./runtime";
+import { snapshot } from "./api/snapshot";
+import { physicsBodyIndex, physicsState } from "./runtime";
+import { worldCounters } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();
@@ -41,11 +43,11 @@ for (const mutation of ["spawn", "despawn", "joint"] as const) {
             world.tick();
             world.restore(saved);
             expect(hashPhysics(world)).toBe(expected);
-            expect(physicsWorld(world)!.getCounters().bodyCount).toBe(2);
-            expect(physicsWorld(world)!.getCounters().jointCount).toBe(0);
-            expect(physicsWorld(world)!.getBody(bob)?.isValid()).toBe(true);
+            expect(worldCounters(physicsState(world)!).bodyCount).toBe(2);
+            expect(worldCounters(physicsState(world)!).jointCount).toBe(0);
+            expect(physicsBodyIndex(world, bob)).toBeGreaterThanOrEqual(0);
             world.tick();
-            expect(physicsWorld(world)!.getCounters().bodyCount).toBe(2);
+            expect(worldCounters(physicsState(world)!).bodyCount).toBe(2);
         } finally {
             app.dispose();
         }
@@ -91,7 +93,7 @@ test("world recovery refuses a solver-only image before changing simulation", as
         const eid = world.create();
         world.add(eid, Body);
         world.tick();
-        const solverOnly = physicsWorld(world)!.snapshot();
+        const solverOnly = snapshot(physicsState(world)!);
         world.tick();
         const hash = hashPhysics(world);
         expect(() => world.restore(solverOnly as unknown as WorldSnapshot)).toThrow(

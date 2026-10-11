@@ -3,23 +3,57 @@
 // results are compared with native identification fields.
 // Callback results are appended as delivered: order is deliberately never sorted.
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Body as EcsBody, BodyType as EcsBodyType, PhysicsPlugin as CorePhysicsPlugin, Shape as EcsShape, ShapeKind } from "../../src/core/physics";
-import { Time, World } from "../../src/engine";
 import {
-    BodyType,
-    createBoxMesh,
-    createCompound,
-    createGrid,
-    defaultSurfaceMaterial,
-    init,
-    makeBoxHull,
-    PhysicsWorld,
-    type Shape,
-} from "../../src/standard/physics/api";
+    Body as EcsBody,
+    BodyType as EcsBodyType,
+    Compounds,
+    HeightFields,
+    PhysicsMeshes,
+    PhysicsPlugin as CorePhysicsPlugin,
+    Shape as EcsShape,
+    ShapeKind,
+} from "../../src/core/physics";
+import { Time, World } from "../../src/engine";
+import { BodyType, defaultSurfaceMaterial } from "../../src/standard/physics/common/types";
+import { createBoxMesh } from "../../src/standard/physics/shapes/mesh";
+import { createCompound } from "../../src/standard/physics/shapes/compound";
+import { createGrid } from "../../src/standard/physics/shapes/heightfield";
+import { makeBoxHull } from "../../src/standard/physics/shapes/hull";
+import {
+    createCapsuleShape,
+    createCompoundShape,
+    createHeightFieldShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+} from "../../src/standard/physics/shapes/shape";
+import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld, testShapeDef } from "../../src/standard/physics/testing";
+import { makeBodyId } from "../../src/standard/physics/world/body";
+import { EventKind, eventCount, eventId } from "../../src/standard/physics/kernel/eventbuffers";
+import { init, kernel } from "../../src/standard/physics/kernel/kernel";
+import { ContactField, contactField, contactIsValid } from "../../src/standard/physics/collision/contact";
+import { readContactManifolds } from "../../src/standard/physics/collision/manifoldstore";
+import type { WorldState } from "../../src/standard/physics/world/world";
+import {
+    bodyCastRay,
+    bodyCastShape,
+    bodyCollideMover,
+    bodyGetClosestPoint,
+    bodyOverlapShape,
+    worldCastMover,
+    worldCastRay,
+    worldCastRayClosest,
+    worldCastShape,
+    worldCollideMover,
+    worldOverlapAABB,
+    worldOverlapShape,
+    type WorldCastHit,
+} from "../../src/standard/physics/world/query";
 import {
     castRay,
     castRayClosest,
     castShape,
+    castShapeClosest,
     overlapAABB,
     overlapShape,
     PhysicsWorldDefinition,
@@ -76,34 +110,40 @@ type ContactInput = {
 
 const material = (id: bigint) => ({ ...defaultSurfaceMaterial(), userMaterialId: id });
 
-function fixture(kind: number, pose?: Pose) {
-    const world = new PhysicsWorld({ gravity: zero, enableSleep: false });
+function fixture(kind: number, pose?: Pose): { world: WorldState; body: number; shape: number } {
+    const world = createTestWorld({ gravity: zero, enableSleep: false });
     const position = pose?.position ?? fixturePosition(kind);
     const rotation = pose?.rotation ?? { v: zero, s: 1 };
-    const body = world.createBody({ type: BodyType.Static, position, rotation });
+    const body = createTestBody(world, { type: BodyType.Static, position, rotation });
     const def = {
         userData: kind + 1,
         baseMaterial: material(0x100000000n + BigInt(kind + 1)),
     };
-    let shape: Shape;
+    const shapeDef = testShapeDef(def);
+    let shape: number | null;
     if (kind === 0) {
-        shape = body.createSphere(def, { center: { x: 0, y: -1, z: 0 }, radius: 1 });
+        shape = createSphereShape(world, body, shapeDef, { center: { x: 0, y: -1, z: 0 }, radius: 1 });
     } else if (kind === 1) {
-        shape = body.createCapsule(def, {
+        shape = createCapsuleShape(world, body, shapeDef, {
             center1: { x: 0, y: -1.65, z: 0 },
             center2: { x: 0, y: -0.35, z: 0 },
             radius: 0.35,
         });
     } else if (kind === 2) {
-        shape = body.createHull(def, makeBoxHull(1, 0.75, 0.6));
+        shape = createHullShape(world, body, shapeDef, makeBoxHull(1, 0.75, 0.6));
     } else if (kind === 3) {
-        shape = body.createMesh(
-            { ...def, materials: [material(0x100000004n)] },
+        shape = createMeshShape(
+            world,
+            body,
+            testShapeDef({ ...def, materials: [material(0x100000004n)] }),
             createBoxMesh({ x: 0, y: -0.75, z: 0 }, { x: 1, y: 0.75, z: 0.6 }, true),
+            { x: 1, y: 1, z: 1 },
         );
     } else if (kind === 4) {
-        shape = body.createHeightField(
-            { ...def, materials: [material(0x100000005n)] },
+        shape = createHeightFieldShape(
+            world,
+            body,
+            testShapeDef({ ...def, materials: [material(0x100000005n)] }),
             createGrid(4, 4, { x: 1, y: 1, z: 1 }, false),
         );
     } else {
@@ -130,8 +170,9 @@ function fixture(kind: number, pose?: Pose) {
             ],
         });
         if (compound === null) throw new Error("compound fixture creation failed");
-        shape = body.createCompound(def, compound);
+        shape = createCompoundShape(world, body, shapeDef, compound);
     }
+    if (shape === null) throw new Error(`shape fixture ${kind} could not be created`);
     return { world, body, shape };
 }
 
@@ -150,7 +191,8 @@ function pushU64(out: (number | undefined)[], value: bigint): void {
 function pushCast(
     out: (number | undefined)[],
     hit: {
-        shape: Shape | null;
+        shape: number | null;
+        userData: unknown;
         point: { x: number; y: number; z: number };
         normal: { x: number; y: number; z: number };
         fraction: number;
@@ -163,7 +205,7 @@ function pushCast(
 ): void {
     out.push(Number(hit.hit));
     if (!hit.hit) return;
-    out.push(hit.shape?.getUserData() as number);
+    out.push(hit.userData as number);
     pushVec(out, hit.point);
     pushVec(out, hit.normal);
     out.push(bits(hit.fraction));
@@ -195,6 +237,7 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
         rotation: { v: { x: values[14], y: values[15], z: values[16] }, s: values[17] },
     };
     const { world, body, shape } = fixture(input.kind, pose);
+    const bodyId = makeBodyId(world, body);
     const origin = { x: values[0], y: values[1], z: values[2] };
     const translation = { x: values[3], y: values[4], z: values[5] };
     const proxy = { points: [zero], count: 1, radius: values[6] };
@@ -210,16 +253,16 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
     const out: (number | undefined)[] = [input.operation, input.kind];
     try {
         if (bridgeMetadata && (input.operation === 5 || input.operation === 11)) {
-            const q = queryColumns(world.state);
+            const q = queryColumns(world);
             const k = q.prepare(origin, filter);
             if (input.operation === 11) q.placement({ p: pose.position, q: pose.rotation }, origin);
             q.mover(mover.center1, mover.center2, mover.radius);
             const records: number[][] = [];
             let count = 0;
-            const previous = setQueryCallback(world.state.ecsState, (_kind, _id, data, length) => {
+            const previous = setQueryCallback(world.ecsState, (_kind, _id, data, length) => {
                 const f = new Float32Array(k.memory.buffer, data, length * 10);
                 const u = new Int32Array(k.memory.buffer, data, length * 10);
-                const record = [shape.getUserData() as number];
+                const record = [world.shapeUserData[shape] as number];
                 if (input.operation === 5) record.push(length);
                 for (let i = 0; i < length; ++i) {
                     const n = i * 10;
@@ -231,16 +274,16 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
                 return 1;
             });
             try {
-                if (input.operation === 5) k.worldQuery(world.state.worldId, 5, 1);
+                if (input.operation === 5) k.worldQuery(world.worldId, 5, 1);
                 else
                     k.bodyQuery(
-                        world.state.worldId,
+                        world.worldId,
                         4,
-                        bodyField(body.world, body.id.index1 - 1, BodyField.headShapeId),
+                        bodyField(world, body, BodyField.headShapeId),
                         8,
                     );
             } finally {
-                setQueryCallback(world.state.ecsState, previous);
+                setQueryCallback(world.ecsState, previous);
             }
             if (input.operation === 11) out.push(count);
             for (const record of records) out.push(...record);
@@ -249,7 +292,8 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
         }
         if (input.operation === 0) {
             let count = 0;
-            const stats = world.overlapAABB(
+            const stats = worldOverlapAABB(
+                world,
                 {
                     lowerBound: {
                         x: origin.x - extent,
@@ -263,7 +307,7 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
                     },
                 },
                 (shape) => {
-                    out.push(shape.getUserData() as number);
+                    out.push(world.shapeUserData[shape] as number);
                     count++;
                     return true;
                 },
@@ -272,11 +316,12 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
             out.push(count, stats.nodeVisits, stats.leafVisits);
         } else if (input.operation === 1) {
             let count = 0;
-            const stats = world.overlapShape(
+            const stats = worldOverlapShape(
+                world,
                 origin,
                 proxy,
                 (shape) => {
-                    out.push(shape.getUserData() as number);
+                    out.push(world.shapeUserData[shape] as number);
                     count++;
                     return true;
                 },
@@ -285,8 +330,8 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
             out.push(count, stats.nodeVisits, stats.leafVisits);
         } else if (input.operation === 2 || input.operation === 4) {
             let count = 0;
-            const callback = (hit: Parameters<Parameters<PhysicsWorld["castRay"]>[2]>[0]) => {
-                out.push(hit.shape.getUserData() as number);
+            const callback = (hit: WorldCastHit) => {
+                out.push(hit.userData as number);
                 pushVec(out, hit.point);
                 pushVec(out, hit.normal);
                 out.push(bits(hit.fraction));
@@ -297,20 +342,21 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
             };
             const stats =
                 input.operation === 2
-                    ? world.castRay(origin, translation, callback, filter)
-                    : world.castShape(origin, proxy, translation, callback, filter);
+                    ? worldCastRay(world, origin, translation, callback, filter)
+                    : worldCastShape(world, origin, proxy, translation, callback, filter);
             out.push(count, stats.nodeVisits, stats.leafVisits);
         } else if (input.operation === 3) {
-            pushCast(out, world.castRayClosest(origin, translation, filter), true);
-            const q = queryColumns(world.state);
+            pushCast(out, worldCastRayClosest(world, origin, translation, filter), true);
+            const q = queryColumns(world);
             out.push(q.resultU[1], q.resultU[2]);
         } else if (input.operation === 5) {
             let count = 0;
-            world.collideMover(
+            worldCollideMover(
+                world,
                 origin,
                 mover,
                 (shape, planes) => {
-                    out.push(shape.getUserData() as number, planes.length);
+                    out.push(world.shapeUserData[shape] as number, planes.length);
                     for (const plane of planes) pushPlane(out, plane);
                     count++;
                     return true;
@@ -320,8 +366,8 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
             out.push(count);
         } else if (input.operation === 6) {
             let count = 0;
-            const fraction = world.castMover(origin, mover, translation, filter, (shape) => {
-                out.push(shape.getUserData() as number);
+            const fraction = worldCastMover(world, origin, mover, translation, filter, (shape) => {
+                out.push(world.shapeUserData[shape] as number);
                 count++;
                 return true;
             });
@@ -329,7 +375,9 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
         } else if (input.operation === 7) {
             pushCast(
                 out,
-                body.castRay(
+                bodyCastRay(
+                    world,
+                    bodyId,
                     origin,
                     translation,
                     { p: pose.position, q: pose.rotation },
@@ -341,7 +389,9 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
         } else if (input.operation === 8) {
             pushCast(
                 out,
-                body.castShape(
+                bodyCastShape(
+                    world,
+                    bodyId,
                     origin,
                     proxy,
                     translation,
@@ -354,7 +404,9 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
         } else if (input.operation === 9) {
             out.push(
                 Number(
-                    body.overlapShape(
+                    bodyOverlapShape(
+                        world,
+                        bodyId,
                         origin,
                         proxy,
                         { p: pose.position, q: pose.rotation },
@@ -363,11 +415,13 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
                 ),
             );
         } else if (input.operation === 10) {
-            const result = body.getClosestPoint(origin);
+            const result = bodyGetClosestPoint(world, bodyId, origin);
             pushVec(out, result.point);
             out.push(bits(result.distance));
         } else {
-            const planes = body.collideMover(
+            const planes = bodyCollideMover(
+                world,
+                bodyId,
                 origin,
                 mover,
                 { p: pose.position, q: pose.rotation },
@@ -376,13 +430,13 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
             );
             out.push(planes.length);
             for (const entry of planes) {
-                out.push(entry.shape.getUserData() as number);
+                out.push(world.shapeUserData[entry.shape] as number);
                 pushPlane(out, entry.plane);
             }
         }
         return out.map((v) => (v === undefined ? "unrepresented" : hex(v)));
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 }
 
@@ -408,12 +462,63 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             position: [values[11], values[12], values[13], 0],
             rotation: [values[14], values[15], values[16], values[17]],
         });
+        let kind: number;
+        let geometry = 0;
+        let sphere: [number, number, number, number] = [0, 0, 0, 0.5];
+        let capsuleA: [number, number, number, number] = [0, -0.5, 0, 0];
+        let capsuleB: [number, number, number, number] = [0, 0.5, 0, 0.5];
+        let scale: [number, number, number, number] = [0.5, 0.5, 0.5, 0];
+        if (input.kind === 0) {
+            kind = ShapeKind.Sphere;
+            sphere = [0, -1, 0, 1];
+        } else if (input.kind === 1) {
+            kind = ShapeKind.Capsule;
+            capsuleA = [0, -1.65, 0, 0];
+            capsuleB = [0, -0.35, 0, 0.35];
+        } else if (input.kind === 2) {
+            kind = ShapeKind.Hull;
+            scale = [1, 0.75, 0.6, 0];
+        } else if (input.kind === 3) {
+            kind = ShapeKind.Mesh;
+            geometry = world.resource(PhysicsMeshes).register({
+                name: "entity-query-mesh",
+                data: createBoxMesh({ x: 0, y: -0.75, z: 0 }, { x: 1, y: 0.75, z: 0.6 }, true),
+            });
+            scale = [1, 1, 1, 0];
+        } else if (input.kind === 4) {
+            kind = ShapeKind.HeightField;
+            geometry = world.resource(HeightFields).register({
+                name: "entity-query-heightfield",
+                data: createGrid(4, 4, { x: 1, y: 1, z: 1 }, false),
+            });
+        } else {
+            kind = ShapeKind.Compound;
+            const compound = createCompound({
+                hulls: [
+                    {
+                        hull: makeBoxHull(1, 0.75, 0.6),
+                        transform: { p: { x: 0, y: -0.75, z: 0 }, q: { v: zero, s: 1 } },
+                        material: material(0x100000006n),
+                    },
+                ],
+                spheres: [
+                    { sphere: { center: { x: -0.625, y: -0.2, z: 0 }, radius: 0.2 }, material: material(0x200000006n) },
+                    { sphere: { center: { x: 0.625, y: -0.2, z: 0 }, radius: 0.2 }, material: material(0x300000006n) },
+                ],
+            });
+            if (compound === null) throw new Error("entity query compound creation failed");
+            geometry = world.resource(Compounds).register({ name: "entity-query-compound", data: compound });
+        }
         const shape = world.create();
         world.add(shape, EcsShape, {
             body,
-            kind: ShapeKind.Sphere,
-            sphere: [0, -1, 0, 1],
-            materialUserIdLow: 1,
+            kind,
+            geometry,
+            sphere,
+            capsuleA,
+            capsuleB,
+            scale,
+            materialUserIdLow: input.kind + 1,
             materialUserIdHigh: 1,
         });
         world.step(Time.FIXED_DT);
@@ -480,6 +585,23 @@ async function runEntityQuery(input: Input): Promise<string[]> {
                 return hit.fraction;
             }, filter);
             out.push(count);
+        } else if (input.operation === 13) {
+            const hit = {
+                shape: 0,
+                body: 0,
+                point: { x: 0, y: 0, z: 0 },
+                normal: { x: 0, y: 0, z: 0 },
+                fraction: 0,
+                userMaterialId: 0n,
+                triangleIndex: 0,
+                childIndex: 0,
+            };
+            const didHit = castShapeClosest(world, origin, proxy, translation, hit, filter);
+            out.push(Number(didHit));
+            if (didHit) {
+                expect([hit.shape, hit.body]).toEqual([shape, body]);
+                appendHit(hit);
+            }
         } else if (input.operation === 3) {
             const hit = {
                 shape: 0,
@@ -520,33 +642,40 @@ function contactPublic(input: ContactInput): string[] {
     const values = input.words.map((word) => new Float32Array(new Uint32Array([word]).buffer)[0]);
     const { world } = fixture(input.compositeKind);
     try {
-        const body = world.createBody({
+        const body = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: values[0], y: values[1], z: values[2] },
             rotation: { v: { x: values[3], y: values[4], z: values[5] }, s: values[6] },
         });
-        const def = { userData: 99, enableContactEvents: true };
+        const def = testShapeDef({ userData: 99, enableContactEvents: true });
         if (input.convexKind === 0) {
-            body.createSphere(def, { center: zero, radius: values[7] });
+            createSphereShape(world, body, def, { center: zero, radius: values[7] });
         } else if (input.convexKind === 1) {
-            body.createCapsule(def, {
+            createCapsuleShape(world, body, def, {
                 center1: { x: 0, y: -values[8], z: 0 },
                 center2: { x: 0, y: values[8], z: 0 },
                 radius: values[7],
             });
         } else {
-            body.createHull(def, makeBoxHull(values[7], values[8], values[9]));
+            createHullShape(world, body, def, makeBoxHull(values[7], values[8], values[9]));
         }
-        world.step(f32(1 / 60), 4);
-        const events = world.getContactEvents().beginEvents;
-        const out = [12, input.compositeKind, input.convexKind, events.length];
-        for (const event of events) {
-            out.push(event.shapeA.getUserData() as number, event.shapeB.getUserData() as number);
-            out.push(Number(event.contact.isValid()));
-            const data = event.contact.getData();
-            out.push(data.shapeA.getUserData() as number, data.shapeB.getUserData() as number);
-            out.push(data.manifolds.length);
-            for (const manifold of data.manifolds) {
+        stepTestWorld(world, f32(1 / 60), 4);
+        const count = eventCount(world, EventKind.ContactBegin);
+        const out = [12, input.compositeKind, input.convexKind, count];
+        for (let i = 0; i < count; ++i) {
+            const shapeA = eventId(world, EventKind.ContactBegin, i, 0);
+            const shapeB = eventId(world, EventKind.ContactBegin, i, 2);
+            const contactId = eventId(world, EventKind.ContactBegin, i, 4);
+            const contact = contactId.index1 - 1;
+            out.push(world.shapeUserData[shapeA.index1 - 1] as number, world.shapeUserData[shapeB.index1 - 1] as number);
+            out.push(Number(contactIsValid(world, contactId)));
+            out.push(bits(kernel(world.ecsState).eventFloat(world.worldId, EventKind.ContactBegin, i, 7)));
+            const dataShapeA = contactField(world, contact, ContactField.shapeIdA);
+            const dataShapeB = contactField(world, contact, ContactField.shapeIdB);
+            out.push(world.shapeUserData[dataShapeA] as number, world.shapeUserData[dataShapeB] as number);
+            const manifolds = readContactManifolds(world, contact);
+            out.push(manifolds.length);
+            for (const manifold of manifolds) {
                 out.push(manifold.pointCount);
                 pushVec(out, manifold.normal);
                 out.push(bits(manifold.twistImpulse));
@@ -567,7 +696,7 @@ function contactPublic(input: ContactInput): string[] {
         }
         return out.map(hex);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 }
 
@@ -747,8 +876,12 @@ for (const compositeKind of [3, 4, 5]) {
     }
 }
 
+const closestInputs = inputs
+    .filter((input) => input.operation === 4 && input.label === "deterministic hit")
+    .map((input) => ({ ...input, operation: 13, label: "deterministic castShapeClosest" }));
 const nativeInput = [
     ...inputs.map((input) => `${input.operation} ${input.kind} ${input.words.map(hex).join(" ")}`),
+    ...closestInputs.map((input) => `${input.operation} ${input.kind} ${input.words.map(hex).join(" ")}`),
     ...contactInputs.map(
         (input) =>
             `12 ${input.compositeKind} ${input.convexKind} ${input.words.map(hex).join(" ")}`,
@@ -756,6 +889,7 @@ const nativeInput = [
 ].join("\n");
 const nativeRows = nativeSseOutput("public-queries.c", nativeInput, [
     ...inputs.map((input) => `${operations[input.operation]}:${names[input.kind]}:${input.label}`),
+    ...closestInputs.map((input) => `world castShapeClosest:${names[input.kind]}:${input.label}`),
     ...contactInputs.map((input) => `contact:${names[input.compositeKind]}:${input.label}`),
 ])
     .trim()
@@ -766,9 +900,9 @@ const nativeRows = nativeSseOutput("public-queries.c", nativeInput, [
             .split(/\s+/)
             .map((v) => v.padStart(8, "0")),
     );
-if (nativeRows.length !== inputs.length + contactInputs.length)
+if (nativeRows.length !== inputs.length + closestInputs.length + contactInputs.length)
     throw new Error(
-        `native returned ${nativeRows.length} rows for ${inputs.length + contactInputs.length} cases`,
+        `native returned ${nativeRows.length} rows for ${inputs.length + closestInputs.length + contactInputs.length} cases`,
     );
 
 const actualRows = inputs.map((input) => runPublic(input, true));
@@ -794,12 +928,20 @@ for (let operation = 0; operation < operations.length; operation++) {
     });
 }
 
-test("ECS World query payloads equal native Box3D for the same sphere calls", async () => {
+test("ECS World queries equal native Box3D for all six geometry kinds", async () => {
     for (let i = 0; i < inputs.length; i++) {
         const input = inputs[i];
-        if (input.kind !== 0 || input.operation > 4) continue;
+        if (input.operation > 4 || input.label !== "deterministic hit") continue;
         const actual = await runEntityQuery(input);
         expect(actual).toEqual(nativeRows[i].slice(0, -2));
+    }
+});
+
+test("ECS castShapeClosest equals native Box3D for all six geometry kinds", async () => {
+    for (let i = 0; i < closestInputs.length; i++) {
+        const input = closestInputs[i];
+        const actual = await runEntityQuery(input);
+        expect(actual).toEqual(nativeRows[inputs.length + i]);
     }
 });
 
@@ -817,8 +959,8 @@ test("published mover fields equal native; identification is also compared throu
 });
 
 for (const [operation, entry] of [
-    [5, "api/world.ts:819-835"],
-    [11, "api/body.ts:607-638"],
+    [5, "worldCollideMover"],
+    [11, "bodyCollideMover"],
 ] as const) {
     test(`${entry}: public mover planes preserve triangleIndex, childIndex and materialIndex`, () => {
         for (let i = 0; i < inputs.length; ++i) {
@@ -831,7 +973,7 @@ for (const [operation, entry] of [
 for (const kind of [3, 4, 5]) {
     test(`${names[kind]} contacts: generated sphere/capsule/hull public manifolds equal Box3D SSE2 bits`, () => {
         const rows = contactInputs
-            .map((input, i) => ({ input, native: nativeRows[inputs.length + i] }))
+            .map((input, i) => ({ input, native: nativeRows[inputs.length + closestInputs.length + i] }))
             .filter(
                 (row) =>
                     row.input.compositeKind === kind &&
@@ -867,5 +1009,5 @@ test("triangle_manifold.rs:578-579 vs math_functions.c:554-555: seeded mesh sphe
     );
     const actual = contactPublic(contactInputs[i]);
     expect(Number.parseInt(actual[3], 16)).toBeGreaterThan(0);
-    expect(actual).toEqual(nativeRows[inputs.length + i]);
+    expect(actual).toEqual(nativeRows[inputs.length + closestInputs.length + i]);
 });

@@ -1,4 +1,5 @@
 import { NULL_INDEX } from "../common/array";
+import type { EntityId } from "../common/ids";
 import {
     absf,
     FLT_MAX,
@@ -46,7 +47,7 @@ import {
     readJointFloat,
     readJointVec3,
 } from "../kernel/jointcolumns";
-import { JointField, jointField, jointViews } from "../kernel/jointrecords";
+import { JointField, jointCapacity, jointField, jointViews } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
@@ -107,6 +108,17 @@ const identityTransform = (): Transform => ({
 });
 
 /** @returns the ported base joint definition defaults (b3DefaultJointDef). */
+export function jointIsValid(world: WorldState, id: EntityId): boolean {
+    if (!world.inUse) return false;
+    const joint = id.index1 - 1;
+    return (
+        joint >= 0 &&
+        joint < jointCapacity(world) &&
+        jointField(world, joint, JointField.setIndex) !== NULL_INDEX &&
+        jointField(world, joint, JointField.generation) === id.generation
+    );
+}
+
 export function defaultJointDef(): JointDef {
     return {
         bodyIdA: NULL_INDEX,

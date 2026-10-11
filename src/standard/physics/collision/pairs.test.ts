@@ -1,6 +1,15 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { BodyType, init, makeBoxHull, PhysicsWorld, shutdown } from "../api/index";
+import { BodyType, init, makeBoxHull, shutdown } from "../api/index";
 import { defaultFilter, type Filter } from "../common/types";
+import { EventKind, eventCount } from "../kernel/eventbuffers";
+import { createHullShape, createSphereShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
 
 beforeAll(async () => {
     await init(undefined);
@@ -8,20 +17,19 @@ beforeAll(async () => {
 afterAll(() => shutdown(undefined));
 
 function touches(a: Filter, b: Filter): boolean {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
         for (const filter of [a, b]) {
-            world
-                .createBody({ type: BodyType.Dynamic })
-                .createSphere(
-                    { filter, enableContactEvents: true },
-                    { center: { x: 0, y: 0, z: 0 }, radius: 1 },
-                );
+            const body = createTestBody(world, { type: BodyType.Dynamic });
+            createSphereShape(world, body, testShapeDef({ filter, enableContactEvents: true }), {
+                center: { x: 0, y: 0, z: 0 },
+                radius: 1,
+            });
         }
-        world.step(1 / 60);
-        return world.getContactEvents().beginEvents.length !== 0;
+        stepTestWorld(world, 1 / 60);
+        return eventCount(world, EventKind.ContactBegin) !== 0;
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 }
 const filter = (categoryBits: bigint, maskBits: bigint, groupIndex = 0): Filter => ({
@@ -46,44 +54,38 @@ test("pair filtering requires both masks, preserves both u64 halves, and gives s
 });
 
 test("contact pair creation from the broad phase emits an overlapping pair once per moved side instead of deduplicating it, or re-creates a pair already in the pair set on a later step, so a single touching pair fires two begin-touch events", () => {
-    // Two dynamic boxes overlap along x and both drift +y (zero gravity, sleep off) so both sit in
-    // the move buffer every step. Step 1: both moved, the pair is found from both sides — dedup
-    // must emit it exactly once. Step 2: the pair persists in the pair set, so the re-query must
-    // reject it — no duplicate contact, no new begin.
-    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
     const drift = { x: 0, y: 0.5, z: 0 };
+    try {
+        const a = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: -0.25, y: 0, z: 0 },
+            linearVelocity: drift,
+        });
+        createHullShape(
+            world,
+            a,
+            testShapeDef({ enableContactEvents: true }),
+            makeBoxHull(0.5, 0.5, 0.5),
+        );
+        const b = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 0.25, y: 0, z: 0 },
+            linearVelocity: drift,
+        });
+        createHullShape(
+            world,
+            b,
+            testShapeDef({ enableContactEvents: true }),
+            makeBoxHull(0.5, 0.5, 0.5),
+        );
 
-    const a = physicsWorld.createBody({
-        type: BodyType.Dynamic,
-        position: { x: -0.25, y: 0, z: 0 },
-        linearVelocity: drift,
-    });
-    a.createHull({ enableContactEvents: true }, makeBoxHull(0.5, 0.5, 0.5));
-    const b = physicsWorld.createBody({
-        type: BodyType.Dynamic,
-        position: { x: 0.25, y: 0, z: 0 },
-        linearVelocity: drift,
-    });
-    b.createHull({ enableContactEvents: true }, makeBoxHull(0.5, 0.5, 0.5));
-
-    let beginTotal = 0;
-    let endTotal = 0;
-
-    physicsWorld.step(1 / 60);
-    let ev = physicsWorld.getContactEvents();
-    beginTotal += ev.beginEvents.length;
-    endTotal += ev.endEvents.length;
-    // Dedup: the overlapping pair emitted exactly once, not once per moved side.
-    expect(beginTotal).toBe(1);
-
-    physicsWorld.step(1 / 60);
-    ev = physicsWorld.getContactEvents();
-    beginTotal += ev.beginEvents.length;
-    endTotal += ev.endEvents.length;
-    // Membership: the pair persisted, so step 2 creates no duplicate contact and fires no new
-    // begin; the overlap is deep enough that they stay touching (no end event).
-    expect(beginTotal).toBe(1);
-    expect(endTotal).toBe(0);
-
-    physicsWorld.destroy();
+        stepTestWorld(world, 1 / 60);
+        expect(eventCount(world, EventKind.ContactBegin)).toBe(1);
+        stepTestWorld(world, 1 / 60);
+        expect(eventCount(world, EventKind.ContactBegin)).toBe(0);
+        expect(eventCount(world, EventKind.ContactEnd)).toBe(0);
+    } finally {
+        destroyTestWorld(world);
+    }
 });

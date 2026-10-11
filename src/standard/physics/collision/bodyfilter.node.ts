@@ -1,40 +1,79 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../../scripts/test-tiers";
 import { World } from "../../../engine";
-import { BodyType, PhysicsWorld } from "../api/index";
+import { restore, snapshot } from "../api/snapshot";
+import { BodyType } from "../common/types";
 import { init, kernel, shutdown } from "../kernel/kernel";
+import { createSphereShape } from "../shapes/shape";
+import {
+    createFilterJoint,
+    defaultJointDef,
+    destroyJointInternal,
+    setJointCollideConnected,
+} from "../solver/joint";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { bodyGetTransform, destroyBody } from "../world/body";
+import type { WorldState } from "../world/world";
+import { worldSetGravity } from "../world/world";
 
 setDefaultTimeout(CEILING.node);
+
+const zero = { x: 0, y: 0, z: 0 };
+const pose = () => ({ p: { ...zero }, q: { v: { ...zero }, s: 1 } });
+
+function filterJoint(
+    world: WorldState,
+    bodyIdA: number,
+    bodyIdB: number,
+    collideConnected = false,
+): number {
+    return createFilterJoint(world, {
+        ...defaultJointDef(),
+        bodyIdA,
+        bodyIdB,
+        collideConnected,
+    }).joint;
+}
 
 test("fast bodies and bullets pass static shapes jointed without collideConnected, but stop when enabled", () => {
     for (const isBullet of [false, true]) {
         for (const collideConnected of [false, true]) {
-            const world = new PhysicsWorld();
+            const world = createTestWorld();
             try {
-                world.setGravity({ x: 0, y: 0, z: 0 });
-                const target = world.createBody();
-                target.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 1 });
-                const fast = world.createBody({
+                worldSetGravity(world, zero);
+                const target = createTestBody(world);
+                createSphereShape(world, target, testShapeDef(), { center: zero, radius: 1 });
+                const fast = createTestBody(world, {
                     type: BodyType.Dynamic,
                     position: { x: -4, y: 0, z: 0 },
                     linearVelocity: { x: 480, y: 0, z: 0 },
                     isBullet,
                 });
-                fast.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.25 });
-                const free = world.createBody({
+                createSphereShape(world, fast, testShapeDef(), { center: zero, radius: 0.25 });
+                const free = createTestBody(world, {
                     type: BodyType.Dynamic,
                     position: { x: -4, y: 10, z: 0 },
                     linearVelocity: { x: 480, y: 0, z: 0 },
                     isBullet,
                 });
-                free.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.25 });
-                world.createFilterJoint(fast, target, { collideConnected });
-                world.step(1 / 60, 1);
-                expect(free.getPosition().x).toBeGreaterThan(1);
-                if (collideConnected) expect(fast.getPosition().x).toBeLessThan(-1);
-                else expect(fast.getPosition().x).toBe(free.getPosition().x);
+                createSphereShape(world, free, testShapeDef(), { center: zero, radius: 0.25 });
+                filterJoint(world, fast, target, collideConnected);
+                stepTestWorld(world, 1 / 60, 1);
+                expect(bodyGetTransform(world, free, pose()).p.x).toBeGreaterThan(1);
+                if (collideConnected)
+                    expect(bodyGetTransform(world, fast, pose()).p.x).toBeLessThan(-1);
+                else
+                    expect(bodyGetTransform(world, fast, pose()).p.x).toBe(
+                        bodyGetTransform(world, free, pose()).p.x,
+                    );
             } finally {
-                world.destroy();
+                destroyTestWorld(world);
             }
         }
     }
@@ -43,51 +82,50 @@ test("fast bodies and bullets pass static shapes jointed without collideConnecte
 test("direct joint filters survive parallel joints, toggles, destroy, growth and snapshot restore without filtering transitive neighbors", async () => {
     const owner = new World();
     await init(owner, { threads: 0 });
-    const world = new PhysicsWorld({}, owner);
+    const world = createTestWorld({}, owner);
     try {
-        const a = world.createBody({ type: BodyType.Dynamic });
-        const b = world.createBody();
-        const c = world.createBody();
-        const allows = (x: typeof a, y: typeof a) => {
+        const a = createTestBody(world, { type: BodyType.Dynamic });
+        const b = createTestBody(world);
+        const c = createTestBody(world);
+        const allows = (x: number, y: number) => {
             const k = kernel(owner);
-            k.bodySetActiveWorld(world.state.worldId);
-            return k.bodyShouldBodiesCollide(x.id.index1 - 1, y.id.index1 - 1) !== 0;
+            k.bodySetActiveWorld(world.worldId);
+            return k.bodyShouldBodiesCollide(x, y) !== 0;
         };
         expect(allows(a, b)).toBe(true);
-        const first = world.createFilterJoint(a, b);
-        const second = world.createFilterJoint(b, a);
-        world.createFilterJoint(b, c);
-        world.createFilterJoint(a, c, { collideConnected: true });
+        const first = filterJoint(world, a, b);
+        const second = filterJoint(world, b, a);
+        filterJoint(world, b, c);
+        filterJoint(world, a, c, true);
         expect(allows(a, b)).toBe(false);
         expect(allows(b, a)).toBe(false);
         expect(allows(a, c)).toBe(true);
-        first.setCollideConnected(true);
-        first.setCollideConnected(true);
+        setJointCollideConnected(world, first, true);
+        setJointCollideConnected(world, first, true);
         expect(allows(a, b)).toBe(false);
-        second.destroy();
+        destroyJointInternal(world, second, true);
         expect(allows(a, b)).toBe(true);
-        first.setCollideConnected(false);
+        setJointCollideConnected(world, first, false);
         expect(allows(a, b)).toBe(false);
-        const saved = world.snapshot();
-        first.destroy();
+        const saved = snapshot(world);
+        destroyJointInternal(world, first, true);
         expect(allows(a, b)).toBe(true);
-        // Grow the joint records while preserving the existing trees and pair set.
-        const others = Array.from({ length: 40 }, () => world.createBody());
-        for (const body of others.reverse()) world.createFilterJoint(a, body);
+        const others = Array.from({ length: 40 }, () => createTestBody(world));
+        for (const body of others.reverse()) filterJoint(world, a, body);
         for (const body of others) expect(allows(a, body)).toBe(false);
         expect(allows(a, b)).toBe(true);
-        world.restore(saved);
+        restore(world, saved);
         expect(allows(a, b)).toBe(false);
         expect(allows(a, c)).toBe(true);
-        first.setCollideConnected(true);
+        setJointCollideConnected(world, first, true);
         expect(allows(a, b)).toBe(true);
-        first.setCollideConnected(false);
-        b.destroy();
-        const replacement = world.createBody();
+        setJointCollideConnected(world, first, false);
+        destroyBody(world, b);
+        const replacement = createTestBody(world);
         expect(allows(a, replacement)).toBe(true);
         expect(allows(c, replacement)).toBe(false);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
         await shutdown(owner);
         owner.dispose();
     }

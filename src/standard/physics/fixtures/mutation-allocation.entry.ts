@@ -1,6 +1,6 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { mutationAllocationSubject } from "../mutation-allocation.fixture";
-import { physicsWorld } from "../runtime";
+import { physicsState } from "../runtime";
 
 export let controlSink: object | undefined;
 export const control = () => {
@@ -9,7 +9,9 @@ export const control = () => {
 
 export default async function create() {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const step = mutationAllocationSubject(physicsWorld(app.world)!);
+    const state = physicsState(app.world);
+    if (!state) throw new Error("physics world unavailable after app creation");
+    const step = mutationAllocationSubject(state);
     return {
         step,
         dispose: () => app.dispose(),

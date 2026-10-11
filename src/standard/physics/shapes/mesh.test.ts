@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { PhysicsWorld } from "../api/world";
 import type { Vec3 } from "../common/math";
 import { BodyType } from "../common/types";
+import { ShapeField, shapeField } from "../kernel/shaperecords";
+import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
 import gold from "./geometry.gold.json";
 import {
     createBoxMesh,
@@ -12,6 +13,7 @@ import {
     type MeshData,
     type MeshNode,
 } from "./mesh";
+import { createMeshShape, destroyShape, shapeIsValid } from "./shape";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {
@@ -102,16 +104,20 @@ function assertMesh(mesh: MeshData, g: MeshGold, vector: string) {
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
 
-/** The mesh builder remains TypeScript authoring; shape lifetime is exercised through the public path. */
-function exercisePublicMeshShape(mesh: MeshData): void {
-    const physicsWorld = new PhysicsWorld();
-    const body = physicsWorld.createBody({ type: BodyType.Static });
-    const shape = body.createMesh({}, mesh);
-    expect(shape.isValid(), "public mesh shape is kernel-live").toBe(true);
-    shape.destroy(false);
-    expect(shape.isValid(), "destroyed mesh handle is stale").toBe(false);
-    body.destroy();
-    physicsWorld.destroy();
+/** Exercise the geometry upload and pool through kernel state and shape ids. */
+function exerciseMeshShape(mesh: MeshData): void {
+    const world = createTestWorld();
+    const body = createTestBody(world, { type: BodyType.Static });
+    const shape = createMeshShape(world, body, testShapeDef(), mesh, { x: 1, y: 1, z: 1 })!;
+    const id = {
+        index1: shape + 1,
+        world0: world.worldId,
+        generation: shapeField(world, shape, ShapeField.generation),
+    };
+    expect(shapeIsValid(world, id), "mesh shape is kernel-live").toBe(true);
+    destroyShape(world, shape, false);
+    expect(shapeIsValid(world, id), "destroyed mesh id is stale").toBe(false);
+    destroyTestWorld(world);
 }
 
 test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the TypeScript port builds", () => {
@@ -134,7 +140,7 @@ test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes
         ["torus (portable trig, SAH)", () => createTorusMesh(8, 6, 3, 1), "torus"],
     ];
     const authored = cases.map(([vector, build, name]) => [vector, build(), name] as const);
-    exercisePublicMeshShape(authored[0][1]);
+    exerciseMeshShape(authored[0][1]);
     for (const [vector, mesh, name] of authored) {
         assertMesh(mesh, meshGold(name), vector);
     }

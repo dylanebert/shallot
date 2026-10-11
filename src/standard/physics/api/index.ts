@@ -1,8 +1,6 @@
 // physics — a from-scratch TypeScript port of Erin Catto's Box3D (github.com/erincatto/box3d, MIT).
 // A standalone 3D physics engine. The public surface grows across the port stages; see the README.
 
-// biome-ignore assist/source/organizeImports: World evaluates before the joint parts; Joint.getWorld reaches back into it, so entering them first runs `extends Joint` on an uninitialized class.
-export { PhysicsWorld } from "./world";
 export type { Manifold, ManifoldPoint } from "../collision/contact";
 export type { ShapeProxy } from "../collision/distance";
 export {
@@ -12,7 +10,6 @@ export {
     type PlaneSolverResult,
     solvePlanes,
 } from "../collision/mover";
-export type { TreeStats } from "../kernel/treecolumns";
 export type { AABB, Mat3, Pos, Quat, Transform, Vec3, WorldTransform } from "../common/math";
 export {
     type BodyDef,
@@ -33,6 +30,7 @@ export {
     type WorldDef,
 } from "../common/types";
 export { type InitOptions, init, shutdown, threads } from "../kernel/kernel";
+export type { TreeStats } from "../kernel/treecolumns";
 export {
     type CompoundCapsuleDef,
     type CompoundData,
@@ -76,53 +74,21 @@ export {
 } from "../shapes/mesh";
 export { JointType } from "../solver/joint";
 export { DebugColor, type DebugDraw, defaultDebugDraw } from "../world/draw";
-import { hashWorldState } from "../world/hash";
-export { hashWorldState };
-export { type PhysicsSnapshot, restore, snapshot } from "./snapshot";
-export function hash(physicsWorld: import("./world").PhysicsWorld): bigint {
-    return hashWorldState(physicsWorld.state);
-}
+export { hashWorldState } from "../world/hash";
 export type { StepProfile } from "../world/profile";
 export type { Counters, WorldState } from "../world/world";
-export { Body } from "./body";
 export type {
     BaseJointConfig,
-    BodyCastHit,
-    BodyEvents,
-    BodyMoveEvent,
-    BodyPlane,
-    CastCallback,
-    CastHit,
-    ContactData,
-    ContactEvents,
-    ContactHitEvent,
-    ContactTouchEvent,
     CustomFilterCallback,
-    PreSolveCallback,
     DistanceJointConfig,
-    JointEvent,
     MotorJointConfig,
-    MoverFilterCallback,
-    OverlapCallback,
     ParallelJointConfig,
-    PlaneResultCallback,
+    PreSolveCallback,
     PrismaticJointConfig,
-    RayResult,
     RevoluteJointConfig,
-    SensorEvents,
-    SensorTouchEvent,
     SoftJointConfig,
     SphericalJointConfig,
     WeldJointConfig,
     WheelJointConfig,
 } from "./config";
-export { DistanceJoint, Joint, PrismaticJoint, RevoluteJoint } from "./joint";
-export {
-    MotorJoint,
-    ParallelJoint,
-    SoftJoint,
-    SphericalJoint,
-    WeldJoint,
-    WheelJoint,
-} from "./joints";
-export { Contact, Shape } from "./shape";
+export { type PhysicsSnapshot, restore, snapshot } from "./snapshot";

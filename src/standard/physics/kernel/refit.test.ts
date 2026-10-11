@@ -1,12 +1,21 @@
 import { expect, test } from "bun:test";
-import { BodyType, createMesh, PhysicsWorld } from "../api";
 import { SPECULATIVE_DISTANCE } from "../common/constants";
 import { aabb } from "../common/math";
-import { computeFatShapeAABB } from "../shapes/shape";
-import { readFatAabb } from "./shapecolumns";
+import { BodyType } from "../common/types";
+import { createMesh } from "../shapes/mesh";
+import { computeFatShapeAABB, createMeshShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { bodyGetTransform } from "../world/body";
+import { readFatAabb, readShapeAabb } from "./shapecolumns";
 
 test("kernel finalization commits a moving non-convex mesh's tight and fat bounds", () => {
-    const world = new PhysicsWorld({
+    const world = createTestWorld({
         gravity: { x: 0, y: 0, z: 0 },
         enableSleep: false,
         enableContinuous: false,
@@ -22,27 +31,34 @@ test("kernel finalization commits a moving non-convex mesh's tight and fat bound
             identifyEdges: true,
         });
         if (!mesh) throw new Error("mesh construction failed");
-        const body = world.createBody({
+        const body = createTestBody(world, {
             type: BodyType.Kinematic,
             linearVelocity: { x: 12, y: 0, z: 0 },
             angularVelocity: { x: 0, y: 1, z: 0 },
         });
-        const shape = body.createMesh({}, mesh, { x: -2, y: 1, z: 0.5 });
-        const id = shape.id.index1 - 1;
-        const initialFat = readFatAabb(world.state, id, {
+        const shape = createMeshShape(world, body, testShapeDef(), mesh, { x: -2, y: 1, z: 0.5 })!;
+        const initialFat = readFatAabb(world, shape, {
             lowerBound: { x: 0, y: 0, z: 0 },
             upperBound: { x: 0, y: 0, z: 0 },
         });
         for (let i = 0; i < 4; ++i) {
-            world.step(1 / 60, 4);
+            stepTestWorld(world, 1 / 60, 4);
             const expected = computeFatShapeAABB(
-                world.state,
-                id,
-                body.getTransform(),
+                world,
+                shape,
+                bodyGetTransform(world, body, {
+                    p: { x: 0, y: 0, z: 0 },
+                    q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+                }),
                 SPECULATIVE_DISTANCE,
             );
-            expect(shape.getAABB()).toEqual(expected);
-            const fat = readFatAabb(world.state, id, {
+            expect(
+                readShapeAabb(world, shape, {
+                    lowerBound: { x: 0, y: 0, z: 0 },
+                    upperBound: { x: 0, y: 0, z: 0 },
+                }),
+            ).toEqual(expected);
+            const fat = readFatAabb(world, shape, {
                 lowerBound: { x: 0, y: 0, z: 0 },
                 upperBound: { x: 0, y: 0, z: 0 },
             });
@@ -50,6 +66,6 @@ test("kernel finalization commits a moving non-convex mesh's tight and fat bound
             expect(fat).not.toEqual(initialFat);
         }
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

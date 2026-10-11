@@ -6,11 +6,36 @@ import {
     SphericalJoint,
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
-import { PhysicsWorld } from "../api/world";
 import { quat } from "../common/math";
 import { BodyType } from "../common/types";
-import { physicsWorld } from "../runtime";
+import { init, shutdown } from "../kernel/kernel";
+import { physicsBodyIndex, physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import {
+    bodyApplyAngularImpulse,
+    bodyApplyForce,
+    bodyApplyForceToCenter,
+    bodyApplyLinearImpulse,
+    bodyApplyLinearImpulseToCenter,
+    bodyApplyTorque,
+    bodyIsAwake,
+    bodySetTargetTransform,
+} from "../world/body";
+import { defaultJointDef } from "./joint";
+import {
+    createPrismaticJoint,
+    defaultPrismaticJointDef,
+    prismaticJointSpeed,
+} from "./prismaticJoint";
+import { createSphericalJoint, defaultSphericalJointDef } from "./sphericalJoint";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -18,11 +43,8 @@ export const control = () => {
 };
 
 const COUNT = 64;
-// Pendulums 8 m apart reach at most 3 m from their anchors, so no pair makes a contact.
 const SPACING = 8;
 
-// `authored`: DistanceJoint and SphericalJoint entities alternate, each swinging a bob from a static anchor through the
-// plugin's sync. `spherical`: solver-API spherical joints with a `localFrameB`, each on a static anchor.
 export default async function create(input: string) {
     if (input === "authored") return authored();
     if (input === "spherical") return spherical();
@@ -41,19 +63,27 @@ export default async function create(input: string) {
     throw new Error(`constraint allocation has no scene ${input}`);
 }
 
+async function solverWorld() {
+    await init(undefined, { threads: 0 });
+    return createTestWorld({ enableSleep: false, enableContinuous: false });
+}
+
 async function bodyReads(input: string) {
-    const solver = new PhysicsWorld({ enableSleep: false, enableContinuous: false });
-    const fixed = solver.createBody({});
-    const body = solver.createBody({
+    const solver = await solverWorld();
+    const fixed = createTestBody(solver);
+    const body = createTestBody(solver, {
         type: BodyType.Dynamic,
         rotation:
             input === "target" ? quat.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4) : quat.identity(),
         linearVelocity: { x: 1, y: 2, z: 3 },
         angularVelocity: { x: 4, y: 5, z: 6 },
     });
-    body.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
-    const joint = solver.createPrismaticJoint(fixed, body, {});
-    const sleeping = solver.createBody({ type: BodyType.Dynamic, isAwake: false });
+    createHullShape(solver, body, testShapeDef(), makeBoxHull(0.25, 0.25, 0.25));
+    const joint = createPrismaticJoint(
+        solver,
+        defaultPrismaticJointDef({ ...defaultJointDef(), bodyIdA: fixed, bodyIdB: body }),
+    ).joint;
+    const sleeping = createTestBody(solver, { type: BodyType.Dynamic, isAwake: false });
     const stationary = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const target = {
         p: { x: 0.1, y: 0.2, z: 0.3 },
@@ -73,24 +103,24 @@ async function bodyReads(input: string) {
                         group: "fixed",
                         update: () => {
                             if (input === "target") {
-                                body.setTargetTransform(target, 1 / 60);
-                                body.setTargetTransform(negativeTarget, 1 / 60);
+                                bodySetTargetTransform(solver, body, target, 1 / 60, false);
+                                bodySetTargetTransform(solver, body, negativeTarget, 1 / 60, false);
                             } else if (input === "target-return") {
-                                fixed.setTargetTransform(target, 1 / 60);
-                                body.setTargetTransform(target, 0);
-                                sleeping.setTargetTransform(stationary, 1 / 60, false);
-                                sleeping.setTargetTransform(stationary, 1 / 60, true);
+                                bodySetTargetTransform(solver, fixed, target, 1 / 60, false);
+                                bodySetTargetTransform(solver, body, target, 0, false);
+                                bodySetTargetTransform(solver, sleeping, stationary, 1 / 60, false);
+                                bodySetTargetTransform(solver, sleeping, stationary, 1 / 60, true);
                             } else if (input === "impulse-linear") {
-                                body.applyLinearImpulse(impulse, point, false);
-                                fixed.applyLinearImpulse(impulse, point, false);
+                                bodyApplyLinearImpulse(solver, body, impulse, point, false);
+                                bodyApplyLinearImpulse(solver, fixed, impulse, point, false);
                             } else if (input === "impulse-center") {
-                                body.applyLinearImpulseToCenter(impulse, false);
-                                fixed.applyLinearImpulseToCenter(impulse, false);
+                                bodyApplyLinearImpulseToCenter(solver, body, impulse, false);
+                                bodyApplyLinearImpulseToCenter(solver, fixed, impulse, false);
                             } else if (input === "impulse-angular") {
-                                body.applyAngularImpulse(impulse, false);
-                                fixed.applyAngularImpulse(impulse, false);
+                                bodyApplyAngularImpulse(solver, body, impulse, false);
+                                bodyApplyAngularImpulse(solver, fixed, impulse, false);
                             } else if (input === "prismatic-read") {
-                                if (joint.getSpeed() !== 1)
+                                if (prismaticJointSpeed(solver, joint) !== 1)
                                     throw new Error("prismatic speed changed");
                             }
                         },
@@ -101,10 +131,11 @@ async function bodyReads(input: string) {
     });
     return {
         step: () => app.world.step(1 / 60),
-        dispose: () => {
-            const sleepingStayedAsleep = !sleeping.isAwake();
+        dispose: async () => {
+            const sleepingStayedAsleep = !bodyIsAwake(solver, sleeping);
             app.dispose();
-            solver.destroy();
+            destroyTestWorld(solver);
+            await shutdown(undefined);
             if (!sleepingStayedAsleep)
                 throw new Error("target-transform early return woke the sleeping body");
         },
@@ -112,9 +143,9 @@ async function bodyReads(input: string) {
 }
 
 async function forced() {
-    const solver = new PhysicsWorld({ enableSleep: false, enableContinuous: false });
-    const body = solver.createBody({ type: BodyType.Dynamic });
-    body.createHull({}, makeBoxHull(0.25, 0.25, 0.25));
+    const solver = await solverWorld();
+    const body = createTestBody(solver, { type: BodyType.Dynamic });
+    createHullShape(solver, body, testShapeDef(), makeBoxHull(0.25, 0.25, 0.25));
     const force = { x: 1, y: 2, z: 3 };
     const point = { x: 1, y: 0, z: 0 };
     const app = await createApp({
@@ -127,10 +158,10 @@ async function forced() {
                         name: "force-step",
                         group: "fixed",
                         update: () => {
-                            body.applyForce(force, point, false);
-                            body.applyForceToCenter(force, false);
-                            body.applyTorque(force, false);
-                            solver.step(1 / 60, 4);
+                            bodyApplyForce(solver, body, force, point, false);
+                            bodyApplyForceToCenter(solver, body, force, false);
+                            bodyApplyTorque(solver, body, force, false);
+                            stepTestWorld(solver, 1 / 60, 4);
                         },
                     },
                 ],
@@ -139,9 +170,10 @@ async function forced() {
     });
     return {
         step: () => app.world.step(1 / 60),
-        dispose: () => {
+        dispose: async () => {
             app.dispose();
-            solver.destroy();
+            destroyTestWorld(solver);
+            await shutdown(undefined);
         },
     };
 }
@@ -177,9 +209,11 @@ async function authored() {
     return {
         step: () => world.step(1 / 60),
         dispose: () => {
-            // A bob that slept would have left the joint column, so its windows would prove nothing.
-            const physics = physicsWorld(world)!;
-            const asleep = bobs.filter((bob) => !physics.getBody(bob)!.isAwake()).length;
+            const state = physicsState(world)!;
+            const asleep = bobs.filter((eid) => {
+                const body = physicsBodyIndex(world, eid);
+                return body >= 0 && !bodyIsAwake(state, body);
+            }).length;
             app.dispose();
             if (asleep > 0) throw new Error(`${asleep} authored pendulums fell asleep`);
         },
@@ -187,18 +221,27 @@ async function authored() {
 }
 
 async function spherical() {
-    const solver = new PhysicsWorld({ enableSleep: false, enableContinuous: false });
+    const solver = await solverWorld();
     const hull = makeBoxHull(0.25, 0.25, 0.25);
     for (let i = 0; i < COUNT; i++) {
-        const anchor = solver.createBody({ position: { x: i * SPACING, y: 10, z: 0 } });
-        const bob = solver.createBody({
+        const anchor = createTestBody(solver, { position: { x: i * SPACING, y: 10, z: 0 } });
+        const bob = createTestBody(solver, {
             type: BodyType.Dynamic,
             position: { x: i * SPACING + 2, y: 10, z: 0 },
         });
-        bob.createHull({}, hull);
-        solver.createSphericalJoint(anchor, bob, {
-            localFrameB: { p: { x: -2, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
-        });
+        createHullShape(solver, bob, testShapeDef(), hull);
+        createSphericalJoint(
+            solver,
+            defaultSphericalJointDef({
+                ...defaultJointDef(),
+                bodyIdA: anchor,
+                bodyIdB: bob,
+                localFrameB: {
+                    p: { x: -2, y: 0, z: 0 },
+                    q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+                },
+            }),
+        );
     }
     const app = await createApp({
         defaults: false,
@@ -209,7 +252,7 @@ async function spherical() {
                     {
                         name: "constraint-step",
                         group: "fixed",
-                        update: () => solver.step(1 / 60, 4),
+                        update: () => stepTestWorld(solver, 1 / 60, 4),
                     },
                 ],
             },
@@ -217,9 +260,10 @@ async function spherical() {
     });
     return {
         step: () => app.world.step(1 / 60),
-        dispose: () => {
+        dispose: async () => {
             app.dispose();
-            solver.destroy();
+            destroyTestWorld(solver);
+            await shutdown(undefined);
         },
     };
 }

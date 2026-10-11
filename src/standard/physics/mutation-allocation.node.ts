@@ -7,16 +7,17 @@ import {
     sampleAllocation,
 } from "../../../diagnostics/first-person-allocation/allocation";
 import { CEILING } from "../../../scripts/test-tiers";
-import { PhysicsWorld } from "./api/world";
 import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 import { mutationAllocationSubject } from "./mutation-allocation.fixture";
+import { createTestWorld, destroyTestWorld } from "./testing";
+import type { WorldState } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 test("warmed type, filter, joint, event-flag and destroy/create mutations match native WASM allocation counts", async () => {
     const dir = mkdtempSync(join(tmpdir(), "shallot-mutation-alloc-"));
     const runtime = kernelState(undefined);
     const previous = runtime.instance;
-    let world: PhysicsWorld | undefined;
+    let world: WorldState | undefined;
     try {
         const build = Bun.spawnSync(
             [
@@ -57,7 +58,7 @@ test("warmed type, filter, joint, event-flag and destroy/create mutations match 
             allocationControl(): void;
         };
         runtime.instance = k;
-        world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+        world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
         const mutate = mutationAllocationSubject(world);
         for (let i = 0; i < 1200; ++i) mutate();
         const before = k.allocationCount();
@@ -67,7 +68,7 @@ test("warmed type, filter, joint, event-flag and destroy/create mutations match 
         k.allocationControl();
         expect(k.allocationCount() - before).toBeGreaterThan(1200);
     } finally {
-        world?.destroy();
+        if (world) destroyTestWorld(world);
         runtime.instance = previous;
         rmSync(dir, { recursive: true, force: true });
     }

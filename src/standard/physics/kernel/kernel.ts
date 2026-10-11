@@ -14,7 +14,7 @@
 
 import type { World } from "../../../engine";
 import { makeShapeId } from "../api/config";
-import { Shape } from "../api/shape";
+import type { EntityId } from "../common/ids";
 import type { WorldState } from "../world/world";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
@@ -1127,9 +1127,9 @@ function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length
     };
 }
 
-function ecsShapeReference(world: WorldState, shape: Shape) {
-    const binding = world.shapeEntityRefs[shape.id.index1 - 1];
-    if (!binding || binding.generation !== shape.id.generation)
+function ecsShapeReference(world: WorldState, shape: EntityId) {
+    const binding = world.shapeEntityRefs[shape.index1 - 1];
+    if (!binding || binding.generation !== shape.generation)
         throw new Error("physics: ECS shape callback reference is stale");
     return binding.reference;
 }
@@ -1144,8 +1144,8 @@ function collisionImport(runtime: KernelState) {
             const world = runtime.collisionWorld;
             if (world === null) throw new Error("physics: collision callback is not installed");
             runtime.queryWorld = world.worldId;
-            const shapeA = new Shape(world, makeShapeId(world, a));
-            const shapeB = new Shape(world, makeShapeId(world, b));
+            const shapeA = makeShapeId(world, a);
+            const shapeB = makeShapeId(world, b);
             if (kind === 0) {
                 runtime.stepCallback = true;
                 const owner = world.ecsState;

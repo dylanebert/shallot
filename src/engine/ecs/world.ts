@@ -709,6 +709,11 @@ export class World {
             : 0;
     }
 
+    /** @internal Check an ECS generation without materializing its encoded reference number. */
+    matchesEntityGeneration(eid: number, generation: number): boolean {
+        return this._entities.exists(eid) && this._entities.generation(eid) === generation;
+    }
+
     /** snapshot of every alive entity id */
     entities(): readonly number[] {
         return this._entities.all();

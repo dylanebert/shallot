@@ -1,22 +1,46 @@
 import { expect, test } from "bun:test";
+import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { createCompound } from "../shapes/compound";
+import { makeBoxHull } from "../shapes/hull";
+import { createMesh } from "../shapes/mesh";
 import {
-    BodyType,
-    createCompound,
-    createMesh,
-    defaultSurfaceMaterial,
-    hash,
-    makeBoxHull,
-    PhysicsWorld,
-} from "../api";
+    createCompoundShape,
+    createHullShape,
+    createMeshShape,
+    destroyShape,
+} from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { hashWorldState } from "../world/hash";
 import { defaultFrictionCallback, defaultRestitutionCallback } from "../world/world";
 import { ContactField, contactField, contactIds } from "./contact";
 import { readContactMaterial } from "./manifoldstore";
 
 const identity = { v: { x: 0, y: 0, z: 0 }, s: 1 };
+const transform = { p: { x: 0, y: 0, z: 0 }, q: identity };
+const unitScale = { x: 1, y: 1, z: 1 };
+
+function mesh() {
+    return createMesh({
+        vertices: [
+            { x: -2, y: 0, z: -2 },
+            { x: 2, y: 0, z: -2 },
+            { x: 2, y: 0, z: 2 },
+            { x: -2, y: 0, z: 2 },
+        ],
+        indices: [0, 2, 1, 0, 3, 2],
+        identifyEdges: true,
+    });
+}
 
 test("custom mixing reads only the active geometry after a mesh slot is recycled as a compound", () => {
     let mixes = 0;
-    const world = new PhysicsWorld({
+    const world = createTestWorld({
         enableSleep: false,
         frictionCallback: (a, ia, b, ib) => {
             mixes++;
@@ -24,62 +48,47 @@ test("custom mixing reads only the active geometry after a mesh slot is recycled
         },
     });
     try {
-        const ground = world.createBody({ type: BodyType.Static });
-        const mesh = createMesh({
-            vertices: [
-                { x: -2, y: 0, z: -2 },
-                { x: 2, y: 0, z: -2 },
-                { x: 2, y: 0, z: 2 },
-                { x: -2, y: 0, z: 2 },
-            ],
-            indices: [0, 2, 1, 0, 3, 2],
-            identifyEdges: true,
-        })!;
-        const old = ground.createMesh({}, mesh, { x: 1, y: 1, z: 1 });
-        const slot = old.id.index1;
-        old.destroy();
+        const ground = createTestBody(world, { type: BodyType.Static });
+        const meshData = mesh();
+        if (!meshData) throw new Error("mesh construction failed");
+        const old = createMeshShape(world, ground, testShapeDef(), meshData, unitScale)!;
+        const slot = old + 1;
+        destroyShape(world, old, true);
         const hull = makeBoxHull(0.5, 0.5, 0.5);
         const compound = createCompound({
-            hulls: [
-                {
-                    hull,
-                    material: defaultSurfaceMaterial(),
-                    transform: { p: { x: 0, y: 0, z: 0 }, q: identity },
-                },
-            ],
+            hulls: [{ hull, material: defaultSurfaceMaterial(), transform }],
         })!;
-        expect(ground.createCompound({}, compound)!.id.index1).toBe(slot);
-        world
-            .createBody({ type: BodyType.Dynamic, position: { x: 0, y: 0.9, z: 0 } })
-            .createHull({}, hull);
-        world.step(1 / 60, 1);
+        expect(createCompoundShape(world, ground, testShapeDef(), compound)! + 1).toBe(slot);
+        const body = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 0.9, z: 0 },
+        });
+        createHullShape(world, body, testShapeDef(), hull);
+        stepTestWorld(world, 1 / 60, 1);
         expect(mixes).toBeGreaterThan(0);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("kernel default mixing equals callback mixing for convex, flipped compound and mesh materials", () => {
     for (const kind of ["hull", "sphere", "capsule", "mesh"] as const) {
-        const worlds = [false, true].map(
-            (callbacks) =>
-                new PhysicsWorld({
-                    gravity: { x: 0, y: 0, z: 0 },
-                    enableSleep: false,
-                    enableContinuous: false,
-                    ...(callbacks
-                        ? {
-                              frictionCallback: (a, ia, b, ib) =>
-                                  defaultFrictionCallback(a, ia, b, ib),
-                              restitutionCallback: (a, ia, b, ib) =>
-                                  defaultRestitutionCallback(a, ia, b, ib),
-                          }
-                        : {}),
-                }),
+        const worlds = [false, true].map((callbacks) =>
+            createTestWorld({
+                gravity: { x: 0, y: 0, z: 0 },
+                enableSleep: false,
+                enableContinuous: false,
+                ...(callbacks
+                    ? {
+                          frictionCallback: defaultFrictionCallback,
+                          restitutionCallback: defaultRestitutionCallback,
+                      }
+                    : {}),
+            }),
         );
         try {
             for (const world of worlds) {
-                world.state.contactRecycleDistance = 0;
+                world.contactRecycleDistance = 0;
                 const material = {
                     ...defaultSurfaceMaterial(),
                     friction: 0.7,
@@ -88,40 +97,23 @@ test("kernel default mixing equals callback mixing for convex, flipped compound 
                     tangentVelocity: { x: 0.4, y: 0.2, z: 0.3 },
                 };
                 const hull = makeBoxHull(0.5, 0.5, 0.5);
-                const mesh = createMesh({
-                    vertices: [
-                        { x: -2, y: 0, z: -2 },
-                        { x: 2, y: 0, z: -2 },
-                        { x: 2, y: 0, z: 2 },
-                        { x: -2, y: 0, z: 2 },
-                    ],
-                    indices: [0, 2, 1, 0, 3, 2],
-                    identifyEdges: true,
-                });
-                if (!mesh) throw new Error("mesh construction failed");
+                const meshData = mesh();
+                if (!meshData) throw new Error("mesh construction failed");
                 const compound = createCompound(
                     kind === "mesh"
                         ? {
                               meshes: [
                                   {
-                                      meshData: mesh,
-                                      scale: { x: 1, y: 1, z: 1 },
+                                      meshData,
+                                      scale: unitScale,
                                       materials: [material],
                                       materialCount: 1,
-                                      transform: { p: { x: 0, y: 0, z: 0 }, q: identity },
+                                      transform,
                                   },
                               ],
                           }
                         : kind === "hull"
-                          ? {
-                                hulls: [
-                                    {
-                                        hull,
-                                        material,
-                                        transform: { p: { x: 0, y: 0, z: 0 }, q: identity },
-                                    },
-                                ],
-                            }
+                          ? { hulls: [{ hull, material, transform }] }
                           : kind === "sphere"
                             ? {
                                   spheres: [
@@ -145,38 +137,40 @@ test("kernel default mixing equals callback mixing for convex, flipped compound 
                               },
                 );
                 if (!compound) throw new Error("compound construction failed");
-                world.createBody({ type: BodyType.Static }).createCompound({}, compound);
-                world
-                    .createBody({
-                        type: BodyType.Dynamic,
-                        position: { x: 0, y: kind === "mesh" ? 0.4 : 0.8, z: 0 },
-                    })
-                    .createHull(
-                        {
-                            baseMaterial: {
-                                ...material,
-                                friction: 0.4,
-                                restitution: 0.5,
-                                rollingResistance: 0.6,
-                                tangentVelocity: { x: -0.1, y: 0.3, z: 0.2 },
-                            },
+                const ground = createTestBody(world, { type: BodyType.Static });
+                createCompoundShape(world, ground, testShapeDef(), compound);
+                const body = createTestBody(world, {
+                    type: BodyType.Dynamic,
+                    position: { x: 0, y: kind === "mesh" ? 0.4 : 0.8, z: 0 },
+                });
+                createHullShape(
+                    world,
+                    body,
+                    testShapeDef({
+                        baseMaterial: {
+                            ...material,
+                            friction: 0.4,
+                            restitution: 0.5,
+                            rollingResistance: 0.6,
+                            tangentVelocity: { x: -0.1, y: 0.3, z: 0.2 },
                         },
-                        hull,
-                    );
+                    }),
+                    hull,
+                );
             }
             for (let step = 0; step < 4; ++step) {
-                for (const world of worlds) world.step(1 / 60, 1);
-                expect(hash(worlds[0])).toBe(hash(worlds[1]));
+                for (const world of worlds) stepTestWorld(world, 1 / 60, 1);
+                expect(hashWorldState(worlds[0]!)).toBe(hashWorldState(worlds[1]!));
                 const rows = worlds.map((world) =>
-                    contactIds(world.state)
-                        .filter((c) => contactField(world.state, c, ContactField.manifoldCount) > 0)
-                        .map((c) => readContactMaterial(world.state.manifoldStore.dirF, c)),
+                    contactIds(world)
+                        .filter((c) => contactField(world, c, ContactField.manifoldCount) > 0)
+                        .map((c) => readContactMaterial(world.manifoldStore.dirF, c)),
                 );
-                expect(rows[0].length).toBeGreaterThan(0);
+                expect(rows[0]!.length).toBeGreaterThan(0);
                 expect(rows[0]).toEqual(rows[1]);
             }
         } finally {
-            for (const world of worlds) world.destroy();
+            for (const world of worlds) destroyTestWorld(world);
         }
     }
 });

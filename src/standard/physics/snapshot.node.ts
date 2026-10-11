@@ -1,36 +1,59 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
-import { hash } from "./api";
-import { PhysicsWorld } from "./api/world";
-import { BodyType } from "./common/types";
+import { restore, snapshot } from "./api/snapshot";
+import { BodyType, defaultQueryFilter } from "./common/types";
+import { queryColumns } from "./kernel/querycolumns";
+import { createSphereShape } from "./shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "./testing";
+import { hashWorldState } from "./world/hash";
+import type { WorldState } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 
-function scene(count: number) {
-    const world = new PhysicsWorld({ enableSleep: false });
+const origin = { x: 0, y: 10, z: 0 };
+const translation = { x: 0, y: -20, z: 0 };
+
+function castRayClosest(world: WorldState): void {
+    const query = queryColumns(world);
+    const k = query.prepare(origin, defaultQueryFilter());
+    query.translation(translation);
+    k.worldQuery(world.worldId, 3, 0);
+}
+
+function scene(count: number): WorldState {
+    const world = createTestWorld({ enableSleep: false });
     for (let i = 0; i < count; i++) {
-        const body = world.createBody({
+        const body = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: i % 10, y: Math.floor(i / 10), z: 0 },
         });
-        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.6 });
+        createSphereShape(world, body, testShapeDef(), {
+            center: { x: 0, y: 0, z: 0 },
+            radius: 0.6,
+        });
     }
-    world.step(1 / 60);
+    stepTestWorld(world, 1 / 60);
     return world;
 }
 
 test("a World's snapshot bytes do not include a live sibling's 100 bodies", () => {
     const target = scene(4);
-    let sibling: PhysicsWorld | undefined;
+    let sibling: WorldState | undefined;
     try {
-        target.castRayClosest({ x: 0, y: 10, z: 0 }, { x: 0, y: -20, z: 0 });
-        const before = target.snapshot().bytes;
+        castRayClosest(target);
+        const before = snapshot(target).bytes;
         sibling = scene(100);
-        target.castRayClosest({ x: 0, y: 10, z: 0 }, { x: 0, y: -20, z: 0 });
-        expect(target.snapshot().bytes).toEqual(before);
+        castRayClosest(target);
+        expect(snapshot(target).bytes).toEqual(before);
     } finally {
-        sibling?.destroy();
-        target.destroy();
+        if (sibling) destroyTestWorld(sibling);
+        destroyTestWorld(target);
     }
 });
 
@@ -39,24 +62,24 @@ test("restoring a target between sibling ticks preserves every solo tick hash", 
     const expected: bigint[] = [];
     try {
         for (let tick = 0; tick < 120; tick++) {
-            solo.step(1 / 60);
-            expected.push(hash(solo));
+            stepTestWorld(solo, 1 / 60);
+            expected.push(hashWorldState(solo));
         }
     } finally {
-        solo.destroy();
+        destroyTestWorld(solo);
     }
     const target = scene(4);
     const sibling = scene(100);
     try {
-        const saved = target.snapshot();
+        const saved = snapshot(target);
         for (let tick = 0; tick < 120; tick++) {
-            target.step(1 / 60);
-            target.restore(saved);
-            sibling.step(1 / 60);
-            expect(hash(sibling)).toBe(expected[tick]);
+            stepTestWorld(target, 1 / 60);
+            restore(target, saved);
+            stepTestWorld(sibling, 1 / 60);
+            expect(hashWorldState(sibling)).toBe(expected[tick]);
         }
     } finally {
-        sibling.destroy();
-        target.destroy();
+        destroyTestWorld(sibling);
+        destroyTestWorld(target);
     }
 });

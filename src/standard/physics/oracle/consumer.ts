@@ -1,13 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-    BodyType,
-    createBoxMesh,
-    type Joint,
-    makeBoxHull,
-    type Vec3 as PhysicsVec3,
-    PhysicsWorld,
-} from "../api/index";
+import { makeJointId } from "../api/config";
 import { ContactField, ContactFlags, contactField, contactIds } from "../collision/contact";
 import { emptyCache, shapeDistance } from "../collision/distance";
 import { readContactManifolds } from "../collision/manifoldstore";
@@ -16,17 +9,79 @@ import { kernelRay } from "../collision/shape_query_gold";
 import {
     type AABB,
     computeCosSin,
+    type Vec3 as PhysicsVec3,
     pointToSegmentDistance,
     type Quat,
     type Transform,
     type Vec3,
     vec3,
 } from "../common/math";
-import { ShapeType } from "../common/types";
+import { BodyType, ShapeType } from "../common/types";
+import { readStateAngularVelocity } from "../kernel/bodycolumns";
+import {
+    DJ_LENGTH,
+    MJ_LINEAR_VELOCITY,
+    MJ_MAX_VELOCITY_FORCE,
+    PLJ_HERTZ,
+    SJ_MOTOR_VELOCITY,
+    WJ_LINEAR_HERTZ,
+} from "../kernel/columns";
 import { hullDatabaseIndex } from "../kernel/geocolumns";
+import { readJointFloat, readJointVec3 } from "../kernel/jointcolumns";
+import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { createProxy, createTree, query } from "../kernel/treecolumns";
 import { type Capsule, computeSphereAABB, type Sphere } from "../shapes/geometry";
+import { makeBoxHull } from "../shapes/hull";
+import { createBoxMesh } from "../shapes/mesh";
+import {
+    createCapsuleShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+} from "../shapes/shape";
+import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
+import {
+    createFilterJoint,
+    defaultJointDef,
+    getJointAngularSeparation,
+    getJointConstraintTorque,
+    getJointLinearSeparation,
+    type Joint,
+    getJointConstraintForce as jointConstraintForce,
+    jointIsValid,
+} from "../solver/joint";
+import { createMotorJoint, defaultMotorJointDef } from "../solver/motorJoint";
+import { createParallelJoint, defaultParallelJointDef } from "../solver/parallelJoint";
+import {
+    createPrismaticJoint,
+    defaultPrismaticJointDef,
+    prismaticJointTranslation,
+} from "../solver/prismaticJoint";
+import {
+    createRevoluteJoint,
+    defaultRevoluteJointDef,
+    revoluteJointAngle,
+} from "../solver/revoluteJoint";
+import {
+    createSphericalJoint,
+    defaultSphericalJointDef,
+    sphericalJointConeAngle,
+} from "../solver/sphericalJoint";
+import { createWeldJoint, defaultWeldJointDef } from "../solver/weldJoint";
+import {
+    createWheelJoint,
+    defaultWheelJointDef,
+    wheelJointSteeringAngle,
+} from "../solver/wheelJoint";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { bodyGetLinearVelocity, bodyGetTransform, getBodyState, getMassData } from "../world/body";
 import { hashWorldStateOracleSentinel } from "../world/hash";
 import { loadScenarioCorpus, runScenario, type ScenarioOutput } from "./scenario";
 
@@ -68,14 +123,14 @@ const i32hex = (value: number): string => u32hex(value);
 const vbits = (value: PhysicsVec3): string[] => [bits(value.x), bits(value.y), bits(value.z)];
 const zero: PhysicsVec3 = { x: 0, y: 0, z: 0 };
 
-function makeOracleWorld(): PhysicsWorld {
-    return new PhysicsWorld({
+function makeOracleWorld() {
+    return createTestWorld({
         gravity: { x: 0, y: -9.8, z: 0 },
         enableSleep: false,
     });
 }
 
-function contactRecords(physicsWorld: PhysicsWorld): Array<{
+function contactRecords(physicsWorld: ReturnType<typeof makeOracleWorld>): Array<{
     manifolds: Array<{
         normal: PhysicsVec3;
         pointCount: number;
@@ -88,7 +143,7 @@ function contactRecords(physicsWorld: PhysicsWorld): Array<{
         }>;
     }>;
 }> {
-    const world = physicsWorld.state;
+    const world = physicsWorld;
     return contactIds(world)
         .filter(
             (contact) =>
@@ -114,7 +169,10 @@ function contactRecords(physicsWorld: PhysicsWorld): Array<{
         }));
 }
 
-function writeContacts(physicsWorld: PhysicsWorld, hookVisits: number): unknown {
+function writeContacts(
+    physicsWorld: ReturnType<typeof makeOracleWorld>,
+    hookVisits: number,
+): unknown {
     const contacts = contactRecords(physicsWorld);
     return {
         contactCount: i32hex(contacts.length),
@@ -137,82 +195,75 @@ function writeContacts(physicsWorld: PhysicsWorld, hookVisits: number): unknown 
 }
 
 function runJointCase(item: OracleCase): unknown {
-    const physicsWorld = makeOracleWorld();
-    const bodyA = physicsWorld.createBody({
+    const world = makeOracleWorld();
+    const bodyA = createTestBody(world, {
         type: BodyType.Dynamic,
         position: { x: 0, y: 0, z: 0 },
         enableSleep: false,
     });
-    const bodyB = physicsWorld.createBody({
+    const bodyB = createTestBody(world, {
         type: BodyType.Dynamic,
         position: { x: 1, y: 0, z: 0 },
         enableSleep: false,
     });
+    const base = { ...defaultJointDef(), bodyIdA: bodyA, bodyIdB: bodyB };
     const name = item.id.split(".")[2];
     let joint: Joint;
     let specific = 0;
     let specificVector: PhysicsVec3 | undefined;
     switch (name) {
         case "parallel":
-            joint = physicsWorld.createParallelJoint(bodyA, bodyB);
-            specific = (joint as ReturnType<PhysicsWorld["createParallelJoint"]>).getSpringHertz();
+            joint = createParallelJoint(world, defaultParallelJointDef(base)).joint;
+            specific = readJointFloat(world, joint, PLJ_HERTZ);
             break;
         case "distance":
-            joint = physicsWorld.createDistanceJoint(bodyA, bodyB, { length: 1 });
-            specific = (joint as ReturnType<PhysicsWorld["createDistanceJoint"]>).getLength();
+            joint = createDistanceJoint(world, {
+                ...defaultDistanceJointDef(base),
+                length: 1,
+                base,
+            }).joint;
+            specific = readJointFloat(world, joint, DJ_LENGTH);
             break;
-        case "motor": {
-            const motor = physicsWorld.createMotorJoint(bodyA, bodyB);
-            joint = motor;
-            specific = motor.getMaxVelocityForce();
-            specificVector = motor.getLinearVelocity();
+        case "motor":
+            joint = createMotorJoint(world, defaultMotorJointDef(base)).joint;
+            specific = readJointFloat(world, joint, MJ_MAX_VELOCITY_FORCE);
+            specificVector = readJointVec3(world, joint, MJ_LINEAR_VELOCITY, { ...zero });
             break;
-        }
         case "filter":
-            joint = physicsWorld.createFilterJoint(bodyA, bodyB);
+            joint = createFilterJoint(world, base).joint;
             break;
-        case "prismatic": {
-            const prismatic = physicsWorld.createPrismaticJoint(bodyA, bodyB);
-            joint = prismatic;
-            specific = prismatic.getTranslation();
+        case "prismatic":
+            joint = createPrismaticJoint(world, defaultPrismaticJointDef(base)).joint;
+            specific = prismaticJointTranslation(world, joint);
             break;
-        }
-        case "revolute": {
-            const revolute = physicsWorld.createRevoluteJoint(bodyA, bodyB);
-            joint = revolute;
-            specific = revolute.getAngle();
+        case "revolute":
+            joint = createRevoluteJoint(world, defaultRevoluteJointDef(base)).joint;
+            specific = revoluteJointAngle(world, joint);
             break;
-        }
-        case "spherical": {
-            const spherical = physicsWorld.createSphericalJoint(bodyA, bodyB);
-            joint = spherical;
-            specific = spherical.getConeAngle();
-            specificVector = spherical.getMotorVelocity();
+        case "spherical":
+            joint = createSphericalJoint(world, defaultSphericalJointDef(base)).joint;
+            specific = sphericalJointConeAngle(world, joint);
+            specificVector = readJointVec3(world, joint, SJ_MOTOR_VELOCITY, { ...zero });
             break;
-        }
-        case "weld": {
-            const weld = physicsWorld.createWeldJoint(bodyA, bodyB);
-            joint = weld;
-            specific = weld.getLinearHertz();
+        case "weld":
+            joint = createWeldJoint(world, defaultWeldJointDef(base)).joint;
+            specific = readJointFloat(world, joint, WJ_LINEAR_HERTZ);
             break;
-        }
-        case "wheel": {
-            const wheel = physicsWorld.createWheelJoint(bodyA, bodyB);
-            joint = wheel;
-            specific = wheel.getSteeringAngle();
+        case "wheel":
+            joint = createWheelJoint(world, defaultWheelJointDef(base)).joint;
+            specific = wheelJointSteeringAngle(world, joint);
             break;
-        }
         default:
             throw new Error(`unknown O4 joint ${item.id}`);
     }
-    physicsWorld.step(1 / 60, 1);
+    stepTestWorld(world, 1 / 60, 1);
     const result: Record<string, unknown> = {
-        valid: u32hex(joint.isValid() ? 1 : 0),
-        type: u32hex(joint.getType()),
-        force: vbits(joint.getConstraintForce()),
-        torque: vbits(joint.getConstraintTorque()),
-        linearSeparation: bits(joint.getLinearSeparation()),
-        angularSeparation: bits(joint.getAngularSeparation()),
+        valid: u32hex(jointIsValid(world, makeJointId(world, joint)) ? 1 : 0),
+        type: u32hex(jointField(world, joint, JointField.type)),
+        force: vbits(jointConstraintForce(world, joint)),
+        torque: vbits(getJointConstraintTorque(world, joint)),
+        linearSeparation: bits(getJointLinearSeparation(world, joint)),
+        angularSeparation: bits(getJointAngularSeparation(world, joint)),
         specific: bits(specific),
         hookVisits: u32hex(
             (
@@ -231,6 +282,7 @@ function runJointCase(item: OracleCase): unknown {
         ),
     };
     if (specificVector !== undefined) result.specificVector = vbits(specificVector);
+    destroyTestWorld(world);
     return result;
 }
 
@@ -265,10 +317,14 @@ function runBaseCase(item: OracleCase): unknown {
             };
             const world = makeOracleWorld();
             try {
-                const body = world.createBody({ type: BodyType.Dynamic });
-                const mass = body
-                    .createCapsule({ density: f32(String(input.density)) }, shape)
-                    .computeMassData();
+                const body = createTestBody(world, { type: BodyType.Dynamic });
+                createCapsuleShape(
+                    world,
+                    body,
+                    testShapeDef({ density: f32(String(input.density)) }),
+                    shape,
+                );
+                const mass = getMassData(world, body);
                 return {
                     mass: bits(mass.mass),
                     center: outVec(mass.center),
@@ -276,7 +332,7 @@ function runBaseCase(item: OracleCase): unknown {
                     inertia: outVec(mass.inertia.cx),
                 };
             } finally {
-                world.destroy();
+                destroyTestWorld(world);
             }
         }
         case "distance.point-segment.v1.scalar":
@@ -432,46 +488,61 @@ function runBaseCase(item: OracleCase): unknown {
         case "whitebox.world-hash.v2.scalar":
         case "whitebox.world-hash.v2.simd": {
             const physicsWorld = makeOracleWorld();
-            physicsWorld.createBody({
+            createTestBody(physicsWorld, {
                 type: BodyType.Dynamic,
                 position: { x: 3, y: -2, z: 5 },
                 linearVelocity: { x: 1, y: -2, z: 0.5 },
                 enableSleep: false,
             });
-            return {
-                hash: `0x${hashWorldStateOracleSentinel(physicsWorld.state).toString(16).padStart(16, "0")}`,
+            const result = {
+                hash: `0x${hashWorldStateOracleSentinel(physicsWorld).toString(16).padStart(16, "0")}`,
             };
+            destroyTestWorld(physicsWorld);
+            return result;
         }
         case "whitebox.integrate-velocities.v2.scalar":
         case "whitebox.integrate-velocities.v2.simd": {
             const physicsWorld = makeOracleWorld();
-            const body = physicsWorld.createBody({
+            const body = createTestBody(physicsWorld, {
                 type: BodyType.Dynamic,
                 linearVelocity: { x: 2, y: 3, z: -1 },
                 enableSleep: false,
             });
-            physicsWorld.step(f32("0x3c83126f"), 1);
-            const velocity = body.getLinearVelocity();
+            stepTestWorld(physicsWorld, f32("0x3c83126f"), 1);
+            const velocity = bodyGetLinearVelocity(physicsWorld, body, { ...zero });
             // Match the additive B3_ORACLE_SENTINELS probe after the real integration seam.
             velocity.x = Math.fround(velocity.x + 2 ** -20);
-            return {
+            const bodyState = getBodyState(physicsWorld, body);
+            const angularVelocity =
+                bodyState === null
+                    ? zero
+                    : readStateAngularVelocity(physicsWorld, bodyState, { ...zero });
+            const result = {
                 linearVelocity: vbits(velocity),
-                angularVelocity: vbits(body.getAngularVelocity()),
+                angularVelocity: vbits(angularVelocity),
             };
+            destroyTestWorld(physicsWorld);
+            return result;
         }
         case "whitebox.integrate-positions.v2.scalar":
         case "whitebox.integrate-positions.v2.simd": {
             const physicsWorld = makeOracleWorld();
-            const body = physicsWorld.createBody({
+            const body = createTestBody(physicsWorld, {
                 type: BodyType.Dynamic,
                 linearVelocity: { x: 2, y: 3, z: -1 },
                 enableSleep: false,
             });
-            const before = body.getPosition();
-            physicsWorld.step(f32("0x3c83126f"), 1);
-            const after = body.getPosition();
+            const before = bodyGetTransform(physicsWorld, body, {
+                p: { ...zero },
+                q: { v: { ...zero }, s: 1 },
+            }).p;
+            stepTestWorld(physicsWorld, f32("0x3c83126f"), 1);
+            const after = bodyGetTransform(physicsWorld, body, {
+                p: { ...zero },
+                q: { v: { ...zero }, s: 1 },
+            }).p;
             // The upstream whitebox executable adds its sentinel in integrate-positions.
-            return {
+            const result = {
                 deltaPosition: vbits({
                     x: after.x - before.x,
                     y: Math.fround(after.y - before.y + 2 ** -20),
@@ -479,38 +550,46 @@ function runBaseCase(item: OracleCase): unknown {
                 }),
                 deltaRotation: [bits(0), bits(0), bits(0), bits(1)],
             };
+            destroyTestWorld(physicsWorld);
+            return result;
         }
         case "whitebox.finalize.v2.scalar":
         case "whitebox.finalize.v2.simd": {
             const physicsWorld = makeOracleWorld();
-            const body = physicsWorld.createBody({
+            const body = createTestBody(physicsWorld, {
                 type: BodyType.Dynamic,
                 position: { x: 1, y: 2, z: 3 },
                 enableSleep: false,
             });
-            physicsWorld.step(f32("0x3c83126f"), 1);
-            const pose = body.getTransform();
+            stepTestWorld(physicsWorld, f32("0x3c83126f"), 1);
+            const pose = bodyGetTransform(physicsWorld, body, {
+                p: { ...zero },
+                q: { v: { ...zero }, s: 1 },
+            });
             // The upstream whitebox executable adds its sentinel in finalize.
             pose.p.x = Math.fround(pose.p.x + 2 ** -20);
-            return {
+            const result = {
                 position: vbits(pose.p),
                 rotation: [bits(pose.q.v.x), bits(pose.q.v.y), bits(pose.q.v.z), bits(pose.q.s)],
             };
+            destroyTestWorld(physicsWorld);
+            return result;
         }
         case "whitebox.recycle.v2.scalar":
         case "whitebox.recycle.v2.simd": {
             const physicsWorld = makeOracleWorld();
-            const a = physicsWorld.createBody({ type: BodyType.Dynamic, enableSleep: false });
-            const b = physicsWorld.createBody({
+            const a = createTestBody(physicsWorld, { type: BodyType.Dynamic, enableSleep: false });
+            const b = createTestBody(physicsWorld, {
                 type: BodyType.Dynamic,
                 position: { x: 1.5, y: 0, z: 0 },
                 enableSleep: false,
             });
             const sphere: Sphere = { center: { x: 0, y: 0, z: 0 }, radius: 1 };
-            a.createSphere({}, sphere);
-            b.createSphere({}, sphere);
-            physicsWorld.step(1 / 60, 1);
-            physicsWorld.step(1 / 60, 1);
+            createSphereShape(physicsWorld, a, testShapeDef(), sphere);
+            createSphereShape(physicsWorld, b, testShapeDef(), sphere);
+            stepTestWorld(physicsWorld, 1 / 60, 1);
+            stepTestWorld(physicsWorld, 1 / 60, 1);
+            destroyTestWorld(physicsWorld);
             return { recycledContactCount: u32hex(1), collideTaskVisits: u32hex(1) };
         }
         case "o4.convex-manifold.scalar-or-simd.scalar":
@@ -519,12 +598,12 @@ function runBaseCase(item: OracleCase): unknown {
                 b = makeBoxHull(1, 1, 1);
             const world = makeOracleWorld();
             try {
-                const body = world.createBody({ type: BodyType.Static });
-                body.createHull({}, a);
-                body.createHull({}, b);
-                const k = kernel(world.state.ecsState);
-                const pointerA = hullDatabaseIndex(world.state, a);
-                const pointerB = hullDatabaseIndex(world.state, b);
+                const body = createTestBody(world, { type: BodyType.Static });
+                createHullShape(world, body, testShapeDef(), a);
+                createHullShape(world, body, testShapeDef(), b);
+                const k = kernel(world.ecsState);
+                const pointerA = hullDatabaseIndex(world, a);
+                const pointerB = hullDatabaseIndex(world, b);
                 const count = k.collideHullsGeo(pointerA, pointerB, 1.25, 0.1, 0, 0, 0, 0, 1);
                 const out = new Float32Array(k.memory.buffer, k.geoOutPtr(), 4 + count * 5);
                 const words = new Uint32Array(out.buffer, out.byteOffset, out.length);
@@ -542,35 +621,45 @@ function runBaseCase(item: OracleCase): unknown {
                     hookVisits: u32hex(1),
                 };
             } finally {
-                world.destroy();
+                destroyTestWorld(world);
             }
         }
         case "o4.mesh-contact.scalar-or-simd.scalar":
         case "o4.mesh-contact.scalar-or-simd.simd": {
             const physicsWorld = makeOracleWorld();
-            const ground = physicsWorld.createBody({ type: BodyType.Static });
-            const ball = physicsWorld.createBody({
+            const ground = createTestBody(physicsWorld, { type: BodyType.Static });
+            const ball = createTestBody(physicsWorld, {
                 type: BodyType.Dynamic,
                 position: { x: 0, y: 0.55, z: 0 },
                 enableSleep: false,
             });
-            ground.createMesh({}, createBoxMesh(zero, { x: 2, y: 0.2, z: 2 }, true));
-            ball.createSphere({}, { center: zero, radius: 0.5 });
-            physicsWorld.step(1 / 60, 1);
-            return writeContacts(physicsWorld, 1);
+            createMeshShape(
+                physicsWorld,
+                ground,
+                testShapeDef(),
+                createBoxMesh(zero, { x: 2, y: 0.2, z: 2 }, true),
+                { x: 1, y: 1, z: 1 },
+            );
+            createSphereShape(physicsWorld, ball, testShapeDef(), { center: zero, radius: 0.5 });
+            stepTestWorld(physicsWorld, 1 / 60, 1);
+            const result = writeContacts(physicsWorld, 1);
+            destroyTestWorld(physicsWorld);
+            return result;
         }
         case "o4.convex-contact.scalar-or-simd.scalar":
         case "o4.convex-contact.scalar-or-simd.simd": {
             const physicsWorld = makeOracleWorld();
-            const a = physicsWorld.createBody({ type: BodyType.Dynamic, enableSleep: false });
-            const b = physicsWorld.createBody({
+            const a = createTestBody(physicsWorld, { type: BodyType.Dynamic, enableSleep: false });
+            const b = createTestBody(physicsWorld, {
                 type: BodyType.Static,
                 position: { x: 1.5, y: 0, z: 0 },
             });
-            a.createSphere({}, { center: zero, radius: 1 });
-            b.createSphere({}, { center: zero, radius: 1 });
-            physicsWorld.step(1 / 60, 1);
-            return writeContacts(physicsWorld, 2);
+            createSphereShape(physicsWorld, a, testShapeDef(), { center: zero, radius: 1 });
+            createSphereShape(physicsWorld, b, testShapeDef(), { center: zero, radius: 1 });
+            stepTestWorld(physicsWorld, 1 / 60, 1);
+            const result = writeContacts(physicsWorld, 2);
+            destroyTestWorld(physicsWorld);
+            return result;
         }
         case "o4.joint.parallel.scalar-or-simd.scalar":
         case "o4.joint.parallel.scalar-or-simd.simd":

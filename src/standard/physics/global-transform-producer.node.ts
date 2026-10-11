@@ -5,7 +5,8 @@ import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
 import { PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
-import { physicsWorld } from "./runtime";
+import { physicsBodyIndex, physicsState, setAwake, setLinearVelocity } from "./runtime";
+import { bodyGetLinearVelocity, bodyIsAwake } from "./world/body";
 
 setDefaultTimeout(CEILING.node);
 
@@ -20,34 +21,34 @@ test("a body falling asleep publishes zero ECS velocity, and waking publishes it
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic });
         world.step(Time.FIXED_DT);
-        const physics = physicsWorld(world)!;
+        const state = physicsState(world)!;
         world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
-        const body = physics.getBody(eid)!;
-        setBodyField(physics.state, body.id.index1 - 1, BodyField.sleepThreshold, 1);
-        body.setLinearVelocity({ x: 0.01, y: 0, z: 0 });
-        let fellAsleep = false;
-        for (let tick = 0; tick < 60 && !fellAsleep; ++tick) {
-            world.step(Time.FIXED_DT);
-            const events = physics.getBodyEvents();
-            for (let i = 0; i < events.count; ++i) {
-                const event = events.moveEvents[i];
-                if (event.body.id.index1 === body.id.index1 && event.fellAsleep) fellAsleep = true;
-            }
-        }
-        expect(fellAsleep).toBe(true);
-        expect(body.isAwake()).toBe(false);
-        expect(body.getLinearVelocity()).toEqual({ x: 0, y: 0, z: 0 });
+        const body = physicsBodyIndex(world, eid);
+        expect(body).toBeGreaterThanOrEqual(0);
+        setBodyField(state, body, BodyField.sleepThreshold, 1);
+        setLinearVelocity(world, eid, { x: 0.01, y: 0, z: 0 });
+        for (let tick = 0; tick < 60 && bodyIsAwake(state, body); ++tick) world.step(Time.FIXED_DT);
+        expect(bodyIsAwake(state, body)).toBe(false);
+        expect(bodyGetLinearVelocity(state, body, { x: 0, y: 0, z: 0 })).toEqual({
+            x: 0,
+            y: 0,
+            z: 0,
+        });
         const velocity = world.storage(GlobalTransform).linearVelocity;
         expect(Array.from(velocity.column.subarray(eid * 4, eid * 4 + 4))).toEqual([0, 0, 0, 0]);
 
-        body.setAwake(true);
+        setAwake(world, eid, true);
         world.step(Time.FIXED_DT);
-        expect(body.isAwake()).toBe(true);
-        body.setAwake(false);
-        body.setLinearVelocity({ x: 2, y: 3, z: 4 });
+        expect(bodyIsAwake(state, body)).toBe(true);
+        setAwake(world, eid, false);
+        setLinearVelocity(world, eid, { x: 2, y: 3, z: 4 });
         world.step(Time.FIXED_DT);
-        expect(body.isAwake()).toBe(true);
-        expect(body.getLinearVelocity()).toEqual({ x: 2, y: 3, z: 4 });
+        expect(bodyIsAwake(state, body)).toBe(true);
+        expect(bodyGetLinearVelocity(state, body, { x: 0, y: 0, z: 0 })).toEqual({
+            x: 2,
+            y: 3,
+            z: 4,
+        });
         expect(Array.from(velocity.column.subarray(eid * 4, eid * 4 + 4))).toEqual([2, 3, 4, 0]);
     } finally {
         app.dispose();

@@ -4,9 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
-import { StandardPhysicsPlugin } from ".";
-import { hash } from "./api";
-import { physicsWorld } from "./runtime";
+import { hashPhysics, StandardPhysicsPlugin } from ".";
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();
@@ -24,7 +22,7 @@ test("exact ticks then draw match frame ticks in physics hash and published fiel
         for (let i = 0; i < 120; i++) {
             a.world.tick();
             b.world.step(Time.FIXED_DT);
-            expect(hash(physicsWorld(a.world)!)).toBe(hash(physicsWorld(b.world)!));
+            expect(hashPhysics(a.world)).toBe(hashPhysics(b.world));
         }
         a.world.step(0);
         expect(Array.from(a.world.storage(GlobalTransform).translation.column)).toEqual(

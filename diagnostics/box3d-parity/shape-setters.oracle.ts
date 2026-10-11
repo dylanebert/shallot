@@ -1,13 +1,37 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { nativeSseOutput } from "./native-evidence";
-import { PhysicsWorld } from "../../src/standard/physics/api/world";
-import { Shape } from "../../src/standard/physics/api/shape";
 import { BodyType } from "../../src/standard/physics/common/types";
+import { defaultSurfaceMaterial, type SurfaceMaterial } from "../../src/standard/physics/common/types";
 import { createHull, readShapeHull } from "../../src/standard/physics/shapes/hull";
 import { createMesh } from "../../src/standard/physics/shapes/mesh";
+import {
+    createCapsuleShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+    getShapeFilter,
+    getShapeGeometryScale,
+    getShapeMaterial,
+    getShapeMaterials,
+    getShapeDensity,
+    readShapeCapsule,
+    readShapeSphere,
+    setShapeCapsule,
+    setShapeDensity,
+    setShapeFilter,
+    setShapeFriction,
+    setShapeHull,
+    setShapeMesh,
+    setShapeMeshMaterial,
+    setShapeRestitution,
+    setShapeSphere,
+    setShapeSurfaceMaterial,
+} from "../../src/standard/physics/shapes/shape";
+import { ShapeFlags, setShapeFlag, shapeFlag } from "../../src/standard/physics/kernel/shaperecords";
 import { readShapeMesh } from "../../src/standard/physics/shapes/readgeometry";
 import { init } from "../../src/standard/physics/kernel/kernel";
-import type { SurfaceMaterial } from "../../src/standard/physics/common/types";
+import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../../src/standard/physics/testing";
+import type { WorldState } from "../../src/standard/physics/world/world";
 
 setDefaultTimeout(180_000);
 await init(undefined, { threads: 0 });
@@ -36,12 +60,30 @@ function material(name: string, value: SurfaceMaterial): void {
     expect(value.userMaterialId).toBe(BigInt(row[6]!));
     expect(value.customColor >>> 0).toBe(Number(row[7]) >>> 0);
 }
-function scene(type = BodyType.Dynamic): { world: PhysicsWorld; body: ReturnType<PhysicsWorld["createBody"]> } {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, workerCount: 1 });
-    return { world, body: world.createBody({ type }) };
+function scene(type = BodyType.Dynamic): { world: WorldState; body: number } {
+    const world = createTestWorld({
+        gravity: { x: 0, y: 0, z: 0 },
+        workerCount: 1,
+    });
+    return { world, body: createTestBody(world, { type }) };
 }
-function sphereShape(world: PhysicsWorld, body: ReturnType<PhysicsWorld["createBody"]>): Shape {
-    return body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+function sphereShape(world: WorldState, body: number): number {
+    return createSphereShape(
+        world,
+        body,
+        testShapeDef(),
+        { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
+    );
+}
+function emptyMaterial(): SurfaceMaterial {
+    return {
+        friction: 0,
+        restitution: 0,
+        rollingResistance: 0,
+        tangentVelocity: { x: 0, y: 0, z: 0 },
+        userMaterialId: 0n,
+        customColor: 0,
+    };
 }
 function meshData(offset: number) {
     return createMesh({
@@ -57,18 +99,18 @@ function meshData(offset: number) {
 }
 
 for (const [name, setter, getter] of [
-    ["density", (shape: Shape) => shape.setDensity(2.75, false), (shape: Shape) => shape.getDensity()],
-    ["friction", (shape: Shape) => shape.setFriction(0.37), (shape: Shape) => shape.getFriction()],
-    ["restitution", (shape: Shape) => shape.setRestitution(0.61), (shape: Shape) => shape.getRestitution()],
+    ["density", (world: WorldState, shape: number) => setShapeDensity(world, shape, 2.75, false), (world: WorldState, shape: number) => getShapeDensity(world, shape)],
+    ["friction", (world: WorldState, shape: number) => setShapeFriction(world, shape, 0.37), (world: WorldState, shape: number) => getShapeMaterial(world, shape, emptyMaterial()).friction],
+    ["restitution", (world: WorldState, shape: number) => setShapeRestitution(world, shape, 0.61), (world: WorldState, shape: number) => getShapeMaterial(world, shape, emptyMaterial()).restitution],
 ] as const) {
     test(`Shape.${name} setter/getter matches Box3D`, () => {
         const { world, body } = scene();
         try {
             const shape = sphereShape(world, body);
-            setter(shape);
-            floats(name, [getter(shape)]);
+            setter(world, shape);
+            floats(name, [getter(world, shape)]);
         } finally {
-            world.destroy();
+            destroyTestWorld(world);
         }
     });
 }
@@ -85,10 +127,10 @@ test("Shape.setSurfaceMaterial/getSurfaceMaterial matches Box3D", () => {
             userMaterialId: 0x123456789abcdef0n,
             customColor: 0x9a654321,
         };
-        shape.setSurfaceMaterial(next);
-        material("surface", shape.getSurfaceMaterial());
+        setShapeSurfaceMaterial(world, shape, next);
+        material("surface", getShapeMaterial(world, shape, emptyMaterial()));
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
@@ -96,12 +138,12 @@ test("Shape.setFilter/getFilter matches Box3D", () => {
     const { world, body } = scene();
     try {
         const shape = sphereShape(world, body);
-        shape.setFilter({
+        setShapeFilter(world, shape, {
             categoryBits: 0x123456789abcdef0n,
             maskBits: 0xfedcba9876543210n,
             groupIndex: -7,
         });
-        const actual = shape.getFilter();
+        const actual = getShapeFilter(world, shape);
         const row = values("filter");
         expect([actual.categoryBits, actual.maskBits, actual.groupIndex]).toEqual([
             BigInt(row[0]!),
@@ -109,24 +151,24 @@ test("Shape.setFilter/getFilter matches Box3D", () => {
             Number(row[2]),
         ]);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
-for (const [name, enable, getter] of [
-    ["sensorEvents", (shape: Shape) => shape.enableSensorEvents(true), (shape: Shape) => shape.areSensorEventsEnabled()],
-    ["contactEvents", (shape: Shape) => shape.enableContactEvents(true), (shape: Shape) => shape.areContactEventsEnabled()],
-    ["hitEvents", (shape: Shape) => shape.enableHitEvents(true), (shape: Shape) => shape.areHitEventsEnabled()],
-    ["preSolveEvents", (shape: Shape) => shape.enablePreSolveEvents(true), (shape: Shape) => shape.arePreSolveEventsEnabled()],
+for (const [name, flag] of [
+    ["sensorEvents", ShapeFlags.enableSensorEvents],
+    ["contactEvents", ShapeFlags.enableContactEvents],
+    ["hitEvents", ShapeFlags.enableHitEvents],
+    ["preSolveEvents", ShapeFlags.enablePreSolveEvents],
 ] as const) {
     test(`Shape.${name} setter/getter matches Box3D`, () => {
         const { world, body } = scene();
         try {
             const shape = sphereShape(world, body);
-            enable(shape);
-            expect(Number(getter(shape)), name).toBe(Number(values(name)[0]));
+            setShapeFlag(world, shape, flag, true);
+            expect(Number(shapeFlag(world, shape, flag)), name).toBe(Number(values(name)[0]));
         } finally {
-            world.destroy();
+            destroyTestWorld(world);
         }
     });
 }
@@ -135,35 +177,40 @@ test("Shape.setSphere/getSphere matches Box3D", () => {
     const { world, body } = scene();
     try {
         const shape = sphereShape(world, body);
-        shape.setSphere({ center: { x: 0.25, y: -0.5, z: 0.75 }, radius: 0.8 });
-        const got = shape.getSphere();
+        setShapeSphere(world, shape, { center: { x: 0.25, y: -0.5, z: 0.75 }, radius: 0.8 });
+        const got = readShapeSphere(world, shape);
         floats("sphere", [got.center.x, got.center.y, got.center.z, got.radius]);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("Shape.setCapsule/getCapsule matches Box3D", () => {
     const { world, body } = scene();
     try {
-        const shape = body.createCapsule({}, {
-            center1: { x: 0, y: -0.5, z: 0 },
-            center2: { x: 0, y: 0.5, z: 0 },
-            radius: 0.25,
-        });
-        shape.setCapsule({
+        const shape = createCapsuleShape(
+            world,
+            body,
+            testShapeDef(),
+            {
+                center1: { x: 0, y: -0.5, z: 0 },
+                center2: { x: 0, y: 0.5, z: 0 },
+                radius: 0.25,
+            },
+        );
+        setShapeCapsule(world, shape, {
             center1: { x: -0.75, y: 0.25, z: 1.5 },
             center2: { x: 0.5, y: 1.25, z: -0.25 },
             radius: 0.4,
         });
-        const got = shape.getCapsule();
+        const got = readShapeCapsule(world, shape);
         floats("capsule", [
             got.center1.x, got.center1.y, got.center1.z,
             got.center2.x, got.center2.y, got.center2.z,
             got.radius,
         ]);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
@@ -180,9 +227,9 @@ test("Shape.setHull/readShapeHull matches Box3D", () => {
         { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 },
     ], 4)!;
     try {
-        const shape = body.createHull({}, initial);
-        shape.setHull(next);
-        const got = readShapeHull(world.state, shape.id.index1 - 1);
+        const shape = createHullShape(world, body, testShapeDef(), initial);
+        setShapeHull(world, shape, next);
+        const got = readShapeHull(world, shape);
         const expectedRow = values("hull").map(Number);
         const actual = [
             got.vertexCount,
@@ -191,33 +238,33 @@ test("Shape.setHull/readShapeHull matches Box3D", () => {
         ];
         expect(actual.map(Math.fround), "hull").toEqual(expectedRow.map(Math.fround));
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("Shape.setMesh/getGeometryScale/readShapeMesh matches Box3D", () => {
     const { world, body } = scene(BodyType.Static);
     try {
-        const shape = body.createMesh({}, meshData(0));
-        shape.setMesh(meshData(2), { x: 2, y: 0.5, z: -1.5 });
-        const got = readShapeMesh(world.state, shape.id.index1 - 1);
+        const shape = createMeshShape(world, body, testShapeDef(), meshData(0));
+        setShapeMesh(world, shape, meshData(2), { x: 2, y: 0.5, z: -1.5 });
+        const got = readShapeMesh(world, shape);
         const expectedRow = values("mesh").map(Number);
         const actual = [
-            ...Object.values(shape.getGeometryScale()),
+            ...Object.values(getShapeGeometryScale(world, shape)),
             got.data.vertices.length,
             got.data.triangles.length,
             ...got.data.vertices.flatMap(({ x, y, z }) => [x, y, z]),
         ];
         expect(actual.map(Math.fround), "mesh").toEqual(expectedRow.map(Math.fround));
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("Shape.setMeshMaterial/getMaterials matches Box3D", () => {
     const { world, body } = scene(BodyType.Static);
     try {
-        const shape = body.createMesh({}, meshData(0));
+        const shape = createMeshShape(world, body, testShapeDef(), meshData(0));
         const next: SurfaceMaterial = {
             friction: 0.78,
             restitution: 0.19,
@@ -226,9 +273,9 @@ test("Shape.setMeshMaterial/getMaterials matches Box3D", () => {
             userMaterialId: 0x0fedcba987654321n,
             customColor: 0x87654321,
         };
-        shape.setMeshMaterial(next, 0);
-        material("meshMaterial", shape.getMaterials()[0]!);
+        setShapeMeshMaterial(world, shape, next, 0);
+        material("meshMaterial", getShapeMaterials(world, shape)[0]!);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

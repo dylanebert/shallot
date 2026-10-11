@@ -3,9 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import {
-    type Body,
     BodyType,
-    type Capacity,
     createCompound,
     createHeightField,
     createHull,
@@ -16,11 +14,47 @@ import {
     type MeshData,
     makeBoxHull,
     makeTransformedBoxHull,
-    type Shape,
 } from "../api/index";
-import { PhysicsWorld } from "../api/world";
-import { quat as mathQuat } from "../common/math";
+import { froundConfig, quat as mathQuat } from "../common/math";
+import type { Capacity, ShapeDef } from "../common/types";
+import { readStateAngularVelocity } from "../kernel/bodycolumns";
+import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
+import {
+    createCapsuleShape,
+    createCompoundShape,
+    createHeightFieldShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+    isSensorShape,
+} from "../shapes/shape";
+import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
+import { createFilterJoint, defaultJointDef, type JointDef } from "../solver/joint";
+import { createMotorJoint, defaultMotorJointDef } from "../solver/motorJoint";
+import { createParallelJoint, defaultParallelJointDef } from "../solver/parallelJoint";
+import { createPrismaticJoint, defaultPrismaticJointDef } from "../solver/prismaticJoint";
+import { createRevoluteJoint, defaultRevoluteJointDef } from "../solver/revoluteJoint";
+import { createSphericalJoint, defaultSphericalJointDef } from "../solver/sphericalJoint";
+import { createWeldJoint, defaultWeldJointDef } from "../solver/weldJoint";
+import { createWheelJoint, defaultWheelJointDef } from "../solver/wheelJoint";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import {
+    bodyGetLinearVelocity,
+    bodyGetTransform,
+    bodySetAngularVelocity,
+    bodySetLinearVelocity,
+    bodySetTargetTransform,
+    getBodyState,
+    updateBodyMassData,
+} from "../world/body";
 import { hashWorldState } from "../world/hash";
+import type { WorldState } from "../world/world";
 
 type Command = {
     op: string;
@@ -37,7 +71,7 @@ export type Scenario = {
 };
 
 /** Read-only white-box evidence hook; omitted by the normal scenario oracle. */
-export type ScenarioDiagnostic = (physicsWorld: PhysicsWorld, step: number) => void;
+export type ScenarioDiagnostic = (world: WorldState, step: number) => void;
 type Corpus = { schema: string; corpusVersion: number; scenarios: Scenario[] };
 export type ScenarioOutput = {
     schema: "box3d-oracle/scenario-output/v1";
@@ -127,13 +161,104 @@ function bodyType(value: unknown): BodyType {
     throw new Error(`unknown body type: ${String(value)}`);
 }
 
+function jointBase(
+    bodyA: number,
+    bodyB: number,
+    config: Record<string, unknown>,
+    defaults: JointDef = defaultJointDef(),
+): JointDef {
+    return {
+        ...defaults,
+        bodyIdA: bodyA,
+        bodyIdB: bodyB,
+        localFrameA:
+            (config.localFrameA as JointDef["localFrameA"] | undefined) ?? defaults.localFrameA,
+        localFrameB:
+            (config.localFrameB as JointDef["localFrameB"] | undefined) ?? defaults.localFrameB,
+        forceThreshold: Number(config.forceThreshold ?? defaults.forceThreshold),
+        torqueThreshold: Number(config.torqueThreshold ?? defaults.torqueThreshold),
+        constraintHertz: Number(config.constraintHertz ?? defaults.constraintHertz),
+        constraintDampingRatio: Number(
+            config.constraintDampingRatio ?? defaults.constraintDampingRatio,
+        ),
+        drawScale: Number(config.drawScale ?? defaults.drawScale),
+        collideConnected: Boolean(config.collideConnected ?? defaults.collideConnected),
+        userData: config.userData ?? defaults.userData,
+    };
+}
+
+function createScenarioJoint(
+    world: WorldState,
+    op: string,
+    bodyA: number,
+    bodyB: number,
+    config: Record<string, unknown>,
+): number {
+    const rounded = froundConfig(config);
+    const base = jointBase(bodyA, bodyB, rounded as Record<string, unknown>);
+    switch (op) {
+        case "joint.filter":
+            return createFilterJoint(world, base).joint;
+        case "joint.revolute":
+            return createRevoluteJoint(world, {
+                ...defaultRevoluteJointDef(base),
+                ...rounded,
+                base,
+            } as never).joint;
+        case "joint.weld":
+            return createWeldJoint(world, {
+                ...defaultWeldJointDef(base),
+                ...rounded,
+                base,
+            } as never).joint;
+        case "joint.parallel":
+            return createParallelJoint(world, {
+                ...defaultParallelJointDef(base),
+                ...rounded,
+                base,
+            } as never).joint;
+        case "joint.motor":
+            return createMotorJoint(world, {
+                ...defaultMotorJointDef(base),
+                ...rounded,
+                base,
+            } as never).joint;
+        case "joint.distance":
+            return createDistanceJoint(world, {
+                ...defaultDistanceJointDef(base),
+                ...rounded,
+                base,
+            } as never).joint;
+        case "joint.prismatic":
+            return createPrismaticJoint(world, {
+                ...defaultPrismaticJointDef(base),
+                ...rounded,
+                base,
+            } as never).joint;
+        case "joint.spherical":
+            return createSphericalJoint(world, {
+                ...defaultSphericalJointDef(base),
+                ...rounded,
+                base,
+            } as never).joint;
+        case "joint.wheel":
+            return createWheelJoint(world, {
+                ...defaultWheelJointDef(base),
+                ...rounded,
+                base,
+            } as never).joint;
+        default:
+            throw new Error(`unknown joint kind ${op}`);
+    }
+}
+
 export function runScenario(
     scenario: Scenario,
     digest: string,
     mutateAngularVelocity = false,
     diagnostic?: ScenarioDiagnostic,
 ): ScenarioOutput {
-    const bodies = new Map<string, Body>();
+    const bodies = new Map<string, number>();
     const joints = new Set<string>();
     const boxes = new Map<string, ReturnType<typeof makeBoxHull>>();
     const spheres = new Map<
@@ -152,13 +277,13 @@ export function runScenario(
     const heightFields = new Map<string, ReturnType<typeof createHeightField>>();
     const compounds = new Map<string, NonNullable<ReturnType<typeof createCompound>>>();
     const hulls = new Map<string, HullData>();
-    const shapes = new Map<string, Shape>();
+    const shapes = new Map<string, number>();
     const consumed: string[] = [];
     const observationIds: string[] = [];
     const observations: unknown[] = [];
     const hashes: { step: number; value: string; receiptId: string }[] = [];
     const sensorEvents: ScenarioOutput["sensorEvents"] = [];
-    let physicsWorld: PhysicsWorld | undefined;
+    let physicsWorld: WorldState | undefined;
     let simulationStep = 0;
     let observed = false;
     const material = (value: unknown): ReturnType<typeof defaultSurfaceMaterial> => {
@@ -175,14 +300,13 @@ export function runScenario(
             customColor: Number(source.customColor ?? 0),
         };
     };
-    const shapeIndex = (shape: Shape): number =>
-        (shape as unknown as { id: { index1: number } }).id.index1;
-    const shapeName = (shape: Shape): string => {
+    const shapeIndex = (shape: number): number => shape + 1;
+    const shapeName = (shape: number): string => {
         const index = shapeIndex(shape);
         for (const [id, value] of shapes) if (shapeIndex(value) === index) return id;
         return "unknown";
     };
-    const shapeDef = (command: Command): Record<string, unknown> => ({
+    const shapeDef = (command: Command): Partial<ShapeDef> => ({
         baseMaterial: {
             ...defaultSurfaceMaterial(),
             friction: f32(String(command.friction ?? "0x3f19999a")),
@@ -204,7 +328,7 @@ export function runScenario(
             case "world.create": {
                 if (physicsWorld !== undefined) throw new Error("duplicate world.create");
                 const gravity = vec3(command.gravity as unknown[]);
-                physicsWorld = new PhysicsWorld({
+                physicsWorld = createTestWorld({
                     gravity,
                     enableSleep: command.enableSleep === true,
                     enableContinuous: command.enableContinuous === true,
@@ -222,7 +346,7 @@ export function runScenario(
                 const angularVelocity = vec3(command.angularVelocity as unknown[]);
                 if (mutateAngularVelocity && bodies.size === 0)
                     angularVelocity.z = Math.fround(angularVelocity.z + 1);
-                const body = physicsWorld.createBody({
+                const body = createTestBody(physicsWorld, {
                     type: bodyType(command.type),
                     isBullet: command.isBullet === true,
                     position,
@@ -404,42 +528,45 @@ export function runScenario(
             case "shape.create": {
                 if (!physicsWorld) throw new Error("shape.create before world.create");
                 const body = bodies.get(String(command.body));
-                if (!body) throw new Error(`shape references unknown body ${String(command.body)}`);
-                const def = shapeDef(command) as never;
-                let created: Shape;
+                if (body === undefined)
+                    throw new Error(`shape references unknown body ${String(command.body)}`);
+                const def = testShapeDef(shapeDef(command));
+                let created: number | null;
                 if (command.kind === "box") {
                     const box = boxes.get(String(command.resource));
                     if (!box)
                         throw new Error(`shape references unknown box ${String(command.resource)}`);
-                    created = body.createHull(def, box);
+                    created = createHullShape(physicsWorld, body, def, box);
                 } else if (command.kind === "sphere") {
                     const sphere = spheres.get(String(command.resource));
                     if (!sphere)
                         throw new Error(
                             `shape references unknown sphere ${String(command.resource)}`,
                         );
-                    created = body.createSphere(def, sphere);
+                    created = createSphereShape(physicsWorld, body, def, sphere);
                 } else if (command.kind === "capsule") {
                     const capsule = capsules.get(String(command.resource));
                     if (!capsule)
                         throw new Error(
                             `shape references unknown capsule ${String(command.resource)}`,
                         );
-                    created = body.createCapsule(def, capsule);
+                    created = createCapsuleShape(physicsWorld, body, def, capsule);
                 } else if (command.kind === "hull") {
                     const hull = hulls.get(String(command.resource));
                     if (!hull)
                         throw new Error(
                             `shape references unknown hull ${String(command.resource)}`,
                         );
-                    created = body.createHull(def, hull);
+                    created = createHullShape(physicsWorld, body, def, hull);
                 } else if (command.kind === "mesh") {
                     const mesh = meshes.get(String(command.resource));
                     if (!mesh)
                         throw new Error(
                             `shape references unknown mesh ${String(command.resource)}`,
                         );
-                    created = body.createMesh(
+                    created = createMeshShape(
+                        physicsWorld,
+                        body,
                         def,
                         mesh,
                         vec3(
@@ -456,15 +583,16 @@ export function runScenario(
                         throw new Error(
                             `shape references unknown height field ${String(command.resource)}`,
                         );
-                    created = body.createHeightField(def, field);
+                    created = createHeightFieldShape(physicsWorld, body, def, field);
                 } else if (command.kind === "compound") {
                     const compound = compounds.get(String(command.resource));
                     if (!compound)
                         throw new Error(
                             `shape references unknown compound ${String(command.resource)}`,
                         );
-                    created = body.createCompound(def, compound);
+                    created = createCompoundShape(physicsWorld, body, def, compound);
                 } else throw new Error(`unknown shape kind ${String(command.kind)}`);
+                if (created === null) throw new Error(`shape ${command.id} could not be created`);
                 shapes.set(command.id, created);
                 break;
             }
@@ -473,9 +601,9 @@ export function runScenario(
                     throw new Error(`filter joint ${command.id} before world.create`);
                 const bodyA = bodies.get(String(command.bodyA));
                 const bodyB = bodies.get(String(command.bodyB));
-                if (!bodyA || !bodyB)
+                if (bodyA === undefined || bodyB === undefined)
                     throw new Error(`filter joint ${command.id} references an unknown body`);
-                physicsWorld.createFilterJoint(bodyA, bodyB);
+                createFilterJoint(physicsWorld, jointBase(bodyA, bodyB, {}));
                 joints.add(command.id);
                 break;
             }
@@ -490,7 +618,7 @@ export function runScenario(
                 if (!physicsWorld) throw new Error(`joint ${command.id} before world.create`);
                 const bodyA = bodies.get(String(command.bodyA));
                 const bodyB = bodies.get(String(command.bodyB));
-                if (!bodyA || !bodyB)
+                if (bodyA === undefined || bodyB === undefined)
                     throw new Error(`joint ${command.id} references an unknown body`);
                 const config: Record<string, unknown> = {
                     localFrameA: frame(command.localFrameA, command.normalizeFrames === true),
@@ -513,48 +641,44 @@ export function runScenario(
                     else if (Array.isArray(value)) config[key] = vec3(value);
                     else config[key] = f32(String(value));
                 }
-                if (command.op === "joint.revolute")
-                    physicsWorld.createRevoluteJoint(bodyA, bodyB, config as never);
-                else if (command.op === "joint.weld")
-                    physicsWorld.createWeldJoint(bodyA, bodyB, config as never);
-                else if (command.op === "joint.parallel")
-                    physicsWorld.createParallelJoint(bodyA, bodyB, config as never);
-                else if (command.op === "joint.motor")
-                    physicsWorld.createMotorJoint(bodyA, bodyB, config as never);
-                else if (command.op === "joint.distance")
-                    physicsWorld.createDistanceJoint(bodyA, bodyB, config as never);
-                else if (command.op === "joint.prismatic")
-                    physicsWorld.createPrismaticJoint(bodyA, bodyB, config as never);
-                else if (command.op === "joint.spherical")
-                    physicsWorld.createSphericalJoint(bodyA, bodyB, config as never);
-                else physicsWorld.createWheelJoint(bodyA, bodyB, config as never);
+                createScenarioJoint(physicsWorld, command.op, bodyA, bodyB, config);
                 joints.add(command.id);
                 break;
             }
             case "body.apply-mass": {
                 const body = bodies.get(String(command.body));
-                if (!body)
+                if (body === undefined)
                     throw new Error(`mass action references unknown body ${String(command.body)}`);
-                body.applyMassFromShapes();
+                updateBodyMassData(physicsWorld!, body);
                 break;
             }
             case "body.set-velocity": {
                 const body = bodies.get(String(command.body));
-                if (!body)
+                if (body === undefined)
                     throw new Error(
                         `velocity action references unknown body ${String(command.body)}`,
                     );
-                body.setLinearVelocity(vec3(command.linearVelocity as unknown[]));
-                body.setAngularVelocity(vec3(command.angularVelocity as unknown[]));
+                bodySetLinearVelocity(
+                    physicsWorld!,
+                    body,
+                    vec3(command.linearVelocity as unknown[]),
+                );
+                bodySetAngularVelocity(
+                    physicsWorld!,
+                    body,
+                    vec3(command.angularVelocity as unknown[]),
+                );
                 break;
             }
             case "body.target-transform": {
                 const body = bodies.get(String(command.body));
-                if (!body)
+                if (body === undefined)
                     throw new Error(
                         `target action references unknown body ${String(command.body)}`,
                     );
-                body.setTargetTransform(
+                bodySetTargetTransform(
+                    physicsWorld!,
+                    body,
                     {
                         p: vec3((command.target as Record<string, unknown>).p as unknown[]),
                         q: quat((command.target as Record<string, unknown>).q as unknown[]),
@@ -564,22 +688,33 @@ export function runScenario(
                 );
                 break;
             }
-            case "step":
-                if (!physicsWorld) throw new Error("step before world.create");
-                physicsWorld.step(f32(String(command.timeStep)), Number(command.subStepCount));
-                diagnostic?.(physicsWorld, simulationStep++);
+            case "step": {
+                const state = physicsWorld;
+                if (!state) throw new Error("step before world.create");
+                stepTestWorld(state, f32(String(command.timeStep)), Number(command.subStepCount));
+                diagnostic?.(state, simulationStep++);
                 break;
+            }
             case "observe": {
-                if (!physicsWorld) throw new Error("observe before world.create");
+                const state = physicsWorld;
+                if (!state) throw new Error("observe before world.create");
                 const bodyIds = command.bodies;
                 if (!Array.isArray(bodyIds))
                     throw new Error(`observation ${command.id} has no body list`);
                 const result = bodyIds.map((id) => {
                     const body = bodies.get(String(id));
-                    if (!body) throw new Error(`observation references unknown body ${String(id)}`);
-                    const transform = body.getTransform();
-                    const linear = body.getLinearVelocity();
-                    const angular = body.getAngularVelocity();
+                    if (body === undefined)
+                        throw new Error(`observation references unknown body ${String(id)}`);
+                    const transform = bodyGetTransform(state, body, {
+                        p: { x: 0, y: 0, z: 0 },
+                        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+                    });
+                    const linear = bodyGetLinearVelocity(state, body, { x: 0, y: 0, z: 0 });
+                    const bodyState = getBodyState(state, body);
+                    const angular =
+                        bodyState === null
+                            ? { x: 0, y: 0, z: 0 }
+                            : readStateAngularVelocity(state, bodyState, { x: 0, y: 0, z: 0 });
                     return {
                         id: String(id),
                         p: [bits(transform.p.x), bits(transform.p.y), bits(transform.p.z)],
@@ -602,40 +737,40 @@ export function runScenario(
                 observed = true;
                 break;
             }
-            case "hash":
-                if (!physicsWorld || !observed)
+            case "hash": {
+                const state = physicsWorld;
+                if (!state || !observed)
                     throw new Error(`hash ${command.id} is not after an observation`);
                 hashes.push({
                     step: Number(command.step),
-                    value: `0x${hashWorldState(physicsWorld.state).toString(16).padStart(16, "0")}`,
+                    value: `0x${hashWorldState(state).toString(16).padStart(16, "0")}`,
                     receiptId: command.id,
                 });
                 break;
+            }
             case "sensor.events": {
-                if (!physicsWorld)
-                    throw new Error(`sensor event ${command.id} before world.create`);
+                const state = physicsWorld;
+                if (!state) throw new Error(`sensor event ${command.id} before world.create`);
                 const sensor = shapes.get(String(command.shape));
-                if (!sensor?.isSensor())
+                if (sensor === undefined || !isSensorShape(state, sensor))
                     throw new Error(
                         `sensor event references unknown sensor ${String(command.shape)}`,
                     );
-                const events = physicsWorld.getSensorEvents();
-                const select = (shape: Shape): boolean =>
-                    shapeName(shape) === String(command.shape);
+                const records = (kind: number) =>
+                    Array.from({ length: eventCount(state, kind) }, (_, index) => {
+                        const sensorId = eventId(state, kind, index, 0).index1 - 1;
+                        const visitorId = eventId(state, kind, index, 2).index1 - 1;
+                        return { sensor: sensorId, visitor: visitorId };
+                    })
+                        .filter((event) => event.sensor === sensor)
+                        .map((event) => ({
+                            sensor: shapeName(event.sensor),
+                            visitor: shapeName(event.visitor),
+                        }));
                 sensorEvents.push({
                     step: Number(command.step),
-                    begin: events.beginEvents
-                        .filter((event) => select(event.sensor))
-                        .map((event) => ({
-                            sensor: shapeName(event.sensor),
-                            visitor: shapeName(event.visitor),
-                        })),
-                    end: events.endEvents
-                        .filter((event) => select(event.sensor))
-                        .map((event) => ({
-                            sensor: shapeName(event.sensor),
-                            visitor: shapeName(event.visitor),
-                        })),
+                    begin: records(EventKind.SensorBegin),
+                    end: records(EventKind.SensorEnd),
                     receiptId: command.id,
                 });
                 break;
@@ -663,7 +798,7 @@ export function runScenario(
     )
         throw new Error(`scenario ${scenario.id} has unconsumed or missing joint commands`);
     if (!physicsWorld) throw new Error(`scenario ${scenario.id} has no world`);
-    physicsWorld.destroy();
+    destroyTestWorld(physicsWorld);
     return {
         schema: "box3d-oracle/scenario-output/v1",
         id: scenario.id,

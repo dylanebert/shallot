@@ -1,4 +1,3 @@
-import type { PhysicsWorld } from "./api/world";
 import { updateBroadPhasePairs } from "./collision/pairs";
 import { mat3, vec3, xf } from "./common/math";
 import { BodyType, defaultShapeDef } from "./common/types";
@@ -13,6 +12,7 @@ import {
     computeShapeExtent,
     computeShapeMass,
     createCapsuleShape,
+    createCompoundShape,
     createHeightFieldShape,
     createHullShape,
     createMeshShape,
@@ -21,18 +21,21 @@ import {
     getShapeCentroid,
     setShapeFilter,
 } from "./shapes/shape";
-import { bodyDisable, bodyEnable } from "./world/body";
+import { createTestBody, stepTestWorld } from "./testing";
+import { bodyDisable, bodyEnable, bodySetAwake } from "./world/body";
+import type { WorldState } from "./world/world";
 
 export function shapeAllocationSubject(
-    world: PhysicsWorld,
+    world: WorldState,
     rebuildTopology = true,
     upload = false,
 ): () => void {
-    const body = world.createBody({ type: BodyType.Dynamic, position: { x: 10, y: 0, z: 0 } });
-    const id = body.id.index1 - 1;
-    const staticBody = world.createBody({ type: BodyType.Static, position: { x: 30, y: 0, z: 0 } });
-    const staticId = staticBody.id.index1 - 1;
-    const state = world.state;
+    const id = createTestBody(world, { type: BodyType.Dynamic, position: { x: 10, y: 0, z: 0 } });
+    const staticId = createTestBody(world, {
+        type: BodyType.Static,
+        position: { x: 30, y: 0, z: 0 },
+    });
+    const state = world;
     const def = defaultShapeDef();
     def.density = 2.5;
     const staticDef = defaultShapeDef();
@@ -49,12 +52,12 @@ export function shapeAllocationSubject(
     const heightField = createGrid(3, 3, { x: 1, y: 1, z: 1 }, false);
     const compound = createCompound({ spheres: [{ sphere, material: staticDef.baseMaterial }] })!;
     // Keep the owned geometry resident, so recycling records does not grow a geometry database.
-    staticBody.createSphere({}, sphere);
-    staticBody.createHull({}, hull);
-    staticBody.createMesh({}, mesh, scale);
-    staticBody.createHeightField({}, heightField);
-    staticBody.createCompound({}, compound);
-    world.step(1 / 60, 1);
+    createSphereShape(state, staticId, staticDef, sphere);
+    createHullShape(state, staticId, staticDef, hull);
+    createMeshShape(state, staticId, staticDef, mesh, scale);
+    createHeightFieldShape(state, staticId, staticDef, heightField);
+    createCompoundShape(state, staticId, staticDef, compound);
+    stepTestWorld(world, 1 / 60, 1);
     const hullIndex = hullDatabaseIndex(state, hull);
     const pose = xf.identity();
     const bounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
@@ -115,8 +118,8 @@ export function shapeAllocationSubject(
             if (rebuildTopology) {
                 bodyDisable(state, id);
                 bodyEnable(state, id);
-                body.setAwake(false);
-                body.setAwake(true);
+                bodySetAwake(state, id, false);
+                bodySetAwake(state, id, true);
             }
             updateBroadPhasePairs(state);
             destroyShape(state, shape, true);

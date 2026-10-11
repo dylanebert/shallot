@@ -1,17 +1,52 @@
 import { expect, spyOn, test } from "bun:test";
-import { BodyType, makeBoxHull, PhysicsWorld } from "../api";
-import { splitAllocationSubject } from "../joint-allocation.fixture";
+import { BodyType } from "../common/types";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { kernel } from "../kernel/kernel";
+import { makeBoxHull } from "../shapes/hull";
+import { createHullShape } from "../shapes/shape";
+import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
+import { defaultJointDef, destroyJointInternal } from "../solver/joint";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { worldProfile } from "./world";
+
+function splitSubject(world: ReturnType<typeof createTestWorld>): () => void {
+    const a = createTestBody(world, { type: BodyType.Dynamic, enableSleep: false });
+    const b = createTestBody(world, {
+        type: BodyType.Dynamic,
+        enableSleep: false,
+        position: { x: 1, y: 0, z: 0 },
+    });
+    const base = { ...defaultJointDef(), bodyIdA: a, bodyIdB: b };
+    createDistanceJoint(world, defaultDistanceJointDef(base));
+    const removed = createDistanceJoint(world, defaultDistanceJointDef(base)).joint;
+    destroyJointInternal(world, removed, true);
+    const k = kernel(world.ecsState);
+    const island = bodyField(world, a, BodyField.islandId);
+    return () => {
+        k.bodySetActiveWorld(world.worldId);
+        k.islandSetField(island, 3, 1);
+        k.islandSetSplitCandidate(island);
+        stepTestWorld(world, Math.fround(1 / 60), 4);
+        if (k.islandField(island, 3) !== 0 || k.islandSplitCandidate() !== -1)
+            throw new Error("split allocation subject did not complete its split task");
+    };
+}
 
 test("the kernel times every solve substage through its platform clock", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 } });
-    const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
-    body.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 } });
+    const body = createTestBody(world, { type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
+    createHullShape(world, body, testShapeDef(), makeBoxHull(0.5, 0.5, 0.5));
     let clock = 0;
     const now = spyOn(performance, "now").mockImplementation(() => ++clock);
     try {
-        world.step(1 / 60, 4);
-        const profile = world.getProfile();
+        stepTestWorld(world, 1 / 60, 4);
+        const profile = worldProfile(world);
         for (const name of [
             "prepareConstraints",
             "warmStart",
@@ -27,76 +62,80 @@ test("the kernel times every solve substage through its platform clock", () => {
         expect(profile.constraints).toBeGreaterThan(profile.prepareConstraints);
     } finally {
         now.mockRestore();
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("split timers measure only a candidate task and disabled sleep stays untimed", () => {
-    const disabled = new PhysicsWorld({ enableSleep: false, gravity: { x: 0, y: 0, z: 0 } });
-    const enabled = new PhysicsWorld({ enableSleep: true, gravity: { x: 0, y: 0, z: 0 } });
-    disabled.createBody({ type: BodyType.Dynamic, enableSleep: false });
-    enabled.createBody({ type: BodyType.Dynamic, enableSleep: false });
+    const disabled = createTestWorld({ enableSleep: false, gravity: { x: 0, y: 0, z: 0 } });
+    const enabled = createTestWorld({ enableSleep: true, gravity: { x: 0, y: 0, z: 0 } });
+    createTestBody(disabled, { type: BodyType.Dynamic, enableSleep: false });
+    createTestBody(enabled, { type: BodyType.Dynamic, enableSleep: false });
     let clock = 0;
     const now = spyOn(performance, "now").mockImplementation(() => ++clock);
     try {
-        disabled.step(Math.fround(1 / 60), 4);
-        enabled.step(Math.fround(1 / 60), 4);
-        const a = disabled.getProfile(),
-            b = enabled.getProfile();
+        stepTestWorld(disabled, Math.fround(1 / 60), 4);
+        stepTestWorld(enabled, Math.fround(1 / 60), 4);
+        const a = worldProfile(disabled);
+        const b = worldProfile(enabled);
         expect(a.splitIslands).toBe(0);
         expect(b.splitIslands).toBe(0);
         expect(a.sleepIslands).toBe(0);
         expect(b.sleepIslands).toBe(1);
         expect(a.transforms).toBe(b.transforms);
-        const split = splitAllocationSubject(disabled);
-        split();
-        expect(disabled.getProfile().splitIslands).toBe(1);
-        expect(disabled.getProfile().sleepIslands).toBe(0);
+        splitSubject(disabled)();
+        expect(worldProfile(disabled).splitIslands).toBe(1);
+        expect(worldProfile(disabled).sleepIslands).toBe(0);
     } finally {
         now.mockRestore();
-        disabled.destroy();
-        enabled.destroy();
+        destroyTestWorld(disabled);
+        destroyTestWorld(enabled);
     }
 });
 
 test("sleep gathers the deferred split candidate before the next step's split task", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: true });
-    const a = world.createBody({ type: BodyType.Dynamic });
-    const b = world.createBody({ type: BodyType.Dynamic, position: { x: 1, y: 0, z: 0 } });
-    world.createDistanceJoint(a, b);
-    world.createDistanceJoint(a, b).destroy();
-    const k = kernel(world.state.ecsState);
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: true });
+    const a = createTestBody(world, { type: BodyType.Dynamic });
+    const b = createTestBody(world, { type: BodyType.Dynamic, position: { x: 1, y: 0, z: 0 } });
+    const base = { ...defaultJointDef(), bodyIdA: a, bodyIdB: b };
+    createDistanceJoint(world, defaultDistanceJointDef(base));
+    const removed = createDistanceJoint(world, defaultDistanceJointDef(base)).joint;
+    destroyJointInternal(world, removed, true);
+    const k = kernel(world.ecsState);
     let clock = 0;
     const now = spyOn(performance, "now").mockImplementation(() => ++clock);
     try {
         for (let i = 0; i < 40 && k.islandSplitCandidate() === -1; ++i)
-            world.step(Math.fround(1 / 60), 4);
+            stepTestWorld(world, Math.fround(1 / 60), 4);
         expect(k.islandSplitCandidate()).toBeGreaterThanOrEqual(0);
-        expect(world.getProfile().splitIslands).toBe(0);
-        expect(world.getProfile().sleepIslands).toBe(1);
-        world.step(Math.fround(1 / 60), 4);
+        expect(worldProfile(world).splitIslands).toBe(0);
+        expect(worldProfile(world).sleepIslands).toBe(1);
+        stepTestWorld(world, Math.fround(1 / 60), 4);
         expect(k.islandSplitCandidate()).toBe(-1);
-        expect(world.getProfile().splitIslands).toBe(1);
-        expect(world.getProfile().sleepIslands).toBe(1);
+        expect(worldProfile(world).splitIslands).toBe(1);
+        expect(worldProfile(world).sleepIslands).toBe(1);
     } finally {
         now.mockRestore();
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("a bare falling box records step and solve timings without setup", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 } });
+    const world = createTestWorld({ gravity: { x: 0, y: -10, z: 0 } });
     try {
-        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
-        body.createHull({}, makeBoxHull(0.5, 0.5, 0.5));
-        world.step(1 / 60, 4);
-        const profile = world.getProfile();
+        const body = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 5, z: 0 },
+        });
+        createHullShape(world, body, testShapeDef(), makeBoxHull(0.5, 0.5, 0.5));
+        stepTestWorld(world, 1 / 60, 4);
+        const profile = worldProfile(world);
         expect(profile.step).toBeGreaterThan(0);
         expect(profile.solve).toBeGreaterThan(0);
         expect(profile.step).toBeGreaterThanOrEqual(profile.solve);
         profile.step = -1;
-        expect(world.getProfile().step).toBeGreaterThan(0);
+        expect(worldProfile(world).step).toBeGreaterThan(0);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

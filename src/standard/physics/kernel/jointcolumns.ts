@@ -1,5 +1,5 @@
 import { GRAPH_COLOR_COUNT, SetType } from "../common/constants";
-import type { Quat, Transform, Vec3 } from "../common/math";
+import { f32, type Quat, type Transform, type Vec3 } from "../common/math";
 import type { Joint } from "../solver/joint";
 import type { WorldState } from "../world/world";
 import { J_JOINT_ID } from "./columns";
@@ -40,7 +40,7 @@ export function writeJointFloat(
     value: number,
 ): void {
     const k = jointKernel(world);
-    jointViews(k).floats[(k.jointSimPtr(joint) >>> 2) + field] = value;
+    jointViews(k).floats[(k.jointSimPtr(joint) >>> 2) + field] = f32(value);
 }
 export function readJointWord(world: WorldState, joint: Joint, field: number): number {
     const k = jointKernel(world);
@@ -68,7 +68,7 @@ export function readJointVec3(
     return out;
 }
 export function writeJointVec3(world: WorldState, joint: Joint, field: number, v: Vec3): void {
-    jointKernel(world).jointWriteVec3(joint, field, v.x, v.y, v.z);
+    jointKernel(world).jointWriteVec3(joint, field, f32(v.x), f32(v.y), f32(v.z));
 }
 export function readJointQuat(
     world: WorldState,
@@ -81,7 +81,7 @@ export function readJointQuat(
     return out;
 }
 export function writeJointQuat(world: WorldState, joint: Joint, field: number, q: Quat): void {
-    jointKernel(world).jointWriteQuat(joint, field, q.v.x, q.v.y, q.v.z, q.s);
+    jointKernel(world).jointWriteQuat(joint, field, f32(q.v.x), f32(q.v.y), f32(q.v.z), f32(q.s));
 }
 export function readJointTransform(world: WorldState, joint: Joint, field: number): Transform {
     return { p: readJointVec3(world, joint, field), q: readJointQuat(world, joint, field + 3) };

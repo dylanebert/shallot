@@ -68,7 +68,8 @@ import {
     StandardPhysicsPlugin,
     setLinearVelocity,
 } from "../../standard/physics";
-import { physicsWorld } from "../../standard/physics/runtime";
+import { physicsState } from "../../standard/physics/runtime";
+import { worldCounters } from "../../standard/physics/world/world";
 import {
     Backgrounds,
     CameraBackground,
@@ -826,8 +827,12 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         );
         expect(firstPairPixels).not.toEqual(secondPairPixels);
         if (hasPhysics) {
-            expect(physicsWorld(first.world)?.getCounters().jointCount).toBe(2);
-            expect(physicsWorld(second.world)?.getCounters().jointCount).toBe(2);
+            const firstPhysics = physicsState(first.world);
+            const secondPhysics = physicsState(second.world);
+            expect(firstPhysics).not.toBeNull();
+            expect(secondPhysics).not.toBeNull();
+            expect(worldCounters(firstPhysics!).jointCount).toBe(2);
+            expect(worldCounters(secondPhysics!).jointCount).toBe(2);
             const firstHash = hashPhysics(first.world);
             const firstPlacement = first.world.storage(GlobalTransform);
             const firstOffset = firstA * 4;

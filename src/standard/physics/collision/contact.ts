@@ -1,5 +1,6 @@
 // contact.c bindings (Box3D, Erin Catto, MIT).
 import { NULL_INDEX } from "../common/array";
+import type { EntityId } from "../common/ids";
 import type { Vec3 } from "../common/math";
 import { kernel } from "../kernel/kernel";
 import type { Shape } from "../shapes/shape";
@@ -39,6 +40,17 @@ export function contactBodyId(world: WorldState, id: number, side: number): numb
 export function contactNextKey(world: WorldState, key: number): number {
     return contactField(world, key >> 1, ContactField.nextKeyA + 3 * (key & 1));
 }
+export function contactIsValid(world: WorldState, id: EntityId): boolean {
+    if (!world.inUse) return false;
+    const contact = id.index1 - 1;
+    return (
+        contact >= 0 &&
+        contact < contactCapacity(world) &&
+        contactField(world, contact, ContactField.contactId) !== NULL_INDEX &&
+        contactField(world, contact, ContactField.generation) === id.generation
+    );
+}
+
 export function contactCapacity(world: WorldState): number {
     const k = kernel(world.ecsState);
     return k.contactCapacity(world.worldId);

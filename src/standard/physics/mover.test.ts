@@ -11,10 +11,68 @@ import {
     StandardPhysicsPlugin,
     solvePlanes,
 } from "@dylanebert/shallot/standard/physics";
-import type { MoverFilterCallback, PlaneResultCallback } from "./api/config";
-import { physicsWorld } from "./runtime";
+import { rethrowQueryError, setQueryCallback } from "./kernel/kernel";
+import { queryColumns } from "./kernel/querycolumns";
+import { physicsState } from "./runtime";
 
-// These are internal PhysicsWorld mover checks; the package's public plane solver has no handle callbacks.
+function collideMover(
+    world: World,
+    origin: { x: number; y: number; z: number },
+    mover: Capsule,
+    callback: (planes: PlaneResult[]) => boolean,
+    filter: QueryFilter,
+) {
+    const state = physicsState(world)!;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.mover(mover.center1, mover.center2, mover.radius);
+    const previous = setQueryCallback(state.ecsState, (_kind, _id, data, count) => {
+        state.shapeStore.refreshViews();
+        const f = state.shapeStore.materialF;
+        const base = data >>> 2;
+        const planes: PlaneResult[] = [];
+        for (let i = 0; i < count; ++i) {
+            const n = base + i * 10;
+            planes.push({
+                plane: { normal: { x: f[n]!, y: f[n + 1]!, z: f[n + 2]! }, offset: f[n + 3]! },
+                point: { x: f[n + 4]!, y: f[n + 5]!, z: f[n + 6]! },
+                triangleIndex: f[n + 7]!,
+                childIndex: f[n + 8]!,
+                materialIndex: f[n + 9]!,
+            });
+        }
+        return Number(callback(planes));
+    });
+    try {
+        k.worldQuery(state.worldId, 5, 1);
+        rethrowQueryError(state.ecsState);
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+    }
+}
+
+function castMover(
+    world: World,
+    origin: { x: number; y: number; z: number },
+    mover: Capsule,
+    translation: { x: number; y: number; z: number },
+    filter: QueryFilter,
+    accept: () => boolean,
+): number {
+    const state = physicsState(world)!;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.mover(mover.center1, mover.center2, mover.radius);
+    q.translation(translation);
+    const previous = setQueryCallback(state.ecsState, () => Number(accept()));
+    try {
+        k.worldQuery(state.worldId, 6, 1);
+        rethrowQueryError(state.ecsState);
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+    }
+    return q.resultF[3]!;
+}
 
 test("internal mover queries land a falling capsule on an authored floor sliding along a wall", async () => {
     const world = new World();
@@ -31,16 +89,15 @@ test("internal mover queries land a falling capsule on an authored floor sliding
         world.add(wall, Body, { position: [1.5, 2, 0, 0], isEnabled: 1 });
         world.add(wall, Shape, { scale: [0.5, 2, 10, 0] });
         world.step(1 / 60);
-        const physics = physicsWorld(world)!;
         const capsule: Capsule = {
             center1: { x: 0, y: -0.5, z: 0 },
             center2: { x: 0, y: 0.5, z: 0 },
             radius: 0.3,
         };
         const filter: QueryFilter = { categoryBits: 1n, maskBits: 0xffffffffffffffffn };
-        const accept: MoverFilterCallback = () => true;
+        const accept = () => true;
         let planes: CollisionPlane[] = [];
-        const gather: PlaneResultCallback = (_shape, results: PlaneResult[]) => {
+        const gather = (results: PlaneResult[]) => {
             for (const result of results) {
                 planes.push({
                     plane: result.plane,
@@ -65,7 +122,7 @@ test("internal mover queries land a falling capsule on an authored floor sliding
             // Box3D CharacterMover's collide, solve and cast passes, without its pogo spring or input tuning.
             for (let pass = 0; pass < 5; ++pass) {
                 planes = [];
-                physics.collideMover(position, capsule, gather, filter);
+                collideMover(world, position, capsule, gather, filter);
                 touchedFloor ||= planes.some(({ plane }) => plane.normal.y > 0.9);
                 touchedWall ||= planes.some(({ plane }) => plane.normal.x < -0.9);
                 const result: PlaneSolverResult = solvePlanes(
@@ -77,7 +134,7 @@ test("internal mover queries land a falling capsule on an authored floor sliding
                     planes,
                     planes.length,
                 );
-                const fraction = physics.castMover(position, capsule, result.delta, filter, accept);
+                const fraction = castMover(world, position, capsule, result.delta, filter, accept);
                 const delta = {
                     x: fraction * result.delta.x,
                     y: fraction * result.delta.y,

@@ -13,7 +13,8 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import type { PhysicsSnapshot } from "./api";
-import { physicsCounters, physicsWorld } from "./runtime";
+import { restore, snapshot } from "./api/snapshot";
+import { physicsCounters, physicsState } from "./runtime";
 
 await setupGlobals();
 
@@ -115,7 +116,7 @@ function snapshotRefs(saved: PhysicsSnapshot): SnapshotRefs {
 }
 
 function droppedSnapshotRefs(world: World, registry: FinalizationRegistry<string>): SnapshotRefs {
-    const saved = physicsWorld(world)!.snapshot();
+    const saved = snapshot(physicsState(world)!);
     registry.register(saved, "dropped");
     return snapshotRefs(saved);
 }
@@ -127,7 +128,7 @@ function retainedSnapshot(
     saved: PhysicsSnapshot;
     refs: SnapshotRefs;
 } {
-    const saved = physicsWorld(world)!.snapshot();
+    const saved = snapshot(physicsState(world)!);
     registry.register(saved, "control", saved);
     return { saved, refs: snapshotRefs(saved) };
 }
@@ -140,11 +141,11 @@ test("a solver snapshot restores into a fresh compatible PhysicsWorld with an eq
             setLinearVelocity(source.world, source.body, { x: 1, y: 0, z: 0 });
             source.world.step(Time.FIXED_DT);
         }
-        const saved = physicsWorld(source.world)!.snapshot();
+        const saved = snapshot(physicsState(source.world)!);
         const expected = hashPhysics(source.world);
-        const targetWorld = physicsWorld(target.world);
-        expect(targetWorld).not.toBeNull();
-        targetWorld!.restore(saved);
+        const targetState = physicsState(target.world);
+        expect(targetState).not.toBeNull();
+        restore(targetState!, saved);
         expect(hashPhysics(target.world)).toBe(expected);
     } finally {
         target.dispose();

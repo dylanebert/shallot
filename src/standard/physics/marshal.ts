@@ -1,12 +1,16 @@
 import { Body, BodyMotionLock, type BodyType } from "../../core/physics";
 import type { World } from "../../engine";
-import type { Body as SolverBody, PhysicsWorld as SolverWorld } from "./api";
+import type { EntityId } from "./common/ids";
+import { defaultBodyDef } from "./common/types";
+import { createBody, makeBodyId } from "./world/body";
+import type { WorldState } from "./world/world";
 
 /** The sole ECS-to-Box3D conversion for authored body definitions. */
-export function marshalBody(world: World, physicsWorld: SolverWorld, eid: number): SolverBody {
+export function marshalBody(world: World, state: WorldState, eid: number): EntityId {
     const body = world.storage(Body);
     const locks = body.motionLocks.get(eid);
-    return physicsWorld.createBody({
+    const bodyId = createBody(state, {
+        ...defaultBodyDef(),
         type: body.type.get(eid) as BodyType,
         position: {
             x: body.position.x.get(eid),
@@ -50,4 +54,5 @@ export function marshalBody(world: World, physicsWorld: SolverWorld, eid: number
         allowFastRotation: body.allowFastRotation.get(eid) !== 0,
         enableContactRecycling: body.enableContactRecycling.get(eid) !== 0,
     });
+    return makeBodyId(state, bodyId);
 }

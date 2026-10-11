@@ -7,7 +7,9 @@
 // test asserts equality with native at the state where its cause showed.
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { join } from "node:path";
-import { createCylinder, createRock, PhysicsWorld } from "../../src/standard/physics/api";
+import { createCylinder, createRock } from "../../src/standard/physics/shapes/hull";
+import { createHullShape } from "../../src/standard/physics/shapes/shape";
+import { testShapeDef, createTestBody, createTestWorld, destroyTestWorld } from "../../src/standard/physics/testing";
 import { BodyType } from "../../src/standard/physics/common/types";
 import { kernel } from "../../src/standard/physics/kernel/kernel";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "../../src/standard/physics/kernel/shapecolumns";
@@ -69,16 +71,16 @@ test("junkyard with one rock matches native through step 12, its edge-pair norma
         new Uint32Array(new Float32Array([v]).buffer)[0].toString(16).padStart(8, "0");
     const a = createCylinder(24, 4, 0, 16),
         b = createRock(1.5);
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const body = world.createBody({ type: BodyType.Static });
-        const shapeA = body.createHull({}, a)!;
-        const shapeB = body.createHull({}, b)!;
-        world.state.shapeStore.refreshViews();
-        const shapeU = world.state.shapeStore.shapeU;
-        const pointerA = shapeU[(shapeA.id.index1 - 1) * SHAPE_STRIDE + S_GEO_REFERENCE];
-        const pointerB = shapeU[(shapeB.id.index1 - 1) * SHAPE_STRIDE + S_GEO_REFERENCE];
-        const k = kernel(world.state.ecsState);
+        const body = createTestBody(world, { type: BodyType.Static });
+        const shapeA = createHullShape(world, body, testShapeDef(), a);
+        const shapeB = createHullShape(world, body, testShapeDef(), b);
+        world.shapeStore.refreshViews();
+        const shapeU = world.shapeStore.shapeU;
+        const pointerA = shapeU[shapeA * SHAPE_STRIDE + S_GEO_REFERENCE];
+        const pointerB = shapeU[shapeB * SHAPE_STRIDE + S_GEO_REFERENCE];
+        const k = kernel(world.ecsState);
         const t = x.map(f);
         const count = k.collideHullsGeo(
         pointerA,
@@ -96,7 +98,7 @@ test("junkyard with one rock matches native through step 12, its edge-pair norma
         expect([out[1], out[2], out[3]].map(h)).toEqual(fresh);
         expect(firstDifference(side)).toBe(-1);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 

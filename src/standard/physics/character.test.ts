@@ -9,10 +9,9 @@ import {
     type HullData,
     type MeshData,
     makeBoxHull,
-    PhysicsWorld,
-    type Body as SolverBody,
 } from "./api";
 import { characterScratch } from "./character";
+import { defaultBodyDef } from "./common/types";
 import {
     Character,
     CharacterPlugin,
@@ -21,8 +20,23 @@ import {
     StandardPhysicsPlugin,
     StepPhysicsSystem,
 } from "./index";
+import { readStateAngularVelocity } from "./kernel/bodycolumns";
 import lane from "./oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v7/cases.json";
-import { physicsWorld } from "./runtime";
+import { physicsBodyIndex, physicsState } from "./runtime";
+import {
+    createHeightFieldShape,
+    createHullShape,
+    createMeshShape,
+    createSphereShape,
+} from "./shapes/shape";
+import { createTestWorld, destroyTestWorld, testShapeDef } from "./testing";
+import {
+    bodyApplyLinearImpulse,
+    bodyGetLinearVelocity,
+    bodyGetTransform,
+    createBody as createSolverBody,
+    getBodyState,
+} from "./world/body";
 
 // Box3D handle and oracle comparisons are internal parity coverage; ECS character claims live in character-claims.test.ts.
 
@@ -65,8 +79,8 @@ for (const item of lane.cases) {
         for (const system of [...StandardPhysicsPlugin.systems!, ...CharacterPlugin.systems!])
             world.addSystem(system);
         const fixedDt = Time.FIXED_DT;
-        const physics = physicsWorld(world)!;
-        const bodies = new Map<string, SolverBody>();
+        const physics = physicsState(world)!;
+        const bodies = new Map<string, number>();
         const hulls = new Map<string, HullData>();
         const meshes = new Map<string, MeshData>();
         const fields = new Map<string, ReturnType<typeof createHeightField>>();
@@ -83,7 +97,8 @@ for (const item of lane.cases) {
                     case "body.create":
                         bodies.set(
                             command.id,
-                            physics.createBody({
+                            createSolverBody(physics, {
+                                ...defaultBodyDef(),
                                 type:
                                     command.type === "dynamic" ? BodyType.Dynamic : BodyType.Static,
                                 position: vector(command.position),
@@ -146,14 +161,20 @@ for (const item of lane.cases) {
                     case "shape.create": {
                         const body = bodies.get(String(command.body))!;
                         const resource = String(command.resource);
-                        const def =
-                            command.density === undefined ? {} : { density: f32(command.density) };
-                        if (command.kind === "mesh") body.createMesh(def, meshes.get(resource)!);
+                        const def = testShapeDef(
+                            command.density === undefined ? {} : { density: f32(command.density) },
+                        );
+                        if (command.kind === "mesh")
+                            createMeshShape(physics, body, def, meshes.get(resource)!, {
+                                x: 1,
+                                y: 1,
+                                z: 1,
+                            });
                         else if (command.kind === "height-field")
-                            body.createHeightField(def, fields.get(resource)!);
+                            createHeightFieldShape(physics, body, def, fields.get(resource)!);
                         else if (command.kind === "sphere")
-                            body.createSphere(def, spheres.get(resource)!);
-                        else body.createHull(def, hulls.get(resource)!);
+                            createSphereShape(physics, body, def, spheres.get(resource)!);
+                        else createHullShape(physics, body, def, hulls.get(resource)!);
                         break;
                     }
                     case "mover.solve": {
@@ -221,7 +242,7 @@ for (const item of lane.cases) {
                                         const pushed = bodies.get(impulse.body)!;
                                         const index = Array.from(
                                             scratch.impulseBodies.subarray(0, scratch.impulseCount),
-                                        ).indexOf(pushed.id.index1 - 1);
+                                        ).indexOf(pushed);
                                         expect(index).toBeGreaterThanOrEqual(0);
                                         expect(vectorBits(scratch.impulses[index])).toEqual(
                                             impulse.impulse,
@@ -233,34 +254,69 @@ for (const item of lane.cases) {
                                             (c) =>
                                                 c.op === "shape.create" && c.body === impulse.body,
                                         )!;
-                                        const comparison = new PhysicsWorld({
+                                        const comparison = createTestWorld({
                                             gravity: { x: 0, y: 0, z: 0 },
                                         });
                                         try {
-                                            const twin = comparison.createBody({
+                                            const twin = createSolverBody(comparison, {
+                                                ...defaultBodyDef(),
                                                 type: BodyType.Dynamic,
                                                 position: vector(initial.position),
                                                 linearVelocity: vector(initial.linearVelocity),
                                                 angularVelocity: vector(initial.angularVelocity),
                                             });
-                                            twin.createSphere(
-                                                { density: f32(shape.density) },
+                                            createSphereShape(
+                                                comparison,
+                                                twin,
+                                                testShapeDef({ density: f32(shape.density) }),
                                                 spheres.get(String(shape.resource))!,
                                             );
                                             // The point does not enter linear velocity; this lane's sphere impulse is radial.
-                                            twin.applyLinearImpulse(
+                                            bodyApplyLinearImpulse(
+                                                comparison,
+                                                twin,
                                                 vector(impulse.impulse),
                                                 vector(initial.position),
                                                 true,
                                             );
-                                            expect(vectorBits(pushed.getLinearVelocity())).toEqual(
-                                                vectorBits(twin.getLinearVelocity()),
+                                            expect(
+                                                vectorBits(
+                                                    bodyGetLinearVelocity(physics, pushed, {
+                                                        x: 0,
+                                                        y: 0,
+                                                        z: 0,
+                                                    }),
+                                                ),
+                                            ).toEqual(
+                                                vectorBits(
+                                                    bodyGetLinearVelocity(comparison, twin, {
+                                                        x: 0,
+                                                        y: 0,
+                                                        z: 0,
+                                                    }),
+                                                ),
                                             );
-                                            expect(vectorBits(pushed.getAngularVelocity())).toEqual(
-                                                vectorBits(twin.getAngularVelocity()),
+                                            const pushedState = getBodyState(physics, pushed);
+                                            const twinState = getBodyState(comparison, twin);
+                                            const pushedAngular = { x: 0, y: 0, z: 0 };
+                                            const twinAngular = { x: 0, y: 0, z: 0 };
+                                            if (pushedState !== null)
+                                                readStateAngularVelocity(
+                                                    physics,
+                                                    pushedState,
+                                                    pushedAngular,
+                                                );
+                                            if (twinState !== null)
+                                                readStateAngularVelocity(
+                                                    comparison,
+                                                    twinState,
+                                                    twinAngular,
+                                                );
+                                            expect(vectorBits(pushedAngular)).toEqual(
+                                                vectorBits(twinAngular),
                                             );
                                         } finally {
-                                            comparison.destroy();
+                                            destroyTestWorld(comparison);
                                         }
                                     }
                                 } catch (error) {
@@ -278,9 +334,14 @@ for (const item of lane.cases) {
                             bits(finalPose.y.get(eid)),
                             bits(finalPose.z.get(eid)),
                         ]).toEqual(item.output.observations[0].position);
-                        expect(vectorBits(physics.getBody(eid)!.getPosition())).toEqual(
-                            item.output.observations[0].position,
-                        );
+                        expect(
+                            vectorBits(
+                                bodyGetTransform(physics, physicsBodyIndex(world, eid), {
+                                    p: { x: 0, y: 0, z: 0 },
+                                    q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+                                }).p,
+                            ),
+                        ).toEqual(item.output.observations[0].position);
                         break;
                     }
                     default:

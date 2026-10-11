@@ -1,15 +1,24 @@
 import { expect, test } from "bun:test";
-import { PhysicsWorld } from "../api/world";
+import { restore, snapshot } from "../api/snapshot";
 import { f32, xf } from "../common/math";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { createCompound } from "../shapes/compound";
 import { cloneHull, makeBoxHull, readShapeHull } from "../shapes/hull";
+import {
+    computeShapeMass,
+    createCompoundShape,
+    createHullShape,
+    destroyShape,
+} from "../shapes/shape";
+import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
+import type { WorldState } from "../world/world";
 import { hullDatabaseIndex, stageHullUpload } from "./geocolumns";
 import { kernel } from "./kernel";
+import { queryColumns } from "./querycolumns";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 
-function compoundHullPointer(world: PhysicsWorld, shape: number): number {
-    const store = world.state.shapeStore;
+function compoundHullPointer(world: WorldState, shape: number): number {
+    const store = world.shapeStore;
     store.refreshViews();
     const pointer = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
     const view = new DataView(store.materialU.buffer);
@@ -19,81 +28,83 @@ function compoundHullPointer(world: PhysicsWorld, shape: number): number {
 }
 
 test("compound hull images relocate with caller-owned compound identity and survive source destruction", () => {
-    const source = new PhysicsWorld(),
-        target = new PhysicsWorld();
+    const source = createTestWorld();
+    const target = createTestWorld();
     try {
         const hull = makeBoxHull(1, 1, 1);
         const data = createCompound({
             hulls: [{ hull, transform: xf.identity(), material: defaultSurfaceMaterial() }],
         })!;
-        const body = source.createBody({ type: BodyType.Static });
-        const shape = body.createCompound({}, data)!;
-        body.createCompound({}, data);
-        const old = compoundHullPointer(source, shape.id.index1 - 1);
-        target.restore(source.snapshot());
-        const pointer = compoundHullPointer(target, shape.id.index1 - 1);
+        const body = createTestBody(source, { type: BodyType.Static });
+        const shape = createCompoundShape(source, body, testShapeDef(), data)!;
+        createCompoundShape(source, body, testShapeDef(), data);
+        const old = compoundHullPointer(source, shape);
+        restore(target, snapshot(source));
+        const pointer = compoundHullPointer(target, shape);
         expect(pointer).not.toBe(old);
-        expect(
-            new DataView(target.state.shapeStore.materialU.buffer).getBigUint64(pointer, true),
-        ).toBe(0x4a4c9587de57485cn);
-        expect([...target.state.geometryIdentityValues.values()][0]).toBe(data);
-        source.destroy();
-        const hit = target.castRayClosest({ x: -3, y: 0, z: 0 }, { x: 6, y: 0, z: 0 });
-        expect(hit.hit).toBe(true);
-        expect(hit.fraction).toBe(f32(1 / 3));
+        expect(new DataView(target.shapeStore.materialU.buffer).getBigUint64(pointer, true)).toBe(
+            0x4a4c9587de57485cn,
+        );
+        expect([...target.geometryIdentityValues.values()][0]).toBe(data);
+        destroyTestWorld(source);
+        const query = queryColumns(target);
+        const targetKernel = kernel(target.ecsState);
+        query.prepare({ x: -3, y: 0, z: 0 });
+        query.translation({ x: 6, y: 0, z: 0 });
+        targetKernel.worldQuery(target.worldId, 3, 0);
+        expect(query.resultU[0]).not.toBe(0xffffffff);
+        expect(query.resultF[5]).toBe(f32(1 / 3));
     } finally {
-        if (source.state.inUse) source.destroy();
-        target.destroy();
+        if (source.inUse) destroyTestWorld(source);
+        destroyTestWorld(target);
     }
 });
 
 test("kernel hull references share byte-identical data, distinguish equal hashes with different bytes, and snapshot their lifetime", () => {
-    const world = new PhysicsWorld();
-    const other = new PhysicsWorld();
+    const world = createTestWorld();
+    const other = createTestWorld();
     const hull = makeBoxHull(1, 1, 1);
     try {
-        const body = world.createBody({ type: BodyType.Dynamic });
-        const first = body.createHull({ density: 1 }, hull);
-        const second = body.createHull({ density: 1 }, cloneHull(hull));
-        const k = kernel(world.state.ecsState);
-        let handle = hullDatabaseIndex(world.state, hull);
-        expect(k.hullDatabaseCount(world.state.worldId)).toBe(1);
-        expect(k.hullDatabaseRefs(world.state.worldId, handle)).toBe(2);
+        const body = createTestBody(world, { type: BodyType.Dynamic });
+        const first = createHullShape(world, body, testShapeDef({ density: 1 }), hull)!;
+        const second = createHullShape(world, body, testShapeDef({ density: 1 }), cloneHull(hull))!;
+        const k = kernel(world.ecsState);
+        let handle = hullDatabaseIndex(world, hull);
+        expect(k.hullDatabaseCount(world.worldId)).toBe(1);
+        expect(k.hullDatabaseRefs(world.worldId, handle)).toBe(2);
         const sameHash = cloneHull(hull);
         sameHash.innerRadius = 0.5;
-        const different = body.createHull({}, sameHash);
-        const differentHandle = hullDatabaseIndex(world.state, sameHash);
+        const different = createHullShape(world, body, testShapeDef(), sameHash)!;
+        const differentHandle = hullDatabaseIndex(world, sameHash);
         expect(differentHandle).not.toBe(handle);
-        expect(k.hullDatabaseCount(world.state.worldId)).toBe(2);
-        different.destroy();
-        const snapshot = world.snapshot();
-        first.destroy();
-        expect(k.hullDatabaseRefs(world.state.worldId, handle)).toBe(1);
-        second.destroy();
-        expect(k.hullDatabaseCount(world.state.worldId)).toBe(0);
-        world.restore(snapshot);
-        handle = hullDatabaseIndex(world.state, hull);
-        expect(k.hullDatabaseCount(world.state.worldId)).toBe(1);
-        expect(k.hullDatabaseRefs(world.state.worldId, handle)).toBe(2);
-        const id = first.id.index1 - 1;
-        expect(world.state.shapeStore.shapeU[id * SHAPE_STRIDE + S_GEO_REFERENCE]).toBe(handle);
-        expect(first.computeMassData().mass).toBe(8);
-        const output = readShapeHull(world.state, id);
+        expect(k.hullDatabaseCount(world.worldId)).toBe(2);
+        destroyShape(world, different, true);
+        const saved = snapshot(world);
+        destroyShape(world, first, true);
+        expect(k.hullDatabaseRefs(world.worldId, handle)).toBe(1);
+        destroyShape(world, second, true);
+        expect(k.hullDatabaseCount(world.worldId)).toBe(0);
+        restore(world, saved);
+        handle = hullDatabaseIndex(world, hull);
+        expect(k.hullDatabaseCount(world.worldId)).toBe(1);
+        expect(k.hullDatabaseRefs(world.worldId, handle)).toBe(2);
+        expect(world.shapeStore.shapeU[first * SHAPE_STRIDE + S_GEO_REFERENCE]).toBe(handle);
+        expect(computeShapeMass(world, first).mass).toBe(8);
+        const output = readShapeHull(world, first);
         expect(output.hash).toBe(hull.hash);
         expect(output.points).toEqual(hull.points);
-        output.points[0].x = 123;
-        expect(readShapeHull(world.state, id).points).toEqual(hull.points);
-        const sibling = other
-            .createBody({ type: BodyType.Dynamic })
-            .createHull({ density: 1 }, hull);
-        const siblingHandle = hullDatabaseIndex(other.state, hull);
+        output.points[0]!.x = 123;
+        expect(readShapeHull(world, first).points).toEqual(hull.points);
+        const siblingBody = createTestBody(other, { type: BodyType.Dynamic });
+        const sibling = createHullShape(other, siblingBody, testShapeDef({ density: 1 }), hull)!;
+        const siblingHandle = hullDatabaseIndex(other, hull);
         expect(handle).not.toBe(siblingHandle);
-        world.destroy();
-        expect(sibling.computeMassData().mass).toBe(8);
-        const size = stageHullUpload(other.state, hull);
-        expect(k.hullDatabaseLookup(other.state.worldId, size) >>> 0).toBe(siblingHandle);
+        destroyTestWorld(world);
+        expect(computeShapeMass(other, sibling).mass).toBe(8);
+        const size = stageHullUpload(other, hull);
+        expect(k.hullDatabaseLookup(other.worldId, size) >>> 0).toBe(siblingHandle);
     } finally {
-        if (world.state.inUse) world.destroy();
-        other.destroy();
+        if (world.inUse) destroyTestWorld(world);
+        destroyTestWorld(other);
     }
 });

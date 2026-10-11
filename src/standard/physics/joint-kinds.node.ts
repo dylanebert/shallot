@@ -4,7 +4,8 @@ import * as physics from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
 import { JointField, jointField } from "./kernel/jointrecords";
-import { physicsWorld } from "./runtime";
+import { kernel } from "./kernel/kernel";
+import { physicsBodyIndex, physicsState } from "./runtime";
 import { defaultDistanceJointDef } from "./solver/distanceJoint";
 import { defaultJointDef, JointType } from "./solver/joint";
 import { jointIds } from "./solver/joint.fixture";
@@ -67,6 +68,154 @@ function authored(config: Record<string, unknown>): Values {
     }
     return out;
 }
+function kernelJointArguments(
+    kind: string,
+    config: Record<string, unknown>,
+    bodyIds?: readonly [number, number],
+): unknown[] {
+    const number = (name: string) => config[name] as number;
+    const boolean = (name: string) => config[name] as boolean;
+    const vector = (name: string) => {
+        const value = config[name] as { x: number; y: number; z: number };
+        return [value.x, value.y, value.z];
+    };
+    const quaternion = (name: string) => {
+        const value = config[name] as { v: { x: number; y: number; z: number }; s: number };
+        return [value.v.x, value.v.y, value.v.z, value.s];
+    };
+    switch (kind) {
+        case "Distance":
+            return [
+                number("length"),
+                number("hertz"),
+                number("dampingRatio"),
+                number("lowerSpringForce"),
+                number("upperSpringForce"),
+                number("minLength"),
+                number("maxLength"),
+                number("maxMotorForce"),
+                number("motorSpeed"),
+                boolean("enableSpring"),
+                boolean("enableLimit"),
+                boolean("enableMotor"),
+            ];
+        case "Filter": {
+            const frame = (name: string) => {
+                const value = config[name] as {
+                    p: { x: number; y: number; z: number };
+                    q: { v: { x: number; y: number; z: number }; s: number };
+                };
+                return [
+                    value.p.x,
+                    value.p.y,
+                    value.p.z,
+                    value.q.v.x,
+                    value.q.v.y,
+                    value.q.v.z,
+                    value.q.s,
+                ];
+            };
+            return [
+                bodyIds![0],
+                bodyIds![1],
+                JointType.Filter,
+                number("drawScale"),
+                Number(boolean("collideConnected")),
+                ...frame("localFrameA"),
+                ...frame("localFrameB"),
+                number("forceThreshold"),
+                number("torqueThreshold"),
+                number("constraintHertz"),
+                number("constraintDampingRatio"),
+            ];
+        }
+        case "Motor":
+            return [
+                ...vector("linearVelocity"),
+                number("maxVelocityForce"),
+                ...vector("angularVelocity"),
+                number("maxVelocityTorque"),
+                number("linearHertz"),
+                number("linearDampingRatio"),
+                number("maxSpringForce"),
+                number("angularHertz"),
+                number("angularDampingRatio"),
+                number("maxSpringTorque"),
+            ];
+        case "Parallel":
+            return [number("hertz"), number("dampingRatio"), number("maxTorque")];
+        case "Prismatic":
+            return [
+                number("hertz"),
+                number("dampingRatio"),
+                number("targetTranslation"),
+                number("lowerTranslation"),
+                number("upperTranslation"),
+                number("maxMotorForce"),
+                number("motorSpeed"),
+                boolean("enableSpring"),
+                boolean("enableLimit"),
+                boolean("enableMotor"),
+            ];
+        case "Revolute":
+            return [
+                number("hertz"),
+                number("dampingRatio"),
+                number("targetAngle"),
+                number("lowerAngle"),
+                number("upperAngle"),
+                number("maxMotorTorque"),
+                number("motorSpeed"),
+                boolean("enableSpring"),
+                boolean("enableLimit"),
+                boolean("enableMotor"),
+            ];
+        case "Spherical":
+            return [
+                number("hertz"),
+                number("dampingRatio"),
+                ...quaternion("targetRotation"),
+                number("coneAngle"),
+                number("lowerTwistAngle"),
+                number("upperTwistAngle"),
+                number("maxMotorTorque"),
+                ...vector("motorVelocity"),
+                boolean("enableSpring"),
+                boolean("enableConeLimit"),
+                boolean("enableTwistLimit"),
+                boolean("enableMotor"),
+            ];
+        case "Weld":
+            return [
+                number("linearHertz"),
+                number("linearDampingRatio"),
+                number("angularHertz"),
+                number("angularDampingRatio"),
+            ];
+        case "Wheel":
+            return [
+                boolean("enableSuspensionSpring"),
+                number("suspensionHertz"),
+                number("suspensionDampingRatio"),
+                boolean("enableSuspensionLimit"),
+                number("lowerSuspensionLimit"),
+                number("upperSuspensionLimit"),
+                boolean("enableSpinMotor"),
+                number("maxSpinTorque"),
+                number("spinSpeed"),
+                boolean("enableSteering"),
+                number("steeringHertz"),
+                number("steeringDampingRatio"),
+                number("targetSteeringAngle"),
+                number("maxSteeringTorque"),
+                boolean("enableSteeringLimit"),
+                number("lowerSteeringLimit"),
+                number("upperSteeringLimit"),
+            ];
+    }
+    throw new Error(`unknown joint kind ${kind}`);
+}
+
 function read(world: World, component: Component, eid: number): Values {
     const out: Values = {};
     const storage = world.storage(component) as unknown as Record<
@@ -91,7 +240,7 @@ for (const [kind, defaults] of kinds) {
         const component = (physics as unknown as Record<string, Component>)[`${kind}Joint`];
         expect(component, `${kind}Joint is authored by core`).toBeDefined();
         const world = app.world;
-        const solver = physicsWorld(world)!;
+        const state = physicsState(world)!;
         const { base, ...specific } = defaults(defaultJointDef());
         const expected = { ...base, ...specific } as Record<string, unknown>;
         const eid = world.create();
@@ -135,21 +284,26 @@ for (const [kind, defaults] of kinds) {
             const authoredValues = { ...authored(expected), a, b };
             world.remove(eid, component);
             world.add(eid, component, authoredValues);
-            const method = `create${kind}Joint`;
-            const methods = solver as unknown as Record<string, (...args: unknown[]) => unknown>;
-            const original = methods[method].bind(solver);
+            const method = kind === "Filter" ? "jointCreate" : `jointCreate${kind}`;
+            const k = kernel(state.ecsState);
+            const methods = k as unknown as Record<string, (...args: unknown[]) => number>;
+            const original = methods[method].bind(k);
             let calls = 0;
-            const spy = spyOn(methods, method).mockImplementation((bodyA, bodyB, cfg) => {
+            const spy = spyOn(methods, method).mockImplementation((...args: unknown[]) => {
                 calls++;
-                expect(bodyA).toBe(solver.getBody(a));
-                expect(bodyB).toBe(solver.getBody(b));
-                const actual = cfg as Record<string, unknown>;
-                for (const [field, value] of Object.entries(expected)) {
-                    if (field === "userData" || field.startsWith("bodyId")) continue;
-                    expect(actual[field], `${kind}.${field} marshal`).toEqual(value);
+                if (kind === "Filter") {
+                    expect(args, `${kind} solver arguments`).toEqual(
+                        kernelJointArguments(kind, expected, [
+                            physicsBodyIndex(world, a),
+                            physicsBodyIndex(world, b),
+                        ]),
+                    );
+                } else {
+                    expect(args.slice(2), `${kind} solver arguments`).toEqual(
+                        kernelJointArguments(kind, expected),
+                    );
                 }
-                expect(actual.userData).toBe(world.ref(eid));
-                return original(bodyA, bodyB, cfg);
+                return original(...args);
             });
             try {
                 world.step(Time.FIXED_DT);
@@ -157,11 +311,9 @@ for (const [kind, defaults] of kinds) {
                 spy.mockRestore();
             }
             expect(calls).toBe(1);
-            const joint = jointIds(solver.state).find(
-                (id) => solver.state.jointUserData[id] === world.ref(eid),
-            )!;
+            const joint = jointIds(state).find((id) => state.jointUserData[id] === world.ref(eid))!;
             expect(joint, `${kind} between two static bodies is created`).toBeDefined();
-            expect(jointField(solver.state, joint, JointField.type)).toBe(JointType[kind]);
+            expect(jointField(state, joint, JointField.type)).toBe(JointType[kind]);
         } finally {
             world.destroy(eid);
             world.destroy(a);

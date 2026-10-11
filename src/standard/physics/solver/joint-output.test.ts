@@ -1,15 +1,81 @@
 import { expect, test } from "bun:test";
-import { BodyType, PhysicsWorld } from "../api";
-import { collectJointEvents } from "../kernel/jointcolumns";
+import { makeJointId } from "../api/config";
+import { restore, snapshot } from "../api/snapshot";
+import { BodyType } from "../common/types";
+import {
+    J_CONSTRAINT_DAMPING,
+    J_CONSTRAINT_HERTZ,
+    J_FORCE_THRESHOLD,
+    J_LOCAL_FRAME_A,
+    J_LOCAL_FRAME_B,
+    J_TORQUE_THRESHOLD,
+} from "../kernel/columns";
+import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
+import {
+    collectJointEvents,
+    readJointEventUserData,
+    readJointFloat,
+    readJointTransform,
+    writeJointFloat,
+} from "../kernel/jointcolumns";
+import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
+import { createSphereShape } from "../shapes/shape";
+import {
+    createTestBody,
+    createTestWorld,
+    destroyTestWorld,
+    stepTestWorld,
+    testShapeDef,
+} from "../testing";
+import { destroyBody } from "../world/body";
+import { createDistanceJoint, defaultDistanceJointDef } from "./distanceJoint";
+import {
+    createFilterJoint,
+    defaultJointDef,
+    destroyJointInternal,
+    getJointConstraintForce,
+    getJointConstraintTorque,
+    jointIsValid,
+} from "./joint";
 
-test("plain-id joint bindings preserve public frames, bodies, tuning and user-data snapshot identity", () => {
-    const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+function distanceJoint(
+    world: ReturnType<typeof createTestWorld>,
+    a: number,
+    b: number,
+    config: Record<string, unknown> = {},
+) {
+    const base = { ...defaultJointDef(), bodyIdA: a, bodyIdB: b };
+    for (const name of [
+        "localFrameA",
+        "localFrameB",
+        "collideConnected",
+        "constraintHertz",
+        "constraintDampingRatio",
+        "forceThreshold",
+        "torqueThreshold",
+        "drawScale",
+        "userData",
+    ] as const)
+        if (config[name] !== undefined) Object.assign(base, { [name]: config[name] });
+    return createDistanceJoint(world, { ...defaultDistanceJointDef(base), ...config }).joint;
+}
+
+function jointEvents(world: ReturnType<typeof createTestWorld>) {
+    readJointEventUserData(world);
+    return Array.from({ length: eventCount(world, EventKind.Joint) }, (_, index) => ({
+        id: eventId(world, EventKind.Joint, index, 0),
+        userData: world.jointEventUserData[index],
+    }));
+}
+
+test("plain-id joint bindings preserve frames, bodies, tuning and user-data snapshot identity", () => {
+    const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {
-        const a = world.createBody({ type: BodyType.Dynamic });
-        const b = world.createBody({ type: BodyType.Dynamic, position: { x: 2, y: 0, z: 0 } });
+        const a = createTestBody(world, { type: BodyType.Dynamic });
+        const b = createTestBody(world, { type: BodyType.Dynamic, position: { x: 2, y: 0, z: 0 } });
         const userData = { label: "joint" };
-        const joint = world.createDistanceJoint(a, b, {
+        const id = distanceJoint(world, a, b, {
             userData,
             constraintHertz: 13,
             constraintDampingRatio: 2,
@@ -22,17 +88,26 @@ test("plain-id joint bindings preserve public frames, bodies, tuning and user-da
             },
         });
         const output = () => ({
-            bodies: joint.getBodies().map((body) => body.id),
-            a: joint.getLocalFrameA(),
-            b: joint.getLocalFrameB(),
-            tuning: joint.getConstraintTuning(),
-            thresholds: [joint.getForceThreshold(), joint.getTorqueThreshold()],
-            collide: joint.getCollideConnected(),
-            force: joint.getConstraintForce(),
-            torque: joint.getConstraintTorque(),
+            bodies: [
+                jointField(world, id, JointField.bodyIdA),
+                jointField(world, id, JointField.bodyIdB),
+            ],
+            a: readJointTransform(world, id, J_LOCAL_FRAME_A),
+            b: readJointTransform(world, id, J_LOCAL_FRAME_B),
+            tuning: {
+                hertz: readJointFloat(world, id, J_CONSTRAINT_HERTZ),
+                dampingRatio: readJointFloat(world, id, J_CONSTRAINT_DAMPING),
+            },
+            thresholds: [
+                readJointFloat(world, id, J_FORCE_THRESHOLD),
+                readJointFloat(world, id, J_TORQUE_THRESHOLD),
+            ],
+            collide: jointField(world, id, JointField.collideConnected) !== 0,
+            force: getJointConstraintForce(world, id),
+            torque: getJointConstraintTorque(world, id),
         });
         const expected = {
-            bodies: [a.id, b.id],
+            bodies: [a, b],
             a: { p: { x: 0.25, y: 0.5, z: 0.75 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
             b: { p: { x: -0.25, y: -0.5, z: -0.75 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
             tuning: { hertz: 13, dampingRatio: 2 },
@@ -42,123 +117,143 @@ test("plain-id joint bindings preserve public frames, bodies, tuning and user-da
             torque: { x: 0, y: 0, z: 0 },
         };
         expect(output()).toEqual(expected);
-        const saved = world.snapshot();
-        joint.setUserData({ label: "replacement" });
-        joint.setConstraintTuning(31, 3);
-        world.restore(saved);
+        const saved = snapshot(world);
+        world.jointUserData[id] = { label: "replacement" };
+        writeJointFloat(world, id, J_CONSTRAINT_HERTZ, 31);
+        writeJointFloat(world, id, J_CONSTRAINT_DAMPING, 3);
+        restore(world, saved);
         expect(output()).toEqual(expected);
-        expect(joint.getUserData()).toBe(userData);
+        expect(world.jointUserData[id]).toBe(userData);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
-test("a stepped over-stressed joint publishes the same ordered public event ids and opaque user data as its creation handles", () => {
-    const world = new PhysicsWorld();
+test("a stepped over-stressed joint publishes ordered event ids and opaque user data", () => {
+    const world = createTestWorld();
     try {
-        const anchor = world.createBody({ type: BodyType.Static });
+        const anchor = createTestBody(world, { type: BodyType.Static });
         const data = [{ label: "left" }, { label: "right" }];
         const joints = data.map((userData, i) => {
-            const body = world.createBody({
+            const body = createTestBody(world, {
                 type: BodyType.Dynamic,
                 position: { x: i * 4, y: -2, z: 0 },
             });
-            body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
-            return world.createDistanceJoint(anchor, body, {
+            createSphereShape(world, body, testShapeDef(), {
+                center: { x: 0, y: 0, z: 0 },
+                radius: 0.5,
+            });
+            return distanceJoint(world, anchor, body, {
                 length: 2,
                 forceThreshold: 0,
                 userData,
                 localFrameA: { p: { x: i * 4, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
             });
         });
-        world.step(1 / 60);
-        const events = world.getJointEvents();
-        expect(events.map((event) => event.joint.id)).toEqual(joints.map((joint) => joint.id));
+        stepTestWorld(world, 1 / 60);
+        const events = jointEvents(world);
+        expect(events.map((event) => event.id)).toEqual(
+            joints.map((joint) => makeJointId(world, joint)),
+        );
         for (let i = 0; i < events.length; ++i) {
-            expect(events[i].userData).toBe(data[i]);
-            expect(events[i].joint.isValid()).toBe(true);
-            expect(events[i].joint.getConstraintForce().y).toBeGreaterThan(0);
+            expect(events[i]!.userData).toBe(data[i]);
+            expect(jointIsValid(world, events[i]!.id)).toBe(true);
+            expect(getJointConstraintForce(world, joints[i]!).y).toBeGreaterThan(0);
         }
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
 test("body destruction preserves published joint-event user-data identity", () => {
-    const world = new PhysicsWorld();
+    const world = createTestWorld();
     try {
-        const anchor = world.createBody({ type: BodyType.Static });
-        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: -2, z: 0 } });
-        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        const anchor = createTestBody(world, { type: BodyType.Static });
+        const body = createTestBody(world, {
+            type: BodyType.Dynamic,
+            position: { x: 0, y: -2, z: 0 },
+        });
+        createSphereShape(world, body, testShapeDef(), {
+            center: { x: 0, y: 0, z: 0 },
+            radius: 0.5,
+        });
         const userData = { label: "captured" };
-        world.createDistanceJoint(anchor, body, { length: 2, forceThreshold: 0, userData });
-        world.step(1 / 60);
-        body.destroy();
-        const events = world.getJointEvents();
+        distanceJoint(world, anchor, body, { length: 2, forceThreshold: 0, userData });
+        stepTestWorld(world, 1 / 60);
+        destroyBody(world, body);
+        const events = jointEvents(world);
         expect(events).toHaveLength(1);
-        expect(events[0].userData).toBe(userData);
+        expect(events[0]!.userData).toBe(userData);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });
 
-test("a foreign snapshot preserves captured joint-event id values while delivery handles bind to the target world", () => {
-    const source = new PhysicsWorld();
-    const target = new PhysicsWorld();
+test("a foreign snapshot preserves captured joint-event ids while records rebind to the target world", () => {
+    const source = createTestWorld();
+    const target = createTestWorld();
     try {
-        const a = source.createBody({ type: BodyType.Dynamic });
-        const b = source.createBody({ type: BodyType.Dynamic });
+        const a = createTestBody(source, { type: BodyType.Dynamic });
+        const b = createTestBody(source, { type: BodyType.Dynamic });
         const userData = { label: "captured" };
-        const joint = source.createFilterJoint(a, b, { userData });
-        const k = kernel(source.state.ecsState);
-        k.jointResetEventBits(source.state.worldId);
-        k.jointSetEventBit(source.state.worldId, joint.id.index1 - 1);
-        collectJointEvents(source.state);
-        const captured = source.getJointEvents()[0].joint.id;
-        expect(source.state.worldId).not.toBe(target.state.worldId);
-        target.restore(source.snapshot());
-        const event = target.getJointEvents()[0];
-        expect(event.joint.id).toEqual(captured);
+        const joint = createFilterJoint(source, {
+            ...defaultJointDef(),
+            bodyIdA: a,
+            bodyIdB: b,
+            userData,
+        }).joint;
+        const k = kernel(source.ecsState);
+        k.jointResetEventBits(source.worldId);
+        k.jointSetEventBit(source.worldId, joint);
+        collectJointEvents(source);
+        const captured = eventId(source, EventKind.Joint, 0, 0);
+        expect(source.worldId).not.toBe(target.worldId);
+        restore(target, snapshot(source));
+        const event = jointEvents(target)[0]!;
+        expect(event.id).toEqual(captured);
         expect(event.userData).toBe(userData);
-        expect(event.joint.getWorld().state).toBe(target.state);
+        const rebound = makeJointId(target, event.id.index1 - 1);
+        expect(rebound.world0).toBe(target.worldId);
+        expect(rebound.generation).toBe(event.id.generation);
     } finally {
-        source.destroy();
-        target.destroy();
+        destroyTestWorld(source);
+        destroyTestWorld(target);
     }
 });
 
-test("internal joint event collection preserves ordered public ids, generations and user-data identity across destroy, reuse and restore", () => {
-    const world = new PhysicsWorld();
+test("joint event collection preserves ordered ids, generations and user-data across destroy, reuse and restore", () => {
+    const world = createTestWorld();
     try {
-        const a = world.createBody({ type: BodyType.Dynamic });
-        const b = world.createBody({ type: BodyType.Dynamic });
+        const a = createTestBody(world, { type: BodyType.Dynamic });
+        const b = createTestBody(world, { type: BodyType.Dynamic });
         const data = [{ label: "first" }, { label: "second" }];
-        const joints = data.map((userData) => world.createFilterJoint(a, b, { userData }));
-        const k = kernel(world.state.ecsState);
-        k.jointResetEventBits(world.state.worldId);
-        for (let i = joints.length - 1; i >= 0; --i)
-            k.jointSetEventBit(world.state.worldId, joints[i].id.index1 - 1);
-        collectJointEvents(world.state);
-        const expectedIds = joints.map((joint) => joint.id);
-        const saved = world.snapshot();
-        joints[0].destroy(false);
-        const replacement = world.createFilterJoint(a, b, { userData: { label: "replacement" } });
-        expect(replacement.id.index1).toBe(expectedIds[0].index1);
-        expect(replacement.id.generation).not.toBe(expectedIds[0].generation);
-        const events = world.getJointEvents();
-        expect(events.map((event) => event.joint.id)).toEqual(expectedIds);
-        for (let i = 0; i < events.length; ++i) expect(events[i].userData).toBe(data[i]);
-        expect(events[0].joint.isValid()).toBe(false);
-        world.restore(saved);
-        const restored = world.getJointEvents();
-        expect(restored.map((event) => event.joint.id)).toEqual(expectedIds);
-        for (let i = 0; i < restored.length; ++i) {
-            expect(restored[i].userData).toBe(data[i]);
-            expect(restored[i].joint.isValid()).toBe(true);
-        }
-        world.step(1 / 60);
-        expect(world.getJointEvents()).toHaveLength(0);
+        const joints = data.map(
+            (userData) =>
+                createFilterJoint(world, { ...defaultJointDef(), bodyIdA: a, bodyIdB: b, userData })
+                    .joint,
+        );
+        const k = kernel(world.ecsState);
+        k.jointResetEventBits(world.worldId);
+        for (let i = joints.length - 1; i >= 0; --i) k.jointSetEventBit(world.worldId, joints[i]!);
+        collectJointEvents(world);
+        const expectedIds = joints.map((joint) => makeJointId(world, joint));
+        const saved = snapshot(world);
+        destroyJointInternal(world, joints[0]!, false);
+        const replacement = createFilterJoint(world, {
+            ...defaultJointDef(),
+            bodyIdA: a,
+            bodyIdB: b,
+            userData: { label: "replacement" },
+        }).joint;
+        expect(replacement).toBe(joints[0]);
+        expect(makeJointId(world, replacement).generation).not.toBe(expectedIds[0]!.generation);
+        const events = jointEvents(world);
+        expect(events.map((event) => event.id)).toEqual(expectedIds);
+        for (let i = 0; i < events.length; ++i) expect(events[i]!.userData).toBe(data[i]);
+        restore(world, saved);
+        expect(jointEvents(world).map((event) => event.id)).toEqual(expectedIds);
+        for (let i = 0; i < data.length; ++i) expect(jointEvents(world)[i]!.userData).toBe(data[i]);
     } finally {
-        world.destroy();
+        destroyTestWorld(world);
     }
 });

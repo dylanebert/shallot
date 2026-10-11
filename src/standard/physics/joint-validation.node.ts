@@ -28,7 +28,7 @@ import {
     WJ_ANGULAR_HERTZ,
 } from "./kernel/joint-layout";
 import { readJointFloat, readJointQuat, readJointVec3 } from "./kernel/jointcolumns";
-import { physicsWorld } from "./runtime";
+import { physicsState } from "./runtime";
 import { jointIds } from "./solver/joint.fixture";
 
 setDefaultTimeout(CEILING.node);
@@ -87,7 +87,7 @@ test("values asserted against by Box3D create warn once and skip, while positive
             expect(warning).toHaveBeenCalledTimes(1);
             expect(String(warning.mock.calls[0]![0])).toContain(`${kind}Joint ${eid}`);
             expect(String(warning.mock.calls[0]![0])).toContain(field);
-            expect(jointIds(physicsWorld(world)!.state)).toHaveLength(0);
+            expect(jointIds(physicsState(world)!)).toHaveLength(0);
             world.destroy(eid);
             world.step(Time.FIXED_DT);
         }
@@ -96,23 +96,23 @@ test("values asserted against by Box3D create warn once and skip, while positive
         warning.mockClear();
         world.step(Time.FIXED_DT);
         expect(warning).not.toHaveBeenCalled();
-        expect(jointIds(physicsWorld(world)!.state)).toHaveLength(1);
+        expect(jointIds(physicsState(world)!)).toHaveLength(1);
         world.destroy(infinite);
         world.step(Time.FIXED_DT);
 
         const eid = world.create();
         world.add(eid, core.WeldJoint, { a, b, angularHertz: 2 });
         world.step(Time.FIXED_DT);
-        expect(jointIds(physicsWorld(world)!.state)).toHaveLength(1);
+        expect(jointIds(physicsState(world)!)).toHaveLength(1);
         world.storage(core.WeldJoint).angularHertz.set(eid, NaN);
         world.step(Time.FIXED_DT);
         expect(warning).toHaveBeenCalledTimes(1);
         world.storage(core.WeldJoint).angularHertz.set(eid, NaN);
         world.step(Time.FIXED_DT);
         expect(warning).toHaveBeenCalledTimes(1);
-        const ids = jointIds(physicsWorld(world)!.state);
+        const ids = jointIds(physicsState(world)!);
         expect(ids).toHaveLength(1);
-        expect(readJointFloat(physicsWorld(world)!.state, ids[0]!, WJ_ANGULAR_HERTZ)).toBe(2);
+        expect(readJointFloat(physicsState(world)!, ids[0]!, WJ_ANGULAR_HERTZ)).toBe(2);
     } finally {
         warning.mockRestore();
         app.dispose();
@@ -149,7 +149,7 @@ test("live joint edits reject Box3D setter precondition failures", async () => {
         world.add(wheel, core.WheelJoint, { a, b });
         world.step(Time.FIXED_DT);
 
-        const state = physicsWorld(world)!.state;
+        const state = physicsState(world)!;
         const id = (eid: number) => {
             const found = jointIds(state).find(
                 (joint) => state.jointUserData[joint] === world.ref(eid),

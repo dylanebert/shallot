@@ -1,11 +1,13 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import type { Body } from "../api/body";
 import type { Vec3 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
-import { physicsWorld } from "../runtime";
+import { physicsState } from "../runtime";
 import { createCompound } from "../shapes/compound";
 import { makeBoxHull } from "../shapes/hull";
 import { createMesh } from "../shapes/mesh";
+import { createCompoundShape, createHullShape, createMeshShape } from "../shapes/shape";
+import { createTestBody, testShapeDef } from "../testing";
+import { bodySetLinearVelocity, bodySetTransform } from "../world/body";
 import { defaultFrictionCallback, defaultRestitutionCallback } from "../world/world";
 import { PhysicsWorldDefinition } from "../world-definition";
 import { awakeContactCount } from "./contact";
@@ -21,8 +23,7 @@ export default async function create(input: string) {
     const count = startText === undefined ? 64 : 16;
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const world = app.world;
-    const physics = physicsWorld(world)!;
-    const state = physics.state;
+    const state = physicsState(world)!;
     const definition = world.resource(PhysicsWorldDefinition);
     definition.enableSleep = false;
     definition.contactRecycleDistance = 0;
@@ -34,7 +35,7 @@ export default async function create(input: string) {
     definition.restitutionCallback = (_world, a, ia, b, ib) =>
         defaultRestitutionCallback(a, ia, b, ib);
     const material = { ...defaultSurfaceMaterial(), userMaterialId: 0x123456789abcdef0n };
-    const ground = physics.createBody({ type: BodyType.Static });
+    const ground = createTestBody(state, { type: BodyType.Static });
     if (kind === "mesh") {
         const mesh = createMesh({
             vertices: [
@@ -47,7 +48,11 @@ export default async function create(input: string) {
             identifyEdges: true,
         });
         if (!mesh) throw new Error("mesh construction failed");
-        ground.createMesh({ baseMaterial: material }, mesh, { x: 1, y: 1, z: 1 });
+        createMeshShape(state, ground, testShapeDef({ baseMaterial: material }), mesh, {
+            x: 1,
+            y: 1,
+            z: 1,
+        });
     } else {
         const compound = createCompound({
             hulls: [
@@ -59,15 +64,20 @@ export default async function create(input: string) {
             ],
         });
         if (!compound) throw new Error("compound construction failed");
-        ground.createCompound({}, compound);
+        createCompoundShape(state, ground, testShapeDef(), compound);
     }
     const hull = makeBoxHull(0.5, 0.5, 0.5);
-    const boxes: { body: Body; position: Vec3 }[] = [];
+    const boxes: { body: number; position: Vec3 }[] = [];
     for (let offset = 0; offset < count; offset++) {
         const i = start + offset;
         const position = { x: (i % 8) * 3 - 12, y: 0.5, z: Math.floor(i / 8) * 3 - 12 };
-        const body = physics.createBody({ type: BodyType.Dynamic, position });
-        body.createHull({ baseMaterial: { ...material, userMaterialId: BigInt(i + 1) } }, hull);
+        const body = createTestBody(state, { type: BodyType.Dynamic, position });
+        createHullShape(
+            state,
+            body,
+            testShapeDef({ baseMaterial: { ...material, userMaterialId: BigInt(i + 1) } }),
+            hull,
+        );
         boxes.push({ body, position });
     }
     const rotation = { v: { x: 0, y: 0, z: 0 }, s: 1 };
@@ -78,8 +88,8 @@ export default async function create(input: string) {
             const before = mixes;
             velocity.x = tick++ % 2 === 0 ? 0.5 : -0.5;
             for (const box of boxes) {
-                box.body.setTransform(box.position, rotation);
-                box.body.setLinearVelocity(velocity);
+                bodySetTransform(state, box.body, box.position, rotation);
+                bodySetLinearVelocity(state, box.body, velocity);
             }
             world.step(1 / 60);
             if (awakeContactCount(state) !== boxes.length || mixes - before < boxes.length)

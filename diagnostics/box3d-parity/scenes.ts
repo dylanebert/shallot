@@ -8,48 +8,43 @@
 // RAIN_COUNT, RAIN_GROUP, ROCKS, COLORS, CACHE, PROFILE, COUNTERS, and on Node CPU (cpu.ts).
 // HASH_STEPS=0 disables hash output for timing; SAMPLE_WALL=1 reports setup and loop costs as M JSON.
 import { World } from "../../src/engine";
-import { awakeContactCount } from "../../src/standard/physics/collision/contact";
-import {
-    type Body,
-    BodyType,
-    createCylinder,
-    createGridMesh,
-    createRock,
-    createTorusMesh,
-    defaultFilter,
-    defaultSurfaceMaterial,
-    hash,
-    init,
-    type Joint,
-    makeBoxHull,
-    makeOffsetBoxHull,
-    PhysicsWorld,
-    shutdown,
-} from "../../src/standard/physics/api";
-import { contactBodyId, contactCapacity, contactField, ContactField } from "../../src/standard/physics/collision/contact";
-import { DIR_CACHE, DIR_STRIDE } from "../../src/standard/physics/kernel/contact-layout";
+import { awakeContactCount, contactBodyId, contactCapacity, contactField, ContactField } from "../../src/standard/physics/collision/contact";
 import { OVERFLOW_INDEX } from "../../src/standard/physics/common/constants";
-import { kernel } from "../../src/standard/physics/kernel/kernel";
-import {
-    computeCosSin,
-    DEG_TO_RAD,
-    offsetPos,
-    PI,
-    quat,
-} from "../../src/standard/physics/common/math";
-import BONE_TABLE from "../../src/standard/physics/solver/fixtures/human.json";
+import { BodyType, defaultBodyDef, defaultFilter, defaultShapeDef, defaultSurfaceMaterial, type BodyDef, type ShapeDef, type WorldDef } from "../../src/standard/physics/common/types";
+import { computeCosSin, DEG_TO_RAD, offsetPos, PI, quat } from "../../src/standard/physics/common/math";
+import { DIR_CACHE, DIR_STRIDE } from "../../src/standard/physics/kernel/contact-layout";
+import { kernel, init, shutdown } from "../../src/standard/physics/kernel/kernel";
+import { hashWorldState } from "../../src/standard/physics/world/hash";
+import { createTestWorld, destroyTestWorld } from "../../src/standard/physics/testing";
+import { step as stepWorld } from "../../src/standard/physics/solver/step";
+import { createBody, bodySetTargetTransform, destroyBody } from "../../src/standard/physics/world/body";
+import { worldCounters, worldProfile, type WorldState } from "../../src/standard/physics/world/world";
+import { createCapsuleShape, createHullShape, createMeshShape, createSphereShape } from "../../src/standard/physics/shapes/shape";
+import { createCylinder, createRock, makeBoxHull, makeOffsetBoxHull } from "../../src/standard/physics/shapes/hull";
+import { createGridMesh, createTorusMesh } from "../../src/standard/physics/shapes/mesh";
+import { createFilterJoint, defaultJointDef, destroyJointInternal } from "../../src/standard/physics/solver/joint";
+import { createRevoluteJoint, defaultRevoluteJointDef } from "../../src/standard/physics/solver/revoluteJoint";
+import { createSphericalJoint, defaultSphericalJointDef } from "../../src/standard/physics/solver/sphericalJoint";
 import { PROFILE_FIELDS } from "../../src/standard/physics/world/profile";
-import type { WorldState } from "../../src/standard/physics/world/world";
+import BONE_TABLE from "../../src/standard/physics/solver/fixtures/human.json";
 
 const f = Math.fround;
 const hex = (v: number) => (v >>> 0).toString(16).padStart(8, "0");
 const env = (name: string, fallback: number) => Number(process.env[name] ?? fallback);
 
 type Scene = {
-    def: object;
-    create: (w: PhysicsWorld) => void;
-    step: (w: PhysicsWorld, i: number) => void;
+    def: Partial<WorldDef>;
+    create: (w: WorldState) => void;
+    step: (w: WorldState, i: number) => void;
 };
+
+function makeBody(world: WorldState, def: Partial<BodyDef> = {}): number {
+    return createBody(world, { ...defaultBodyDef(), ...def });
+}
+
+function shapeDef(def: Partial<ShapeDef> = {}): ShapeDef {
+    return { ...defaultShapeDef(), ...def };
+}
 
 // shared/human.c CreateHuman and DestroyHuman.
 type V3 = [number, number, number];
@@ -72,10 +67,10 @@ type Bone = {
     friction: number;
 };
 const BONES = BONE_TABLE as Bone[];
-type Human = { bodies: Body[]; joints: Joint[]; filter: Joint };
+type Human = { bodies: number[]; joints: number[]; filter: number };
 
 function createHuman(
-    w: PhysicsWorld,
+    w: WorldState,
     position: { x: number; y: number; z: number },
     groupIndex: number,
 ): Human {
@@ -83,16 +78,18 @@ function createHuman(
         hertz = 1,
         dampingRatio = f(0.7);
     const bodies = BONES.map((b) => {
-        const body = w.createBody({
+        const body = makeBody(w, {
             type: BodyType.Dynamic,
             position: offsetPos(position, { x: f(b.refP[0]), y: f(b.refP[1]), z: f(b.refP[2]) }),
             rotation: { v: { x: f(b.refQ[0]), y: f(b.refQ[1]), z: f(b.refQ[2]) }, s: f(b.refQ[3]) },
         });
-        body.createCapsule(
-            {
+        createCapsuleShape(
+            w,
+            body,
+            shapeDef({
                 baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f(0.2) },
                 filter: { ...defaultFilter(), groupIndex: b.negGroup ? -groupIndex : 0 },
-            },
+            }),
             {
                 center1: { x: f(b.cap1[0]), y: f(b.cap1[1]), z: f(b.cap1[2]) },
                 center2: { x: f(b.cap2[0]), y: f(b.cap2[1]), z: f(b.cap2[2]) },
@@ -105,7 +102,7 @@ function createHuman(
         p: { x: f(p[0]), y: f(p[1]), z: f(p[2]) },
         q: quat.normalize({ v: { x: f(q[0]), y: f(q[1]), z: f(q[2]) }, s: f(q[3]) }),
     });
-    const joints: Joint[] = [];
+    const joints: number[] = [];
     for (let i = 1; i < BONES.length; ++i) {
         const b = BONES[i];
         const twist = b.twistDeg as [number, number];
@@ -118,31 +115,50 @@ function createHuman(
             enableMotor: true,
             maxMotorTorque: f(f(b.friction) * frictionTorque),
         };
-        joints.push(
-            b.joint === "revolute"
-                ? w.createRevoluteJoint(bodies[b.parent], bodies[i], {
-                      ...base,
-                      enableLimit: true,
-                      lowerAngle: f(twist[0] * DEG_TO_RAD),
-                      upperAngle: f(twist[1] * DEG_TO_RAD),
-                  })
-                : w.createSphericalJoint(bodies[b.parent], bodies[i], {
-                      ...base,
-                      enableConeLimit: true,
-                      coneAngle: f((b.swingDeg as number) * DEG_TO_RAD),
-                      enableTwistLimit: true,
-                      lowerTwistAngle: f(twist[0] * DEG_TO_RAD),
-                      upperTwistAngle: f(twist[1] * DEG_TO_RAD),
-                  }),
-        );
+        const jointBase = {
+            ...defaultJointDef(),
+            bodyIdA: bodies[b.parent]!,
+            bodyIdB: bodies[i]!,
+            localFrameA: base.localFrameA,
+            localFrameB: base.localFrameB,
+        };
+        if (b.joint === "revolute") {
+            const def = defaultRevoluteJointDef(jointBase);
+            Object.assign(def, {
+                enableSpring: true,
+                hertz,
+                dampingRatio,
+                enableMotor: true,
+                maxMotorTorque: f(f(b.friction) * frictionTorque),
+                enableLimit: true,
+                lowerAngle: f(twist[0] * DEG_TO_RAD),
+                upperAngle: f(twist[1] * DEG_TO_RAD),
+            });
+            joints.push(createRevoluteJoint(w, def).joint);
+        } else {
+            const def = defaultSphericalJointDef(jointBase);
+            Object.assign(def, {
+                enableSpring: true,
+                hertz,
+                dampingRatio,
+                enableMotor: true,
+                maxMotorTorque: f(f(b.friction) * frictionTorque),
+                enableConeLimit: true,
+                coneAngle: f((b.swingDeg as number) * DEG_TO_RAD),
+                enableTwistLimit: true,
+                lowerTwistAngle: f(twist[0] * DEG_TO_RAD),
+                upperTwistAngle: f(twist[1] * DEG_TO_RAD),
+            });
+            joints.push(createSphericalJoint(w, def).joint);
+        }
     }
-    return { bodies, joints, filter: w.createFilterJoint(bodies[6], bodies[8]) };
+    return { bodies, joints, filter: createFilterJoint(w, { ...defaultJointDef(), bodyIdA: bodies[6]!, bodyIdB: bodies[8]! }).joint };
 }
 
-function destroyHuman(h: Human): void {
-    h.filter.destroy(false);
-    for (const j of h.joints) j.destroy(false);
-    for (const b of h.bodies) b.destroy();
+function destroyHuman(w: WorldState, h: Human): void {
+    destroyJointInternal(w, h.filter, false);
+    for (const j of h.joints) destroyJointInternal(w, j, false);
+    for (const b of h.bodies) destroyBody(w, b);
 }
 
 // benchmarks.c CreateRain/StepRain; rain is rain-n at RAIN_COUNT 10, RAIN_GROUP 3.
@@ -151,7 +167,7 @@ function rain(count: number, group: number): Scene {
     const groups: Human[][] = [];
     let columnCount = 0,
         columnIndex = 0;
-    const createGroup = (w: PhysicsWorld, row: number, column: number) => {
+    const createGroup = (w: WorldState, row: number, column: number) => {
         const groupIndex = row * count + column;
         const span = f(count * size),
             distance = f(f(1.0 * span) / count);
@@ -176,9 +192,9 @@ function rain(count: number, group: number): Scene {
             for (let i = 0; i < count; ++i) {
                 let z = f(f(-0.5 * span) + f(0.5 * size));
                 for (let j = 0; j < count; ++j) {
-                    const body = w.createBody({ position: { x, y: 0, z } });
-                    body.createMesh({}, grid, { x: 1, y: 1, z: 1 });
-                    body.createMesh({}, torus, { x: 1, y: 1, z: 1 });
+                    const body = makeBody(w, { position: { x, y: 0, z } });
+                    createMeshShape(w, body, shapeDef(), grid, { x: 1, y: 1, z: 1 });
+                    createMeshShape(w, body, shapeDef(), torus, { x: 1, y: 1, z: 1 });
                     z = f(z + size);
                 }
                 x = f(x + size);
@@ -192,7 +208,7 @@ function rain(count: number, group: number): Scene {
                 return;
             }
             for (let i = 0; i < count; ++i) {
-                for (const h of groups[i * count + columnIndex]) destroyHuman(h);
+                for (const h of groups[i * count + columnIndex]) destroyHuman(w, h);
                 createGroup(w, i, columnIndex);
             }
             columnIndex = columnIndex + 1 >= count ? 0 : columnIndex + 1;
@@ -201,18 +217,18 @@ function rain(count: number, group: number): Scene {
 }
 
 // benchmarks.c CreateJunkyard/StepJunkyard; junkyard keeps every rock of the 24 x 21 x 21 grid.
-function junk(rocks: V3[], def: object): Scene {
-    let pusher: Body;
+function junk(rocks: V3[], def: Partial<WorldDef>): Scene {
+    let pusher: number;
     let degrees = 0;
     return {
         def,
         create(w) {
-            const ground = w.createBody({ position: { x: 0, y: -1, z: 0 } });
-            ground.createHull({}, makeBoxHull(120, 1, 120));
-            ground.createHull({}, makeOffsetBoxHull(1, 8, 50, { x: -50, y: 8, z: 0 }));
-            ground.createHull({}, makeOffsetBoxHull(1, 8, 50, { x: 50, y: 8, z: 0 }));
-            ground.createHull({}, makeOffsetBoxHull(50, 8, 1, { x: 0, y: 8, z: -50 }));
-            ground.createHull({}, makeOffsetBoxHull(50, 8, 1, { x: 0, y: 8, z: 50 }));
+            const ground = makeBody(w, { position: { x: 0, y: -1, z: 0 } });
+            createHullShape(w, ground, shapeDef(), makeBoxHull(120, 1, 120));
+            createHullShape(w, ground, shapeDef(), makeOffsetBoxHull(1, 8, 50, { x: -50, y: 8, z: 0 }));
+            createHullShape(w, ground, shapeDef(), makeOffsetBoxHull(1, 8, 50, { x: 50, y: 8, z: 0 }));
+            createHullShape(w, ground, shapeDef(), makeOffsetBoxHull(50, 8, 1, { x: 0, y: 8, z: -50 }));
+            createHullShape(w, ground, shapeDef(), makeOffsetBoxHull(50, 8, 1, { x: 0, y: 8, z: 50 }));
             const rock = createRock(1.5);
             for (const [X, Y, Z] of rocks) {
                 const position = {
@@ -220,17 +236,18 @@ function junk(rocks: V3[], def: object): Scene {
                     y: f(f(f(4 * Y) + 24) + 1),
                     z: f(-40 + f(4 * Z)),
                 };
-                w.createBody({ type: BodyType.Dynamic, position }).createHull({}, rock);
+                const body = makeBody(w, { type: BodyType.Dynamic, position });
+                createHullShape(w, body, shapeDef(), rock);
             }
-            pusher = w.createBody({ type: BodyType.Kinematic, position: { x: 35, y: 0, z: 0 } });
-            pusher.createHull({}, createCylinder(24, 4, 0, 16));
+            pusher = makeBody(w, { type: BodyType.Kinematic, position: { x: 35, y: 0, z: 0 } });
+            createHullShape(w, pusher, shapeDef(), createCylinder(24, 4, 0, 16));
         },
-        step() {
+        step(w) {
             const timeStep = f(1 / 60);
             degrees = f(degrees + f(-6.0 * timeStep));
             const cs = computeCosSin(f(f(degrees * PI) / 180.0));
             const p = { x: f(35 * cs.cosine), y: 0, z: f(35 * cs.sine) };
-            pusher.setTargetTransform({ p, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } }, timeStep, false);
+            bodySetTargetTransform(w, pusher, { p, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } }, timeStep, false);
         },
     };
 }
@@ -245,28 +262,34 @@ function jointGrid(): Scene {
         def: { enableSleep: false },
         create(w) {
             const n = 100;
-            const bodies: Body[] = [];
+            const bodies: number[] = [];
             const filter = { categoryBits: 2n, maskBits: 0xffffffffn ^ 2n, groupIndex: 0 };
             const sphere = { center: { x: 0, y: 0, z: 0 }, radius: f(0.4) };
             for (let k = 0; k < n; ++k) {
                 for (let i = 0; i < n; ++i) {
-                    const body = w.createBody({
+                    const body = makeBody(w, {
                         type: i === 0 ? BodyType.Static : BodyType.Dynamic,
                         enableSleep: false,
                         position: { x: k, y: -i, z: 0 },
                     });
-                    body.createSphere({ filter }, sphere);
+                    createSphereShape(w, body, shapeDef({ filter }), sphere);
                     const index = bodies.length;
                     if (i > 0)
-                        w.createSphericalJoint(bodies[index - 1], body, {
+                        createSphericalJoint(w, defaultSphericalJointDef({
+                            ...defaultJointDef(),
+                            bodyIdA: bodies[index - 1]!,
+                            bodyIdB: body,
                             localFrameA: frame(0, -0.5, 0),
                             localFrameB: frame(0, 0.5, 0),
-                        });
+                        }));
                     if (k > 0)
-                        w.createSphericalJoint(bodies[index - n], body, {
+                        createSphericalJoint(w, defaultSphericalJointDef({
+                            ...defaultJointDef(),
+                            bodyIdA: bodies[index - n]!,
+                            bodyIdB: body,
                             localFrameA: frame(0.5, 0, 0),
                             localFrameB: frame(-0.5, 0, 0),
-                        });
+                        }));
                     bodies.push(body);
                 }
             }
@@ -281,14 +304,15 @@ function largePyramid(): Scene {
         def: { enableSleep: false },
         create(w) {
             const baseCount = 100, h = f(0.5), shift = f(1 * h);
-            const ground = w.createBody({ position: { x: 0, y: -1, z: 0 } });
-            ground.createHull({}, makeBoxHull(400, 1, 400));
+            const ground = makeBody(w, { position: { x: 0, y: -1, z: 0 } });
+            createHullShape(w, ground, shapeDef(), makeBoxHull(400, 1, 400));
             const box = makeBoxHull(h, h, h);
             for (let i = 0; i < baseCount; ++i) {
                 const y = f(f(f(2 * i) + 1) * shift);
                 for (let j = i; j < baseCount; ++j) {
                     const x = f(f(f(f(i + 1) * shift) + f(f(2 * (j - i)) * shift)) - f(h * baseCount));
-                    w.createBody({ type: BodyType.Dynamic, position: { x, y, z: 0 } }).createHull({ density: 100 }, box);
+                    const body = makeBody(w, { type: BodyType.Dynamic, position: { x, y, z: 0 } });
+                    createHullShape(w, body, shapeDef({ density: 100 }), box);
                 }
             }
         },
@@ -302,8 +326,8 @@ function manyPyramids(): Scene {
         create(w) {
             const baseCount = 10, extent = f(0.5), rowCount = 14, columnCount = 14;
             const groundExtent = f(f(extent * columnCount) * f(baseCount + 1));
-            const ground = w.createBody({ position: { x: 0, y: -1, z: 0 } });
-            ground.createHull({}, makeBoxHull(groundExtent, 1, groundExtent));
+            const ground = makeBody(w, { position: { x: 0, y: -1, z: 0 } });
+            createHullShape(w, ground, shapeDef(), makeBoxHull(groundExtent, 1, groundExtent));
             const baseWidth = f(f(2 * extent) * baseCount);
             let baseZ = f(-groundExtent + f(2 * extent));
             const deltaZ = f(f(2 * f(groundExtent - f(2 * extent))) / f(rowCount - 1));
@@ -315,7 +339,8 @@ function manyPyramids(): Scene {
                         const y = f(f(f(2 * i) + 1) * extent);
                         for (let j = i; j < baseCount; ++j) {
                             const x = f(f(f(f(f(i + 1) * extent) + f(f(2 * extent) * (j - i))) + centerX) - 0.5);
-                            w.createBody({ type: BodyType.Dynamic, enableSleep: false, position: { x, y, z: baseZ } }).createHull({ density: 100 }, box);
+                            const body = makeBody(w, { type: BodyType.Dynamic, enableSleep: false, position: { x, y, z: baseZ } });
+                            createHullShape(w, body, shapeDef({ density: 100 }), box);
                         }
                     }
                 }
@@ -364,9 +389,8 @@ const owner = new World();
 const threads = Number(threadArg);
 await init(owner, { threads: threads === 1 ? 0 : threads });
 const scene = scenes[name]();
-const w = new PhysicsWorld({ enableContinuous: true, ...scene.def }, owner);
-scene.create(w);
-const state = w.state as WorldState;
+const state = createTestWorld({ enableContinuous: true, ...scene.def }, owner);
+scene.create(state);
 const colors = env("COLORS", -1),
     cache = env("CACHE", -1),
     profileFrom = env("PROFILE", -1),
@@ -382,10 +406,10 @@ const loopStart = performance.now();
 let before = 0, window = 0, hashing = 0;
 for (let i = 0; i < steps; ++i) {
     const sampleStart = sampleWall ? performance.now() : 0;
-    scene.step(w, i);
+    scene.step(state, i);
     if (i === cpuFrom) cpu?.startCpu();
     const wallStart = i >= wallFrom && wallFrom >= 0 ? performance.now() : 0;
-    w.step(f(1 / 60), 4);
+    stepWorld(state, f(1 / 60), 4);
     if (i >= wallFrom && wallFrom >= 0) lines.push(`T ${i} ${(performance.now() - wallStart).toFixed(4)}`);
     const hashStart = sampleWall ? performance.now() : 0;
     if (sampleWall) {
@@ -393,15 +417,15 @@ for (let i = 0; i < steps; ++i) {
         else window += hashStart - sampleStart;
     }
     if (hashSteps) {
-        lines.push(`${i} 0x${hash(w).toString(16).padStart(16, "0")}`);
+        lines.push(`${i} 0x${hashWorldState(state).toString(16).padStart(16, "0")}`);
         if (sampleWall) hashing += performance.now() - hashStart;
     }
     if (profileFrom >= 0 && i >= profileFrom) {
-        const p = w.getProfile();
+        const p = worldProfile(state);
         lines.push(`F ${i} ${PROFILE_FIELDS.map((k) => p[k].toFixed(4)).join(" ")}`);
     }
     if (countersFrom >= 0 && i >= countersFrom) {
-        const c = w.getCounters();
+        const c = worldCounters(state);
         lines.push(`W ${i} contacts ${c.contactCount} awake ${awakeContactCount(state)} joints ${c.jointCount}`);
     }
     if (i === colors) {
@@ -425,5 +449,5 @@ for (let i = 0; i < steps; ++i) {
 if (sampleWall) lines.push(`M ${JSON.stringify({ setup: loopStart, before, hashing, window, other: performance.now() - loopStart - before - hashing - window })}`);
 if (cpu && cpuFrom < steps) lines.push(...cpu.stopCpu(steps - cpuFrom, threads !== 1));
 console.log(lines.join("\n"));
-w.destroy();
+destroyTestWorld(state);
 await shutdown(owner);
