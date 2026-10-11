@@ -166,7 +166,6 @@ async function runSampler(
         });
         if (!built.success)
             throw new Error(`allocation bundle failed: ${built.logs.map(String).join("\n")}`);
-        if (process.platform === "win32") writeFileSync(join(dir, "code.asm"), "");
         const proc = Bun.spawn(
             [
                 "node",
@@ -174,10 +173,9 @@ async function runSampler(
                 "--enable-source-maps",
                 ...TIER_FLAGS,
                 "--trace-opt",
-                // One stdout carries every isolate's traces; a worker's optimization would refuse
-                // a main-thread window. Per-isolate files keep only the measured isolate's.
-                "--redirect-code-traces",
-                ...(process.platform === "win32" ? ["--redirect-code-traces-to=code.asm"] : []),
+                // V8 cannot open redirected code-trace files on the Windows Dawn host, so trace-opt
+                // lines stay on stdout and each window still refuses an optimization.
+                ...(process.platform === "win32" ? [] : ["--redirect-code-traces"]),
                 "--allow-natives-syntax",
                 SAMPLER,
                 join(dir, "subject.mjs"),
@@ -194,7 +192,8 @@ async function runSampler(
             proc.exited,
         ]);
         if (code !== 0) throw new Error(`allocation sampler exited ${code}: ${stderr.trim()}`);
-        return tracedSample(`${measuredIsolateTrace(dir)}\n${stdout}`, { retainOptimizedSites });
+        const trace = process.platform === "win32" ? "" : `${measuredIsolateTrace(dir)}\n`;
+        return tracedSample(`${trace}${stdout}`, { retainOptimizedSites });
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

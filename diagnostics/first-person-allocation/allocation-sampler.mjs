@@ -4,8 +4,8 @@
 // Needs node --expose-gc --allow-natives-syntax.
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
-// its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces;
-// writes window markers into this isolate's trace file and one JSON sample on stdout.
+// its `control` export allocates one known literal per call. Needs --trace-opt; redirects code traces to
+// per-isolate files where supported, and writes window markers and one JSON sample on stdout.
 import { openSync, readdirSync, readFileSync, realpathSync, writeSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
@@ -169,9 +169,9 @@ async function main() {
 
         // Warm marker writes separately so their first compiles do not land in subject runs. A
         // descriptor, not appendFileSync, whose path handling tiers up late inside windows.
-        const trace = measuredTrace();
-        const traceFd = openSync(trace, "a");
-        const mark = (text) => writeSync(traceFd, text);
+        const trace = process.platform === "win32" ? undefined : measuredTrace();
+        const traceFd = trace === undefined ? undefined : openSync(trace, "a");
+        const mark = (text) => writeSync(traceFd ?? 1, text);
         for (let i = 0; i < 10000; i++) mark("");
 
         const { default: create, control } = await import(bundleUrl);
