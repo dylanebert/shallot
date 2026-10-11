@@ -1,7 +1,8 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { type Component, createApp, Time } from "@dylanebert/shallot";
 import * as core from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import {
     DJ_LOWER_SPRING_FORCE,
@@ -39,7 +40,6 @@ await setupGlobals();
 
 test("values asserted against by Box3D create warn once and skip, while positive infinite weld hertz is accepted", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const warning = spyOn(console, "warn").mockImplementation(() => {});
     const world = app.world;
     try {
         const a = world.create();
@@ -81,21 +81,16 @@ test("values asserted against by Box3D create warn once and skip, while positive
             const component = (core as unknown as Record<string, Component>)[`${kind}Joint`];
             const eid = world.create();
             world.add(eid, component, { a, b, ...values });
-            warning.mockClear();
+            expectWarning(new RegExp(`${kind}Joint ${eid} has invalid ${field} — skipped`));
             world.step(Time.FIXED_DT);
             world.step(Time.FIXED_DT);
-            expect(warning).toHaveBeenCalledTimes(1);
-            expect(String(warning.mock.calls[0]![0])).toContain(`${kind}Joint ${eid}`);
-            expect(String(warning.mock.calls[0]![0])).toContain(field);
             expect(jointIds(physicsState(world)!)).toHaveLength(0);
             world.destroy(eid);
             world.step(Time.FIXED_DT);
         }
         const infinite = world.create();
         world.add(infinite, core.WeldJoint, { a, b, angularHertz: Infinity });
-        warning.mockClear();
         world.step(Time.FIXED_DT);
-        expect(warning).not.toHaveBeenCalled();
         expect(jointIds(physicsState(world)!)).toHaveLength(1);
         world.destroy(infinite);
         world.step(Time.FIXED_DT);
@@ -105,23 +100,20 @@ test("values asserted against by Box3D create warn once and skip, while positive
         world.step(Time.FIXED_DT);
         expect(jointIds(physicsState(world)!)).toHaveLength(1);
         world.storage(core.WeldJoint).angularHertz.set(eid, NaN);
+        expectWarning(new RegExp(`WeldJoint ${eid} ignored invalid angularHertz`));
         world.step(Time.FIXED_DT);
-        expect(warning).toHaveBeenCalledTimes(1);
         world.storage(core.WeldJoint).angularHertz.set(eid, NaN);
         world.step(Time.FIXED_DT);
-        expect(warning).toHaveBeenCalledTimes(1);
         const ids = jointIds(physicsState(world)!);
         expect(ids).toHaveLength(1);
         expect(readJointFloat(physicsState(world)!, ids[0]!, WJ_ANGULAR_HERTZ)).toBe(2);
     } finally {
-        warning.mockRestore();
         app.dispose();
     }
 });
 
 test("live joint edits reject Box3D setter precondition failures", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const warning = spyOn(console, "warn").mockImplementation(() => {});
     const world = app.world;
     try {
         const a = world.create();
@@ -200,7 +192,26 @@ test("live joint edits reject Box3D setter precondition failures", async () => {
             ],
         };
 
-        warning.mockClear();
+        for (const [kind, eid, field] of [
+            ["Distance", distance, "forceThreshold"],
+            ["Distance", distance, "constraint tuning"],
+            ["Distance", distance, "lowerSpringForce/upperSpringForce"],
+            ["Filter", filter, "localFrameA"],
+            ["Filter", filter, "localFrameB"],
+            ["Parallel", parallel, "hertz"],
+            ["Spherical", spherical, "targetRotation"],
+            ["Spherical", spherical, "motorVelocity"],
+            ["Spherical", spherical, "coneAngle"],
+            ["Prismatic", prismatic, "hertz"],
+            ["Prismatic", prismatic, "targetTranslation"],
+            ["Prismatic", prismatic, "lowerTranslation/upperTranslation"],
+            ["Revolute", revolute, "targetAngle"],
+            ["Revolute", revolute, "lowerAngle/upperAngle"],
+            ["Wheel", wheel, "lowerSuspensionLimit/upperSuspensionLimit"],
+            ["Wheel", wheel, "lowerSteeringLimit/upperSteeringLimit"],
+        ] as const) {
+            expectWarning(new RegExp(`${kind}Joint ${eid} ignored invalid ${field}`));
+        }
         const distanceFields = world.storage(core.DistanceJoint);
         distanceFields.forceThreshold.set(distance, -1);
         distanceFields.constraintHertz.set(distance, NaN);
@@ -229,7 +240,6 @@ test("live joint edits reject Box3D setter precondition failures", async () => {
         world.step(Time.FIXED_DT);
         world.step(Time.FIXED_DT);
 
-        expect(warning).toHaveBeenCalledTimes(16);
         expect([
             readJointFloat(state, ids.distance, DJ_LOWER_SPRING_FORCE),
             readJointFloat(state, ids.distance, DJ_UPPER_SPRING_FORCE),
@@ -270,7 +280,6 @@ test("live joint edits reject Box3D setter precondition failures", async () => {
             readJointFloat(state, ids.wheel, WHJ_UPPER_STEERING_LIMIT),
         ]).toEqual(before.wheelSteering);
     } finally {
-        warning.mockRestore();
         app.dispose();
     }
 });

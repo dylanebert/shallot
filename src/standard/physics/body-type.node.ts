@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
@@ -13,7 +13,6 @@ await setupGlobals();
 
 test("a default Body is static, takes no velocity, and refuses target transforms", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const warning = spyOn(console, "warn").mockImplementation(() => {});
     try {
         const eid = app.world.create();
         app.world.add(eid, Body, { position: [0, 5, 0, 0] });
@@ -34,9 +33,7 @@ test("a default Body is static, takes no velocity, and refuses target transforms
             pose.translation.y.get(eid),
             pose.translation.z.get(eid),
         ]).toEqual([0, 5, 0]);
-        expect(warning).not.toHaveBeenCalled();
     } finally {
-        warning.mockRestore();
         app.dispose();
     }
 });

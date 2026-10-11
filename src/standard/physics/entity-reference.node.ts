@@ -1,5 +1,5 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { createApp, GlobalTransform, Time, Transform } from "@dylanebert/shallot";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { GlobalTransform, Time, Transform } from "@dylanebert/shallot";
 import {
     Body,
     BodyType,
@@ -9,6 +9,8 @@ import {
     SphericalJoint,
 } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { worldCounters } from "./world/world";
@@ -20,17 +22,17 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 await setupGlobals();
 
 test("recycled Shape geometry retries and placement warnings preserve restored bindings", async () => {
-    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    const app = await createTestGpuApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const world = app.world;
         const eid = world.create();
         world.add(eid, Body);
         world.add(eid, Shape, { kind: ShapeKind.Hull, geometry: 999, scale: [1, 1, 1, 0] });
         world.add(eid, Transform);
+        expectWarning(new RegExp(`physics-sync: entity ${eid} carries both Body and Transform`));
+        expectWarning(/Shape \d+ was not attached:.*missing hull 999/);
         world.step(Time.FIXED_DT);
         world.step(Time.FIXED_DT);
-        expect(warning).toHaveBeenCalledTimes(2);
         expect(worldCounters(physicsState(world)!).bodyCount).toBe(1);
         expect(worldCounters(physicsState(world)!).shapeCount).toBe(0);
         const failed = world.snapshot();
@@ -40,13 +42,12 @@ test("recycled Shape geometry retries and placement warnings preserve restored b
         world.add(eid, Transform);
         world.restore(failed);
         world.step(Time.FIXED_DT);
-        expect(warning).toHaveBeenCalledTimes(2);
         world.destroy(eid);
         expect(world.create()).toBe(eid);
         world.add(eid, Body);
         world.add(eid, Transform);
+        expectWarning(new RegExp(`physics-sync: entity ${eid} carries both Body and Transform`));
         world.step(Time.FIXED_DT);
-        expect(warning).toHaveBeenCalledTimes(3);
         const solver = physicsState(world)!;
         expect(physicsBodyIndex(world, eid)).toBeGreaterThanOrEqual(0);
         const live = world.snapshot();
@@ -59,14 +60,13 @@ test("recycled Shape geometry retries and placement warnings preserve restored b
         expect(world.storage(GlobalTransform).translation.y.get(eid)).toBe(0);
         expect(worldCounters(solver).bodyCount).toBe(1);
     } finally {
-        warning.mockRestore();
         app.dispose();
     }
 });
 
 for (const constraint of [SphericalJoint, DistanceJoint]) {
     test(`${constraint === SphericalJoint ? "a spherical joint" : "a distance joint"} constrains nothing when its endpoint is destroyed and recycled in one update`, async () => {
-        const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+        const app = await createTestGpuApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
         try {
             const world = app.world;
             const anchor = world.create();
@@ -83,6 +83,7 @@ for (const constraint of [SphericalJoint, DistanceJoint]) {
             expect(replacement).toBe(bob);
             world.add(replacement, Body, { type: BodyType.Dynamic, position: [0, 1, 0, 0] });
             expect(physicsBodyIndex(world, replacement)).toBe(-1);
+            expectWarning(/endpoint unavailable/);
             world.step(Time.FIXED_DT);
             expect(physicsBodyIndex(world, replacement)).toBeGreaterThanOrEqual(0);
             expect(worldCounters(solver).jointCount).toBe(0);

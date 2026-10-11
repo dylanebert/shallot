@@ -2,6 +2,8 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { create, globals } from "webgpu";
+import { createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
@@ -158,7 +160,7 @@ test("pipeline creation refuses the ten-binding light-compact mutation and build
     });
     expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
     try {
-        const app = await createApp({
+        const app = await createTestGpuApp({
             defaults: false,
             plugins: [storageLimitPlugin(8)],
             device,
@@ -182,6 +184,7 @@ test("pipeline creation refuses the ten-binding light-compact mutation and build
             'Plugin "StandardRendering" pipeline "shallot-light-compact" uses 10 compute storage-buffer bindings; maxStorageBuffersPerShaderStage is 8',
         );
     } finally {
+        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
     }
 });
@@ -263,7 +266,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
     device.pushErrorScope("validation");
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-        app = await createApp({ device, adapter, plugins: [proof] });
+        app = await createTestGpuApp({ device, adapter, plugins: [proof] });
         const { world } = app;
         const layouts = {
             standardVertex:
@@ -578,6 +581,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         app?.dispose();
         const finalError = await device.popErrorScope();
         expect(finalError, finalError?.message).toBeNull();
+        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
         Object.assign(globalThis, previousGlobals);
     }

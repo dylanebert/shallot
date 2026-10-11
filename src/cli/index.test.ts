@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { expectError } from "../../scripts/test-console";
 import { main, parseCliArgs } from "./index";
 
 type Result = { code: number; stdout: string; stderr: string };
@@ -18,7 +19,10 @@ async function cli(...args: string[]): Promise<Result> {
     const log = console.log;
     const error = console.error;
     console.log = (...values: unknown[]) => stdout.push(values.join(" "));
-    console.error = (...values: unknown[]) => stderr.push(values.join(" "));
+    console.error = (...values: unknown[]) => {
+        stderr.push(values.join(" "));
+        error(...values);
+    };
     let code = 0;
     try {
         await main(args, (status) => {
@@ -142,6 +146,8 @@ test("shallot add --help presents add usage without writing a destination", asyn
 });
 
 test("shallot run is no longer accepted and points users to the command list", async () => {
+    expectError(/unknown command: run/);
+    expectError(/See `shallot --help` for available commands\./);
     const result = await cli("run");
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
@@ -162,6 +168,8 @@ test("Vite-specific flags are passed through rather than interpreted as Shallot 
 });
 
 test("an unknown build target reports its invocation error", async () => {
+    expectError(/unknown target: not-a-platform/);
+    expectError(/See `shallot build --help`/);
     const result = await cli("build", "--target", "not-a-platform");
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");

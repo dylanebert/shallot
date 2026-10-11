@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { expectWarning } from "../../../scripts/test-console";
 import { RenderingPlugin } from "../../core/rendering";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { StandardRenderingPlugin } from "../../standard/rendering";
@@ -16,12 +17,14 @@ const fallbackAdapter = {
 } as unknown as GPUAdapter;
 
 test("GPU acquisition accepts a fallback adapter without stamping its verdict, so an app can look like it has real hardware", () => {
+    expectWarning(/fallback adapter, not a real device: google swiftshader fallback SwiftShader/);
     const verdict = stampAdapter(fallbackAdapter);
     expect(verdict.class).toBe("fallback");
     expect(verdict.identity).toContain("SwiftShader");
 });
 
 test("an externally supplied GPU device without its adapter can be mistaken for a real adapter", () => {
+    expectWarning(/adapter with no identity, so no real device can be claimed/);
     const verdict = stampAdapter();
     expect(verdict.class).toBe("unidentified");
     expect(verdict.identity).toBe("unidentified");

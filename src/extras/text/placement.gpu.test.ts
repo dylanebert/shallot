@@ -1,7 +1,7 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { globalTransformTable, RenderingPlugin } from "../../core/rendering";
 import {
@@ -10,7 +10,6 @@ import {
 } from "../../core/rendering/global-transform";
 import { VIEW_BYTES } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
-import { createApp } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { encodePos } from "../../engine/utils";
 import { maskLayoutPlain, maskVertex } from "../outline/passes";
@@ -18,7 +17,7 @@ import { TextVertex } from "./pipeline";
 
 setDefaultTimeout(CEILING.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
-    const app = await createApp({ defaults: false, plugins: [RenderingPlugin] });
+    const app = await createTestGpuApp({ defaults: false, plugins: [RenderingPlugin] });
     const world = app.world;
     const device = world.gpu.device;
     console.info("placement adapter:", world.gpu.adapter);

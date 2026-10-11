@@ -1,7 +1,8 @@
 import { afterAll, beforeAll } from "bun:test";
 import { relative } from "node:path";
-import { createApp, type Plugin } from "@dylanebert/shallot";
+import { createApp, DEFAULT_PLUGINS, type Plugin } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
+import { expectWarning } from "./test-console";
 import { CEILING } from "./test-tiers";
 
 export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () => T {
@@ -52,6 +53,29 @@ export function gpuRequirements(plugins: readonly Plugin[]): NonNullable<Plugin[
 
 type GpuApp = Awaited<ReturnType<typeof createApp>>;
 
+/** Build one test app while declaring an adapter notice for GPU-backed compositions. */
+export function createTestGpuApp(
+    config: Parameters<typeof createApp>[0],
+): ReturnType<typeof createApp> {
+    const visited = new Set<Plugin>();
+    const usesGpu = (plugin: Plugin): boolean => {
+        if (visited.has(plugin)) return false;
+        visited.add(plugin);
+        return plugin.gpu !== undefined || (plugin.dependencies ?? []).some(usesGpu);
+    };
+    if (
+        config.device !== undefined ||
+        (config.defaults !== false && DEFAULT_PLUGINS.some(usesGpu)) ||
+        (config.plugins ?? []).some(usesGpu)
+    ) {
+        expectWarning(
+            /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
+            { optional: true },
+        );
+    }
+    return createApp(config);
+}
+
 /** Wait for all fixture submissions before releasing the fixture's worlds. */
 export async function disposeGpuApps(apps: GpuApp[]): Promise<void> {
     const devices = new Set<GPUDevice>();
@@ -84,7 +108,7 @@ export function gpuApps(
 ): () => Awaited<ReturnType<typeof createApp>>[] {
     const apps: Awaited<ReturnType<typeof createApp>>[] = [];
     const subject = compileGpuFile(path, async () => {
-        const owner = await createApp({
+        const owner = await createTestGpuApp({
             defaults: false,
             plugins: [
                 {
@@ -97,7 +121,7 @@ export function gpuApps(
         const device = rawDevice(owner.world.gpu.device);
         const worlds = [];
         for (const config of configs) {
-            const app = await createApp({ ...config, device });
+            const app = await createTestGpuApp({ ...config, device });
             apps.push(app);
             worlds.push(app);
         }

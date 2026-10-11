@@ -1,7 +1,8 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { createTestGpuApp, gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp, type Plugin, type World } from "../../engine";
+import type { createApp, Plugin, World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import {
     MeshRenderPlugin,
@@ -100,11 +101,8 @@ const subjects = gpuApps(
     })),
 );
 
-const frames = new Map<Arm, { rgba: Uint8ClampedArray; warnings: string[] }>();
-async function frame(
-    arm: Arm,
-    steps = 1,
-): Promise<{ rgba: Uint8ClampedArray; warnings: string[] }> {
+const frames = new Map<Arm, Uint8ClampedArray>();
+async function frame(arm: Arm, steps = 1): Promise<Uint8ClampedArray> {
     const cached = frames.get(arm);
     if (cached) return cached;
     const { world } = subjects()[order.indexOf(arm)];
@@ -122,21 +120,14 @@ async function frame(
     attachTexture(world, camera, { width: 32, height: 32 });
     if (!arm.endsWith("system")) place(world, handleForLabel(world, "slab"));
     if (arm === "reinitialized") await reinitialize(world);
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
-    let warnings: string[];
-    try {
-        for (let i = 0; i < steps; i++) world.step(0);
-    } finally {
-        warnings = warn.mock.calls.map((call) => call.join(" "));
-        warn.mockRestore();
-    }
+    for (let i = 0; i < steps; i++) world.step(0);
     const { rgba } = await captureTexture(world, camera);
-    frames.set(arm, { rgba, warnings });
-    return { rgba, warnings };
+    frames.set(arm, rgba);
+    return rgba;
 }
 
 test("a mesh registered during initialize draws on the first frame", async () => {
-    const { rgba } = await frame("during initialize");
+    const rgba = await frame("during initialize");
     const pixel = (x: number, y: number) =>
         Array.from(rgba.subarray((y * 32 + x) * 4, (y * 32 + x) * 4 + 3));
     expect(pixel(16, 16)).not.toEqual(pixel(0, 0));
@@ -144,21 +135,23 @@ test("a mesh registered during initialize draws on the first frame", async () =>
 
 for (const arm of late) {
     test(`a mesh registered ${arm} draws on the next frame as one registered during initialize`, async () => {
-        expect((await frame(arm)).rgba).toEqual((await frame("during initialize")).rgba);
+        expect(await frame(arm)).toEqual(await frame("during initialize"));
     });
 }
 
 test("a mesh registered in a draw-group system draws on the following frame without a warning", async () => {
-    const { rgba, warnings } = await frame("in a draw-group system", 2);
-    expect(warnings).toEqual([]);
-    expect(rgba).toEqual((await frame("during initialize")).rgba);
+    const rgba = await frame("in a draw-group system", 2);
+    expect(rgba).toEqual(await frame("during initialize"));
 });
 
 test("a mesh registered directly without quantized streams is skipped with a warning", async () => {
-    const { warnings } = await frame("directly without streams");
-    expect(warnings).toContain(
-        'standard: draw "mesh:material:StandardMaterial:slab:1" skipped — mesh "slab" has no quantized position/quant stream',
+    expectWarning(
+        /^standard: draw "mesh:material:StandardMaterial:slab:1" skipped — mesh "slab" has no quantized position\/quant stream$/,
     );
+    expectWarning(
+        /^standard: draw "mesh:material:VertexMaterial:slab:1" skipped — mesh "slab" has no quantized position\/quant stream$/,
+    );
+    await frame("directly without streams");
 });
 
 // MeshPlugin.initialize reruns on a live world as swapPlugins reruns it, followed by the slab's own
@@ -179,7 +172,7 @@ async function reinitialize(world: World): Promise<void> {
 }
 
 test("three reruns of MeshPlugin.initialize destroy every family but the live one", async () => {
-    const { rgba } = await frame("reinitialized");
+    const rgba = await frame("reinitialized");
     expect(validation).toBeNull();
     expect(
         families.map((m) => [m.vertices, m.position!, m.quant!, m.indices].map((b) => b.destroyed)),
@@ -189,14 +182,19 @@ test("three reruns of MeshPlugin.initialize destroy every family but the live on
         [true, true, true, true],
         [false, false, false, false],
     ]);
-    expect(rgba).toEqual((await frame("during initialize")).rgba);
+    expect(rgba).toEqual(await frame("during initialize"));
 });
 
 test("a mesh registered in setup, before MeshPlugin initializes, is refused by name", async () => {
     const device = rawDevice(subjects()[0].world.gpu.device);
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-        app = await createApp({ defaults: false, plugins: [MeshPlugin], setup: register, device });
+        app = await createTestGpuApp({
+            defaults: false,
+            plugins: [MeshPlugin],
+            setup: register,
+            device,
+        });
     } catch (error) {
         expect(String(error)).toContain('"slab"');
         expect(String(error)).toContain("MeshPlugin");

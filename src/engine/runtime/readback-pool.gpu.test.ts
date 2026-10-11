@@ -1,7 +1,7 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp } from "../app";
+import type { createApp } from "../app";
 import type { World } from "../ecs";
 import { rawDevice } from "./gpu";
 import { probeBuffer } from "./probe";
@@ -10,7 +10,7 @@ import { countStaging } from "./readback.fixture";
 setDefaultTimeout(CEILING.gpu);
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 const subject = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({
+    const owner = await createTestGpuApp({
         defaults: false,
         plugins: [{ name: "ReadbackPoolTestDevice", gpu: {} }],
     });
@@ -19,7 +19,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     const tracker = countStaging(device);
     try {
         for (let i = 0; i < 2; i++)
-            apps.push(await createApp({ defaults: false, plugins: [], device }));
+            apps.push(await createTestGpuApp({ defaults: false, plugins: [], device }));
         return { worlds: apps.slice(1), counts: tracker.counts };
     } finally {
         tracker.restore();

@@ -1,5 +1,10 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, disposeGpuApps, gpuRequirements } from "../../../scripts/gpu.fixture";
+import {
+    compileGpuFile,
+    createTestGpuApp,
+    disposeGpuApps,
+    gpuRequirements,
+} from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -10,7 +15,6 @@ import {
     PointLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { createApp } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -29,9 +33,9 @@ const settings = {
 type Arm = keyof typeof settings;
 const order = Object.keys(settings) as Arm[];
 
-type App = Awaited<ReturnType<typeof createApp>>;
+type App = Awaited<ReturnType<typeof createTestGpuApp>>;
 const subjects = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({
+    const owner = await createTestGpuApp({
         defaults: false,
         plugins: [
             {
@@ -43,7 +47,7 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     const device = rawDevice(owner.world.gpu.device);
     const apps = new Map<Arm, App>();
     for (const arm of order) {
-        const app = await createApp({
+        const app = await createTestGpuApp({
             defaults: false,
             plugins: [StandardRenderingPlugin, MeshRenderPlugin],
             device,

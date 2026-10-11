@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
+import { expectError } from "../../scripts/test-console";
 import { CEILING } from "../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -41,7 +42,10 @@ async function captureOutput<T>(
     const log = console.log;
     const error = console.error;
     console.log = (...args: unknown[]) => stdout.push(args.join(" "));
-    console.error = (...args: unknown[]) => stderr.push(args.join(" "));
+    console.error = (...args: unknown[]) => {
+        stderr.push(args.join(" "));
+        error(...args);
+    };
     try {
         return { value: await body(), stdout: stdout.join("\n"), stderr: stderr.join("\n") };
     } finally {
@@ -129,6 +133,7 @@ test("shallot add skips directories without a page without breaking the listing"
 
 test("shallot add refuses an occupied destination and preserves its contents", async () => {
     const root = recipes();
+    expectError(/refusing to copy into .*: directory is not empty/);
     const dest = join(root, "out");
     mkdirSync(dest);
     const page = join(dest, "index.html");

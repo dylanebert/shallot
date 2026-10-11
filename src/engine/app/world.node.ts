@@ -1,4 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { component, idOf } from "../ecs";
 
@@ -16,7 +18,7 @@ import { f32, probeBuffer, requestGPU, Time, World } from "../index";
 import "../../standard";
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createApp, swapPlugins } from "./index";
+import { swapPlugins } from "./index";
 
 await setupGlobals();
 
@@ -280,6 +282,7 @@ test("world GPU registries and owned resources are isolated and released on disp
     apps = apps.filter((app) => app !== second);
     expect(liveBuffers.size).toBe(0);
     expect(liveTextures.size).toBe(0);
+    expectError(/GPU device lost destroyed: device was destroyed/);
     device.destroy();
 });
 

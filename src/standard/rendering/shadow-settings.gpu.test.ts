@@ -1,5 +1,10 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, disposeGpuApps, gpuRequirements } from "../../../scripts/gpu.fixture";
+import {
+    compileGpuFile,
+    createTestGpuApp,
+    disposeGpuApps,
+    gpuRequirements,
+} from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -11,7 +16,7 @@ import {
     PointLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { createApp, lookAtRotation, type World } from "../../engine";
+import { lookAtRotation, type World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -69,7 +74,7 @@ async function shot(world: World, camera: number) {
 }
 
 const subjects = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({
+    const owner = await createTestGpuApp({
         defaults: false,
         plugins: [
             {
@@ -80,11 +85,11 @@ const subjects = compileGpuFile(import.meta.path, async () => {
     });
     const device = rawDevice(owner.world.gpu.device);
     const plugins = [StandardRenderingPlugin, MeshRenderPlugin];
-    const a = await createApp({ defaults: false, plugins, device });
+    const a = await createTestGpuApp({ defaults: false, plugins, device });
     const cameraA = scene(a.world);
     // A's reference frame is taken before B exists
     const reference = await shot(a.world, cameraA);
-    const b = await createApp({ defaults: false, plugins, device, setup: configure });
+    const b = await createTestGpuApp({ defaults: false, plugins, device, setup: configure });
     const cameraB = scene(b.world);
     return { owner, a, cameraA, reference, b, cameraB };
 });

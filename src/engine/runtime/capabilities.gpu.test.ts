@@ -1,13 +1,13 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp } from "../app";
+import type { createApp } from "../app";
 import { rawDevice } from "./gpu";
 
 setDefaultTimeout(CEILING.gpu);
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 const subject = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({
+    const owner = await createTestGpuApp({
         defaults: false,
         plugins: [{ name: "CapabilitiesOwner", gpu: {} }],
     });
@@ -24,7 +24,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
             return methods.get(key);
         },
     });
-    const app = await createApp({ defaults: false, plugins: [], device: supplied });
+    const app = await createTestGpuApp({ defaults: false, plugins: [], device: supplied });
     apps.push(app);
     return { app, reads: () => reads };
 });

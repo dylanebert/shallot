@@ -1,6 +1,6 @@
 import {
     CharacterPlugin,
-    createApp,
+    type createApp,
     DEFAULT_PLUGINS,
     InputPlugin,
     OrbitPlugin,
@@ -10,7 +10,7 @@ import {
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
-import { gpuRequirements } from "./gpu.fixture";
+import { createTestGpuApp, gpuRequirements } from "./gpu.fixture";
 
 export const compileSubjects = [
     { name: "engine-only", config: { defaults: false, plugins: [] } },
@@ -45,7 +45,7 @@ export async function measureCompile(config: Parameters<typeof createApp>[0]) {
         ...DEFAULT_PLUGINS,
         ...compileSubjects.flatMap((subject) => subject.config.plugins),
     ];
-    const owner = await createApp({
+    const owner = await createTestGpuApp({
         defaults: false,
         plugins: [{ name: "CompileProbeDevice", gpu: gpuRequirements(plugins) }],
     });
@@ -67,7 +67,7 @@ export async function measureCompile(config: Parameters<typeof createApp>[0]) {
             });
         }
         const start = performance.now();
-        app = await createApp({ ...config, device });
+        app = await createTestGpuApp({ ...config, device });
         await device.queue.onSubmittedWorkDone();
         return { pipelines, ms: performance.now() - start };
     } finally {

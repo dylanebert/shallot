@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, gpuRequirements } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, createTestGpuApp, gpuRequirements } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -10,7 +10,7 @@ import {
     DirectionalLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { createApp, lookAtRotation, type World } from "../../engine";
+import { lookAtRotation, type World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -90,7 +90,7 @@ function drift(world: World, camera: number): number[] {
 }
 
 const subjects = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({
+    const owner = await createTestGpuApp({
         defaults: false,
         plugins: [
             {
@@ -106,7 +106,7 @@ const subjects = compileGpuFile(import.meta.path, async () => {
 for (const cascades of [4, 2]) {
     test(`a 4096 DirectionalLightShadowMap gives each of ${cascades} cascades a 4096-pixel tile that its texel snap holds still`, async () => {
         const { device } = subjects();
-        const app = await createApp({
+        const app = await createTestGpuApp({
             defaults: false,
             plugins: [StandardRenderingPlugin, MeshRenderPlugin],
             device,
@@ -130,7 +130,7 @@ for (const cascades of [4, 2]) {
 
 // an app whose world sets DirectionalLightShadowMap.size in setup, on the shared device
 function build(size: number) {
-    return createApp({
+    return createTestGpuApp({
         defaults: false,
         plugins: [StandardRenderingPlugin, MeshRenderPlugin],
         device: subjects().device,

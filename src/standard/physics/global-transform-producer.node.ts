@@ -1,4 +1,5 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
@@ -57,7 +58,6 @@ test("a body falling asleep publishes zero ECS velocity, and waking publishes it
 
 test("physics warns once per entity carrying Body and Transform, not for either alone", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
-    const warning = spyOn(console, "warn").mockImplementation(() => {});
     try {
         const world = app.world;
         const body = world.create();
@@ -65,18 +65,13 @@ test("physics warns once per entity carrying Body and Transform, not for either 
         const transform = world.create();
         world.add(transform, Transform);
         world.step(Time.FIXED_DT);
-        expect(warning).not.toHaveBeenCalled();
         const both = world.create();
         world.add(both, Body);
         world.add(both, Transform);
+        expectWarning(new RegExp(`physics-sync: entity ${both} carries both Body and Transform`));
         world.step(Time.FIXED_DT);
         world.step(Time.FIXED_DT);
-        expect(warning).toHaveBeenCalledTimes(1);
-        expect(warning.mock.calls[0]?.[0]).toBe(
-            `physics-sync: entity ${both} carries both Body and Transform; both write GlobalTransform`,
-        );
     } finally {
-        warning.mockRestore();
         app.dispose();
     }
 });

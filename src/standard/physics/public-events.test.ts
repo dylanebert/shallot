@@ -22,6 +22,7 @@ import {
     StandardPhysicsPlugin,
     setTransform,
 } from "@dylanebert/shallot/standard/physics";
+import { expectWarning } from "../../../scripts/test-console";
 
 async function physicsWorldForTest(): Promise<World> {
     const world = new World();
@@ -222,6 +223,7 @@ test("a retained sensor-begin record keeps its visitor EntityRef after that eid 
 });
 
 test("a sensor-end record keeps the visitor Body EntityRef when its eid is reused", async () => {
+    expectWarning(/Shape 4 was not attached:.*body reference is no longer valid/);
     const { world, visitorBody, events } = await overlappingSensor();
     try {
         const oldVisitorBody = world.ref(visitorBody);

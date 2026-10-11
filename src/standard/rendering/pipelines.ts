@@ -1728,9 +1728,9 @@ function clipShadowVs(
         .$name(name);
 }
 
-/** The atlas-projecting half of the locked one-varying clip mechanism. Dynamic varying names stay in a
- * raw copier; the thin entry assigns the authored field and the fragment receives it as fixed `v0` at
- * the same explicit location. */
+/** The atlas-projecting half of the locked one-varying clip mechanism. The raw entry copies each
+ * authored field by name into its own output struct; the fragment receives it as fixed `v0` at the
+ * same explicit location. */
 function varyingShadowVs(
     surface: AnyMaterialType,
     shadowGroup: TgpuBindGroupLayout<any>,
@@ -1836,6 +1836,21 @@ ${assigns}
             d.location(VARYING_BASE + i, schema),
         ]),
     );
+    const outputFields = [
+        "pos",
+        "tileBox",
+        "worldNormal",
+        "eid",
+        "world",
+        "color",
+        "material",
+        "alphaCutoff",
+        ...Object.keys(fragmentFields),
+        ...keys,
+    ];
+    const outputAssignments = outputFields
+        .map((key) => `    out.${key} = copied.${key};`)
+        .join("\n");
     return tgpu
         .vertexFn({
             in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
@@ -1851,11 +1866,13 @@ ${assigns}
                 ...fragmentFields,
                 ...located,
             },
-        })((input) => {
-            "use gpu";
-            const out = copier(input.vidx, input.iid);
-            return out;
-        })
+        })(/* wgsl */ `{
+    let copied = copier(in.vidx, in.iid);
+    var out: Out;
+${outputAssignments}
+    return out;
+}`)
+        .$uses({ copier })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`);
 }
 

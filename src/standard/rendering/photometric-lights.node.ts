@@ -1,6 +1,7 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -119,21 +120,16 @@ test("the lighting uniform packs ten directionals and warns once on overflow", (
         world.add(eid, Transform);
         world.add(eid, DirectionalLight);
     }
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-        writeLighting(world);
-        const countAt =
-            d.memoryLayoutOf(LightingGpu, (lighting) => lighting.directionalCount).offset / 4;
-        expect(new Uint32Array(world.resource(Lighting).staging.buffer)[countAt]).toBe(10);
-        const overflow = world.create();
-        world.add(overflow, Transform);
-        world.add(overflow, DirectionalLight);
-        writeLighting(world);
-        expect(new Uint32Array(world.resource(Lighting).staging.buffer)[countAt]).toBe(10);
-        expect(warn).toHaveBeenCalledTimes(1);
-    } finally {
-        warn.mockRestore();
-    }
+    writeLighting(world);
+    const countAt =
+        d.memoryLayoutOf(LightingGpu, (lighting) => lighting.directionalCount).offset / 4;
+    expect(new Uint32Array(world.resource(Lighting).staging.buffer)[countAt]).toBe(10);
+    const overflow = world.create();
+    world.add(overflow, Transform);
+    world.add(overflow, DirectionalLight);
+    expectWarning(/shallot: 11 directional lights exceed the 10 cap; 1 ignored/);
+    writeLighting(world);
+    expect(new Uint32Array(world.resource(Lighting).staging.buffer)[countAt]).toBe(10);
 });
 
 test("directional lux preserves the former linear-light frame after recalibration", async () => {
@@ -280,23 +276,18 @@ test("the selected directional shadow caster is brightest, then lowest eid, and 
     const low = makeLight(5000);
     const tie = makeLight(5000);
     const bright = makeLight(8000);
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-        expect(shadowDirectionalLight(world)).toBe(bright);
-        world.storage(DirectionalLight).illuminance.set(bright, 5000);
-        expect(shadowDirectionalLight(world)).toBe(low);
-        writeLighting(world);
-        const params = d.memoryLayoutOf(DirectionalLightGpu, (light) => light.params).offset / 4;
-        const stride = d.sizeOf(DirectionalLightGpu) / 4;
-        const staging = world.resource(Lighting).staging;
-        expect([
-            staging[params + 1],
-            staging[stride + params + 1],
-            staging[2 * stride + params + 1],
-        ]).toEqual([1, 0, 0]);
-        expect(warn).toHaveBeenCalledTimes(1);
-        expect(tie).toBeGreaterThan(low);
-    } finally {
-        warn.mockRestore();
-    }
+    expectWarning(/shallot: 3 directional lights request shadows; entity \d+ casts/);
+    expect(shadowDirectionalLight(world)).toBe(bright);
+    world.storage(DirectionalLight).illuminance.set(bright, 5000);
+    expect(shadowDirectionalLight(world)).toBe(low);
+    writeLighting(world);
+    const params = d.memoryLayoutOf(DirectionalLightGpu, (light) => light.params).offset / 4;
+    const stride = d.sizeOf(DirectionalLightGpu) / 4;
+    const staging = world.resource(Lighting).staging;
+    expect([
+        staging[params + 1],
+        staging[stride + params + 1],
+        staging[2 * stride + params + 1],
+    ]).toEqual([1, 0, 0]);
+    expect(tie).toBeGreaterThan(low);
 });

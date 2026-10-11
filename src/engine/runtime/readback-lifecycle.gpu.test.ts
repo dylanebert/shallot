@@ -1,7 +1,8 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp } from "../app";
+import type { createApp } from "../app";
 import { probeBuffer } from "./probe";
 import { countStaging } from "./readback.fixture";
 
@@ -18,7 +19,7 @@ const subjects = compileGpuFile(import.meta.path, async () => {
         if (tracker) counts = tracker.counts;
         try {
             for (let j = 0; j < count; j++)
-                worlds.push(await createApp({ defaults: false, plugins: [], device }));
+                worlds.push(await createTestGpuApp({ defaults: false, plugins: [], device }));
         } finally {
             tracker?.restore();
         }
@@ -86,6 +87,7 @@ test("world pools on a shared device own separate staging and release it without
         secondSource.destroy();
         await disposeGpuApps([first]);
         await disposeGpuApps([second]);
+        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
     }
 });
@@ -96,6 +98,7 @@ test("a request after device loss creates no staging", async () => {
     const source = app.world.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_SRC });
     const pool = app.world.readback;
     try {
+        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
         await bounded("lost readback device notification", device.lost);
         await expect(probeBuffer(app.world, source)).rejects.toThrow("disposed");
@@ -117,6 +120,7 @@ test("device loss rejects a pending request and releases staging", async () => {
             () => new Error("readback unexpectedly resolved"),
             (error: unknown) => error,
         );
+        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
         await bounded("pending readback device loss notification", device.lost);
         const failure = await outcome;

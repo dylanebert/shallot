@@ -1,11 +1,11 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
-import { type MeshHandle, MeshInstance, registerMesh } from "../../core/mesh";
+import { cube, type MeshHandle, MeshInstance, registerMesh } from "../../core/mesh";
 import { clearMeshes, flushMeshes } from "../../core/mesh/mesh";
-import { initMeshes } from "../../core/mesh/primitives";
 import {
     attachTexture,
     Camera,
@@ -70,12 +70,26 @@ const vertices = new Float32Array([
     1,
 ]);
 const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+function initAttributeMeshes(world: ReturnType<typeof subjects>[number]["world"]): void {
+    clearMeshes(world);
+    const geometry = cube();
+    registerMesh(world, {
+        name: "cube",
+        ...geometry,
+        attributes: {
+            tint: {
+                element: d.vec4f,
+                data: new Float32Array((geometry.vertices.length / 8) * 4).fill(1),
+            },
+        },
+    });
+}
+
 function rebuild(
     world: ReturnType<typeof subjects>[number]["world"],
     colour: number[],
 ): MeshHandle {
-    clearMeshes(world);
-    initMeshes(world);
+    initAttributeMeshes(world);
     const quad = registerMesh(world, {
         name: "quad",
         vertices,
@@ -86,12 +100,6 @@ function rebuild(
                 data: new Float32Array(Array.from({ length: 4 }, () => colour).flat()),
             },
         },
-    });
-    registerMesh(world, {
-        name: "wrong",
-        vertices,
-        indices,
-        attributes: { tint: { element: d.f32, data: new Float32Array(4) } },
     });
     flushMeshes(world);
     return quad;
@@ -115,7 +123,8 @@ test("a material type reads a quad's vec4f stream and rebinds after clear and re
     expect(
         Array.from((await captureTexture(world, camera)).rgba.subarray(4 * 36, 4 * 36 + 4)),
     ).toEqual([255, 0, 0, 255]);
-    rebuild(world, [0, 1, 0, 1]);
+    const rebuiltQuad = rebuild(world, [0, 1, 0, 1]);
+    world.storage(MeshInstance).mesh.set(eid, rebuiltQuad);
     world.step(0);
     expect(
         Array.from((await captureTexture(world, camera)).rgba.subarray(4 * 36, 4 * 36 + 4)),
@@ -124,9 +133,13 @@ test("a material type reads a quad's vec4f stream and rebinds after clear and re
 
 for (const mesh of ["missing", "wrong"])
     test(`a ${mesh} stream refusal names mesh, material type and attribute and warns once`, () => {
+        expectWarning(
+            new RegExp(
+                `mesh:material:StreamAttributeMaterial:${mesh}:\\d+\\" skipped — mesh \\"${mesh}\\".*attribute \\"tint\\"`,
+            ),
+        );
         const { world } = subjects()[0];
-        clearMeshes(world);
-        initMeshes(world);
+        initAttributeMeshes(world);
         const handle = registerMesh(world, {
             name: mesh,
             vertices,
@@ -140,23 +153,6 @@ for (const mesh of ["missing", "wrong"])
         world.add(eid, Transform);
         world.add(eid, MeshInstance, { mesh: handle });
         world.add(eid, MeshMaterial, world.resource(StreamMaterial).add({ unused: 0 }));
-        const warn = spyOn(console, "warn").mockImplementation(() => {});
-        try {
-            world.step(0);
-            world.step(0);
-            const messages = warn.mock.calls
-                .map((call) => call.join(" "))
-                .filter(
-                    (message) =>
-                        message.includes(`mesh:material:StreamAttributeMaterial:`) &&
-                        message.includes(`:${mesh}:`) &&
-                        message.includes('material type "StreamAttributeMaterial"'),
-                );
-            expect(messages).toHaveLength(1);
-            expect(messages[0]).toContain(`mesh "${mesh}"`);
-            expect(messages[0]).toContain('material type "StreamAttributeMaterial"');
-            expect(messages[0]).toContain('attribute "tint"');
-        } finally {
-            warn.mockRestore();
-        }
+        world.step(0);
+        world.step(0);
     });

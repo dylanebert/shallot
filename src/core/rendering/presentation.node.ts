@@ -1,6 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp } from "../../engine/app";
+import type { createApp } from "../../engine/app";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { probeTexture } from "../../engine/runtime";
 import { Vignette, VignettePlugin } from "../../extras/vignette";
@@ -44,7 +46,7 @@ test("standard composition, vignette, after-tonemap and points present and captu
     device.pushErrorScope("validation");
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-        app = await createApp({ device, plugins: [VignettePlugin, PointsPlugin] });
+        app = await createTestGpuApp({ device, plugins: [VignettePlugin, PointsPlugin] });
         const { world } = app;
         const canvas = {
             width: 16,
@@ -139,6 +141,7 @@ test("standard composition, vignette, after-tonemap and points present and captu
     } finally {
         app?.dispose();
         expect(await device.popErrorScope()).toBeNull();
+        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
     }
 });

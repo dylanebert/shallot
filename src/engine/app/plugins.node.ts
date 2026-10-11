@@ -1,5 +1,6 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-
+import { createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -81,7 +82,7 @@ import {
 import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
 import { type Plugin, probeTexture, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
-import { createApp } from "./index";
+import type { createApp } from "./index";
 
 const everyPlugin: readonly Plugin[] = [
     ...DEFAULT_PLUGINS,
@@ -725,7 +726,7 @@ async function renderAlone(
     const app = await tracked.withBuild(() =>
         tracked.watch.wait(
             `${label} solo world build`,
-            createApp({
+            createTestGpuApp({
                 defaults: false,
                 plugins: [featurePlugin(subject)],
                 device: tracked.device,
@@ -763,7 +764,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         first = await firstDevice.withBuild(() =>
             firstDevice.watch.wait(
                 "first world build",
-                createApp({
+                createTestGpuApp({
                     defaults: false,
                     plugins: [seed],
                     device: firstDevice.device,
@@ -780,7 +781,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
         second = await secondDevice.withBuild(() =>
             secondDevice.watch.wait(
                 "second world build",
-                createApp({
+                createTestGpuApp({
                     defaults: false,
                     plugins: [seed],
                     device: secondDevice.device,
@@ -975,9 +976,11 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             prebuildBuffer?.destroy();
         } finally {
             firstDevice.watch.dispose();
+            expectError(/GPU device lost destroyed: device was destroyed/);
             firstDevice.device.destroy();
             if (!sharedDevice) {
                 secondDevice.watch.dispose();
+                expectError(/GPU device lost destroyed: device was destroyed/);
                 secondDevice.device.destroy();
             }
         }
@@ -998,6 +1001,7 @@ for (const content of [FIRST_CONTENT, SECOND_CONTENT]) {
             );
         } finally {
             tracked.watch.dispose();
+            expectError(/GPU device lost destroyed: device was destroyed/);
             tracked.device.destroy();
         }
         expect(tracked.live.size).toBe(0);

@@ -10,10 +10,12 @@ import {
 } from "../../standard/rendering";
 import "../../standard";
 
+import { createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Transform } from "../../core/transform";
 import { stampAdapter, Time, type World } from "../index";
-import { createApp } from "./index";
+import type { createApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
 
@@ -115,11 +117,11 @@ for (const sharedDevice of [true, false]) {
                 }
             >();
             try {
-                first = await createApp({
+                first = await createTestGpuApp({
                     plugins: [cameraPlugin("DefaultCameraA", 0, 0x204060, [0.8, 0.2, 0.1, 1])],
                     device: firstDevice,
                 });
-                second = await createApp({
+                second = await createTestGpuApp({
                     plugins: [cameraPlugin("DefaultCameraB", 1, 0x603020, [0.1, 0.2, 0.8, 1])],
                     device: secondDevice,
                 });
@@ -214,8 +216,12 @@ for (const sharedDevice of [true, false]) {
             await exercise(first.device, second.device, first.live);
             expect(second.live.size).toBe(0);
         } finally {
+            expectError(/GPU device lost destroyed: device was destroyed/);
             first.device.destroy();
-            if (!sharedDevice) second.device.destroy();
+            if (!sharedDevice) {
+                expectError(/GPU device lost destroyed: device was destroyed/);
+                second.device.destroy();
+            }
         }
     });
 }

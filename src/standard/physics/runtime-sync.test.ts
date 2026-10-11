@@ -21,6 +21,7 @@ import {
     setTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { GlobalTransform, Transform } from "@dylanebert/shallot/transform";
+import { expectWarning } from "../../../scripts/test-console";
 import { makeShapeId } from "./api/config";
 import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { RJ_MOTOR_SPEED } from "./kernel/columns";
@@ -1124,22 +1125,14 @@ test("joint endpoint changes recreate the solver joint", async () => {
 
 test("physics sync warns when Transform is added to a bound Body", async () => {
     await withPhysics((world) => {
-        const warn = spyOn(console, "warn").mockImplementation(() => {});
-        try {
-            const eid = world.create();
-            world.add(eid, Body);
-            world.tick();
-            expect(physicsBodyIndex(world, eid) >= 0).toBe(true);
+        const eid = world.create();
+        world.add(eid, Body);
+        world.tick();
+        expect(physicsBodyIndex(world, eid) >= 0).toBe(true);
 
-            world.add(eid, Transform);
-            world.tick();
-
-            expect(warn).toHaveBeenCalledWith(
-                expect.stringContaining(`entity ${eid} carries both Body and Transform`),
-            );
-        } finally {
-            warn.mockRestore();
-        }
+        world.add(eid, Transform);
+        expectWarning(new RegExp(`physics-sync: entity ${eid} carries both Body and Transform`));
+        world.tick();
     });
 });
 
@@ -1168,6 +1161,7 @@ test("physics sync walks Bodies added before a restored snapshot was bound", asy
 });
 
 test("physics sync retries a missing Shape hull when the registry grows", async () => {
+    expectWarning(/Shape 1 was not attached:.*missing hull 1/);
     await withPhysics((world) => {
         const hulls = world.resource(Hulls);
         const eid = world.create();
@@ -1219,6 +1213,7 @@ test("physics sync forgets a Body destroyed before the next tick", async () => {
 });
 
 test("physics sync restores a pending Shape hull when its registry snapshot predates sync", async () => {
+    expectWarning(/Shape 1 was not attached:.*missing hull 1/);
     await withPhysics((world) => {
         const hulls = world.resource(Hulls);
         const eid = world.create();

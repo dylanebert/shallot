@@ -1,5 +1,10 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, disposeGpuApps, gpuRequirements } from "../../../scripts/gpu.fixture";
+import {
+    compileGpuFile,
+    createTestGpuApp,
+    disposeGpuApps,
+    gpuRequirements,
+} from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -11,7 +16,7 @@ import {
     PointLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { createApp, type World } from "../../engine";
+import type { World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -22,7 +27,7 @@ import { PointShadows } from "./shadows";
 setDefaultTimeout(CEILING.node);
 
 const subjects = compileGpuFile(import.meta.path, async () => {
-    const owner = await createApp({
+    const owner = await createTestGpuApp({
         defaults: false,
         plugins: [
             {
@@ -37,7 +42,7 @@ const subjects = compileGpuFile(import.meta.path, async () => {
 
 // an app whose world sets PointShadows.atlas in setup, on the shared device
 function build(atlas: number) {
-    return createApp({
+    return createTestGpuApp({
         defaults: false,
         plugins: [StandardRenderingPlugin, MeshRenderPlugin],
         device: subjects().device,

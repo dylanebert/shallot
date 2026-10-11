@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { World } from "@dylanebert/shallot";
+import { expectError } from "../../../scripts/test-console";
 import { FRAME_BACKGROUND_COLOR, FRAME_ERROR_COLOR, mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
 
@@ -60,6 +61,7 @@ function fakeElement(): FakeElement {
 }
 
 test("a missing device on the first stepped frame leaves a readable alert inside its scene frame, with at least 4.5:1 contrast", async () => {
+    expectError(/first frame had no WebGPU device/);
     const errorContrast = contrast(FRAME_ERROR_COLOR, FRAME_BACKGROUND_COLOR);
     const app = fakeElement();
     const frame = fakeElement();
@@ -84,8 +86,9 @@ test("a missing device on the first stepped frame leaves a readable alert inside
             writable: true,
             value: fakeDocument,
         });
-        console.error = (error: unknown) => {
-            errorReported = error;
+        console.error = (...args: unknown[]) => {
+            errorReported = args[0];
+            previousConsoleError(...args);
         };
         const host = mountHost();
         const plugin = revealAfterFirstFrame(host, {

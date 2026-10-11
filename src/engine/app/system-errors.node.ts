@@ -1,4 +1,5 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { RenderingPlugin } from "../../core/rendering";
 import { createApp, type Plugin, runApp } from "./index";
@@ -27,7 +28,7 @@ test("runApp logs a system error once, keeps healthy frames running and resumes 
             frames++;
         },
     };
-    const logged = spyOn(console, "error").mockImplementation(() => {});
+    expectError(/System "Game\/spawn" threw and is paused until its next reload:/);
     const app = await runApp({
         defaults: false,
         plugins: [{ name: "Game", systems: [broken, healthy] }],
@@ -42,11 +43,6 @@ test("runApp logs a system error once, keeps healthy frames running and resumes 
         };
         await waitFor(() => frames >= 3);
         expect(attempts).toBe(1);
-        expect(logged).toHaveBeenCalledTimes(1);
-        expect(logged.mock.calls[0]).toEqual([
-            'System "Game/spawn" threw and is paused until its next reload:',
-            cause,
-        ]);
         const before = frames;
         app.world.swapSystem(broken, {
             update() {
@@ -55,10 +51,8 @@ test("runApp logs a system error once, keeps healthy frames running and resumes 
         });
         await waitFor(() => frames >= before + 3);
         expect(resumed).toBeGreaterThanOrEqual(3);
-        expect(logged).toHaveBeenCalledTimes(1);
     } finally {
         app.dispose();
-        logged.mockRestore();
     }
 });
 
@@ -88,7 +82,6 @@ test("log-and-pause skips a failed draw system but still submits later draw work
             world.frameEncoder()!.clearBuffer(buffer!);
         },
     };
-    const logged = spyOn(console, "error").mockImplementation(() => {});
     const plugin: Plugin = {
         name: "PausedDraw",
         gpu: {},
@@ -113,12 +106,12 @@ test("log-and-pause skips a failed draw system but still submits later draw work
     };
     const app = await createApp({ defaults: false, plugins: [plugin] });
     app.world.logAndPauseSystemErrors();
+    expectError(/System "PausedDraw\/broken-draw" threw and is paused until its next reload:/);
     try {
         expect(() => app.world.step(0)).not.toThrow();
         expect(attempts).toBe(1);
         expect(healthyFrames).toBe(1);
         expect(submissions).toBe(1);
-        expect(logged).toHaveBeenCalledTimes(1);
         await app.world.frameFence;
     } finally {
         app.dispose();
@@ -126,7 +119,6 @@ test("log-and-pause skips a failed draw system but still submits later draw work
             if (descriptor) Object.defineProperty(queue, "submit", descriptor);
             else Reflect.deleteProperty(queue, "submit");
         }
-        logged.mockRestore();
     }
 });
 

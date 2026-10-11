@@ -1,5 +1,6 @@
-import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import {
     attachCanvas,
@@ -390,24 +391,18 @@ async function checkClusterScene(world: World): Promise<void> {
     expect(empty.allocated).toBe(0);
     expect(empty.dropped).toBe(0);
 
-    const overflowWarn = spyOn(console, "warn").mockImplementation(() => {});
-    let overflow!: SceneSnapshot;
-    try {
-        overflow = await checkScene(
-            world,
-            cameras,
-            Array.from({ length: 300 }, () => ({
-                position: [0, 0, 0] as [number, number, number],
-                range: 100000,
-            })),
-            false,
-        );
-        expect(overflowWarn).toHaveBeenCalledWith(
-            `shallot: 300 point lights exceed the ${MAX_POINT_LIGHTS} cap; ${300 - MAX_POINT_LIGHTS} ignored`,
-        );
-    } finally {
-        overflowWarn.mockRestore();
-    }
+    expectWarning(
+        new RegExp(`shallot: 300 point lights exceed the ${MAX_POINT_LIGHTS} cap; \\d+ ignored`),
+    );
+    const overflow = await checkScene(
+        world,
+        cameras,
+        Array.from({ length: 300 }, () => ({
+            position: [0, 0, 0] as [number, number, number],
+            range: 100000,
+        })),
+        false,
+    );
     expect(overflow.sourceCount).toBe(300);
     expect(overflow.compactEids.size).toBe(MAX_POINT_LIGHTS);
     expect(overflow.allocated).toBe(LIGHT_POOL);

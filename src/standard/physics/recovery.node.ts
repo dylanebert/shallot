@@ -27,6 +27,7 @@ import {
 } from "@dylanebert/shallot/physics";
 import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { physicsState } from "./runtime";
 import { worldCounters } from "./world/world";
@@ -180,6 +181,7 @@ test("recovery restores Shape authoring and its hull registry before fixed sync"
         const body = world.create();
         world.add(body, Body);
         world.add(body, Shape, { kind: ShapeKind.Hull, geometry: 1, scale: [1, 1, 1, 0] });
+        expectWarning(/Shape 1 was not attached:.*missing hull 1/);
         world.tick();
         const saved = world.snapshot();
         world.tick();

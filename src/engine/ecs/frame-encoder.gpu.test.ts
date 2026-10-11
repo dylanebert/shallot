@@ -2,9 +2,9 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp, type Plugin } from "../app";
+import type { Plugin } from "../app";
 import { probeBuffer } from "../runtime";
 import type { World } from "./world";
 
@@ -67,7 +67,7 @@ const ComputePlugin: Plugin = {
 };
 
 test("active frames use one encoder, finish and submit; idle frames create none", async () => {
-    const app = await createApp({ defaults: false, plugins: [ComputePlugin] });
+    const app = await createTestGpuApp({ defaults: false, plugins: [ComputePlugin] });
     const { world } = app;
     const device = world.gpu.device;
     const encoderDescriptor = Object.getOwnPropertyDescriptor(device, "createCommandEncoder");
@@ -166,7 +166,7 @@ test("active frames use one encoder, finish and submit; idle frames create none"
 });
 
 test("a propagated draw failure discards its commands and fence", async () => {
-    const app = await createApp({
+    const app = await createTestGpuApp({
         defaults: false,
         plugins: [{ name: "DrawFailure", gpu: {} }],
     });

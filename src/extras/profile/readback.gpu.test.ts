@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { compileGpuFile, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp } from "../../engine";
 import { Profile, ProfilePlugin } from "./index";
 
 setDefaultTimeout(CEILING.gpu);
@@ -14,7 +14,12 @@ const subject = compileGpuFile(import.meta.path, async () => {
     expect(
         [...device.features].filter((feature) => feature !== "core-features-and-limits").sort(),
     ).toEqual([...requiredFeatures].sort());
-    const app = await createApp({ defaults: false, plugins: [ProfilePlugin], device, adapter });
+    const app = await createTestGpuApp({
+        defaults: false,
+        plugins: [ProfilePlugin],
+        device,
+        adapter,
+    });
     return { app, device };
 });
 
@@ -40,6 +45,7 @@ test("a profiler without timestamp-query runs and distinguishes missing GPU timi
         expect(stats.bufferBytes).toBe(before);
     } finally {
         await disposeGpuApps([app]);
+        expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
     }
 });
