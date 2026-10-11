@@ -66,7 +66,7 @@ const ComputePlugin: Plugin = {
     ],
 };
 
-test("compute-only steps submit their lazy frame encoder once and idle device steps submit nothing", async () => {
+test("active frames use one encoder, finish and submit; idle frames create none", async () => {
     const app = await createApp({ defaults: false, plugins: [ComputePlugin] });
     const { world } = app;
     const device = world.gpu.device;
@@ -142,10 +142,16 @@ test("compute-only steps submit their lazy frame encoder once and idle device st
         expect(oneBufferPerSubmit).toBe(true);
 
         runtime.enabled = false;
+        const beforeEncoders = encoders;
+        const beforeFinishes = finishes;
         const before = submissions;
         const issued = world.gpu.fences.issued;
+        observeFrameSubmit = true;
         world.step(0);
-        expect(submissions).toBe(before);
+        observeFrameSubmit = false;
+        expect(encoders - beforeEncoders).toBe(0);
+        expect(finishes - beforeFinishes).toBe(0);
+        expect(submissions - before).toBe(0);
         expect(world.frameFence).toBeUndefined();
         expect(world.gpu.fences.issued).toBe(issued);
     } finally {
