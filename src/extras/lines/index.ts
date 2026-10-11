@@ -31,6 +31,8 @@ import {
     initializeSegmentState,
     Lines,
     lineCount,
+    lineStableIds,
+    lineStableParts,
     lineStaging,
     push,
     ready,
@@ -111,12 +113,14 @@ function expandRetained(world: World): void {
             world.storage(Line).color.get(eid),
             world.storage(Line).opacity.get(eid),
         );
-        push(world, sx, sy, sz, ex, ey, ez, w, c);
+        let segment = 0;
+        push(world, sx, sy, sz, ex, ey, ez, w, c, eid, segment++);
         if (world.has(eid, Arrow)) {
             const size = world.storage(Arrow).size.get(eid);
-            if (world.storage(Arrow).end.get(eid)) head(world, ex, ey, ez, sx, sy, sz, size, w, c);
+            if (world.storage(Arrow).end.get(eid))
+                segment += head(world, ex, ey, ez, sx, sy, sz, size, w, c, eid, segment);
             if (world.storage(Arrow).start.get(eid))
-                head(world, sx, sy, sz, ex, ey, ez, size, w, c);
+                head(world, sx, sy, sz, ex, ey, ez, size, w, c, eid, segment);
         }
     }
 }
@@ -149,6 +153,8 @@ function queueLines(world: World, _eid: number, _view: View, phase: TransparentP
     const count = lineCount(world);
     if (!count || !world.resource(Lines).buffer) return;
     const values = lineStaging(world);
+    const stableIds = lineStableIds(world);
+    const stableParts = lineStableParts(world);
     for (let i = 0; i < count; i++) {
         const at = i * 8;
         phase.add(
@@ -157,6 +163,8 @@ function queueLines(world: World, _eid: number, _view: View, phase: TransparentP
             (values[at]! + values[at + 4]!) * 0.5,
             (values[at + 1]! + values[at + 5]!) * 0.5,
             (values[at + 2]! + values[at + 6]!) * 0.5,
+            stableIds[i]!,
+            stableParts[i]!,
         );
     }
 }

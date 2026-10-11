@@ -17,8 +17,10 @@ import { type View, Views } from "./view";
 export interface TransparentPhaseItem {
     /** Row 2 of the view-from-world matrix dotted with the item's world-space bounds center. */
     readonly sortKey: number;
-    /** Stable contribution order; only distinguishes items with equal sort keys. */
-    readonly tie: number;
+    /** Renderer-owned stable identity, distinct from `draw`; unique with `stablePart` per renderer. */
+    readonly stableId: number;
+    /** Stable subidentity for several draws owned by one item. */
+    readonly stablePart: number;
     /** Index of the contributing renderer in `RenderPhases`. */
     readonly renderer: number;
     /** Renderer-owned identity used to prepare and issue the draw. */
@@ -29,7 +31,8 @@ export interface TransparentPhaseItem {
 
 type MutableTransparentItem = {
     sortKey: number;
-    tie: number;
+    stableId: number;
+    stablePart: number;
     renderer: number;
     draw: number;
     batch: number;
@@ -41,7 +44,6 @@ export class TransparentPhase {
     private _scratch: MutableTransparentItem[] = [];
     private _countValue = 0;
     private _rendererValue = -1;
-    private _sequence = 0;
     private readonly _viewProjection = new Float32Array(16);
     private readonly _viewFromWorld = new Float32Array(16);
     private _z0 = 0;
@@ -83,7 +85,6 @@ export class TransparentPhase {
         this._z3 = this._viewFromWorld[14];
         this._countValue = 0;
         this._rendererValue = -1;
-        this._sequence = 0;
         this.metrics.items = 0;
         this.metrics.batches = 0;
         this.metrics.draws = 0;
@@ -103,19 +104,32 @@ export class TransparentPhase {
         this._rendererValue = renderer;
     }
 
-    /** Add one item at its world-space bounds center. Smaller view-space Z sorts first. */
-    add(draw: number, batch: number, x: number, y: number, z: number): void {
+    /** Add an item by world-space bounds center. Smaller view-space Z sorts first; renderer namespace and stable identity break ties. */
+    add(
+        draw: number,
+        batch: number,
+        x: number,
+        y: number,
+        z: number,
+        stableId: number,
+        stablePart = 0,
+    ): void {
         if (this._rendererValue < 0)
             throw new Error(
                 "TransparentPhase.add must run from a RenderPhases transparent producer",
             );
         const sortKey = this._z0 * x + this._z1 * y + this._z2 * z + this._z3;
+        if (!Number.isSafeInteger(stableId) || stableId < 0)
+            throw new Error(`TransparentPhase.add received an invalid stable id: ${stableId}`);
+        if (!Number.isSafeInteger(stablePart) || stablePart < 0)
+            throw new Error(`TransparentPhase.add received an invalid stable part: ${stablePart}`);
         if (!Number.isFinite(sortKey))
             throw new Error(`TransparentPhase.add received a non-finite view-space Z: ${sortKey}`);
         this.ensureCapacity(this._countValue + 1);
         const item = this._items[this._countValue++];
         item.sortKey = sortKey;
-        item.tie = this._sequence++;
+        item.stableId = stableId;
+        item.stablePart = stablePart;
         item.renderer = this._rendererValue;
         item.draw = draw;
         item.batch = batch;
@@ -129,7 +143,7 @@ export class TransparentPhase {
         return this._items[index];
     }
 
-    /** Stable bottom-up merge sort; the reusable scratch array avoids per-frame sort allocation. */
+    /** Stable bottom-up merge sort by view Z, renderer namespace, stable id and stable part. */
     sort(): void {
         const started = performance.now();
         const count = this._countValue;
@@ -146,7 +160,12 @@ export class TransparentPhase {
                     const second = this._items[b];
                     if (
                         first.sortKey < second.sortKey ||
-                        (first.sortKey === second.sortKey && first.tie <= second.tie)
+                        (first.sortKey === second.sortKey &&
+                            (first.renderer < second.renderer ||
+                                (first.renderer === second.renderer &&
+                                    (first.stableId < second.stableId ||
+                                        (first.stableId === second.stableId &&
+                                            first.stablePart <= second.stablePart)))))
                     ) {
                         this._scratch[out++] = first;
                         a++;
@@ -176,7 +195,14 @@ export class TransparentPhase {
         let capacity = Math.max(32, this._items.length * 2);
         while (capacity < required) capacity *= 2;
         for (let i = this._items.length; i < capacity; i++) {
-            this._items[i] = { sortKey: 0, tie: 0, renderer: 0, draw: 0, batch: 0 };
+            this._items[i] = {
+                sortKey: 0,
+                stableId: 0,
+                stablePart: 0,
+                renderer: 0,
+                draw: 0,
+                batch: 0,
+            };
             this._scratch[i] = this._items[i];
         }
     }
@@ -218,30 +244,89 @@ export interface PhaseRenderer {
     ): void;
 }
 export const RenderPhases = { create: (): PhaseRenderer[] => [] };
+
+function recordDepthPrepass(this: World, view: View, eid: number): void {
+    if (!view.framebuffer) return;
+    const encoder = this.frameEncoder()!;
+    view.depth = null;
+    let requested = this.has(eid, DepthPrepass);
+    if (!requested) {
+        const requests = this.resource(DepthPrepassRequests);
+        for (let i = 0; i < requests.length; i++) {
+            if (requests[i]!(this, eid, view)) {
+                requested = true;
+                break;
+            }
+        }
+    }
+    if (!requested) return;
+    const pass = encoder.beginRenderPass(prepassDescriptor(this, eid, view));
+    const renderers = this.resource(RenderPhases);
+    for (let i = 0; i < renderers.length; i++) renderers[i].prepass?.(this, eid, view, pass);
+    pass.end();
+}
+
+function pruneTransparentPhase(this: World, _phase: TransparentPhase, eid: number): void {
+    if (!this.resource(Views).has(eid)) this.resource(TransparentPhases).delete(eid);
+}
+
+function recordMainPass(this: World, view: View, eid: number): void {
+    if (!view.framebuffer) return;
+    const renderers = this.resource(RenderPhases);
+    const phases = this.resource(TransparentPhases);
+    let phase = phases.get(eid);
+    if (!phase) phases.set(eid, (phase = new TransparentPhase()));
+    phase.begin(this, eid, view);
+    let started = performance.now();
+    for (let renderer = 0; renderer < renderers.length; renderer++) {
+        phase.useRenderer(renderer);
+        renderers[renderer].transparent?.(this, eid, view, phase);
+    }
+    phase.metrics.keyMs = performance.now() - started;
+    phase.sort();
+    started = performance.now();
+    for (let renderer = 0; renderer < renderers.length; renderer++)
+        renderers[renderer].prepareTransparent?.(this, eid, view, phase, renderer);
+    phase.metrics.prepareMs = performance.now() - started;
+
+    const encoder = this.frameEncoder()!;
+    const targets = colorTargets(
+        this,
+        eid,
+        view.width,
+        view.height,
+        this.storage(Camera).antialias.get(eid) !== 0,
+    );
+    const pass = encoder.beginRenderPass(colorPassDescriptor(this, eid, targets, view.framebuffer));
+    for (let i = 0; i < renderers.length; i++) renderers[i].opaque?.(this, eid, view, pass);
+    let index = 0;
+    started = performance.now();
+    while (index < phase.length) {
+        const item = phase.item(index);
+        let end = index + 1;
+        while (end < phase.length) {
+            const next = phase.item(end);
+            if (next.renderer !== item.renderer || next.batch !== item.batch) break;
+            end++;
+        }
+        const renderer = renderers[item.renderer];
+        if (!renderer.drawTransparent)
+            throw new Error(
+                `RenderPhases renderer ${item.renderer} queued transparent work without drawTransparent`,
+            );
+        phase.metrics.batches++;
+        renderer.drawTransparent(this, eid, view, phase, index, end, pass, item.renderer);
+        index = end;
+    }
+    pass.end();
+    phase.metrics.drawMs = performance.now() - started;
+}
+
 export const PrepassSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(world) {
-        for (const [eid, view] of world.resource(Views)) {
-            if (!view.framebuffer) continue;
-            const encoder = world.frameEncoder()!;
-            view.depth = null;
-            let requested = world.has(eid, DepthPrepass);
-            if (!requested) {
-                const requests = world.resource(DepthPrepassRequests);
-                for (let i = 0; i < requests.length; i++) {
-                    if (requests[i]!(world, eid, view)) {
-                        requested = true;
-                        break;
-                    }
-                }
-            }
-            if (!requested) continue;
-            const pass = encoder.beginRenderPass(prepassDescriptor(world, eid, view));
-            for (const renderer of world.resource(RenderPhases))
-                renderer.prepass?.(world, eid, view, pass);
-            pass.end();
-        }
+        world.resource(Views).forEach(recordDepthPrepass, world);
     },
 };
 export const MainPassSystem: System = {
@@ -249,61 +334,9 @@ export const MainPassSystem: System = {
     after: [PrepassSystem],
     before: [OverlaySystem],
     update(world) {
-        const renderers = world.resource(RenderPhases);
         const phases = world.resource(TransparentPhases);
-        const views = world.resource(Views);
-        for (const eid of phases.keys()) if (!views.has(eid)) phases.delete(eid);
-        for (const [eid, view] of views) {
-            if (!view.framebuffer) continue;
-            let phase = phases.get(eid);
-            if (!phase) phases.set(eid, (phase = new TransparentPhase()));
-            phase.begin(world, eid, view);
-            let started = performance.now();
-            for (let renderer = 0; renderer < renderers.length; renderer++) {
-                phase.useRenderer(renderer);
-                renderers[renderer].transparent?.(world, eid, view, phase);
-            }
-            phase.metrics.keyMs = performance.now() - started;
-            phase.sort();
-            started = performance.now();
-            for (let renderer = 0; renderer < renderers.length; renderer++)
-                renderers[renderer].prepareTransparent?.(world, eid, view, phase, renderer);
-            phase.metrics.prepareMs = performance.now() - started;
-
-            const encoder = world.frameEncoder()!;
-            const targets = colorTargets(
-                world,
-                eid,
-                view.width,
-                view.height,
-                world.storage(Camera).antialias.get(eid) !== 0,
-            );
-            const pass = encoder.beginRenderPass(
-                colorPassDescriptor(world, eid, targets, view.framebuffer),
-            );
-            for (const renderer of renderers) renderer.opaque?.(world, eid, view, pass);
-            let index = 0;
-            started = performance.now();
-            while (index < phase.length) {
-                const item = phase.item(index);
-                let end = index + 1;
-                while (end < phase.length) {
-                    const next = phase.item(end);
-                    if (next.renderer !== item.renderer || next.batch !== item.batch) break;
-                    end++;
-                }
-                const renderer = renderers[item.renderer];
-                if (!renderer.drawTransparent)
-                    throw new Error(
-                        `RenderPhases renderer ${item.renderer} queued transparent work without drawTransparent`,
-                    );
-                phase.metrics.batches++;
-                renderer.drawTransparent(world, eid, view, phase, index, end, pass, item.renderer);
-                index = end;
-            }
-            pass.end();
-            phase.metrics.drawMs = performance.now() - started;
-        }
+        phases.forEach(pruneTransparentPhase, world);
+        world.resource(Views).forEach(recordMainPass, world);
     },
 };
 

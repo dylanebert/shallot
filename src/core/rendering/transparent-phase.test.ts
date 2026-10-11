@@ -36,23 +36,24 @@ function worldWithCamera(
     return { world, camera };
 }
 
-test("transparent items sort by view-space Z, not radial distance, and retain stable equal-depth ties", () => {
+test("transparent items sort by view-space Z, not radial distance, and break ties by stable identity", () => {
     const { world, camera } = worldWithCamera([0, 0, 0]);
     try {
         const phase = new TransparentPhase();
         phase.begin(world, camera, view());
         phase.useRenderer(0);
-        phase.add(10, 1, 20, 0, -10); // radial distance 22.4, view Z -10
-        phase.add(11, 1, 0, 0, -10); // same view Z, stable tie follows the first item
+        phase.add(11, 1, 0, 0, -10, 11); // contributed first, but the larger stable identity
+        phase.add(10, 1, 20, 0, -10, 10); // radial distance 22.4, same view Z, smaller identity
         phase.useRenderer(1);
-        phase.add(20, 2, 0, 0, -20); // radial distance 20, view Z -20
+        phase.add(20, 2, 0, 0, -20, 20); // radial distance 20, view Z -20
         phase.sort();
 
         expect(Array.from({ length: phase.length }, (_, i) => phase.item(i).draw)).toEqual([
             20, 10, 11,
         ]);
         expect(phase.item(0).sortKey).toBe(-20);
-        expect(phase.item(1).tie).toBeLessThan(phase.item(2).tie);
+        expect(phase.item(1).stableId).toBe(10);
+        expect(phase.item(2).stableId).toBe(11);
         expect(phase.metrics.sortComparisons).toBeGreaterThan(0);
     } finally {
         world.dispose();
@@ -83,16 +84,16 @@ test("two views own opposite transparent orders for the same pair of panes", () 
         const b = new TransparentPhase();
         a.begin(world, first, view());
         a.useRenderer(0);
-        a.add(100, 1, 0, 0, 0);
+        a.add(100, 1, 0, 0, 0, 100);
         a.useRenderer(1);
-        a.add(200, 2, 0, 0, 10);
+        a.add(200, 2, 0, 0, 10, 200);
         a.sort();
 
         b.begin(world, second, view());
         b.useRenderer(0);
-        b.add(100, 1, 0, 0, 0);
+        b.add(100, 1, 0, 0, 0, 100);
         b.useRenderer(1);
-        b.add(200, 2, 0, 0, 10);
+        b.add(200, 2, 0, 0, 10, 200);
         b.sort();
         expect([a.item(0).draw, a.item(1).draw]).toEqual([100, 200]);
         expect([b.item(0).draw, b.item(1).draw]).toEqual([200, 100]);

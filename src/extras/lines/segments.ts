@@ -24,6 +24,8 @@ interface SegmentState {
     staging: ArrayBuffer;
     f32: Float32Array;
     u32: Uint32Array;
+    stableIds: Uint32Array;
+    stableParts: Uint32Array;
     capacity: number;
     count: number;
     publishedCount: number;
@@ -39,6 +41,8 @@ function createSegmentState(): SegmentState {
         staging,
         f32: new Float32Array(staging),
         u32: new Uint32Array(staging),
+        stableIds: new Uint32Array(INITIAL),
+        stableParts: new Uint32Array(INITIAL),
         capacity: INITIAL,
         count: 0,
         publishedCount: 0,
@@ -75,10 +79,17 @@ function grow(world: World, min: number): void {
     new Uint8Array(next).set(
         new Uint8Array(segmentState(world).staging, 0, segmentState(world).count * SEGMENT_BYTES),
     );
-    segmentState(world).staging = next;
-    segmentState(world).f32 = new Float32Array(next);
-    segmentState(world).u32 = new Uint32Array(next);
-    segmentState(world).capacity = cap;
+    const state = segmentState(world);
+    const stableIds = new Uint32Array(cap);
+    const stableParts = new Uint32Array(cap);
+    stableIds.set(state.stableIds.subarray(0, state.count));
+    stableParts.set(state.stableParts.subarray(0, state.count));
+    state.staging = next;
+    state.f32 = new Float32Array(next);
+    state.u32 = new Uint32Array(next);
+    state.stableIds = stableIds;
+    state.stableParts = stableParts;
+    state.capacity = cap;
 }
 
 export function push(
@@ -91,10 +102,13 @@ export function push(
     bz: number,
     width: number,
     color: number,
+    stableId = 0,
+    stablePart?: number,
 ): void {
     const state = segmentState(world);
     if (state.count >= state.capacity) grow(world, state.count + 1);
-    const o = state.count * SEGMENT_FLOATS;
+    const index = state.count;
+    const o = index * SEGMENT_FLOATS;
     state.f32[o] = ax;
     state.f32[o + 1] = ay;
     state.f32[o + 2] = az;
@@ -103,6 +117,8 @@ export function push(
     state.f32[o + 5] = by;
     state.f32[o + 6] = bz;
     state.u32[o + 7] = color;
+    state.stableIds[index] = stableId;
+    state.stableParts[index] = stablePart ?? index;
     state.count++;
 }
 
@@ -119,12 +135,14 @@ export function head(
     size: number,
     width: number,
     color: number,
-): void {
+    stableId = 0,
+    firstPart?: number,
+): number {
     let dx = tx - fromX;
     let dy = ty - fromY;
     let dz = tz - fromZ;
     const len = Math.hypot(dx, dy, dz);
-    if (len < 1e-6) return;
+    if (len < 1e-6) return 0;
     dx /= len;
     dy /= len;
     dz /= len;
@@ -146,10 +164,60 @@ export function head(
     const bx = tx - dx * back;
     const by = ty - dy * back;
     const bz = tz - dz * back;
-    push(world, tx, ty, tz, bx + e1x * out, by + e1y * out, bz + e1z * out, width, color);
-    push(world, tx, ty, tz, bx - e1x * out, by - e1y * out, bz - e1z * out, width, color);
-    push(world, tx, ty, tz, bx + e2x * out, by + e2y * out, bz + e2z * out, width, color);
-    push(world, tx, ty, tz, bx - e2x * out, by - e2y * out, bz - e2z * out, width, color);
+    let part = firstPart ?? segmentState(world).count;
+    push(
+        world,
+        tx,
+        ty,
+        tz,
+        bx + e1x * out,
+        by + e1y * out,
+        bz + e1z * out,
+        width,
+        color,
+        stableId,
+        part++,
+    );
+    push(
+        world,
+        tx,
+        ty,
+        tz,
+        bx - e1x * out,
+        by - e1y * out,
+        bz - e1z * out,
+        width,
+        color,
+        stableId,
+        part++,
+    );
+    push(
+        world,
+        tx,
+        ty,
+        tz,
+        bx + e2x * out,
+        by + e2y * out,
+        bz + e2z * out,
+        width,
+        color,
+        stableId,
+        part++,
+    );
+    push(
+        world,
+        tx,
+        ty,
+        tz,
+        bx - e2x * out,
+        by - e2y * out,
+        bz - e2z * out,
+        width,
+        color,
+        stableId,
+        part++,
+    );
+    return 4;
 }
 
 /** draw one world-space segment this frame (cleared next frame). `width` in pixels, `color` hex sRGB */
@@ -222,6 +290,16 @@ export function lineCount(world: World): number {
     return segmentState(world).publishedCount;
 }
 
+/** Stable owner eids for the currently published segment indices. */
+export function lineStableIds(world: World): Uint32Array {
+    return segmentState(world).stableIds;
+}
+
+/** Stable per-owner segment indices for the currently published segment indices. */
+export function lineStableParts(world: World): Uint32Array {
+    return segmentState(world).stableParts;
+}
+
 /** reset the segment count without touching the GPU buffers (reload-safe pre-warm init) */
 export function resetCount(world: World): void {
     segmentState(world).count = 0;
@@ -234,6 +312,8 @@ export function warmSegments(world: World, _device: GPUDevice): void {
     segmentState(world).staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
     segmentState(world).f32 = new Float32Array(segmentState(world).staging);
     segmentState(world).u32 = new Uint32Array(segmentState(world).staging);
+    segmentState(world).stableIds = new Uint32Array(INITIAL);
+    segmentState(world).stableParts = new Uint32Array(INITIAL);
     segmentState(world).count = 0;
     segmentState(world).publishedCount = 0;
     const resources = segmentState(world);

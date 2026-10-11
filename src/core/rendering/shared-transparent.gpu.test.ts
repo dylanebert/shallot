@@ -163,8 +163,8 @@ test("transparent standard instances and another renderer composite in per-view 
         ]);
     world.resource(RenderPhases).push({
         transparent(_world, _eid, _view, phase: TransparentPhase) {
-            phase.add(0, 0, 0, 0, -1.5);
-            phase.add(1, 1, 0, 0, 0.5);
+            phase.add(0, 0, 0, 0, -1.5, 0);
+            phase.add(1, 1, 0, 0, 0.5, 1);
         },
         drawTransparent(
             _world,

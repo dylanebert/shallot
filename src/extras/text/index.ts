@@ -406,7 +406,7 @@ function queueText(world: World, _eid: number, _view: View, phase: TransparentPh
         const x = transform[12] + transform[0] * label.centerX + transform[4] * label.centerY;
         const y = transform[13] + transform[1] * label.centerX + transform[5] * label.centerY;
         const z = transform[14] + transform[2] * label.centerX + transform[6] * label.centerY;
-        phase.add(i, label.font, x, y, z);
+        phase.add(i, label.font, x, y, z, label.eid);
     }
 }
 
