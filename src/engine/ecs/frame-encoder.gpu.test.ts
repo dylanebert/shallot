@@ -73,10 +73,21 @@ test("compute-only steps submit their lazy frame encoder once and idle device st
     const descriptor = Object.getOwnPropertyDescriptor(queue, "submit");
     const submit = queue.submit.bind(queue);
     let submissions = 0;
+    let observeFrameSubmit = false;
+    let submissionList: Iterable<GPUCommandBuffer> | undefined;
+    let reusedSubmissionList = true;
+    let oneBufferPerSubmit = true;
     Object.defineProperty(queue, "submit", {
         configurable: true,
         value: (...args: Parameters<GPUQueue["submit"]>) => {
             submissions++;
+            const buffers = args[0];
+            if (observeFrameSubmit) {
+                if (submissionList !== undefined && submissionList !== buffers)
+                    reusedSubmissionList = false;
+                if (!Array.isArray(buffers) || buffers.length !== 1) oneBufferPerSubmit = false;
+                submissionList = buffers;
+            }
             return submit(...args);
         },
     });
@@ -86,7 +97,9 @@ test("compute-only steps submit their lazy frame encoder once and idle device st
         for (const expected of [1, 2]) {
             const issued = world.gpu.fences.issued;
             const before = submissions;
+            observeFrameSubmit = true;
             world.step(0);
+            observeFrameSubmit = false;
             expect(submissions - before).toBe(1);
             expect(world.frameFence).toBeDefined();
             expect(world.gpu.fences.issued).toBe(issued + 1);
@@ -94,6 +107,8 @@ test("compute-only steps submit their lazy frame encoder once and idle device st
             const result = await probeBuffer(world, runtime.output!);
             expect(new Uint32Array(result.bytes)[0]).toBe(expected);
         }
+        expect(reusedSubmissionList).toBe(true);
+        expect(oneBufferPerSubmit).toBe(true);
 
         runtime.enabled = false;
         const before = submissions;
