@@ -92,6 +92,20 @@ For perspective cameras, infinite reverse-Z makes depth zero mean no opaque surf
 fog pass leaves those background pixels unchanged rather than unprojecting them as a finite
 endpoint. Orthographic depth zero still names its far projection plane.
 
+## Presenting-camera capacity grows on demand
+
+Per-view rendering state grows lazily as additional cameras become presenting; it starts with
+one slot and does not compile more pipelines or layouts when it grows. The hard bound is
+now **533 presenting cameras**. A 585-slot cull-volume uniform reserves 52 slots for
+built-in shadow views, leaving 533 presentation slots. The 534th presenting camera is
+skipped with a warning; camera creation itself is not refused, and overflow does not
+overwrite the accepted cameras' slots.
+
+`MAX_VIEWS` remains exported from `/rendering`, but its value has changed: v0.9.5
+exported it from `/render/core` as 8; 0.10 exports it from `/rendering` as 533. Code
+that sizes per-view data from this constant should continue to use it rather than retain
+the old literal.
+
 ## Hull registries belong to worlds
 
 Replace `Hulls.register(...)` and other registry calls with
