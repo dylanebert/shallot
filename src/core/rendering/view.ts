@@ -111,6 +111,9 @@ export interface View {
     context: GPUCanvasContext | null;
     /** Current canvas swapchain texture, retained through the frame for pre-presentation readback. */
     canvasTexture?: GPUTexture;
+    /** Last surface texture identity and its cached view. */
+    surfaceTexture?: GPUTexture;
+    surfaceView?: GPUTextureView;
     /** External captures copied by EndFrameSystem into the same submission as the presenting pass. */
     frameCaptures?: CanvasFrameCaptureRequest[];
     /** A weak device-loss watcher serves this view's captures without retaining detached canvases. */
@@ -176,6 +179,8 @@ function createViewResources(world: World): ViewResources {
                 view,
                 new Error("captureFrame refused: world disposed before presentation"),
             );
+            view.surfaceTexture = undefined;
+            view.surfaceView = undefined;
             view.texture?.destroy();
             view.observer?.disconnect();
             view.context?.unconfigure();
@@ -487,6 +492,8 @@ export function detachCanvas(world: World, eid: number): void {
         view.observer?.disconnect();
         view.texture?.destroy();
         view.canvasTexture = undefined;
+        view.surfaceTexture = undefined;
+        view.surfaceView = undefined;
         rejectFrameCaptures(
             view,
             new Error("captureFrame refused: canvas detached before presentation"),

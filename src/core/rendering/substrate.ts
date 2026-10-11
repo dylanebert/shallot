@@ -325,7 +325,11 @@ export const BeginFrameSystem: System = {
             const texture = view.texture ?? view.context!.getCurrentTexture();
             if (view.context) view.canvasTexture = texture;
             if (!texture) continue;
-            view.present = texture.createView();
+            if (view.surfaceTexture !== texture) {
+                view.surfaceTexture = texture;
+                view.surfaceView = texture.createView();
+            }
+            view.present = view.surfaceView!;
             view.framebuffer = offscreen(world, eid, view.width, view.height);
             view.framebufferFormat = _render.format;
             presentingEids[slot] = eid;
