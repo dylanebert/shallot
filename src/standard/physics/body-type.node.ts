@@ -3,7 +3,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
-import { physicsWorld, StandardPhysicsPlugin, setTargetTransform } from ".";
+import { StandardPhysicsPlugin, setLinearVelocity, setTargetTransform } from ".";
 
 setDefaultTimeout(CEILING.node);
 
@@ -18,7 +18,7 @@ test("a default Body is static, takes no velocity, and refuses target transforms
         const eid = app.world.create();
         app.world.add(eid, Body, { position: [0, 5, 0, 0] });
         app.world.step(Time.FIXED_DT);
-        physicsWorld(app.world)!.getBody(eid)!.setLinearVelocity({ x: 1, y: 2, z: 3 });
+        setLinearVelocity(app.world, eid, { x: 1, y: 2, z: 3 });
         app.world.step(Time.FIXED_DT);
         const pose = app.world.storage(GlobalTransform);
         expect([
@@ -48,7 +48,6 @@ test("a dynamic Body with zero mass does not fall", async () => {
         app.world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 5, 0, 0] });
         app.world.add(eid, Shape, { density: 0 });
         app.world.step(Time.FIXED_DT);
-        expect(physicsWorld(app.world)!.getBody(eid)!.getType()).toBe(BodyType.Dynamic);
         for (let i = 0; i < 10; i++) app.world.step(Time.FIXED_DT);
         expect(app.world.storage(GlobalTransform).translation.y.get(eid)).toBe(5);
     } finally {

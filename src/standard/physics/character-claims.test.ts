@@ -1,18 +1,17 @@
 import { expect, test } from "bun:test";
-import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
+import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { Time, World } from "../../engine";
-import { BodyType, createHull } from "./api";
 import { characterScratch } from "./character";
 import {
     Character,
     CharacterPlugin,
     GroundState,
-    physicsWorld,
     StandardPhysicsPlugin,
+    setLinearVelocity,
 } from "./index";
 import { shapeBodyId } from "./kernel/filtercolumns";
-import lane from "./oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v7/cases.json";
+import { physicsBodyIndex, physicsState } from "./runtime";
 
 async function scene() {
     const world = new World();
@@ -49,16 +48,18 @@ test("the kinematic capsule mirrors the resolved endpoint without a second move 
         c.velocity.set(eid, 1200, 0, 0, 0);
         world.step(Time.FIXED_DT);
         expect(world.storage(Body).position.x.get(eid)).toBe(20);
-        const handle = physicsWorld(world)!.getBody(eid)!;
-        expect(handle.getType()).toBe(BodyType.Kinematic);
-        expect(handle.getPosition()).toEqual({ x: 20, y: 100, z: 0 });
+        expect(world.storage(Body).type.get(eid)).toBe(BodyType.Kinematic);
+        const position = world.storage(GlobalTransform).translation;
+        expect([position.x.get(eid), position.y.get(eid), position.z.get(eid)]).toEqual([
+            20, 100, 0,
+        ]);
         expect(c.velocity.x.get(eid)).toBe(1200);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
         for (let tick = 0; tick < 120; ++tick) {
             c.velocity.set(eid, 3, 0, 0, 0);
             world.step(Time.FIXED_DT);
             expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(
-                handle.getPosition().x,
+                world.storage(Body).position.x.get(eid),
             );
         }
     } finally {
@@ -71,7 +72,7 @@ test("ascending platform carry stays grounded, but a jump relative to that platf
     try {
         const platform = floor(world, BodyType.Kinematic);
         StandardPhysicsPlugin.systems![0].update!(world);
-        physicsWorld(world)!.getBody(platform)!.setLinearVelocity({ x: 0, y: 2, z: 0 });
+        setLinearVelocity(world, platform, { x: 0, y: 2, z: 0 });
         const c = world.storage(Character);
         c.velocity.set(eid, 0, 2, 0, 0);
         world.step(Time.FIXED_DT);
@@ -99,19 +100,24 @@ test("a stepped character excludes every shape on its own body from planes and i
     try {
         floor(world);
         StandardPhysicsPlugin.systems![0].update!(world);
-        const physics = physicsWorld(world)!;
-        const own = physics.getBody(eid)!;
         // The ray starts inside the capsule, so a second own shape makes exclusion observable on the ray too.
-        own.createSphere({}, { center: { x: 0, y: -0.7, z: 0 }, radius: 0.1 });
-        own.createSphere({}, { center: { x: 0.8, y: 0, z: 0 }, radius: 0.1 });
+        for (const [x, y] of [
+            [0, -0.7],
+            [0.8, 0],
+        ]) {
+            const shape = world.create();
+            world.add(shape, Shape, { body: eid, kind: ShapeKind.Sphere });
+            world.storage(Shape).sphere.set(shape, x, y, 0, 0.1);
+        }
         world.storage(Character).velocity.set(eid, 36, -12, 0, 0);
         world.step(Time.FIXED_DT);
         const s = world.resource(characterScratch);
         expect(s.groundShape).toBeGreaterThanOrEqual(0);
-        expect(shapeBodyId(physics.state, s.groundShape)).not.toBe(own.id.index1 - 1);
+        const state = physicsState(world)!;
+        const own = physicsBodyIndex(world, eid);
+        expect(shapeBodyId(state, s.groundShape)).not.toBe(own);
         expect(s.count).toBeGreaterThan(0);
-        for (let i = 0; i < s.count; ++i)
-            expect(shapeBodyId(physics.state, s.shapes[i])).not.toBe(own.id.index1 - 1);
+        for (let i = 0; i < s.count; ++i) expect(shapeBodyId(state, s.shapes[i])).not.toBe(own);
         expect(world.storage(Character).groundNormal.y.get(eid)).toBe(1);
         expect(world.storage(Body).position.x.get(eid)).toBeCloseTo(0.6, 6);
     } finally {
@@ -122,24 +128,11 @@ test("a stepped character excludes every shape on its own body from planes and i
 test("ground above maxSlope reports steep ground and its normal", async () => {
     const { world, eid, dispose } = await scene();
     try {
-        const item = lane.cases.find((item) => item.id === "m1.slope-hull.v1")!;
-        const resource = item.input.commands.find(
-            (command) => command.op === "resource.hull",
-        )! as unknown as { points: string[][] };
-        const word = new Uint32Array(1),
-            scalar = new Float32Array(word.buffer);
-        const number = (bits: string) => {
-            word[0] = Number.parseInt(bits.slice(2), 16);
-            return scalar[0];
-        };
-        const points = resource.points.map((p) => ({
-            x: number(p[0]),
-            y: number(p[1]),
-            z: number(p[2]),
-        }));
-        const hull = createHull(points, points.length)!;
-        const physics = physicsWorld(world)!;
-        physics.createBody().createHull({}, hull);
+        const slope = world.create();
+        world.add(slope, Body, {
+            rotation: [0, 0, Math.sin(0.25), Math.cos(0.25)],
+        });
+        world.add(slope, Shape, { scale: [20, 0.1, 20, 0] });
         world.storage(Body).position.set(eid, 0, 1.8, 0, 0);
         const c = world.storage(Character);
         c.maxSlope.set(eid, 0.1);
@@ -162,8 +155,7 @@ test("a sideways-moving kinematic platform reports velocity but does not carry t
     try {
         const platform = floor(world, BodyType.Kinematic);
         StandardPhysicsPlugin.systems![0].update!(world);
-        const physics = physicsWorld(world)!;
-        physics.getBody(platform)!.setLinearVelocity({ x: 2, y: 0, z: 0 });
+        setLinearVelocity(world, platform, { x: 2, y: 0, z: 0 });
         const c = world.storage(Character);
         for (let tick = 0; tick < 12; ++tick) {
             c.velocity.set(eid, 0, -1, 0, 0);
@@ -177,7 +169,7 @@ test("a sideways-moving kinematic platform reports velocity but does not carry t
             expect(world.storage(Body).position.x.get(eid)).toBe(0);
             expect(c.velocity.x.get(eid)).toBe(0);
         }
-        expect(physics.getBody(platform)!.getPosition().x).toBeGreaterThan(0);
+        expect(world.storage(GlobalTransform).translation.x.get(platform)).toBeGreaterThan(0);
     } finally {
         dispose();
     }

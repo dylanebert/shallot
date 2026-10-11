@@ -1,9 +1,9 @@
 import { Body, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { awakeContactCount } from "../collision/contact";
 import { SetType } from "../common/constants";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
+import { physicsWorld } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
 
 export let controlSink: { frame: number } | undefined;

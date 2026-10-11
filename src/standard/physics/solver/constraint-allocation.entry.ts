@@ -6,10 +6,10 @@ import {
     SphericalJoint,
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { PhysicsWorld } from "../api/world";
 import { quat } from "../common/math";
 import { BodyType } from "../common/types";
+import { physicsWorld } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
 
 export let controlSink: { frame: number } | undefined;

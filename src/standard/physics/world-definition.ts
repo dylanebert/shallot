@@ -1,13 +1,16 @@
-import type { Resource, World } from "../../engine";
-import type { Shape } from "./api/shape";
+import type { EntityRef, Resource, World } from "../../engine";
 import { CONTACT_RECYCLE_DISTANCE } from "./common/constants";
 import { defaultWorldDef, type WorldDef } from "./common/types";
 
-export type WorldCustomFilterCallback = (world: World, shapeA: Shape, shapeB: Shape) => boolean;
+export type WorldCustomFilterCallback = (
+    world: World,
+    shapeA: EntityRef,
+    shapeB: EntityRef,
+) => boolean;
 export type WorldPreSolveCallback = (
     world: World,
-    shapeA: Shape,
-    shapeB: Shape,
+    shapeA: EntityRef,
+    shapeB: EntityRef,
     point: { x: number; y: number; z: number },
     normal: { x: number; y: number; z: number },
 ) => boolean;

@@ -65,6 +65,8 @@ export type WorldState = {
     geometryIdentityValues: Map<number, object>;
     shapeUserData: unknown[];
     shapeNames: string[];
+    /** Current ECS entity identity for callback arguments, keyed by solver shape slot and generation. */
+    shapeEntityRefs: { generation: number; reference: import("../../../engine").EntityRef }[];
     shapeDefInput: ShapeDef;
 
     geometryUploadScratch?: import("../kernel/geocolumns").GeometryUploadScratch;
@@ -179,6 +181,7 @@ function makeWorldState(
         geometryIdentityValues: new Map(),
         shapeUserData: [],
         shapeNames: [],
+        shapeEntityRefs: [],
         shapeDefInput: defaultShapeDef(),
         manifoldStore: createManifoldStore(world, worldId),
         bodyStore: createBodyStore(world, worldId),

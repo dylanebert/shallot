@@ -3,7 +3,7 @@
 import { Body, BodyType, Hulls, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
 import { GlobalTransform, Transform, teleport as teleportPlacement } from "../../core/transform";
 import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
-import type { AABB, Pos, Quat, Vec3, WorldTransform } from "./api";
+import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
 import {
     hash as hashWorld,
     init,
@@ -379,6 +379,9 @@ function rememberShapeEntity(
     const map = runtime.shapeEntities.slots;
     if (slot >= map.length) map.length = Math.max(slot + 1, map.length * 2);
     const bindings = (map[slot] ??= []);
+    const reference = world.ref(shapeEid);
+    const state = runtime.physicsWorld?.state;
+    if (state) state.shapeEntityRefs[slot] = { generation: shape.id.generation, reference };
     for (const binding of bindings)
         if (binding.generation !== shape.id.generation && !binding.retiring) {
             binding.retiring = true;
@@ -386,14 +389,14 @@ function rememberShapeEntity(
         }
     for (const binding of bindings)
         if (binding.generation === shape.id.generation) {
-            binding.shape = world.ref(shapeEid);
+            binding.shape = reference;
             binding.body = world.ref(bodyEid);
             return;
         }
     bindings.push({
         slot,
         generation: shape.id.generation,
-        shape: world.ref(shapeEid),
+        shape: reference,
         body: world.ref(bodyEid),
         retiring: false,
     });
@@ -415,6 +418,7 @@ function retireShapeEntity(runtime: PhysicsRuntime, shape: SolverShape | undefin
 function clearShapeEntities(runtime: PhysicsRuntime): void {
     runtime.shapeEntities.slots.fill(undefined);
     runtime.shapeEntities.retiring.length = 0;
+    if (runtime.physicsWorld) runtime.physicsWorld.state.shapeEntityRefs.length = 0;
 }
 
 function pruneShapeEntities(runtime: PhysicsRuntime): void {
@@ -517,17 +521,22 @@ function clearBodies(runtime: PhysicsRuntime): void {
     resetConstraints(runtime.constraints);
 }
 
-/**
- * World-owned physics accessors. `physicsWorld(state)` exposes imperative joints, sensors,
- * contact/hit events, mesh/heightfield/compound colliders and native queries. It is
- * `null` until {@link StandardPhysicsPlugin} warms. Its `getBody(eid)` resolves an authored
- * `Body` entity to a live solver handle for joint creation, or null before marshaling.
- * The pose functions are no-ops before warm.
- */
+/** Internal access to a world's Box3D state for the ECS bridge and solver-only tests. */
 
 export function physicsWorld(world: World): PhysicsWorld | null {
     const physicsWorld = runtimeFor(world).physicsWorld;
     return physicsWorld ? physicsWorld : null;
+}
+
+export function physicsState(world: World): WorldState | null {
+    const physicsWorld = runtimeFor(world).physicsWorld;
+    return physicsWorld?.isValid() ? physicsWorld.state : null;
+}
+
+export function physicsBodyIndex(world: World, eid: number): number {
+    const runtime = runtimeFor(world);
+    const body = runtime.bodies.get(eid);
+    return runtime.physicsWorld?.isValid() && body?.isValid() ? body.id.index1 - 1 : -1;
 }
 
 const queryZeroOrigin: Pos = { x: 0, y: 0, z: 0 };

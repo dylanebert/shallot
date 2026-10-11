@@ -19,7 +19,6 @@ import {
     overlapShape,
     PhysicsEvents,
     PhysicsWorldDefinition,
-    physicsWorld,
     StandardPhysicsPlugin,
     setTransform,
 } from "@dylanebert/shallot/standard/physics";
@@ -366,31 +365,22 @@ test("contact, hit and joint events retain ECS identity and Box3D payloads", asy
                 sawContact = true;
             }
             if (events.contactHit.count !== 0) {
-                const handleHits = physicsWorld(world)!.getContactEvents().hitEvents;
-                expect(handleHits.length).toBe(events.contactHit.count);
-                for (let i = 0; i < events.contactHit.count; i++) {
-                    const event = events.contactHit.records[i];
-                    const handleHit = handleHits[i];
-                    expect(event.point).toEqual(handleHit.point);
-                    expect(event.normal).toEqual(handleHit.normal);
-                    expect(event.approachSpeed).toBe(handleHit.approachSpeed);
-                    expect(event.userMaterialIdA).toBe(handleHit.userMaterialIdA);
-                    expect(event.userMaterialIdB).toBe(handleHit.userMaterialIdB);
-                }
-                const event = events.contactHit.records[0];
-                expect([
-                    [event.shapeA, event.bodyA],
-                    [event.shapeB, event.bodyB],
-                ]).toContainEqual([world.ref(groundShape), world.ref(groundBody)]);
-                expect([
-                    [event.shapeA, event.bodyA],
-                    [event.shapeB, event.bodyB],
-                ]).toContainEqual([world.ref(fallingShape), world.ref(fallingBody)]);
-                expect(event.approachSpeed).toBeGreaterThan(0);
-                expect(Number.isFinite(event.point.x + event.normal.x)).toBe(true);
-                expect([event.userMaterialIdA, event.userMaterialIdB]).toContain(
-                    0xfedcba9876543210n,
-                );
+                expect(events.contactHit.count).toBe(1);
+                expect(events.contactHit.records[0]).toEqual({
+                    shapeA: world.ref(groundShape),
+                    bodyA: world.ref(groundBody),
+                    shapeB: world.ref(fallingShape),
+                    bodyB: world.ref(fallingBody),
+                    point: { x: 0, y: -0.045357972383499146, z: 0 },
+                    normal: { x: 0, y: 1, z: 0 },
+                    approachSpeed: 9.83334732055664,
+                    userMaterialIdA: 0x0123456789abcdefn,
+                    userMaterialIdALow: 0x89abcdef,
+                    userMaterialIdAHigh: 0x01234567,
+                    userMaterialIdB: 0xfedcba9876543210n,
+                    userMaterialIdBLow: 0x76543210,
+                    userMaterialIdBHigh: 0xfedcba98,
+                });
                 for (let i = 0; i < events.contactHit.count; i++) {
                     expect([
                         events.contactHit.records[i].shapeA,

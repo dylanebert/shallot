@@ -1,5 +1,4 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { PhysicsWorldDefinition, physicsWorld } from "@dylanebert/shallot/standard/physics";
 import {
     awakeContactCount,
     awakeContactGet,
@@ -9,9 +8,15 @@ import {
 import { SetType } from "../common/constants";
 import { BodyType } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
-import { addIslandBody, islandArrayCount, removeIslandBody } from "../kernel/islandcolumns";
+import {
+    addIslandBody,
+    islandArrayCount,
+    islandKernel,
+    removeIslandBody,
+} from "../kernel/islandcolumns";
+import { physicsWorld } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
-import { createIsland, linkContact, unlinkContact } from "./island";
+import { PhysicsWorldDefinition } from "../world-definition";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {
@@ -31,6 +36,7 @@ export default async function create() {
     physics.createDistanceJoint(bodies[0], bodies[1], { length: 0.9, collideConnected: true });
     app.world.step(1 / 60);
     const state = physics.state;
+    const kernel = islandKernel(state);
     const ids = bodies.map((body) => body.id.index1 - 1);
     const contacts = Array.from({ length: awakeContactCount(state) }, (_, i) =>
         awakeContactGet(state, i),
@@ -51,9 +57,9 @@ export default async function create() {
         // The permanent joint keeps the first contact inside one island; the bridge merges a singleton.
         step: () => {
             for (let i = 0; i < 32; ++i) {
-                unlinkContact(state, inside);
-                linkContact(state, inside);
-                unlinkContact(state, bridge);
+                kernel.islandUnlinkContact(inside);
+                kernel.contactLinkWorld(state.worldId, inside);
+                kernel.islandUnlinkContact(bridge);
                 removeIslandBody(
                     state,
                     bodyField(state, body, BodyField.islandId),
@@ -61,10 +67,10 @@ export default async function create() {
                 );
                 addIslandBody(
                     state,
-                    createIsland(state, SetType.Awake),
+                    kernel.islandCreate(SetType.Awake),
                     bodyField(state, body, BodyField.id),
                 );
-                linkContact(state, bridge);
+                kernel.contactLinkWorld(state.worldId, bridge);
                 if (
                     islandArrayCount(state, bodyField(state, body, BodyField.islandId), 0) !== 3 ||
                     contactField(state, inside, ContactField.islandId) !==

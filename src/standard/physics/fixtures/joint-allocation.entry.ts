@@ -1,6 +1,6 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { jointAllocationSubject } from "../joint-allocation.fixture";
+import { physicsWorld } from "../runtime";
 
 export let controlSink: { frame: number } | undefined;
 export function control() {

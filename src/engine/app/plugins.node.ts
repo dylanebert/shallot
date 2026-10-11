@@ -65,10 +65,10 @@ import {
     Character,
     CharacterPlugin,
     hashPhysics,
-    physicsWorld,
     StandardPhysicsPlugin,
     setLinearVelocity,
 } from "../../standard/physics";
+import { physicsWorld } from "../../standard/physics/runtime";
 import {
     Backgrounds,
     CameraBackground,

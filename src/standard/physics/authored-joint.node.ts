@@ -1,9 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp, Time } from "@dylanebert/shallot";
 import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
-import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { CEILING } from "../../../scripts/test-tiers";
+import { physicsWorld } from "./runtime";
 
 setDefaultTimeout(CEILING.node);
 

@@ -8,8 +8,9 @@ import {
     ShapeKind,
     SphericalJoint,
 } from "@dylanebert/shallot/physics";
-import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
+import { physicsWorld } from "./runtime";
 
 setDefaultTimeout(CEILING.node);
 

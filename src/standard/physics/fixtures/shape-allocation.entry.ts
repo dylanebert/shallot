@@ -1,5 +1,5 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
+import { physicsWorld } from "../runtime";
 import { shapeAllocationSubject } from "../shape-allocation.fixture";
 
 export let controlSink: object | undefined;

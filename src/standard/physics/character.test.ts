@@ -9,6 +9,7 @@ import {
     type HullData,
     type MeshData,
     makeBoxHull,
+    PhysicsWorld,
     type Body as SolverBody,
 } from "./api";
 import { characterScratch } from "./character";
@@ -16,13 +17,14 @@ import {
     Character,
     CharacterPlugin,
     GroundState,
-    PhysicsWorld,
     PhysicsWorldDefinition,
-    physicsWorld,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
 } from "./index";
 import lane from "./oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v7/cases.json";
+import { physicsWorld } from "./runtime";
+
+// Box3D handle and oracle comparisons are internal parity coverage; ECS character claims live in character-claims.test.ts.
 
 type Command = { op: string; id: string; [key: string]: unknown };
 const word = new Uint32Array(1);

@@ -2,8 +2,20 @@ import { expect, test } from "bun:test";
 import { BodyType, PhysicsWorld } from "../api";
 import { ContactField, ContactFlags, contactField, setContactField } from "../collision/contact";
 import { DYNAMIC_COLOR_COUNT, OVERFLOW_INDEX } from "../common/constants";
+import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { kernel } from "../kernel/kernel";
-import { addContactToGraph, graphContacts, removeContactFromGraph } from "./graph";
+
+// Internal solver regression coverage: drive the kernel graph ABI directly after removing its unused TS wrapper.
+function graphKernel(world: PhysicsWorld) {
+    const k = kernel(world.state.ecsState);
+    k.bodySetActiveWorld(world.state.worldId);
+    return k;
+}
+function graphContacts(world: PhysicsWorld, color: number, scalar = false): Uint32Array {
+    const k = graphKernel(world);
+    const count = k.graphContactCount(color, +scalar) * (scalar ? 3 : 1);
+    return new Uint32Array(k.memory.buffer, k.graphContactPtr(color, +scalar), count);
+}
 
 test("kernel graph contact swap-removal fixes both lists, clears body bits and restores packed specs and overflow without touching a sibling", () => {
     const world = new PhysicsWorld();
@@ -22,31 +34,35 @@ test("kernel graph contact swap-removal fixes both lists, clears body bits and r
             setContactField(state, id, ContactField.bodyIdA + 3, anchor.id.index1 - 1);
             k.allocateManifolds(id, 3);
             setContactField(state, id, ContactField.flags, mesh ? ContactFlags.simMeshContact : 0);
-            addContactToGraph(state, id);
+            k.graphAddContact(
+                id,
+                bodyField(state, bodies[body].id.index1 - 1, BodyField.localIndex),
+                bodyField(state, anchor.id.index1 - 1, BodyField.localIndex),
+            );
             return id;
         }
         const convex = [contact(0, false), contact(1, false), contact(129, false)];
         const scalar = [contact(2, true), contact(3, true)];
         // Compare the same logical spec fields in the frozen assertion's packed spelling.
         const specs = (color: number) => {
-            const words = graphContacts(world.state, color, true);
+            const words = graphContacts(world, color, true);
             const packed: number[] = [];
             for (let i = 0; i < words.length; i += 3)
                 packed.push(words[i], words[i + 1] | (words[i + 2] << 16));
             return packed;
         };
         const color = OVERFLOW_INDEX - 1;
-        expect(Array.from(graphContacts(state, color))).toEqual(convex);
+        expect(Array.from(graphContacts(world, color))).toEqual(convex);
         expect(specs(color)).toEqual([scalar[0], 3 << 16, scalar[1], 3 << 16]);
         for (const [id, mesh] of [
             [convex[0], false],
             [scalar[0], true],
         ] as const) {
             const a = contactField(state, id, ContactField.bodyIdA);
-            removeContactFromGraph(state, a, anchor.id.index1 - 1, color, 0, mesh);
+            k.graphRemoveContact(a, anchor.id.index1 - 1, color, 0, +mesh);
             expect(!!k.graphBodyBit(color, a)).toBe(false);
         }
-        expect(Array.from(graphContacts(state, color))).toEqual([convex[2], convex[1]]);
+        expect(Array.from(graphContacts(world, color))).toEqual([convex[2], convex[1]]);
         expect(contactField(state, convex[2], ContactField.localIndex)).toBe(0);
         expect(specs(color)).toEqual([scalar[1], 3 << 16]);
         expect(contactField(state, scalar[1], ContactField.localIndex)).toBe(0);
@@ -61,14 +77,14 @@ test("kernel graph contact swap-removal fixes both lists, clears body bits and r
         expect(specs(OVERFLOW_INDEX)).toEqual([overflow, 3 << 16]);
         expect(!!k.graphBodyBit(OVERFLOW_INDEX, a)).toBe(false);
         const snapshot = world.snapshot();
-        removeContactFromGraph(state, a, anchor.id.index1 - 1, OVERFLOW_INDEX, 0, false);
+        k.graphRemoveContact(a, anchor.id.index1 - 1, OVERFLOW_INDEX, 0, 0);
         sibling.createBody({ type: BodyType.Dynamic });
         const siblingKernel = kernel(sibling.state.ecsState);
         siblingKernel.bodySetActiveWorld(sibling.state.worldId);
         expect(siblingKernel.graphAssignColor(8, 9, BodyType.Dynamic, BodyType.Dynamic)).toBe(0);
         world.restore(snapshot);
         expect(specs(OVERFLOW_INDEX)).toEqual([overflow, 3 << 16]);
-        expect(Array.from(graphContacts(world.state, color))).toEqual([convex[2], convex[1]]);
+        expect(Array.from(graphContacts(world, color))).toEqual([convex[2], convex[1]]);
         k.bodySetActiveWorld(world.state.worldId);
         expect(!!k.graphBodyBit(color, bodies[129].id.index1 - 1)).toBe(true);
         siblingKernel.bodySetActiveWorld(sibling.state.worldId);

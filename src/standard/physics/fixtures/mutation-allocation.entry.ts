@@ -1,6 +1,6 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { mutationAllocationSubject } from "../mutation-allocation.fixture";
+import { physicsWorld } from "../runtime";
 
 export let controlSink: object | undefined;
 export const control = () => {

@@ -1,12 +1,13 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { PhysicsWorldDefinition, physicsWorld } from "@dylanebert/shallot/standard/physics";
 import type { Body } from "../api/body";
 import type { Vec3 } from "../common/math";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { physicsWorld } from "../runtime";
 import { createCompound } from "../shapes/compound";
 import { makeBoxHull } from "../shapes/hull";
 import { createMesh } from "../shapes/mesh";
 import { defaultFrictionCallback, defaultRestitutionCallback } from "../world/world";
+import { PhysicsWorldDefinition } from "../world-definition";
 import { awakeContactCount } from "./contact";
 
 export let controlSink: { frame: number } | undefined;

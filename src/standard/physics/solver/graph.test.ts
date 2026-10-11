@@ -4,6 +4,8 @@ import { DYNAMIC_COLOR_COUNT, OVERFLOW_INDEX } from "../common/constants";
 import { BodyType } from "../common/types";
 import { type Kernel, kernel } from "../kernel/kernel";
 
+// Direct PhysicsWorld use is an internal graph-colorer correctness test until stage 8.
+
 let world: PhysicsWorld;
 function createGraph(_capacity: number): Kernel {
     world = new PhysicsWorld();

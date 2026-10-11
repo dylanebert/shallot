@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { World } from "../../../engine";
-import { physicsWorld, StandardPhysicsPlugin } from "../index";
+import { StandardPhysicsPlugin } from "../index";
+import { physicsWorld } from "../runtime";
 import { shapeBodyId } from "./filtercolumns";
 import { queryColumns } from "./querycolumns";
 

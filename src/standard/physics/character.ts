@@ -9,7 +9,6 @@ import {
     vec4,
     type World,
 } from "../../engine";
-import type { PhysicsWorld } from "./api/world";
 import { type CollisionPlane, clipVector, solvePlanes } from "./collision/mover";
 import { f32, mat3, PI, quat, vec3, xf } from "./common/math";
 import { BodyType } from "./common/types";
@@ -24,12 +23,21 @@ import { BodyField, bodyField, setBodyField } from "./kernel/bodyrecords";
 import { bodyType, shapeBodyId } from "./kernel/filtercolumns";
 import { queryColumns } from "./kernel/querycolumns";
 import {
-    physicsWorld,
+    physicsBodyIndex,
+    physicsState,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     SyncPhysicsConstraintsSystem,
 } from "./runtime";
-import { bodyApplyLinearImpulse, getBodySim, getBodyState } from "./world/body";
+import {
+    bodyApplyLinearImpulse,
+    bodySetAwake,
+    bodySetLinearVelocity,
+    bodySetTransform,
+    getBodySim,
+    getBodyState,
+    readBodyTransform,
+} from "./world/body";
 
 export const GroundState = { InAir: 0, OnGround: 1, OnSteepGround: 2 } as const;
 /** A kinematic capsule Body. Write velocity in a fixed system ordered before `CharacterPlugin.systems`; movement runs after body synchronization and before the rigid solver. Resolved velocity is written back, without gravity or input policy. Ground velocity is reported, never added to motion. */
@@ -117,9 +125,9 @@ export const characterScratch = {
 };
 
 function moveCharacter(world: World, eid: number): void {
-    const physics = physicsWorld(world);
-    const handle = physics?.getBody(eid);
-    if (!physics || !handle) return;
+    const state = physicsState(world);
+    const bodyId = physicsBodyIndex(world, eid);
+    if (!state || bodyId < 0) return;
     const body = world.storage(Body);
     const shape = world.storage(ShapeComponent);
     if (
@@ -132,9 +140,9 @@ function moveCharacter(world: World, eid: number): void {
     const s = world.resource(characterScratch);
     s.dt = Time.FIXED_DT;
     // Pose-driven kinematics must stay in the solver's live publish set, without periodic wake/clone churn.
-    handle.setAwake(true);
-    setBodyField(physics.state, handle.id.index1 - 1, BodyField.sleepTime, 0);
-    handle.getTransform(s.pose);
+    bodySetAwake(state, bodyId, true);
+    setBodyField(state, bodyId, BodyField.sleepTime, 0);
+    readBodyTransform(state, bodyId, s.pose);
     const position = s.pose.p;
     s.start.x = position.x;
     s.start.y = position.y;
@@ -162,9 +170,9 @@ function moveCharacter(world: World, eid: number): void {
     s.local.y = capsuleB[shapeOffset + 1];
     s.local.z = capsuleB[shapeOffset + 2];
     quat.rotateOut(s.pose.q, s.local, s.center2);
-    spring(world, eid, physics, s);
-    collide(physics, handle.id.index1 - 1, s);
-    push(physics, s);
+    spring(world, eid, state, bodyId, s);
+    collide(state, bodyId, s);
+    push(state, s);
     clipVector(velocity, s.planes, s.count, velocity);
     vc[offset] = velocity.x;
     vc[offset + 1] = velocity.y;
@@ -183,17 +191,21 @@ function moveCharacter(world: World, eid: number): void {
         !Object.is(position.y, s.start.y) ||
         !Object.is(position.z, s.start.z)
     )
-        handle.setTransform(position, s.pose.q);
-    handle.setLinearVelocity(s.zeroVelocity);
+        bodySetTransform(state, bodyId, position, s.pose.q);
+    bodySetLinearVelocity(state, bodyId, s.zeroVelocity);
 }
 
 type Scratch = ReturnType<typeof characterScratch.create>;
 
-function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): void {
+function spring(
+    world: World,
+    eid: number,
+    state: NonNullable<ReturnType<typeof physicsState>>,
+    own: number,
+    s: Scratch,
+): void {
     const character = world.storage(Character);
-    const state = physics.state;
     const q = queryColumns(state);
-    const own = physics.getBody(eid)!.id.index1 - 1;
     const position = s.pose.p,
         velocity = s.velocity,
         up = s.up;
@@ -217,7 +229,7 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
         s.point.x = f32(s.ray.x + q.resultF[6]);
         s.point.y = f32(s.ray.y + q.resultF[7]);
         s.point.z = f32(s.ray.z + q.resultF[8]);
-        groundVelocity(physics, q.resultU[0], s);
+        groundVelocity(state, q.resultU[0], s);
     } else {
         s.groundVelocity.x = 0;
         s.groundVelocity.y = 0;
@@ -284,8 +296,11 @@ function spring(world: World, eid: number, physics: PhysicsWorld, s: Scratch): v
     s.target.z = f32(s.target.z + f32(pogoDistance * up.z));
 }
 
-function groundVelocity(physics: PhysicsWorld, shape: number, s: Scratch): void {
-    const state = physics.state;
+function groundVelocity(
+    state: NonNullable<ReturnType<typeof physicsState>>,
+    shape: number,
+    s: Scratch,
+): void {
     const body = shapeBodyId(state, shape);
     const sim = getBodySim(state, body);
     const ground = getBodyState(state, body);
@@ -302,8 +317,11 @@ function groundVelocity(physics: PhysicsWorld, shape: number, s: Scratch): void 
     vec3.addOut(s.linear, gv, gv);
 }
 
-function collide(physics: PhysicsWorld, own: number, s: Scratch): void {
-    const state = physics.state;
+function collide(
+    state: NonNullable<ReturnType<typeof physicsState>>,
+    own: number,
+    s: Scratch,
+): void {
     const q = queryColumns(state);
     const k = q.prepare(s.pose.p);
     const position = s.pose.p;
@@ -348,8 +366,7 @@ function collide(physics: PhysicsWorld, own: number, s: Scratch): void {
     s.count = count;
 }
 
-function push(physics: PhysicsWorld, s: Scratch): void {
-    const state = physics.state;
+function push(state: NonNullable<ReturnType<typeof physicsState>>, s: Scratch): void {
     const velocity = s.velocity;
     s.impulseCount = 0;
     for (let i = 0; i < s.count; ++i) {

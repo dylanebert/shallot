@@ -1,7 +1,6 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { Body, BodyType, RevoluteJoint } from "@dylanebert/shallot/physics";
-import { physicsWorld } from "@dylanebert/shallot/standard/physics";
-import { SyncPhysicsConstraintsSystem } from "../runtime";
+import { physicsWorld, SyncPhysicsConstraintsSystem } from "../runtime";
 
 export let controlSink: { frame: number } | undefined;
 export function control() {

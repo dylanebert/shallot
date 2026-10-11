@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { type Component, createApp, Time } from "@dylanebert/shallot";
 import * as core from "@dylanebert/shallot/physics";
-import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
 import {
     DJ_LOWER_SPRING_FORCE,
@@ -28,6 +28,7 @@ import {
     WJ_ANGULAR_HERTZ,
 } from "./kernel/joint-layout";
 import { readJointFloat, readJointQuat, readJointVec3 } from "./kernel/jointcolumns";
+import { physicsWorld } from "./runtime";
 import { jointIds } from "./solver/joint.fixture";
 
 setDefaultTimeout(CEILING.node);

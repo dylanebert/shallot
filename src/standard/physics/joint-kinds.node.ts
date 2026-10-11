@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { type Component, createApp, type FieldType, Time, type World } from "@dylanebert/shallot";
 import * as physics from "@dylanebert/shallot/physics";
-import { physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { CEILING } from "../../../scripts/test-tiers";
 import { JointField, jointField } from "./kernel/jointrecords";
+import { physicsWorld } from "./runtime";
 import { defaultDistanceJointDef } from "./solver/distanceJoint";
 import { defaultJointDef, JointType } from "./solver/joint";
 import { jointIds } from "./solver/joint.fixture";

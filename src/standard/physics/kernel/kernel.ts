@@ -1127,6 +1127,13 @@ function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length
     };
 }
 
+function ecsShapeReference(world: WorldState, shape: Shape) {
+    const binding = world.shapeEntityRefs[shape.id.index1 - 1];
+    if (!binding || binding.generation !== shape.id.generation)
+        throw new Error("physics: ECS shape callback reference is stale");
+    return binding.reference;
+}
+
 function collisionImport(runtime: KernelState) {
     let values = new Float32Array(0);
     return (kind: number, a: number, b: number, pointer: number): number => {
@@ -1143,7 +1150,13 @@ function collisionImport(runtime: KernelState) {
                 runtime.stepCallback = true;
                 const owner = world.ecsState;
                 if (world.worldCustomFilterCallback && owner)
-                    return Number(world.worldCustomFilterCallback(owner, shapeA, shapeB));
+                    return Number(
+                        world.worldCustomFilterCallback(
+                            owner,
+                            ecsShapeReference(world, shapeA),
+                            ecsShapeReference(world, shapeB),
+                        ),
+                    );
                 return Number(world.customFilterCallback?.(shapeA, shapeB) ?? true);
             }
             const memory = kernel(world.ecsState).memory.buffer;
@@ -1154,7 +1167,15 @@ function collisionImport(runtime: KernelState) {
             const normal = { x: values[o + 3], y: values[o + 4], z: values[o + 5] };
             const owner = world.ecsState;
             if (world.worldPreSolveCallback && owner)
-                return Number(world.worldPreSolveCallback(owner, shapeA, shapeB, point, normal));
+                return Number(
+                    world.worldPreSolveCallback(
+                        owner,
+                        ecsShapeReference(world, shapeA),
+                        ecsShapeReference(world, shapeB),
+                        point,
+                        normal,
+                    ),
+                );
             return Number(world.preSolveCallback?.(shapeA, shapeB, point, normal) ?? true);
         } catch (error) {
             runtime.queryFailed = true;

@@ -13,7 +13,6 @@ import {
     ShapeMaterials,
 } from "@dylanebert/shallot/physics";
 import {
-    physicsWorld,
     StandardPhysicsPlugin,
     setAwake,
     setTransform,
@@ -22,10 +21,13 @@ import { GlobalTransform, Transform } from "@dylanebert/shallot/transform";
 import { Body as SolverBody } from "./api/body";
 import { makeJointId, makeShapeId } from "./api/config";
 import { RevoluteJoint as SolverRevoluteJoint } from "./api/joint";
+
+// Solver handles here are internal bridge probes, not consumer APIs; public ECS behavior is covered separately.
 import { Shape as SolverShape } from "./api/shape";
 import { RJ_MOTOR_SPEED } from "./kernel/columns";
 import { readJointFloat } from "./kernel/jointcolumns";
 import { JointField, jointField } from "./kernel/jointrecords";
+import { physicsWorld } from "./runtime";
 import { createMesh } from "./shapes/mesh";
 import { jointIds } from "./solver/joint.fixture";
 

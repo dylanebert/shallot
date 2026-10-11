@@ -7,6 +7,7 @@ import { FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE } from "../kernel/columns";
 import { islandField } from "../kernel/islandcolumns";
 import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
 import { JointField, jointCapacity, jointField } from "../kernel/jointrecords";
+import { kernel } from "../kernel/kernel";
 import {
     setArrayCount,
     setArrayGet,
@@ -15,7 +16,8 @@ import {
     solverSetIndex,
 } from "../kernel/solversetcolumns";
 import { jointIds } from "../solver/joint.fixture";
-import { transferBody } from "./solverset";
+
+// Internal solver-set invariants remain covered directly through the kernel until stage 8.
 import type { WorldState } from "./world";
 
 function sims(world: WorldState) {
@@ -120,11 +122,16 @@ test("body transfers swap-remove awake, static and disabled sim rows and discard
         );
         const body = bodies[1].id.index1 - 1;
         const before = sims(world.state);
-        transferBody(world.state, SetType.Disabled, SetType.Awake, body);
+        kernel(world.state.ecsState).bodyTransfer(
+            world.state.worldId,
+            body,
+            SetType.Disabled,
+            true,
+        );
         expect(sims(world.state)).toEqual(before);
-        transferBody(world.state, SetType.Static, SetType.Disabled, body);
+        kernel(world.state.ecsState).bodyTransfer(world.state.worldId, body, SetType.Static, true);
         expect(sims(world.state)).toEqual(before);
-        transferBody(world.state, SetType.Awake, SetType.Static, body);
+        kernel(world.state.ecsState).bodyTransfer(world.state.worldId, body, SetType.Awake, true);
         expect(sims(world.state)).toEqual(before);
         expect(bodies[1].getLinearVelocity()).toEqual({ x: 0, y: 0, z: 0 });
     } finally {

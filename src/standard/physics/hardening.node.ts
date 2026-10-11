@@ -8,13 +8,12 @@ import { createApp, Time, type World } from "@dylanebert/shallot";
 import { Body, BodyType, Shape, ShapeKind } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
-    type PhysicsSnapshot,
-    physicsWorld,
     StandardPhysicsPlugin,
     setLinearVelocity,
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { physicsCounters } from "./runtime";
+import type { PhysicsSnapshot } from "./api";
+import { physicsCounters, physicsWorld } from "./runtime";
 
 await setupGlobals();
 

@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { BodyType } from "../common/types";
 import { PhysicsWorld } from "./world";
 
+// Internal handle-bridge parity coverage; public world behavior is asserted through ECS resources.
+
 test("a world from Joint.getWorld polls every event kind its creating world reports", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: -10, z: 0 } });
     try {

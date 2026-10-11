@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
-import { Body, BodyType, Shape } from "../../core/physics";
+import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
-import { createApp, Time } from "../../engine";
-import { hashPhysics, PhysicsWorldDefinition, physicsWorld, StandardPhysicsPlugin } from ".";
+import { createApp, type EntityRef, Time } from "../../engine";
+import { hashPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
+// This private lookup is used only to inspect the solver's applied config; callback behavior below uses ECS entities.
+import { physicsWorld } from "./runtime";
 
 test("a world gravity write after warm changes acceleration on the next tick", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
@@ -64,19 +66,41 @@ test("world settings apply at the next fixed sync", async () => {
     }
 });
 
-test("world callbacks receive the owning World", async () => {
+test("world callbacks receive the owning World and its ECS Shape EntityRefs", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const { world } = app;
         const definition = world.resource(PhysicsWorldDefinition);
         const calls = { filter: 0, preSolve: 0, friction: 0, restitution: 0 };
-        definition.customFilterCallback = (owner) => {
+        const anchor = world.create();
+        world.add(anchor, Body, { type: BodyType.Static });
+        world.add(anchor, Shape, {
+            kind: ShapeKind.Sphere,
+            sphere: [0, 0, 0, 1],
+            enableCustomFiltering: 1,
+            enablePreSolveEvents: 1,
+        });
+        const moving = world.create();
+        world.add(moving, Body, { type: BodyType.Dynamic, position: [0.5, 0, 0, 0] });
+        world.add(moving, Shape, {
+            kind: ShapeKind.Sphere,
+            sphere: [0, 0, 0, 1],
+            enablePreSolveEvents: 1,
+        });
+        const checkPair = (shapeA: EntityRef, shapeB: EntityRef) =>
+            expect([world.resolve(shapeA), world.resolve(shapeB)].sort((a, b) => a - b)).toEqual(
+                [anchor, moving].sort((a, b) => a - b),
+            );
+        definition.customFilterCallback = (owner, shapeA, shapeB) => {
             expect(owner).toBe(world);
+            checkPair(shapeA, shapeB);
             calls.filter++;
             return true;
         };
-        definition.preSolveCallback = (owner) => {
+        definition.preSolveCallback = (owner, shapeA, shapeB, point, normal) => {
             expect(owner).toBe(world);
+            checkPair(shapeA, shapeB);
+            expect(Number.isFinite(point.x + normal.x)).toBe(true);
             calls.preSolve++;
             return true;
         };
@@ -91,20 +115,8 @@ test("world callbacks receive the owning World", async () => {
             return Math.max(a, b);
         };
 
-        const solver = physicsWorld(world)!;
-        const shape = {
-            enableCustomFiltering: true,
-            enablePreSolveEvents: true,
-            enableContactEvents: true,
-        };
-        const geometry = { center: { x: 0, y: 0, z: 0 }, radius: 1 };
-        solver.createBody().createSphere(shape, geometry);
-        solver
-            .createBody({ type: BodyType.Dynamic, position: { x: 0.5, y: 0, z: 0 } })
-            .createSphere(shape, geometry);
         world.tick();
         world.tick();
-
         expect(calls.filter).toBeGreaterThan(0);
         expect(calls.preSolve).toBeGreaterThan(0);
         expect(calls.friction).toBeGreaterThan(0);

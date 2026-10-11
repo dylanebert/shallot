@@ -4,8 +4,9 @@ import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
-import { physicsWorld, StandardPhysicsPlugin } from ".";
+import { StandardPhysicsPlugin } from ".";
 import { hash } from "./api";
+import { physicsWorld } from "./runtime";
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();

@@ -5,17 +5,18 @@ import {
     type Capsule,
     type CollisionPlane,
     clipVector,
-    type MoverFilterCallback,
     type PlaneResult,
-    type PlaneResultCallback,
     type PlaneSolverResult,
-    physicsWorld,
     type QueryFilter,
     StandardPhysicsPlugin,
     solvePlanes,
 } from "@dylanebert/shallot/standard/physics";
+import type { MoverFilterCallback, PlaneResultCallback } from "./api/config";
+import { physicsWorld } from "./runtime";
 
-test("published mover queries land a falling capsule on an authored floor sliding along a wall", async () => {
+// These are internal PhysicsWorld mover checks; the package's public plane solver has no handle callbacks.
+
+test("internal mover queries land a falling capsule on an authored floor sliding along a wall", async () => {
     const world = new World();
     for (const component of PhysicsPlugin.components!)
         world.registry.register(component, PhysicsPlugin.name);

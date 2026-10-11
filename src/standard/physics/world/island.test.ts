@@ -9,7 +9,8 @@ import {
 } from "../kernel/islandcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
 import { jointIds } from "../solver/joint.fixture";
-import { splitIsland } from "./island";
+
+// Internal solver-island invariants remain covered directly through the kernel until stage 8.
 
 test("island fix borrowing follows vector relocation and memory growth", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
@@ -65,7 +66,7 @@ test("island split preserves link membership, fixes body and joint slots, and re
         joints[1].destroy();
         const saved = world.snapshot();
         const verify = () => {
-            splitIsland(world.state, base);
+            islandKernel(world.state).islandSplit(base);
             expect(bodyField(world.state, records[0], BodyField.islandId)).toBe(
                 bodyField(world.state, records[1], BodyField.islandId),
             );

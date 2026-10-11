@@ -2,7 +2,6 @@ import {
     Body,
     BodyType,
     createApp,
-    physicsWorld,
     Shape,
     ShapeKind,
     StandardPhysicsPlugin,
@@ -19,6 +18,7 @@ import {
 import { xf } from "../common/math";
 import { defaultQueryFilter, defaultSurfaceMaterial } from "../common/types";
 import { queryColumns } from "../kernel/querycolumns";
+import { physicsWorld } from "../runtime";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
 import { makeBoxHull } from "../shapes/hull";

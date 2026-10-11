@@ -4,6 +4,8 @@ import { ContactField, contactField } from "../collision/contact";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { setArraySnapshot, solverSetIndex } from "../kernel/solversetcolumns";
 
+// Direct PhysicsWorld use is an internal solver-set/contact invariant test until stage 8.
+
 test("sleeping-set merge appends contacts and fixes their set and local indices without waking", () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
     try {

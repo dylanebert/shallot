@@ -5,7 +5,6 @@
 // The whole query runs in shape A's frame using the relative pose of B in A, keeping the math
 // near the local origin. Results stay in frame A.
 
-import { MAX_SHAPE_CAST_POINTS } from "../common/constants";
 import {
     FLT_EPSILON,
     FLT_MAX,
@@ -13,12 +12,10 @@ import {
     f32,
     mat3,
     maxf,
-    minInt,
     scalarTripleProduct as scalarTriple,
     type Transform,
     type Vec3,
     vec3,
-    xf,
 } from "../common/math";
 
 const MAX_SIMPLEX_VERTICES = 4;
@@ -53,22 +50,6 @@ export const emptyCache = (): SimplexCache => ({
     indexA: [0, 0, 0, 0],
     indexB: [0, 0, 0, 0],
 });
-
-/**
- * Pull a proxy's point cloud into a shape's local frame (b3MakeLocalProxy). The C multiplies by the
- * inverse-transform rotation matrix (not the quaternion-rotate formula), so the port mirrors that to
- * stay bit-exact. Point count is clamped to the shape-cast maximum.
- */
-export function makeLocalProxy(proxy: ShapeProxy, transform: Transform): ShapeProxy {
-    const invTransform = xf.invert(transform);
-    const m = mat3.fromQuat(invTransform.q);
-    const count = minInt(proxy.count, MAX_SHAPE_CAST_POINTS);
-    const points: Vec3[] = new Array(count);
-    for (let i = 0; i < count; ++i) {
-        points[i] = vec3.add(mat3.mulV(m, proxy.points[i]), invTransform.p);
-    }
-    return { points, count, radius: proxy.radius };
-}
 
 /** One simplex vertex: the Minkowski support point and its barycentric weight (b3SimplexVertex). */
 export type SimplexVertex = {
@@ -218,21 +199,6 @@ export function getProxySupport(proxy: ShapeProxy, axis: Vec3): number {
     let maxIndex = 0;
     let maxProjection = 0;
     for (let index = 1; index < proxy.count; ++index) {
-        const projection = vec3.dot(axis, vec3.sub(points[index], origin));
-        if (projection > maxProjection) {
-            maxIndex = index;
-            maxProjection = projection;
-        }
-    }
-    return maxIndex;
-}
-
-/** Index of the point furthest along `axis` in a raw point cloud (b3GetPointSupport). */
-export function getPointSupport(points: Vec3[], count: number, axis: Vec3): number {
-    const origin = points[0];
-    let maxIndex = 0;
-    let maxProjection = 0;
-    for (let index = 1; index < count; ++index) {
         const projection = vec3.dot(axis, vec3.sub(points[index], origin));
         if (projection > maxProjection) {
             maxIndex = index;

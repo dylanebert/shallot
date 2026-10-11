@@ -3,10 +3,10 @@ import {
     Character,
     CharacterPlugin,
     PhysicsWorldDefinition,
-    physicsWorld,
 } from "@dylanebert/shallot/standard/physics";
 import { characterScratch } from "./character";
 import { BodyType } from "./common/types";
+import { physicsWorld } from "./runtime";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {

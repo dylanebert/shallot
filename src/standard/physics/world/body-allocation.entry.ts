@@ -1,9 +1,10 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { PhysicsWorldDefinition, physicsWorld } from "@dylanebert/shallot/standard/physics";
 import { contactIds, createContact, destroyContact } from "../collision/contact";
 import { BodyType } from "../common/types";
 import { readStateAngularVelocity } from "../kernel/bodycolumns";
+import { physicsWorld } from "../runtime";
 import { makeBoxHull } from "../shapes/hull";
+import { PhysicsWorldDefinition } from "../world-definition";
 import { bodyDisable, bodyEnable, getBodyState } from "./body";
 
 export let controlSink: object | undefined;

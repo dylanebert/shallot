@@ -25,13 +25,10 @@ import {
     ShapeKind,
     ShapeMaterials,
 } from "@dylanebert/shallot/physics";
-import {
-    hashPhysics,
-    physicsWorld,
-    StandardPhysicsPlugin,
-} from "@dylanebert/shallot/standard/physics";
+import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { CEILING } from "../../../scripts/test-tiers";
+import { physicsWorld } from "./runtime";
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();

@@ -1,12 +1,5 @@
-export type { DebugDraw, PhysicsSnapshot, ShapeProxy } from "./api";
+export type { DebugDraw, ShapeProxy } from "./api";
 export { defaultDebugDraw } from "./api";
-export type {
-    CustomFilterCallback,
-    MoverFilterCallback,
-    PlaneResultCallback,
-    PreSolveCallback,
-} from "./api/config";
-export { PhysicsWorld } from "./api/world";
 export { Character, CharacterPlugin, GroundState } from "./character";
 export {
     type CollisionPlane,
@@ -44,7 +37,6 @@ export {
     type PhysicsCastCallback,
     type PhysicsOverlapCallback,
     type PhysicsQueryHit,
-    physicsWorld,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
     setAngularVelocity,

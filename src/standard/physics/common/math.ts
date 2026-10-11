@@ -443,68 +443,6 @@ export function arbitraryPerp(v: Vec3): Vec3 {
     return vec3.normalize(p);
 }
 
-/** Closest points on two segments or infinite lines (b3SegmentDistanceResult). */
-export type SegmentDistanceResult = {
-    point1: Vec3;
-    fraction1: number;
-    point2: Vec3;
-    fraction2: number;
-};
-
-/** Closest points on the two segments p1-q1 and p2-q2 (b3SegmentDistance). */
-export function segmentDistance(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3): SegmentDistanceResult {
-    const d1 = vec3.sub(q1, p1);
-    const d2 = vec3.sub(q2, p2);
-    const r = vec3.sub(p1, p2);
-
-    const a = vec3.dot(d1, d1);
-    const b = vec3.dot(d1, d2);
-    const c = vec3.dot(d1, r);
-    const e = vec3.dot(d2, d2);
-    const f = vec3.dot(d2, r);
-
-    const eps = f32(100 * FLT_EPSILON);
-
-    // Both segments degenerate into points.
-    if (a < eps && e < eps) {
-        return { point1: p1, fraction1: 0, point2: p2, fraction2: 0 };
-    }
-
-    // First segment degenerates into a point.
-    if (a < eps) {
-        const s2 = clampf(f32(f / e), 0, 1);
-        return { point1: p1, fraction1: 0, point2: vec3.mulAdd(p2, s2, d2), fraction2: s2 };
-    }
-
-    // Second segment degenerates into a point.
-    if (e < eps) {
-        const s1 = clampf(f32(-c / a), 0, 1);
-        return { point1: vec3.mulAdd(p1, s1, d1), fraction1: s1, point2: p2, fraction2: 0 };
-    }
-
-    // Non-degenerate case.
-    const denom = f32(f32(a * e) - f32(b * b));
-    let s1 =
-        denom > f32(1000 * FLT_MIN) ? clampf(f32(f32(f32(b * f) - f32(c * e)) / denom), 0, 1) : 0;
-    let s2 = f32(f32(f32(b * s1) + f) / e);
-
-    // Clamp s2 and recompute s1 if necessary.
-    if (s2 < 0) {
-        s1 = clampf(f32(-c / a), 0, 1);
-        s2 = 0;
-    } else if (s2 > 1) {
-        s1 = clampf(f32(f32(b - c) / a), 0, 1);
-        s2 = 1;
-    }
-
-    return {
-        point1: vec3.mulAdd(p1, s1, d1),
-        fraction1: s1,
-        point2: vec3.mulAdd(p2, s2, d2),
-        fraction2: s2,
-    };
-}
-
 /** Closest point on segment a-b to query point q (b3PointToSegmentDistance). */
 export function pointToSegmentDistance(a: Vec3, b: Vec3, q: Vec3): Vec3 {
     const ab = vec3.sub(b, a);
