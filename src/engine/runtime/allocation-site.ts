@@ -108,6 +108,14 @@ export function draw(pass: GPURenderPassEncoder, vertexCount: number): void {
     pass.draw(vertexCount);
 }
 
+export function endRenderPass(pass: GPURenderPassEncoder): void {
+    pass.end();
+}
+
+export function endComputePass(pass: GPUComputePassEncoder): void {
+    pass.end();
+}
+
 export const gpuAllocationExpressions = [
     {
         fn: createFrameEncoder,

@@ -1,5 +1,5 @@
 import type { Plugin, Resource, System, World } from "../../engine";
-import { beginRenderPass } from "../../engine/runtime";
+import { beginRenderPass, endRenderPass } from "../../engine/runtime";
 import { Camera, computeViewFromWorld } from "./camera";
 import { BeginFrameSystem, OverlaySystem, RenderingPlugin } from "./substrate";
 import {
@@ -294,7 +294,7 @@ function recordDepthPrepass(this: World, view: View, eid: number): void {
     const pass = beginRenderPass(encoder, prepassDescriptor(this, eid, view));
     const renderers = this.resource(RenderPhases);
     for (let i = 0; i < renderers.length; i++) renderers[i].prepass?.(this, eid, view, pass);
-    pass.end();
+    endRenderPass(pass);
 }
 
 function pruneTransparentPhase(this: World, _phase: TransparentPhase, eid: number): void {
@@ -352,7 +352,7 @@ function recordMainPass(this: World, view: View, eid: number): void {
         renderer.drawTransparent(this, eid, view, phase, index, end, pass, item.renderer);
         index = end;
     }
-    pass.end();
+    endRenderPass(pass);
     if (phase.measureTimings) phase.metrics.drawMs = performance.now() - started;
 }
 

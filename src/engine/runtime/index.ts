@@ -10,6 +10,8 @@ export {
     dispatchWorkgroups2,
     draw,
     drawIndexedIndirect,
+    endComputePass,
+    endRenderPass,
     executeRenderBundles,
     finishFrameEncoder,
     setComputeBindGroup,

@@ -3,6 +3,7 @@ import { component, u32 } from "../../engine";
 import {
     beginRenderPass,
     draw,
+    endRenderPass,
     precompile,
     setRenderBindGroup,
     setRenderPipeline,
@@ -205,7 +206,7 @@ export const TonemappingSystem: System = {
             setRenderPipeline(pass, after ? state.displayPipeline! : state.pipeline);
             setRenderBindGroup(pass, 0, cached.group);
             draw(pass, 3);
-            pass.end();
+            endRenderPass(pass);
             input = attachment.view;
             for (let i = 0; i < after; i++) {
                 const output = i === after - 1 ? view.present : targets.display[(i + 1) % 2].view;

@@ -22,6 +22,8 @@ import {
     dispatchWorkgroups,
     dispatchWorkgroups2,
     drawIndexedIndirect,
+    endComputePass,
+    endRenderPass,
     precompile,
     probeBuffer,
     setComputeBindGroup,
@@ -550,7 +552,7 @@ export const UpdateLightClustersSystem: System = {
         setComputePipeline(pass, grid.pipeline);
         setComputeBindGroup(pass, 0, grid.group);
         dispatchWorkgroups2(pass, Math.ceil(CLUSTER_COUNT / 64), _render.shadeCount);
-        pass.end();
+        endComputePass(pass);
         _clusters.pending.set(_clusters.staging.subarray(0, used));
         _clusters.pendingUsed = used;
         _clusters.pendingFrame = world.gpu.frame;
@@ -1427,14 +1429,14 @@ export const CullLightsSystem: System = {
             setComputePipeline(compactPass, compact.pipeline);
             setComputeBindGroup(compactPass, 0, compact.group);
             dispatchWorkgroups(compactPass, Math.ceil(lightCount / 64));
-            compactPass.end();
+            endComputePass(compactPass);
 
             _clusterGpu.zSlicePass.timestampWrites = world.gpu.span?.("light:z-slice");
             const zSlicePass = beginComputePass(encoder, _clusterGpu.zSlicePass);
             setComputePipeline(zSlicePass, zSlice.pipeline);
             setComputeBindGroup(zSlicePass, 0, zSlice.group);
             dispatchWorkgroups2(zSlicePass, Math.ceil(MAX_POINT_LIGHTS / 64), _render.shadeCount);
-            zSlicePass.end();
+            endComputePass(zSlicePass);
 
             encodeLightRaster(
                 world,
@@ -1454,7 +1456,7 @@ export const CullLightsSystem: System = {
             localPass,
             scratchCount(_clusterGpu.viewCapacity) / ALLOCATION_WORKGROUP_SIZE,
         );
-        localPass.end();
+        endComputePass(localPass);
 
         _clusterGpu.allocationGlobalPass.timestampWrites =
             world.gpu.span?.("light:allocate-global");
@@ -1462,7 +1464,7 @@ export const CullLightsSystem: System = {
         setComputePipeline(globalPass, _clusterGpu.allocationGlobalPipe);
         setComputeBindGroup(globalPass, 0, allocation);
         dispatchWorkgroups(globalPass, 1);
-        globalPass.end();
+        endComputePass(globalPass);
 
         if (lightCount > 0) {
             encodeLightRaster(
@@ -1494,7 +1496,7 @@ function encodeLightRaster(
     setViewport(pass, 0, 0, CLUSTER_X, CLUSTER_Y, 0, 1);
     for (let slot = 0; slot < shadeCount; slot++)
         drawIndexedIndirect(pass, _clusterGpu.rasterArgs!, slot * RASTER_ARGS_SIZE);
-    pass.end();
+    endRenderPass(pass);
     world.gpu.indirect?.(label, shadeCount);
 }
 

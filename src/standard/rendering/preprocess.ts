@@ -19,6 +19,7 @@ import {
     beginComputePass,
     dispatchWorkgroups,
     dispatchWorkgroups2,
+    endComputePass,
     precompile,
     setComputeBindGroup,
     setComputePipeline,
@@ -278,7 +279,7 @@ export const MeshPreprocessSystem: System = {
             setBound(pass, scatter);
             dispatchWorkgroups2(pass, rows, views);
         }
-        pass.end();
+        endComputePass(pass);
     },
 };
 

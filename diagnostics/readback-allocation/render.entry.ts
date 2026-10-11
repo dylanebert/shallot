@@ -2,7 +2,11 @@ import { createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLigh
 import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
-import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
+import {
+    endComputePass,
+    endRenderPass,
+    gpuAllocationExpressions,
+} from "../../src/engine/runtime/allocation-site";
 
 
 export let controlSink: object;
@@ -42,7 +46,7 @@ export default async function create(_input = "", device?: GPUDevice) {
     return {
         world,
         allocationExpressions: gpuAllocationExpressions,
-        allocationFunctions: [world.gpu.sync],
+        allocationFunctions: [world.gpu.sync, endComputePass, endRenderPass],
         step: () => { if (validation) throw validation; world.step(1 / 60); },
         wait: async () => {
             await Promise.race([world.gpu.device.queue.onSubmittedWorkDone(), failed, lost]);

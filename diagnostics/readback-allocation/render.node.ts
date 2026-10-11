@@ -126,6 +126,18 @@ test("exact allocation exceptions leave ordinary renderer sites red", () => {
                         bytes: 16,
                         count: 1,
                     },
+                    {
+                        site: "endRenderPass src/engine/runtime/allocation-site.ts:111:30",
+                        bytes: 16,
+                        count: 1,
+                        stack: [
+                            {
+                                functionName: "endRenderPass",
+                                site: "endRenderPass src/engine/runtime/allocation-site.ts:111:30",
+                                native: false,
+                            },
+                        ],
+                    },
                 ],
                 frames: 120,
                 framesAtMost: 120,
@@ -135,7 +147,9 @@ test("exact allocation exceptions leave ordinary renderer sites red", () => {
         ],
     };
     expect(isExactAllocationSite(sample.windows[0]!.sites[0]!)).toBe(false);
+    expect(isExactAllocationSite(sample.windows[0]!.sites[1]!)).toBe(false);
     expect(allocationFailure(sample)).toContain("queueTransparent src/standard/rendering/forward.ts:867");
+    expect(allocationFailure(sample)).toContain("endRenderPass src/engine/runtime/allocation-site.ts:111:30");
 });
 
 test("rendering allocates no JavaScript heap beyond exact GPU and fence expressions", async () => {

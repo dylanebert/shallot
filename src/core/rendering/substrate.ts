@@ -6,6 +6,7 @@ import { ClearChangeMarksSystem, invertMat4, unpackColor } from "../../engine";
 import {
     beginComputePass,
     dispatchWorkgroups,
+    endComputePass,
     setComputeBindGroup,
     setComputePipeline,
 } from "../../engine/runtime";
@@ -401,7 +402,7 @@ export const BeginFrameSystem: System = {
             setComputePipeline(pass, globalTransformRuntime.pipeline!);
             setComputeBindGroup(pass, 0, globalTransformRuntime.group!);
             dispatchWorkgroups(pass, Math.ceil(globalTransformCount / 64));
-            pass.end();
+            endComputePass(pass);
         }
     },
 };
