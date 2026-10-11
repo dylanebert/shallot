@@ -8,7 +8,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-const WARM_FRAMES = 1200;
+const WARM_FRAMES = 720;
 const WINDOW_FRAMES = 60;
 
 test("composed transparent World.step allocation sites are attributed after warm-up", async () => {
