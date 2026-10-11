@@ -112,6 +112,32 @@ test("allocation exceptions require exact call expressions, not containing funct
             ],
         }),
     ).toBe(false);
+
+    const passEnds = gpuAllocationExpressions.filter((entry) => entry.expression === "pass.end()");
+    expect(passEnds.map((entry) => entry.fn.name)).toEqual(["endRenderPass", "endComputePass"]);
+    for (const passEnd of passEnds) {
+        const frame = {
+            functionName: passEnd.fn.name,
+            site: `${passEnd.fn.name} src/engine/runtime/allocation-site.ts:${passEnd.fn.name === "endRenderPass" ? "111:30" : "115:31"}`,
+            native: false,
+            expression: passEnd.site,
+        };
+        expect(
+            isExactAllocationSite({
+                expression: passEnd.site,
+                stack: [frame, { functionName: "end", site: "end <native>", native: true }],
+            }),
+        ).toBe(true);
+        expect(
+            isExactAllocationSite({
+                expression: passEnd.site,
+                stack: [
+                    frame,
+                    { functionName: "applicationCallback", site: "callback app.ts:1:1", native: false },
+                ],
+            }),
+        ).toBe(false);
+    }
 });
 
 test("exact allocation exceptions leave ordinary renderer sites red", () => {

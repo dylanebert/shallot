@@ -207,4 +207,14 @@ export const gpuAllocationExpressions = [
         site: "src/engine/runtime/allocation-site.ts:108:5",
         expression: "pass.draw(vertexCount)",
     },
+    {
+        fn: endRenderPass,
+        site: "src/engine/runtime/allocation-site.ts:112:5",
+        expression: "pass.end()",
+    },
+    {
+        fn: endComputePass,
+        site: "src/engine/runtime/allocation-site.ts:116:5",
+        expression: "pass.end()",
+    },
 ] as const;
