@@ -142,7 +142,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
         ? world.storage(Exposure).ev100.get(eid)
         : EXPOSURE_EV100_BLENDER;
     _render.viewStaging[offset + EXPOSURE_F32] = 2 ** -ev100 / 1.2;
-    computeViewProj(world, eid, view.width / view.height, viewProj);
+    computeViewProj(world, eid, view.width / view.height, viewProj, view.viewFromWorld);
     // resolution (pixels) follows viewProj in the ViewUniforms struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
     _render.viewStaging[offset + 16] = view.width;
@@ -535,7 +535,7 @@ export const RenderingPlugin: Plugin = {
 // the packed `RenderContext.cullVolumes` buffer, never re-packs it. A producer that runs its own
 // cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
 
-export { computeViewProj } from "./camera";
+export { computeViewFromWorld, computeViewProj } from "./camera";
 export { Frame, FrameGpu } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "./frustum";
 export { imageArray } from "./image";

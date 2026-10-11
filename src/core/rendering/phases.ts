@@ -1,5 +1,5 @@
 import type { Plugin, Resource, System, World } from "../../engine";
-import { Camera, computeViewProj } from "./camera";
+import { Camera, computeViewFromWorld } from "./camera";
 import { BeginFrameSystem, OverlaySystem, RenderingPlugin } from "./substrate";
 import {
     colorPassDescriptor,
@@ -44,7 +44,6 @@ export class TransparentPhase {
     private _scratch: MutableTransparentItem[] = [];
     private _countValue = 0;
     private _rendererValue = -1;
-    private readonly _viewProjection = new Float32Array(16);
     private readonly _viewFromWorld = new Float32Array(16);
     private _z0 = 0;
     private _z1 = 0;
@@ -72,13 +71,8 @@ export class TransparentPhase {
 
     /** Prepare this view's view-space depth row and reset its reusable item queue. */
     begin(world: World, eid: number, view: View): void {
-        computeViewProj(
-            world,
-            eid,
-            view.width / view.height,
-            this._viewProjection,
-            this._viewFromWorld,
-        );
+        if (view.viewFromWorld) this._viewFromWorld.set(view.viewFromWorld);
+        else computeViewFromWorld(world, eid, this._viewFromWorld);
         this._z0 = this._viewFromWorld[2];
         this._z1 = this._viewFromWorld[6];
         this._z2 = this._viewFromWorld[10];

@@ -5,12 +5,13 @@ import {
     BeginFrameSystem,
     Camera,
     CameraMode,
-    computeViewProj,
+    computeViewFromWorld,
     globalTransformTable,
     INITIAL_VIEW_CAPACITY,
     PointLight,
     RenderContext,
     SpotLight,
+    type View,
     Views,
     VolumetricLight,
 } from "../../core/rendering";
@@ -58,7 +59,6 @@ interface ClusterGpuState {
     rasterTexture: GPUTexture | null;
     rasterTextureView: GPUTextureView | null;
     rasterIndexBuffer: GPUBuffer | null;
-    viewProj: Float32Array;
     clusterView: ClusterView;
     viewMatrices: Float32Array[];
     gridPass: GPUComputePassDescriptor;
@@ -118,7 +118,6 @@ function createClusterGpuState(): ClusterGpuState {
         rasterTexture: null,
         rasterTextureView: null,
         rasterIndexBuffer: null,
-        viewProj: new Float32Array(16),
         clusterView: { perspective: false, halfW: 0, halfH: 0, near: 0, far: 0 },
         viewMatrices: [],
         gridPass: { label: "shallot-cluster-aabbs" },
@@ -489,6 +488,16 @@ function growClusterCapacity(world: World, capacity: number): void {
  * presenting prefix; the pipeline and layout remain fixed. The staging prefix is the dirty signal, so a stable
  * projection dispatches nothing on steady frames.
  */
+function updateClusterView(this: World, view: View, eid: number): void {
+    const render = this.resource(RenderContext);
+    if (!view.framebuffer || view.slot >= render.shadeCount) return;
+    packClusterView(this, eid, view.width / view.height, view.slot);
+    const state = this.resource(clusterGpuKey);
+    const viewFromWorld = view.viewFromWorld;
+    if (viewFromWorld) state.viewMatrices[view.slot]!.set(viewFromWorld);
+    else computeViewFromWorld(this, eid, state.viewMatrices[view.slot]!);
+}
+
 export const UpdateLightClustersSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
@@ -504,17 +513,7 @@ export const UpdateLightClustersSystem: System = {
         }
         if (_render.shadeCount === 0 || !_clusterGpu.pipe) return;
         growClusterCapacity(world, _render.shadeCount);
-        for (const [eid, view] of world.resource(Views)) {
-            if (!view.framebuffer || view.slot >= _render.shadeCount) continue;
-            packClusterView(world, eid, view.width / view.height, view.slot);
-            computeViewProj(
-                world,
-                eid,
-                view.width / view.height,
-                _clusterGpu.viewProj,
-                _clusterGpu.viewMatrices[view.slot],
-            );
-        }
+        world.resource(Views).forEach(updateClusterView, world);
         const used = _render.shadeCount * CLUSTER_VIEW_FLOATS;
         let changed = false;
         for (let i = 0; i < used; i++) {

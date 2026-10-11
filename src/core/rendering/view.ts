@@ -138,6 +138,8 @@ export interface View {
     framebufferFormat?: GPUTextureFormat;
     present: GPUTextureView | null;
     depth: GPUTextureView | null;
+    /** CPU-only world-to-view matrix shared by camera sorting and clustered-light packing. */
+    viewFromWorld?: Float32Array;
     slot: number;
     observer: ResizeObserver | null;
     camera: EntityRef;
@@ -307,6 +309,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
         framebuffer: null,
         present: null,
         depth: null,
+        viewFromWorld: new Float32Array(16),
         slot: 0,
         observer: null!,
         camera: world.ref(eid),
@@ -468,6 +471,7 @@ export function attachView(world: World, eid: number): void {
         framebuffer: null,
         present: null,
         depth: null,
+        viewFromWorld: new Float32Array(16),
         slot: 0,
         observer: null,
         camera: world.ref(eid),
