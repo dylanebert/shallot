@@ -2,6 +2,7 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createApp } from "../../engine";
 import {
     AlphaMode,
+    engineLayout,
     Materials,
     MeshMaterial,
     MeshRenderPlugin,
@@ -22,6 +23,17 @@ const MEASURED_FRAMES = 7;
 function median(values: number[]): number {
     const sorted = [...values].sort((a, b) => a - b);
     return sorted[Math.floor(sorted.length / 2)];
+}
+
+function storageCount(layout: unknown, stage: "vertex" | "fragment"): number {
+    const entries = (
+        layout as {
+            entries: Record<string, { storage?: unknown; visibility?: readonly string[] }>;
+        }
+    ).entries;
+    return Object.values(entries).filter(
+        (entry) => entry.storage && (entry.visibility ?? ["vertex", "fragment"]).includes(stage),
+    ).length;
 }
 
 type ViewMetrics = {
@@ -166,6 +178,13 @@ async function measure(device: GPUDevice, viewCount: number, workload: Workload)
         }
         for (let frame = 0; frame < WARM_FRAMES; frame++) world.step(0);
 
+        let standardMeshInstanceRows = 0;
+        for (const _eid of world.query([MeshInstance])) standardMeshInstanceRows++;
+        if (standardMeshInstanceRows !== itemCount)
+            throw new Error(
+                `standard MeshInstance storage has ${standardMeshInstanceRows} rows for ${itemCount} active items`,
+            );
+
         const samples: ViewMetrics[][] = [];
         const wholeFrameMs: number[] = [];
         for (let frame = 0; frame < MEASURED_FRAMES; frame++) {
@@ -177,11 +196,19 @@ async function measure(device: GPUDevice, viewCount: number, workload: Workload)
         await device.queue.onSubmittedWorkDone();
 
         const perView: Record<string, unknown>[] = [];
+        const visibleStandardItemsByView: number[] = [];
         for (let slot = 0; slot < viewCount; slot++) {
             const viewSamples = samples.map((sample) => sample[slot]!);
+            const visibleItems = median(viewSamples.map((sample) => sample.items));
+            if (visibleItems !== standardMeshInstanceRows)
+                throw new Error(
+                    `view ${slot} sees ${visibleItems} of ${standardMeshInstanceRows} standard MeshInstance rows`,
+                );
+            visibleStandardItemsByView.push(visibleItems);
             perView.push({
                 slot,
-                visibleItems: median(viewSamples.map((sample) => sample.items)),
+                standardMeshInstanceRows,
+                visibleItems,
                 draws: median(viewSamples.map((sample) => sample.draws)),
                 pipelineChanges: median(viewSamples.map((sample) => sample.pipelineChanges)),
                 bindGroupChanges: median(viewSamples.map((sample) => sample.bindGroupChanges)),
@@ -239,7 +266,14 @@ async function measure(device: GPUDevice, viewCount: number, workload: Workload)
             workload,
             itemsPerView: itemCount,
             views: viewCount,
+            storageByVisibility: {
+                worldEntities: MAX_ITEMS,
+                standardMeshInstanceRows,
+                entitiesOutsideStandardMeshInstanceLayout: MAX_ITEMS - standardMeshInstanceRows,
+                visibleStandardItemsByView,
+            },
             perFrame: {
+                standardMeshInstanceRows,
                 visibleItems: median(totalSamples.map((sample) => sample.items)),
                 draws: median(totalSamples.map((sample) => sample.draws)),
                 pipelineChanges: median(totalSamples.map((sample) => sample.pipelineChanges)),
@@ -252,7 +286,8 @@ async function measure(device: GPUDevice, viewCount: number, workload: Workload)
                 drawMs: median(totalSamples.map((sample) => sample.drawMs)),
                 orderedUploadMs: median(totalSamples.map((sample) => sample.uploadMs)),
                 orderingMs,
-                frameBudgetPercent: (orderingMs / FRAME_BUDGET_MS) * 100,
+                reservedBudgetPercent:
+                    (orderingMs / (FRAME_BUDGET_MS * ORDERING_BUDGET_FRACTION)) * 100,
                 wholeFrameCpuMs: median(wholeFrameMs),
             },
             perView,
@@ -326,6 +361,14 @@ async function main(): Promise<void> {
                 frameBudgetMs: FRAME_BUDGET_MS,
                 reservedForTransparentOrderingFraction: ORDERING_BUDGET_FRACTION,
                 reservedForTransparentOrderingMs: FRAME_BUDGET_MS * ORDERING_BUDGET_FRACTION,
+                standardLayoutStorageCountsByVisibility: {
+                    vertex:
+                        storageCount(engineLayout, "vertex") +
+                        storageCount(Materials.layout, "vertex"),
+                    fragment:
+                        storageCount(engineLayout, "fragment") +
+                        storageCount(Materials.layout, "fragment"),
+                },
                 budgetRationale:
                     "Reserve only 10% of a 60 Hz frame for shared transparent collection, sorting, staging and pass recording, leaving 90% for simulation, other rendering, game work and host overhead.",
                 singleSubmission: true,
