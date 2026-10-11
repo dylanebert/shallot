@@ -26,7 +26,7 @@ import {
     TransparentPhases,
 } from ".";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 let font = 0;
 const subjects = gpuApps(import.meta.path, [
     {
