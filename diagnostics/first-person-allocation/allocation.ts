@@ -324,7 +324,8 @@ export function tracedSample(
             json = line;
         }
     }
-    if (label !== undefined || json === undefined) throw new Error("incomplete allocation trace");
+    if (label !== undefined) throw new Error(`incomplete allocation trace: window ${JSON.stringify(label)} has no end marker`);
+    if (json === undefined) throw new Error("incomplete allocation trace: no sampler result line");
     const sample = JSON.parse(json) as TransitionSample;
     for (const window of sample.windows) {
         if (!marked.has(window.label)) throw new Error(`missing allocation trace markers: ${window.label}`);

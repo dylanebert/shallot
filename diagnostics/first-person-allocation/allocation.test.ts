@@ -139,7 +139,7 @@ test("optimization traces refuse even a zero-byte window, including anonymous OS
     expect(allocatesNothing(result)).toBe(false);
     expect(allocationFailure(result)).toContain("after warm 120; optimized late, (anonymous); no byte reading");
     expect(() => tracedSample(JSON.stringify(sample))).toThrow("missing allocation trace markers");
-    expect(() => tracedSample(marker("BEGIN", "A/A repeat").join("\n"))).toThrow("incomplete allocation trace");
+    expect(() => tracedSample(marker("BEGIN", "A/A repeat").join("\n"))).toThrow('incomplete allocation trace: window "A/A repeat" has no end marker');
 });
 
 const steadySample = (sites: AllocationSample["windows"][number]["sites"]) => ({
