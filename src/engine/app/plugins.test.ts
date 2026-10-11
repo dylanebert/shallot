@@ -106,15 +106,19 @@ async function verifyPublicPlugin(plugin: Plugin): Promise<void> {
 }
 
 const uniquePublicPlugins = [...new Set(publicPlugins)];
+const deviceIndependentPlugins = uniquePublicPlugins.filter((plugin) => !needsGpu.has(plugin));
+const gpuPlugins = uniquePublicPlugins.filter((plugin) => needsGpu.has(plugin));
+const PLUGINS_PER_TEST = 4;
 
-test("device-independent public plugins run without WebGPU", async () => {
-    withoutGpu();
-    for (const plugin of uniquePublicPlugins)
-        if (!needsGpu.has(plugin)) await verifyPublicPlugin(plugin);
-});
+for (let start = 0; start < deviceIndependentPlugins.length; start += PLUGINS_PER_TEST) {
+    const group = deviceIndependentPlugins.slice(start, start + PLUGINS_PER_TEST);
+    test(`device-independent public plugins ${group.map((plugin) => plugin.name).join(", ")} run without WebGPU`, async () => {
+        withoutGpu();
+        for (const plugin of group) await verifyPublicPlugin(plugin);
+    });
+}
 
 test("GPU-dependent public plugins refuse without WebGPU at acquisition", async () => {
     withoutGpu();
-    for (const plugin of uniquePublicPlugins)
-        if (needsGpu.has(plugin)) await verifyPublicPlugin(plugin);
+    for (const plugin of gpuPlugins) await verifyPublicPlugin(plugin);
 });

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Time, World } from "@dylanebert/shallot";
 import {
     Body,
@@ -155,10 +155,22 @@ test("a sensor Shape reports its entering body's entity", async () => {
     }
 });
 
-test("replaying a sensor entry reproduces its generation-aware ECS identities", async () => {
-    const { world, sensorBody, sensorShape, visitorBody, visitorShape, events } =
-        await overlappingSensor();
-    try {
+describe("sensor event replay", () => {
+    let fixture: Awaited<ReturnType<typeof overlappingSensor>> | undefined;
+
+    beforeAll(async () => {
+        fixture = await overlappingSensor();
+    });
+
+    afterAll(async () => {
+        if (!fixture) return;
+        await StandardPhysicsPlugin.dispose!(fixture.world);
+        fixture.world.dispose();
+    });
+
+    test("reproduces generation-aware ECS identities", () => {
+        if (!fixture) throw new Error("sensor fixture did not initialize");
+        const { world, sensorBody, sensorShape, visitorBody, visitorShape, events } = fixture;
         setTransform(world, visitorBody, [4, 0, 0], [0, 0, 0, 1]);
         world.step(Time.FIXED_DT);
         const saved = world.snapshot();
@@ -189,10 +201,7 @@ test("replaying a sensor entry reproduces its generation-aware ECS identities", 
             world.resolve(replay.visitorShape),
             world.resolve(replay.visitorBody),
         ]).toEqual([sensorShape, sensorBody, visitorShape, visitorBody]);
-    } finally {
-        await StandardPhysicsPlugin.dispose!(world);
-        world.dispose();
-    }
+    });
 });
 
 test("a retained sensor-begin record keeps its visitor EntityRef after that eid is reused", async () => {

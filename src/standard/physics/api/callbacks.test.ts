@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { BodyType } from "../common/types";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
 import { kernel, rethrowQueryError, setQueryCallback } from "../kernel/kernel";
@@ -128,10 +128,13 @@ test("custom filter rejects new pairs and clearing it restores default filtering
     }
 });
 
-test("an always-true first-shape filter preserves native survivor identities under capacity pressure", () => {
-    const control = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
-    const filtered = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
-    try {
+describe("first-shape filtering under contact capacity pressure", () => {
+    let control: WorldState | undefined;
+    let filtered: WorldState | undefined;
+
+    beforeAll(() => {
+        control = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
+        filtered = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
         for (const world of [control, filtered]) {
             for (let i = 0; i < 100; ++i) {
                 const body = createTestBody(world, { type: BodyType.Dynamic });
@@ -147,16 +150,22 @@ test("an always-true first-shape filter preserves native survivor identities und
             }
         }
         worldSetCustomFilterCallback(filtered, () => true);
+    });
+
+    afterAll(() => {
+        if (control) destroyTestWorld(control);
+        if (filtered) destroyTestWorld(filtered);
+    });
+
+    test("preserves native survivor identities at capacity", () => {
+        if (!control || !filtered) throw new Error("capacity fixtures did not initialize");
         stepTestWorld(control, 1 / 60);
         stepTestWorld(filtered, 1 / 60);
         expect(worldCounters(control).contactCount).toBe(1600);
         expect(worldCounters(filtered).contactCount).toBe(1600);
         expect(contactIdentities(filtered)).toEqual(contactIdentities(control));
         expect(hashWorldState(filtered)).toBe(hashWorldState(control));
-    } finally {
-        destroyTestWorld(control);
-        destroyTestWorld(filtered);
-    }
+    });
 });
 
 test("pre-solve refuses stepping an unlocked sibling sharing the kernel instance", () => {
