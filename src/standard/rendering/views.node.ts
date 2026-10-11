@@ -19,6 +19,7 @@ import {
     Tonemapping,
     TonemappingMethod,
     Views,
+    VolumetricLight,
 } from "../../core/rendering";
 import { tonemappingStateKey } from "../../core/rendering/tonemapping-state";
 import {
@@ -53,9 +54,10 @@ function renderedCamera(
     world: Awaited<ReturnType<typeof withStandard>>["world"],
     antialias: number,
     presenting = true,
+    x = 0,
 ) {
     const eid = world.create();
-    world.add(eid, Transform, { translation: [0, 0, 5, 0] });
+    world.add(eid, Transform, { translation: [x, 0, 5, 0] });
     world.add(eid, Camera);
     world.add(eid, StandardRenderer);
     world.add(eid, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
@@ -112,27 +114,37 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
         const app = await withVisualRendering();
         try {
             const world = app.world;
-            const first = renderedCamera(world, antialias);
+            const first = renderedCamera(world, antialias, true, -3);
             const fog = world.create();
             world.add(fog, Fog, { density: 0.3, steps: 16, jitter: 0 });
-            const mesh = world.create();
-            world.add(mesh, Transform);
-            world.add(mesh, MeshInstance);
-            world.add(
-                mesh,
-                MeshMaterial,
-                world.resource(Materials).add(
-                    StandardMaterial({
-                        baseColor: [0.85, 0.08, 0.02, 1],
-                        perceptualRoughness: 0.8,
-                    }),
-                ),
-            );
-            world.add(mesh, Outline, { color: [0.1, 1, 0.2, 1], width: 3 });
-            const point = world.create();
-            world.add(point, Transform, { translation: [1, 1, 2, 0] });
-            world.add(point, PointLight, { color: 0xff8844, intensity: 315225.92, range: 10 });
-            const second = renderedCamera(world, antialias, false);
+            for (const [x, color] of [
+                [-3, [0.85, 0.08, 0.02, 1]],
+                [3, [0.02, 0.08, 0.85, 1]],
+            ] as const) {
+                const mesh = world.create();
+                world.add(mesh, Transform, { translation: [x, 0, 0, 0] });
+                world.add(mesh, MeshInstance);
+                world.add(
+                    mesh,
+                    MeshMaterial,
+                    world
+                        .resource(Materials)
+                        .add(StandardMaterial({ baseColor: color, perceptualRoughness: 0.8 })),
+                );
+                world.add(mesh, Outline, { color: [0.1, 1, 0.2, 1], width: 3 });
+            }
+            const pointSpecs = [
+                { x: -3, light: { color: 0xff8844, intensity: 315225.92, range: 3.5 } },
+                { x: 3, light: { color: 0x4488ff, intensity: 315225.92, range: 3.5 } },
+            ] as const;
+            const points = pointSpecs.map(({ x, light }) => {
+                const point = world.create();
+                world.add(point, Transform, { translation: [x, 0, 2, 0] });
+                world.add(point, PointLight, light);
+                world.add(point, VolumetricLight);
+                return point;
+            });
+            const second = renderedCamera(world, antialias, false, 3);
 
             world.step(0);
             world.step(0);
@@ -159,7 +171,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             await world.gpu.device.queue.onSubmittedWorkDone();
             const grownFirst = await captureTexture(world, first);
             const grownSecond = await captureTexture(world, second);
-            expect(Buffer.from(grownFirst.rgba).equals(Buffer.from(grownSecond.rgba))).toBe(true);
+            expect(Buffer.from(grownFirst.rgba).equals(Buffer.from(grownSecond.rgba))).toBe(false);
             expect(Buffer.from(beforeGrowth.rgba).equals(Buffer.from(grownFirst.rgba))).toBe(true);
             const grownEntry = getGroup(world, draw.name)!;
             expect(grownEntry).toBe(entry);
@@ -180,6 +192,10 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
                 return [...rgba.subarray(at, at + 3)];
             };
             const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
+            expect(lit[0]).not.toEqual(lit[1]);
+            expect(lit[0][0]!).toBeGreaterThan(lit[0][2]!);
+            expect(lit[1][2]!).toBeGreaterThan(lit[1][0]!);
+
             world.remove(fog, Fog);
             world.step(0);
             world.step(0);
@@ -191,18 +207,41 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
                 expect(lit[slot]).not.toEqual(litCenter(withoutFog[slot]!.rgba));
             }
 
-            world.remove(point, PointLight);
+            world.add(fog, Fog, { density: 0.3, steps: 16, jitter: 0 });
+            world.remove(points[0]!, PointLight);
             world.step(0);
             world.step(0);
-            const withoutPoint = [
+            const withoutFirstLight = [
                 await captureTexture(world, first),
                 await captureTexture(world, second),
             ];
-            for (let slot = 0; slot < 2; slot++) {
-                expect(litCenter(withoutFog[slot]!.rgba)).not.toEqual(
-                    litCenter(withoutPoint[slot]!.rgba),
-                );
-            }
+            expect(litCenter(withoutFirstLight[0]!.rgba)).not.toEqual(lit[0]);
+            expect(litCenter(withoutFirstLight[1]!.rgba)).toEqual(lit[1]);
+
+            world.add(points[0]!, PointLight, pointSpecs[0].light);
+            world.remove(points[1]!, PointLight);
+            world.step(0);
+            world.step(0);
+            const withoutSecondLight = [
+                await captureTexture(world, first),
+                await captureTexture(world, second),
+            ];
+            expect(litCenter(withoutSecondLight[0]!.rgba)).toEqual(lit[0]);
+            expect(litCenter(withoutSecondLight[1]!.rgba)).not.toEqual(lit[1]);
+
+            world.add(points[1]!, PointLight, pointSpecs[1].light);
+            world.step(0);
+            world.step(0);
+            const restored = [
+                await captureTexture(world, first),
+                await captureTexture(world, second),
+            ];
+            for (let slot = 0; slot < 2; slot++)
+                expect(
+                    Buffer.from(restored[slot]!.rgba).equals(
+                        Buffer.from([grownFirst, grownSecond][slot]!.rgba),
+                    ),
+                ).toBe(true);
 
             for (const eid of [first, second])
                 world.storage(Tonemapping).method.set(eid, TonemappingMethod.None);
@@ -214,11 +253,25 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             ];
             for (let slot = 0; slot < 2; slot++) {
                 expect(
-                    Buffer.from(withoutPoint[slot]!.rgba).equals(
+                    Buffer.from(restored[slot]!.rgba).equals(
                         Buffer.from(withoutOperator[slot]!.rgba),
                     ),
                 ).toBe(false);
             }
+
+            for (const eid of [first, second])
+                world.storage(Tonemapping).method.set(eid, TonemappingMethod.KhronosPbrNeutral);
+            world.step(0);
+            world.step(0);
+            const beforeSlotShift = await captureTexture(world, second);
+            world.remove(first, Camera);
+            world.step(0);
+            world.step(0);
+            expect(world.resource(Views).get(second)?.slot).toBe(0);
+            const afterSlotShift = await captureTexture(world, second);
+            expect(Buffer.from(afterSlotShift.rgba).equals(Buffer.from(beforeSlotShift.rgba))).toBe(
+                true,
+            );
         } finally {
             app.dispose();
         }
