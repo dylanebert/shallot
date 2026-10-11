@@ -5,10 +5,10 @@ import { parse } from "@babel/parser";
 import { allocationFailure, sampleAllocation, windowBytes } from "../first-person-allocation/allocation";
 import { attribute } from "../first-person-allocation/allocation-sampler.mjs";
 
-import { CEILING } from "../../scripts/test-tiers";
 import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 
-setDefaultTimeout(CEILING.node);
+// The qualified 6,000/600-frame sample takes about 33 s on Mesa lavapipe.
+setDefaultTimeout(70_000);
 
 const allocationSourcePath = resolve(import.meta.dir, "../../src/engine/runtime/allocation-site.ts");
 const allocationSource = () => readFileSync(allocationSourcePath, "utf8");
