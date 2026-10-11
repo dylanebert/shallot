@@ -30,7 +30,7 @@ test("first-person presents a nonuniform frame with byte-identical captures on o
             maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
             maxUniformBufferBindingSize: device.limits.maxUniformBufferBindingSize,
         });
-        expect(device.limits.maxStorageBuffersPerShaderStage).toBeGreaterThanOrEqual(8);
+        expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
         expect(device.features.has("indirect-first-instance")).toBe(true);
         expect(device.features.has("rg11b10ufloat-renderable")).toBe(true);
         const camera = [...app.world.query([Camera])][0];

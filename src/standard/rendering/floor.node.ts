@@ -206,7 +206,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             ),
         ),
     );
-    expect(device.limits.maxStorageBuffersPerShaderStage).toBeGreaterThanOrEqual(8);
+    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
     for (const feature of requiredFeatures) expect(device.features.has(feature)).toBe(true);
     device.pushErrorScope("validation");
     device.createPipelineLayout({

@@ -23,7 +23,7 @@ test("loading-screen draws with default WebGPU limits", async () => {
             maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
             maxUniformBufferBindingSize: device.limits.maxUniformBufferBindingSize,
         });
-        expect(device.limits.maxStorageBuffersPerShaderStage).toBeGreaterThanOrEqual(8);
+        expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
         expect(device.features.has("indirect-first-instance")).toBe(true);
         expect(device.features.has("rg11b10ufloat-renderable")).toBe(true);
         const camera = [...world.query([Camera])][0];
