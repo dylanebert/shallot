@@ -5,7 +5,6 @@ import {
     Camera,
     Character,
     CharacterPlugin,
-    createApp,
     DrivePlayerSystem,
     GroundState,
     LocalPlayer,
@@ -20,6 +19,7 @@ import {
     Time,
     Transform,
 } from "@dylanebert/shallot";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);

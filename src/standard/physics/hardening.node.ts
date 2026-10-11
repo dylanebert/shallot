@@ -4,7 +4,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { createApp, Time, type World } from "@dylanebert/shallot";
+import { Time, type World } from "@dylanebert/shallot";
 import { Body, BodyType, Shape, ShapeKind } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
@@ -12,6 +12,7 @@ import {
     setLinearVelocity,
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import type { PhysicsSnapshot } from "./api";
 import { restore, snapshot } from "./api/snapshot";
 import { physicsCounters, physicsState } from "./runtime";

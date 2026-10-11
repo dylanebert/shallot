@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { createApp, Time } from "@dylanebert/shallot";
+import { Time } from "@dylanebert/shallot";
 import { Body, BodyType } from "@dylanebert/shallot/physics";
 import {
     StandardPhysicsPlugin,
@@ -8,6 +8,7 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);

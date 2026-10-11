@@ -2,8 +2,8 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { create, globals } from "webgpu";
-import { createTestGpuApp } from "../../../scripts/gpu.fixture";
-import { expectError } from "../../../scripts/test-console";
+import { createTestGpuApp as createApp, createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { expectError, expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
@@ -24,7 +24,6 @@ import {
 import { PointsPlugin } from "../../core/rendering/points.fixture";
 import { Transform } from "../../core/transform";
 import type { Plugin } from "../../engine";
-import { createApp } from "../../engine/app";
 import { probeBuffer, stampAdapter } from "../../engine/runtime";
 import { packColor } from "../../engine/utils";
 import { Line, LinesPlugin } from "../../extras/lines";
@@ -197,6 +196,11 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         requiredFeatures: [...requiredFeatures],
     });
     const classification = stampAdapter(adapter);
+    if (classification.class !== "real") {
+        expectWarning(
+            /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
+        );
+    }
     console.log("layout adapter", adapter.info, "classification", classification);
     console.log("layout device features", [...device.features]);
     console.log(

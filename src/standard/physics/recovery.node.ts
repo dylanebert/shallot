@@ -1,11 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import {
-    createApp,
-    GlobalTransform,
-    type Plugin,
-    type Resource,
-    type World,
-} from "@dylanebert/shallot";
+import { GlobalTransform, type Plugin, type Resource, type World } from "@dylanebert/shallot";
 import {
     audioContextState,
     Devices,
@@ -27,6 +21,7 @@ import {
 } from "@dylanebert/shallot/physics";
 import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { physicsState } from "./runtime";

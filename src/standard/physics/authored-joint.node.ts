@@ -1,8 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { createApp, Time } from "@dylanebert/shallot";
+import { Time } from "@dylanebert/shallot";
 import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { defaultJointDef } from "./solver/joint";

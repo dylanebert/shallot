@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { createApp, type WorldSnapshot } from "@dylanebert/shallot";
+import type { WorldSnapshot } from "@dylanebert/shallot";
 import { Body, BodyType, DistanceJoint } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
@@ -7,6 +7,7 @@ import {
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { snapshot } from "./api/snapshot";
 import { physicsBodyIndex, physicsState } from "./runtime";

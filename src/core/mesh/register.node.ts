@@ -186,7 +186,14 @@ test("three reruns of MeshPlugin.initialize destroy every family but the live on
 });
 
 test("a mesh registered in setup, before MeshPlugin initializes, is refused by name", async () => {
-    const device = rawDevice(subjects()[0].world.gpu.device);
+    const owner = subjects()[0];
+    const adapter = owner.world.gpuIfAvailable?.adapter;
+    if (adapter && adapter.class !== "real") {
+        expectWarning(
+            /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
+        );
+    }
+    const device = rawDevice(owner.world.gpu.device);
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
         app = await createTestGpuApp({

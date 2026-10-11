@@ -8,7 +8,6 @@ import {
     Body,
     BodyType,
     CharacterPlugin,
-    createApp,
     Devices,
     GlobalTransform,
     InputPlugin,
@@ -22,6 +21,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { Demo, Route } from "./demo";
 
 await setupGlobals();

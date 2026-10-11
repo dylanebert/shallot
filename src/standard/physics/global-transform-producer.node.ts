@@ -1,9 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
-import { createApp, Time } from "../../engine";
+import { Time } from "../../engine";
 import { PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { physicsBodyIndex, physicsState, setAwake, setLinearVelocity } from "./runtime";

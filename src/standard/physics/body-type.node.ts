@@ -1,8 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";
-import { createApp, Time } from "../../engine";
+import { Time } from "../../engine";
 import { StandardPhysicsPlugin, setLinearVelocity, setTargetTransform } from ".";
 
 setDefaultTimeout(CEILING.node);

@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createApp } from "../../engine";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 
 await setupGlobals();
 

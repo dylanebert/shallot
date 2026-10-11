@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { createApp, swapPlugins } from "../app";
+import { swapPlugins } from "../app";
 import { component, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 

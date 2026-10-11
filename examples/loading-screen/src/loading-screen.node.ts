@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Camera, createApp } from "@dylanebert/shallot";
+import { Camera } from "@dylanebert/shallot";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { LoadingWorld } from "./scene";
 

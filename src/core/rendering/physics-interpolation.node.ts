@@ -5,10 +5,11 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { Body, BodyType, Shape } from "../../core/physics";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
-import { createApp, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
+import { globalTransformTable, probeBuffer, Time, Transform } from "../../index";
 import { StandardPhysicsPlugin } from "../../standard/physics";
 import { GlobalTransform } from "../transform";
 import { GlobalTransformHistory as TransformRuntime } from "./global-transform";

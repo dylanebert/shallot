@@ -1,4 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import {
@@ -9,7 +10,7 @@ import {
     viewportToWorld,
 } from "../../core/rendering";
 import * as engine from "../../engine";
-import { createApp, probeBuffer, swapPlugins, u32 } from "../../engine";
+import { probeBuffer, swapPlugins, u32 } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { component } from "../../engine/ecs/component";
 import type { System } from "../../engine/ecs/scheduler";

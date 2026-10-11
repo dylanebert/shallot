@@ -1,11 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import {
-    Camera,
-    createApp,
-    PointLight,
-    StandardRenderingPlugin,
-    Transform,
-} from "@dylanebert/shallot";
+import { Camera, PointLight, StandardRenderingPlugin, Transform } from "@dylanebert/shallot";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {

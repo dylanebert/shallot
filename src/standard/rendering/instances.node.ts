@@ -6,10 +6,10 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { globalTransformTable } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { createApp } from "../../engine";
 import { StandardRenderingPlugin } from "./forward";
 import { MaterialPlugin, Materials, MeshMaterial, StandardMaterial } from "./material";
 import {

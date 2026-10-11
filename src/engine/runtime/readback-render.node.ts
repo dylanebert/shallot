@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import { createTestGpuApp, gpuRequirements } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { rawDevice } from "./gpu";
@@ -35,6 +36,7 @@ test("rendered frames without a request map nothing", async () => {
     };
     let subject: Awaited<ReturnType<typeof createRenderedSubject>> | undefined;
     try {
+        expectWarning(/\[shallot\] WebGPU reports an adapter with no identity/);
         subject = await createRenderedSubject("", device);
         for (let i = 0; i < 482; i++) subject.step();
         await subject.wait();

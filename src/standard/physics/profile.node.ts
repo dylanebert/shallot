@@ -1,8 +1,8 @@
 import { afterEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { createApp } from "@dylanebert/shallot";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
 import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { cpuTotal } from "../../extras/profile/cpu";
 

@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import { RenderingPlugin } from "../../core/rendering";
@@ -10,7 +11,6 @@ import {
     StandardRenderingPlugin,
 } from "../../standard/rendering";
 import { probeBuffer } from "../runtime";
-import { createApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
 

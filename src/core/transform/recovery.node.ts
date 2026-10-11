@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
-import { createApp } from "../../engine/app";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { GlobalTransform, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
 

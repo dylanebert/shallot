@@ -1,8 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { RenderingPlugin } from "../../core/rendering";
-import { createApp, type Plugin, runApp } from "./index";
+import { type Plugin, runApp } from "./index";
 
 setDefaultTimeout(CEILING.node);
 

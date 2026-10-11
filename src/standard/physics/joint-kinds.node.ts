@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { type Component, createApp, type FieldType, Time, type World } from "@dylanebert/shallot";
+import { type Component, type FieldType, Time, type World } from "@dylanebert/shallot";
 import * as physics from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
 import { JointField, jointField } from "./kernel/jointrecords";
 import { kernel } from "./kernel/kernel";
