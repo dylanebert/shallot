@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -31,12 +31,10 @@ import type { WorldState } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 const entry = resolve(import.meta.dir, "fixtures/shape-allocation.entry.ts");
+let countedKernelBytes: ArrayBuffer | undefined;
 
-test("warm recycled shape create/destroy, filters, inline materials, mass walks, static enable/disable, sleeping wake with shape query sync and pair finding allocate no WASM heap; the allocating control fails", async () => {
+beforeAll(async () => {
     const dir = mkdtempSync(join(tmpdir(), "shallot-shape-alloc-"));
-    const runtime = kernelState(undefined);
-    const previous = runtime.instance;
-    let world: WorldState | undefined;
     try {
         const build = Bun.spawnSync(
             [
@@ -55,9 +53,21 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
             { cwd: resolve(import.meta.dir, "../../..") },
         );
         if (build.exitCode !== 0) throw new Error(build.stderr.toString());
-        const bytes = await Bun.file(
+        countedKernelBytes = await Bun.file(
             join(dir, "wasm32-unknown-unknown/release/shallot_physics.wasm"),
         ).arrayBuffer();
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}, CEILING.startup);
+
+test("warm recycled shape create/destroy, filters, inline materials, mass walks, static enable/disable, sleeping wake with shape query sync and pair finding allocate no WASM heap; the allocating control fails", async () => {
+    const bytes = countedKernelBytes;
+    if (!bytes) throw new Error("counting kernel was not built");
+    const runtime = kernelState(undefined);
+    const previous = runtime.instance;
+    let world: WorldState | undefined;
+    try {
         const built = await WebAssembly.instantiate(bytes, {
             env: {
                 now: clockImport(() => k.memory),
@@ -215,7 +225,6 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
     } finally {
         if (world) destroyTestWorld(world);
         runtime.instance = previous;
-        rmSync(dir, { recursive: true, force: true });
     }
 });
 

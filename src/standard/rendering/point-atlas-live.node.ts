@@ -19,7 +19,7 @@ import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
 import { PointShadows } from "./shadows";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 const subjects = compileGpuFile(import.meta.path, async () => {
     const owner = await createApp({

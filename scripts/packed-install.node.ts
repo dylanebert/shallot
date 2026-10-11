@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 
 import { CEILING } from "./test-tiers";
 
@@ -18,6 +18,24 @@ import { join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 
+type RootPackage = {
+    version: string;
+    devDependencies: Record<string, string>;
+    scripts: { prepare: string };
+};
+let install:
+    | {
+          scratch: string;
+          cliProject: string;
+          rootPackage: RootPackage;
+          packageVersion: string;
+          tarballName: string;
+          tarball: string;
+          installedPackage: string;
+          cliInstall: string;
+      }
+    | undefined;
+
 function run(command: string[], cwd: string, label: string): string {
     const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
@@ -25,22 +43,23 @@ function run(command: string[], cwd: string, label: string): string {
     return output;
 }
 
-test("packed examples install by copy-out as isolated standalone projects", async () => {
+beforeAll(() => {
     const scratch = mkdtempSync(join(tmpdir(), "shallot-packed-install-"));
-    const cliProject = join(scratch, "cli");
-    const rootPackage = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const packageVersion = rootPackage.version as string;
-    const tarballName = `dylanebert-shallot-${packageVersion}.tgz`;
-    const tarball = join(scratch, tarballName);
-    mkdirSync(cliProject);
     try {
+        const cliProject = join(scratch, "cli");
+        const rootPackage = JSON.parse(
+            readFileSync(join(ROOT, "package.json"), "utf8"),
+        ) as RootPackage;
+        const packageVersion = rootPackage.version;
+        const tarballName = `dylanebert-shallot-${packageVersion}.tgz`;
+        const tarball = join(scratch, tarballName);
+        mkdirSync(cliProject);
         run(
             ["bun", "pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
             ROOT,
             "packing Shallot",
         );
         if (!existsSync(tarball)) throw new Error(`packed tarball is missing: ${tarball}`);
-
         writeFileSync(
             join(cliProject, "package.json"),
             JSON.stringify(
@@ -59,6 +78,40 @@ test("packed examples install by copy-out as isolated standalone projects", asyn
                 2,
             ),
         );
+        const cliInstall = run(
+            ["bun", "install", "--linker=isolated", "--no-progress"],
+            cliProject,
+            "installing packed CLI project",
+        );
+        install = {
+            scratch,
+            cliProject,
+            rootPackage,
+            packageVersion,
+            tarballName,
+            tarball,
+            installedPackage: join(cliProject, "node_modules/@dylanebert/shallot"),
+            cliInstall,
+        };
+    } catch (error) {
+        rmSync(scratch, { recursive: true, force: true });
+        throw error;
+    }
+}, CEILING.startup);
+
+test("packed examples install by copy-out as isolated standalone projects", async () => {
+    const state = install;
+    if (!state) throw new Error("packed CLI setup did not complete");
+    const {
+        scratch,
+        cliProject,
+        rootPackage,
+        packageVersion,
+        tarball,
+        installedPackage,
+        cliInstall,
+    } = state;
+    try {
         writeFileSync(
             join(cliProject, "fresh.test.ts"),
             `import { expect, test } from "bun:test";
@@ -115,12 +168,6 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
 });
 `,
         );
-        const cliInstall = run(
-            ["bun", "install", "--linker=isolated", "--no-progress"],
-            cliProject,
-            "installing packed CLI project",
-        );
-        const installedPackage = join(cliProject, "node_modules/@dylanebert/shallot");
         const installedManifest = JSON.parse(
             readFileSync(join(installedPackage, "package.json"), "utf8"),
         );

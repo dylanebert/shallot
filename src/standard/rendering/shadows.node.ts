@@ -2,7 +2,7 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 
 import { CEILING } from "../../../scripts/test-tiers";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";

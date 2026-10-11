@@ -28,7 +28,7 @@ import {
 } from ".";
 import { computeViewProj } from "./camera";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] },
 ]);

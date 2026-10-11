@@ -15,7 +15,7 @@ import { lookAtRotation, type World } from "../../engine";
 import { Backgrounds, CameraBackground, StandardRenderer } from "../../standard/rendering";
 import { Sky, SkyPlugin } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [SkyPlugin] }]);
 
 async function center(world: World, camera: number): Promise<number[]> {

@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -14,6 +14,35 @@ import type { WorldState } from "./world/world";
 
 setDefaultTimeout(CEILING.node);
 const entry = resolve(import.meta.dir, "fixtures/joint-allocation.entry.ts");
+let countedKernelBytes: ArrayBuffer | undefined;
+
+beforeAll(async () => {
+    const dir = mkdtempSync(join(tmpdir(), "shallot-joint-alloc-"));
+    try {
+        const build = Bun.spawnSync(
+            [
+                "cargo",
+                "build",
+                "-p",
+                "shallot-physics",
+                "--release",
+                "--target",
+                "wasm32-unknown-unknown",
+                "--features",
+                "count-allocations",
+                "--target-dir",
+                dir,
+            ],
+            { cwd: resolve(import.meta.dir, "../../..") },
+        );
+        if (build.exitCode !== 0) throw new Error(build.stderr.toString());
+        countedKernelBytes = await Bun.file(
+            join(dir, "wasm32-unknown-unknown/release/shallot_physics.wasm"),
+        ).arrayBuffer();
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}, CEILING.startup);
 const fieldEntry = resolve(import.meta.dir, "fixtures/joint-field-allocation.entry.ts");
 
 test("a public ECS motor-speed write allocates no steady JavaScript heap", async () => {
@@ -34,32 +63,13 @@ test("the public ECS motor-speed allocation check detects an allocating control"
 });
 
 test("the same warm joint subject allocates no WASM heap and its counting allocator detects an allocating control", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "shallot-joint-alloc-"));
+    const bytes = countedKernelBytes;
+    if (!bytes) throw new Error("counting kernel was not built");
     const runtime = kernelState(undefined);
     const previous = runtime.instance;
     let world: WorldState | undefined;
     let splitWorld: WorldState | undefined;
     try {
-        const build = Bun.spawnSync(
-            [
-                "cargo",
-                "build",
-                "-p",
-                "shallot-physics",
-                "--release",
-                "--target",
-                "wasm32-unknown-unknown",
-                "--features",
-                "count-allocations",
-                "--target-dir",
-                dir,
-            ],
-            { cwd: resolve(import.meta.dir, "../../..") },
-        );
-        if (build.exitCode !== 0) throw new Error(build.stderr.toString());
-        const bytes = await Bun.file(
-            join(dir, "wasm32-unknown-unknown/release/shallot_physics.wasm"),
-        ).arrayBuffer();
         const built = await WebAssembly.instantiate(bytes, {
             env: {
                 now: clockImport(() => k.memory),
@@ -99,7 +109,6 @@ test("the same warm joint subject allocates no WASM heap and its counting alloca
         if (splitWorld) destroyTestWorld(splitWorld);
         if (world) destroyTestWorld(world);
         runtime.instance = previous;
-        rmSync(dir, { recursive: true, force: true });
     }
 });
 

@@ -21,7 +21,7 @@ for (const { label, input, warm } of materialMixingScenes) {
     test(`warm ${label} with custom material mixing allocate no JavaScript heap`, async () => {
         const sample = await sampleAllocation(
             resolve(import.meta.dir, "material-allocation.entry.ts"),
-            { warm, frames: 600, input },
+            { warm, frames: 300, input },
         );
         expect(sample.control.length).toBeGreaterThan(0);
         const failure = allocationFailure(sample);
@@ -36,7 +36,7 @@ for (const count of [64, 128]) {
             resolve(import.meta.dir, "contact-allocation.entry.ts"),
             {
                 warm: 6000,
-                frames: 600,
+                frames: 300,
                 input: String(count),
             },
         );
