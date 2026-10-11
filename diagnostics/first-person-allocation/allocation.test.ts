@@ -91,15 +91,21 @@ test("the allocation-gated first-person composition carries no timing or profili
 });
 
 test("optimization traces refuse even a zero-byte window, including anonymous OSR and repeated compiles", () => {
-    const sample = { runtime: "planted trace", warm: 120, frames: 120, control: [], windows: [
-        { label: "after warm 120", sites: [], frames: 120, framesAtMost: 120 },
-        { label: "after warm 240", sites: [], frames: 120, framesAtMost: 120 },
-        { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
-    ] };
-    const begin = 'SHALLOT_SAMPLE_BEGIN "after warm 120"';
-    // Simulate V8 writing part of a trace line before the marker write to stdout.
+    const sample = {
+        runtime: "planted trace",
+        warm: 120,
+        frames: 120,
+        control: [],
+        windows: [
+            { label: "after warm 120", sites: [], frames: 120, framesAtMost: 120 },
+            { label: "after warm 240", sites: [], frames: 120, framesAtMost: 120 },
+            { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
+        ],
+    };
     const lines = [
-        `[compiling method 0x1 <JSFunction late (sfi = 0x2)> (target MA${begin}GLEV), mode: ConcurrencyMode::kSynchronous]`,
+        '[compiling method 0x0 <JSFunction outside (sfi = 0x2)> (target MAGLEV), mode: ConcurrencyMode::kSynchronous]',
+        'SHALLOT_SAMPLE_BEGIN "after warm 120"',
+        '[compiling method 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV), mode: ConcurrencyMode::kSynchronous]',
         '[completed compiling 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV)]',
         '[compiling method 0x1 <JSFunction (sfi = 0x3)> (target TURBOFAN_JS) OSR, mode: ConcurrencyMode::kSynchronous]',
         'SHALLOT_SAMPLE_END',

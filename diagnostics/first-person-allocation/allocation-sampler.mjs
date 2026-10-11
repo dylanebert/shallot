@@ -4,8 +4,8 @@
 // Needs node --expose-gc --allow-natives-syntax.
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
-// its `control` export allocates one known literal per call. Needs --trace-opt; redirects code traces to
-// per-isolate files where supported, and writes window markers and one JSON sample on stdout.
+// its `control` export allocates one known literal per call. Needs --trace-opt and --redirect-code-traces;
+// writes window markers to the measured isolate's code-trace file and one JSON sample on stdout.
 import { openSync, readdirSync, readFileSync, realpathSync, writeSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
@@ -86,9 +86,9 @@ export function attribute(profile, runSite, siteOf) {
 }
 
 /**
- * This isolate's code-trace file under `--redirect-code-traces`, which gives each isolate its own
- * `code-<pid>-<isolate id>.asm` in the working directory (V8 src/diagnostics/code-tracer.h). Found by
- * optimizing a probe only this isolate defines. Needs --allow-natives-syntax.
+ * This isolate's code-trace file in the working directory. Windows supplies an explicit `code.asm` path;
+ * other hosts use V8's per-isolate filename. Found by optimizing a probe only this isolate defines.
+ * Needs --allow-natives-syntax.
  */
 export function measuredTrace() {
     function shallotMeasuredIsolate() {
@@ -169,9 +169,8 @@ async function main() {
 
         // Warm marker writes separately so their first compiles do not land in subject runs. A
         // descriptor, not appendFileSync, whose path handling tiers up late inside windows.
-        const trace = process.platform === "win32" ? undefined : measuredTrace();
-        const traceFd = trace === undefined ? undefined : openSync(trace, "a");
-        const mark = (text) => writeSync(traceFd ?? 1, text);
+        const traceFd = openSync(measuredTrace(), "a");
+        const mark = (text) => writeSync(traceFd, text);
         for (let i = 0; i < 10000; i++) mark("");
 
         const { default: create, control } = await import(bundleUrl);

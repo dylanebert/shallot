@@ -152,8 +152,13 @@ async function runSampler(
     retainOptimizedSites: boolean,
 ): Promise<AllocationSample> {
     const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-"));
+    const tracePath = join(dir, "code.asm");
     try {
         writeFileSync(join(dir, "input.txt"), input);
+        if (process.platform === "win32") {
+            // The Windows Dawn host needs an explicit, already-existing V8 code-trace target.
+            writeFileSync(tracePath, "");
+        }
         const { shallot } = await import("@dylanebert/shallot/bun");
         const built = await Bun.build({
             entrypoints: [entry],
@@ -173,9 +178,8 @@ async function runSampler(
                 "--enable-source-maps",
                 ...TIER_FLAGS,
                 "--trace-opt",
-                // V8 cannot open redirected code-trace files on the Windows Dawn host, so trace-opt
-                // lines stay on stdout and each window still refuses an optimization.
-                ...(process.platform === "win32" ? [] : ["--redirect-code-traces"]),
+                "--redirect-code-traces",
+                ...(process.platform === "win32" ? [`--redirect-code-traces-to=${tracePath}`] : []),
                 "--allow-natives-syntax",
                 SAMPLER,
                 join(dir, "subject.mjs"),
@@ -192,7 +196,7 @@ async function runSampler(
             proc.exited,
         ]);
         if (code !== 0) throw new Error(`allocation sampler exited ${code}: ${stderr.trim()}`);
-        const trace = process.platform === "win32" ? "" : `${measuredIsolateTrace(dir)}\n`;
+        const trace = `${measuredIsolateTrace(dir)}\n`;
         return tracedSample(`${trace}${stdout}`, { retainOptimizedSites });
     } finally {
         rmSync(dir, { recursive: true, force: true });
@@ -212,62 +216,33 @@ export function measuredIsolateTrace(dir: string): string {
 
 /** Read synchronous V8 optimization traces bracketed by the measured isolate's run markers. */
 export function tracedSample(
-    stdout: string,
+    output: string,
     { retainOptimizedSites = false }: { retainOptimizedSites?: boolean } = {},
 ): AllocationSample {
     const optimizations = new Map<string, Set<string>>();
     const marked = new Set<string>();
     let label: string | undefined;
     let json: string | undefined;
-    let line = "";
-    let lineLabels = new Set<string>();
-    const recordLine = () => {
-        if (lineLabels.size > 0 && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
-            const match = /<JSFunction(.*?) \(sfi =/.exec(line);
-            if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
-            for (const lineLabel of lineLabels) {
-                const names = optimizations.get(lineLabel) ?? new Set<string>();
-                names.add(match[1].trim() || "(anonymous)");
-                optimizations.set(lineLabel, names);
-            }
+    for (const line of output.split(/\r?\n/)) {
+        const begin = /^SHALLOT_SAMPLE_BEGIN ("(?:[^"\\]|\\.)*")$/.exec(line);
+        if (begin) {
+            if (label !== undefined) throw new Error("nested allocation trace marker");
+            label = JSON.parse(begin[1]!) as string;
+            marked.add(label);
+        } else if (line === "SHALLOT_SAMPLE_END") {
+            if (label === undefined)
+                throw new Error(`unpaired allocation trace marker: ${JSON.stringify(line)}`);
+            label = undefined;
         } else if (line.startsWith('{"runtime":')) {
             json = line;
+        } else if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
+            const match = /<JSFunction(.*?) \(sfi =/.exec(line);
+            if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
+            const names = optimizations.get(label) ?? new Set<string>();
+            names.add(match[1].trim() || "(anonymous)");
+            optimizations.set(label, names);
         }
-        line = "";
-        lineLabels = new Set();
-    };
-    const recordOutput = (text: string) => {
-        for (let index = 0; index < text.length; index++) {
-            const character = text[index]!;
-            if (character === "\r") {
-                if (text[index + 1] === "\n") index++;
-                recordLine();
-            } else if (character === "\n") {
-                recordLine();
-            } else {
-                line += character;
-                if (label !== undefined) lineLabels.add(label);
-            }
-        }
-    };
-    // V8 trace writes and synchronous marker writes can interleave in the middle of a stdout line.
-    const markers = /SHALLOT_SAMPLE_BEGIN ("(?:[^"\\]|\\.)*")|SHALLOT_SAMPLE_END/g;
-    let offset = 0;
-    for (const marker of stdout.matchAll(markers)) {
-        recordOutput(stdout.slice(offset, marker.index));
-        if (marker[1] !== undefined) {
-            if (label !== undefined) throw new Error("nested allocation trace marker");
-            label = JSON.parse(marker[1]) as string;
-            marked.add(label);
-        } else {
-            if (label === undefined)
-                throw new Error(`unpaired allocation trace marker: ${JSON.stringify(marker[0])}`);
-            label = undefined;
-        }
-        offset = marker.index + marker[0].length;
     }
-    recordOutput(stdout.slice(offset));
-    recordLine();
     if (label !== undefined || json === undefined) throw new Error("incomplete allocation trace");
     const sample = JSON.parse(json) as TransitionSample;
     for (const window of sample.windows) {
