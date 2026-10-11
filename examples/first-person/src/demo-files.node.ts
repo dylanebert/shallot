@@ -17,7 +17,11 @@ test("Git ignores first-person build outputs while reporting source and lockfile
     mkdirSync(root);
     mkdirSync(template);
     writeFileSync(globalExcludes, "dist/\n");
-    writeFileSync(globalConfig, `[core]\n\texcludesFile = ${globalExcludes}\n`);
+    // Git config reads backslashes as escapes, so a Windows path is written with forward slashes.
+    writeFileSync(
+        globalConfig,
+        `[core]\n\texcludesFile = ${globalExcludes.replaceAll("\\", "/")}\n`,
+    );
     const env: NodeJS.ProcessEnv = {
         ...process.env,
         HOME: scratch,

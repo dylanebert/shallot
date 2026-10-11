@@ -18,22 +18,6 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 
-function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`${label} exceeded 5000 ms`)), 5000);
-        promise.then(
-            (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-            (error) => {
-                clearTimeout(timer);
-                reject(error);
-            },
-        );
-    });
-}
-
 test("MeshInstance and StandardRenderer warm and compact a component-bound dense instance", async () => {
     const app = await createApp({
         defaults: false,
@@ -46,10 +30,8 @@ test("MeshInstance and StandardRenderer warm and compact a component-bound dense
         world.add(eid, MeshInstance);
         world.gpu.device.pushErrorScope("validation");
         world.step(0);
-        await bounded("MeshInstance submissions", world.gpu.device.queue.onSubmittedWorkDone());
-        expect(
-            await bounded("MeshInstance validation", world.gpu.device.popErrorScope()),
-        ).toBeNull();
+        await world.gpu.device.queue.onSubmittedWorkDone();
+        expect(await world.gpu.device.popErrorScope()).toBeNull();
         const packed = await probeBuffer(world, world.gpu.buffers.get("eids")!, { size: 4 });
         expect(new Uint32Array(packed.bytes)[0]).toBe(eid);
         const active = await probeBuffer(

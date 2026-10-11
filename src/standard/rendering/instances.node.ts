@@ -46,22 +46,6 @@ const TintMaterial = materialType({
 });
 const tintPlugin = MaterialPlugin(TintMaterial);
 
-function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`${label} timed out after 5000 ms`)), 5000);
-        promise.then(
-            (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-            (error) => {
-                clearTimeout(timer);
-                reject(error);
-            },
-        );
-    });
-}
-
 test("MeshInstance compaction carries independent dense GlobalTransform and MeshInstance slots with each logical eid", async () => {
     const app = await createApp({ plugins: [] });
     const world = app.world;
@@ -91,9 +75,9 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
         const encoder = device.createCommandEncoder();
         encoder.copyBufferToBuffer(instances, 0, readback, 0, 32);
         device.queue.submit([encoder.finish()]);
-        const error = await bounded("MeshInstance payload validation", device.popErrorScope());
+        const error = await device.popErrorScope();
         if (error) throw new Error(error.message);
-        await bounded("MeshInstance payload readback", readback.mapAsync(GPUMapMode.READ));
+        await readback.mapAsync(GPUMapMode.READ);
         const words = new Uint32Array(readback.getMappedRange());
         const records = [Array.from(words.subarray(0, 4)), Array.from(words.subarray(4, 8))].sort(
             (x, y) => x[0]! - y[0]!,
@@ -149,10 +133,8 @@ test("changing MeshMaterial type moves the instance to that type's mesh draw on 
                 );
             }
             device.queue.submit([encoder.finish()]);
-            expect(
-                await bounded("material-type selection validation", device.popErrorScope()),
-            ).toBeNull();
-            await bounded("material-type selection readback", readback.mapAsync(GPUMapMode.READ));
+            expect(await device.popErrorScope()).toBeNull();
+            await readback.mapAsync(GPUMapMode.READ);
             const words = new Uint32Array(readback.getMappedRange());
             const result = [words[1], words[6]];
             readback.unmap();

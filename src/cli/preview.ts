@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename, relative, resolve } from "node:path";
+import { basename, posix, relative, resolve } from "node:path";
 import { nativeOutDir } from "../native";
 
 export type PreviewTarget =
@@ -24,13 +24,14 @@ export function linuxPreviewEnv(
 ): Record<string, string | undefined> {
     const env = { ...baseEnv };
     if (portable) {
-        const cefLibDir = resolve(outputDir, "cef");
+        // LD_LIBRARY_PATH is Linux syntax whatever host computes it.
+        const cefLibDir = posix.join(outputDir, "cef");
         env.LD_LIBRARY_PATH = `${cefLibDir}:${env.LD_LIBRARY_PATH || ""}`;
     }
     return env;
 }
 
-/** the powershell.exe command line that launches a windows build from its WSL-resolved host path. */
+/** the powershell.exe command line that launches a windows build from WSL, given its host path. */
 export function windowsPreviewCommand(winPath: string, projectName: string): string {
     return `cd '${winPath}'; .\\${projectName}.exe`;
 }
@@ -89,6 +90,13 @@ export async function previewProject(
     }
 
     console.log(`\n  running ${name}...\n`);
+    if (process.platform === "win32") {
+        const result = Bun.spawnSync([artifact], { cwd: outputDir, env });
+        process.stdout.write(result.stdout);
+        process.stderr.write(result.stderr);
+        return result.exitCode;
+    }
+    // From WSL, Windows builds launch through the host's PowerShell.
     const winPath = execSync(`wslpath -w "${outputDir}"`, { encoding: "utf-8" }).trim();
     const cmd = windowsPreviewCommand(winPath, name);
     const result = Bun.spawnSync(["powershell.exe", "-Command", cmd], { env });

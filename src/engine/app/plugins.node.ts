@@ -102,7 +102,8 @@ const everyPlugin: readonly Plugin[] = [
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
-await withTimeout("WebGPU global setup", setupGlobals(), 5000);
+// No wall clock on GPU waits: a hang is the Node tier ceiling's and device loss's (77c2e222).
+await setupGlobals();
 const createCanvasContext = CanvasContext as unknown as new (
     canvas: HTMLCanvasElement,
     width: number,
@@ -113,25 +114,6 @@ if (typeof ResizeObserver === "undefined") {
         observe() {}
         disconnect() {}
     } as unknown as typeof ResizeObserver;
-}
-
-function withTimeout<T>(label: string, promise: PromiseLike<T> | T, timeoutMs: number): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-        const timer = setTimeout(
-            () => reject(new Error(`${label} timed out after ${timeoutMs} ms`)),
-            timeoutMs,
-        );
-        Promise.resolve(promise).then(
-            (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-            (error: unknown) => {
-                clearTimeout(timer);
-                reject(new Error(`${label} rejected: ${String(error)}`, { cause: error }));
-            },
-        );
-    });
 }
 
 function watchDevice(device: GPUDevice) {
@@ -146,22 +128,17 @@ function watchDevice(device: GPUDevice) {
     };
     device.addEventListener("uncapturederror", uncaptured);
     return {
-        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 5000): Promise<T> {
+        wait<T>(label: string, promise: PromiseLike<T> | T): Promise<T> {
             if (firstError)
                 return Promise.reject(new Error(`${label}: uncaptured GPU error: ${firstError}`));
             return new Promise<T>((resolve, reject) => {
                 const cleanup = () => {
-                    clearTimeout(timer);
                     waiters.delete(onError);
                 };
                 const onError = (message: string) => {
                     cleanup();
                     reject(new Error(`${label}: uncaptured GPU error: ${message}`));
                 };
-                const timer = setTimeout(() => {
-                    cleanup();
-                    reject(new Error(`${label} timed out after ${timeoutMs} ms`));
-                }, timeoutMs);
                 waiters.add(onError);
                 Promise.resolve(promise).then(
                     (value) => {
@@ -187,7 +164,7 @@ function watchDevice(device: GPUDevice) {
 }
 
 async function trackedDevice() {
-    const adapter = await withTimeout("Dawn adapter request", navigator.gpu.requestAdapter(), 5000);
+    const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("Dawn adapter unavailable");
     const requiredLimits: Record<string, number> = {};
     for (const limit of [
@@ -198,14 +175,10 @@ async function trackedDevice() {
     ] as const) {
         if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
     }
-    const device = await withTimeout(
-        "Dawn device request",
-        adapter.requestDevice({
-            requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
-            requiredLimits,
-        }),
-        5000,
-    );
+    const device = await adapter.requestDevice({
+        requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
+        requiredLimits,
+    });
     const watch = watchDevice(device);
     const live = new Set<GPUBuffer | GPUTexture>();
     const origins = new WeakMap<object, { owner?: World; label: string; createdAt: string }>();

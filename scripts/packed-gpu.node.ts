@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
+import { BUN_CHILD, bunCommand } from "./bun-child";
 import { CEILING } from "./test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -11,7 +12,13 @@ import { join, resolve } from "node:path";
 const ROOT = resolve(import.meta.dir, "..");
 
 function run(command: string[], cwd: string, label: string): string {
-    const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
+    const [program, ...args] = command;
+    const result = Bun.spawnSync(program === "bun" ? bunCommand(args) : command, {
+        ...(program === "bun" ? BUN_CHILD : {}),
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
     if (result.exitCode !== 0) throw new Error(`${label} failed:\n${output}`);
     return output;
