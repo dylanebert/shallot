@@ -6,11 +6,11 @@ export interface AllocationFrame {
     functionName: string;
     site: string;
     native: boolean;
-    expression?: string;
+    boundary?: string;
 }
 
 export interface AllocationSite {
-    /** top JavaScript frame's exact source position, or an admitted API expression */
+    /** top JavaScript frame's declaration position, admitted only for a checked API wrapper */
     site: string;
     /** sampled bytes attributed to this complete stack over the measured window, collected objects included */
     bytes: number;
@@ -18,8 +18,8 @@ export interface AllocationSite {
     count: number;
     /** ordered from the run frame's caller through the allocation and any trailing native frames */
     stack?: readonly AllocationFrame[];
-    /** exact API expression only when the top JavaScript frame is its isolated boundary */
-    expression?: string;
+    /** checked API wrapper declaration position when the top JavaScript frame is that boundary */
+    boundary?: string;
 }
 
 export interface AllocationWindow {

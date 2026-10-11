@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { parse } from "@babel/parser";
 import { allocationFailure, sampleAllocation, windowBytes } from "../first-person-allocation/allocation";
 import { attribute } from "../first-person-allocation/allocation-sampler.mjs";
 
@@ -9,25 +10,111 @@ import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-si
 
 setDefaultTimeout(CEILING.node);
 
-/**
- * Only exact WebGPU expressions and the owned submission-fence reaction may admit sampled bytes,
- * with no application JavaScript beneath their wrappers. Submission counts are tested separately.
- */
-const exactAllocationExpressions = new Map(
-    gpuAllocationExpressions.map((entry) => [entry.site, { functionName: entry.fn.name }]),
+const allocationSourcePath = resolve(import.meta.dir, "../../src/engine/runtime/allocation-site.ts");
+const allocationSource = () => readFileSync(allocationSourcePath, "utf8");
+const parserMetadata = new Set([
+    "start", "end", "loc", "extra", "comments", "leadingComments", "trailingComments", "innerComments", "tokens", "errors",
+]);
+const admittedAllocationWrappers = new Map(
+    gpuAllocationExpressions.map((entry) => [entry.wrapperSite, { functionName: entry.fn.name }]),
 );
+const bindingWrappers = [
+    "setComputePipeline",
+    "setComputeBindGroup",
+    "executeRenderBundles",
+    "dispatchWorkgroups",
+    "dispatchWorkgroups2",
+    "setIndexBuffer",
+    "setViewport",
+    "drawIndexedIndirect",
+    "setRenderPipeline",
+    "setRenderBindGroup",
+    "draw",
+];
 
-function isExactAllocationSite(row: {
-    expression?: string;
+function syntaxShape(node: any): unknown {
+    if (Array.isArray(node)) return node.map(syntaxShape);
+    if (!node || typeof node !== "object") return node;
+    return Object.fromEntries(
+        Object.entries(node)
+            .filter(([key]) => !["start", "end", "loc", "extra", "comments", "leadingComments", "trailingComments", "innerComments"].includes(key))
+            .map(([key, value]) => [key, syntaxShape(value)]),
+    );
+}
+
+function allocationWrapperFailure(
+    sourceText: string,
+    entry: (typeof gpuAllocationExpressions)[number],
+): string | undefined {
+    const functionName = entry.fn.name;
+    let source;
+    try {
+        source = parse(sourceText, { sourceType: "module", plugins: ["typescript"] });
+    } catch {
+        return `allocation exception wrapper ${functionName} source does not parse`;
+    }
+    const declarations: any[] = [];
+    const visit = (node: any) => {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) {
+            for (const child of node) visit(child);
+            return;
+        }
+        if (node.type === "FunctionDeclaration" && node.id?.name === functionName) declarations.push(node);
+        for (const [key, value] of Object.entries(node))
+            if (!parserMetadata.has(key)) visit(value);
+    };
+    visit(source.program);
+    if (declarations.length !== 1)
+        return `allocation exception wrapper ${functionName} is missing or ambiguous`;
+    const declaration = declarations[0]!;
+    if (!declaration.id || !declaration.body)
+        return `allocation exception wrapper ${functionName} has no body`;
+    const namePosition = declaration.id.loc.end;
+    const wrapperSite = `src/engine/runtime/allocation-site.ts:${namePosition.line}:${namePosition.column + 1}`;
+    if (wrapperSite !== entry.wrapperSite)
+        return `allocation exception wrapper ${functionName} moved from ${entry.wrapperSite} to ${wrapperSite}`;
+    if (declaration.body.body.length !== 1)
+        return `allocation exception wrapper ${functionName} must contain only ${entry.returns ? "return " : ""}${entry.expression}`;
+    const statement = declaration.body.body[0];
+    const actual = entry.returns
+        ? statement.type === "ReturnStatement" ? statement.argument : undefined
+        : statement.type === "ExpressionStatement" ? statement.expression : undefined;
+    if (!actual || actual.type !== "CallExpression")
+        return `allocation exception wrapper ${functionName} must contain only ${entry.returns ? "return " : ""}${entry.expression}`;
+    let expected;
+    try {
+        expected = parse(entry.expression, { sourceType: "module", plugins: ["typescript"] }).program.body[0];
+    } catch {
+        return `allocation exception wrapper ${functionName} has invalid expected expression`;
+    }
+    if (
+        expected?.type !== "ExpressionStatement" ||
+        expected.expression.type !== "CallExpression" ||
+        JSON.stringify(syntaxShape(actual)) !== JSON.stringify(syntaxShape(expected.expression))
+    )
+        return `allocation exception wrapper ${functionName} must contain only ${entry.returns ? "return " : ""}${entry.expression}`;
+    return undefined;
+}
+
+function assertAllocationWrappers(sourceText: string): void {
+    const failures = gpuAllocationExpressions
+        .map((entry) => allocationWrapperFailure(sourceText, entry))
+        .filter((failure): failure is string => failure !== undefined);
+    if (failures.length > 0) throw new Error(failures.join("\n"));
+}
+
+function isAdmittedAllocationSite(row: {
+    boundary?: string;
     stack?: readonly {
         functionName: string;
         site: string;
-        expression?: string;
+        boundary?: string;
         native: boolean;
     }[];
 }): boolean {
-    if (!row.expression || !row.stack) return false;
-    const expected = exactAllocationExpressions.get(row.expression);
+    if (!row.boundary || !row.stack) return false;
+    const expected = admittedAllocationWrappers.get(row.boundary);
     if (!expected) return false;
     let topJavaScript = -1;
     for (let i = row.stack.length - 1; i >= 0; i--) {
@@ -41,28 +128,32 @@ function isExactAllocationSite(row: {
         topJavaScript >= 0 &&
         top !== undefined &&
         top.functionName === expected.functionName &&
-        top.site === `${expected.functionName} ${row.expression}` &&
-        top.expression === row.expression &&
+        top.site === `${expected.functionName} ${row.boundary}` &&
+        top.boundary === row.boundary &&
         row.stack.slice(topJavaScript + 1).every((frame) => frame.native)
     );
 }
 
-test("allocation exceptions require exact call expressions, not containing functions", () => {
-    const source = readFileSync(
-        resolve(import.meta.dir, "../../src/engine/runtime/allocation-site.ts"),
-        "utf8",
-    ).split("\n");
-    for (const entry of gpuAllocationExpressions) {
-        const match = /^(.*):(\d+):(\d+)$/.exec(entry.site);
-        if (!match) throw new Error(`invalid GPU allocation expression site: ${entry.site}`);
-        const line = Number(match[2]);
-        const column = Number(match[3]);
-        expect(source[line - 1]?.slice(column - 1).startsWith(entry.expression)).toBe(true);
-    }
+test("allocation exceptions require each named wrapper to contain exactly its parsed API expression", () => {
+    const source = allocationSource();
+    assertAllocationWrappers(source);
+    for (const entry of gpuAllocationExpressions)
+        expect(allocationWrapperFailure(source, entry)).toBeUndefined();
+
+    const submit = gpuAllocationExpressions.find((entry) => entry.fn.name === "submitFrame")!;
+    const expression = "    queue.submit(buffers);";
+    const array = source.replace(expression, `${expression} const witness = new Array(16);`);
+    const closure = source.replace(expression, `${expression} const witness = () => buffers.length;`);
+    expect(allocationWrapperFailure(array, submit)).toBe(
+        "allocation exception wrapper submitFrame must contain only queue.submit(buffers)",
+    );
+    expect(allocationWrapperFailure(closure, submit)).toBe(
+        "allocation exception wrapper submitFrame must contain only queue.submit(buffers)",
+    );
     const encoder = gpuAllocationExpressions[0]!;
     expect(
-        isExactAllocationSite({
-            expression: encoder.site,
+        isAdmittedAllocationSite({
+            boundary: encoder.wrapperSite,
             stack: [
                 {
                     functionName: "frameEncoder",
@@ -71,17 +162,17 @@ test("allocation exceptions require exact call expressions, not containing funct
                 },
                 {
                     functionName: "createFrameEncoder",
-                    site: `createFrameEncoder ${encoder.site}`,
+                    site: `createFrameEncoder ${encoder.wrapperSite}`,
                     native: false,
-                    expression: encoder.site,
+                    boundary: encoder.wrapperSite,
                 },
                 { functionName: "WebGPU", site: "WebGPU <native>", native: true },
             ],
         }),
     ).toBe(true);
     expect(
-        isExactAllocationSite({
-            expression: encoder.site,
+        isAdmittedAllocationSite({
+            boundary: encoder.wrapperSite,
             stack: [
                 {
                     functionName: "frameEncoder",
@@ -92,25 +183,31 @@ test("allocation exceptions require exact call expressions, not containing funct
         }),
     ).toBe(false);
     expect(
-        isExactAllocationSite({
-            expression: encoder.site,
+        isAdmittedAllocationSite({
+            boundary: encoder.wrapperSite,
             stack: [
                 {
                     functionName: "createFrameEncoder",
-                    site: "createFrameEncoder src/engine/runtime/allocation-site.ts:2:35",
+                    site: `createFrameEncoder ${encoder.wrapperSite}`,
                     native: false,
-                    expression: encoder.site,
+                    boundary: encoder.wrapperSite,
                 },
                 { functionName: "webgpuBinding", site: "webgpuBinding gpu:binding", native: false },
-                {
-                    functionName: "node:internal/perf/performance",
-                    site: "node:internal/perf/performance:137:6",
-                    native: true,
-                },
             ],
         }),
     ).toBe(false);
 
+    expect(gpuAllocationExpressions.map((entry) => entry.fn.name)).toEqual([
+        "createFrameEncoder",
+        "finishFrameEncoder",
+        "submitFrame",
+        "submissionFence",
+        "continueSubmissionFence",
+        "beginRenderPass",
+        "beginComputePass",
+        "endRenderPass",
+        "endComputePass",
+    ]);
     expect(gpuAllocationExpressions.map((entry) => entry.expression)).toEqual([
         "device.createCommandEncoder(descriptor)",
         "encoder.finish()",
@@ -127,22 +224,22 @@ test("allocation exceptions require exact call expressions, not containing funct
     for (const passEnd of passEnds) {
         const frame = {
             functionName: passEnd.fn.name,
-            site: `${passEnd.fn.name} src/engine/runtime/allocation-site.ts:${passEnd.fn.name === "endRenderPass" ? "111:30" : "115:31"}`,
+            site: `${passEnd.fn.name} ${passEnd.wrapperSite}`,
             native: false,
-            expression: passEnd.site,
+            boundary: passEnd.wrapperSite,
         };
         expect(
-            isExactAllocationSite({
-                expression: passEnd.site,
+            isAdmittedAllocationSite({
+                boundary: passEnd.wrapperSite,
                 stack: [
-                    { ...frame, site: `${passEnd.fn.name} ${passEnd.site}` },
+                    frame,
                     { functionName: "end", site: "end <native>", native: true },
                 ],
             }),
         ).toBe(true);
         expect(
-            isExactAllocationSite({
-                expression: passEnd.site,
+            isAdmittedAllocationSite({
+                boundary: passEnd.wrapperSite,
                 stack: [
                     frame,
                     { functionName: "applicationCallback", site: "callback app.ts:1:1", native: false },
@@ -152,7 +249,7 @@ test("allocation exceptions require exact call expressions, not containing funct
     }
 });
 
-test("exact allocation exceptions leave ordinary renderer sites red", () => {
+test("wrapper admission leaves renderer and caller-closure samples red", () => {
     const sample = {
         warm: 120,
         windows: [
@@ -165,13 +262,18 @@ test("exact allocation exceptions leave ordinary renderer sites red", () => {
                         count: 1,
                     },
                     {
-                        site: "endRenderPass src/engine/runtime/allocation-site.ts:111:30",
-                        bytes: 16,
+                        site: "step src/engine/ecs/scheduler.ts:200:9",
+                        bytes: 96,
                         count: 1,
                         stack: [
                             {
-                                functionName: "endRenderPass",
-                                site: "endRenderPass src/engine/runtime/allocation-site.ts:111:30",
+                                functionName: "step",
+                                site: "step diagnostics/readback-allocation/render.entry.ts:76:15",
+                                native: false,
+                            },
+                            {
+                                functionName: "step",
+                                site: "step src/engine/ecs/scheduler.ts:200:9",
                                 native: false,
                             },
                         ],
@@ -184,15 +286,15 @@ test("exact allocation exceptions leave ordinary renderer sites red", () => {
             { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
         ],
     };
-    expect(isExactAllocationSite(sample.windows[0]!.sites[0]!)).toBe(false);
-    expect(isExactAllocationSite(sample.windows[0]!.sites[1]!)).toBe(false);
+    expect(isAdmittedAllocationSite(sample.windows[0]!.sites[0]!)).toBe(false);
+    expect(isAdmittedAllocationSite(sample.windows[0]!.sites[1]!)).toBe(false);
     expect(allocationFailure(sample)).toContain("queueTransparent src/standard/rendering/forward.ts:867");
-    expect(allocationFailure(sample)).toContain("endRenderPass src/engine/runtime/allocation-site.ts:111:30");
+    expect(allocationFailure(sample)).toContain("step src/engine/ecs/scheduler.ts:200:9");
 });
 
-test("the sampler maps an admitted expression only at its exact source column", () => {
+test("the sampler admits a wrapper only at its declaration position", () => {
     const entry = gpuAllocationExpressions[0]!;
-    const [, line, exactColumn] = /:(\d+):(\d+)$/.exec(entry.site)!;
+    const [, line, exactColumn] = /:(\d+):(\d+)$/.exec(entry.wrapperSite)!;
     const attributeAt = (columnNumber?: number) => {
         const run = {
             functionName: "stepChunk",
@@ -201,7 +303,7 @@ test("the sampler maps an admitted expression only at its exact source column", 
             lineNumber: 0,
             columnNumber: 0,
         };
-        const expression = {
+        const wrapper = {
             functionName: entry.fn.name,
             url: "subject.mjs",
             scriptId: "2",
@@ -213,33 +315,44 @@ test("the sampler maps an admitted expression only at its exact source column", 
                 head: {
                     id: 0,
                     callFrame: run,
-                    children: [{ id: 1, callFrame: expression, children: [] }],
+                    children: [{ id: 1, callFrame: wrapper, children: [] }],
                 },
                 samples: [{ nodeId: 1, size: 8 }],
             },
             (frame) => (frame.functionName === "stepChunk" ? "stepChunk sampler.mjs:1" : undefined),
             (frame) =>
                 `${frame.functionName} src/engine/runtime/allocation-site.ts:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`,
-            [{ functionName: entry.fn.name, expressionSite: entry.site, expression: entry.expression }],
+            [{ functionName: entry.fn.name, wrapperSite: entry.wrapperSite, expression: entry.expression }],
         )[0];
     };
     const expectedColumn = Number(exactColumn);
-    expect(attributeAt(expectedColumn - 1)?.expression).toBe(entry.site);
-    expect(attributeAt(expectedColumn)?.expression).toBeUndefined();
-    expect(attributeAt()?.expression).toBeUndefined();
+    expect(attributeAt(expectedColumn - 1)?.boundary).toBe(entry.wrapperSite);
+    expect(attributeAt(expectedColumn)?.boundary).toBeUndefined();
+    expect(attributeAt()?.boundary).toBeUndefined();
 });
 
-test("rendering allocates no JavaScript heap beyond exact GPU and fence expressions", async () => {
+test("rendering allocates no JavaScript heap beyond source-checked GPU and fence wrappers", async () => {
+    assertAllocationWrappers(allocationSource());
     const sample = await sampleAllocation(resolve(import.meta.dir, "render.entry.ts"), {
         warm: 6000,
         frames: 600,
     });
     if (windowBytes({ sites: sample.control }) === 0) throw new Error("allocation control was invisible");
+    for (const window of sample.windows) {
+        if (window.optimizations?.length) continue;
+        for (const functionName of bindingWrappers) {
+            const bytes = window.sites
+                .filter((row) => row.stack?.some((frame) => frame.functionName === functionName))
+                .reduce((total, row) => total + row.bytes, 0);
+            if (bytes !== 0)
+                throw new Error(`${window.label}: unadmitted binding wrapper ${functionName} sampled ${bytes} B`);
+        }
+    }
     const failure = allocationFailure({
         ...sample,
         windows: sample.windows.map((window) => ({
             ...window,
-            sites: window.sites.filter((row) => !isExactAllocationSite(row)),
+            sites: window.sites.filter((row) => !isAdmittedAllocationSite(row)),
         })),
     });
     if (failure) throw new Error(failure);
