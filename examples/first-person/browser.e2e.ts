@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "../../scripts/browser.fixture";
+import { installCaptureFrame } from "../../scripts/capture-install";
 import { CEILING } from "../../scripts/test-tiers";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -171,7 +172,7 @@ test("the browser input adapter fails to record a real key press on the focused 
     expect(device?.features).toEqual(floorFeatures);
     expect(device?.limits.maxStorageBuffersPerShaderStage).toBe(8);
     console.info(`First-person WebGPU floor: ${JSON.stringify(device)}`);
-    await page.addScriptTag({ path: CAPTURE_ENTRY, type: "module" });
+    await installCaptureFrame(page, CAPTURE_ENTRY);
     await canvas.evaluate((element) => {
         element.tabIndex = 0;
     });

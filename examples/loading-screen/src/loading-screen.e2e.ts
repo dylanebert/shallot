@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "../../../scripts/browser.fixture";
+import { installCaptureFrame } from "../../../scripts/capture-install";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CAPTURE_ENTRY = resolve(ROOT, ".artifacts/capture-page.js");
@@ -566,7 +567,7 @@ test("the first and later scene frames match the projected unit cube and remain 
     await page.waitForTimeout(200);
     const bounds = await page.locator("#scene").boundingBox();
     expect(bounds, "the scene canvas has a page rectangle").not.toBeNull();
-    await page.addScriptTag({ path: CAPTURE_ENTRY, type: "module" });
+    await installCaptureFrame(page, CAPTURE_ENTRY);
     const first = await inspectScene(page, "first");
     expect(first.width, "captureFrame matches the real canvas width").toBe(
         Math.round(bounds!.width),
