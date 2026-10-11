@@ -265,8 +265,9 @@ export function setGroup(world: World, name: string, entry: MaterialGroupEntry):
 /** the engine group-0 bind group for a view slot against one meshQuant buffer — the shared live
  * `engineLayout` instance a draw at that slot binds (frame / per-slot View / lighting /
  * light-cull outputs / materials / the dequant table), built lazily into the caller-owned `cache` (a
- * `MaterialGroupEntry.engineCache` or a `CompiledBackground.engineCache` — never a module map keyed on the
- * quant buffer, whose entries would outlive a churned buffer for the app's life). */
+ * `MaterialGroupEntry.engineCache` or a `CompiledBackground.engineCache`). */
+const engineCacheLights = new WeakMap<Map<number, GPUBindGroup>, GPUBuffer>();
+
 export function engineGroup(
     world: World,
     cache: Map<number, GPUBindGroup>,
@@ -274,6 +275,12 @@ export function engineGroup(
     quant: GPUBuffer,
 ): GPUBindGroup {
     const _lightCull = world.resource(LightCull);
+    const pointLights = _lightCull.lights;
+    if (!pointLights) throw new Error("[render] engine group used before light-cull warm");
+    if (engineCacheLights.get(cache) !== pointLights) {
+        cache.clear();
+        engineCacheLights.set(cache, pointLights);
+    }
 
     const cached = cache.get(slot);
     if (cached) return cached;
@@ -282,7 +289,7 @@ export function engineGroup(
             frame: world.resource(Frame).buffer!,
             view: world.resource(RenderContext).viewBuffers[slot],
             lighting: world.resource(Lighting).buffer!,
-            pointLights: _lightCull.lights!,
+            pointLights,
             meshQuant: quant,
         }),
     );

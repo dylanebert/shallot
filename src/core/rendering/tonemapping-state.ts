@@ -5,8 +5,9 @@ import { ColorGrading, GradingConfig } from "./color-grading";
 import {
     BeginFrameSystem,
     Camera,
-    MAX_VIEWS,
+    INITIAL_VIEW_CAPACITY,
     PresentationSystem,
+    RenderContext,
     RenderingPlugin,
     type View,
     Views,
@@ -126,6 +127,12 @@ export const TonemappingSystem: System = {
         const state = world.resource(tonemappingStateKey);
         if (!state.built || !state.pipeline) return;
         const device = world.gpu.device;
+        const capacity = world.resource(RenderContext).shadeCount;
+        while (state.configs.length < capacity) {
+            const config = configBuffer(world, state.configs.length);
+            state.configs.push(config);
+            state.buffers.push(world.gpu.root.unwrap(config));
+        }
         const grading = world.storage(ColorGrading);
         const methods = world.storage(Tonemapping);
         for (const eid of world.query(CAMERAS)) {
@@ -216,7 +223,8 @@ export const TonemappingPlugin: Plugin = {
         for (const buffer of state.configs) buffer.destroy();
         state.configs.length = 0;
         state.groups = new WeakMap();
-        for (let slot = 0; slot < MAX_VIEWS; slot++) state.configs.push(configBuffer(world, slot));
+        for (let slot = 0; slot < INITIAL_VIEW_CAPACITY; slot++)
+            state.configs.push(configBuffer(world, slot));
         state.buffers = state.configs.map((buffer) => world.gpu.root.unwrap(buffer));
         state.built = composite(world, navigator.gpu.getPreferredCanvasFormat());
         state.pipeline = world.gpu.root.unwrap(state.built.pipeline);

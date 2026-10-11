@@ -5,6 +5,7 @@ import type { EntityRef, World } from "../../engine";
 import { resizeViewport, Viewports } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { Camera, Resolution } from "./camera";
+import { CULL_VOLUME_FLOATS } from "./frustum";
 import { RenderContext } from "./render";
 
 /**
@@ -35,19 +36,23 @@ export const ViewUniforms = d
  */
 export const VIEW_STRIDE = 256;
 
+/** One initial slot keeps the common single-view path small; all per-view state grows on demand. */
+export const INITIAL_VIEW_CAPACITY = 1;
+
 /**
- * Maximum presenting views per frame. `BeginFrameSystem` assigns them the low slots
- * `[0, MAX_VIEWS)`; depth-only views get the slots above, out of {@link MAX_SLOTS}.
+ * The cull table is one vec4 header plus six vec4 planes per slot. A uniform binding is limited to 64 KiB by
+ * WebGPU's default `maxUniformBufferBindingSize`: floor(65,536 / (28 floats × 4 bytes)) = 585 slots
+ * (65,520 bytes); 586 slots would exceed the limit. Allocate the table once at this hardware bound.
  */
-export const MAX_VIEWS = 8;
+export const MAX_SLOTS = Math.floor(
+    (64 * 1024) / (CULL_VOLUME_FLOATS * Float32Array.BYTES_PER_ELEMENT),
+);
 
-/** total view slots per frame: shading cameras + depth-only views (the sun's light camera + the
- * point-shadow member-compaction "union" camera). Sizes only the cheap per-slot state
- * (`RenderContext.viewStaging`, `RenderContext.cullVolumes` — depth-only slots allocate no {@link RenderContext.viewBuffers}
- * entry, only the shading prefix does), so it's generous */
-export const MAX_SLOTS = 64;
+/** Reserve the maximum 48 point-shadow faces and four directional cascades in the cull table. */
+export const MAX_SHADOW_SLOTS = 52;
 
-export const VIEW_UNIFORM_SIZE = VIEW_STRIDE * MAX_SLOTS;
+/** Hardware-derived presenting ceiling after reserving every built-in shadow slot; buffers remain lazy-grown. */
+export const MAX_VIEWS = MAX_SLOTS - MAX_SHADOW_SLOTS;
 
 /**
  * the byte size of the {@link ViewUniforms} uniform a surface statically reads, from the schema: projection,

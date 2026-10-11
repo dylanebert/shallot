@@ -771,11 +771,8 @@ export function updateCascades(world: World, main: number): void {
  * view-slot budget (each caster claims up to 6 depth slots) is {@link MAX_COMBO_SLOTS} below */
 export const MAX_POINT_CASTERS = 8;
 
-// view slots reserved for the future CSM sun cascades, so building them never re-opens the combo budget.
-// Each combo (a point caster's cube face / a spot's cone) is a depth-only cull view sharing the MAX_SLOTS
-// pool with the shading cameras (MAX_VIEWS) and the cascades — so the combos a frame may pose are capped to
-// what's left. At the default cap (8 point casters → 48 combos ≤ 52) this never bites; it's the guard if
-// MAX_POINT_CASTERS is raised.
+// Reserve four cascade slots and up to 48 point-shadow face slots from the 585-slot cull uniform.
+// The derived presenting-view ceiling leaves exactly these 52 depth-only slots available.
 const CASCADE_RESERVE = MAX_CASCADES;
 const MAX_COMBO_SLOTS = MAX_SLOTS - MAX_VIEWS - CASCADE_RESERVE;
 

@@ -3,8 +3,9 @@ import type { World } from "../../engine";
 /**
  * World-owned GPU context shared by renderers. Frame passes record through
  * {@link World.frameEncoder}; the engine submits after the draw group.
- * `viewBuffers` holds one schema-sized ViewUniforms buffer per presenting slot, bounded
- * by MAX_VIEWS. Depth-only slots have staging and cull volumes but no view buffer.
+ * `viewBuffers` holds one schema-sized ViewUniforms buffer per presenting slot; it starts with one and grows
+ * only when a presenting camera needs a new slot, up to the hardware-derived MAX_VIEWS ceiling. Depth-only
+ * slots have staging and cull volumes but no view buffer.
  * `cullVolumes`, published under that name in world.gpu.buffers, contains one
  * tagged six-plane frustum per active slot for producers to test their bounds.
  * `viewCount` is the populated slot count; `shadeCount` is its presenting prefix.

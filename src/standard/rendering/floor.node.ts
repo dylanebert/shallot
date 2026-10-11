@@ -8,10 +8,12 @@ import {
     AmbientLight,
     attachTexture,
     Camera,
+    CULL_VOLUME_FLOATS,
     captureTexture,
     DepthPrepass,
     DirectionalLight,
     EffectPasses,
+    MAX_SLOTS,
     PointLight,
     RenderContext,
     SpotLight,
@@ -247,15 +249,15 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             }),
         ).toThrow("material layout uses 9 vertex storage buffers; WebGPU's limit is 8");
         console.log("storage buffers per changed pipeline layout", layouts);
-        expect(world.resource(RenderContext).cullVolumes.size).toBe(7168);
-        expect(world.resource(LightCull).lights!.size).toBe(
-            LIGHT_INDICES_OFFSET + (LIGHT_POOL + 2) * 4,
+        expect(world.resource(RenderContext).cullVolumes.size).toBe(
+            MAX_SLOTS * CULL_VOLUME_FLOATS * Float32Array.BYTES_PER_ELEMENT,
         );
+        expect(world.resource(LightCull).lights!.size).toBe(LIGHT_GRID_OFFSET + CLUSTER_COUNT * 8);
         console.log("floor storage bytes", {
             cullVolumes: world.resource(RenderContext).cullVolumes.size,
-            lightList: LIGHT_GRID_OFFSET,
-            grid: LIGHT_INDICES_OFFSET - LIGHT_GRID_OFFSET,
+            lightList: LIGHT_INDICES_OFFSET,
             pool: (LIGHT_POOL + 2) * 4,
+            grid: LIGHT_GRID_OFFSET,
             clusters: CLUSTER_COUNT,
         });
         const camera = world.create();

@@ -7,7 +7,7 @@ import {
     CameraMode,
     computeViewProj,
     globalTransformTable,
-    MAX_VIEWS,
+    INITIAL_VIEW_CAPACITY,
     PointLight,
     RenderContext,
     SpotLight,
@@ -28,6 +28,7 @@ import {
 interface ClusterGpuState {
     clusters: Clusters;
     lightCull: LightCull;
+    viewCapacity: number;
     pipe: TgpuComputePipeline | null;
     bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
     typedViews: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null;
@@ -47,6 +48,10 @@ interface ClusterGpuState {
     countBound: GPUBindGroup | null;
     populatePipe: GPURenderPipeline | null;
     populateBound: GPUBindGroup | null;
+    zSliceLayout: GPUBindGroupLayout | null;
+    allocationLayout: GPUBindGroupLayout | null;
+    countLayout: GPUBindGroupLayout | null;
+    populateLayout: GPUBindGroupLayout | null;
     clusterCounts: GPUBuffer | null;
     zSlices: GPUBuffer | null;
     rasterArgs: GPUBuffer | null;
@@ -72,21 +77,22 @@ function createClusterGpuState(): ClusterGpuState {
         clusters: {
             aabbs: null,
             views: null,
-            staging: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
-            last: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
-            pending: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
+            staging: new Float32Array(INITIAL_VIEW_CAPACITY * CLUSTER_VIEW_FLOATS),
+            last: new Float32Array(INITIAL_VIEW_CAPACITY * CLUSTER_VIEW_FLOATS),
+            pending: new Float32Array(INITIAL_VIEW_CAPACITY * CLUSTER_VIEW_FLOATS),
             pendingFrame: -1,
             pendingUsed: 0,
         },
         lightCull: {
             lights: null,
             viewMats: null,
-            viewStaging: new Float32Array(MAX_VIEWS * 16),
+            viewStaging: new Float32Array(INITIAL_VIEW_CAPACITY * 16),
         },
         pipe: null,
         bound: null,
         typedViews: null,
         typedAabbs: null,
+        viewCapacity: INITIAL_VIEW_CAPACITY,
         compactPipe: null,
         compactBound: null,
         compactGeneration: new Int32Array(4).fill(-1),
@@ -102,6 +108,10 @@ function createClusterGpuState(): ClusterGpuState {
         countBound: null,
         populatePipe: null,
         populateBound: null,
+        zSliceLayout: null,
+        allocationLayout: null,
+        countLayout: null,
+        populateLayout: null,
         clusterCounts: null,
         zSlices: null,
         rasterArgs: null,
@@ -441,12 +451,43 @@ const gridKernel = tgpu.computeFn({
     gridLayout.$.aabbs[base + 1] = d.vec4f(mx.x, mx.y, -dNear, 0);
 });
 
+function growClusterCapacity(world: World, capacity: number): void {
+    const state = world.resource(clusterGpuKey);
+    if (capacity <= state.viewCapacity) return;
+    const clusters = world.resource(Clusters);
+    const lightCull = world.resource(LightCull);
+    const previousBuffers = [
+        clusters.views,
+        clusters.aabbs,
+        lightCull.lights,
+        lightCull.viewMats,
+        state.clusterCounts,
+        state.zSlices,
+        state.rasterArgs,
+    ].filter((buffer): buffer is GPUBuffer => buffer !== null);
+    const nextFloats = (source: Float32Array, length: number, newFill = 0): Float32Array => {
+        const target = new Float32Array(length);
+        target.set(source);
+        if (newFill !== 0) target.fill(newFill, source.length);
+        return target;
+    };
+    clusters.staging = nextFloats(clusters.staging, capacity * CLUSTER_VIEW_FLOATS);
+    clusters.last = nextFloats(clusters.last, capacity * CLUSTER_VIEW_FLOATS, Number.NaN);
+    clusters.pending = nextFloats(clusters.pending, capacity * CLUSTER_VIEW_FLOATS);
+    lightCull.viewStaging = nextFloats(lightCull.viewStaging, capacity * 16);
+    state.viewCapacity = capacity;
+    allocateGridBuffers(world, capacity);
+    allocatePerViewLightBuffers(world, capacity);
+    state.bound = null;
+    bindLightCullGroups(world);
+    for (const buffer of previousBuffers) buffer.destroy();
+    state.lightCountValue = -1;
+}
+
 /**
- * rebuilds the cluster AABB buffer when any active view's projection changed
- * since the last build (the staging prefix is the dirty signal: GlobalTransform changes
- * never touch it, so a static-projection frame dispatches nothing). Runs after
- * `BeginFrameSystem` (the `first` bucket sorts ahead of every normal system),
- * after which standard packs its own cluster projection and world→view matrices
+ * Rebuild the AABB table when an active projection changes. Its runtime-sized storage buffers grow with the
+ * presenting prefix; the pipeline and layout remain fixed. The staging prefix is the dirty signal, so a stable
+ * projection dispatches nothing on steady frames.
  */
 export const UpdateLightClustersSystem: System = {
     group: "draw",
@@ -461,7 +502,8 @@ export const UpdateLightClustersSystem: System = {
             _clusters.pendingFrame = -1;
             _clusters.pendingUsed = 0;
         }
-        if (!_clusterGpu.pipe || _render.shadeCount === 0) return;
+        if (_render.shadeCount === 0 || !_clusterGpu.pipe) return;
+        growClusterCapacity(world, _render.shadeCount);
         for (const [eid, view] of world.resource(Views)) {
             if (!view.framebuffer || view.slot >= _render.shadeCount) continue;
             packClusterView(world, eid, view.width / view.height, view.slot);
@@ -525,7 +567,45 @@ function bindGrid(world: World): { pipeline: GPUComputePipeline; group: GPUBindG
     return _clusterGpu.bound;
 }
 
-/** allocate the cluster buffers + compile the AABB-build pipeline */
+function ownedBuffer(
+    world: World,
+    label: string,
+    size: number,
+    usage: GPUBufferUsageFlags,
+): GPUBuffer {
+    const buffer = world.gpu.device.createBuffer({ label, size, usage });
+    world.own(buffer);
+    return buffer;
+}
+
+function scratchCount(capacity: number): number {
+    return (
+        Math.ceil((capacity * CLUSTER_COUNT) / ALLOCATION_WORKGROUP_SIZE) *
+        ALLOCATION_WORKGROUP_SIZE
+    );
+}
+
+function allocateGridBuffers(world: World, capacity: number): void {
+    const clusters = world.resource(Clusters);
+    const state = world.resource(clusterGpuKey);
+    const root = world.gpu.root;
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+    const views = ownedBuffer(
+        world,
+        "shallot-cluster-views",
+        capacity * CLUSTER_VIEW_FLOATS * 4,
+        usage,
+    );
+    const aabbs = ownedBuffer(world, "shallot-cluster-aabbs", capacity * CLUSTER_COUNT * 32, usage);
+    state.typedViews = root.createBuffer(d.arrayOf(d.vec4f, 0), views).$usage("storage");
+    state.typedAabbs = root.createBuffer(d.arrayOf(d.vec4f, 0), aabbs).$usage("storage");
+    clusters.views = views;
+    clusters.aabbs = aabbs;
+    world.gpu.buffers.set("clusterAabbs", aabbs);
+    world.gpu.typed.set("clusterAabbs", state.typedAabbs);
+}
+
+/** Allocate one initial cluster slot and compile the count-independent AABB pipeline. */
 export function warmClusters(world: World): void {
     const _clusters = world.resource(Clusters);
     const _clusterGpu = world.resource(clusterGpuKey);
@@ -535,22 +615,9 @@ export function warmClusters(world: World): void {
     _clusters.last.fill(0);
     _clusters.pendingFrame = -1;
     _clusters.pendingUsed = 0;
+    _clusterGpu.viewCapacity = INITIAL_VIEW_CAPACITY;
     _clusterGpu.bound = null;
-
-    _clusterGpu.typedViews = root
-        .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * (CLUSTER_VIEW_FLOATS / 4)))
-        .$usage("storage")
-        .$name("shallot-cluster-views");
-    _clusters.views = root.unwrap(_clusterGpu.typedViews);
-    // typegpu grants COPY_SRC on every buffer it creates, which is what a requested readback
-    // reads the AABBs back through
-    _clusterGpu.typedAabbs = root
-        .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * CLUSTER_COUNT * 2))
-        .$usage("storage")
-        .$name("shallot-cluster-aabbs");
-    _clusters.aabbs = root.unwrap(_clusterGpu.typedAabbs);
-    world.gpu.buffers.set("clusterAabbs", _clusters.aabbs);
-    world.gpu.typed.set("clusterAabbs", _clusterGpu.typedAabbs);
+    allocateGridBuffers(world, INITIAL_VIEW_CAPACITY);
 
     _clusterGpu.pipe = root
         .createComputePipeline({ compute: gridKernel })
@@ -576,20 +643,19 @@ export const LIGHT_POOL = CLUSTER_COUNT * 32;
 // Data entries start at element 2; grid offsets index this binding directly.
 const POOL_HEADER = 2;
 
-/** GPU-written light list, per-view grid and index pool in one binding. The runtime tail
- * preserves the pool's exact size without end padding; offsets are unchanged within each table. */
+/** GPU-written lights, fixed index pool and runtime-sized per-view grid in one storage binding. */
 export const LightClusters = d.struct({
     lights: PointLights,
-    grid: d.arrayOf(d.vec2u, MAX_VIEWS * CLUSTER_COUNT),
-    indices: d.arrayOf(d.u32, 0),
+    indices: d.arrayOf(d.u32, LIGHT_POOL + POOL_HEADER),
+    grid: d.arrayOf(d.vec2u, 0),
 });
 const LightClustersRw = d.struct({
     lights: PointLightsRw,
-    grid: d.arrayOf(d.vec2u, MAX_VIEWS * CLUSTER_COUNT),
-    indices: d.arrayOf(d.atomic(d.u32), 0),
+    indices: d.arrayOf(d.atomic(d.u32), LIGHT_POOL + POOL_HEADER),
+    grid: d.arrayOf(d.vec2u, 0),
 });
-export const LIGHT_GRID_OFFSET = d.sizeOf(PointLights);
-export const LIGHT_INDICES_OFFSET = LIGHT_GRID_OFFSET + MAX_VIEWS * CLUSTER_COUNT * 8;
+export const LIGHT_INDICES_OFFSET = d.sizeOf(PointLights);
+export const LIGHT_GRID_OFFSET = LIGHT_INDICES_OFFSET + (LIGHT_POOL + POOL_HEADER) * 4;
 
 /**
  * GPU light state. `lights` holds {@link LightClusters}: compacted lights, the slot-major grid and the fixed
@@ -618,7 +684,6 @@ const compactLayout = tgpu
     .$idx(0);
 
 const Z_SLICE_CAPACITY = MAX_POINT_LIGHTS * CLUSTER_Z;
-const CLUSTER_SCRATCH_COUNT = MAX_VIEWS * CLUSTER_COUNT;
 const ALLOCATION_WORKGROUP_SIZE = 256;
 const RASTER_ARGS_SIZE = 20;
 
@@ -627,8 +692,8 @@ struct PointLight { posRange: vec4f, color: vec4f, params: vec4f };
 struct ClusterOutput {
     count: array<atomic<u32>, 4>,
     lights: array<PointLight, ${MAX_POINT_LIGHTS}>,
-    grid: array<vec2u, ${MAX_VIEWS * CLUSTER_COUNT}>,
-    indices: array<atomic<u32>>,
+    indices: array<atomic<u32>, ${POOL_HEADER + LIGHT_POOL}>,
+    grid: array<vec2u>,
 };
 struct RasterArgs {
     indexCount: u32,
@@ -642,8 +707,8 @@ struct ZSlice { light: u32, z: u32 };
 @group(0) @binding(1) var<storage, read> rasterLights: array<PointLight, ${MAX_POINT_LIGHTS}>;
 @group(0) @binding(2) var<storage, read> viewMats: array<mat4x4f>;
 @group(0) @binding(3) var<storage, read> clusterViews: array<vec4f>;
-@group(0) @binding(4) var<storage, read_write> rasterArgs: array<RasterArgs, ${MAX_VIEWS}>;
-@group(0) @binding(5) var<storage, read_write> zSlices: array<ZSlice, ${MAX_VIEWS * Z_SLICE_CAPACITY}>;
+@group(0) @binding(4) var<storage, read_write> rasterArgs: array<RasterArgs>;
+@group(0) @binding(5) var<storage, read_write> zSlices: array<ZSlice>;
 
 fn viewScale(view: mat4x4f) -> f32 {
     let x = length(vec3f(view[0].x, view[1].x, view[2].x));
@@ -655,7 +720,7 @@ fn viewScale(view: mat4x4f) -> f32 {
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let lightCount = min(atomicLoad(&cluster.count[0]), ${MAX_POINT_LIGHTS}u);
-    if (gid.x >= lightCount || gid.y >= ${MAX_VIEWS}u) { return; }
+    if (gid.x >= lightCount || gid.y >= arrayLength(&viewMats)) { return; }
     let light = rasterLights[gid.x];
     let center = (viewMats[gid.y] * vec4f(light.posRange.xyz, 1.0)).xyz;
     let inverseRangeSquared = light.posRange.w;
@@ -682,11 +747,11 @@ const allocationShader = `
 struct ClusterOutput {
     count: array<atomic<u32>, 4>,
     lights: array<vec4f, ${MAX_POINT_LIGHTS * 3}>,
-    grid: array<vec2u, ${MAX_VIEWS * CLUSTER_COUNT}>,
-    indices: array<atomic<u32>>,
+    indices: array<atomic<u32>, ${POOL_HEADER + LIGHT_POOL}>,
+    grid: array<vec2u>,
 };
 struct ClusterCounter { count: atomic<u32>, cursor: atomic<u32> };
-@group(0) @binding(0) var<storage, read_write> counters: array<ClusterCounter, ${CLUSTER_SCRATCH_COUNT}>;
+@group(0) @binding(0) var<storage, read_write> counters: array<ClusterCounter>;
 @group(0) @binding(1) var<storage, read_write> cluster: ClusterOutput;
 var<workgroup> scan: array<u32, ${ALLOCATION_WORKGROUP_SIZE}>;
 var<workgroup> blockSize: u32;
@@ -697,8 +762,9 @@ fn allocateLocal(
     @builtin(global_invocation_id) global: vec3u,
     @builtin(local_invocation_id) local: vec3u,
 ) {
+    let gridCount = arrayLength(&cluster.grid);
     let count = atomicLoad(&counters[global.x].count);
-    scan[local.x] = count;
+    scan[local.x] = select(0u, count, global.x < gridCount);
     workgroupBarrier();
     for (var offset = 1u; offset < ${ALLOCATION_WORKGROUP_SIZE}u; offset *= 2u) {
         var term = 0u;
@@ -707,7 +773,9 @@ fn allocateLocal(
         scan[local.x] += term;
         workgroupBarrier();
     }
-    cluster.grid[global.x] = vec2u(scan[local.x] - count, count);
+    if (global.x < gridCount) {
+        cluster.grid[global.x] = vec2u(scan[local.x] - count, count);
+    }
     atomicStore(&counters[global.x].cursor, 0u);
 }
 
@@ -715,24 +783,28 @@ fn allocateLocal(
 fn allocateGlobal(@builtin(local_invocation_id) local: vec3u) {
     if (local.x == 0u) { blockBase = 0u; }
     workgroupBarrier();
-    for (var start = 0u; start < ${CLUSTER_SCRATCH_COUNT}u; start += ${ALLOCATION_WORKGROUP_SIZE}u) {
+    let gridCount = arrayLength(&cluster.grid);
+    let counterCount = arrayLength(&counters);
+    for (var start = 0u; start < counterCount; start += ${ALLOCATION_WORKGROUP_SIZE}u) {
         if (local.x == 0u) {
-            let tail = start + ${ALLOCATION_WORKGROUP_SIZE - 1}u;
+            let tail = min(start + ${ALLOCATION_WORKGROUP_SIZE - 1}u, gridCount - 1u);
             blockSize = cluster.grid[tail].x + cluster.grid[tail].y;
         }
         workgroupBarrier();
         let index = start + local.x;
-        let raw = cluster.grid[index];
-        let offset = blockBase + raw.x;
-        let boundedOffset = min(offset, ${LIGHT_POOL}u);
-        cluster.grid[index] = vec2u(
-            ${POOL_HEADER}u + boundedOffset,
-            min(raw.y, ${LIGHT_POOL}u - boundedOffset),
-        );
+        if (index < gridCount) {
+            let raw = cluster.grid[index];
+            let offset = blockBase + raw.x;
+            let boundedOffset = min(offset, ${LIGHT_POOL}u);
+            cluster.grid[index] = vec2u(
+                ${POOL_HEADER}u + boundedOffset,
+                min(raw.y, ${LIGHT_POOL}u - boundedOffset),
+            );
+        }
         storageBarrier();
         if (local.x == 0u) {
             blockBase += blockSize;
-            if (start + ${ALLOCATION_WORKGROUP_SIZE}u == ${CLUSTER_SCRATCH_COUNT}u) {
+            if (start + ${ALLOCATION_WORKGROUP_SIZE}u >= counterCount) {
                 atomicStore(&cluster.indices[0], min(blockBase, ${LIGHT_POOL}u));
                 atomicStore(&cluster.indices[1], blockBase - min(blockBase, ${LIGHT_POOL}u));
             }
@@ -749,8 +821,8 @@ struct ClusterCounter { count: atomic<u32>, cursor: atomic<u32> };
 struct ClusterOutput {
     count: array<atomic<u32>, 4>,
     lights: array<PointLight, ${MAX_POINT_LIGHTS}>,
-    grid: array<vec2u, ${MAX_VIEWS * CLUSTER_COUNT}>,
-    indices: array<atomic<u32>>,
+    indices: array<atomic<u32>, ${POOL_HEADER + LIGHT_POOL}>,
+    grid: array<vec2u>,
 };
 struct Varyings {
     @builtin(position) position: vec4f,
@@ -760,7 +832,7 @@ struct Varyings {
     @location(3) @interpolate(flat) center: vec3f,
     @location(4) @interpolate(flat) inverseRangeSquared: f32,
 };
-@group(0) @binding(0) var<storage, read> zSlices: array<ZSlice, ${MAX_VIEWS * Z_SLICE_CAPACITY}>;
+@group(0) @binding(0) var<storage, read> zSlices: array<ZSlice>;
 @group(0) @binding(1) var<storage, read> rasterLights: array<PointLight, ${MAX_POINT_LIGHTS}>;
 @group(0) @binding(2) var<storage, read> viewMats: array<mat4x4f>;
 @group(0) @binding(3) var<storage, read> clusterViews: array<vec4f>;
@@ -870,7 +942,7 @@ fn intersects(clusterIndex: u32, center: vec3f, inverseRangeSquared: f32) -> boo
 
 const countRasterShader = `${rasterCommon}
 @group(0) @binding(4) var<storage, read> clusterAabbs: array<vec4f>;
-@group(0) @binding(5) var<storage, read_write> counters: array<ClusterCounter, ${CLUSTER_SCRATCH_COUNT}>;
+@group(0) @binding(5) var<storage, read_write> counters: array<ClusterCounter>;
 @fragment
 fn fragmentMain(input: Varyings) -> @location(0) vec4f {
     let index = fragmentCluster(input);
@@ -883,7 +955,7 @@ fn fragmentMain(input: Varyings) -> @location(0) vec4f {
 
 const populateRasterShader = `${rasterCommon}
 @group(0) @binding(4) var<storage, read> clusterAabbs: array<vec4f>;
-@group(0) @binding(5) var<storage, read_write> counters: array<ClusterCounter, ${CLUSTER_SCRATCH_COUNT}>;
+@group(0) @binding(5) var<storage, read_write> counters: array<ClusterCounter>;
 @group(0) @binding(6) var<storage, read_write> output: ClusterOutput;
 @fragment
 fn fragmentMain(input: Varyings) -> @location(0) vec4f {
@@ -1139,51 +1211,11 @@ async function warmLightRaster(world: World): Promise<void> {
     _clusterGpu.allocationGlobalPipe = allocationGlobalPipe;
     _clusterGpu.countPipe = countPipe;
     _clusterGpu.populatePipe = populatePipe;
-
-    _clusterGpu.zSliceBound = {
-        pipeline: zSlicePipe,
-        group: device.createBindGroup({
-            layout: zSliceLayout,
-            entries: [
-                { binding: 0, resource: { buffer: lights } },
-                { binding: 1, resource: { buffer: rasterLights } },
-                { binding: 2, resource: { buffer: viewMats } },
-                { binding: 3, resource: { buffer: _clusters.views! } },
-                { binding: 4, resource: { buffer: rasterArgs } },
-                { binding: 5, resource: { buffer: zSlices } },
-            ],
-        }),
-    };
-    _clusterGpu.allocationBound = device.createBindGroup({
-        layout: allocationLayout,
-        entries: [
-            { binding: 0, resource: { buffer: clusterCounts } },
-            { binding: 1, resource: { buffer: lights } },
-        ],
-    });
-    _clusterGpu.countBound = device.createBindGroup({
-        layout: countLayout,
-        entries: [
-            { binding: 0, resource: { buffer: zSlices } },
-            { binding: 1, resource: { buffer: rasterLights } },
-            { binding: 2, resource: { buffer: viewMats } },
-            { binding: 3, resource: { buffer: _clusters.views! } },
-            { binding: 4, resource: { buffer: aabbs } },
-            { binding: 5, resource: { buffer: clusterCounts } },
-        ],
-    });
-    _clusterGpu.populateBound = device.createBindGroup({
-        layout: populateLayout,
-        entries: [
-            { binding: 0, resource: { buffer: zSlices } },
-            { binding: 1, resource: { buffer: rasterLights } },
-            { binding: 2, resource: { buffer: viewMats } },
-            { binding: 3, resource: { buffer: _clusters.views! } },
-            { binding: 4, resource: { buffer: aabbs } },
-            { binding: 5, resource: { buffer: clusterCounts } },
-            { binding: 6, resource: { buffer: lights } },
-        ],
-    });
+    _clusterGpu.zSliceLayout = zSliceLayout;
+    _clusterGpu.allocationLayout = allocationLayout;
+    _clusterGpu.countLayout = countLayout;
+    _clusterGpu.populateLayout = populateLayout;
+    bindLightCullGroups(world);
 
     _clusterGpu.rasterTexture = device.createTexture({
         label: "shallot-light-raster-target",
@@ -1210,6 +1242,88 @@ async function warmLightRaster(world: World): Promise<void> {
     world.own(indices);
     device.queue.writeBuffer(indices, 0, new Uint16Array([0, 1, 2, 1, 3, 2]));
     _clusterGpu.rasterIndexBuffer = indices;
+}
+
+function bindLightCullGroups(world: World): void {
+    const state = world.resource(clusterGpuKey);
+    const lightCull = world.resource(LightCull);
+    const clusters = world.resource(Clusters);
+    const device = world.gpu.device;
+    if (
+        !device ||
+        !state.zSliceLayout ||
+        !state.allocationLayout ||
+        !state.countLayout ||
+        !state.populateLayout ||
+        !state.zSlicePipe ||
+        !state.allocationLocalPipe ||
+        !state.allocationGlobalPipe ||
+        !state.countPipe ||
+        !state.populatePipe ||
+        !lightCull.lights ||
+        !lightCull.viewMats ||
+        !clusters.views ||
+        !clusters.aabbs ||
+        !state.rasterLights ||
+        !state.clusterCounts ||
+        !state.zSlices ||
+        !state.rasterArgs
+    )
+        throw new Error("[render] light-cull bind-group inputs missing");
+    const lights = lightCull.lights;
+    const rasterLights = state.rasterLights;
+    const viewMats = lightCull.viewMats;
+    const views = clusters.views;
+    const aabbs = clusters.aabbs;
+    const clusterCounts = state.clusterCounts;
+    const zSlices = state.zSlices;
+    const rasterArgs = state.rasterArgs;
+    state.zSliceBound = {
+        pipeline: state.zSlicePipe,
+        group: device.createBindGroup({
+            layout: state.zSliceLayout,
+            entries: [
+                { binding: 0, resource: { buffer: lights } },
+                { binding: 1, resource: { buffer: rasterLights } },
+                { binding: 2, resource: { buffer: viewMats } },
+                { binding: 3, resource: { buffer: views } },
+                { binding: 4, resource: { buffer: rasterArgs } },
+                { binding: 5, resource: { buffer: zSlices } },
+            ],
+        }),
+    };
+    state.allocationBound = device.createBindGroup({
+        layout: state.allocationLayout,
+        entries: [
+            { binding: 0, resource: { buffer: clusterCounts } },
+            { binding: 1, resource: { buffer: lights } },
+        ],
+    });
+    state.countBound = device.createBindGroup({
+        layout: state.countLayout,
+        entries: [
+            { binding: 0, resource: { buffer: zSlices } },
+            { binding: 1, resource: { buffer: rasterLights } },
+            { binding: 2, resource: { buffer: viewMats } },
+            { binding: 3, resource: { buffer: views } },
+            { binding: 4, resource: { buffer: aabbs } },
+            { binding: 5, resource: { buffer: clusterCounts } },
+        ],
+    });
+    state.populateBound = device.createBindGroup({
+        layout: state.populateLayout,
+        entries: [
+            { binding: 0, resource: { buffer: zSlices } },
+            { binding: 1, resource: { buffer: rasterLights } },
+            { binding: 2, resource: { buffer: viewMats } },
+            { binding: 3, resource: { buffer: views } },
+            { binding: 4, resource: { buffer: aabbs } },
+            { binding: 5, resource: { buffer: clusterCounts } },
+            { binding: 6, resource: { buffer: lights } },
+        ],
+    });
+    state.compactBound = null;
+    state.compactGeneration.fill(-1);
 }
 
 /** Request the latest submitted light-pool overflow count for diagnostics.
@@ -1290,7 +1404,7 @@ export const CullLightsSystem: System = {
         encoder.clearBuffer(_lightCull.lights!, 0, 16);
         encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
         encoder.clearBuffer(_clusterGpu.clusterCounts!, 0, _clusterGpu.clusterCounts!.size);
-        for (let slot = 0; slot < MAX_VIEWS; slot++)
+        for (let slot = 0; slot < _clusterGpu.viewCapacity; slot++)
             encoder.clearBuffer(args, slot * RASTER_ARGS_SIZE + 4, 4);
 
         if (lightCount > 0) {
@@ -1323,7 +1437,9 @@ export const CullLightsSystem: System = {
         const localPass = encoder.beginComputePass(_clusterGpu.allocationLocalPass);
         localPass.setPipeline(_clusterGpu.allocationLocalPipe);
         localPass.setBindGroup(0, allocation);
-        localPass.dispatchWorkgroups(CLUSTER_SCRATCH_COUNT / ALLOCATION_WORKGROUP_SIZE);
+        localPass.dispatchWorkgroups(
+            scratchCount(_clusterGpu.viewCapacity) / ALLOCATION_WORKGROUP_SIZE,
+        );
         localPass.end();
 
         _clusterGpu.allocationGlobalPass.timestampWrites =
@@ -1368,22 +1484,52 @@ function encodeLightRaster(
     world.gpu.indirect?.(label, shadeCount);
 }
 
-/** Allocate fixed light-cluster buffers and compile the compact and raster pipelines. */
+function allocatePerViewLightBuffers(world: World, capacity: number): void {
+    const state = world.resource(clusterGpuKey);
+    const lightCull = world.resource(LightCull);
+    const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
+    lightCull.lights = ownedBuffer(
+        world,
+        "shallot-light-clusters",
+        LIGHT_GRID_OFFSET + capacity * CLUSTER_COUNT * 8,
+        usage | GPUBufferUsage.COPY_SRC,
+    );
+    lightCull.viewMats = ownedBuffer(world, "shallot-light-views", capacity * 64, usage);
+    state.clusterCounts = ownedBuffer(
+        world,
+        "shallot-light-cluster-counts",
+        scratchCount(capacity) * 8,
+        usage,
+    );
+    state.zSlices = ownedBuffer(
+        world,
+        "shallot-light-z-slices",
+        capacity * Z_SLICE_CAPACITY * 8,
+        GPUBufferUsage.STORAGE,
+    );
+    state.rasterArgs = ownedBuffer(
+        world,
+        "shallot-light-raster-args",
+        capacity * RASTER_ARGS_SIZE,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+    );
+    state.viewMatrices = Array.from({ length: capacity }, (_, slot) =>
+        lightCull.viewStaging.subarray(slot * 16, slot * 16 + 16),
+    );
+    const args = new Uint32Array(capacity * 5);
+    for (let slot = 0; slot < capacity; slot++) {
+        args[slot * 5] = 6;
+        args[slot * 5 + 4] = slot * Z_SLICE_CAPACITY;
+    }
+    world.gpu.device.queue.writeBuffer(state.rasterArgs, 0, args);
+    world.gpu.buffers.set("lightClusters", lightCull.lights);
+}
+
+/** Allocate one initial light-cluster slot and compile the count-independent pipelines. */
 export async function warmLightCull(world: World): Promise<void> {
     const _clusterGpu = world.resource(clusterGpuKey);
-    const _lightCull = world.resource(LightCull);
 
     if (!world.gpu.device) return;
-    const device = world.gpu.device;
-    const root = world.gpu.root;
-    const ownBuffer = (descriptor: GPUBufferDescriptor): GPUBuffer => {
-        const buffer = device.createBuffer(descriptor);
-        world.own(buffer);
-        return buffer;
-    };
-    _clusterGpu.viewMatrices = Array.from({ length: MAX_VIEWS }, (_, slot) =>
-        _lightCull.viewStaging.subarray(slot * 16, slot * 16 + 16),
-    );
     _clusterGpu.compactBound = null;
     _clusterGpu.compactGeneration.fill(-1);
     _clusterGpu.zSliceBound = null;
@@ -1391,53 +1537,23 @@ export async function warmLightCull(world: World): Promise<void> {
     _clusterGpu.countBound = null;
     _clusterGpu.populateBound = null;
 
-    _lightCull.lights = ownBuffer({
-        label: "shallot-light-clusters",
-        size: LIGHT_INDICES_OFFSET + (POOL_HEADER + LIGHT_POOL) * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-    });
-    _lightCull.viewMats = ownBuffer({
-        label: "shallot-light-views",
-        size: MAX_VIEWS * 64,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    _clusterGpu.lightCountBuffer = ownBuffer({
-        label: "shallot-light-count",
-        size: 4,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    _clusterGpu.rasterLights = ownBuffer({
-        label: "shallot-light-raster-lights",
-        size: MAX_POINT_LIGHTS * 48,
-        usage: GPUBufferUsage.STORAGE,
-    });
-    _clusterGpu.clusterCounts = ownBuffer({
-        label: "shallot-light-cluster-counts",
-        size: CLUSTER_SCRATCH_COUNT * 8,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    _clusterGpu.zSlices = ownBuffer({
-        label: "shallot-light-z-slices",
-        size: MAX_VIEWS * Z_SLICE_CAPACITY * 8,
-        usage: GPUBufferUsage.STORAGE,
-    });
-    const rasterArgs = ownBuffer({
-        label: "shallot-light-raster-args",
-        size: MAX_VIEWS * RASTER_ARGS_SIZE,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
-    });
-    _clusterGpu.rasterArgs = rasterArgs;
-    const args = new Uint32Array(MAX_VIEWS * 5);
-    for (let slot = 0; slot < MAX_VIEWS; slot++) {
-        args[slot * 5] = 6;
-        args[slot * 5 + 4] = slot * Z_SLICE_CAPACITY;
-    }
-    device.queue.writeBuffer(rasterArgs, 0, args);
+    _clusterGpu.lightCountBuffer = ownedBuffer(
+        world,
+        "shallot-light-count",
+        4,
+        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    );
+    _clusterGpu.rasterLights = ownedBuffer(
+        world,
+        "shallot-light-raster-lights",
+        MAX_POINT_LIGHTS * 48,
+        GPUBufferUsage.STORAGE,
+    );
+    allocatePerViewLightBuffers(world, _clusterGpu.viewCapacity);
     _clusterGpu.lightCountValue = -1;
-    world.gpu.buffers.set("lightClusters", _lightCull.lights);
     world.gpu.buffers.set("lightCount", _clusterGpu.lightCountBuffer);
 
-    _clusterGpu.compactPipe = root
+    _clusterGpu.compactPipe = world.gpu.root
         .createComputePipeline({ compute: compactKernel() })
         .$name("shallot-light-compact");
     await warmLightRaster(world);

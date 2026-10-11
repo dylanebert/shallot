@@ -1,6 +1,6 @@
 import type { System, World } from "../../engine";
 import { encodeFrameCapture } from "./capture";
-import { MAX_SLOTS, type View, Views } from "./view";
+import { INITIAL_VIEW_CAPACITY, type View, Views } from "./view";
 
 export const VIEW_KEY_FLOATS = 28;
 
@@ -9,9 +9,11 @@ export const renderFrameKey = {
         camWorld: new Float32Array(16),
         depthOnlyEids: [] as number[],
         depthOnlyViews: [] as import("./view").View[],
+        presentingEids: [] as number[],
+        presentingViews: [] as import("./view").View[],
         viewProjs: [] as Float32Array[],
         invViewProjs: [] as Float32Array[],
-        viewKeys: new Float64Array(MAX_SLOTS * VIEW_KEY_FLOATS).fill(Number.NaN),
+        viewKeys: new Float64Array(INITIAL_VIEW_CAPACITY * VIEW_KEY_FLOATS).fill(Number.NaN),
         viewKeyNext: new Float64Array(VIEW_KEY_FLOATS),
     }),
 };

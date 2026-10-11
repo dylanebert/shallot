@@ -166,7 +166,7 @@ async function checkScene(
         expect(world.resource(RenderContext).shadeCount).toBe(cameras.length);
         await world.gpu.device.queue.onSubmittedWorkDone();
         const output = await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
-            size: LIGHT_INDICES_OFFSET + (LIGHT_POOL + 2) * 4,
+            size: LIGHT_GRID_OFFSET + cameras.length * CLUSTER_COUNT * 8,
             label: `cluster oracle ${inputs.length}`,
         });
         const bytes = output.bytes;

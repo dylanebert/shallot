@@ -51,6 +51,7 @@ import {
     bindCamera,
     clearOffscreens,
     clearScratch,
+    INITIAL_VIEW_CAPACITY,
     initializeViewState,
     MAX_SLOTS,
     MAX_VIEWS,
@@ -59,7 +60,6 @@ import {
     sizeView,
     VIEW_BYTES,
     VIEW_STRIDE,
-    VIEW_UNIFORM_SIZE,
     type View as ViewSlot,
     Views,
     ViewUniforms,
@@ -233,6 +233,37 @@ function slotInputsChanged(
     return changed;
 }
 
+function ensureRenderSlotCapacity(world: World, requiredSlots: number, shadeCount: number): void {
+    const render = world.resource(RenderContext);
+    const frame = world.resource(renderFrameKey);
+    const capacity = render.viewStaging.byteLength / (SLOT_FLOATS * Float32Array.BYTES_PER_ELEMENT);
+    if (requiredSlots > capacity) {
+        const nextCapacity = requiredSlots;
+        const staging = new Float32Array(nextCapacity * SLOT_FLOATS);
+        staging.set(render.viewStaging);
+        render.viewStaging = staging;
+        const keys = new Float64Array(nextCapacity * VIEW_KEY_FLOATS).fill(Number.NaN);
+        keys.set(frame.viewKeys);
+        frame.viewKeys = keys;
+        frame.viewProjs = Array.from({ length: nextCapacity }, (_, slot) =>
+            staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
+        );
+        frame.invViewProjs = Array.from({ length: nextCapacity }, (_, slot) =>
+            staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
+        );
+    }
+    while (render.viewBuffers.length < shadeCount) {
+        const slot = render.viewBuffers.length;
+        render.viewBuffers.push(
+            world.gpu.device.createBuffer({
+                label: `shallot-view-${slot}`,
+                size: VIEW_BYTES,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            }),
+        );
+    }
+}
+
 /**
  * prepares per-frame render state: writes the Frame UBO, records history work
  * on the World's lazy frame encoder, acquires each view's swapchain backbuffer
@@ -260,10 +291,12 @@ export const BeginFrameSystem: System = {
         prepareGlobalTransformFrame(world);
         writeFrame(world);
 
-        let count = 0;
+        let shadeCount = 0;
         let depthOnly = 0;
-        // Presenting views own the low uniform slots; depth-only views stack above them
-        // out of the cheaper MAX_SLOTS budget.
+        const presentingEids = _renderFrame.presentingEids;
+        const presentingViews = _renderFrame.presentingViews;
+        // Presenting views own the low uniform slots; depth-only views stack above them in the
+        // fixed cull-table tail. These scratch arrays are retained by renderFrameKey across frames.
         for (const eid of world.query(CAMERAS)) {
             // auto-bind to the first <canvas> the frame it exists; an explicitly attachCanvas'd
             // camera is already in Views, so this is a no-op for it. Retried each frame until mount
@@ -273,17 +306,9 @@ export const BeginFrameSystem: System = {
             view.framebufferFormat = undefined;
             view.present = null;
             view.canvasTexture = undefined;
-            // derive the backing store from the display size + the camera's `Resolution` pin before any
-            // consumer reads view.width/height.
             sizeView(world, eid, view);
-            if (view.width === 0 || view.height === 0) {
-                view.framebuffer = null;
-                view.present = null;
-                continue;
-            }
+            if (view.width === 0 || view.height === 0) continue;
             if (!view.context && !view.texture) {
-                // a canvas-less view (a shadow light's off-screen camera): it takes a cull slot and
-                // packs its viewProj, but draws no framebuffer — its owner renders it to its own target
                 view.framebuffer = null;
                 view.present = null;
                 _renderFrame.depthOnlyEids[depthOnly] = eid;
@@ -291,44 +316,44 @@ export const BeginFrameSystem: System = {
                 depthOnly++;
                 continue;
             }
-            if (count >= MAX_VIEWS) {
-                console.warn(`shallot: ${MAX_VIEWS} camera cap reached; entity ${eid} skipped`);
+            if (shadeCount >= MAX_VIEWS) {
+                console.warn(
+                    `shallot: ${MAX_VIEWS} presenting-view cull limit reached; entity ${eid} skipped`,
+                );
                 continue;
             }
             const texture = view.texture ?? view.context!.getCurrentTexture();
             if (view.context) view.canvasTexture = texture;
-            if (!texture) {
-                view.framebuffer = null;
-                view.present = null;
-                continue;
-            }
-            // present = the swapchain as a base-format storage view a compute composite writes via
-            // textureStore (it encodes linear→sRGB itself); framebuffer = the offscreen the renderer
-            // draws into and the composite reads (RenderContext.format / sRGB, decoded to linear on load).
+            if (!texture) continue;
             view.present = texture.createView();
             view.framebuffer = offscreen(world, eid, view.width, view.height);
             view.framebufferFormat = _render.format;
-            packView(world, eid, view, true, count);
-            count++;
-        }
-        _render.shadeCount = count;
-        for (let i = 0; i < depthOnly; i++) {
-            if (count >= MAX_SLOTS) {
-                console.warn(
-                    `shallot: ${MAX_SLOTS} view-slot cap reached; entity ${_renderFrame.depthOnlyEids[i]} skipped`,
-                );
-                break;
-            }
-            packView(
-                world,
-                _renderFrame.depthOnlyEids[i],
-                _renderFrame.depthOnlyViews[i],
-                false,
-                count,
-            );
-            count++;
+            presentingEids[shadeCount] = eid;
+            presentingViews[shadeCount] = view;
+            shadeCount++;
         }
 
+        _renderFrame.presentingEids.length = shadeCount;
+        _renderFrame.presentingViews.length = shadeCount;
+        _render.shadeCount = shadeCount;
+        const depthCount = Math.min(depthOnly, MAX_SLOTS - shadeCount);
+        ensureRenderSlotCapacity(world, shadeCount + depthCount, shadeCount);
+        for (let slot = 0; slot < shadeCount; slot++)
+            packView(world, presentingEids[slot]!, presentingViews[slot]!, true, slot);
+        for (let i = 0; i < depthCount; i++)
+            packView(
+                world,
+                _renderFrame.depthOnlyEids[i]!,
+                _renderFrame.depthOnlyViews[i]!,
+                false,
+                shadeCount + i,
+            );
+        if (depthOnly > depthCount) {
+            console.warn(
+                `shallot: ${MAX_SLOTS} cull-view slots exhausted; ${depthOnly - depthCount} depth-only view(s) skipped`,
+            );
+        }
+        const count = shadeCount + depthCount;
         _render.viewCount = count;
         // per-slot writer: only shading slots ([0, shadeCount)) ever bind a real ViewUniforms buffer — the
         // point/cascade atlas passes bind slot 0's buffer as an unread placeholder — so a depth-only slot
@@ -419,17 +444,17 @@ async function initRender(world: World): Promise<void> {
         });
 
     for (const b of _render.viewBuffers) b.destroy();
-    _render.viewBuffers = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+    _render.viewBuffers = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
         uniform(`shallot-view-${slot}`, VIEW_BYTES),
     );
-    _render.viewStaging = new Float32Array(VIEW_UNIFORM_SIZE / 4);
-    // fresh staging: every slot repacks on its first frame against the new buffers
+    _render.viewStaging = new Float32Array(INITIAL_VIEW_CAPACITY * SLOT_FLOATS);
+    // Fresh staging: each active slot repacks against its own buffer on its first frame.
     _renderFrame.viewKeys.fill(Number.NaN);
     const staging = _render.viewStaging;
-    _renderFrame.viewProjs = Array.from({ length: MAX_SLOTS }, (_, slot) =>
+    _renderFrame.viewProjs = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
     );
-    _renderFrame.invViewProjs = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+    _renderFrame.invViewProjs = Array.from({ length: INITIAL_VIEW_CAPACITY }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
     );
     world.resource(Frame).buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
@@ -521,6 +546,7 @@ export {
     attachTexture,
     attachView,
     detachCanvas,
+    INITIAL_VIEW_CAPACITY,
     linearToSrgb3,
     MAX_SLOTS,
     MAX_VIEWS,
