@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { createTestGpuApp as createApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
-import { expectError, expectWarning } from "../../../scripts/test-console";
+import { expectError } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { component, idOf } from "../ecs";
 import { classifyAdapter } from "../runtime/adapter";
