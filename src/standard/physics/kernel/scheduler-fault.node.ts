@@ -46,7 +46,6 @@ if (process.env.PHYSICS_SCHEDULER_FAULT === "1") {
 } else {
     test("worker traps release the stepped kernel in an isolated process", async () => {
         const child = Bun.spawn([process.execPath, "test", import.meta.filename], {
-            argv0: process.platform === "win32" ? "bun.exe" : undefined,
             env: { ...process.env, PHYSICS_SCHEDULER_FAULT: "1" },
             stdout: "inherit",
             stderr: "inherit",

@@ -26,7 +26,7 @@ import {
     StandardRenderingPlugin,
 } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 const TintParameters = d.struct({ tint: d.vec4f });
 const tintLayout = materialLayout(TintParameters, {});

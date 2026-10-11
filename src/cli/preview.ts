@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename, posix, relative, resolve } from "node:path";
+import { basename, relative, resolve } from "node:path";
 import { nativeOutDir } from "../native";
 
 export type PreviewTarget =
@@ -24,17 +24,10 @@ export function linuxPreviewEnv(
 ): Record<string, string | undefined> {
     const env = { ...baseEnv };
     if (portable) {
-        const cefLibDir = posix.resolve(outputDir, "cef");
+        const cefLibDir = resolve(outputDir, "cef");
         env.LD_LIBRARY_PATH = `${cefLibDir}:${env.LD_LIBRARY_PATH || ""}`;
     }
     return env;
-}
-
-export function previewEnvironment(
-    devUrl: string | undefined,
-    baseEnv: Record<string, string | undefined>,
-): Record<string, string | undefined> {
-    return { ...baseEnv, ...(devUrl ? { SHALLOT_DEV_URL: devUrl } : {}) };
 }
 
 /** the powershell.exe command line that launches a windows build from its WSL-resolved host path. */
@@ -70,7 +63,10 @@ export async function previewProject(
             ? resolve(outputDir, `${name}.app`)
             : resolve(outputDir, `${name}${target.kind === "windows" ? ".exe" : ""}`);
     requireBuild(projectDir, target.kind, artifact);
-    const env = previewEnvironment(opts.devUrl, process.env);
+    const env = {
+        ...process.env,
+        ...(opts.devUrl ? { SHALLOT_DEV_URL: opts.devUrl } : {}),
+    };
 
     if (target.kind === "mac") {
         console.log(`\n  running ${name}...\n`);

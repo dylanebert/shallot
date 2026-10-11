@@ -111,6 +111,9 @@ export interface View {
     context: GPUCanvasContext | null;
     /** Current canvas swapchain texture, retained through the frame for pre-presentation readback. */
     canvasTexture?: GPUTexture;
+    /** Last surface texture identity and its cached view. */
+    surfaceTexture?: GPUTexture;
+    surfaceView?: GPUTextureView;
     /** External captures copied by EndFrameSystem into the same submission as the presenting pass. */
     frameCaptures?: CanvasFrameCaptureRequest[];
     /** A weak device-loss watcher serves this view's captures without retaining detached canvases. */
@@ -138,6 +141,8 @@ export interface View {
     framebufferFormat?: GPUTextureFormat;
     present: GPUTextureView | null;
     depth: GPUTextureView | null;
+    /** CPU-only world-to-view matrix shared by camera sorting and clustered-light packing. */
+    viewFromWorld?: Float32Array;
     slot: number;
     observer: ResizeObserver | null;
     camera: EntityRef;
@@ -174,6 +179,8 @@ function createViewResources(world: World): ViewResources {
                 view,
                 new Error("captureFrame refused: world disposed before presentation"),
             );
+            view.surfaceTexture = undefined;
+            view.surfaceView = undefined;
             view.texture?.destroy();
             view.observer?.disconnect();
             view.context?.unconfigure();
@@ -307,6 +314,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
         framebuffer: null,
         present: null,
         depth: null,
+        viewFromWorld: new Float32Array(16),
         slot: 0,
         observer: null!,
         camera: world.ref(eid),
@@ -468,6 +476,7 @@ export function attachView(world: World, eid: number): void {
         framebuffer: null,
         present: null,
         depth: null,
+        viewFromWorld: new Float32Array(16),
         slot: 0,
         observer: null,
         camera: world.ref(eid),
@@ -483,6 +492,8 @@ export function detachCanvas(world: World, eid: number): void {
         view.observer?.disconnect();
         view.texture?.destroy();
         view.canvasTexture = undefined;
+        view.surfaceTexture = undefined;
+        view.surfaceView = undefined;
         rejectFrameCaptures(
             view,
             new Error("captureFrame refused: canvas detached before presentation"),

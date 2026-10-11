@@ -23,7 +23,7 @@ import {
 } from "./index";
 import { AlphaModeCode, alphaModeFields, alphaPipelineKey } from "./material-type";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 const alphaWorld = {
     defaults: false,
     plugins: [StandardRenderingPlugin, MeshRenderPlugin],

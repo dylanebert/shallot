@@ -1,14 +1,25 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-export interface AllocationSite {
-    /** attributed function name and original source line */
+export interface AllocationFrame {
+    functionName: string;
     site: string;
-    /** sampled bytes attributed to this site over the measured window, collected objects included */
+    native: boolean;
+    boundary?: string;
+}
+
+export interface AllocationSite {
+    /** top JavaScript frame's declaration position, admitted only for a checked API wrapper */
+    site: string;
+    /** sampled bytes attributed to this complete stack over the measured window, collected objects included */
     bytes: number;
-    /** samples attributed to this site over the window */
+    /** samples attributed to this stack over the window */
     count: number;
+    /** ordered from the run frame's caller through the allocation and any trailing native frames */
+    stack?: readonly AllocationFrame[];
+    /** checked API wrapper declaration position when the top JavaScript frame is that boundary */
+    boundary?: string;
 }
 
 export interface AllocationWindow {
@@ -106,7 +117,10 @@ export function allocationFailure(
     if (allocating.length > 0) {
         const sites = allocating.flatMap((window) =>
             window.sites.length > 0
-                ? window.sites.map((row) => `  ${window.label}: ${row.bytes} B at ${row.site}`)
+                ? window.sites.map((row) => {
+                      const stack = row.stack?.map((frame) => `${frame.functionName} ${frame.site}`).join(" <- ");
+                      return `  ${window.label}: ${row.bytes} B at ${row.site}${stack ? `\n    stack: ${stack}` : ""}`;
+                  })
                 : [`  ${window.label}: ${windowBytes(window)} B with no attributed sites`],
         );
         failures.push(
@@ -145,20 +159,58 @@ export function sampleTransition(
     return runSampler(entry, options, ["transition"], false) as Promise<TransitionSample>;
 }
 
+export interface AllocationSamplerOptions {
+    warm?: number;
+    frames?: number;
+    input?: string;
+    /** Keep sampled sites for diagnosis even when a tier change makes strict qualification refuse a window. */
+    retainOptimizedSites?: boolean;
+}
+
+export interface PreparedAllocationSampler {
+    sample(options?: AllocationSamplerOptions): Promise<AllocationSample>;
+    dispose(): void;
+}
+
+/** Build an entry once, then sample it in fresh Node isolates without rebuilding the bundle. */
+export async function prepareAllocationSampler(entry: string): Promise<PreparedAllocationSampler> {
+    const bundle = await buildAllocationBundle(entry);
+    let disposed = false;
+    return {
+        sample(options = {}) {
+            if (disposed) throw new Error("allocation sampler was disposed");
+            return runBuiltSampler(
+                bundle,
+                options,
+                [],
+                options.retainOptimizedSites ?? false,
+            );
+        },
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            rmSync(bundle.dir, { recursive: true, force: true });
+        },
+    };
+}
+
 async function runSampler(
     entry: string,
-    { warm = 600, frames = 600, input = "" }: { warm?: number; frames?: number; input?: string },
+    options: { warm?: number; frames?: number; input?: string },
     mode: string[],
     retainOptimizedSites: boolean,
 ): Promise<AllocationSample> {
-    const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-"));
-    const tracePath = join(dir, "code.asm");
+    const bundle = await buildAllocationBundle(entry);
     try {
-        writeFileSync(join(dir, "input.txt"), input);
-        if (process.platform === "win32") {
-            // The Windows Dawn host needs an explicit, already-existing V8 code-trace target.
-            writeFileSync(tracePath, "");
-        }
+        return await runBuiltSampler(bundle, options, mode, retainOptimizedSites);
+    } finally {
+        rmSync(bundle.dir, { recursive: true, force: true });
+    }
+}
+
+async function buildAllocationBundle(entry: string): Promise<{ dir: string; path: string }> {
+    const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-"));
+    try {
         const { shallot } = await import("@dylanebert/shallot/bun");
         const built = await Bun.build({
             entrypoints: [entry],
@@ -171,6 +223,25 @@ async function runSampler(
         });
         if (!built.success)
             throw new Error(`allocation bundle failed: ${built.logs.map(String).join("\n")}`);
+        return { dir, path: join(dir, "subject.mjs") };
+    } catch (error) {
+        rmSync(dir, { recursive: true, force: true });
+        throw error;
+    }
+}
+
+async function runBuiltSampler(
+    bundle: { dir: string; path: string },
+    { warm = 600, frames = 600, input = "" }: { warm?: number; frames?: number; input?: string },
+    mode: string[],
+    retainOptimizedSites: boolean,
+): Promise<AllocationSample> {
+    const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-run-"));
+    try {
+        const subject = join(dir, "subject.mjs");
+        symlinkSync(bundle.path, subject);
+        const inputPath = join(dir, "input.txt");
+        writeFileSync(inputPath, input);
         const proc = Bun.spawn(
             [
                 "node",
@@ -178,17 +249,23 @@ async function runSampler(
                 "--enable-source-maps",
                 ...TIER_FLAGS,
                 "--trace-opt",
+                // One stdout carries every isolate's traces; a worker's optimization would refuse
+                // a main-thread window. Per-isolate files keep only the measured isolate's.
                 "--redirect-code-traces",
-                ...(process.platform === "win32" ? [`--redirect-code-traces-to=${tracePath}`] : []),
                 "--allow-natives-syntax",
                 SAMPLER,
-                join(dir, "subject.mjs"),
+                subject,
                 String(warm),
                 String(frames),
-                join(dir, "input.txt"),
+                inputPath,
                 ...mode,
             ],
-            { cwd: dir, stdout: "pipe", stderr: "pipe" },
+            {
+                cwd: dir,
+                stdout: "pipe",
+                stderr: "pipe",
+                env: { ...process.env, SHALLOT_PROJECT_ROOT: process.cwd() },
+            },
         );
         const [stdout, stderr, code] = await Promise.all([
             new Response(proc.stdout).text(),
@@ -196,8 +273,7 @@ async function runSampler(
             proc.exited,
         ]);
         if (code !== 0) throw new Error(`allocation sampler exited ${code}: ${stderr.trim()}`);
-        const trace = `${measuredIsolateTrace(dir)}\n`;
-        return tracedSample(`${trace}${stdout}`, { retainOptimizedSites });
+        return tracedSample(`${measuredIsolateTrace(dir)}\n${stdout}`, { retainOptimizedSites });
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
@@ -206,7 +282,7 @@ async function runSampler(
 /** The one isolate trace in `dir` that carries the sampler's window markers; other isolates' are ignored. */
 export function measuredIsolateTrace(dir: string): string {
     const marked = readdirSync(dir)
-        .filter((file) => file.endsWith(".asm"))
+        .filter((file) => /^code-\d+-\d+\.asm$/.test(file))
         .map((file) => readFileSync(join(dir, file), "utf8"))
         .filter((text) => text.includes("SHALLOT_SAMPLE_BEGIN "));
     if (marked.length !== 1)
@@ -216,31 +292,29 @@ export function measuredIsolateTrace(dir: string): string {
 
 /** Read synchronous V8 optimization traces bracketed by the measured isolate's run markers. */
 export function tracedSample(
-    output: string,
+    stdout: string,
     { retainOptimizedSites = false }: { retainOptimizedSites?: boolean } = {},
 ): AllocationSample {
     const optimizations = new Map<string, Set<string>>();
     const marked = new Set<string>();
     let label: string | undefined;
     let json: string | undefined;
-    for (const line of output.split(/\r?\n/)) {
-        const begin = /^SHALLOT_SAMPLE_BEGIN ("(?:[^"\\]|\\.)*")$/.exec(line);
-        if (begin) {
+    for (const line of stdout.split("\n")) {
+        if (line.startsWith("SHALLOT_SAMPLE_BEGIN ")) {
             if (label !== undefined) throw new Error("nested allocation trace marker");
-            label = JSON.parse(begin[1]!) as string;
+            label = JSON.parse(line.slice("SHALLOT_SAMPLE_BEGIN ".length)) as string;
             marked.add(label);
         } else if (line === "SHALLOT_SAMPLE_END") {
-            if (label === undefined)
-                throw new Error(`unpaired allocation trace marker: ${JSON.stringify(line)}`);
+            if (label === undefined) throw new Error("unpaired allocation trace marker");
             label = undefined;
-        } else if (line.startsWith('{"runtime":')) {
-            json = line;
         } else if (label !== undefined && /\[(?:compiling method|completed compiling|completed optimizing|optimizing) /.test(line)) {
             const match = /<JSFunction(.*?) \(sfi =/.exec(line);
             if (!match) throw new Error(`unrecognized V8 optimization trace: ${line}`);
             const names = optimizations.get(label) ?? new Set<string>();
             names.add(match[1].trim() || "(anonymous)");
             optimizations.set(label, names);
+        } else if (line.startsWith('{"runtime":')) {
+            json = line;
         }
     }
     if (label !== undefined || json === undefined) throw new Error("incomplete allocation trace");

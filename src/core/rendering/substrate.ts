@@ -4,6 +4,13 @@ import * as d from "typegpu/data";
 import type { Plugin, System, World } from "../../engine";
 import { ClearChangeMarksSystem, invertMat4, unpackColor } from "../../engine";
 import {
+    beginComputePass,
+    dispatchWorkgroups,
+    endComputePass,
+    setComputeBindGroup,
+    setComputePipeline,
+} from "../../engine/runtime";
+import {
     composeGlobalTransform,
     PrepareGlobalTransformSystem,
     TransformPlugin,
@@ -142,7 +149,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
         ? world.storage(Exposure).ev100.get(eid)
         : EXPOSURE_EV100_BLENDER;
     _render.viewStaging[offset + EXPOSURE_F32] = 2 ** -ev100 / 1.2;
-    computeViewProj(world, eid, view.width / view.height, viewProj);
+    computeViewProj(world, eid, view.width / view.height, viewProj, view.viewFromWorld);
     // resolution (pixels) follows viewProj in the ViewUniforms struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
     _render.viewStaging[offset + 16] = view.width;
@@ -325,7 +332,11 @@ export const BeginFrameSystem: System = {
             const texture = view.texture ?? view.context!.getCurrentTexture();
             if (view.context) view.canvasTexture = texture;
             if (!texture) continue;
-            view.present = texture.createView();
+            if (view.surfaceTexture !== texture) {
+                view.surfaceTexture = texture;
+                view.surfaceView = texture.createView();
+            }
+            view.present = view.surfaceView!;
             view.framebuffer = offscreen(world, eid, view.width, view.height);
             view.framebufferFormat = _render.format;
             presentingEids[slot] = eid;
@@ -387,11 +398,11 @@ export const BeginFrameSystem: System = {
                 : 0;
         if (globalTransformRuntime && globalTransformCount > 0) {
             const encoder = world.frameEncoder()!;
-            const pass = encoder.beginComputePass(GLOBAL_TRANSFORM_PASS);
-            pass.setPipeline(globalTransformRuntime.pipeline!);
-            pass.setBindGroup(0, globalTransformRuntime.group!);
-            pass.dispatchWorkgroups(Math.ceil(globalTransformCount / 64));
-            pass.end();
+            const pass = beginComputePass(encoder, GLOBAL_TRANSFORM_PASS);
+            setComputePipeline(pass, globalTransformRuntime.pipeline!);
+            setComputeBindGroup(pass, 0, globalTransformRuntime.group!);
+            dispatchWorkgroups(pass, Math.ceil(globalTransformCount / 64));
+            endComputePass(pass);
         }
     },
 };
@@ -535,7 +546,7 @@ export const RenderingPlugin: Plugin = {
 // the packed `RenderContext.cullVolumes` buffer, never re-packs it. A producer that runs its own
 // cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
 
-export { computeViewProj } from "./camera";
+export { computeViewFromWorld, computeViewProj } from "./camera";
 export { Frame, FrameGpu } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "./frustum";
 export { imageArray } from "./image";

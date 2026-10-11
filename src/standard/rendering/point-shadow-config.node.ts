@@ -18,7 +18,7 @@ import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
 import { PointShadows } from "./shadows";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 // each arm's app sets its world's PointShadows in setup, as its JSDoc instructs
 const settings = {

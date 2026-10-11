@@ -4,9 +4,13 @@ import { CEILING } from "../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { nativeOutDir } from "../native";
 import {
     linuxPreviewEnv,
-    previewEnvironment,
+    previewProject,
     resolvePreviewTarget,
     windowsPreviewCommand,
 } from "./preview";
@@ -18,10 +22,25 @@ test("web preview belongs to Vite while native preview resolves its native shell
     expect(resolvePreviewTarget("web")).toEqual({ kind: "unknown", target: "web" });
 });
 
-test("a native debug launch receives the Vite URL instead of a packaged asset URL", () => {
-    expect(
-        previewEnvironment("http://localhost:5173/", { SHALLOT_DEV_URL: "asset://game" }),
-    ).toEqual({ SHALLOT_DEV_URL: "http://localhost:5173/" });
+test("a native debug process receives the Vite URL instead of its packaged asset URL", async () => {
+    const project = mkdtempSync(join(tmpdir(), "shallot-native-dev-url-"));
+    const name = basename(project);
+    const output = nativeOutDir(project, "linux", false, false);
+    mkdirSync(output, { recursive: true });
+    const observed = join(project, "observed-url.txt");
+    const app = join(output, name);
+    writeFileSync(app, `#!/bin/sh\nprintf '%s' "$SHALLOT_DEV_URL" > '${observed}'\n`);
+    chmodSync(app, 0o755);
+    try {
+        const status = await previewProject(project, {
+            target: "linux",
+            devUrl: "http://localhost:5173/",
+        });
+        expect(status).toBe(0);
+        expect(readFileSync(observed, "utf8")).toBe("http://localhost:5173/");
+    } finally {
+        rmSync(project, { recursive: true, force: true });
+    }
 });
 
 test("native preview retains its platform launch command and portable Linux library path", () => {

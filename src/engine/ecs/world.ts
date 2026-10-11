@@ -1,5 +1,11 @@
 import type * as d from "typegpu/data";
-import { ReadbackPool, type WorldGpu } from "../runtime";
+import {
+    createFrameEncoder,
+    finishFrameEncoder,
+    ReadbackPool,
+    submitFrame,
+    type WorldGpu,
+} from "../runtime";
 import { FieldColumns } from "./columns";
 import {
     type Component,
@@ -58,6 +64,11 @@ export class World {
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
     private _frameEncoder: GPUCommandEncoder | undefined;
+    private readonly _frameEncoderDescriptor: GPUCommandEncoderDescriptor = {
+        label: "shallot-frame",
+    };
+    private _lastSubmittedEncoder: GPUCommandEncoder | undefined;
+    private readonly _commandBuffers: GPUCommandBuffer[] = [];
     private _frameFence: Promise<void> | undefined;
     private _inDrawGroup = false;
     private _retiredBuffers: GPUBuffer[] = [];
@@ -201,9 +212,10 @@ export class World {
         if (!this._inDrawGroup)
             throw new Error("World.frameEncoder is available only during the draw group of step()");
         if (!this._gpu) return undefined;
-        return (this._frameEncoder ??= this.gpu.device.createCommandEncoder({
-            label: "shallot-frame",
-        }));
+        return (this._frameEncoder ??= createFrameEncoder(
+            this.gpu.device,
+            this._frameEncoderDescriptor,
+        ));
     }
 
     private runDrawGroup(run: () => void): void {
@@ -255,7 +267,12 @@ export class World {
     }
 
     private submitDrawEncoder(encoder: GPUCommandEncoder): void {
-        this.gpu.device.queue.submit([encoder.finish()]);
+        const commandBuffer = finishFrameEncoder(encoder);
+        // Keep the spent wrapper reachable: V8 otherwise clears its weak method feedback and
+        // recompiles this boundary after GC.
+        this._lastSubmittedEncoder = encoder;
+        this._commandBuffers[0] = commandBuffer;
+        submitFrame(this.gpu.device.queue, this._commandBuffers);
         for (const chunk of this._uploadChunks) {
             if (!chunk.used) continue;
             chunk.used = false;
@@ -927,6 +944,8 @@ export class World {
         for (const table of this._tables.values()) table.dispose();
         this._tables.clear();
         this._frameEncoder = undefined;
+        this._lastSubmittedEncoder = undefined;
+        this._commandBuffers.length = 0;
         this._inDrawGroup = false;
         for (const buffer of this._retiredBuffers) buffer.destroy();
         this._retiredBuffers.length = 0;

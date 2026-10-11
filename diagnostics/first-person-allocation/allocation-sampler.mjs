@@ -4,8 +4,8 @@
 // Needs node --expose-gc --allow-natives-syntax.
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
-// its `control` export allocates one known literal per call. Needs --trace-opt and --redirect-code-traces;
-// writes window markers to the measured isolate's code-trace file and one JSON sample on stdout.
+// its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces;
+// writes window markers into this isolate's trace file and one JSON sample on stdout.
 import { openSync, readdirSync, readFileSync, realpathSync, writeSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
@@ -15,80 +15,122 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 /**
  * A profile frame's original source and zero-based line through `map`, a `node:module` SourceMap whose
  * relative sources resolve from `base`; undefined where the map has no entry.
- * @param {{ lineNumber: number, columnNumber: number }} frame
+ * @param {{ lineNumber: number, columnNumber?: number }} frame
  * @param {import("node:module").SourceMap | undefined} map
  * @param {string} base
- * @returns {{ source: string, line: number } | undefined}
+ * @returns {{ source: string, line: number, column: number } | undefined}
  */
 export function originalPosition(frame, map, base) {
+    if (!Number.isInteger(frame.columnNumber)) return undefined;
     const entry = map?.findEntry(frame.lineNumber, frame.columnNumber);
     if (entry === undefined || !("originalSource" in entry)) return undefined;
     const source = entry.originalSource.startsWith("file://")
         ? new URL(entry.originalSource).pathname
         : resolve(base, entry.originalSource);
-    return { source, line: entry.originalLine };
+    return { source, line: entry.originalLine, column: entry.originalColumn };
 }
 
 /**
- * A subject frame's site: its function name and original source line, or `fallback` and its generated line
- * where the map has no entry.
- * @param {{ functionName: string, lineNumber: number, columnNumber: number }} frame
+ * A frame's exact source position, including its column, or `fallback` and its generated position where
+ * the map has no entry.
+ * @param {{ functionName: string, lineNumber: number, columnNumber?: number }} frame
  * @param {import("node:module").SourceMap | undefined} map
  * @param {string} base
  * @param {string} fallback
+ * @param {string} root
  * @returns {string}
  */
-export function subjectSite(frame, map, base, fallback) {
+export function subjectSite(frame, map, base, fallback, root = process.cwd()) {
     const name = frame.functionName || "(anonymous)";
     const at = originalPosition(frame, map, base);
     return at === undefined
-        ? `${name} ${fallback}:${frame.lineNumber + 1}`
-        : `${name} ${relative(process.cwd(), at.source)}:${at.line + 1}`;
+        ? `${name} ${fallback}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`
+        : `${name} ${relative(root.replace(/^\/private/, ""), at.source.replace(/^\/private/, ""))}:${at.line + 1}:${at.column + 1}`;
 }
 
 /**
- * @typedef {{ functionName: string, url: string, scriptId: string, lineNumber: number, columnNumber: number }} CallFrame
+ * @typedef {{ functionName: string, url: string, scriptId: string, lineNumber: number, columnNumber?: number }} CallFrame
  * @typedef {{ id: number, callFrame: CallFrame, children: ProfileNode[] }} ProfileNode
  */
 
 /**
- * Sum a sampling heap profile's bytes under a run frame by the nearest subject frame, or by the run frame
- * itself where the subject was inlined into it. A frame outside the subject (a builtin such as a typed-array
- * constructor, an iterator `next` or `Set.prototype.clear`, or the browser's own) credits the subject frame
- * above it. Samples outside every run frame, the profiler's and the harness's own, are not the subject's.
- * @param {{ head: ProfileNode, samples: { nodeId: number, size: number }[] }} profile
- * @param {(frame: CallFrame) => string | undefined} runSite names a run frame, else undefined
- * @param {(frame: CallFrame) => string | undefined} siteOf names a subject frame, else undefined
- * Sample counts and bytes describe observed sites; attribution identifies a caller for diagnosis, not ownership.
- * @returns {{ site: string, bytes: number, count: number }[]} most bytes first
+ * Collect and, for a subject that opts in, drain one unprofiled step before allocation sampling.
+ * @param {{ step(): void, wait?: () => Promise<void>, warmSamplingSessions?: boolean }} subject
+ * @param {() => void} collect
  */
-export function attribute(profile, runSite, siteOf) {
-    const owner = new Map();
-    /** @param {ProfileNode} node @param {string | undefined} nearest */
-    const visit = (node, nearest) => {
-        const frame = node.callFrame;
-        const here = runSite(frame) ?? (nearest === undefined ? undefined : (siteOf(frame) ?? nearest));
-        if (here !== undefined) owner.set(node.id, here);
-        for (const child of node.children) visit(child, here);
-    };
-    visit(profile.head, undefined);
-    const bytes = new Map();
-    const counts = new Map();
-    for (const { nodeId, size } of profile.samples) {
-        const key = owner.get(nodeId);
-        if (key === undefined) continue;
-        bytes.set(key, (bytes.get(key) ?? 0) + size);
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return [...bytes]
-        .map(([name, size]) => ({ site: name, bytes: size, count: counts.get(name) ?? 0 }))
-        .sort((x, y) => y.bytes - x.bytes);
+export async function prepareSamplingSession(subject, collect) {
+    collect();
+    if (!subject.warmSamplingSessions) return;
+    subject.step();
+    await subject.wait?.();
 }
 
 /**
- * This isolate's code-trace file in the working directory. Windows supplies an explicit `code.asm` path;
- * other hosts use V8's per-isolate filename. Found by optimizing a probe only this isolate defines.
- * Needs --allow-natives-syntax.
+ * Preserve the ordered allocation stack beneath each run marker. V8 reports a wrapper declaration position;
+ * source-checked single-expression boundaries identify the WebGPU calls admitted by the gate.
+ * @param {{ head: ProfileNode, samples: { nodeId: number, size: number }[] }} profile
+ * @param {(frame: CallFrame) => string | undefined} runSite names a run frame, else undefined
+ * @param {(frame: CallFrame) => string | undefined} siteOf names a source-mapped frame, else undefined
+ * @param {{ functionName: string, wrapperSite: string, expression: string }[]} expressions
+ * @returns {{ site: string, bytes: number, count: number, stack: { functionName: string, site: string, native: boolean, boundary?: string }[], boundary?: string }[]} most bytes first
+ */
+export function attribute(profile, runSite, siteOf, expressions = []) {
+    const boundaryByFunction = new Map(expressions.map((entry) => [entry.functionName, entry]));
+    const paths = new Map();
+    /** @param {ProfileNode} node @param {CallFrame[]} path */
+    const visit = (node, path) => {
+        const current = [...path, node.callFrame];
+        paths.set(node.id, current);
+        for (const child of node.children) visit(child, current);
+    };
+    visit(profile.head, []);
+    const rows = new Map();
+    for (const { nodeId, size } of profile.samples) {
+        const path = paths.get(nodeId);
+        if (!path) continue;
+        const runIndex = path.findIndex((frame) => runSite(frame) !== undefined);
+        if (runIndex < 0) continue;
+        const stack = path.slice(runIndex + 1).map((frame) => {
+            const native = frame.url === "" || frame.url === undefined || frame.url.startsWith("node:");
+            return {
+                functionName: frame.functionName || "(anonymous)",
+                site: native
+                    ? `${frame.functionName || "(native)"} <native>`
+                    : siteOf(frame) ?? `${frame.functionName || "(anonymous)"} ${frame.url}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`,
+                native,
+            };
+        });
+        let topJavaScript = -1;
+        for (let i = stack.length - 1; i >= 0; i--) {
+            if (!stack[i].native) {
+                topJavaScript = i;
+                break;
+            }
+        }
+        const top = stack[topJavaScript];
+        const topFrame = path[runIndex + 1 + topJavaScript];
+        const candidate = top && boundaryByFunction.get(top.functionName);
+        const boundary =
+            candidate &&
+            Number.isInteger(topFrame?.columnNumber) &&
+            top.site === `${candidate.functionName} ${candidate.wrapperSite}`
+                ? candidate
+                : undefined;
+        if (boundary && topJavaScript >= 0) stack[topJavaScript].boundary = boundary.wrapperSite;
+        const site = boundary?.wrapperSite ?? top?.site ?? "<no JavaScript frame>";
+        const key = JSON.stringify({ site, stack });
+        const row = rows.get(key) ?? { site, bytes: 0, count: 0, stack, boundary: boundary?.wrapperSite };
+        row.bytes += size;
+        row.count++;
+        rows.set(key, row);
+    }
+    return [...rows.values()].sort((a, b) => b.bytes - a.bytes);
+}
+
+/**
+ * This isolate's code-trace file under `--redirect-code-traces`, which gives each isolate its own
+ * `code-<pid>-<isolate id>.asm` in the working directory (V8 src/diagnostics/code-tracer.h). Found by
+ * optimizing a probe only this isolate defines. Needs --allow-natives-syntax.
  */
 export function measuredTrace() {
     function shallotMeasuredIsolate() {
@@ -100,7 +142,10 @@ export function measuredTrace() {
     );
     optimize(shallotMeasuredIsolate);
     const files = readdirSync(".").filter(
-        (file) => file.endsWith(".asm") && readFileSync(file, "utf8").includes("shallotMeasuredIsolate"),
+        (file) =>
+            file.startsWith(`code-${process.pid}-`) &&
+            file.endsWith(".asm") &&
+            readFileSync(file, "utf8").includes("shallotMeasuredIsolate"),
     );
     if (files.length !== 1)
         throw new Error(`allocation sampler: expected one measured-isolate trace, found ${files.length}`);
@@ -127,6 +172,7 @@ async function main() {
         navigator.gpu = gpu;
 
         const bundlePath = realpathSync(bundle);
+        const projectRoot = process.env.SHALLOT_PROJECT_ROOT ?? process.cwd();
         const bundleUrl = pathToFileURL(bundlePath).href;
         const samplerUrl = import.meta.url;
 
@@ -141,16 +187,17 @@ async function main() {
                 : undefined;
         const bundleSite = (frame) =>
             frame.url === bundleUrl
-                ? subjectSite(frame, findSourceMap(bundlePath), dirname(bundlePath), "bundle")
+                ? subjectSite(frame, findSourceMap(bundlePath), dirname(bundlePath), "bundle", projectRoot)
                 : undefined;
-        const sites = (profile) => attribute(profile, runSite, bundleSite);
+        let expressions = [];
+        const sites = (profile) => attribute(profile, runSite, bundleSite, expressions);
 
         session.connect();
         connected = true;
         await session.post("HeapProfiler.enable");
 
         async function sample(run, n, label = "transition") {
-            collect();
+            await prepareSamplingSession(subject, collect);
             await session.post("HeapProfiler.startSampling", {
                 samplingInterval: 1,
                 includeObjectsCollectedByMajorGC: true,
@@ -169,7 +216,8 @@ async function main() {
 
         // Warm marker writes separately so their first compiles do not land in subject runs. A
         // descriptor, not appendFileSync, whose path handling tiers up late inside windows.
-        const traceFd = openSync(measuredTrace(), "a");
+        const trace = measuredTrace();
+        const traceFd = openSync(trace, "a");
         const mark = (text) => writeSync(traceFd, text);
         for (let i = 0; i < 10000; i++) mark("");
 
@@ -179,6 +227,15 @@ async function main() {
         if (warm % CHUNK !== 0 || frames % CHUNK !== 0)
             throw new Error(`allocation sampler: warm and frames must be multiples of ${CHUNK}`);
         subject = await create(readFileSync(inputFile, "utf8"));
+        expressions = (subject.allocationExpressions ?? []).map((entry) => ({
+            functionName: entry.fn.name,
+            wrapperSite: entry.wrapperSite,
+            expression: entry.expression,
+        }));
+        // Preserve only the named attribution boundaries as stack frames; subject systems still tier normally.
+        const neverOptimizeFunction = new Function("fn", "%NeverOptimizeFunction(fn)");
+        for (const entry of subject.allocationExpressions ?? []) neverOptimizeFunction(entry.fn);
+        for (const fn of subject.allocationFunctions ?? []) neverOptimizeFunction(fn);
         const stepChunk = () => {
             for (let i = 0; i < CHUNK; i++) subject.step();
         };
@@ -204,10 +261,11 @@ async function main() {
             const totals = new Map();
             for (let i = 0; i < n; i += CHUNK) {
                 for (const row of await sample(stepChunk, CHUNK, label)) {
-                    const current = totals.get(row.site) ?? { site: row.site, bytes: 0, count: 0 };
+                    const key = JSON.stringify([row.site, row.stack]);
+                    const current = totals.get(key) ?? { ...row, bytes: 0, count: 0 };
                     current.bytes += row.bytes;
                     current.count += row.count;
-                    totals.set(row.site, current);
+                    totals.set(key, current);
                 }
                 await subject.wait?.();
             }
@@ -272,7 +330,7 @@ async function main() {
                     frames: CHUNK, framesAtMost: CHUNK },
             ];
             const windows = await steadyWindows();
-            collect();
+            await prepareSamplingSession(subject, collect);
             await session.post("HeapProfiler.startSampling", { samplingInterval: 1 });
             spawnFrame();
             stepChunk();

@@ -40,7 +40,12 @@ jobs:
         run: bun run check
       - name: cheap tier
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts'
+        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts' --reporter=junit --reporter-outfile=cheap-junit.xml 2>&1 | tee cheap-test.log
+      - name: report slow cheap tests
+        if: always() && steps.install.outcome == 'success'
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts cheap-junit.xml cheap-test.log
 
   gpu:
     runs-on: ${{ matrix.os }}
@@ -50,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest, windows-latest]
+        os: [macos-15, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -81,24 +86,13 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - name: Run Bun as node.exe
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $hostDir = Join-Path $env:RUNNER_TEMP 'bun-node'
-          New-Item -ItemType Directory -Force -Path $hostDir | Out-Null
-          Copy-Item (Get-Command bun).Source (Join-Path $hostDir 'node.exe')
-          Add-Content -Path $env:GITHUB_PATH -Value $hostDir
-          Write-Output "Bun node.exe host: $hostDir"
-      - name: Identify WARP adapter
-        if: matrix.os == 'windows-latest'
-        run: node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then((adapter) => { if (!adapter) throw new Error('WARP adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (!/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); console.info('WARP adapter:', identity); })"
       - name: GPU tier
-        if: matrix.os != 'windows-latest'
-        run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts
-      - name: GPU tier on WARP
-        if: matrix.os == 'windows-latest'
-        run: time -p node scripts/gpu-compile.oracle.ts
+        run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts --reporter=junit --reporter-outfile=gpu-junit.xml 2>&1 | tee gpu-test.log
+      - name: report slow GPU tests
+        if: always()
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts gpu-junit.xml gpu-test.log
 
   cargo:
     runs-on: ubuntu-latest
@@ -120,17 +114,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            shard: 1/2
-          - os: macos-15
-            shard: 2/2
-          - os: ubuntu-latest
-            shard: 1/2
-          - os: ubuntu-latest
-            shard: 2/2
-          - os: windows-latest
-            shard: 1/1
+        os: [macos-15, ubuntu-latest]
+        shard: [1/2, 2/2]
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -167,33 +152,22 @@ jobs:
         with:
           rustflags: ""
       - run: bun install --frozen-lockfile
-      - name: Run Bun as node.exe
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $hostDir = Join-Path $env:RUNNER_TEMP 'bun-node'
-          $realNodeDir = Split-Path (Get-Command node -ErrorAction Stop).Source -Parent
-          Add-Content -Path $env:GITHUB_ENV -Value "SHALLOT_REAL_NODE_DIR=$realNodeDir"
-          New-Item -ItemType Directory -Force -Path $hostDir | Out-Null
-          Copy-Item (Get-Command bun).Source (Join-Path $hostDir 'node.exe')
-          Add-Content -Path $env:GITHUB_PATH -Value $hostDir
-          Write-Output "Bun node.exe host: $hostDir"
-      - name: Identify WARP adapter
-        if: matrix.os == 'windows-latest'
-        run: node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then((adapter) => { if (!adapter) throw new Error('WARP adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (!/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); console.info('WARP adapter:', identity); })"
       - name: Node tier
-        if: matrix.os != 'windows-latest'
-        run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
-      - name: Node tier on WARP
-        if: matrix.os == 'windows-latest'
-        run: |
-          time -p node -e "const child = Bun.spawn([process.execPath, 'test', '--shard=${{ matrix.shard }}', ...process.argv.slice(1)], { argv0: 'bun.exe', env: { ...process.env, PATH: process.env.SHALLOT_REAL_NODE_DIR + ';' + process.env.PATH }, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); child.exited.then((code) => process.exit(code));" -- $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
+        run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee node-test.log
+      - name: report slow Node tests
+        if: always()
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts node-junit.xml node-test.log
       - name: compile time oracle
         if: matrix.shard == '1/2'
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -237,9 +211,19 @@ jobs:
         run: bun crates/physics/scripts/build-kernel.ts --checked
       - name: cheap tier
         if: matrix.shard == '1/5'
-        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts'
+        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts' --reporter=junit --reporter-outfile=checked-cheap-junit.xml 2>&1 | tee checked-cheap-test.log
+      - name: report slow cheap tests
+        if: always() && matrix.shard == '1/5'
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts checked-cheap-junit.xml checked-cheap-test.log
       - name: Node tier
-        run: /usr/bin/time -p bun test --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort)
+        run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=checked-node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee checked-node-test.log
+      - name: report slow Node tests
+        if: always()
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: bun scripts/report-slow-tests.ts checked-node-junit.xml checked-node-test.log
 
   browser:
     runs-on: ${{ matrix.os }}

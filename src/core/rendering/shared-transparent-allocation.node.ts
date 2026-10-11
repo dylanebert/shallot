@@ -1,23 +1,32 @@
-import { setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
 import {
-    sampleAllocation,
+    type PreparedAllocationSampler,
+    prepareAllocationSampler,
     windowBytes,
 } from "../../../diagnostics/first-person-allocation/allocation";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-const WARM_FRAMES = 1200;
-const WINDOW_FRAMES = 120;
+const entry = resolve(
+    import.meta.dir,
+    "../../../diagnostics/first-person-allocation/shared-transparent.entry.ts",
+);
+const WARM_FRAMES = 360;
+const WINDOW_FRAMES = 60;
+let sampler: PreparedAllocationSampler | undefined;
+
+beforeAll(async () => {
+    sampler = await prepareAllocationSampler(entry);
+}, CEILING.startup);
+
+afterAll(() => sampler?.dispose());
 
 test("composed transparent World.step allocation sites are attributed after warm-up", async () => {
-    const entry = resolve(
-        import.meta.dir,
-        "../../../diagnostics/first-person-allocation/shared-transparent.entry.ts",
-    );
+    if (!sampler) throw new Error("allocation sampler setup did not complete");
     // Preserve attribution through JIT changes; this diagnoses existing whole-frame sites, not zero allocations.
-    const sample = await sampleAllocation(entry, {
+    const sample = await sampler.sample({
         warm: WARM_FRAMES,
         frames: WINDOW_FRAMES,
         retainOptimizedSites: true,

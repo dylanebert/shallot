@@ -27,7 +27,7 @@ import {
     VertexMaterialType,
 } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 const AMBIENT = 249.52394;
 const indirectSource = tgpu.fn(

@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Time, World } from "@dylanebert/shallot";
 import {
     Body,
@@ -1032,22 +1032,36 @@ test("a CPU-only draw edit followed by a throw reaches the next joint sync", asy
     });
 });
 
-test("a dirty field is applied when its ECS value matches an earlier value", async () => {
-    await withPhysics((world) => {
-        const joint = addRevoluteMotor(world);
-        const authored = world.storage(RevoluteJoint).motorSpeed;
+describe("dirty field synchronization", () => {
+    let world: World | undefined;
+
+    beforeAll(async () => {
+        world = await createPhysicsWorld();
+    });
+
+    afterAll(async () => {
+        if (!world) return;
+        await StandardPhysicsPlugin.dispose!(world);
+        world.dispose();
+    });
+
+    test("applies an ECS value that matches an earlier value", () => {
+        const fixture = world;
+        if (!fixture) throw new Error("physics fixture did not initialize");
+        const joint = addRevoluteMotor(fixture);
+        const authored = fixture.storage(RevoluteJoint).motorSpeed;
         authored.set(joint, 6);
-        world.tick();
-        const state = stateFor(world);
+        fixture.tick();
+        const state = stateFor(fixture);
         const solverId = jointIds(state).find(
-            (id) => state.jointUserData[id] === world.ref(joint),
+            (id) => state.jointUserData[id] === fixture.ref(joint),
         )!;
         writeJointFloat(state, solverId, RJ_MOTOR_SPEED, 8);
         expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(8);
 
-        const create = spyOn(kernel(world), "jointCreateRevolute");
+        const create = spyOn(kernel(fixture), "jointCreateRevolute");
         authored.set(joint, 6);
-        world.tick();
+        fixture.tick();
 
         expect(create).not.toHaveBeenCalled();
         expect(readJointFloat(state, solverId, RJ_MOTOR_SPEED)).toBe(6);

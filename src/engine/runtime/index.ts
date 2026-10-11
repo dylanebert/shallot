@@ -2,6 +2,28 @@
 
 export * from "./adapter";
 export {
+    beginComputePass,
+    beginRenderPass,
+    continueSubmissionFence,
+    createFrameEncoder,
+    dispatchWorkgroups,
+    dispatchWorkgroups2,
+    draw,
+    drawIndexedIndirect,
+    endComputePass,
+    endRenderPass,
+    executeRenderBundles,
+    finishFrameEncoder,
+    setComputeBindGroup,
+    setComputePipeline,
+    setIndexBuffer,
+    setRenderBindGroup,
+    setRenderPipeline,
+    setViewport,
+    submissionFence,
+    submitFrame,
+} from "./allocation-site";
+export {
     checkStorageBinding,
     checkTextureLimits,
     checkTgsl,

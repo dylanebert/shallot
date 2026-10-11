@@ -66,17 +66,55 @@ const ComputePlugin: Plugin = {
     ],
 };
 
-test("compute-only steps submit their lazy frame encoder once and idle device steps submit nothing", async () => {
+test("active frames use one encoder, finish and submit; idle frames create none", async () => {
     const app = await createApp({ defaults: false, plugins: [ComputePlugin] });
     const { world } = app;
-    const queue = world.gpu.device.queue;
+    const device = world.gpu.device;
+    const encoderDescriptor = Object.getOwnPropertyDescriptor(device, "createCommandEncoder");
+    const createCommandEncoder = device.createCommandEncoder.bind(device);
+    const queue = device.queue;
     const descriptor = Object.getOwnPropertyDescriptor(queue, "submit");
     const submit = queue.submit.bind(queue);
+    let encoders = 0;
+    let finishes = 0;
     let submissions = 0;
+    let observeFrameSubmit = false;
+    let submissionList: Iterable<GPUCommandBuffer> | undefined;
+    let reusedSubmissionList = true;
+    let oneBufferPerSubmit = true;
+    Object.defineProperty(device, "createCommandEncoder", {
+        configurable: true,
+        value: (...args: Parameters<GPUDevice["createCommandEncoder"]>) => {
+            const encoder = createCommandEncoder(...args);
+            if (observeFrameSubmit) {
+                encoders++;
+                const finishDescriptor = Object.getOwnPropertyDescriptor(encoder, "finish");
+                const finish = encoder.finish.bind(encoder);
+                Object.defineProperty(encoder, "finish", {
+                    configurable: true,
+                    value: (...finishArgs: Parameters<GPUCommandEncoder["finish"]>) => {
+                        finishes++;
+                        if (finishDescriptor)
+                            Object.defineProperty(encoder, "finish", finishDescriptor);
+                        else Reflect.deleteProperty(encoder, "finish");
+                        return finish(...finishArgs);
+                    },
+                });
+            }
+            return encoder;
+        },
+    });
     Object.defineProperty(queue, "submit", {
         configurable: true,
         value: (...args: Parameters<GPUQueue["submit"]>) => {
             submissions++;
+            const buffers = args[0];
+            if (observeFrameSubmit) {
+                if (submissionList !== undefined && submissionList !== buffers)
+                    reusedSubmissionList = false;
+                if (!Array.isArray(buffers) || buffers.length !== 1) oneBufferPerSubmit = false;
+                submissionList = buffers;
+            }
             return submit(...args);
         },
     });
@@ -85,8 +123,14 @@ test("compute-only steps submit their lazy frame encoder once and idle device st
         expect(() => world.frameEncoder()).toThrow("only during the draw group");
         for (const expected of [1, 2]) {
             const issued = world.gpu.fences.issued;
+            const beforeEncoders = encoders;
+            const beforeFinishes = finishes;
             const before = submissions;
+            observeFrameSubmit = true;
             world.step(0);
+            observeFrameSubmit = false;
+            expect(encoders - beforeEncoders).toBe(1);
+            expect(finishes - beforeFinishes).toBe(1);
             expect(submissions - before).toBe(1);
             expect(world.frameFence).toBeDefined();
             expect(world.gpu.fences.issued).toBe(issued + 1);
@@ -94,18 +138,29 @@ test("compute-only steps submit their lazy frame encoder once and idle device st
             const result = await probeBuffer(world, runtime.output!);
             expect(new Uint32Array(result.bytes)[0]).toBe(expected);
         }
+        expect(reusedSubmissionList).toBe(true);
+        expect(oneBufferPerSubmit).toBe(true);
 
         runtime.enabled = false;
+        const beforeEncoders = encoders;
+        const beforeFinishes = finishes;
         const before = submissions;
         const issued = world.gpu.fences.issued;
+        observeFrameSubmit = true;
         world.step(0);
-        expect(submissions).toBe(before);
+        observeFrameSubmit = false;
+        expect(encoders - beforeEncoders).toBe(0);
+        expect(finishes - beforeFinishes).toBe(0);
+        expect(submissions - before).toBe(0);
         expect(world.frameFence).toBeUndefined();
         expect(world.gpu.fences.issued).toBe(issued);
     } finally {
         runtime.enabled = true;
         if (descriptor) Object.defineProperty(queue, "submit", descriptor);
         else Reflect.deleteProperty(queue, "submit");
+        if (encoderDescriptor)
+            Object.defineProperty(device, "createCommandEncoder", encoderDescriptor);
+        else Reflect.deleteProperty(device, "createCommandEncoder");
         await disposeGpuApps([app]);
     }
 });

@@ -15,7 +15,15 @@ import {
     RenderContext,
 } from "../../core/rendering";
 import type { Registry, System, World } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import {
+    beginComputePass,
+    dispatchWorkgroups,
+    dispatchWorkgroups2,
+    endComputePass,
+    precompile,
+    setComputeBindGroup,
+    setComputePipeline,
+} from "../../engine/runtime";
 import { type MaterialType, MaterialTypes, materialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 import { ALPHA_PIPELINE_KEY_COUNT } from "./material-type";
@@ -257,21 +265,21 @@ export const MeshPreprocessSystem: System = {
         const encoder = world.frameEncoder()!;
         encoder.clearBuffer(_meshPreprocess.countsRaw!);
         _meshPreprocess.packPass.timestampWrites = world.gpu.span?.("mesh:preprocess");
-        const pass = encoder.beginComputePass(_meshPreprocess.packPass);
+        const pass = beginComputePass(encoder, _meshPreprocess.packPass);
         const rows = Math.ceil(instanceCount / 64);
         if (rows > 0) {
             setBound(pass, count);
-            pass.dispatchWorkgroups(rows, views);
+            dispatchWorkgroups2(pass, rows, views);
         }
         // one workgroup per allocated view slot (the counts buffer spans _meshPreprocess.viewDim ×
         // pairCount); slots past the active views carry zero counts → zero instanceCount
         setBound(pass, scan);
-        pass.dispatchWorkgroups(_meshPreprocess.viewDim);
+        dispatchWorkgroups(pass, _meshPreprocess.viewDim);
         if (rows > 0) {
             setBound(pass, scatter);
-            pass.dispatchWorkgroups(rows, views);
+            dispatchWorkgroups2(pass, rows, views);
         }
-        pass.end();
+        endComputePass(pass);
     },
 };
 
@@ -280,8 +288,8 @@ function setBound(
     pass: GPUComputePassEncoder,
     bound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] },
 ): void {
-    pass.setPipeline(bound.pipeline);
-    for (let i = 0; i < bound.groups.length; i++) pass.setBindGroup(i, bound.groups[i]);
+    setComputePipeline(pass, bound.pipeline);
+    for (let i = 0; i < bound.groups.length; i++) setComputeBindGroup(pass, i, bound.groups[i]!);
 }
 
 // Bind dense MeshInstance and Transform tables, replacing groups only when one of their GPU buffers grows.

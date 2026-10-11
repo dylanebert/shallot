@@ -397,6 +397,7 @@ const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456
 function queueText(world: World, _eid: number, _view: View, phase: TransparentPhase): void {
     const state = world.resource(textStateKey);
     if (!state.glyphBuf || !state.quad) return;
+    const position = phase.positionScratch;
     for (let i = 0; i < state.labelDraws.length; i++) {
         const label = state.labelDraws[i];
         if (!label.count || !world.exists(label.eid) || !world.has(label.eid, GlobalTransform))
@@ -406,7 +407,10 @@ function queueText(world: World, _eid: number, _view: View, phase: TransparentPh
         const x = transform[12] + transform[0] * label.centerX + transform[4] * label.centerY;
         const y = transform[13] + transform[1] * label.centerX + transform[5] * label.centerY;
         const z = transform[14] + transform[2] * label.centerX + transform[6] * label.centerY;
-        phase.add(i, label.font, x, y, z, label.eid);
+        position[0] = x;
+        position[1] = y;
+        position[2] = z;
+        phase.addFromScratch(i, label.font, label.eid, 0);
     }
 }
 

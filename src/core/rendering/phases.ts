@@ -1,5 +1,6 @@
 import type { Plugin, Resource, System, World } from "../../engine";
-import { Camera, computeViewProj } from "./camera";
+import { beginRenderPass, endRenderPass } from "../../engine/runtime";
+import { Camera, computeViewFromWorld } from "./camera";
 import { BeginFrameSystem, OverlaySystem, RenderingPlugin } from "./substrate";
 import {
     colorPassDescriptor,
@@ -38,18 +39,35 @@ type MutableTransparentItem = {
     batch: number;
 };
 
+function invalidTransparentProducer(): never {
+    throw new Error("TransparentPhase.add must run from a RenderPhases transparent producer");
+}
+function invalidTransparentStableId(stableId: number): never {
+    throw new Error(`TransparentPhase.add received an invalid stable id: ${stableId}`);
+}
+function invalidTransparentStablePart(stablePart: number): never {
+    throw new Error(`TransparentPhase.add received an invalid stable part: ${stablePart}`);
+}
+function invalidTransparentSortKey(sortKey: number): never {
+    throw new Error(`TransparentPhase.add received a non-finite view-space Z: ${sortKey}`);
+}
+
 /** Per-view transparent queue, reused across frames and grown only when capacity is exceeded. */
 export class TransparentPhase {
     private _items: MutableTransparentItem[] = [];
     private _scratch: MutableTransparentItem[] = [];
     private _countValue = 0;
     private _rendererValue = -1;
-    private readonly _viewProjection = new Float32Array(16);
     private readonly _viewFromWorld = new Float32Array(16);
+    /** @internal Reusable position input for renderers with their own typed staging. */
+    readonly positionScratch = new Float64Array(3);
     private _z0 = 0;
     private _z1 = 0;
     private _z2 = 1;
     private _z3 = 0;
+
+    /** @internal Enable clock reads for the explicit rendering oracle, not ordinary frames. */
+    measureTimings = false;
 
     readonly metrics = {
         items: 0,
@@ -72,13 +90,8 @@ export class TransparentPhase {
 
     /** Prepare this view's view-space depth row and reset its reusable item queue. */
     begin(world: World, eid: number, view: View): void {
-        computeViewProj(
-            world,
-            eid,
-            view.width / view.height,
-            this._viewProjection,
-            this._viewFromWorld,
-        );
+        if (view.viewFromWorld) this._viewFromWorld.set(view.viewFromWorld);
+        else computeViewFromWorld(world, eid, this._viewFromWorld);
         this._z0 = this._viewFromWorld[2];
         this._z1 = this._viewFromWorld[6];
         this._z2 = this._viewFromWorld[10];
@@ -114,17 +127,35 @@ export class TransparentPhase {
         stableId: number,
         stablePart = 0,
     ): void {
-        if (this._rendererValue < 0)
-            throw new Error(
-                "TransparentPhase.add must run from a RenderPhases transparent producer",
-            );
+        if (this._rendererValue < 0) invalidTransparentProducer();
         const sortKey = this._z0 * x + this._z1 * y + this._z2 * z + this._z3;
-        if (!Number.isSafeInteger(stableId) || stableId < 0)
-            throw new Error(`TransparentPhase.add received an invalid stable id: ${stableId}`);
+        if (!Number.isSafeInteger(stableId) || stableId < 0) invalidTransparentStableId(stableId);
         if (!Number.isSafeInteger(stablePart) || stablePart < 0)
-            throw new Error(`TransparentPhase.add received an invalid stable part: ${stablePart}`);
-        if (!Number.isFinite(sortKey))
-            throw new Error(`TransparentPhase.add received a non-finite view-space Z: ${sortKey}`);
+            invalidTransparentStablePart(stablePart);
+        if (!Number.isFinite(sortKey)) invalidTransparentSortKey(sortKey);
+        this.ensureCapacity(this._countValue + 1);
+        const item = this._items[this._countValue++];
+        item.sortKey = sortKey;
+        item.stableId = stableId;
+        item.stablePart = stablePart;
+        item.renderer = this._rendererValue;
+        item.draw = draw;
+        item.batch = batch;
+        this.metrics.items++;
+    }
+
+    /** @internal Add an item from positionScratch using trusted built-in identities and batch keys. */
+    addFromScratch(draw: number, batch: number, stableId: number, stablePart = 0): void {
+        if (this._rendererValue < 0) invalidTransparentProducer();
+        if (!Number.isSafeInteger(stableId) || stableId < 0) invalidTransparentStableId(stableId);
+        if (!Number.isSafeInteger(stablePart) || stablePart < 0)
+            invalidTransparentStablePart(stablePart);
+        const sortKey =
+            this._z0 * this.positionScratch[0]! +
+            this._z1 * this.positionScratch[1]! +
+            this._z2 * this.positionScratch[2]! +
+            this._z3;
+        if (!Number.isFinite(sortKey)) invalidTransparentSortKey(sortKey);
         this.ensureCapacity(this._countValue + 1);
         const item = this._items[this._countValue++];
         item.sortKey = sortKey;
@@ -145,7 +176,7 @@ export class TransparentPhase {
 
     /** Stable bottom-up merge sort by view Z, renderer namespace, stable id and stable part. */
     sort(): void {
-        const started = performance.now();
+        const started = this.measureTimings ? performance.now() : 0;
         const count = this._countValue;
         for (let width = 1; width < count; width *= 2) {
             for (let left = 0; left < count; left += width * 2) {
@@ -181,7 +212,7 @@ export class TransparentPhase {
             this._items = this._scratch;
             this._scratch = previous;
         }
-        this.metrics.sortMs += performance.now() - started;
+        if (this.measureTimings) this.metrics.sortMs += performance.now() - started;
     }
 
     /** @internal Record CPU time and bytes passed through World's ordered upload path. */
@@ -260,10 +291,10 @@ function recordDepthPrepass(this: World, view: View, eid: number): void {
         }
     }
     if (!requested) return;
-    const pass = encoder.beginRenderPass(prepassDescriptor(this, eid, view));
+    const pass = beginRenderPass(encoder, prepassDescriptor(this, eid, view));
     const renderers = this.resource(RenderPhases);
     for (let i = 0; i < renderers.length; i++) renderers[i].prepass?.(this, eid, view, pass);
-    pass.end();
+    endRenderPass(pass);
 }
 
 function pruneTransparentPhase(this: World, _phase: TransparentPhase, eid: number): void {
@@ -277,17 +308,17 @@ function recordMainPass(this: World, view: View, eid: number): void {
     let phase = phases.get(eid);
     if (!phase) phases.set(eid, (phase = new TransparentPhase()));
     phase.begin(this, eid, view);
-    let started = performance.now();
+    let started = phase.measureTimings ? performance.now() : 0;
     for (let renderer = 0; renderer < renderers.length; renderer++) {
         phase.useRenderer(renderer);
         renderers[renderer].transparent?.(this, eid, view, phase);
     }
-    phase.metrics.keyMs = performance.now() - started;
+    if (phase.measureTimings) phase.metrics.keyMs = performance.now() - started;
     phase.sort();
-    started = performance.now();
+    started = phase.measureTimings ? performance.now() : 0;
     for (let renderer = 0; renderer < renderers.length; renderer++)
         renderers[renderer].prepareTransparent?.(this, eid, view, phase, renderer);
-    phase.metrics.prepareMs = performance.now() - started;
+    if (phase.measureTimings) phase.metrics.prepareMs = performance.now() - started;
 
     const encoder = this.frameEncoder()!;
     const targets = colorTargets(
@@ -297,10 +328,13 @@ function recordMainPass(this: World, view: View, eid: number): void {
         view.height,
         this.storage(Camera).antialias.get(eid) !== 0,
     );
-    const pass = encoder.beginRenderPass(colorPassDescriptor(this, eid, targets, view.framebuffer));
+    const pass = beginRenderPass(
+        encoder,
+        colorPassDescriptor(this, eid, targets, view.framebuffer),
+    );
     for (let i = 0; i < renderers.length; i++) renderers[i].opaque?.(this, eid, view, pass);
     let index = 0;
-    started = performance.now();
+    started = phase.measureTimings ? performance.now() : 0;
     while (index < phase.length) {
         const item = phase.item(index);
         let end = index + 1;
@@ -318,8 +352,8 @@ function recordMainPass(this: World, view: View, eid: number): void {
         renderer.drawTransparent(this, eid, view, phase, index, end, pass, item.renderer);
         index = end;
     }
-    pass.end();
-    phase.metrics.drawMs = performance.now() - started;
+    endRenderPass(pass);
+    if (phase.measureTimings) phase.metrics.drawMs = performance.now() - started;
 }
 
 export const PrepassSystem: System = {

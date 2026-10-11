@@ -146,11 +146,7 @@ function watchDevice(device: GPUDevice) {
     };
     device.addEventListener("uncapturederror", uncaptured);
     return {
-        wait<T>(
-            label: string,
-            promise: PromiseLike<T> | T,
-            timeoutMs = CEILING.node / 2,
-        ): Promise<T> {
+        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 5000): Promise<T> {
             if (firstError)
                 return Promise.reject(new Error(`${label}: uncaptured GPU error: ${firstError}`));
             return new Promise<T>((resolve, reject) => {

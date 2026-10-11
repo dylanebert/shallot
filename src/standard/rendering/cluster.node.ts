@@ -32,7 +32,7 @@ import {
 import { StandardRenderingPlugin } from "./index";
 import { MAX_POINT_LIGHTS } from "./lighting";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 // CTS accepts f32 results within an interval; bracket each CPU range by this relative radius.
 const RANGE_EPSILON = 1e-5;

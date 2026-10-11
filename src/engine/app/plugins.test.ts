@@ -86,24 +86,39 @@ function withoutGpu(): void {
     };
 }
 
-test("each public plugin runs without a device or refuses its missing device at acquisition", async () => {
-    withoutGpu();
-    for (const plugin of new Set(publicPlugins)) {
-        expect(plugin.gpu !== undefined).toBe(needsGpu.has(plugin));
-        let app: Awaited<ReturnType<typeof createApp>> | undefined;
-        try {
-            app = await createApp({ defaults: false, plugins: [plugin] });
-            apps.push(app);
-            if (needsGpu.has(plugin))
-                throw new Error(`${plugin.name} unexpectedly built without WebGPU`);
-            app.world.step(Time.FIXED_DT);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (!needsGpu.has(plugin) || !message.includes("navigator.gpu is missing")) {
-                throw new Error(`${plugin.name} failed outside GPU acquisition: ${message}`, {
-                    cause: error,
-                });
-            }
+async function verifyPublicPlugin(plugin: Plugin): Promise<void> {
+    expect(plugin.gpu !== undefined).toBe(needsGpu.has(plugin));
+    let app: Awaited<ReturnType<typeof createApp>> | undefined;
+    try {
+        app = await createApp({ defaults: false, plugins: [plugin] });
+        apps.push(app);
+        if (needsGpu.has(plugin))
+            throw new Error(`${plugin.name} unexpectedly built without WebGPU`);
+        app.world.step(Time.FIXED_DT);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!needsGpu.has(plugin) || !message.includes("navigator.gpu is missing")) {
+            throw new Error(`${plugin.name} failed outside GPU acquisition: ${message}`, {
+                cause: error,
+            });
         }
     }
+}
+
+const uniquePublicPlugins = [...new Set(publicPlugins)];
+const deviceIndependentPlugins = uniquePublicPlugins.filter((plugin) => !needsGpu.has(plugin));
+const gpuPlugins = uniquePublicPlugins.filter((plugin) => needsGpu.has(plugin));
+const PLUGINS_PER_TEST = 4;
+
+for (let start = 0; start < deviceIndependentPlugins.length; start += PLUGINS_PER_TEST) {
+    const group = deviceIndependentPlugins.slice(start, start + PLUGINS_PER_TEST);
+    test(`device-independent public plugins ${group.map((plugin) => plugin.name).join(", ")} run without WebGPU`, async () => {
+        withoutGpu();
+        for (const plugin of group) await verifyPublicPlugin(plugin);
+    });
+}
+
+test("GPU-dependent public plugins refuse without WebGPU at acquisition", async () => {
+    withoutGpu();
+    for (const plugin of gpuPlugins) await verifyPublicPlugin(plugin);
 });

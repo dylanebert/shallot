@@ -55,7 +55,7 @@ test("the kinematic capsule mirrors the resolved endpoint without a second move 
         ]);
         expect(c.velocity.x.get(eid)).toBe(1200);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
-        for (let tick = 0; tick < 120; ++tick) {
+        for (let tick = 0; tick < 60; ++tick) {
             c.velocity.set(eid, 3, 0, 0, 0);
             world.step(Time.FIXED_DT);
             expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(

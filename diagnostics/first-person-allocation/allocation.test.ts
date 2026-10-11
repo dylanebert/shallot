@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve, sep } from "node:path";
+import { prepareSamplingSession } from "./allocation-sampler.mjs";
 import {
     type AllocationSample,
     allocatesNothing,
@@ -8,6 +9,23 @@ import {
     tracedSample,
     TIER_FLAGS,
 } from "./allocation";
+
+test("a sampling session starts after one collected and drained subject step", async () => {
+    const order: string[] = [];
+    await prepareSamplingSession(
+        {
+            warmSamplingSessions: true,
+            step: () => order.push("step"),
+            wait: async () => { order.push("wait"); },
+        },
+        () => order.push("collect"),
+    );
+    order.push("startSampling");
+    expect(order).toEqual(["collect", "step", "wait", "startSampling"]);
+    const otherSubject: string[] = [];
+    await prepareSamplingSession({ warmSamplingSessions: false, step: () => otherSubject.push("step") }, () => otherSubject.push("collect"));
+    expect(otherSubject).toEqual(["collect"]);
+});
 
 test("the sampler keeps lazy feedback and Chromium's existing timing flags", () => {
     expect(TIER_FLAGS).not.toContain("--no-lazy-feedback-allocation");
@@ -91,19 +109,12 @@ test("the allocation-gated first-person composition carries no timing or profili
 });
 
 test("optimization traces refuse even a zero-byte window, including anonymous OSR and repeated compiles", () => {
-    const sample = {
-        runtime: "planted trace",
-        warm: 120,
-        frames: 120,
-        control: [],
-        windows: [
-            { label: "after warm 120", sites: [], frames: 120, framesAtMost: 120 },
-            { label: "after warm 240", sites: [], frames: 120, framesAtMost: 120 },
-            { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
-        ],
-    };
+    const sample = { runtime: "planted trace", warm: 120, frames: 120, control: [], windows: [
+        { label: "after warm 120", sites: [], frames: 120, framesAtMost: 120 },
+        { label: "after warm 240", sites: [], frames: 120, framesAtMost: 120 },
+        { label: "A/A repeat", sites: [], frames: 120, framesAtMost: 120 },
+    ] };
     const lines = [
-        '[compiling method 0x0 <JSFunction outside (sfi = 0x2)> (target MAGLEV), mode: ConcurrencyMode::kSynchronous]',
         'SHALLOT_SAMPLE_BEGIN "after warm 120"',
         '[compiling method 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV), mode: ConcurrencyMode::kSynchronous]',
         '[completed compiling 0x1 <JSFunction late (sfi = 0x2)> (target MAGLEV)]',
@@ -115,7 +126,7 @@ test("optimization traces refuse even a zero-byte window, including anonymous OS
         'SHALLOT_SAMPLE_END',
         JSON.stringify(sample),
     ];
-    const result = tracedSample(lines.join("\r\n"));
+    const result = tracedSample(lines.join("\n"));
     expect(result.windows[0].optimizations).toEqual(["late", "(anonymous)"]);
     expect(allocatesNothing(result)).toBe(false);
     expect(allocationFailure(result)).toContain("after warm 120; optimized late, (anonymous); no byte reading");

@@ -1,6 +1,13 @@
 import type { Plugin, System, World } from "../../engine";
 import { component, u32 } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import {
+    beginRenderPass,
+    draw,
+    endRenderPass,
+    precompile,
+    setRenderBindGroup,
+    setRenderPipeline,
+} from "../../engine/runtime";
 import { ColorGrading, GradingConfig } from "./color-grading";
 import {
     BeginFrameSystem,
@@ -99,6 +106,13 @@ function destroyTargets(targets: Targets) {
     for (const t of targets.hdr) t.texture.destroy();
     for (const t of targets.display) t.texture.destroy();
 }
+
+function pruneTargets(this: World, targets: Targets, view: View): void {
+    if (this.resource(Views).get(targets.eid) !== view) {
+        destroyTargets(targets);
+        this.resource(tonemappingStateKey).targets.delete(view);
+    }
+}
 function intermediates(world: World, eid: number, view: View, before: number, after: number) {
     const state = world.resource(tonemappingStateKey);
     let targets = state.targets.get(view);
@@ -188,11 +202,11 @@ export const TonemappingSystem: System = {
             const attachment = (state.pass.colorAttachments as GPURenderPassColorAttachment[])[0];
             attachment.view = after ? targets.display[0].view : view.present;
             state.pass.timestampWrites = world.gpu.span?.("tonemapping");
-            const pass = encoder.beginRenderPass(state.pass);
-            pass.setPipeline(after ? state.displayPipeline! : state.pipeline);
-            pass.setBindGroup(0, cached.group);
-            pass.draw(3);
-            pass.end();
+            const pass = beginRenderPass(encoder, state.pass);
+            setRenderPipeline(pass, after ? state.displayPipeline! : state.pipeline);
+            setRenderBindGroup(pass, 0, cached.group);
+            draw(pass, 3);
+            endRenderPass(pass);
             input = attachment.view;
             for (let i = 0; i < after; i++) {
                 const output = i === after - 1 ? view.present : targets.display[(i + 1) % 2].view;
@@ -200,12 +214,7 @@ export const TonemappingSystem: System = {
                 input = output;
             }
         }
-        for (const [view, targets] of state.targets) {
-            if (world.resource(Views).get(targets.eid) !== view) {
-                destroyTargets(targets);
-                state.targets.delete(view);
-            }
-        }
+        state.targets.forEach(pruneTargets, world);
     },
 };
 
