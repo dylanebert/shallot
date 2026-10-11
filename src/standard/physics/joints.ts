@@ -820,7 +820,7 @@ export function syncJoints(
             }
             if (joint?.isValid()) joint.destroy();
             live?.delete(eid);
-            const def = jointDef(binding, eid);
+            const def = jointDef(ecs, binding, eid);
             const created = createJoint(world, bodies, def, isDeferred, cache.warnedJoints, key);
             if (created) {
                 live ??= new Map();

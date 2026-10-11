@@ -1,4 +1,5 @@
-export type { PhysicsSnapshot } from "./api";
+export type { DebugDraw, PhysicsSnapshot, ShapeProxy } from "./api";
+export { defaultDebugDraw } from "./api";
 export type {
     CustomFilterCallback,
     MoverFilterCallback,
@@ -15,6 +16,16 @@ export {
     solvePlanes,
 } from "./collision/mover";
 export type { QueryFilter } from "./common/types";
+export type {
+    PhysicsContactEvent,
+    PhysicsContactPair,
+    PhysicsEventRecords,
+    PhysicsEventsState,
+    PhysicsHitEvent,
+    PhysicsJointEvent,
+    PhysicsSensorEvent,
+} from "./events";
+export { PhysicsEvents } from "./events";
 export {
     applyAngularImpulse,
     applyForce,
@@ -22,7 +33,17 @@ export {
     applyLinearImpulse,
     applyLinearImpulseToCenter,
     applyTorque,
+    castRay,
+    castRayClosest,
+    castShape,
+    castShapeClosest,
+    drawPhysics,
     hashPhysics,
+    overlapAABB,
+    overlapShape,
+    type PhysicsCastCallback,
+    type PhysicsOverlapCallback,
+    type PhysicsQueryHit,
     physicsWorld,
     StandardPhysicsPlugin,
     StepPhysicsSystem,

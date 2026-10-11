@@ -954,8 +954,12 @@ export type InitOptions = {
 
 export type QueryCallback = (kind: number, shape: number, data: number, count: number) => number;
 
+const QUERY_RETURN_WORD = 79;
+
 export interface KernelState {
     queryCallback: QueryCallback | null;
+    queryReturnF: Float32Array | null;
+    queryReturnWritten: boolean;
     materialWorld: WorldState | null;
     collisionWorld: WorldState | null;
     queryWorld: number;
@@ -977,6 +981,8 @@ export interface KernelState {
 function createKernelState(): KernelState {
     return {
         queryCallback: null,
+        queryReturnF: null,
+        queryReturnWritten: false,
         materialWorld: null,
         collisionWorld: null,
         queryWorld: -1,
@@ -1033,6 +1039,25 @@ export function kernelViewKey(world: World | undefined, state = kernelState(worl
         state.viewRevision++;
     }
     return state.viewRevision;
+}
+
+function queryReturnView(runtime: KernelState): Float32Array {
+    const instance = runtime.instance;
+    if (instance === null) throw new Error("physics: query callback has no kernel");
+    if (runtime.queryReturnF?.buffer !== instance.memory.buffer) {
+        runtime.queryReturnF = new Float32Array(
+            instance.memory.buffer,
+            instance.worldQueryResultPtr() + QUERY_RETURN_WORD * 4,
+            1,
+        );
+    }
+    return runtime.queryReturnF;
+}
+
+export function writeQueryReturn(world: World | undefined, value: number): void {
+    const runtime = kernelState(world);
+    queryReturnView(runtime)[0] = value;
+    runtime.queryReturnWritten = true;
 }
 
 export function setQueryCallback(
@@ -1196,7 +1221,14 @@ function queryImport(runtime: KernelState): QueryCallback {
         try {
             if (runtime.queryCallback === null)
                 throw new Error("physics: query callback is not installed");
-            return runtime.queryCallback(kind, shape, data, count);
+            const value = runtime.queryCallback(kind, shape, data, count);
+            if (kind !== 1) return value;
+            if (runtime.queryReturnWritten) {
+                runtime.queryReturnWritten = false;
+                return 1;
+            }
+            queryReturnView(runtime)[0] = value;
+            return 1;
         } catch (error) {
             // Exceptions must not abandon Rust frames and leak the WASM shadow stack.
             runtime.queryFailed = true;

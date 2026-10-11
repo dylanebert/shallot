@@ -147,7 +147,7 @@ for (const [kind, defaults] of kinds) {
                     if (field === "userData" || field.startsWith("bodyId")) continue;
                     expect(actual[field], `${kind}.${field} marshal`).toEqual(value);
                 }
-                expect(actual.userData).toBe(eid);
+                expect(actual.userData).toBe(world.ref(eid));
                 return original(bodyA, bodyB, cfg);
             });
             try {
@@ -157,7 +157,7 @@ for (const [kind, defaults] of kinds) {
             }
             expect(calls).toBe(1);
             const joint = jointIds(solver.state).find(
-                (id) => solver.state.jointUserData[id] === eid,
+                (id) => solver.state.jointUserData[id] === world.ref(eid),
             )!;
             expect(joint, `${kind} between two static bodies is created`).toBeDefined();
             expect(jointField(solver.state, joint, JointField.type)).toBe(JointType[kind]);

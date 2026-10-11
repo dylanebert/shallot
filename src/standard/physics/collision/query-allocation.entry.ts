@@ -1,4 +1,21 @@
-import { createApp, physicsWorld, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import {
+    Body,
+    BodyType,
+    createApp,
+    physicsWorld,
+    Shape,
+    ShapeKind,
+    StandardPhysicsPlugin,
+} from "@dylanebert/shallot";
+import {
+    castRay,
+    castRayClosest,
+    castShape,
+    castShapeClosest,
+    overlapAABB,
+    overlapShape,
+    type PhysicsQueryHit,
+} from "@dylanebert/shallot/standard/physics";
 import { xf } from "../common/math";
 import { defaultQueryFilter, defaultSurfaceMaterial } from "../common/types";
 import { queryColumns } from "../kernel/querycolumns";
@@ -15,6 +32,8 @@ export const control = () => {
 export default async function create() {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const physics = physicsWorld(app.world)!;
+    const entityApp = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    const entityWorld = entityApp.world;
     const hull = makeBoxHull(1, 0.25, 1);
     const material = defaultSurfaceMaterial();
     const compound = createCompound({ hulls: [{ hull, transform: xf.identity(), material }] })!;
@@ -40,6 +59,43 @@ export default async function create() {
     const translation = { x: 0, y: -4, z: 0 };
     const filter = defaultQueryFilter();
     const q = queryColumns(physics.state);
+    const body = entityWorld.create();
+    entityWorld.add(body, Body, { type: BodyType.Static });
+    const shape = entityWorld.create();
+    entityWorld.add(shape, Shape, {
+        body,
+        kind: ShapeKind.Sphere,
+        sphere: [0, 0, 0, 1],
+    });
+    entityWorld.step(1 / 60);
+    const queryOrigin = { x: -3, y: 0, z: 0 };
+    const overlapOrigin = { x: 0, y: 0, z: 0 };
+    const queryTranslation = { x: 6, y: 0, z: 0 };
+    const queryBounds = {
+        lowerBound: { x: -1, y: -1, z: -1 },
+        upperBound: { x: 1, y: 1, z: 1 },
+    };
+    const proxy = { points: [{ x: 0, y: 0, z: 0 }], count: 1, radius: 0.25 };
+    const output: PhysicsQueryHit = {
+        shape: 0,
+        body: 0,
+        point: { x: 0, y: 0, z: 0 },
+        normal: { x: 0, y: 0, z: 0 },
+        fraction: 0,
+        userMaterialId: 0n,
+        triangleIndex: 0,
+        childIndex: 0,
+    };
+    const cast = (hit: PhysicsQueryHit) => {
+        if (hit.shape !== shape || hit.body !== body)
+            throw new Error("ECS ray query lost its Shape or Body entity");
+        return hit.fraction;
+    };
+    const overlap = (shapeEid: number, bodyEid: number) => {
+        if (shapeEid !== shape || bodyEid !== body)
+            throw new Error("ECS overlap query lost its Shape or Body entity");
+        return true;
+    };
     return {
         step: () => {
             const k = q.prepare(origin, filter);
@@ -53,7 +109,17 @@ export default async function create() {
                 k.worldQuery(physics.state.worldId, 6, 0);
                 k.worldQuery(physics.state.worldId, 3, 0);
             }
+            castRay(entityWorld, queryOrigin, queryTranslation, cast, filter);
+            castRayClosest(entityWorld, queryOrigin, queryTranslation, output, filter);
+            castShape(entityWorld, queryOrigin, proxy, queryTranslation, cast, filter);
+            castShapeClosest(entityWorld, queryOrigin, proxy, queryTranslation, output, filter);
+            overlapAABB(entityWorld, queryBounds, overlap, filter);
+            overlapShape(entityWorld, overlapOrigin, proxy, overlap, filter);
+            entityWorld.step(1 / 60);
         },
-        dispose: () => app.dispose(),
+        dispose: async () => {
+            await app.dispose();
+            await entityApp.dispose();
+        },
     };
 }

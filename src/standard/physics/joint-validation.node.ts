@@ -150,7 +150,9 @@ test("live joint edits reject Box3D setter precondition failures", async () => {
 
         const state = physicsWorld(world)!.state;
         const id = (eid: number) => {
-            const found = jointIds(state).find((joint) => state.jointUserData[joint] === eid);
+            const found = jointIds(state).find(
+                (joint) => state.jointUserData[joint] === world.ref(eid),
+            );
             if (found === undefined) throw new Error(`joint ${eid} did not spawn`);
             return found;
         };

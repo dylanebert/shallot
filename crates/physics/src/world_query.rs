@@ -12,6 +12,7 @@ pub(crate) static mut HEADER: [u32; 20] = [0; 20];
 // shape id (-1 for no hit), node/leaf visits, final fraction, followed by cast output.
 // Callback-free collide mover: count at 0, then eight shape/normal/offset/point records at 16.
 pub(crate) static mut RESULT: [u32; 80] = [0; 80];
+const QUERY_RETURN_WORD: usize = 79;
 #[export_name = "worldQueryHeaderPtr"]
 pub extern "C" fn header_ptr() -> *mut u32 {
     &raw mut HEADER as *mut u32
@@ -394,7 +395,8 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                     );
                 }
                 let value = if user_callback != 0 && operation != 6 {
-                    callback(1, id, result.add(4).cast::<u8>(), 12)
+                    callback(1, id, result.add(4).cast::<u8>(), 12);
+                    f32::from_bits(result.add(QUERY_RETURN_WORD).read())
                 } else {
                     output.fraction
                 };

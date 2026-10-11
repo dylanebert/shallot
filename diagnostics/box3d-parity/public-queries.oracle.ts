@@ -3,6 +3,8 @@
 // results are compared with native identification fields.
 // Callback results are appended as delivered: order is deliberately never sorted.
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { Body as EcsBody, BodyType as EcsBodyType, PhysicsPlugin as CorePhysicsPlugin, Shape as EcsShape, ShapeKind } from "../../src/core/physics";
+import { Time, World } from "../../src/engine";
 import {
     BodyType,
     createBoxMesh,
@@ -14,6 +16,15 @@ import {
     PhysicsWorld,
     type Shape,
 } from "../../src/standard/physics/api";
+import {
+    castRay,
+    castRayClosest,
+    castShape,
+    overlapAABB,
+    overlapShape,
+    PhysicsWorldDefinition,
+    StandardPhysicsPlugin,
+} from "../../src/standard/physics";
 import { BodyField, bodyField } from "../../src/standard/physics/kernel/bodyrecords";
 import { setQueryCallback } from "../../src/standard/physics/kernel/kernel";
 import { queryColumns } from "../../src/standard/physics/kernel/querycolumns";
@@ -375,6 +386,136 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
     }
 }
 
+async function runEntityQuery(input: Input): Promise<string[]> {
+    const values = input.words.map((word) => new Float32Array(new Uint32Array([word]).buffer)[0]);
+    const world = new World();
+    for (const component of CorePhysicsPlugin.components!)
+        world.registry.register(component, CorePhysicsPlugin.name);
+    await StandardPhysicsPlugin.initialize!(world);
+    await StandardPhysicsPlugin.warm!(world);
+    const recovery = StandardPhysicsPlugin.recovery!;
+    if (recovery === "stateless") throw new Error("physics must declare recovery");
+    world.registerRecovery(StandardPhysicsPlugin.name, recovery(world));
+    for (const system of StandardPhysicsPlugin.systems!)
+        world.addSystem(system, StandardPhysicsPlugin.name);
+
+    try {
+        world.resource(PhysicsWorldDefinition).gravity = zero;
+        world.step(Time.FIXED_DT);
+        const body = world.create();
+        world.add(body, EcsBody, {
+            type: EcsBodyType.Static,
+            position: [values[11], values[12], values[13], 0],
+            rotation: [values[14], values[15], values[16], values[17]],
+        });
+        const shape = world.create();
+        world.add(shape, EcsShape, {
+            body,
+            kind: ShapeKind.Sphere,
+            sphere: [0, -1, 0, 1],
+            materialUserIdLow: 1,
+            materialUserIdHigh: 1,
+        });
+        world.step(Time.FIXED_DT);
+
+        const origin = { x: values[0], y: values[1], z: values[2] };
+        const translation = { x: values[3], y: values[4], z: values[5] };
+        const proxy = { points: [zero], count: 1, radius: values[6] };
+        const extent = values[9];
+        const filter = values[10] < 0 ? { categoryBits: 0n, maskBits: 0n } : undefined;
+        const out: (number | undefined)[] = [input.operation, input.kind];
+        const appendHit = (hit: {
+            point: { x: number; y: number; z: number };
+            normal: { x: number; y: number; z: number };
+            fraction: number;
+            userMaterialId: bigint;
+            triangleIndex: number;
+            childIndex: number;
+        }) => {
+            out.push(input.kind + 1);
+            pushVec(out, hit.point);
+            pushVec(out, hit.normal);
+            out.push(bits(hit.fraction));
+            pushU64(out, hit.userMaterialId);
+            out.push(hit.triangleIndex, hit.childIndex);
+        };
+        if (input.operation === 0) {
+            let count = 0;
+            overlapAABB(
+                world,
+                {
+                    lowerBound: { x: origin.x - extent, y: origin.y - extent, z: origin.z - extent },
+                    upperBound: { x: origin.x + extent, y: origin.y + extent, z: origin.z + extent },
+                },
+                (shapeEid, bodyEid) => {
+                    expect([shapeEid, bodyEid]).toEqual([shape, body]);
+                    out.push(input.kind + 1);
+                    count++;
+                    return true;
+                },
+                filter,
+            );
+            out.push(count);
+        } else if (input.operation === 1) {
+            let count = 0;
+            overlapShape(
+                world,
+                origin,
+                proxy,
+                (shapeEid, bodyEid) => {
+                    expect([shapeEid, bodyEid]).toEqual([shape, body]);
+                    out.push(input.kind + 1);
+                    count++;
+                    return true;
+                },
+                filter,
+            );
+            out.push(count);
+        } else if (input.operation === 2) {
+            let count = 0;
+            castRay(world, origin, translation, (hit) => {
+                expect([hit.shape, hit.body]).toEqual([shape, body]);
+                appendHit(hit);
+                count++;
+                return hit.fraction;
+            }, filter);
+            out.push(count);
+        } else if (input.operation === 3) {
+            const hit = {
+                shape: 0,
+                body: 0,
+                point: { x: 0, y: 0, z: 0 },
+                normal: { x: 0, y: 0, z: 0 },
+                fraction: 0,
+                userMaterialId: 0n,
+                triangleIndex: 0,
+                childIndex: 0,
+            };
+            const didHit = castRayClosest(world, origin, translation, hit, filter);
+            out.push(Number(didHit));
+            if (didHit) {
+                expect([hit.shape, hit.body]).toEqual([shape, body]);
+                appendHit(hit);
+            }
+        } else if (input.operation === 4) {
+            let count = 0;
+            castShape(world, origin, proxy, translation, (hit) => {
+                expect([hit.shape, hit.body]).toEqual([shape, body]);
+                appendHit(hit);
+                count++;
+                return hit.fraction;
+            }, filter);
+            out.push(count);
+        } else {
+            throw new Error(`entity query does not cover operation ${input.operation}`);
+        }
+        return out.map((value) => (value === undefined ? "unrepresented" : hex(value)));
+    } finally {
+        await StandardPhysicsPlugin.dispose!(world);
+        world.dispose();
+    }
+}
+
 function contactPublic(input: ContactInput): string[] {
     const values = input.words.map((word) => new Float32Array(new Uint32Array([word]).buffer)[0]);
     const { world } = fixture(input.compositeKind);
@@ -652,6 +793,15 @@ for (let operation = 0; operation < operations.length; operation++) {
         }
     });
 }
+
+test("ECS World query payloads equal native Box3D for the same sphere calls", async () => {
+    for (let i = 0; i < inputs.length; i++) {
+        const input = inputs[i];
+        if (input.kind !== 0 || input.operation > 4) continue;
+        const actual = await runEntityQuery(input);
+        expect(actual).toEqual(nativeRows[i].slice(0, -2));
+    }
+});
 
 test("published mover fields equal native; identification is also compared through kernel buffers", () => {
     for (let i = 0; i < inputs.length; ++i) {

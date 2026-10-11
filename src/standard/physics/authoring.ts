@@ -146,7 +146,7 @@ export function shapeBinding(world: World): ShapeBinding {
 }
 
 /** Composes one joint definition only when membership or an endpoint requires creation. */
-export function jointDef(binding: JointBinding, eid: number): JointDef {
+export function jointDef(world: World, binding: JointBinding, eid: number): JointDef {
     const values: Record<string, unknown> = {};
     for (const { name, type } of binding.fields) {
         if (
@@ -182,7 +182,7 @@ export function jointDef(binding: JointBinding, eid: number): JointDef {
             },
         };
     }
-    values.userData = eid;
+    values.userData = world.ref(eid);
     return {
         kind: binding.kind,
         eid,

@@ -696,7 +696,7 @@ test("a RevoluteJoint motor-speed edit reuses its solver joint", async () => {
         const solver = physicsWorld(world)!;
         expect(solver.getCounters().jointCount).toBe(1);
         const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === joint,
+            (id) => solver.state.jointUserData[id] === world.ref(joint),
         );
         if (solverId === undefined) throw new Error("authored RevoluteJoint was not created");
         const generation = jointField(solver.state, solverId!, JointField.generation);
@@ -717,7 +717,7 @@ test("a joint field write survives a frame with no fixed tick", async () => {
         world.tick();
         const solver = physicsWorld(world)!;
         const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === joint,
+            (id) => solver.state.jointUserData[id] === world.ref(joint),
         )!;
         const generation = jointField(solver.state, solverId, JointField.generation);
         const create = spyOn(solver, "createRevoluteJoint");
@@ -747,7 +747,7 @@ test("a CPU-only draw edit survives frame mark clearing without a fixed tick", a
         world.tick();
         const solver = physicsWorld(world)!;
         const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === joint,
+            (id) => solver.state.jointUserData[id] === world.ref(joint),
         )!;
         expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(11);
 
@@ -776,7 +776,7 @@ test("a CPU-only draw edit followed by a throw reaches the next joint sync", asy
         world.tick();
         const solver = physicsWorld(world)!;
         const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === joint,
+            (id) => solver.state.jointUserData[id] === world.ref(joint),
         )!;
         expect(readJointFloat(solver.state, solverId, RJ_MOTOR_SPEED)).toBe(12);
         world.clearChanges();
@@ -809,7 +809,7 @@ test("a dirty field is applied when its ECS value matches an earlier value", asy
         world.tick();
         const solver = physicsWorld(world)!;
         const solverId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === joint,
+            (id) => solver.state.jointUserData[id] === world.ref(joint),
         )!;
         const handle = new SolverRevoluteJoint(solver.state, makeJointId(solver.state, solverId));
         handle.setMotorSpeed(8);
@@ -838,7 +838,7 @@ test("joint snapshots restore the matching live constraints when worlds have dif
             jointIds(physicsWorld(world)!.state).map(
                 (id) => physicsWorld(world)!.state.jointUserData[id],
             ),
-        ).toEqual([second]);
+        ).toEqual([world.ref(second)]);
         const secondSnapshot = world.snapshot();
 
         world.restore(firstSnapshot);
@@ -848,7 +848,7 @@ test("joint snapshots restore the matching live constraints when worlds have dif
             jointIds(physicsWorld(world)!.state).map(
                 (id) => physicsWorld(world)!.state.jointUserData[id],
             ),
-        ).toEqual([first]);
+        ).toEqual([world.ref(first)]);
 
         world.restore(secondSnapshot);
         world.tick();
@@ -857,7 +857,7 @@ test("joint snapshots restore the matching live constraints when worlds have dif
             jointIds(physicsWorld(world)!.state).map(
                 (id) => physicsWorld(world)!.state.jointUserData[id],
             ),
-        ).toEqual([second]);
+        ).toEqual([world.ref(second)]);
     });
 });
 
@@ -867,7 +867,7 @@ test("joint endpoint changes recreate the solver joint", async () => {
         world.tick();
         const solver = physicsWorld(world)!;
         const originalId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === joint,
+            (id) => solver.state.jointUserData[id] === world.ref(joint),
         )!;
         const generation = jointField(solver.state, originalId, JointField.generation);
         const create = spyOn(solver, "createRevoluteJoint");
@@ -879,10 +879,12 @@ test("joint endpoint changes recreate the solver joint", async () => {
 
         expect(create).toHaveBeenCalledTimes(1);
         const newId = jointIds(solver.state).find(
-            (id) => solver.state.jointUserData[id] === joint,
+            (id) => solver.state.jointUserData[id] === world.ref(joint),
         )!;
         expect(jointField(solver.state, newId, JointField.generation)).not.toBe(generation);
-        expect(jointIds(solver.state).map((id) => solver.state.jointUserData[id])).toEqual([joint]);
+        expect(jointIds(solver.state).map((id) => solver.state.jointUserData[id])).toEqual([
+            world.ref(joint),
+        ]);
     });
 });
 

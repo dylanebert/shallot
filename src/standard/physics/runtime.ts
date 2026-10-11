@@ -3,7 +3,7 @@
 import { Body, BodyType, Hulls, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
 import { GlobalTransform, Transform, teleport as teleportPlacement } from "../../core/transform";
 import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
-import type { Pos, Quat, Vec3, WorldTransform } from "./api";
+import type { AABB, Pos, Quat, Vec3, WorldTransform } from "./api";
 import {
     hash as hashWorld,
     init,
@@ -18,8 +18,19 @@ import { Shape as SolverShape } from "./api/shape";
 import { snapshotBindings } from "./api/snapshot";
 import { bodyBinding, jointBindings, shapeBinding } from "./authoring";
 import { syncBodyFields } from "./body-sync";
+import type { ShapeProxy } from "./collision/distance";
+import { DEFAULT_MASK_BITS } from "./common/constants";
 import { f32, maxf } from "./common/math";
-import type { WorldDef } from "./common/types";
+import type { QueryFilter, WorldDef } from "./common/types";
+import {
+    clearPhysicsEvents,
+    type PhysicsContactEvent,
+    type PhysicsEventRecords,
+    PhysicsEvents,
+    type PhysicsHitEvent,
+    type PhysicsJointEvent,
+    type PhysicsSensorEvent,
+} from "./events";
 import {
     captureFieldCandidate,
     captureFieldCandidates,
@@ -39,10 +50,20 @@ import {
     restoreConstraints,
     syncJoints,
 } from "./joints";
-import { kernel } from "./kernel/kernel";
+import { EventKind, eventCount } from "./kernel/eventbuffers";
+import { readJointEventUserData } from "./kernel/jointcolumns";
+import {
+    kernel,
+    type QueryCallback,
+    rethrowQueryError,
+    setQueryCallback,
+    writeQueryReturn,
+} from "./kernel/kernel";
+import { queryColumns } from "./kernel/querycolumns";
 import { marshalBody } from "./marshal";
 import { marshalShape } from "./marshal-shape";
 import { captureShapeRecreationState, shapeNeedsRecreation, syncShapeFields } from "./shape-sync";
+import { type DebugDraw, worldDraw } from "./world/draw";
 import { PROFILE_FIELDS, readStepProfile } from "./world/profile";
 import {
     copyPhysicsWorldDefinition,
@@ -64,6 +85,11 @@ interface PhysicsRuntime {
     warnedBodyFields: Set<number>;
     shapes: Map<number, SolverShape>;
     shapeBodies: Map<number, number>;
+    shapeEntities: ShapeEntityMap;
+    queryContexts: QueryContext[];
+    queryDepth: number;
+    queryCastCallback: QueryCallback;
+    queryOverlapCallback: QueryCallback;
     shapeStamps: Map<number, EntityRef>;
     shapeRecreationState: Map<number, Float64Array>;
     warnedShapes: Set<number>;
@@ -87,17 +113,66 @@ interface PhysicsRuntime {
     observing: boolean;
 }
 
+export interface PhysicsQueryHit {
+    shape: number;
+    body: number;
+    point: Pos;
+    normal: Vec3;
+    fraction: number;
+    userMaterialId: bigint;
+    triangleIndex: number;
+    childIndex: number;
+}
+
+export type PhysicsCastCallback = (hit: PhysicsQueryHit) => number;
+export type PhysicsOverlapCallback = (shape: number, body: number) => boolean;
+
+interface QueryContext {
+    world: World | null;
+    shapeEid: number;
+    bodyEid: number;
+    originX: number;
+    originY: number;
+    originZ: number;
+    callback: PhysicsCastCallback | null;
+    overlap: PhysicsOverlapCallback | null;
+    output: PhysicsQueryHit | null;
+    hit: PhysicsQueryHit;
+}
+
+interface ShapeEntityBinding {
+    slot: number;
+    generation: number;
+    shape: EntityRef;
+    body: EntityRef;
+    retiring: boolean;
+}
+
+interface ShapeEntityMap {
+    slots: (ShapeEntityBinding[] | undefined)[];
+    retiring: ShapeEntityBinding[];
+}
+
+function newShapeEntityMap(): ShapeEntityMap {
+    return { slots: new Array(64), retiring: [] };
+}
+
 const physicsRuntimeKey = { create: newRuntime };
 
 function newRuntime(): PhysicsRuntime {
     const failed: PhysicsRuntime["failed"] = new Map();
-    return {
+    const runtime: PhysicsRuntime = {
         initialized: false,
         bodyCandidates: createFieldCandidates(),
         shapeCandidates: createFieldCandidates(),
         warnedBodyFields: new Set(),
         shapes: new Map(),
         shapeBodies: new Map(),
+        shapeEntities: newShapeEntityMap(),
+        queryContexts: [newQueryContext()],
+        queryDepth: 0,
+        queryCastCallback: null!,
+        queryOverlapCallback: null!,
         shapeStamps: new Map(),
         shapeRecreationState: new Map(),
         warnedShapes: new Set(),
@@ -117,6 +192,246 @@ function newRuntime(): PhysicsRuntime {
         hulls: 0,
         observing: false,
     };
+    runtime.queryCastCallback = castQueryCallback.bind(runtime);
+    runtime.queryOverlapCallback = overlapQueryCallback.bind(runtime);
+    return runtime;
+}
+
+function fillQueryHit(
+    hit: PhysicsQueryHit,
+    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    shapeId: number,
+    shapeEid: number,
+    bodyEid: number,
+    values: Float32Array,
+    offset: number,
+    originX: number,
+    originY: number,
+    originZ: number,
+): void {
+    state.shapeStore.refreshViews();
+    hit.shape = shapeEid;
+    hit.body = bodyEid;
+    hit.point.x = originX + values[offset + 2];
+    hit.point.y = originY + values[offset + 3];
+    hit.point.z = originZ + values[offset + 4];
+    hit.normal.x = values[offset + 5];
+    hit.normal.y = values[offset + 6];
+    hit.normal.z = values[offset + 7];
+    hit.fraction = values[offset + 1];
+    hit.triangleIndex = values[offset + 9];
+    hit.childIndex = values[offset + 10];
+    hit.userMaterialId = state.shapeStore.materialUserIdAt(shapeId, values[offset + 11]);
+}
+
+function castQueryCallback(
+    this: PhysicsRuntime,
+    _kind: number,
+    shapeId: number,
+    data: number,
+): number {
+    const context = this.queryContexts[this.queryDepth - 1];
+    const state = this.physicsWorld!.state;
+    if (!queryShapeEntities(context.world!, this, shapeId, context)) {
+        writeQueryReturn(state.ecsState, -1);
+        return 1;
+    }
+    const hit = context.hit;
+    const values = state.shapeStore.materialF;
+    fillQueryHit(
+        hit,
+        state,
+        shapeId,
+        context.shapeEid,
+        context.bodyEid,
+        values,
+        data >>> 2,
+        context.originX,
+        context.originY,
+        context.originZ,
+    );
+    if (context.output) copyQueryHit(context.output, hit);
+    writeQueryReturn(state.ecsState, context.output ? hit.fraction : context.callback!(hit));
+    return 1;
+}
+
+function overlapQueryCallback(this: PhysicsRuntime, _kind: number, shapeId: number): number {
+    const context = this.queryContexts[this.queryDepth - 1];
+    if (!queryShapeEntities(context.world!, this, shapeId, context)) return 1;
+    return Number(context.overlap!(context.shapeEid, context.bodyEid));
+}
+
+function queryShapeEntities(
+    world: World,
+    runtime: PhysicsRuntime,
+    shapeId: number,
+    context: QueryContext,
+): boolean {
+    const bindings = runtime.shapeEntities.slots[shapeId];
+    if (!bindings) return false;
+    for (let i = bindings.length - 1; i >= 0; --i) {
+        const binding = bindings[i];
+        if (binding.retiring) continue;
+        const shapeEid = world.resolve(binding.shape);
+        if (!shapeEid || !world.has(shapeEid, ShapeComponent)) continue;
+        const bodyEid = world.resolve(binding.body);
+        if (!bodyEid || !world.has(bodyEid, Body)) continue;
+        const shape = runtime.shapes.get(shapeEid);
+        if (!shape || shape.id.index1 !== shapeId + 1 || shape.id.generation !== binding.generation)
+            continue;
+        context.shapeEid = shapeEid;
+        context.bodyEid = bodyEid;
+        return true;
+    }
+    return false;
+}
+
+function newQueryContext(): QueryContext {
+    return {
+        world: null,
+        shapeEid: 0,
+        bodyEid: 0,
+        originX: 0,
+        originY: 0,
+        originZ: 0,
+        callback: null,
+        output: null,
+        overlap: null,
+        hit: {
+            shape: 0,
+            body: 0,
+            point: { x: 0, y: 0, z: 0 },
+            normal: { x: 0, y: 0, z: 0 },
+            fraction: 0,
+            userMaterialId: 0n,
+            triangleIndex: 0,
+            childIndex: 0,
+        },
+    };
+}
+
+function copyQueryHit(out: PhysicsQueryHit, hit: PhysicsQueryHit): void {
+    out.shape = hit.shape;
+    out.body = hit.body;
+    out.point.x = hit.point.x;
+    out.point.y = hit.point.y;
+    out.point.z = hit.point.z;
+    out.normal.x = hit.normal.x;
+    out.normal.y = hit.normal.y;
+    out.normal.z = hit.normal.z;
+    out.fraction = hit.fraction;
+    out.userMaterialId = hit.userMaterialId;
+    out.triangleIndex = hit.triangleIndex;
+    out.childIndex = hit.childIndex;
+}
+
+function clearQueryHit(out: PhysicsQueryHit): void {
+    out.shape = 0;
+    out.body = 0;
+    out.point.x = 0;
+    out.point.y = 0;
+    out.point.z = 0;
+    out.normal.x = 0;
+    out.normal.y = 0;
+    out.normal.z = 0;
+    out.fraction = 0;
+    out.userMaterialId = 0n;
+    out.triangleIndex = 0;
+    out.childIndex = 0;
+}
+
+function beginQuery(
+    runtime: PhysicsRuntime,
+    world: World,
+    origin: Pos,
+    callback: PhysicsCastCallback | null,
+    overlap: PhysicsOverlapCallback | null,
+    output: PhysicsQueryHit | null,
+): QueryContext {
+    const depth = runtime.queryDepth++;
+    const context = (runtime.queryContexts[depth] ??= newQueryContext());
+    context.world = world;
+    context.originX = origin.x;
+    context.originY = origin.y;
+    context.originZ = origin.z;
+    context.callback = callback;
+    context.overlap = overlap;
+    context.output = output;
+    return context;
+}
+
+function endQuery(runtime: PhysicsRuntime): void {
+    const context = runtime.queryContexts[--runtime.queryDepth];
+    context.world = null;
+    context.callback = null;
+    context.overlap = null;
+    context.output = null;
+}
+
+function rememberShapeEntity(
+    world: World,
+    runtime: PhysicsRuntime,
+    shape: SolverShape,
+    shapeEid: number,
+    bodyEid: number,
+): void {
+    const slot = shape.id.index1 - 1;
+    const map = runtime.shapeEntities.slots;
+    if (slot >= map.length) map.length = Math.max(slot + 1, map.length * 2);
+    const bindings = (map[slot] ??= []);
+    for (const binding of bindings)
+        if (binding.generation !== shape.id.generation && !binding.retiring) {
+            binding.retiring = true;
+            runtime.shapeEntities.retiring.push(binding);
+        }
+    for (const binding of bindings)
+        if (binding.generation === shape.id.generation) {
+            binding.shape = world.ref(shapeEid);
+            binding.body = world.ref(bodyEid);
+            return;
+        }
+    bindings.push({
+        slot,
+        generation: shape.id.generation,
+        shape: world.ref(shapeEid),
+        body: world.ref(bodyEid),
+        retiring: false,
+    });
+}
+
+function retireShapeEntity(runtime: PhysicsRuntime, shape: SolverShape | undefined): void {
+    if (!shape) return;
+    const slot = shape.id.index1 - 1;
+    const bindings = runtime.shapeEntities.slots[slot];
+    if (!bindings) return;
+    for (const binding of bindings)
+        if (binding.generation === shape.id.generation && !binding.retiring) {
+            binding.retiring = true;
+            runtime.shapeEntities.retiring.push(binding);
+            return;
+        }
+}
+
+function clearShapeEntities(runtime: PhysicsRuntime): void {
+    runtime.shapeEntities.slots.fill(undefined);
+    runtime.shapeEntities.retiring.length = 0;
+}
+
+function pruneShapeEntities(runtime: PhysicsRuntime): void {
+    const { slots, retiring } = runtime.shapeEntities;
+    for (let i = 0; i < retiring.length; i++) {
+        const binding = retiring[i];
+        const bindings = slots[binding.slot];
+        if (!bindings) continue;
+        const index = bindings.indexOf(binding);
+        if (index >= 0) {
+            bindings[index] = bindings[bindings.length - 1];
+            bindings.pop();
+            if (bindings.length === 0) slots[binding.slot] = undefined;
+        }
+        binding.retiring = false;
+    }
+    retiring.length = 0;
 }
 
 function markChanged(runtime: PhysicsRuntime, eid: number): void {
@@ -167,6 +482,8 @@ function seedGlobalTransform(world: World, eid: number, body: SolverBody): void 
 }
 
 function forget(runtime: PhysicsRuntime, eid: number): void {
+    for (const [shapeEid, bodyEid] of runtime.shapeBodies)
+        if (bodyEid === eid) retireShapeEntity(runtime, runtime.shapes.get(shapeEid));
     runtime.bodies.get(eid)?.destroy();
     runtime.bodies.delete(eid);
     for (const [shapeEid, bodyEid] of runtime.shapeBodies)
@@ -188,6 +505,7 @@ function clearBodies(runtime: PhysicsRuntime): void {
     runtime.stamps.clear();
     runtime.shapes.clear();
     runtime.shapeBodies.clear();
+    clearShapeEntities(runtime);
     runtime.shapeStamps.clear();
     runtime.shapeRecreationState.clear();
     runtime.warnedShapes.clear();
@@ -211,6 +529,204 @@ export function physicsWorld(world: World): PhysicsWorld | null {
     const physicsWorld = runtimeFor(world).physicsWorld;
     return physicsWorld ? physicsWorld : null;
 }
+
+const queryZeroOrigin: Pos = { x: 0, y: 0, z: 0 };
+
+/**
+ * Cast a ray through the ECS World's Box3D shapes, reporting each hit's Shape and Body entities.
+ * Return the new maximum fraction, usually `hit.fraction` to stop at the closest hit, or `-1` to skip.
+ * The callback's hit record and nested vectors are reused and valid only until it returns.
+ */
+export function castRay(
+    world: World,
+    origin: Pos,
+    translation: Vec3,
+    callback: PhysicsCastCallback,
+    filter?: QueryFilter,
+): void {
+    const runtime = runtimeFor(world);
+    const physicsWorld = runtime.physicsWorld;
+    if (!physicsWorld) return;
+    const state = physicsWorld.state;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.translation(translation);
+    beginQuery(runtime, world, origin, callback, null, null);
+    const previous = setQueryCallback(state.ecsState, runtime.queryCastCallback);
+    try {
+        k.worldQuery(state.worldId, 2, 1);
+        rethrowQueryError(state.ecsState);
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+        endQuery(runtime);
+    }
+}
+
+/**
+ * Cast a ray and write its closest hit into caller-owned storage. Returns false on a miss; the
+ * output is cleared on a miss. Supply `point` and `normal` objects on `out` before calling.
+ */
+export function castRayClosest(
+    world: World,
+    origin: Pos,
+    translation: Vec3,
+    out: PhysicsQueryHit,
+    filter?: QueryFilter,
+): boolean {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld?.state;
+    if (!state) {
+        clearQueryHit(out);
+        return false;
+    }
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.translation(translation);
+    clearQueryHit(out);
+    beginQuery(runtime, world, origin, null, null, out);
+    const previous = setQueryCallback(state.ecsState, runtime.queryCastCallback);
+    try {
+        k.worldQuery(state.worldId, 2, 1);
+        rethrowQueryError(state.ecsState);
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+        endQuery(runtime);
+    }
+    return out.shape !== 0;
+}
+
+/**
+ * Cast a convex proxy through the ECS World's Box3D shapes, reporting each hit's Shape and Body entities.
+ * Return the new maximum fraction, usually `hit.fraction` to stop at the closest hit, or `-1` to skip.
+ * The callback's hit record and nested vectors are reused and valid only until it returns.
+ */
+export function castShape(
+    world: World,
+    origin: Pos,
+    proxy: ShapeProxy,
+    translation: Vec3,
+    callback: PhysicsCastCallback,
+    filter?: QueryFilter,
+): void {
+    const runtime = runtimeFor(world);
+    const physicsWorld = runtime.physicsWorld;
+    if (!physicsWorld) return;
+    const state = physicsWorld.state;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.proxy(proxy);
+    q.translation(translation);
+    beginQuery(runtime, world, origin, callback, null, null);
+    const previous = setQueryCallback(state.ecsState, runtime.queryCastCallback);
+    try {
+        k.worldQuery(state.worldId, 4, 1);
+        rethrowQueryError(state.ecsState);
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+        endQuery(runtime);
+    }
+}
+
+/** Cast a convex proxy and write its closest hit into caller-owned storage; clears `out` on a miss. */
+export function castShapeClosest(
+    world: World,
+    origin: Pos,
+    proxy: ShapeProxy,
+    translation: Vec3,
+    out: PhysicsQueryHit,
+    filter?: QueryFilter,
+): boolean {
+    const runtime = runtimeFor(world);
+    const physicsWorld = runtime.physicsWorld;
+    if (!physicsWorld) {
+        clearQueryHit(out);
+        return false;
+    }
+    const state = physicsWorld.state;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.proxy(proxy);
+    q.translation(translation);
+    clearQueryHit(out);
+    beginQuery(runtime, world, origin, null, null, out);
+    const previous = setQueryCallback(state.ecsState, runtime.queryCastCallback);
+    try {
+        k.worldQuery(state.worldId, 4, 1);
+        rethrowQueryError(state.ecsState);
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+        endQuery(runtime);
+    }
+    return out.shape !== 0;
+}
+
+/**
+ * Report every ECS Shape and Body whose fat AABB overlaps `bounds`. Returning false stops this body-type tree;
+ * the remaining trees are still visited.
+ */
+export function overlapAABB(
+    world: World,
+    bounds: AABB,
+    callback: PhysicsOverlapCallback,
+    filter?: QueryFilter,
+): void {
+    const runtime = runtimeFor(world);
+    const physicsWorld = runtime.physicsWorld;
+    if (!physicsWorld) return;
+    const state = physicsWorld.state;
+    const q = queryColumns(state);
+    const k = q.prepare(queryZeroOrigin, filter);
+    q.bounds(bounds);
+    beginQuery(runtime, world, queryZeroOrigin, null, callback, null);
+    const previous = setQueryCallback(state.ecsState, runtime.queryOverlapCallback);
+    try {
+        k.worldQuery(state.worldId, 0, 1);
+        rethrowQueryError(state.ecsState);
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+        endQuery(runtime);
+    }
+}
+
+/**
+ * Report every ECS Shape and Body overlapping a convex proxy. Returning false stops this body-type tree;
+ * the remaining trees are still visited.
+ */
+export function overlapShape(
+    world: World,
+    origin: Pos,
+    proxy: ShapeProxy,
+    callback: PhysicsOverlapCallback,
+    filter?: QueryFilter,
+): void {
+    const runtime = runtimeFor(world);
+    const physicsWorld = runtime.physicsWorld;
+    if (!physicsWorld) return;
+    const state = physicsWorld.state;
+    const q = queryColumns(state);
+    const k = q.prepare(origin, filter);
+    q.proxy(proxy);
+    beginQuery(runtime, world, origin, null, callback, null);
+    const previous = setQueryCallback(state.ecsState, runtime.queryOverlapCallback);
+    try {
+        k.worldQuery(state.worldId, 1, 1);
+        rethrowQueryError(state.ecsState);
+    } finally {
+        setQueryCallback(state.ecsState, previous);
+        endQuery(runtime);
+    }
+}
+
+/** Walk Box3D's debug geometry for the selected shape, joint, bounds and mass options. */
+export function drawPhysics(
+    world: World,
+    draw: DebugDraw,
+    maskBits: bigint = DEFAULT_MASK_BITS,
+): void {
+    const physicsWorld = runtimeFor(world).physicsWorld;
+    if (physicsWorld) worldDraw(physicsWorld.state, draw, maskBits);
+}
+
 // Body methods copy these reusable views synchronously.
 const statePos: Pos = { x: 0, y: 0, z: 0 };
 const stateQuat: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
@@ -476,6 +992,7 @@ function restoreBindings(
     runtime.stamps.clear();
     runtime.shapes.clear();
     runtime.shapeBodies.clear();
+    clearShapeEntities(runtime);
     runtime.shapeStamps.clear();
     runtime.shapeRecreationState.clear();
     for (let i = 0; i < b.bodies.length; i += 4) {
@@ -492,16 +1009,15 @@ function restoreBindings(
     }
     for (let i = 0; i < b.shapes.length; i += 5) {
         const eid = b.shapes[i];
-        runtime.shapes.set(
-            eid,
-            new SolverShape(state, {
-                index1: b.shapes[i + 1],
-                world0: state.worldId,
-                generation: b.shapes[i + 2],
-            }),
-        );
+        const shape = new SolverShape(state, {
+            index1: b.shapes[i + 1],
+            world0: state.worldId,
+            generation: b.shapes[i + 2],
+        });
+        runtime.shapes.set(eid, shape);
         runtime.shapeBodies.set(eid, b.shapes[i + 3]);
         runtime.shapeStamps.set(eid, b.shapes[i + 4] as EntityRef);
+        rememberShapeEntity(world, runtime, shape, eid, b.shapes[i + 3]);
     }
     for (const [eid, values] of b.shapeRecreationState)
         runtime.shapeRecreationState.set(eid, values.slice());
@@ -625,11 +1141,213 @@ function recoverPhysics(world: World, saved: PhysicsSnapshot): void {
     if (bindings === undefined) throw new Error("physics: recovery image has no bindings");
     restoreWorld(physicsWorld, saved);
     restoreBindings(world, runtime, physicsWorld, bindings);
+    clearPhysicsEvents(world.resource(PhysicsEvents));
     // ECS poses were restored by World. Warning latches are presentation, counters and stale
     // scans are overwritten on each step; solver history and binding caches are the participant.
 }
 export function hashPhysics(world: World): bigint {
     return hashWorld(warmWorld(runtimeFor(world)));
+}
+
+function eventShapeBinding(
+    runtime: PhysicsRuntime,
+    k: ReturnType<typeof kernel>,
+    worldId: number,
+    kind: number,
+    eventIndex: number,
+    lane: number,
+): ShapeEntityBinding | null {
+    const id = k.eventWord(worldId, kind, eventIndex, lane) - 1;
+    const generation = k.eventWord(worldId, kind, eventIndex, lane + 1) >>> 16;
+    if (id < 0) return null;
+    const bindings = runtime.shapeEntities.slots[id];
+    if (!bindings) return null;
+    for (let i = bindings.length - 1; i >= 0; --i)
+        if (bindings[i].generation === generation) return bindings[i];
+    return null;
+}
+
+function sensorRecordAt(
+    list: PhysicsEventRecords<PhysicsSensorEvent>,
+    index: number,
+): PhysicsSensorEvent {
+    return (list.records[index] ??= {
+        sensorShape: 0 as EntityRef,
+        sensorBody: 0 as EntityRef,
+        visitorShape: 0 as EntityRef,
+        visitorBody: 0 as EntityRef,
+    });
+}
+
+function contactRecordAt(
+    list: PhysicsEventRecords<PhysicsContactEvent>,
+    index: number,
+): PhysicsContactEvent {
+    return (list.records[index] ??= {
+        shapeA: 0 as EntityRef,
+        bodyA: 0 as EntityRef,
+        shapeB: 0 as EntityRef,
+        bodyB: 0 as EntityRef,
+        normalImpulse: 0,
+    });
+}
+
+function hitRecordAt(list: PhysicsEventRecords<PhysicsHitEvent>, index: number): PhysicsHitEvent {
+    return (list.records[index] ??= {
+        shapeA: 0 as EntityRef,
+        bodyA: 0 as EntityRef,
+        shapeB: 0 as EntityRef,
+        bodyB: 0 as EntityRef,
+        point: { x: 0, y: 0, z: 0 },
+        normal: { x: 0, y: 0, z: 0 },
+        approachSpeed: 0,
+        userMaterialIdA: 0n,
+        userMaterialIdALow: 0,
+        userMaterialIdAHigh: 0,
+        userMaterialIdB: 0n,
+        userMaterialIdBLow: 0,
+        userMaterialIdBHigh: 0,
+    });
+}
+
+function jointRecordAt(
+    list: PhysicsEventRecords<PhysicsJointEvent>,
+    index: number,
+): PhysicsJointEvent {
+    return (list.records[index] ??= { joint: 0 as EntityRef });
+}
+
+function fillSensorRecords(
+    runtime: PhysicsRuntime,
+    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    list: PhysicsEventRecords<PhysicsSensorEvent>,
+    kind: number,
+): void {
+    const k = kernel(state.ecsState);
+    const count = eventCount(state, kind);
+    let written = 0;
+    for (let i = 0; i < count; i++) {
+        const sensor = eventShapeBinding(runtime, k, state.worldId, kind, i, 0);
+        const visitor = eventShapeBinding(runtime, k, state.worldId, kind, i, 2);
+        if (!sensor || !visitor) continue;
+        const record = sensorRecordAt(list, written++);
+        record.sensorShape = sensor.shape;
+        record.sensorBody = sensor.body;
+        record.visitorShape = visitor.shape;
+        record.visitorBody = visitor.body;
+    }
+    list.count = written;
+}
+
+function fillContactRecords(
+    runtime: PhysicsRuntime,
+    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    list: PhysicsEventRecords<PhysicsContactEvent>,
+    kind: number,
+): void {
+    const k = kernel(state.ecsState);
+    const count = eventCount(state, kind);
+    let written = 0;
+    for (let i = 0; i < count; i++) {
+        const a = eventShapeBinding(runtime, k, state.worldId, kind, i, 0);
+        const b = eventShapeBinding(runtime, k, state.worldId, kind, i, 2);
+        if (!a || !b) continue;
+        const record = contactRecordAt(list, written++);
+        record.shapeA = a.shape;
+        record.bodyA = a.body;
+        record.shapeB = b.shape;
+        record.bodyB = b.body;
+        record.normalImpulse =
+            kind === EventKind.ContactBegin ? k.eventFloat(state.worldId, kind, i, 7) : 0;
+    }
+    list.count = written;
+}
+
+function fillHitRecords(
+    runtime: PhysicsRuntime,
+    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    list: PhysicsEventRecords<PhysicsHitEvent>,
+): void {
+    const k = kernel(state.ecsState);
+    const kind = EventKind.ContactHit;
+    const count = eventCount(state, kind);
+    let written = 0;
+    for (let i = 0; i < count; i++) {
+        const a = eventShapeBinding(runtime, k, state.worldId, kind, i, 0);
+        const b = eventShapeBinding(runtime, k, state.worldId, kind, i, 2);
+        if (!a || !b) continue;
+        const record = hitRecordAt(list, written++);
+        record.shapeA = a.shape;
+        record.bodyA = a.body;
+        record.shapeB = b.shape;
+        record.bodyB = b.body;
+        record.point.x = k.eventFloat(state.worldId, kind, i, 7);
+        record.point.y = k.eventFloat(state.worldId, kind, i, 8);
+        record.point.z = k.eventFloat(state.worldId, kind, i, 9);
+        record.normal.x = k.eventFloat(state.worldId, kind, i, 10);
+        record.normal.y = k.eventFloat(state.worldId, kind, i, 11);
+        record.normal.z = k.eventFloat(state.worldId, kind, i, 12);
+        record.approachSpeed = k.eventFloat(state.worldId, kind, i, 13);
+        const materialALow = k.eventWord(state.worldId, kind, i, 14) >>> 0;
+        const materialAHigh = k.eventWord(state.worldId, kind, i, 15) >>> 0;
+        if (
+            record.userMaterialIdALow !== materialALow ||
+            record.userMaterialIdAHigh !== materialAHigh
+        ) {
+            record.userMaterialIdALow = materialALow;
+            record.userMaterialIdAHigh = materialAHigh;
+            record.userMaterialIdA = BigInt(materialALow) | (BigInt(materialAHigh) << 32n);
+        }
+        const materialBLow = k.eventWord(state.worldId, kind, i, 16) >>> 0;
+        const materialBHigh = k.eventWord(state.worldId, kind, i, 17) >>> 0;
+        if (
+            record.userMaterialIdBLow !== materialBLow ||
+            record.userMaterialIdBHigh !== materialBHigh
+        ) {
+            record.userMaterialIdBLow = materialBLow;
+            record.userMaterialIdBHigh = materialBHigh;
+            record.userMaterialIdB = BigInt(materialBLow) | (BigInt(materialBHigh) << 32n);
+        }
+    }
+    list.count = written;
+}
+
+function fillJointRecords(
+    world: World,
+    state: NonNullable<PhysicsRuntime["physicsWorld"]>["state"],
+    list: PhysicsEventRecords<PhysicsJointEvent>,
+): void {
+    const count = eventCount(state, EventKind.Joint);
+    if (count !== 0) readJointEventUserData(state);
+    const bindings = jointBindings(world);
+    let written = 0;
+    for (let i = 0; i < count; i++) {
+        const reference = state.jointEventUserData[i];
+        if (typeof reference !== "number" || !Number.isSafeInteger(reference) || reference < 0)
+            continue;
+        const eid = world.resolve(reference as EntityRef);
+        if (eid === 0 && reference < 2 ** 32) continue;
+        let isJoint = eid === 0;
+        for (let j = 0; eid !== 0 && j < bindings.length; j++)
+            if (world.has(eid, bindings[j].component)) {
+                isJoint = true;
+                break;
+            }
+        if (isJoint) jointRecordAt(list, written++).joint = reference as EntityRef;
+    }
+    list.count = written;
+}
+
+function rebuildPhysicsEvents(world: World, runtime: PhysicsRuntime): void {
+    const state = runtime.physicsWorld!.state;
+    const events = world.resource(PhysicsEvents);
+    fillSensorRecords(runtime, state, events.sensorBegin, EventKind.SensorBegin);
+    fillSensorRecords(runtime, state, events.sensorEnd, EventKind.SensorEnd);
+    fillContactRecords(runtime, state, events.contactBegin, EventKind.ContactBegin);
+    fillContactRecords(runtime, state, events.contactEnd, EventKind.ContactEnd);
+    fillHitRecords(runtime, state, events.contactHit);
+    fillJointRecords(world, state, events.joints);
+    pruneShapeEntities(runtime);
 }
 
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
@@ -641,6 +1359,7 @@ export const StepPhysicsSystem: System = {
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
         physicsWorld.step(fixedDeltaTime, world.resource(PhysicsWorldDefinition).subStepCount);
+        rebuildPhysicsEvents(world, runtime);
         const record = world.recordSink;
         if (record) {
             readStepProfile(physicsWorld.state);
@@ -776,6 +1495,7 @@ function visitBody(
 
 function removeShape(runtime: PhysicsRuntime, eid: number, updateBodyMass = true): void {
     const shape = runtime.shapes.get(eid);
+    retireShapeEntity(runtime, shape);
     if (shape?.isValid()) shape.destroy(updateBodyMass);
     runtime.shapes.delete(eid);
     runtime.shapeBodies.delete(eid);
@@ -867,6 +1587,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime): void {
                 continue;
             }
         }
+        rememberShapeEntity(world, runtime, shape, eid, bodyEid);
         runtime.shapeRecreationState.set(
             eid,
             captureShapeRecreationState(binding, eid, runtime.shapeRecreationState.get(eid)),
@@ -995,6 +1716,7 @@ export const StandardPhysicsPlugin: Plugin = {
     initialize(world) {
         const runtime = world.resource(physicsRuntimeKey);
         world.resource(PhysicsWorldDefinition);
+        world.resource(PhysicsEvents);
         runtime.initialized = true;
         if (!runtime.observing) {
             runtime.observing = true;
@@ -1032,11 +1754,13 @@ export const StandardPhysicsPlugin: Plugin = {
         });
         syncWorldDefinition(runtime.physicsWorld, definition);
         clearBodies(runtime);
+        clearPhysicsEvents(world.resource(PhysicsEvents));
     },
 
     dispose(world) {
         const runtime = runtimeFor(world);
         clearBodies(runtime);
+        clearPhysicsEvents(world.resource(PhysicsEvents));
         runtime.physicsWorld?.destroy();
         runtime.physicsWorld = null;
         void shutdown(world);
