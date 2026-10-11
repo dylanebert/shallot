@@ -239,9 +239,7 @@ test("an out-of-range project TypeGPU fails before either module evaluates", () 
         expect(result.exitCode).not.toBe(0);
         expect(output).toContain("project has TypeGPU 0.13.0 at");
         expect(output).toContain(TYPEGPU_RANGE);
-        expect(output.replaceAll("\\", "/")).toContain(
-            "node_modules/typegpu/package.json",
-        );
+        expect(output.replaceAll("\\", "/")).toContain("node_modules/typegpu/package.json");
         expect(output).not.toContain("TYPEGPU_PROJECT_COPY_EVALUATED");
         expect(output).not.toContain("TEST_MODULE_EVALUATED");
     } finally {
