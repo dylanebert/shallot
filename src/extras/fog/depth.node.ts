@@ -11,7 +11,7 @@ import { maskLayoutOcclude, maskLayoutOccludeMultisampled } from "../outline/pas
 import { Fog, FogPlugin, NoFog } from ".";
 import { fogLayout0, fogLayout0Multisampled, fogLayout1 } from "./pipeline";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(CEILING.node);
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
