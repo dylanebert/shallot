@@ -123,7 +123,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - The ECS `World` is the only public physics world; the kernel world is an internal resource of it.
 - Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions whole, with their defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests.
 - A definition field with a Box3D setter applies through that setter at the next fixed sync; a field without one applies at spawn, and its JSDoc says so.
-- A state write is a function over the `World` that maps to one Box3D setter.
+- A state write is a function over the `World` that maps to one Box3D call.
 - A read is the published column: pose and linear velocity are `GlobalTransform`'s. A read function exists only for state not yet published.
 - A marked field stays a candidate until physics' next fixed sync, which compares it with the kernel's current value; physics keeps no copy of ECS values.
 - Event records and world callbacks name entities by `EntityRef`, which outlives a recycled eid; a query reports the eids of shapes and bodies live when it runs.

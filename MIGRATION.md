@@ -756,8 +756,8 @@ and `ConstraintSystem` and `ComposeSystem` are internal to the plugin.
 
 In 0.9.5, `Tumble.world` exposed a `TumbleWorld` and `Tumble.body(eid)` returned a `TumbleBody`
 handle after the body was marshaled. Those handles, `Shape` and `Joint` handles, and `BodyState`
-are removed. The ECS `World` is the only physics world: author components and use World-first
-functions. Import `Body`, `Shape`, `ShapeKind`, `BodyType`, `Hulls`, `Hull`, `HullFace` and
+are removed. The ECS `World` is the only physics world: author components and call
+functions that take the `World` first. Import `Body`, `Shape`, `ShapeKind`, `BodyType`, `Hulls`, `Hull`, `HullFace` and
 `UNIT_CUBE_ID` from `/physics`; import `StandardPhysicsPlugin`, `StepPhysicsSystem`, `hashPhysics`,
 `PhysicsWorldDefinition`, `PhysicsEvents`, the state-write and query functions, and `drawPhysics`
 from `/standard/physics`. Import `GlobalTransform` from the root or `/transform`.
@@ -842,8 +842,8 @@ world.add(jointEid, RevoluteJoint, { a, b });
 
 The 0.9.5 backend's `setKinematic` becomes `setTargetTransform` for motion and `setTransform` for
 teleporting. Box3D derives target velocities, so the old optional velocity override is removed.
-`setVelocity` becomes `setLinearVelocity`; the other body state writes are World-first functions
-mapped to Box3D operations (`setAngularVelocity`, `setAwake`, force, torque and impulse functions):
+`setVelocity` becomes `setLinearVelocity`; the other body state writes are functions
+over the `World`, each mapped to one Box3D call (`setAngularVelocity`, `setAwake`, force, torque and impulse functions):
 
 ```ts
 // 0.9.5
@@ -917,7 +917,7 @@ to `PhysicsWorldDefinition`; their old `(a, idA, b, idB)` arguments stay, with `
 
 ### Queries and debug drawing
 
-Replace `Tumble.world` methods with World-first functions. `castRay`, `castRayClosest`, `castShape`,
+Replace `Tumble.world` methods with functions that take the `World` first. `castRay`, `castRayClosest`, `castShape`,
 `castShapeClosest`, `overlapAABB` and `overlapShape` report ECS shape/body ids; closest-hit functions
 write to caller-owned output. `draw` becomes `drawPhysics`:
 
