@@ -21,7 +21,7 @@ import { PointsPlugin } from "../../core/rendering/points.fixture";
 import { Transform } from "../../core/transform";
 import type { Plugin } from "../../engine";
 import { createApp } from "../../engine/app";
-import { probeBuffer } from "../../engine/runtime";
+import { probeBuffer, stampAdapter } from "../../engine/runtime";
 import { packColor } from "../../engine/utils";
 import { Line, LinesPlugin } from "../../extras/lines";
 import { lineLayout, viewLayout as lineViewLayout } from "../../extras/lines/pipeline";
@@ -122,14 +122,10 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
     const requiredFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"] as const;
     const device = await adapter.requestDevice({
         requiredFeatures: [...requiredFeatures],
-        requiredLimits: { maxStorageBuffersPerShaderStage: 10 },
     });
-    console.log(
-        "layout adapter",
-        adapter.info.vendor,
-        adapter.info.device,
-        adapter.info.description,
-    );
+    const classification = stampAdapter(adapter);
+    console.log("layout adapter", adapter.info, "classification", classification);
+    expect(classification.class).toBe("real");
     console.log("layout device features", [...device.features]);
     console.log(
         "layout device limits",
@@ -141,7 +137,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             ),
         ),
     );
-    expect(device.limits.maxStorageBuffersPerShaderStage).toBeGreaterThanOrEqual(10);
+    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
     expect(
         [...device.features].filter((feature) => feature !== "core-features-and-limits").sort(),
     ).toEqual([...requiredFeatures].sort());
@@ -200,7 +196,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
     device.pushErrorScope("validation");
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-        app = await createApp({ device, plugins: [proof] });
+        app = await createApp({ device, adapter, plugins: [proof] });
         const { world } = app;
         const layouts = {
             standardVertex:
@@ -324,7 +320,9 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             world.add(mesh, MeshInstance);
             world.add(mesh, MeshMaterial, material);
         }
-        world.add(world.create(), DirectionalLight, { shadowMapsEnabled: 1 });
+        const sun = world.create();
+        world.add(sun, Transform);
+        world.add(sun, DirectionalLight, { shadowMapsEnabled: 1 });
         const point = world.create();
         world.add(point, Transform, { translation: [1, 1, 2, 0] });
         world.add(point, PointLight, { shadowMapsEnabled: 1, range: 10 });

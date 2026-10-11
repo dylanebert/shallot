@@ -304,7 +304,6 @@ async function main(): Promise<void> {
     const adapterInfo = adapter.info;
     const device = await adapter.requestDevice({
         requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
-        requiredLimits: { maxStorageBuffersPerShaderStage: 10 },
     });
     const workloads: Record<string, unknown>[] = [];
     for (const workload of ["singleMaterial", "alternatingMeshes", "alternatingMaterials"] as const)

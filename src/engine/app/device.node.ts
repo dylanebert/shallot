@@ -68,7 +68,7 @@ test("device creation failure names both the stage and its cause", async () => {
     const cause = "fixture device creation failed";
     const adapter = {
         features: new Set<GPUFeatureName>(["indirect-first-instance", "rg11b10ufloat-renderable"]),
-        limits: { maxStorageBuffersPerShaderStage: 10 },
+        limits: { maxStorageBuffersPerShaderStage: 8 },
         requestDevice: async () => {
             throw new Error(cause);
         },

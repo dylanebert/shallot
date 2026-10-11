@@ -188,7 +188,7 @@ function watchDevice(device: GPUDevice) {
 async function trackedDevice() {
     const adapter = await withTimeout("Dawn adapter request", navigator.gpu.requestAdapter(), 5000);
     if (!adapter) throw new Error("Dawn adapter unavailable");
-    const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
+    const requiredLimits: Record<string, number> = {};
     for (const limit of [
         "maxStorageBuffersInVertexStage",
         "maxStorageBuffersInFragmentStage",

@@ -22,8 +22,19 @@ test("first-person presents a nonuniform final frame with byte-identical capture
         plugins: [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo],
     });
     try {
-        const { adapter } = app.world.gpu;
+        const { adapter, device } = app.world.gpu;
+        if (!device) throw new Error("first-person rendering device unavailable");
         console.info(`first-person frame adapter: ${adapter.class} (${adapter.identity})`);
+        console.info("first-person frame device", {
+            features: [...device.features],
+            maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
+            maxUniformBufferBindingSize: device.limits.maxUniformBufferBindingSize,
+        });
+        expect(adapter.class).toBe("real");
+        expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
+        expect(
+            [...device.features].filter((feature) => feature !== "core-features-and-limits").sort(),
+        ).toEqual(["indirect-first-instance", "rg11b10ufloat-renderable"]);
         const camera = [...app.world.query([Camera])][0];
         if (camera === undefined) throw new Error("first-person has no camera");
         // A small frame and one tick suffice to observe the composed final pass.

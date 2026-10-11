@@ -45,7 +45,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
     const identity = `${adapter.info.vendor} ${adapter.info.architecture} ${adapter.info.device} ${adapter.info.description}`;
     console.info(`[frame-perf] adapter=${identity} resolution=1280x720`);
     expect(identity.toLowerCase()).not.toContain("swiftshader");
-    const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
+    const requiredLimits: Record<string, number> = {};
     for (const limit of [
         "maxStorageBuffersInVertexStage",
         "maxStorageBuffersInFragmentStage",
@@ -54,13 +54,21 @@ test("report production frame GPU time for first-person and a 10k-instance scene
     ] as const) {
         if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
     }
+    const requiredFeatures = [
+        "indirect-first-instance",
+        "rg11b10ufloat-renderable",
+        "timestamp-query",
+    ] as const;
     const device = await bounded(
         "frame probe device",
-        adapter.requestDevice({
-            requiredFeatures: ["timestamp-query", "rg11b10ufloat-renderable"],
-            requiredLimits,
-        }),
+        adapter.requestDevice({ requiredFeatures: [...requiredFeatures], requiredLimits }),
     );
+    console.info("[frame-perf] device", {
+        features: [...device.features],
+        maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
+        maxUniformBufferBindingSize: device.limits.maxUniformBufferBindingSize,
+    });
+    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
     device.addEventListener("uncapturederror", (event) => {
         throw new Error(event.error.message);
     });

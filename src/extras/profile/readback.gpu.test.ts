@@ -8,8 +8,13 @@ setDefaultTimeout(CEILING.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("profiler adapter unavailable");
-    const device = await adapter.requestDevice({ requiredFeatures: [] });
-    const app = await createApp({ defaults: false, plugins: [ProfilePlugin], device });
+    const requiredFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"] as const;
+    const device = await adapter.requestDevice({ requiredFeatures: [...requiredFeatures] });
+    expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
+    expect(
+        [...device.features].filter((feature) => feature !== "core-features-and-limits").sort(),
+    ).toEqual([...requiredFeatures].sort());
+    const app = await createApp({ defaults: false, plugins: [ProfilePlugin], device, adapter });
     return { app, device };
 });
 

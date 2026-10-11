@@ -30,7 +30,13 @@ declare global {
         __revealBeforeFence?: boolean;
         __releaseFirstFrameFence?: () => void;
         __firstFrameFenceReady?: boolean;
-        __subjectAdapterIdentity?: string;
+        __subjectDeviceRecord?: {
+            identity: string;
+            requestedFeatures: string[];
+            requestedLimits: Record<string, number | undefined>;
+            features: string[];
+            limits: Record<string, unknown>;
+        };
     }
 }
 
@@ -341,11 +347,25 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
         const original = GPUAdapter.prototype.requestDevice;
         GPUAdapter.prototype.requestDevice = async function (descriptor?: GPUDeviceDescriptor) {
             const info = this.info;
-            window.__subjectAdapterIdentity =
-                [info.vendor, info.architecture, info.device, info.description]
-                    .filter((value) => typeof value === "string" && value.trim() !== "")
-                    .join(" ") || "unidentified";
-            return original.call(this, descriptor);
+            const device = await original.call(this, descriptor);
+            const limits = Object.fromEntries(
+                Object.getOwnPropertyNames(Object.getPrototypeOf(device.limits))
+                    .filter((name) => name !== "constructor")
+                    .map((name) => [name, device.limits[name as keyof GPUSupportedLimits]]),
+            );
+            window.__subjectDeviceRecord = {
+                identity:
+                    [info.vendor, info.architecture, info.device, info.description]
+                        .filter((value) => typeof value === "string" && value.trim() !== "")
+                        .join(" ") || "unidentified",
+                requestedFeatures: [...(descriptor?.requiredFeatures ?? [])].sort(),
+                requestedLimits: { ...(descriptor?.requiredLimits ?? {}) },
+                features: [...device.features]
+                    .filter((feature) => feature !== "core-features-and-limits")
+                    .sort(),
+                limits,
+            };
+            return device;
         };
     });
 
@@ -382,7 +402,7 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
                         node.style.height === "100%" &&
                         node.parentElement?.style.overflow === "hidden",
                 ),
-                adapterIdentity: window.__subjectAdapterIdentity,
+                device: window.__subjectDeviceRecord,
             };
         }, overlaySelector);
         expect(held.owned, "loading overlay is a child of its scene frame").toBe(true);
@@ -394,11 +414,13 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
         expect(held.canvasVisible, "the canvas is not revealed before its first frame").toBe(false);
         expect(held.canvasOpacity, "the canvas remains hidden before its first frame").toBe("0");
         expect(held.progressBar, "the real page owns a progress bar during loading").toBe(true);
-        expect(held.adapterIdentity, "the subject adapter identity was recorded").toBeTruthy();
-        console.log(`Browser WebGPU adapter: ${held.adapterIdentity}`);
-        expect(held.adapterIdentity, "the subject adapter is present rather than absent").not.toBe(
-            "none",
-        );
+        expect(held.device?.identity, "the subject adapter identity was recorded").toBeTruthy();
+        const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
+        expect(held.device?.requestedFeatures).toEqual(floorFeatures);
+        expect(held.device?.features).toEqual(floorFeatures);
+        expect(held.device?.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
+        expect(held.device?.limits.maxStorageBuffersPerShaderStage).toBe(8);
+        console.log(`Browser WebGPU floor: ${JSON.stringify(held.device)}`);
 
         // Chromium 153.0.8010.12 can composite an opacity-0 WebGPU canvas into Linux headless screenshots:
         // this measured 2.18% frame background locally and 2.14% in CI. Omit only the canvas in this

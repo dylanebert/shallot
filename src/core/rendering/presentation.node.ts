@@ -26,7 +26,7 @@ if (typeof ResizeObserver === "undefined") {
 test("standard composition, vignette, after-tonemap and points present and capture without BGRA storage", async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("Dawn adapter unavailable");
-    const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
+    const requiredLimits: Record<string, number> = {};
     for (const limit of [
         "maxStorageBuffersInVertexStage",
         "maxStorageBuffersInFragmentStage",

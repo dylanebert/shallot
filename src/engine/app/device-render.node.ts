@@ -54,7 +54,7 @@ for (const sharedDevice of [true, false]) {
             const adapter = await navigator.gpu.requestAdapter();
             if (!adapter) throw new Error("Dawn adapter unavailable");
             console.info("default renderer adapter:", stampAdapter(adapter));
-            const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
+            const requiredLimits: Record<string, number> = {};
             for (const limit of [
                 "maxStorageBuffersInVertexStage",
                 "maxStorageBuffersInFragmentStage",

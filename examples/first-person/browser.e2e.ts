@@ -25,6 +25,13 @@ declare global {
     interface Window {
         shallotCaptureFrame?: (canvas: HTMLCanvasElement) => Promise<BrowserCapture>;
         __capturedFrames?: Record<string, Uint8ClampedArray>;
+        __subjectDeviceRecord?: {
+            identity: string;
+            requestedFeatures: string[];
+            requestedLimits: Record<string, number | undefined>;
+            features: string[];
+            limits: Record<string, unknown>;
+        };
     }
 }
 
@@ -117,6 +124,31 @@ test("the browser input adapter fails to record a real key press on the focused 
     testInfo.setTimeout(CEILING.browser);
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.addInitScript(() => {
+        const original = GPUAdapter.prototype.requestDevice;
+        GPUAdapter.prototype.requestDevice = async function (descriptor?: GPUDeviceDescriptor) {
+            const info = this.info;
+            const device = await original.call(this, descriptor);
+            const limits = Object.fromEntries(
+                Object.getOwnPropertyNames(Object.getPrototypeOf(device.limits))
+                    .filter((name) => name !== "constructor")
+                    .map((name) => [name, device.limits[name as keyof GPUSupportedLimits]]),
+            );
+            window.__subjectDeviceRecord = {
+                identity:
+                    [info.vendor, info.architecture, info.device, info.description]
+                        .filter((value) => typeof value === "string" && value.trim() !== "")
+                        .join(" ") || "unidentified",
+                requestedFeatures: [...(descriptor?.requiredFeatures ?? [])].sort(),
+                requestedLimits: { ...(descriptor?.requiredLimits ?? {}) },
+                features: [...device.features]
+                    .filter((feature) => feature !== "core-features-and-limits")
+                    .sort(),
+                limits,
+            };
+            return device;
+        };
+    });
     await page.goto("/");
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
@@ -131,6 +163,14 @@ test("the browser input adapter fails to record a real key press on the focused 
         );
     }
     expect(pageErrors, "first-person reaches its first draw without a runtime error").toEqual([]);
+    const device = await page.evaluate(() => window.__subjectDeviceRecord);
+    expect(device?.identity, "first-person records its WebGPU adapter").toBeTruthy();
+    const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
+    expect(device?.requestedFeatures).toEqual(floorFeatures);
+    expect(device?.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
+    expect(device?.features).toEqual(floorFeatures);
+    expect(device?.limits.maxStorageBuffersPerShaderStage).toBe(8);
+    console.info(`First-person WebGPU floor: ${JSON.stringify(device)}`);
     await page.addScriptTag({ path: CAPTURE_ENTRY, type: "module" });
     await canvas.evaluate((element) => {
         element.tabIndex = 0;

@@ -1251,7 +1251,6 @@ const PackLightingSystem: System = {
 export const StandardRenderingPlugin: Plugin = {
     gpu: {
         features: ["indirect-first-instance"],
-        limits: { maxStorageBuffersPerShaderStage: 10 },
     },
     name: "StandardRendering",
     components: [StandardRenderer, CameraBackground],

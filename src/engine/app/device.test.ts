@@ -61,12 +61,9 @@ async function buildFailure(config: Parameters<typeof createApp>[0]): Promise<st
     }
 }
 
-test("GPU needs live on their consumers: rendering needs HDR, standard rendering needs indirect draws and ten storage buffers", () => {
+test("rendering features are required and the built-in storage floor is the device default", () => {
     expect(RenderingPlugin.gpu).toEqual({ features: ["rg11b10ufloat-renderable"] });
-    expect(StandardRenderingPlugin.gpu).toEqual({
-        features: ["indirect-first-instance"],
-        limits: { maxStorageBuffersPerShaderStage: 10 },
-    });
+    expect(StandardRenderingPlugin.gpu).toEqual({ features: ["indirect-first-instance"] });
 });
 
 test("acquisition requests only enabled plugin requirements before warm-up", async () => {
@@ -95,9 +92,7 @@ test("acquisition requests only enabled plugin requirements before warm-up", asy
             "indirect-first-instance",
             "rg11b10ufloat-renderable",
         ]);
-        expect(requests[0].requiredLimits).toEqual({
-            maxStorageBuffersPerShaderStage: 10,
-        });
+        expect(requests[0].requiredLimits).toEqual({});
         expect(warmed).toBe(false);
     } finally {
         restore();
@@ -135,12 +130,12 @@ test("split-stage zero limits stay explicit beside declared plugin limits", asyn
             plugins: [
                 {
                     name: "StorageOwner",
-                    gpu: { limits: { maxStorageBuffersPerShaderStage: 10 } },
+                    gpu: { limits: { maxStorageBuffersPerShaderStage: 9 } },
                 } as Plugin,
             ],
         });
         expect(request?.requiredLimits).toEqual({
-            maxStorageBuffersPerShaderStage: 10,
+            maxStorageBuffersPerShaderStage: 9,
             maxStorageBuffersInVertexStage: 0,
             maxStorageBuffersInFragmentStage: 0,
             maxStorageTexturesInVertexStage: 0,
@@ -203,6 +198,20 @@ test("an acquired device with worse alignment than required refuses before devic
     }
 });
 
+test("standard rendering names the missing indirect feature before device creation", async () => {
+    let requestedDevice = false;
+    const adapter = fakeAdapter(["rg11b10ufloat-renderable"], () => (requestedDevice = true));
+    const restore = withGpu({ requestAdapter: async () => adapter } as unknown as GPU);
+    try {
+        const message = await buildFailure({ defaults: false, plugins: [StandardRenderingPlugin] });
+        expect(message).toContain('Plugin "StandardRendering"');
+        expect(message).toContain('feature "indirect-first-instance"');
+        expect(requestedDevice).toBe(false);
+    } finally {
+        restore();
+    }
+});
+
 test("an acquired adapter missing a declared feature refuses with its plugin and cause", async () => {
     let requestedDevice = false;
     let initialized = false;
@@ -242,12 +251,12 @@ test("an adapter below a declared limit refuses with its plugin before device cr
             plugins: [
                 {
                     name: "LimitOwner",
-                    gpu: { limits: { maxStorageBuffersPerShaderStage: 10 } },
+                    gpu: { limits: { maxStorageBuffersPerShaderStage: 9 } },
                 } as Plugin,
             ],
         });
         expect(message).toContain('Plugin "LimitOwner"');
-        expect(message).toContain("maxStorageBuffersPerShaderStage 10");
+        expect(message).toContain("maxStorageBuffersPerShaderStage 9");
         expect(requestedDevice).toBe(false);
     } finally {
         restore();
@@ -266,7 +275,7 @@ test("a supplied device below a declared limit refuses before initialization", a
         plugins: [
             {
                 name: "SuppliedLimitOwner",
-                gpu: { limits: { maxStorageBuffersPerShaderStage: 10 } },
+                gpu: { limits: { maxStorageBuffersPerShaderStage: 9 } },
                 initialize() {
                     initialized = true;
                 },
@@ -274,7 +283,7 @@ test("a supplied device below a declared limit refuses before initialization", a
         ],
     });
     expect(message).toContain('Plugin "SuppliedLimitOwner"');
-    expect(message).toContain("maxStorageBuffersPerShaderStage 10");
+    expect(message).toContain("maxStorageBuffersPerShaderStage 9");
     expect(initialized).toBe(false);
 });
 
