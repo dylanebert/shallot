@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename, relative, resolve } from "node:path";
+import { basename, posix, relative, resolve } from "node:path";
 import { nativeOutDir } from "../native";
 
 export type PreviewTarget =
@@ -24,7 +24,7 @@ export function linuxPreviewEnv(
 ): Record<string, string | undefined> {
     const env = { ...baseEnv };
     if (portable) {
-        const cefLibDir = resolve(outputDir, "cef");
+        const cefLibDir = posix.resolve(outputDir, "cef");
         env.LD_LIBRARY_PATH = `${cefLibDir}:${env.LD_LIBRARY_PATH || ""}`;
     }
     return env;

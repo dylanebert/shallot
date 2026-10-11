@@ -166,6 +166,7 @@ async function runSampler(
         });
         if (!built.success)
             throw new Error(`allocation bundle failed: ${built.logs.map(String).join("\n")}`);
+        if (process.platform === "win32") writeFileSync(join(dir, "code.asm"), "");
         const proc = Bun.spawn(
             [
                 "node",
@@ -176,9 +177,7 @@ async function runSampler(
                 // One stdout carries every isolate's traces; a worker's optimization would refuse
                 // a main-thread window. Per-isolate files keep only the measured isolate's.
                 "--redirect-code-traces",
-                ...(process.platform === "win32"
-                    ? [`--redirect-code-traces-to=${join(dir, "code.asm")}`]
-                    : []),
+                ...(process.platform === "win32" ? ["--redirect-code-traces-to=code.asm"] : []),
                 "--allow-natives-syntax",
                 SAMPLER,
                 join(dir, "subject.mjs"),

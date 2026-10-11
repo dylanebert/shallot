@@ -49,15 +49,14 @@ console.log(JSON.stringify({ runtime: "isolates", warm: 120, frames: 120, contro
     windows: windows.map((label) => ({ label, sites: [], frames: 120, framesAtMost: 120 })) }));
 `,
         );
+        if (process.platform === "win32") writeFileSync(join(dir, "main.asm"), "");
         const proc = Bun.spawn(
             [
                 "node",
                 ...TIER_FLAGS,
                 "--trace-opt",
                 "--redirect-code-traces",
-                ...(process.platform === "win32"
-                    ? [`--redirect-code-traces-to=${join(dir, "main.asm")}`]
-                    : []),
+                ...(process.platform === "win32" ? ["--redirect-code-traces-to=main.asm"] : []),
                 "--allow-natives-syntax",
                 "subject.mjs",
             ],

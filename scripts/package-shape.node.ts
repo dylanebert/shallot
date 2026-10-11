@@ -16,7 +16,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
@@ -293,7 +293,11 @@ test("a staged overlay and bun install restore a published project pin", () => {
         expect(Bun.semver.satisfies(pinnedVersion, "^0.9.5")).toBe(true);
         console.log(`staged restore pin: @dylanebert/shallot@${pinnedVersion}`);
 
-        run(["bun", "add", "--no-save", tarball], project, "overlaying the packed Shallot tarball");
+        run(
+            ["bun", "add", "--no-save", relative(project, tarball).replaceAll("\\", "/")],
+            project,
+            "overlaying the packed Shallot tarball",
+        );
         expect(installed()).toBe(rootManifest.version);
         expect(readFileSync(join(project, "package.json"), "utf8")).toBe(manifestBefore);
         expect(readFileSync(join(project, "bun.lock"), "utf8")).toBe(lockBefore);

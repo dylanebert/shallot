@@ -25,6 +25,8 @@ import {
 } from "../project/vite-command";
 import { parseCliArgs } from "./index";
 
+const TEMP = process.env.RUNNER_TEMP ?? tmpdir();
+
 async function freePort(): Promise<number> {
     const server = createServer();
     await new Promise<void>((resolve, reject) => {
@@ -166,7 +168,7 @@ test("the real Shallot CLI finds Vite hoisted above a workspace app reached thro
 
 test("shallot dev, build and preview run the Vite declared by the project", async () => {
     const root = resolve(import.meta.dir, "../..");
-    const project = mkdtempSync(join(tmpdir(), "shallot-project-vite-"));
+    const project = mkdtempSync(join(TEMP, "shallot-project-vite-"));
     const nodeModules = join(project, "node_modules");
     const packageManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const cli = join(root, "bin/shallot.ts");
@@ -231,7 +233,7 @@ test("native dev keeps the complete reported Local URL and can use a Network URL
 
 test("native dev loads the complete local Vite URL when the project uses a base path", async () => {
     const root = resolve(import.meta.dir, "../..");
-    const project = mkdtempSync(join(tmpdir(), "shallot-vite-base-path-"));
+    const project = mkdtempSync(join(TEMP, "shallot-vite-base-path-"));
     symlinkSync(join(root, "node_modules"), join(project, "node_modules"), "dir");
     writeFileSync(join(project, "package.json"), JSON.stringify({ type: "module" }));
     writeFileSync(join(project, "index.html"), "<!doctype html><title>BASE PATH</title>\n");
@@ -255,7 +257,7 @@ test("native dev loads the complete local Vite URL when the project uses a base 
 
 test("shallot dev --port and vite --port serve the same page and project config", async () => {
     const root = resolve(import.meta.dir, "../..");
-    const project = mkdtempSync(join(tmpdir(), "shallot-vite-delegation-"));
+    const project = mkdtempSync(join(TEMP, "shallot-vite-delegation-"));
     symlinkSync(join(root, "node_modules"), join(project, "node_modules"), "dir");
     const port = await freePort();
     writeFileSync(join(project, "index.html"), "<!doctype html><title>OWNED PAGE</title>\n");
@@ -345,7 +347,7 @@ test("Vite returns no entry page when the project has no index.html", async () =
 
 test("native dev receives the actual local URL reported by the project's Vite server", async () => {
     const root = resolve(import.meta.dir, "../..");
-    const project = mkdtempSync(join(tmpdir(), "shallot-vite-native-url-"));
+    const project = mkdtempSync(join(TEMP, "shallot-vite-native-url-"));
     symlinkSync(join(root, "node_modules"), join(project, "node_modules"), "dir");
     writeFileSync(join(project, "index.html"), "<!doctype html><title>VITE URL</title>\n");
     let server: Awaited<ReturnType<typeof startViteDev>> | undefined;

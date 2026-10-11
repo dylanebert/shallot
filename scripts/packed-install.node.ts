@@ -15,7 +15,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 interface RootManifest {
@@ -290,12 +290,12 @@ test("loading-screen installs by copy-out as a standalone project", async () => 
 });
 
 test("the packed tarball includes project configuration but not example manifests", () => {
-    const packed = Bun.spawnSync(["tar", "-tzf", tarball], {
+    const packed = Bun.spawnSync(["tar", "-tzf", basename(tarball)], {
         cwd: scratch,
         stdout: "pipe",
         stderr: "pipe",
     });
-    expect(packed.exitCode).toBe(0);
+    expect(packed.exitCode, packed.stderr.toString()).toBe(0);
     expect(packed.stdout.toString()).toContain("tsconfig.base.json");
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
