@@ -167,6 +167,10 @@ test("pipeline creation refuses the ten-binding light-compact mutation and build
         });
         app.dispose();
 
+        expectWarning(
+            /^\[shallot\] WebGPU reports (?:an adapter with no identity|a fallback adapter)/,
+            { optional: true },
+        );
         const message = await createApp({
             defaults: false,
             plugins: [storageLimitPlugin(10)],
