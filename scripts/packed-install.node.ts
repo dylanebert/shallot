@@ -260,7 +260,7 @@ function installExample(name: "first-person" | "loading-screen"): void {
     else expect(examplePackage.devDependencies.webgpu).toBeUndefined();
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
     expect(readFileSync(join(example, "tests/preload.ts"), "utf8")).toBe(
-        'import { setDefaultTimeout } from "bun:test";\nimport { shallot } from "@dylanebert/shallot/bun";\nimport { CEILING } from "@dylanebert/shallot/testing";\nimport { plugin } from "bun";\n\nsetDefaultTimeout(CEILING.cheap);\nplugin(shallot({ root: import.meta.dir }));\n',
+        'import { shallot } from "@dylanebert/shallot/bun";\nimport { plugin } from "bun";\n\nplugin(shallot({ root: import.meta.dir }));\n',
     );
     expect(readFileSync(join(example, "bunfig.toml"), "utf8")).toBe(
         '[test]\npreload = ["./tests/preload.ts"]\n',

@@ -121,8 +121,13 @@ test("documented commands resolve and package files are realizable", async () =>
         ?.split("\n## ")[0];
     if (!entry) commandErrors.push("CONTRIBUTING.md: missing Commands block");
     const scripts = (await Bun.file(resolve(root, "package.json")).json()).scripts;
-    if ("check" in scripts)
-        commandErrors.push("package.json: the check script shadows Bun's native checker");
+    const forbidden = Object.keys(scripts).filter(
+        (name) => name === "check" || name.startsWith("test:"),
+    );
+    if (forbidden.length)
+        commandErrors.push(
+            `package.json: check and renamed test tiers must not be scripts: ${forbidden.join(", ")}`,
+        );
     /** Declared package command count; a variant of a command is an argument to it, not a command. Changing it is an edit here in the same commit. */
     const ExpectedCommands = 5;
     const declaredCommands = Object.keys(scripts).length;
@@ -149,13 +154,16 @@ test("documented commands resolve and package files are realizable", async () =>
                 const bin = resolve(root, "node_modules/.bin", token!);
                 const expected = resolve(root, "bin/shallot.ts");
                 reachable =
-                    token === "shallot" &&
-                    existsSync(bin) &&
-                    existsSync(expected) &&
-                    realpathSync(bin) === realpathSync(expected);
+                    (token === "shallot" &&
+                        existsSync(bin) &&
+                        existsSync(expected) &&
+                        realpathSync(bin) === realpathSync(expected)) ||
+                    (token === "playwright" &&
+                        existsSync(resolve(root, "node_modules/.bin/playwright")));
             } else if (token) {
                 reachable =
                     token === "check" ||
+                    token === "test" ||
                     Object.hasOwn(scripts, token) ||
                     (token.includes("/") && existsSync(resolve(root, token)));
             } else {

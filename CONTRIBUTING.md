@@ -142,7 +142,18 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - A `shallot` command does only what Shallot knows: it may invoke project commands, but never owns processes Vite, Bun or Playwright own.
 - Web commands delegate to Vite; native dev and build add the shell, and native preview launches the existing build.
-- Package scripts are lifecycle hooks, the engine build, or verbs no native command owns: `test` with Shallot's timeout flag, `lint`, `format`, and `typecheck` for `svelte-check`. Use native tool verbs for everything else; no package defines a `check` script.
+- Package scripts are lifecycle hooks, the engine build, or:
+  - an app's `dev`, `build` and `preview`, calling Vite;
+  - `lint` and `format`, where the project has them;
+  - `typecheck`, only for `svelte-check`.
+- Tests run by native verb:
+  - `bun test`: cheap and GPU;
+  - `bun test ./<file>`: Node and oracle files, by path;
+  - `bunx playwright test`: browser, after `bunx playwright install chromium` once;
+  - CI runs the wide set.
+- Every other command runs by its native verb: `bun check`, `bun <file>`, `bunx shallot`.
+- A project that adopts the engine's ceilings, as the engine does, defines one `test`: `bun test --timeout=<CEILING.cheap>`, run as `bun run test`.
+- No package defines `check` or a renamed tier such as `test:node` or `test:browser`.
 
 ```bash
 bun run build
@@ -157,7 +168,7 @@ cargo fmt --check
 cargo clippy -p shallot-physics --all-targets -- -D warnings
 cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings
 cargo test -p shallot-physics
-bun node_modules/playwright/cli.js test -c examples/loading-screen # selected browser subject
+bunx playwright test -c examples/loading-screen # selected browser subject
 sh scripts/browser.sh           # every browser subject
 bun run test --todo             # quarantined claims
 bun run format                  # biome
@@ -172,7 +183,7 @@ bun run format                  # biome
 ## Verification
 
 - Module promises are tested beside their owners and through public examples; test names state claims.
-- [The `./testing` subpath](src/project/testing.js) owns test ceilings and shared browser configuration; ceilings are hang and runaway backstops, not performance targets. A test runs under half its ceiling on every CI host, and CI warns on one that passes half; work needing more splits or moves to a heavier tier.
+- The engine owns its test ceilings and publishes them in [the `./testing` subpath](src/project/testing.js) alongside shared browser configuration; those ceilings are hang and runaway backstops, not performance targets. A test runs under half its ceiling on every CI host, and CI warns on one that passes half; work needing more splits or moves to a heavier tier.
 
 | Tier | Files / budget |
 |---|---|
@@ -184,7 +195,7 @@ bun run format                  # biome
 | Manual oracle | `*.oracle.ts`; unbounded, run by path |
 
 - GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.node` from `@dylanebert/shallot/testing`. A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the ceiling catches a hang.
-- `bun run test` discovers cheap and GPU files with the cheap default; bare `bun test` uses Bun's default; Node and oracle files run explicitly.
+- The engine's root `test` script runs cheap and GPU files with `--timeout=<CEILING.cheap>`; its test ceilings belong to the engine. Other projects use Bun's default unless they opt into those ceilings with a `test` script.
 - Root `bunfig.toml` supplies the TypeGPU transform, as project preloads do.
 - A missing tier premise fails, never skips.
 - Quarantine uses `test.todo`, runnable with `--todo`; a known failure stays failing until fixed.

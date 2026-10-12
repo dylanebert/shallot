@@ -220,7 +220,7 @@ test("shallot add writes a Bun plugin preload for the generated project", async 
             }),
         );
         expect(readFileSync(join(dest, "tests/preload.ts"), "utf8")).toBe(
-            'import { setDefaultTimeout } from "bun:test";\nimport { shallot } from "@dylanebert/shallot/bun";\nimport { CEILING } from "@dylanebert/shallot/testing";\nimport { plugin } from "bun";\n\nsetDefaultTimeout(CEILING.cheap);\nplugin(shallot({ root: import.meta.dir }));\n',
+            'import { shallot } from "@dylanebert/shallot/bun";\nimport { plugin } from "bun";\n\nplugin(shallot({ root: import.meta.dir }));\n',
         );
         expect(readFileSync(join(dest, "bunfig.toml"), "utf8")).toBe(
             '[test]\npreload = ["./tests/preload.ts"]\n',
@@ -242,7 +242,7 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
         );
         expect(output.value).toBe(0);
         expect(output.stdout).toBe(
-            `copied example demo → ${dest}\n  cd ${dest} && bun install && bunx shallot dev`,
+            `copied example demo → ${dest}\n  cd ${dest} && bun install && bun run dev`,
         );
         expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(
             "node_modules/\ndist/\nbuild/\n.artifacts/\ntest-results/\n",
@@ -267,10 +267,6 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
             dev: "vite --host 127.0.0.1",
             build: "vite build",
             preview: "vite preview --host 127.0.0.1",
-            test: "bun test && bun run test:node",
-            "test:node": "bun test ./tests/*.node.ts ./src/*.node.ts",
-            "browser:install": "playwright install chromium",
-            "test:browser": "playwright test",
         });
         expect(existsSync(join(dest, "AGENTS.md"))).toBe(false);
         expect(existsSync(join(dest, "CLAUDE.md"))).toBe(false);

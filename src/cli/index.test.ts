@@ -49,12 +49,11 @@ test("bare shallot presents the project map, loop, commands, targets and help co
   Shallot is a library: Vite runs your project and Bun tests it.
 
   Your loop
-    shallot dev               develop with hot reload (vite; --target for desktop)
-    shallot build             build for distribution (vite build; --target for desktop)
-    shallot preview           run the last build (vite preview; --target for desktop)
-    bun test                  run the cheap tests
-    bun test ./<file>         run a named Bun tier (GPU, Cargo, Node, oracle)
-    playwright test           run the browser tests
+    bun run dev               run the Vite project
+    bun test                  run cheap and GPU tests
+    bun test ./<file>         run a Node or oracle file by path
+    bunx playwright test      run browser tests
+    shallot dev --target <platform> (desktop)
 
   Commands
     add [example]             copy an example into your project; with no name, list them

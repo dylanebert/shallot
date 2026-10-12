@@ -13,17 +13,14 @@ import { basename, dirname, join, resolve } from "node:path";
 // The recipes ship in the tarball under this package's `examples/`; running
 // one in place breaks its own dep resolution and users shouldn't edit inside node_modules, so copy-out is
 // the path. The copy gains a manifest pinned to the installed engine version so a plain
-// `bun install && bunx shallot dev` runs green. Paths resolve relative to this package, never cwd — the
+// `bun install && bun run dev` runs green. Paths resolve relative to this package, never cwd — the
 // corpus lives beside the CLI (`examples/` sits two levels above `src/cli/`, at the package root).
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const ENGINE = "@dylanebert/shallot";
-const PROJECT_PRELOAD = `import { setDefaultTimeout } from "bun:test";
-import { shallot } from "@dylanebert/shallot/bun";
-import { CEILING } from "@dylanebert/shallot/testing";
+const PROJECT_PRELOAD = `import { shallot } from "@dylanebert/shallot/bun";
 import { plugin } from "bun";
 
-setDefaultTimeout(CEILING.cheap);
 plugin(shallot({ root: import.meta.dir }));
 `;
 const PROJECT_GITIGNORE = "node_modules/\ndist/\nbuild/\n.artifacts/\ntest-results/\n";
@@ -128,10 +125,6 @@ function recipePackage(dest: string, recipeDir: string, version: string): string
                 dev: "vite --host 127.0.0.1",
                 build: "vite build",
                 preview: "vite preview --host 127.0.0.1",
-                test: "bun test && bun run test:node",
-                "test:node": "bun test ./tests/*.node.ts ./src/*.node.ts",
-                "browser:install": "playwright install chromium",
-                "test:browser": "playwright test",
             },
             dependencies: { [ENGINE]: version },
             devDependencies,
@@ -194,6 +187,6 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     writeFileSync(preload, PROJECT_PRELOAD);
     writeFileSync(resolve(dest, "bunfig.toml"), '[test]\npreload = ["./tests/preload.ts"]\n');
     console.log(`copied example ${name} → ${dest}`);
-    console.log(`  cd ${args[1] || name} && bun install && bunx shallot dev`);
+    console.log(`  cd ${args[1] || name} && bun install && bun run dev`);
     return 0;
 }
