@@ -57,6 +57,61 @@ test("runApp logs a system error once, keeps healthy frames running and resumes 
     }
 });
 
+test("runApp delivers each settled frame wait to a fence-wait sink", async () => {
+    const waits: number[] = [];
+    const sinkFrames: number[] = [];
+    let allowedFrames = 0;
+    let buffer: GPUBuffer | undefined;
+    const observer: Plugin = {
+        name: "FenceWaitObserver",
+        gpu: {},
+        initialize(world) {
+            buffer = world.gpu.device.createBuffer({
+                size: 4,
+                usage: GPUBufferUsage.COPY_DST,
+            });
+            world.own(buffer);
+            world.fenceWaitSink = (ms) => {
+                waits.push(ms);
+                sinkFrames.push(world.gpu.frame);
+            };
+            // Hold after each admitted frame until its fence settles, so waits cannot coalesce.
+            world.gpu.pending = () => (world.gpu.frame >= allowedFrames ? 6 : 0);
+        },
+        systems: [
+            {
+                name: "draw",
+                group: "draw",
+                update(world) {
+                    world.frameEncoder()!.clearBuffer(buffer!);
+                },
+            },
+        ],
+    };
+    const app = await runApp({ defaults: false, plugins: [observer] });
+    try {
+        const waitForFrame = async (frame: number) => {
+            const deadline = performance.now() + CEILING.node / 2;
+            while (app.world.gpu.frame < frame) {
+                if (performance.now() > deadline)
+                    throw new Error(`render loop did not submit frame ${frame}`);
+                await Bun.sleep(1);
+            }
+            await app.world.frameFence;
+        };
+        for (let frame = 1; frame <= 4; frame++) {
+            allowedFrames = frame;
+            await waitForFrame(frame);
+        }
+        allowedFrames = 5;
+        await waitForFrame(5);
+        expect(sinkFrames.slice(0, 5)).toEqual([0, 1, 2, 3, 4]);
+        expect(waits.slice(1, 5).every((ms) => Number.isFinite(ms) && ms > 0)).toBe(true);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("log-and-pause skips a failed draw system but still submits later draw work", async () => {
     const cause = new Error("broken draw");
     let attempts = 0;
