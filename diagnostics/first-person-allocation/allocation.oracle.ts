@@ -52,13 +52,14 @@ function traceReport(sample: PageSample): string {
 }
 
 test("a warm requestAnimationFrame frame of the production first-person web build, stepped by its own page loop in a headed browser on a real adapter, allocates no JavaScript heap in any steady window, with nothing surviving a full collection and no major collection or promoted bytes, so no periodic scavenge follows play", async () => {
-    // 480 warm frames and 120-frame windows fit the build, headed launch and six profiled spans inside
-    // the budget on a page presenting at its display's rate. A host that cannot sustain the frame budget
-    // fails by name rather than trimming the warm.
+    // 2400 warm frames are about 600 fixed ticks at 240 Hz, past the 500 invocations V8 waits after a
+    // type-feedback change before optimizing a per-tick function. That warm and 120-frame windows fit the
+    // build, headed launch and six profiled spans inside the budget on a page presenting at its display's
+    // rate. A host that cannot sustain the frame budget fails by name rather than trimming the warm.
     const sample = await samplePage(resolve(import.meta.dir, "../../examples/first-person"), {
-        warm: 480,
+        warm: 2400,
         frames: 120,
-        deadline: performance.now() + 16_000,
+        deadline: performance.now() + 50_000,
     });
     const seat = `display seat ${sample.display.declared} at ${sample.display.refreshRate.toFixed(2)} Hz, page presented at ${sample.display.presented.toFixed(1)} Hz`;
     const tables = [

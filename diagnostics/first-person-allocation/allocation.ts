@@ -64,9 +64,8 @@ export interface TransitionSample extends AllocationSample {
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
 
 /**
- * Lower thresholds bring compiles into warm-up; synchronous compilation keeps installation in its run.
- * A type-feedback change makes V8 wait 500 more invocations before tiering up; a fixed-tick function called
- * at 60 Hz never reaches that inside a display run, so the wait is shortened to 5 like the counts above.
+ * Lower thresholds only move compiles into warm-up; synchronous compilation keeps installation in its run.
+ * V8's wait after a type-feedback change stays at its default, since shortening it changes what V8 inlines.
  * These flags do not guarantee a final tier, so Node refuses profiled runs that trace an optimization.
  * Keep production's lazy feedback: eager feedback changes steady allocation, not just compile timing.
  * No WebAssembly inlining: the feedback it collects allocates on the JavaScript heap outside the optimization
@@ -77,7 +76,6 @@ export const TIER_FLAGS = [
     "--no-concurrent-recompilation",
     "--invocation-count-for-maglev=10",
     "--invocation-count-for-turbofan=10",
-    "--minimum-invocations-after-ic-update=5",
     "--no-wasm-inlining",
 ];
 

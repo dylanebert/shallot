@@ -33,7 +33,6 @@ test("the sampler keeps lazy feedback and Chromium's existing timing flags", () 
         "--no-concurrent-recompilation",
         "--invocation-count-for-maglev=10",
         "--invocation-count-for-turbofan=10",
-        "--minimum-invocations-after-ic-update=5",
         "--no-wasm-inlining",
     ]);
 });

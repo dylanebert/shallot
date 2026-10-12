@@ -221,6 +221,7 @@ bun run format                  # biome
 - Page composition uses a stepped app and semantic screenshot regions; a running canvas uses `captureFrame` inside the presenting frame, since canvas readback after presentation is transparent black.
 - Goldens cover only defects cheaper evidence cannot show, and are never updated to make a check pass.
 - Steady play allocates nothing.
+- An allocation gate measures what a shipped game allocates: runtime flags may make code optimize sooner, never differently, and a run lasts until its steady code has finished optimizing.
 - A memory claim creates and disposes its subject, returns to baseline and fails on a deliberately leaking control; retention is measured after GC, and sampler sites are diagnostics, not results.
 - Performance uses counted work and same-machine ratio oracles; real-hardware timings name the hardware and are reported, never asserted.
 - An oracle is a separate measurement: run when its claim or tool changes, its result recorded in its commit message, and repeated only for a named doubt; the tree keeps the tool, never a run's output.
