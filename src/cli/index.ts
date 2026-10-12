@@ -109,17 +109,17 @@ export type CliArgs =
           viteArgs: string[];
       };
 
-const PROJECT_VERBS = ["dev", "build", "preview"];
+const PROJECT_VERBS = ["dev", "build", "preview"] as const;
 const TARGETS = ["web", "windows", "mac", "linux"];
 
 /** Separate Shallot's target flags; preserve every Vite argument and its order. */
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
-    if (verb && !verb.startsWith("-") && !PROJECT_VERBS.includes(verb))
+    if (verb && !verb.startsWith("-") && !PROJECT_VERBS.some((command) => command === verb))
         return { kind: "unknown", verb };
 
-    const subcmd = verb as "dev" | "build" | "preview" | undefined;
+    const subcmd = PROJECT_VERBS.find((command) => command === verb);
     let target: string | undefined;
     let release = false;
     let portable = false;
@@ -156,7 +156,8 @@ export function parseCliArgs(raw: string[]): CliArgs {
 }
 
 function helpHint(raw: string[]): string {
-    const command = raw[0] && PROJECT_VERBS.includes(raw[0]) ? `shallot ${raw[0]}` : "shallot";
+    const command =
+        raw[0] && PROJECT_VERBS.some((verb) => verb === raw[0]) ? `shallot ${raw[0]}` : "shallot";
     return `See \`${command} --help\` for available options.`;
 }
 

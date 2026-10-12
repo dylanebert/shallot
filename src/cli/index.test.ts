@@ -76,6 +76,21 @@ test("the current shallot command map omits unimplemented create and skill comma
     expect(result.stdout).not.toContain("--skill");
 });
 
+test("leading flags show usage instead of becoming a project command", async () => {
+    expect(parseCliArgs(["--help"])).toEqual({ kind: "usage", exitCode: 0 });
+    expect(parseCliArgs(["-h"])).toEqual({ kind: "usage", exitCode: 0 });
+    expect(parseCliArgs([])).toEqual({ kind: "usage", exitCode: 0 });
+    expect(parseCliArgs(["dev", "--help"])).toEqual({ kind: "command-help", command: "dev" });
+    expect(parseCliArgs(["--target", "web"])).toEqual({ kind: "usage", exitCode: 0 });
+
+    for (const args of [["--help"], ["-h"], ["--target", "web"]]) {
+        const result = await cli(...args);
+        expect(result.code).toBe(0);
+        expect(result.stdout).toContain("shallot — tools for a Shallot project");
+        expect(result.stderr).toBe("");
+    }
+});
+
 test("shallot dev --help presents dev options without build-only options", async () => {
     const result = await cli("dev", "--help");
     expect(result.code).toBe(0);
