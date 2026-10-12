@@ -67,7 +67,7 @@ test("no adapter has its own acquisition refusal", async () => {
     }
 });
 
-test("runApp sends a device lost before its first frame through the loading error", async () => {
+test("a destroyed device before the first frame does not reach the loading error", async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("runApp device-loss test has no adapter");
     const device = await adapter.requestDevice();
@@ -89,9 +89,90 @@ test("runApp sends a device lost before its first frame through the loading erro
 
     device.destroy();
     const info = await device.lost;
-    expect(failure).toBeInstanceOf(Error);
-    expect(failure).toMatchObject({ message: `GPU device lost ${info.reason}: ${info.message}` });
+    expect(info.reason).toBe("destroyed");
+    expect(failure).toBeUndefined();
 });
+
+test("a supplied device lost after completed frames reaches the loading error and stops the loop", async () => {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("runApp device-loss test has no adapter");
+    const nativeDevice = await adapter.requestDevice();
+    let resolveLost!: (info: GPUDeviceLostInfo) => void;
+    const lost = new Promise<GPUDeviceLostInfo>((resolve) => {
+        resolveLost = resolve;
+    });
+    const device = new Proxy(nativeDevice, {
+        get(target, key) {
+            if (key === "lost") return lost;
+            const value = Reflect.get(target, key, target);
+            return typeof value === "function" ? value.bind(target) : value;
+        },
+    }) as GPUDevice;
+    expectWarning(/adapter with no identity/);
+    expectError(/GPU device lost unknown: controlled device loss/);
+    let failure: unknown;
+    let frames = 0;
+    let running: Awaited<ReturnType<typeof runApp>> | undefined;
+    try {
+        running = live = await runApp({
+            defaults: false,
+            device,
+            plugins: [
+                {
+                    name: "DeviceLossFrame",
+                    systems: [
+                        {
+                            name: "submit-frame",
+                            group: "draw",
+                            update(world) {
+                                frames++;
+                                world.frameEncoder();
+                            },
+                        },
+                    ],
+                },
+            ],
+            loading: {
+                show() {},
+                update() {},
+                error(error) {
+                    failure = error;
+                },
+            },
+        });
+
+        await waitFor(() => frames >= 2 && running!.world.frameFence !== undefined);
+        await running.world.frameFence;
+        await Promise.resolve();
+        resolveLost({ reason: "unknown", message: "controlled device loss" } as GPUDeviceLostInfo);
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toContain(
+            "GPU device lost unknown: controlled device loss",
+        );
+        expect((failure as Error).message).toContain("Reloading the page may resolve this issue.");
+        const lostFrames = frames;
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        expect(frames).toBe(lostFrames);
+
+        running.dispose();
+        live = null;
+        const buffer = nativeDevice.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_DST });
+        buffer.destroy();
+    } finally {
+        running?.dispose();
+        live = null;
+        nativeDevice.destroy();
+    }
+});
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+    const deadline = Date.now() + 5000;
+    while (!predicate()) {
+        if (Date.now() >= deadline) throw new Error("runApp did not submit completed frames");
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    }
+}
 
 test("device creation failure names both the stage and its cause", async () => {
     const cause = "fixture device creation failed";

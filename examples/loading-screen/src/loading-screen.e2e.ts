@@ -54,7 +54,7 @@ async function waitForScene(page: Page): Promise<void> {
     await expect(page.locator("#scene")).toHaveClass(/visible/);
 }
 
-test("a device lost before its first frame reaches the standard failure screen", async ({
+test("a destroyed device before its first frame does not reach the failure screen", async ({
     page,
 }) => {
     await page.addInitScript(() => {
@@ -77,10 +77,9 @@ test("a device lost before its first frame reaches the standard failure screen",
     });
 
     await page.goto("/");
-    const failure = page.locator(overlaySelector);
-    await expect(failure).toContainText("Something went wrong");
-    await expect(failure).toContainText("GPU device lost destroyed:");
-    expect(await page.evaluate(() => window.__startupDeviceLoss)).toBe(true);
+    await page.waitForFunction(() => window.__startupDeviceLoss === true);
+    await expect(page.getByText("Something went wrong", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/GPU device lost destroyed:/)).toHaveCount(0);
     await expect(page.locator(".frame-error")).toHaveCount(0);
 });
 

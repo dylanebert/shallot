@@ -83,7 +83,7 @@ export interface Loading {
     complete?(): Promise<void> | void;
     /** show a non-blocking adapter notice while the app continues on a fallback or unidentified adapter */
     notice?(verdict: AdapterVerdict): void;
-    /** render the thrown value; `runApp` also reports a device loss before its first completed frame here. */
+    /** render the thrown value; `runApp` reports every non-destroyed device loss here. */
     error?(error: unknown): void;
 }
 
@@ -422,8 +422,8 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
 /**
  * build the app and start the `requestAnimationFrame` frame loop, mounting `config.ui` (web only). the
  * loop drives `world.step(dt)` each frame, GPU-fence backpressured so it never runs far ahead of the GPU.
- * system setup/update errors are logged and the system pauses until swapped or rebuilt; the frame finishes. A device
- * loss before its first completed frame is sent to the loading screen; later loss stops the loop without recovery.
+ * system setup/update errors are logged and the system pauses until swapped or rebuilt; the frame finishes. A
+ * non-destroyed device loss stops the loop and reaches the loading screen, without recovery.
  */
 export async function runApp(config: AppConfig): Promise<App> {
     const loading = config.loading ?? _defaultLoading?.();
@@ -446,11 +446,16 @@ export async function runApp(config: AppConfig): Promise<App> {
         }
 
         let disposed = false;
-        let firstFrameCompleted = false;
+        let stopped = false;
         if (device) {
             void device.lost.then((info) => {
-                if (disposed || firstFrameCompleted) return;
-                loading?.error?.(new Error(`GPU device lost ${info.reason}: ${info.message}`));
+                if (disposed || info.reason === "destroyed") return;
+                stopped = true;
+                loading?.error?.(
+                    new Error(
+                        `GPU device lost ${info.reason}: ${info.message}. Reloading the page may resolve this issue.`,
+                    ),
+                );
             });
         }
         // stop the rAF loop when the World tears down, so a host that calls world.dispose() directly
@@ -481,8 +486,7 @@ export async function runApp(config: AppConfig): Promise<App> {
             pendingFenceWaitMs = now() - fenceIssued[fenceHead];
             fenceHead = (fenceHead + 1) % MAX_FRAMES_IN_FLIGHT;
         };
-        // A rejected fence has no timing sample. observeDevice reports device loss; before the first completed
-        // frame runApp also sends it to Loading.error. The next callback stops at the owner guard.
+        // A rejected fence has no timing sample. The loss observer stops the loop and reports non-destroyed losses.
         const fenceRejected = (): void => {
             fenceHead = (fenceHead + 1) % MAX_FRAMES_IN_FLIGHT;
         };
@@ -493,6 +497,7 @@ export async function runApp(config: AppConfig): Promise<App> {
             frame(timestamp?: number): void {
                 if (
                     disposed ||
+                    stopped ||
                     (device !== undefined && deviceLost(device)) ||
                     world.gpuIfAvailable?.sync !== sync
                 )
@@ -534,10 +539,7 @@ export async function runApp(config: AppConfig): Promise<App> {
                 if (fence) {
                     fenceIssued[fenceTail] = now();
                     fenceTail = (fenceTail + 1) % MAX_FRAMES_IN_FLIGHT;
-                    fence.then(() => {
-                        firstFrameCompleted = true;
-                        fenceSettled();
-                    }, fenceRejected);
+                    fence.then(fenceSettled, fenceRejected);
                 }
             },
         };
