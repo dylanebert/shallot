@@ -575,7 +575,7 @@ Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallo
 - Replace `grounded` with `world.storage(Character).groundState.get(eid) === GroundState.OnGround`; steep ground is a separate state.
 - Replace the 0.9.5 character helper `teleport(eid, x, y, z)` with `setTransform(world, eid, position, rotation)` from `/standard/physics`, then clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn.
 - `PlayerPlugin` no longer installs `RenderingPlugin`: it authors the linked camera's pose without presentation. Keep rendering in the app's composition when presenting that camera.
-- Move gravity and jump tuning to `Player.gravity` (positive downward acceleration) and `Player.jumpSpeed`. Player owns acceleration, friction, sprint, coyote time (0.15 seconds), jump buffering (0.2 seconds) and platform carry. Its default speed is 6 m/s, sprint multiplier 1.5, jump speed 5 m/s and gravity 15 m/s².
+- Move gravity and jump tuning to `Player.gravity` (positive downward acceleration) and `Player.jumpSpeed`. Player owns acceleration, friction, sprint, coyote time (0.1 seconds), jump buffering (0.1 seconds) and platform carry. Its defaults follow Minecraft Java: speed 4.317 m/s, sprint multiplier 1.3, acceleration and friction 10.9/s, jump speed 8.85 m/s and gravity 29.5 m/s².
 
 ## Replace Mirror with explicit snapshot requests
 

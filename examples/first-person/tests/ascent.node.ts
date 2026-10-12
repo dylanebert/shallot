@@ -48,7 +48,8 @@ const GOALS: readonly Goal[] = [
     { name: "tower-2", z: -12.3 },
     { name: "perch", z: -14.5 },
 ];
-const MAX_TICKS = 500;
+// Minecraft walk speed reaches the perch near tick 500; the route allows 40% more.
+const MAX_TICKS = 700;
 
 function goalEntity(world: Awaited<ReturnType<typeof createApp>>["world"], goal: Goal): number {
     const positions = world.storage(Body).position;

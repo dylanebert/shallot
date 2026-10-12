@@ -56,7 +56,7 @@ test("a Player capsule retains its collider geometry and rests above the floor",
         const omega = 2 * Math.PI * 4;
         const equilibrium =
             2 -
-            (15 *
+            (app.world.storage(Player).gravity.get(eid) *
                 Time.FIXED_DT *
                 (2 * 0.7 * omega * Time.FIXED_DT + (omega * Time.FIXED_DT) ** 2)) /
                 (omega * omega * Time.FIXED_DT);

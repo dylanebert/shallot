@@ -288,7 +288,10 @@ test("pointer motion before a step turns that step's first tick movement directi
         pressKey(world, "KeyW");
         world.step(Time.FIXED_DT);
 
-        expect(world.storage(Character).velocity.x.get(player)).toBeGreaterThan(4);
+        // The turned yaw faces +x at 86% of walk speed; the unturned yaw would face -x.
+        expect(world.storage(Character).velocity.x.get(player)).toBeGreaterThan(
+            0.8 * world.storage(Player).speed.get(player),
+        );
         const sensitivity = world.storage(LocalPlayer).sensitivity.get(player) / 1080;
         expect(world.storage(Player).yaw.get(player)).toBeCloseTo(0.4 - 1080 * sensitivity);
         expect(world.storage(Player).pitch.get(player)).toBeCloseTo(0.2 - 100 * sensitivity);

@@ -94,9 +94,9 @@ export function route(world: World) {
     world.add(player, Shape, { kind: ShapeKind.Capsule });
     world.storage(Shape).capsuleA.set(player, 0, -0.6, 0, 0);
     world.storage(Shape).capsuleB.set(player, 0, 0.6, 0, 0.3);
-    // The route keeps its launch and fall rhythm; pogo placement floats two radii above contact.
+    // Pogo placement floats two radii above contact.
     world.add(player, Character);
-    world.add(player, Player, { camera: eye, jumpSpeed: 7, gravity: 30 });
+    world.add(player, Player, { camera: eye });
     world.add(player, LocalPlayer);
     block(world, [0, 0, -5, 0], [16, 0.5, 26, 0], GROUND_COLOR);
     const steps = [
