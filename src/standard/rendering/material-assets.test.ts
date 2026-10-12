@@ -21,3 +21,26 @@ test("standard material rows are authored without a renderer or device", async (
         app.dispose();
     }
 });
+
+test("a material row is removed once, and reuse leaves its removed handle unchanged", async () => {
+    const app = await createApp({ defaults: false, plugins: [] });
+    try {
+        const materials = app.world.resource(Materials);
+        const red = materials.add(StandardMaterial({ baseColor: [1, 0, 0, 1] }));
+        materials.remove(red);
+        expect(() => materials.remove(red)).toThrow(RangeError);
+        const green = materials.add(StandardMaterial({ baseColor: [0, 1, 0, 1] }));
+        const blue = materials.add(StandardMaterial({ baseColor: [0, 0, 1, 1] }));
+        expect(green.material).not.toBe(blue.material);
+
+        materials.remove(blue);
+        const glass = materials.add(StandardMaterial({ baseColor: [1, 1, 1, 0.4] }), {
+            alphaMode: AlphaMode.Blend,
+        });
+        expect(glass.material).toBe(blue.material);
+        expect(blue.alphaMode).toBe(0);
+        expect(() => materials.remove(blue)).toThrow(RangeError);
+    } finally {
+        app.dispose();
+    }
+});
