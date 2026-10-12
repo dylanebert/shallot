@@ -83,6 +83,10 @@ function failures(test: TestConsole, context: string): string[] {
     ];
 }
 
+// The hooks are synchronous bookkeeping, so they take no timeout. A hook's default 5000 ms timer would
+// otherwise fire during a test that disables its own (`timeout` 0, as oracles do), and Bun's
+// kill_dangling_processes_on_timeout (src/runtime/test_runner/Execution.rs, v1.4.2) reads that test's
+// unset deadline as expired and kills the processes it spawned.
 export function installConsoleGuard(): void {
     console.warn = guarded.warn;
     console.error = guarded.error;
@@ -94,7 +98,7 @@ export function installConsoleGuard(): void {
         };
         console.warn = guarded.warn;
         console.error = guarded.error;
-    });
+    }, 0);
 
     afterEach(() => {
         const test = current;
@@ -104,7 +108,7 @@ export function installConsoleGuard(): void {
         if (!test) return;
         const failed = failures(test, "");
         if (failed.length > 0) throw new Error(failed.join("\n"));
-    });
+    }, 0);
 
     afterAll(() => {
         const test = {
