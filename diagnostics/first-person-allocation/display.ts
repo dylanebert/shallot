@@ -369,10 +369,17 @@ export async function samplePage(
 
         const { chromium } = await import("playwright");
         const tiers = `--js-flags=${TIER_FLAGS.join(" ")}`;
+        // The browser tier's Linux flags select SwiftShader GL, under which Chromium reports WebGPU as
+        // software only (gpu/config/gpu_util.cc, GetWebGPUFeatureStatus), so this seat would see only the
+        // fallback adapter. On Linux it takes Chrome's documented WebGPU flags: unsafe WebGPU and Vulkan.
+        const gpuArgs =
+            process.platform === "linux"
+                ? ["--enable-unsafe-webgpu", "--enable-features=Vulkan"]
+                : BROWSER_CONFIG.use.launchOptions.args;
         browser = await chromium.launch({
             headless: false,
             channel: plan.channel,
-            args: [...BROWSER_CONFIG.use.launchOptions.args, ...placement.args, tiers],
+            args: [...gpuArgs, ...placement.args, tiers],
             timeout: remaining(),
         });
         const page = await bounded(
