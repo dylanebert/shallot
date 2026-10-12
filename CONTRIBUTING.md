@@ -66,6 +66,14 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Probe staging is pooled per world and expires after declared idle frames; only requests allocate, and there is no continuous-readback mode.
 - A deterministic plugin never consumes readback in `fixed`; one that does declares `deterministic: false`, and replay proves the declaration.
 
+### Frame schedule
+
+- `runApp` is clocked by `requestAnimationFrame` alone and requests the next callback before GPU work, as PlayCanvas and three.js are. A step's delta is the difference between rAF timestamps, never `now()`: the nearest web analogue of a presentation timestamp, which Unity 2020.2 adopted to stop CPU-sampled deltas jittering motion.
+- Simulation runs fixed 60 Hz ticks from an accumulator, at most four a step, and rendering interpolates by `fixedAlpha`. The rate is one constant; raising it doubles fixed passes and rewrites tick-count tests, tuning and replays.
+- Input is sampled once per callback into tick-addressed records, and look applies per frame, as Source's `CreateMove` and `ExtraMouseSample` split them. Fixed systems read tick records, never devices, and an instantaneous action stays latched until a tick consumes it.
+- A callback is skipped only while six frames are pending. Chrome's rAF throttle engages late at the onset of GPU-bound work: an RTX 4090 at 240 Hz on Linux queued 24 frames in 0.12 s, then gave no callback for 1.1 s (`81e3375c`). A web callback cannot block as a native frame-latency cap does. In steady GPU-bound play pending stays at 3 to 5, so the cap never fires there.
+- No callback is skipped for landing early. Neither PlayCanvas nor three.js does, and a skipped refresh shows one image twice.
+
 ### GlobalTransform
 
 - `TransformPlugin` (`core/transform`) owns authored `Transform`, derived `GlobalTransform`, fixed-tick derivation and boundaries, discontinuities and placement recovery.
