@@ -451,7 +451,8 @@ function syncBuffers(world: World): void {
     const records = _meshPreprocess.viewDim * _meshPreprocess.pairCount;
 
     const staleArgs: (DrawBuffer | AtomicU32Buffer | null)[] = [];
-    if (growMesh || growView || !_meshDraws.drawArgs) {
+    const replaceArgs = growMesh || growView || !_meshDraws.drawArgs;
+    if (replaceArgs) {
         staleArgs.push(_meshDraws.drawArgs, _meshPreprocess.counts);
         _meshDraws.drawArgs = world.gpu.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
@@ -498,7 +499,8 @@ function syncBuffers(world: World): void {
     }
 
     unbind(world);
-    registerDraws(world);
+    // draw records depend only on the meshes and the args buffer, so rows growth keeps them
+    if (replaceArgs) registerDraws(world);
 
     const stale = [...staleArgs, stalePacked, staleTransparentEids, staleBounds];
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
@@ -598,21 +600,21 @@ function registerDraws(world: World): void {
 
     if (!world.gpu.device || !_meshDraws.drawArgs || _meshPreprocess.pairCount === 0) return;
     const viewStride = _meshPreprocess.pairCount * DRAW_ARG_STRIDE;
+    // one slot's records packed once, then one write per view slot rather than one per record
+    const slot = new Uint8Array(viewStride);
+    const record = new ArrayBuffer(DRAW_ARG_STRIDE);
+    const recordBytes = new Uint8Array(record);
     for (const { offset, args } of publishMeshInstanceDraws(
         world,
         _meshDraws.drawArgs,
         _meshPreprocess.pairCount,
     )) {
-        const bytes = new ArrayBuffer(DRAW_ARG_STRIDE);
-        writeToArrayBuffer(bytes, DrawIndexedIndirect, args);
-        for (let slot = 0; slot < _meshPreprocess.viewDim; slot++) {
-            world.gpu.device.queue.writeBuffer(
-                world.gpu.root.unwrap(_meshDraws.drawArgs),
-                slot * viewStride + offset,
-                bytes,
-            );
-        }
+        writeToArrayBuffer(record, DrawIndexedIndirect, args);
+        slot.set(recordBytes, offset);
     }
+    const target = world.gpu.root.unwrap(_meshDraws.drawArgs);
+    for (let view = 0; view < _meshPreprocess.viewDim; view++)
+        world.gpu.device.queue.writeBuffer(target, view * viewStride, slot);
 }
 
 /** Reset cached bind groups for a newly built world. */
