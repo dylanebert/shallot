@@ -83,6 +83,7 @@ const required = [
     "bin/shallot.ts",
     "src/project/policy.ts",
     "src/cli/index.ts",
+    "examples/first-person/README.md",
     "examples/first-person/package.json",
     "examples/first-person/chromium.ts",
     "examples/first-person/playwright.config.ts",

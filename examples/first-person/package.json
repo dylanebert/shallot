@@ -10,6 +10,7 @@
         "test": "bun test --timeout=250 && bun run test:node",
         "test:node": "bun test ./tests/*.node.ts ./src/*.node.ts",
         "build:capture": "bun build ./tests/capture-page.ts --target=browser --format=iife --outfile=.artifacts/capture-page.js",
+        "browser:install": "playwright install chromium",
         "test:browser": "bun run build:capture && playwright test"
     },
     "dependencies": {
