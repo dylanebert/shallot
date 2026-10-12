@@ -187,8 +187,9 @@ bun run format                   # biome
 - Full default-renderer or physics-kernel compositions, especially multi-world isolation claims, belong in Node.
 - A built-in composition change adds an exact native-pipeline count; compile durations are reported by `scripts/compile.oracle.ts` and `scripts/gpu-compile.oracle.ts`, never asserted.
 - Device-backed checks record adapter classification, and a hardware claim requires a real adapter.
+- A browser check runs headless and holds only what needs the built page: assets, cross-origin isolation, focused input and presentation into the canvas.
 - Browser observations accept software adapters and request no adapter themselves.
-- Display-bound measurements name a monitor and take its keyboard and cursor.
+- A display run is a manual oracle on the monitor `SHALLOT_DISPLAY_SEAT` declares, and holds only claims whose evidence is presentation on a physical monitor: refresh-paced play, and a real adapter in a browser where headless reaches none. It runs only when the person starts it, and takes that monitor's keyboard and cursor while it runs.
 - Gameplay assertions drive the composed world: `tick()` advances one fixed tick; `step(deltaTime)` paces fixed work and runs simulation and draw. Exact ticks preserve changes for the next frame upload and advance no GPU frame or readback.
 - Fixed systems read tick time; simulation and draw read the virtual frame clock. Pause and scale pace `step`, never explicit ticks.
 - Simulation lives in registered components and declared plugin recovery participants. `world.snapshot()` captures ECS identity, allocation, membership, fields, fixed tick and participants; `world.restore()` restores ECS and clock before plugin participants; derived presentation reconciles through a participant too.
