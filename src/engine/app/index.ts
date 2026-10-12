@@ -453,7 +453,7 @@ export async function runApp(config: AppConfig): Promise<App> {
                 stopped = true;
                 loading?.error?.(
                     new Error(
-                        `GPU device lost ${info.reason}: ${info.message}. Reloading the page may resolve this issue.`,
+                        `GPU device lost ${info.reason}: ${info.message}\nReloading the page may resolve this issue.`,
                     ),
                 );
             });

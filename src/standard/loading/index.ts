@@ -318,7 +318,7 @@ function renderEngineError(overlay: HTMLDivElement, error: Error, theme: Theme):
     const body = document.createElement("p");
     body.style.cssText = `margin: 0; color: ${theme.text}; font: 14px/1.5 ${fontStack()};`;
     body.textContent =
-        "An error occurred during startup. The details below can help identify the cause.";
+        "An error occurred in the app. The details below can help identify the cause.";
     card.appendChild(body);
 
     const detail = document.createElement("pre");

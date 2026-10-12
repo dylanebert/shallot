@@ -83,6 +83,34 @@ test("a destroyed device before its first frame does not reach the failure scree
     await expect(page.locator(".frame-error")).toHaveCount(0);
 });
 
+test("a real GPU process crash after presentation reaches the failure screen", async ({
+    page,
+    browser,
+}) => {
+    await waitForScene(page);
+    await page.evaluate(
+        () =>
+            new Promise<void>((resolve) => {
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+            }),
+    );
+
+    const cdp = await browser.newBrowserCDPSession();
+    try {
+        await cdp.send("Browser.crashGpuProcess");
+
+        const failure = page.locator(overlaySelector);
+        await expect(failure).toContainText("Something went wrong");
+        await expect(failure).toContainText(
+            "An error occurred in the app. The details below can help identify the cause.",
+        );
+        await expect(failure).toContainText("GPU device lost unknown:");
+        await expect(failure).toContainText("Reloading the page may resolve this issue.");
+    } finally {
+        await cdp.detach();
+    }
+});
+
 test("a missing browser adapter offers the browser-specific remedy", async ({ page }) => {
     await page.addInitScript(() => {
         Object.defineProperty(navigator, "gpu", {
