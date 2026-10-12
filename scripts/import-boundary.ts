@@ -15,7 +15,7 @@ const SIBLING_EDGES: readonly SiblingEdge[] = [
 ];
 // The runtime floor is a host-only leaf; Vite is public only through this package subpath.
 const DIRECT_LEAVES = new Set(["engine/runtime/floor.ts"]);
-const PUBLIC_ENTRIES = new Map([["@dylanebert/shallot/vite", "project/vite.ts"]]);
+const PUBLIC_ENTRIES = new Map([["@dylanebert/shallot/vite", "project/vite.js"]]);
 const SOURCE_ROOT = "src";
 const TSC = resolve(import.meta.dir, "../node_modules/.bin/tsc");
 const RUNTIME_MODULES = new Set([

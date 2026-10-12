@@ -1,5 +1,3 @@
-/** @typedef {import("playwright/test").PlaywrightTestConfig} PlaywrightTestConfig */
-
 export const CEILING = /** @type {const} */ ({
     cheap: 250,
     gpu: 1000,
@@ -37,7 +35,7 @@ const launchOptions =
         ? { args: chromiumArgs, ignoreDefaultArgs: ["--enable-unsafe-swiftshader"] }
         : { args: chromiumArgs };
 
-/** @satisfies {PlaywrightTestConfig} */
+/** @satisfies {import("playwright/test").PlaywrightTestConfig} */
 export const BROWSER_CONFIG = {
     testMatch: "**/*.e2e.ts",
     globalTimeout: CEILING.browser,

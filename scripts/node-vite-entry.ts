@@ -1,1 +1,0 @@
-import "@dylanebert/shallot/vite";

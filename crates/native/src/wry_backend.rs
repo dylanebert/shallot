@@ -181,7 +181,7 @@ impl ApplicationHandler for App {
                         .header("Content-Type", content_type(path))
                         .header("Access-Control-Allow-Origin", "*")
                         // COOP/COEP: cross-origin isolation so physics can multithread
-                        // (mirrors the JS serve surfaces' CROSS_ORIGIN_ISOLATION in project/vite.ts)
+                        // (mirrors the JS serve surfaces' CROSS_ORIGIN_ISOLATION in src/project/vite.js)
                         .header("Cross-Origin-Opener-Policy", "same-origin")
                         .header("Cross-Origin-Embedder-Policy", "require-corp")
                         .body(data)
