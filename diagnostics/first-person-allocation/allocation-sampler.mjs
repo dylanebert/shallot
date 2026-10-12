@@ -9,7 +9,7 @@
 import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
-import { dirname, relative, resolve } from "node:path";
+import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
@@ -18,15 +18,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  * @param {{ lineNumber: number, columnNumber?: number }} frame
  * @param {import("node:module").SourceMap | undefined} map
  * @param {string} base
+ * @param {typeof import("node:path")} [pathModule]
  * @returns {{ source: string, line: number, column: number } | undefined}
  */
-export function originalPosition(frame, map, base) {
+export function originalPosition(frame, map, base, pathModule = path) {
     if (!Number.isInteger(frame.columnNumber)) return undefined;
     const entry = map?.findEntry(frame.lineNumber, frame.columnNumber);
     if (entry === undefined || !("originalSource" in entry)) return undefined;
     const source = entry.originalSource.startsWith("file://")
         ? fileURLToPath(entry.originalSource)
-        : resolve(base, entry.originalSource);
+        : pathModule.resolve(base, entry.originalSource);
     return { source, line: entry.originalLine, column: entry.originalColumn };
 }
 
@@ -38,14 +39,18 @@ export function originalPosition(frame, map, base) {
  * @param {string} base
  * @param {string} fallback
  * @param {string} root
+ * @param {typeof import("node:path")} [pathModule]
  * @returns {string}
  */
-export function subjectSite(frame, map, base, fallback, root = process.cwd()) {
+export function subjectSite(frame, map, base, fallback, root = process.cwd(), pathModule = path) {
     const name = frame.functionName || "(anonymous)";
-    const at = originalPosition(frame, map, base);
-    return at === undefined
-        ? `${name} ${fallback}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`
-        : `${name} ${relative(root.replace(/^\/private/, ""), at.source.replace(/^\/private/, ""))}:${at.line + 1}:${at.column + 1}`;
+    const at = originalPosition(frame, map, base, pathModule);
+    if (at === undefined)
+        return `${name} ${fallback}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`;
+    const source = pathModule
+        .relative(root.replace(/^\/private/, ""), at.source.replace(/^\/private/, ""))
+        .replaceAll(pathModule.sep, "/");
+    return `${name} ${source}:${at.line + 1}:${at.column + 1}`;
 }
 
 /**
@@ -152,7 +157,7 @@ export function measuredTrace() {
     );
     if (files.length !== 1)
         throw new Error(`allocation sampler: expected one measured-isolate trace, found ${files.length}`);
-    return resolve(files[0]);
+    return path.resolve(files[0]);
 }
 
 /**
@@ -213,13 +218,16 @@ async function main() {
         const CHUNK = 60;
         const RUN_FRAMES = new Set(["stepChunk", "controlChunk"]);
 
-        const runSite = (frame) =>
-            frame.url === samplerUrl && RUN_FRAMES.has(frame.functionName)
-                ? `${frame.functionName} ${relative(process.cwd(), fileURLToPath(samplerUrl))}:${frame.lineNumber + 1}`
-                : undefined;
+        const runSite = (frame) => {
+            if (frame.url !== samplerUrl || !RUN_FRAMES.has(frame.functionName)) return undefined;
+            const source = path
+                .relative(process.cwd(), fileURLToPath(samplerUrl))
+                .replaceAll(path.sep, "/");
+            return `${frame.functionName} ${source}:${frame.lineNumber + 1}`;
+        };
         const bundleSite = (frame) =>
             frame.url === bundleUrl
-                ? subjectSite(frame, findSourceMap(bundlePath), dirname(bundlePath), "bundle", projectRoot)
+                ? subjectSite(frame, findSourceMap(bundlePath), path.dirname(bundlePath), "bundle", projectRoot)
                 : undefined;
         let expressions = [];
         const sites = (profile) => attribute(profile, runSite, bundleSite, expressions);

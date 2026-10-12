@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { attribute, originalPosition, prepareSamplingSession, subjectSite } from "./allocation-sampler.mjs";
+import { isAdmittedAllocationSite } from "./allocation-admissions";
+import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 import {
     type AllocationSample,
     allocatesNothing,
@@ -50,14 +52,37 @@ test("source-map sites resolve Windows-shaped file URLs as filesystem paths", ()
     };
     const frame = { lineNumber: 0, columnNumber: 0 };
 
-    expect(originalPosition(frame, map, dirname(root))).toEqual({
+    expect(originalPosition(frame, map, dirname(root), win32)).toEqual({
         source: fileURLToPath(url),
         line: 8,
         column: 34,
     });
-    expect(subjectSite(frame, map, dirname(root), "bundle", root)).toBe(
-        "(anonymous) src/engine/runtime/allocation-site.ts:9:35",
+    const anonymousSite = subjectSite(frame, map, dirname(root), "bundle", root, win32);
+    expect(anonymousSite).toBe("(anonymous) src/engine/runtime/allocation-site.ts:9:35");
+
+    const wrapper = gpuAllocationExpressions.find((entry) => entry.fn.name === "finishFrameEncoder")!;
+    const site = subjectSite(
+        { ...frame, functionName: wrapper.fn.name },
+        map,
+        dirname(root),
+        "bundle",
+        root,
+        win32,
     );
+    expect(site).toBe(`${wrapper.fn.name} ${wrapper.wrapperSite}`);
+    expect(
+        isAdmittedAllocationSite({
+            boundary: wrapper.wrapperSite,
+            stack: [
+                {
+                    functionName: wrapper.fn.name,
+                    site,
+                    native: false,
+                    boundary: wrapper.wrapperSite,
+                },
+            ],
+        }),
+    ).toBe(true);
 });
 
 const ENTRY = resolve(import.meta.dir, "allocation.entry.ts");
