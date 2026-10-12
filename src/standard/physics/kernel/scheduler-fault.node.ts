@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { BUN_CHILD, bunCommand } from "../../../../scripts/bun-child";
-import { CEILING } from "../../../../scripts/test-tiers";
 import { BodyType } from "../common/types";
 import { createSphereShape } from "../shapes/shape";
 import { createTestBody, createTestWorld, stepTestWorld, testShapeDef } from "../testing";

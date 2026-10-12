@@ -1,11 +1,11 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import {
     compileGpuFile,
     createTestGpuApp,
     disposeGpuApps,
     gpuRequirements,
 } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,

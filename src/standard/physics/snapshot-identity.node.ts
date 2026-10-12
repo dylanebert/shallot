@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "../../../scripts/test-tiers";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { World } from "../../engine";
 import { restore, snapshot } from "./api/snapshot";
 import { contactIds } from "./collision/contact";

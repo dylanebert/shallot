@@ -3,16 +3,15 @@
 // `.ts`, so its types point at source and a linked checkout serves what ships; the project's TypeGPU
 // transform covers engine and game code alike. Neither reason reaches `./vite`, whose only consumption
 // context is Node. Browser subject configs and the display oracle share the Chromium arguments in
-// `scripts/chromium.ts`.
+// the published `./testing` project subpath.
 // `dist/vite.js` and the TypeScript-generated `dist/vite.d.ts` are generated here by `bun run build`
 // and `prepare`. `tsc` reads the `types`
 // condition, while Node resolves `default`.
 //
-// `src/project/` is a closed island — node builtins plus the `vite` / `unplugin-typegpu` externals it
-// imports, no engine runtime, no TGSL — so bundling it carries no duplicate-TypeGPU-identity risk. Kept
-// external explicitly (not just left to Bun's default builtin handling) so a bundled copy of either
-// package, which would be the actual regression this build must not introduce, fails loud in review
-// rather than silently inlining.
+// `vite.ts`'s runtime graph is a closed island — node builtins plus the `vite` / `unplugin-typegpu`
+// externals it imports, no engine runtime, no TGSL — so bundling it carries no duplicate-TypeGPU-identity
+// risk. Kept external explicitly (not just left to Bun's default builtin handling) so a bundled copy of
+// either package fails loud in review rather than silently inlining.
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";

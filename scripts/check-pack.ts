@@ -84,15 +84,15 @@ const required = [
     "src/project/policy.ts",
     "src/cli/index.ts",
     "examples/first-person/package.json",
-    "examples/first-person/chromium.ts",
+    "src/project/testing.ts",
     "examples/first-person/playwright.config.ts",
     "examples/first-person/browser.e2e.ts",
     "examples/first-person/tests/ascent.node.ts",
     "examples/first-person/tests/preload.ts",
     "examples/first-person/tests/browser-setup.ts",
     "examples/first-person/tests/browser-setup.test.ts",
+    "examples/first-person/tests/browser-install.ts",
     "examples/first-person/tests/capture-page.ts",
-    "examples/first-person/tests/test-tiers.ts",
     "examples/first-person/src/plugins.ts",
     "examples/first-person/src/plugins.test.ts",
     "examples/first-person/src/demo.node.ts",
@@ -117,8 +117,8 @@ for (const f of files.filter((f) => f.endsWith("package.json") && f !== "package
     }
 }
 
-const removedTestSupport = Object.keys(packageManifest.exports ?? {}).filter((entry) =>
-    /^\.\/(?:harness|testing)(?:\/|$)/.test(entry),
+const removedTestSupport = Object.keys(packageManifest.exports ?? {}).filter(
+    (entry) => /^\.\/harness(?:\/|$)/.test(entry) || entry.startsWith("./testing/"),
 );
 for (const entry of removedTestSupport) violations.push(`${entry} (test-support export)`);
 
@@ -127,7 +127,7 @@ for (const name of recipes) {
     const config = `examples/${name}/tsconfig.json`;
     if (!files.includes(config)) missing.push(config);
 }
-for (const entry of ["./bun", "./tsconfig.json"]) {
+for (const entry of ["./bun", "./testing", "./tsconfig.json"]) {
     if (!(entry in (packageManifest.exports ?? {})))
         violations.push(`${entry} (missing package export)`);
 }

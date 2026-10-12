@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { Meshes, type MeshHandle, MeshPlugin, registerMesh } from "./index";
 import { clearMeshes, flushMeshes } from "./mesh";
 

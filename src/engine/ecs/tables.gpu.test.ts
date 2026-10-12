@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import type { createApp, Plugin } from "../app";
 import { f32, u32 } from "../index";
 import { probeBuffer } from "../runtime";

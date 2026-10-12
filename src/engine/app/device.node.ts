@@ -1,7 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-
+import { CEILING } from "@dylanebert/shallot/testing";
 import { expectError, expectWarning } from "../../../scripts/test-console";
-import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 

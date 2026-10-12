@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, DirectionalLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";

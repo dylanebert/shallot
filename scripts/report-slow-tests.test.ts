@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { slowTests, warningAnnotation } from "./report-slow-tests";
-import { CEILING } from "./test-tiers";
 
 const report = `<?xml version="1.0"?>
 <testsuites>

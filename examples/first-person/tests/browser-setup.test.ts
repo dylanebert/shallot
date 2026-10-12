@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { assertChromiumInstalled } from "../chromium";
+import { assertChromiumInstalled } from "./browser-install";
 
 test("a missing Playwright browser names its local install command", () => {
     expect(() => assertChromiumInstalled("/shallot-browser-install-test/missing-chromium")).toThrow(

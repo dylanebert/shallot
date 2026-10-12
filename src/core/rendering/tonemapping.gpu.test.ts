@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import type { Plugin } from "../../engine";
 import { Vignette, VignettePlugin } from "../../extras/vignette";
 import { Transform } from "../transform";

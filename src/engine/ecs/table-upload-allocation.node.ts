@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { setupGlobals } from "../runtime/webgpu";
 
 await setupGlobals();

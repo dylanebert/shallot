@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
+import { CEILING } from "@dylanebert/shallot/testing";
 import {
     type PreparedAllocationSampler,
     prepareAllocationSampler,
     windowBytes,
 } from "../../../diagnostics/first-person-allocation/allocation";
-import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 

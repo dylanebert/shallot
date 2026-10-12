@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { rawDevice } from "../../engine/runtime";
 import { Transform } from "../transform";
 import {

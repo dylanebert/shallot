@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
-import { CEILING } from "../../../scripts/test-tiers";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { Time } from "../../engine";

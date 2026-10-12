@@ -1,10 +1,10 @@
 import { afterAll, beforeAll } from "bun:test";
 import { relative } from "node:path";
 import { createApp, type Plugin } from "@dylanebert/shallot";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { rawDevice } from "../src/engine/runtime";
 import type { AdapterVerdict } from "../src/engine/runtime/adapter";
 import { expectWarning } from "./test-console";
-import { CEILING } from "./test-tiers";
 
 export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () => T {
     let subject: T;

@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp, expectAdapterNotice, gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
-import { CEILING } from "../../../scripts/test-tiers";
 import type { createApp, Plugin, World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { classifyAdapter } from "../../engine/runtime/adapter";

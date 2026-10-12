@@ -2,8 +2,8 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun
 import { type Component, type FieldType, Time, type World } from "@dylanebert/shallot";
 import * as physics from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { JointField, jointField } from "./kernel/jointrecords";
 import { kernel } from "./kernel/kernel";
 import { physicsBodyIndex, physicsState } from "./runtime";

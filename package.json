@@ -28,6 +28,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./bun": "./src/project/bun.ts",
+        "./testing": "./src/project/testing.ts",
         "./tsconfig.json": "./tsconfig.base.json",
         "./extras": "./src/extras/index.ts",
         "./vite": {
@@ -71,6 +72,8 @@
         "!**/*.oracle.ts",
         "!src/**/*.node.ts",
         "!src/**/*.e2e.ts",
+        "!examples/loading-screen/**/*.test.ts",
+        "!examples/loading-screen/**/*.node.ts",
         "!examples/loading-screen/**/*.e2e.ts",
         "!src/**/*.probes.ts",
         "!**/*.fixture.ts",

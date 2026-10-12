@@ -165,7 +165,7 @@ bun run format                   # biome
 ## Verification
 
 - Module promises are tested beside their owners and through public examples; test names state claims.
-- [Tier ceilings](scripts/test-tiers.ts) are hang and runaway backstops, not performance targets. A test runs under half its ceiling on every CI host, and CI warns on one that passes half; work needing more splits or moves to a heavier tier.
+- [The `./testing` subpath](src/project/testing.ts) owns test ceilings and shared browser configuration; ceilings are hang and runaway backstops, not performance targets. A test runs under half its ceiling on every CI host, and CI warns on one that passes half; work needing more splits or moves to a heavier tier.
 
 | Tier | Files / budget |
 |---|---|
@@ -176,12 +176,12 @@ bun run format                   # biome
 | Build/startup | `CEILING.startup` |
 | Manual oracle | `*.oracle.ts`; unbounded, run by path |
 
-- GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.node` from `scripts/test-tiers.ts`. A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the ceiling catches a hang.
+- GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.node` from `@dylanebert/shallot/testing`. A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the ceiling catches a hang.
 - `bun run test` discovers cheap and GPU files with the cheap default; bare `bun test` uses Bun's default; Node and oracle files run explicitly.
 - Root `bunfig.toml` supplies the TypeGPU transform, as project preloads do.
 - A missing tier premise fails, never skips.
 - Quarantine uses `test.todo`, runnable with `--todo`; a known failure stays failing until fixed.
-- A browser subject keeps its Playwright and Vite configs together. Engine-owned subjects spread `BROWSER_CONFIG` and `WEB_SERVER_CONFIG` from [scripts/chromium.ts](scripts/chromium.ts), never restating or tailoring budgets; an example meant to be copied carries equivalent setup beside the app, never importing the checkout. Both hold the browser tier's page-only claims; Playwright's per-test default stays unchanged.
+- A browser subject keeps its Playwright and Vite configs together and spreads `BROWSER_CONFIG` and `WEB_SERVER_CONFIG` from `@dylanebert/shallot/testing`; neither restates or tailors policy. Both hold the browser tier's page-only claims; Playwright's per-test default stays unchanged.
 - GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work.
 - Compiled pipelines are never shared across worlds; a device a loss claim destroys is prepared during that compile step.
 - Full default-renderer or physics-kernel compositions, especially multi-world isolation claims, belong in Node.

@@ -1,13 +1,14 @@
 import { expect, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { packageTimeoutErrors, timeoutErrors } from "./check-timeouts";
-import { CEILING } from "./test-tiers";
 
-const cheap = 'import { test } from "bun:test"; import { CEILING } from "./test-tiers";';
+const cheap =
+    'import { test } from "bun:test"; import { CEILING } from "@dylanebert/shallot/testing";';
 const header = (tier: "gpu" | "node") =>
-    `import { test, setDefaultTimeout } from "bun:test"; import { CEILING } from "./test-tiers"; setDefaultTimeout(CEILING.${tier});`;
-const browser = 'import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "./chromium";';
+    `import { test, setDefaultTimeout } from "bun:test"; import { CEILING } from "@dylanebert/shallot/testing"; setDefaultTimeout(CEILING.${tier});`;
+const browser = 'import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";';
 
-test("tier headers derive from the shared home and reject today's literal declarations", () => {
+test("tier headers derive from the published tooling subpath and reject literal declarations", () => {
     for (const tier of ["gpu", "node"] as const) {
         const path = tier === "gpu" ? "subject.gpu.test.ts" : "subject.node.ts";
         expect(timeoutErrors(path, header(tier))).toEqual([]);
@@ -77,8 +78,14 @@ test("browser subjects inherit categorical values from their one shared home", (
     expect(timeoutErrors("playwright.config.ts", "export default {};")).toHaveLength(1);
     expect(
         timeoutErrors(
-            "scripts/chromium.ts",
-            'import { CEILING } from "./test-tiers"; export const config = { globalTimeout: CEILING.browser, webServer: { timeout: CEILING.startup } };',
+            "playwright.config.ts",
+            'import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "./chromium"; export default { ...BROWSER_CONFIG, webServer: { ...WEB_SERVER_CONFIG, command: "vite" } };',
+        ),
+    ).not.toEqual([]);
+    expect(
+        timeoutErrors(
+            "src/project/testing.ts",
+            "const CEILING = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { globalTimeout: CEILING.browser }; export const WEB_SERVER_CONFIG = { timeout: CEILING.startup };",
         ),
     ).toEqual([]);
 });

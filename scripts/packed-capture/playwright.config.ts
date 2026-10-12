@@ -1,5 +1,5 @@
+import { BROWSER_CONFIG } from "@dylanebert/shallot/testing";
 import type { PlaywrightTestConfig } from "playwright/test";
-import { BROWSER_CONFIG } from "../chromium";
 
 export const config = {
     testDir: ".",

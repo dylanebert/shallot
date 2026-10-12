@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
-import { CEILING } from "../../scripts/test-tiers";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { allocatesNothing, allocationFailure, sampleAllocation, windowBytes } from "./allocation";
 
 setDefaultTimeout(CEILING.node);

@@ -1,7 +1,7 @@
 import { setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
 
-import { CEILING } from "../../scripts/test-tiers";
+import { CEILING } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(CEILING.node);
 

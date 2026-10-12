@@ -1,11 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import {
     createTestGpuApp,
     expectAdapterNotice,
     gpuRequirements,
 } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { classifyAdapter } from "./adapter";
 import { rawDevice } from "./gpu";

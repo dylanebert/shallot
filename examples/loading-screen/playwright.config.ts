@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
+import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
 import type { PlaywrightTestConfig } from "playwright/test";
-import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "../../scripts/chromium";
 
 const subject = fileURLToPath(new URL(".", import.meta.url)).replaceAll("\\", "/");
 

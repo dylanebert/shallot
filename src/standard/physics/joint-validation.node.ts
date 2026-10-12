@@ -2,9 +2,9 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { type Component, Time } from "@dylanebert/shallot";
 import * as core from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
-import { CEILING } from "../../../scripts/test-tiers";
 import {
     DJ_LOWER_SPRING_FORCE,
     DJ_UPPER_SPRING_FORCE,

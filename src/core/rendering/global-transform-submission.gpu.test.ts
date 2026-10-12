@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "../../../scripts/test-tiers";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { Time, type World } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";

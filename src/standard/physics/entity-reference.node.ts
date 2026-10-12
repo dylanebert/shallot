@@ -9,9 +9,9 @@ import {
     SphericalJoint,
 } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
-import { CEILING } from "../../../scripts/test-tiers";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { worldCounters } from "./world/world";
 

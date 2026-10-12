@@ -1,7 +1,7 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
-import { CEILING } from "../../../scripts/test-tiers";
 import type { createApp } from "../app";
 import { probeBuffer } from "./probe";
 import { countStaging } from "./readback.fixture";

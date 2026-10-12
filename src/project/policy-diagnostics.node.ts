@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "../../scripts/test-tiers";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { readProjectPolicy } from "./policy";
 
 setDefaultTimeout(CEILING.node);

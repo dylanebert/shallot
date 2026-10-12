@@ -6,10 +6,10 @@ import {
     setLinearVelocity,
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();

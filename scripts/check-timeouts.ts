@@ -1,14 +1,14 @@
 import { resolve } from "node:path";
 import { parse } from "@babel/parser";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { Glob } from "bun";
-import { CEILING } from "./test-tiers";
 
 /** Check declarations, not elapsed time. Delay timers inside tests are not tier declarations. */
 export function timeoutErrors(path: string, text: string): string[] {
     if (path.endsWith(".oracle.ts")) return [];
     const browser = path.endsWith("playwright.config.ts");
     const browserTest = path.endsWith(".e2e.ts");
-    const sharedBrowser = path === "scripts/chromium.ts";
+    const sharedBrowser = path === "src/project/testing.ts";
     const tier = path.endsWith(".gpu.test.ts")
         ? "gpu"
         : path.endsWith(".node.ts")
@@ -35,9 +35,8 @@ export function timeoutErrors(path: string, text: string): string[] {
                 const name =
                     item.imported.type === "Identifier" ? item.imported.name : item.imported.value;
                 const source = statement.source.value;
-                if (/(?:^|\/)test-tiers(?:\.ts)?$/.test(source) && name === "CEILING")
-                    tiers.add(item.local.name);
-                if (/(?:^|\/)chromium(?:\.ts)?$/.test(source)) {
+                if (source === "@dylanebert/shallot/testing") {
+                    if (name === "CEILING") tiers.add(item.local.name);
                     if (name === "BROWSER_CONFIG") browserConfigs.add(item.local.name);
                     if (name === "WEB_SERVER_CONFIG") serverConfigs.add(item.local.name);
                 }
@@ -56,6 +55,7 @@ export function timeoutErrors(path: string, text: string): string[] {
             }
         }
     }
+    if (sharedBrowser) tiers.add("CEILING");
     function budget(expression: any, seen = new Set<string>()): number | undefined {
         if (expression?.type === "MemberExpression" && tiers.has(expression.object.name)) {
             const key = expression.computed ? expression.property.value : expression.property.name;
@@ -81,7 +81,7 @@ export function timeoutErrors(path: string, text: string): string[] {
         if (value === undefined)
             fail(
                 node,
-                "timeout must derive from CEILING in scripts/test-tiers.ts; literal timeout numbers are forbidden",
+                "timeout must derive from CEILING from @dylanebert/shallot/testing; literal timeout numbers are forbidden",
             );
         else if (value === repeated) fail(node, "test timeout repeats its file default; omit it");
         else if (value > maximum) fail(node, "timeout exceeds its tier backstop");
@@ -117,7 +117,7 @@ export function timeoutErrors(path: string, text: string): string[] {
                         "reuseExistingServer",
                     ].includes(key)
                 )
-                    fail(node, `subject ${key} must come from scripts/chromium.ts`);
+                    fail(node, `subject ${key} must come from @dylanebert/shallot/testing`);
                 if (
                     key === "webServer" &&
                     !node.value.properties?.some(
@@ -126,7 +126,10 @@ export function timeoutErrors(path: string, text: string): string[] {
                             serverConfigs.has(property.argument.name),
                     )
                 )
-                    fail(node, "webServer must spread WEB_SERVER_CONFIG from scripts/chromium.ts");
+                    fail(
+                        node,
+                        "webServer must spread WEB_SERVER_CONFIG from @dylanebert/shallot/testing",
+                    );
             }
         }
         if (node.type === "CallExpression") {
@@ -167,7 +170,7 @@ export function timeoutErrors(path: string, text: string): string[] {
     }
     visit(file.program);
     if (browser && browserDefaults !== 1)
-        errors.push(`${path}: spread BROWSER_CONFIG from scripts/chromium.ts exactly once`);
+        errors.push(`${path}: spread BROWSER_CONFIG from @dylanebert/shallot/testing exactly once`);
     if (sharedBrowser && (browserDefaults !== 1 || serverDefaults !== 1))
         errors.push(`${path}: define the shared browser and startup backstops exactly once`);
     if (
@@ -208,8 +211,8 @@ if (import.meta.main) {
     }
     errors.push(
         ...timeoutErrors(
-            "scripts/chromium.ts",
-            await Bun.file(resolve(root, "scripts/chromium.ts")).text(),
+            "src/project/testing.ts",
+            await Bun.file(resolve(root, "src/project/testing.ts")).text(),
         ),
     );
     if (errors.length) {

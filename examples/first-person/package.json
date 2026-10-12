@@ -7,7 +7,7 @@
         "dev": "vite --host 127.0.0.1",
         "build": "vite build",
         "preview": "vite preview --host 127.0.0.1",
-        "test": "bun test --timeout=250 && bun run test:node",
+        "test": "bun test && bun run test:node",
         "test:node": "bun test ./tests/*.node.ts ./src/*.node.ts",
         "build:capture": "bun build ./tests/capture-page.ts --target=browser --format=iife --outfile=.artifacts/capture-page.js",
         "browser:install": "playwright install chromium",

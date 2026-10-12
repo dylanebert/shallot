@@ -1,9 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import type { Plugin } from "../app";
 import { probeBuffer } from "../runtime";
 import type { World } from "./world";

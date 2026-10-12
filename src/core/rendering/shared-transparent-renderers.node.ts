@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import type { World } from "../../engine";
 import { Line, LinesPlugin } from "../../extras/lines";
 import { internText, registerFont, Text, TextPlugin } from "../../extras/text";

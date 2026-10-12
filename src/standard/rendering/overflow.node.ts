@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import { expectAdapterNotice } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { PointLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";

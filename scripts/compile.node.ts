@@ -1,7 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { compileSubjects, measureCompile } from "./compile.fixture";
-
-import { CEILING } from "./test-tiers";
 
 setDefaultTimeout(CEILING.node);
 

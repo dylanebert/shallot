@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "@babel/parser";
+import { WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
 import { Glob } from "bun";
-import { WEB_SERVER_CONFIG } from "./chromium";
 
 const root = resolve(import.meta.dir, "..");
 const configs = [
@@ -32,7 +32,7 @@ function propertyName(node: Record<string, any>): string | undefined {
 const violations: string[] = [];
 let servers = 0;
 if (WEB_SERVER_CONFIG.reuseExistingServer !== false)
-    violations.push("scripts/chromium.ts: WEB_SERVER_CONFIG must refuse existing servers");
+    violations.push("src/project/testing.ts: WEB_SERVER_CONFIG must refuse existing servers");
 for (const config of configs) {
     const source = readFileSync(resolve(root, config), "utf8");
     const ast = parse(source, { sourceType: "module", plugins: ["typescript"] });
@@ -40,7 +40,7 @@ for (const config of configs) {
     for (const statement of ast.program.body) {
         if (
             statement.type !== "ImportDeclaration" ||
-            !/(?:^|\/)chromium(?:\.ts)?$/.test(statement.source.value)
+            statement.source.value !== "@dylanebert/shallot/testing"
         )
             continue;
         for (const item of statement.specifiers) {

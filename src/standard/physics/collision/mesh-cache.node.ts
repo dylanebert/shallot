@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "../../../../scripts/test-tiers";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { restore, snapshot } from "../api/snapshot";
 import { BodyType, defaultShapeDef } from "../common/types";
 import { kernel } from "../kernel/kernel";

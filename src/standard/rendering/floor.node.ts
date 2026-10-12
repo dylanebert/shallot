@@ -1,4 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { create, globals } from "webgpu";
@@ -8,7 +9,6 @@ import {
     expectAdapterNotice,
 } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
-import { CEILING } from "../../../scripts/test-tiers";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,

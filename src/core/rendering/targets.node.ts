@@ -1,9 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { CEILING } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { CEILING } from "../../../scripts/test-tiers";
 import { lookAtRotation } from "../../engine";
 import { Fog, FogPlugin, NoFog } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";

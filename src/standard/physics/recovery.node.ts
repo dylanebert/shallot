@@ -20,10 +20,10 @@ import {
     ShapeMaterials,
 } from "@dylanebert/shallot/physics";
 import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
-import { CEILING } from "../../../scripts/test-tiers";
 import { physicsState } from "./runtime";
 import { worldCounters } from "./world/world";
 

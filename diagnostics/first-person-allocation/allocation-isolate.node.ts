@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CEILING } from "../../scripts/test-tiers";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { allocationFailure, measuredIsolateTrace, tracedSample, TIER_FLAGS } from "./allocation";
 
 setDefaultTimeout(CEILING.node);

@@ -2,11 +2,11 @@ import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { CEILING } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
 } from "../../../diagnostics/first-person-allocation/allocation";
-import { CEILING } from "../../../scripts/test-tiers";
 import { jointAllocationSubject, splitAllocationSubject } from "./joint-allocation.fixture";
 import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 import { createTestWorld, destroyTestWorld } from "./testing";

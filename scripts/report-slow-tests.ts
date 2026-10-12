@@ -1,4 +1,4 @@
-import { CEILING } from "./test-tiers";
+import { CEILING } from "@dylanebert/shallot/testing";
 
 export type Tier = "cheap" | "gpu" | "node";
 
