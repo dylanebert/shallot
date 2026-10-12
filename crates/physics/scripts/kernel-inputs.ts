@@ -14,8 +14,6 @@ export function kernelInputHash(root: string): string {
         "Cargo.toml",
         "Cargo.lock",
         "rust-toolchain.toml",
-        "package.json",
-        "bun.lock",
         "scripts/wasm-opt.ts",
         "crates/physics/Cargo.toml",
         "crates/physics/.cargo/config.toml",
@@ -36,5 +34,12 @@ export function kernelInputHash(root: string): string {
         hash.update(`${path}\0${bytes.length}\0`);
         hash.update(bytes);
     }
+    // Of the Bun manifests, only Binaryen's locked package is a build input (scripts/wasm-opt.ts), so
+    // an unrelated package.json or bun.lock edit leaves the kernels fresh.
+    const binaryen = readFileSync(resolve(root, "bun.lock"), "utf8").match(
+        /^\s*"binaryen": \[.*$/m,
+    )?.[0];
+    if (!binaryen) throw new Error("bun.lock locks no binaryen package, which pins wasm-opt");
+    hash.update(`bun.lock binaryen\0${binaryen.trim()}`);
     return hash.digest("hex");
 }
