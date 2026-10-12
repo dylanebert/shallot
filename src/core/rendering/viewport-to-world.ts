@@ -1,7 +1,7 @@
 import { qRotate, type Ray, Viewports, type World } from "../../engine";
 import { GlobalTransform } from "../transform";
 import { Camera, CameraMode } from "./camera";
-import { Views } from "./view";
+import { cameraView } from "./view";
 
 /** A world ray from fixed-tick camera placement through CSS pixels relative to its bound canvas's
  * top-left. The direction is normalized; the origin is offset by `near` along the perspective ray.
@@ -10,7 +10,7 @@ import { Views } from "./view";
 export function viewportToWorld(world: World, camera: number, x: number, y: number): Ray | null {
     if (camera < 0 || !world.has(camera, Camera) || !world.has(camera, GlobalTransform))
         return null;
-    const view = world.resource(Views).get(camera);
+    const view = cameraView(world, camera);
     const viewport = view && world.resource(Viewports).get(view.viewportIndex);
     if (!viewport || viewport.cssWidth <= 0 || viewport.cssHeight <= 0) return null;
     const ndcX = (x / viewport.cssWidth) * 2 - 1;
