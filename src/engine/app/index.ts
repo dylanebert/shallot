@@ -176,8 +176,9 @@ function pluginHookError(plugin: Plugin, hook: "initialize" | "warm", error: unk
     return new Error(`Plugin "${plugin.name}" ${hook} threw: ${detail}`);
 }
 
-// Caps the queue at GPU-load onset, where Chrome's throttle engages late (24 frames in 0.12 s on Omarchy);
-// stage 1 measured that it never fires in steady GPU-bound play.
+// Caps the queue at the onset of GPU-bound work, where Chrome's rAF throttle engages late: Omarchy queued 24
+// frames in 0.12 s (81e3375c). A web callback cannot block as a native frame-latency cap does, so the loop
+// skips. In steady GPU-bound play pending stays below the cap, so it never fires there.
 const MAX_FRAMES_IN_FLIGHT = 6;
 
 export const ClearChangeMarksSystem: System = {
