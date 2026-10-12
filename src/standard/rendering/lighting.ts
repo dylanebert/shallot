@@ -50,7 +50,8 @@ interface LightingResources {
     colorPacked: Float64Array;
     colors: Float64Array;
     stagingU32: Uint32Array;
-    overflowWarned: boolean;
+    directionalOverflowWarned: boolean;
+    pointOverflowWarned: boolean;
     shadowConflictWarned: boolean;
 }
 
@@ -65,7 +66,8 @@ function createLightingResources(): LightingResources {
         colorPacked: new Float64Array(MAX_DIRECTIONAL_LIGHTS).fill(-1),
         colors: new Float64Array(MAX_DIRECTIONAL_LIGHTS * 3),
         stagingU32: new Uint32Array(backing),
-        overflowWarned: false,
+        directionalOverflowWarned: false,
+        pointOverflowWarned: false,
         shadowConflictWarned: false,
     };
 }
@@ -150,12 +152,12 @@ export function writeLighting(world: World): void {
         if (count < MAX_DIRECTIONAL_LIGHTS) resources.directionalEids[count++] = eid;
         total++;
     }
-    if (total > MAX_DIRECTIONAL_LIGHTS && !resources.overflowWarned) {
+    if (total > MAX_DIRECTIONAL_LIGHTS && !resources.directionalOverflowWarned) {
         console.warn(
             `shallot: ${total} directional lights exceed the ${MAX_DIRECTIONAL_LIGHTS} cap; ${total - MAX_DIRECTIONAL_LIGHTS} ignored`,
         );
-        resources.overflowWarned = true;
-    } else if (total <= MAX_DIRECTIONAL_LIGHTS) resources.overflowWarned = false;
+        resources.directionalOverflowWarned = true;
+    } else if (total <= MAX_DIRECTIONAL_LIGHTS) resources.directionalOverflowWarned = false;
 
     const shadow = shadowDirectionalLight(world);
     if (shadow >= 0) {
@@ -313,20 +315,14 @@ const SPOT_LIGHT_TERMS = [SpotLight, GlobalTransform];
  * pack: the light data itself flows GPU-side
  */
 export function warnLightOverflow(world: World): void {
-    const _lighting = world.resource(lightingKey);
-
+    const resources = lightingResources(world);
     let count = 0;
     for (const eid of world.query(POINT_LIGHT_TERMS)) if (!world.has(eid, SpotLight)) count++;
     for (const _ of world.query(SPOT_LIGHT_TERMS)) count++;
-    if (count > MAX_POINT_LIGHTS) {
-        const resources = _lighting;
-        if (!resources.overflowWarned) {
-            resources.overflowWarned = true;
-            console.warn(
-                `shallot: ${count} point lights exceed the ${MAX_POINT_LIGHTS} cap; ${count - MAX_POINT_LIGHTS} ignored`,
-            );
-        }
-    } else {
-        _lighting.overflowWarned = false;
-    }
+    if (count > MAX_POINT_LIGHTS && !resources.pointOverflowWarned) {
+        resources.pointOverflowWarned = true;
+        console.warn(
+            `shallot: ${count} point lights exceed the ${MAX_POINT_LIGHTS} cap; ${count - MAX_POINT_LIGHTS} ignored`,
+        );
+    } else if (count <= MAX_POINT_LIGHTS) resources.pointOverflowWarned = false;
 }
