@@ -1160,7 +1160,7 @@ const comboFov = (frame: PointShadowFrame) => (frame.spot ? frame.coneFov : poin
 
 // write combo `ci`'s tile viewProj into `faceVP`: `tileTransform(rect at `at`) × perspective × lookAt`. The
 // tile placement is folded in, so the VS emits `tileVP·world` with no manual divide and the hardware clips a
-// triangle behind the face near plane. Takes no float arguments, so a call boxes no number.
+// triangle behind the face near plane.
 function writeComboViewProj(
     shadow: ShadowRuntime,
     ci: number,
@@ -1247,8 +1247,7 @@ function poseSpotRotation(world: World, eid: number, frame: PointShadowFrame): v
 // pose a pooled combo camera so render's `computeViewProj` reproduces this combo's face/cone projection —
 // the frustum the pack culls against. The rotation is the lookAt orientation of the combo's basis, so
 // `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's `_faceVP` folds
-// the tile placement onto — the cull frustum and the render projection agree (to f32). Takes no float
-// arguments, so a call boxes no number.
+// the tile placement onto — the cull frustum and the render projection agree (to f32).
 function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: number): void {
     world.storage(Transform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2], 1);
     if (frame.spot) poseSpotRotation(world, eid, frame);
