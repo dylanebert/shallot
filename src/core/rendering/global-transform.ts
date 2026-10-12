@@ -112,6 +112,7 @@ export const GlobalTransformHistoryStartSystem: System = {
         runtime.ranges[2] = runtime.ranges[3] = 0;
         runtime.historyDiscarded = false;
         world.resource(TransformRuntime).discontinuities.fill(0);
+        runtime.historyDiscontinuitiesOnSubmit.fill(0);
     },
 };
 /** Captures completed derived placement after every ordinary fixed writer. */
