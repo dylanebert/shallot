@@ -135,7 +135,7 @@ interface StandardRendererState {
     warned: Set<string>;
     frameDraws: FrameDraw[];
     frameCount: number;
-    frameDrawPairs: (FrameDraw | undefined)[];
+    frameDrawPairs: (FrameDraw | null)[];
     framePairCount: number;
     resolveCapacity: number;
     resolveMeshCount: number;
@@ -571,9 +571,10 @@ function resolveDraws(world: World, capacity: number): void {
     const meshCount = world.resource(Meshes).size;
     const pairCount = materialTypes(world).length * ALPHA_PIPELINE_KEY_COUNT * meshCount;
     state.frameCount = 0;
-    state.frameDrawPairs.fill(undefined, 0, state.framePairCount);
+    // null, not undefined: V8 can hold undefined in a double array, so each refill would reallocate it twice
+    state.frameDrawPairs.fill(null, 0, state.framePairCount);
     state.framePairCount = pairCount;
-    while (state.frameDrawPairs.length < pairCount) state.frameDrawPairs.push(undefined);
+    while (state.frameDrawPairs.length < pairCount) state.frameDrawPairs.push(null);
     state.resolveCapacity = capacity;
     state.resolveMeshCount = meshCount;
     world.resource(Draws).forEach(state.resolveDrawCallback!);
