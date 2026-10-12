@@ -267,12 +267,14 @@ export class World {
         this._frameSubmitCallbackCount = 0;
         try {
             for (let i = 0; i < count; i++) {
+                if (this._disposed) break;
                 const callback = this._frameSubmitCallbacks[i]!;
                 this._frameSubmitCallbacks[i] = undefined;
                 callback();
             }
         } finally {
-            for (let i = 0; i < count; i++) this._frameSubmitCallbacks[i] = undefined;
+            if (!this._disposed)
+                for (let i = 0; i < count; i++) this._frameSubmitCallbacks[i] = undefined;
         }
     }
 

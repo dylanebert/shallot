@@ -221,6 +221,29 @@ test("frame-submit callbacks run after successful work, on empty frames, and not
     }
 });
 
+test("disposing in a frame-submit callback cancels the remaining callbacks", async () => {
+    const app = await createTestGpuApp({
+        defaults: false,
+        plugins: [{ name: "FrameCommitDisposal", gpu: {} }],
+    });
+    const { world } = app;
+    let laterCallbackRan = false;
+    world.addSystem({
+        group: "draw",
+        update(world) {
+            world.onFrameSubmit(() => world.dispose());
+            world.onFrameSubmit(() => (laterCallbackRan = true));
+        },
+    });
+    try {
+        expect(() => world.step(0)).not.toThrow();
+        expect(world.disposed).toBe(true);
+        expect(laterCallbackRan).toBe(false);
+    } finally {
+        await disposeGpuApps([app]);
+    }
+});
+
 test("a propagated draw failure discards its commands and fence", async () => {
     const app = await createTestGpuApp({
         defaults: false,
