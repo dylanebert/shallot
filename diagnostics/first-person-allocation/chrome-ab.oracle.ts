@@ -130,7 +130,12 @@ interface Launch {
     submitFrames: number;
     lost: { reason: string; message: string; ms: number }[];
     errors: string[];
+    /** warnings, errors and page errors, each prefixed with its milliseconds since the launch began */
     console: string[];
+    /** responses that failed, as `<status> <url>` */
+    failedResponses: string[];
+    /** the loss the console reported, when the observer's own read missed it */
+    consoleLoss: string | null;
     failureScreen: string | null;
     nvrm: string[];
     refusal?: string;
@@ -275,6 +280,8 @@ async function launchOnce(
         lost: [],
         errors: [],
         console: [],
+        failedResponses: [],
+        consoleLoss: null,
         failureScreen: null,
         nvrm: [],
     };
@@ -319,30 +326,42 @@ async function launchOnce(
         const context = cdp.contexts()[0];
         const tab = await context.newPage();
         await confirmOnDisplay(placement);
+        const at = () => Date.now() - since;
         tab.on("console", (m) => {
             if (m.type() === "error" || m.type() === "warning")
-                record.console.push(`${m.type()}: ${m.text().slice(0, 300)}`);
+                record.console.push(`${at()} ${m.type()}: ${m.text().slice(0, 300)}`);
         });
-        tab.on("pageerror", (e) => record.console.push(`pageerror: ${e.message.slice(0, 300)}`));
+        tab.on("pageerror", (e) =>
+            record.console.push(`${at()} pageerror: ${e.message.slice(0, 300)}`),
+        );
+        tab.on("response", (r) => {
+            if (r.status() >= 400) record.failedResponses.push(`${r.status()} ${r.url()}`);
+        });
         await tab.addInitScript({ content: OBSERVER });
         await tab.goto(`${ORIGIN}/${page === "control" ? "webgpu-control.html" : ""}`, {
             timeout: 10_000,
         });
         await tab.waitForTimeout(OBSERVE_MS);
-        const seen = await tab.evaluate(
-            () => (window as unknown as { __ab: Record<string, unknown> }).__ab,
-        );
-        Object.assign(record, {
-            adapters: seen.adapters,
-            frames: seen.frames,
-            submitFrames: seen.submitFrames,
-            lost: seen.lost,
-            errors: seen.errors,
-        });
-        const screen = await tab.evaluate(() => document.body.innerText);
-        if (/Something went wrong/.test(screen)) record.failureScreen = screen.slice(0, 400);
+        const observe = async () => {
+            const seen = await tab.evaluate(
+                () => (window as unknown as { __ab: Record<string, unknown> }).__ab,
+            );
+            Object.assign(record, {
+                adapters: seen.adapters,
+                frames: seen.frames,
+                submitFrames: seen.submitFrames,
+                lost: seen.lost,
+                errors: seen.errors,
+            });
+            const screen = await tab.evaluate(() => document.body.innerText);
+            if (/Something went wrong/.test(screen)) record.failureScreen = screen.slice(0, 400);
+        };
+        await observe();
         await tab.screenshot({ path: join(shots, `${runIndex}-${browser.name}-${page}.png`) });
         record.backend = await webgpuBackend(context);
+        // A stalled page can report its loss after the observation window (run 1's Chromium first-person
+        // logged it while chrome://gpu was read), so the page is read again just before the browser closes.
+        await observe();
     } catch (error) {
         record.refusal ??= error instanceof Error ? error.message.split("\n")[0] : String(error);
     } finally {
@@ -359,40 +378,57 @@ async function launchOnce(
         rmSync(profile, { recursive: true, force: true });
         await waitForNoSeatWindow();
         record.nvrm = kernelLines(since, Date.now());
+        record.consoleLoss =
+            record.console.find((line) =>
+                /GPU device lost|Instance reference no longer exists/.test(line),
+            ) ?? null;
     }
     return record;
 }
 
-function faulted(launch: Launch): boolean {
-    return (
-        launch.refusal !== undefined ||
-        launch.lost.length > 0 ||
-        launch.nvrm.length > 0 ||
-        launch.failureScreen !== null ||
-        launch.adapters.length === 0 ||
-        launch.adapters.includes(null) ||
-        launch.submitFrames === 0
-    );
+/** every sign of a fault one launch can show, so the tally and the reading are computed from the same rows. */
+function faultsOf(launch: Launch): string[] {
+    const faults: string[] = [];
+    if (launch.refusal !== undefined) faults.push(`refused: ${launch.refusal}`);
+    if (launch.lost.length > 0) faults.push(`device lost: ${launch.lost[0].message}`);
+    else if (launch.consoleLoss !== null)
+        faults.push(`device lost (console): ${launch.consoleLoss}`);
+    if (launch.nvrm.length > 0) faults.push(`kernel: ${launch.nvrm.join(" | ")}`);
+    if (launch.failureScreen !== null) faults.push("failure screen");
+    if (launch.adapters.length === 0 || launch.adapters.includes(null)) faults.push("no adapter");
+    if (launch.submitFrames === 0) faults.push("no frame submitted GPU work");
+    return faults;
 }
 
 function verdict(launches: readonly Launch[]): string {
-    const count = (browser: BrowserName, page: PageName) => {
+    const cell = (browser: BrowserName, page: PageName) => {
         const rows = launches.filter((l) => l.browser === browser && l.page === page);
-        return `${rows.filter(faulted).length}/${rows.length}`;
+        return { faulted: rows.filter((l) => faultsOf(l).length > 0).length, of: rows.length };
     };
-    const chromeControl = launches.some(
-        (l) => l.browser === "chrome" && l.page === "control" && faulted(l),
+    const cells = {
+        "chrome first-person": cell("chrome", "first-person"),
+        "chrome control": cell("chrome", "control"),
+        "chromium first-person": cell("chromium", "first-person"),
+        "chromium control": cell("chromium", "control"),
+    };
+    const control = cells["chrome control"].faulted + cells["chromium control"].faulted;
+    const firstPerson = (["chrome", "chromium"] as const).filter(
+        (browser) => cells[`${browser} first-person`].faulted > 0,
     );
-    const chromeFirstPerson = launches.some(
-        (l) => l.browser === "chrome" && l.page === "first-person" && faulted(l),
-    );
-    const reading = chromeControl
-        ? "Chrome 153 faulted on the control page, which has no Shallot: the cause is Chrome or the driver."
-        : chromeFirstPerson
-          ? "Chrome 153 faulted only on first-person: the engine's workload is exposed by Chrome 153; bisect it."
-          : "Chrome 153 was clean on both pages: the earlier faults did not recur with the game closed; run the game-open comparison next.";
+    const reading =
+        control > 0
+            ? "A control page, which has no Shallot, faulted: the cause is the browser or the driver, not the engine."
+            : firstPerson.length > 0
+              ? `Only first-person faulted, in ${firstPerson.join(" and ")}: the engine's workload is exposed on this driver; bisect it.`
+              : "Every launch was clean: the earlier faults did not recur with the game closed; run the game-open comparison next.";
+    const faulted = launches
+        .filter((l) => faultsOf(l).length > 0)
+        .map((l) => `  run ${l.run} ${l.browser} ${l.page}: ${faultsOf(l).join("; ")}`);
     return [
-        `faulted launches: chrome first-person ${count("chrome", "first-person")}, chrome control ${count("chrome", "control")}, chromium first-person ${count("chromium", "first-person")}, chromium control ${count("chromium", "control")}`,
+        `faulted launches: ${Object.entries(cells)
+            .map(([name, { faulted, of }]) => `${name} ${faulted}/${of}`)
+            .join(", ")}`,
+        ...faulted,
         reading,
     ].join("\n");
 }
