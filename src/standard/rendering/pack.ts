@@ -129,6 +129,7 @@ function pairFactory(materialTypeCount: number) {
             if (
                 materialType >= materialTypeCount ||
                 alphaMode > 6 ||
+                instance.mesh >= cullLayout.$.params.meshCount ||
                 encodedGlobalTransform === 0
             ) {
                 return Pair({
