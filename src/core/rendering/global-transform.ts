@@ -110,6 +110,7 @@ export const GlobalTransformHistoryStartSystem: System = {
         captureCurrent(world, 0);
         // These rows are now carried by phase 0, not the earlier phase 1.
         runtime.ranges[2] = runtime.ranges[3] = 0;
+        if (runtime.historyDiscarded) runtime.historyNeedsPromotion = true;
         runtime.historyDiscarded = false;
         world.resource(TransformRuntime).discontinuities.fill(0);
         runtime.historyDiscontinuitiesOnSubmit.fill(0);
