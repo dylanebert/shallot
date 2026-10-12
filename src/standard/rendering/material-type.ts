@@ -497,7 +497,10 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         if (storage.alphaCutoff.get(eid) !== alphaCutoff) storage.alphaCutoff.set(eid, alphaCutoff);
     }
 
-    /** Release an unused row so producers with entity lifetimes can reuse its storage. Row zero is reserved. */
+    /**
+     * Release an unused row so producers with entity lifetimes can reuse its storage. Row zero is reserved;
+     * a handle whose row it does not currently hold, such as one already removed, is refused.
+     */
     remove(handle: MaterialHandle): void {
         if (handle.type !== materialTypeId(this._world, this._type)) {
             throw new RangeError("Materials.remove: handle belongs to another material type");
@@ -511,6 +514,12 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
                 `Materials.remove: unknown ${this._type.name} row ${handle.material}`,
             );
         }
+        if (this._handles[handle.material] !== handle) {
+            throw new RangeError(
+                `Materials.remove: ${this._type.name} row ${handle.material} is not held by this handle`,
+            );
+        }
+        this._handles[handle.material] = undefined;
         this._freeRows.push(handle.material);
     }
 
