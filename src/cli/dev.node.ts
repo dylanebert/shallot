@@ -136,7 +136,7 @@ test("Vite resolution finds a dependency hoisted above a workspace app reached t
             if (parent === current) break;
         }
         expect(resolveViteCli(linkedProject)).toBe(
-            join(realpathSync.native(workspace), "node_modules/vite/bin/vite.js"),
+            join(realpathSync(workspace), "node_modules/vite/bin/vite.js"),
         );
     } finally {
         rmSync(fixture, { recursive: true, force: true });
