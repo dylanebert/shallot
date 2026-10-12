@@ -113,20 +113,24 @@ const WEBGPU_BOUNDARY = "shallotWebGpuBoundary";
  * charges an allocation to the outermost optimized JavaScript frame, so what Blink allocates inside a WebGPU call
  * would land on whichever engine function inlined the call. Each `GPU*` prototype method is replaced by a
  * forwarding function V8 never optimizes, and so never inlines, which stays on the stack between the engine's
- * caller and the browser. It forwards without allocating, dropping trailing `undefined` arguments, which WebIDL
- * treats as missing; the engine's argument expressions still run in the engine's frame.
+ * caller and the browser. It forwards exactly the caller's arguments, so every call behaves as it does
+ * unwrapped; its arguments object is allocated beneath the boundary and admitted with the browser's work. The
+ * engine's argument expressions still run in the engine's frame.
  */
 const WEBGPU_BOUNDARY_SCRIPT = `(() => {
     const forward = (original) =>
         function ${WEBGPU_BOUNDARY}(a, b, c, d, e, f, g) {
-            if (g !== undefined) return original.call(this, a, b, c, d, e, f, g);
-            if (f !== undefined) return original.call(this, a, b, c, d, e, f);
-            if (e !== undefined) return original.call(this, a, b, c, d, e);
-            if (d !== undefined) return original.call(this, a, b, c, d);
-            if (c !== undefined) return original.call(this, a, b, c);
-            if (b !== undefined) return original.call(this, a, b);
-            if (a !== undefined) return original.call(this, a);
-            return original.call(this);
+            switch (arguments.length) {
+                case 0: return original.call(this);
+                case 1: return original.call(this, a);
+                case 2: return original.call(this, a, b);
+                case 3: return original.call(this, a, b, c);
+                case 4: return original.call(this, a, b, c, d);
+                case 5: return original.call(this, a, b, c, d, e);
+                case 6: return original.call(this, a, b, c, d, e, f);
+                case 7: return original.call(this, a, b, c, d, e, f, g);
+                default: return Reflect.apply(original, this, arguments);
+            }
         };
     let methods = 0;
     for (const name of Object.getOwnPropertyNames(globalThis)) {
