@@ -185,6 +185,7 @@ const required = [
     "examples/first-person/src/demo.node.ts",
     "examples/first-person/src/demo-files.node.ts",
     "dist/vite.js",
+    "dist/testing.js",
     "crates/native/Cargo.toml",
     "crates/native/Cargo.lock",
     "assets/icon-1024.png",

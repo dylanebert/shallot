@@ -28,7 +28,10 @@
     "exports": {
         ".": "./src/index.ts",
         "./bun": "./src/project/bun.ts",
-        "./testing": "./src/project/testing.ts",
+        "./testing": {
+            "types": "./src/project/testing.ts",
+            "default": "./dist/testing.js"
+        },
         "./tsconfig.json": "./tsconfig.base.json",
         "./extras": "./src/extras/index.ts",
         "./vite": {

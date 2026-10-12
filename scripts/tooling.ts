@@ -1,17 +1,15 @@
-// Compile the Node-reachable tooling export: a `vite.config.ts` resolves through Node's plain ESM loader,
-// which throws `ERR_UNKNOWN_FILE_EXTENSION` on the package's raw `.ts` source. Every other export stays raw
-// `.ts`, so its types point at source and a linked checkout serves what ships; the project's TypeGPU
-// transform covers engine and game code alike. Neither reason reaches `./vite`, whose only consumption
-// context is Node. Browser subject configs and the display oracle share the Chromium arguments in
-// the published `./testing` project subpath.
-// `dist/vite.js` and the TypeScript-generated `dist/vite.d.ts` are generated here by `bun run build`
-// and `prepare`. `tsc` reads the `types`
-// condition, while Node resolves `default`.
+// Compile Node-loaded project tools to JavaScript. Vite configs and Playwright configs resolve through
+// Node's ESM loader; an installed package cannot expose raw `.ts` there. Other source exports stay raw
+// `.ts`, so their types point at source and Bun or the project's TypeGPU transform can load them.
+// `./testing` keeps its types on `src/project/testing.ts` and its Node runtime on `dist/testing.js`;
+// Playwright configs, the app and engine checks all share that one source policy.
+// These outputs are generated here by `bun run build` and `prepare`.
 //
 // `vite.ts`'s runtime graph is a closed island — node builtins plus the `vite` / `unplugin-typegpu`
 // externals it imports, no engine runtime, no TGSL — so bundling it carries no duplicate-TypeGPU-identity
 // risk. Kept external explicitly (not just left to Bun's default builtin handling) so a bundled copy of
-// either package fails loud in review rather than silently inlining.
+// either package fails loud in review rather than silently inlining. `testing.ts` has no runtime package
+// imports; its Playwright type import is erased.
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -38,6 +36,7 @@ const EXTERNAL = [
 
 const entries: { entry: string; out: string }[] = [
     { entry: resolve(ROOT, "src/project/vite.ts"), out: "vite" },
+    { entry: resolve(ROOT, "src/project/testing.ts"), out: "testing" },
 ];
 
 for (const { entry, out } of entries) {
