@@ -279,7 +279,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
     if (!world.gpu.device) throw new Error("attachCanvas: RenderingPlugin not initialized");
     if (!world.resource(RenderContext).format)
         throw new Error("attachCanvas: RenderContext.format not set");
-    if (_views.has(eid)) throw new Error(`attachCanvas: eid ${eid} already bound`);
+    if (cameraView(world, eid)) throw new Error(`attachCanvas: eid ${eid} already bound`);
 
     const context = canvas.getContext("webgpu") as unknown as GPUCanvasContext | null;
     if (!context) throw new Error("attachCanvas: WebGPU canvas context unavailable");
@@ -462,7 +462,7 @@ export function attachTexture(
 export function attachView(world: World, eid: number): void {
     const _views = world.resource(Views);
 
-    if (_views.has(eid)) throw new Error(`attachView: eid ${eid} already has a view`);
+    if (cameraView(world, eid)) throw new Error(`attachView: eid ${eid} already has a view`);
     _views.set(eid, {
         canvas: null,
         context: null,
@@ -504,6 +504,15 @@ export function detachCanvas(world: World, eid: number): void {
     _views.delete(eid);
     releaseOffscreen(world, eid);
     releaseScratch(world, eid);
+}
+
+/** The eid's View while the entity it was attached to is live. A View left by a destroyed
+ * entity, including one whose eid was recycled, is released here rather than at the next frame. */
+export function cameraView(world: World, eid: number): View | undefined {
+    const view = world.resource(Views).get(eid);
+    if (!view || world.resolve(view.camera)) return view;
+    detachCanvas(world, eid);
+    return undefined;
 }
 
 /**

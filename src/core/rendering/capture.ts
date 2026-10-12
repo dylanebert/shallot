@@ -4,7 +4,7 @@
 
 import type { World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
-import { canvasFrameBinding, type View, Views } from "./view";
+import { cameraView, canvasFrameBinding, type View } from "./view";
 
 interface CaptureIdentity {
     width: number;
@@ -65,7 +65,7 @@ function watchFrameCaptureDevice(view: View, device: GPUDevice): void {
  * that outlive the target; detachment or disposal before the copy completes may reject the read.
  */
 export async function captureTexture(world: World, eid: number): Promise<Capture> {
-    const view = world.resource(Views).get(eid);
+    const view = cameraView(world, eid);
     if (!view?.texture) throw new Error("captureTexture: camera has no texture target");
     if (!view.presented) throw new Error("captureTexture: no frame has presented to target");
     const snapshot = await probeTexture(world, view.texture);
