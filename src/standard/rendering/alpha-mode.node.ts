@@ -8,6 +8,7 @@ import {
     captureTexture,
     Tonemapping,
     TonemappingMethod,
+    TransparentPhases,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import {
@@ -28,7 +29,7 @@ const alphaWorld = {
     defaults: false,
     plugins: [StandardRenderingPlugin, MeshRenderPlugin],
 };
-const subjects = gpuApps(import.meta.path, [alphaWorld, alphaWorld, alphaWorld]);
+const subjects = gpuApps(import.meta.path, [alphaWorld, alphaWorld, alphaWorld, alphaWorld]);
 
 function srgbByte(linear: number): number {
     const encoded = linear <= 0.0031308 ? linear * 12.92 : 1.055 * linear ** (1 / 2.4) - 0.055;
@@ -200,4 +201,48 @@ test("AlphaToCoverage selects fractional sample coverage on a multisampled targe
     expect(Array.from(singleSample.subarray((48 * 96 + 48) * 4, (48 * 96 + 48) * 4 + 4))).toEqual([
         0x2e, 0x2b, 0x28, 255,
     ]);
+});
+
+test("a reassigned material row's alpha mode selects the entity's draw on the next step", async () => {
+    const { world } = subjects()[3];
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+    world.add(camera, Camera);
+    world.storage(Camera).antialias.set(camera, 0);
+    world.add(camera, StandardRenderer);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+    attachTexture(world, camera, { width: 32, height: 32 });
+
+    const materials = world.resource(Materials);
+    const opaque = materials.add(StandardMaterial({ baseColor: [1, 0, 0, 1], unlit: true }));
+    const glass = materials.add(StandardMaterial({ baseColor: [0, 0, 1, 0.25], unlit: true }), {
+        alphaMode: AlphaMode.Blend,
+    });
+    const blended = expectedPixel(CLEAR[0] * 0.75, CLEAR[1] * 0.75, CLEAR[2] * 0.75 + 0.25);
+    const expectGlass = async (eid: number) => {
+        expect(world.storage(MeshMaterial).alphaMode.get(eid)).toBe(glass.alphaMode);
+        expect(world.resource(TransparentPhases).get(camera)!.length).toBe(1);
+        const rgba = (await captureTexture(world, camera)).rgba;
+        const center = Array.from(rgba.subarray((16 * 32 + 16) * 4, (16 * 32 + 16) * 4 + 4));
+        expect(
+            Math.max(...center.map((channel, i) => Math.abs(channel - blended[i]))),
+        ).toBeLessThanOrEqual(1);
+    };
+
+    const switched = world.create();
+    world.add(switched, Transform, { scale: [2, 2, 2, 0] });
+    world.add(switched, MeshInstance);
+    world.add(switched, MeshMaterial, opaque);
+    world.step(0);
+    world.storage(MeshMaterial).material.set(switched, glass.material);
+    world.step(0);
+    await expectGlass(switched);
+
+    world.destroy(switched);
+    const added = world.create();
+    world.add(added, Transform, { scale: [2, 2, 2, 0] });
+    world.add(added, MeshInstance);
+    world.add(added, MeshMaterial, { type: glass.type, material: glass.material });
+    world.step(0);
+    await expectGlass(added);
 });
