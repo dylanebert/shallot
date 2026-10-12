@@ -461,8 +461,7 @@ export async function runApp(config: AppConfig): Promise<App> {
             disposed = true;
         });
         // seeded by the first frame's own timestamp (`frameDelta` steps 0 there), never by `now()` here: a
-        // rAF timestamp is the frame's vsync-aligned start and can precede a wall-clock seed, which stepped
-        // a negative dt into the scheduler's throw
+        // rAF timestamp is the frame's vsync-aligned start and can precede a wall-clock seed
         let lastTime = -1;
         let pendingFenceWaitMs = 0;
         // the issue time of each fence still in flight, oldest at `fenceHead`: the queue settles fences in
