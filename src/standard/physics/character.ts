@@ -287,6 +287,7 @@ function spring(
     }
     character.pogoVelocity.column[eid] = pogo;
     character.pogoVelocity.markChanged(eid);
+    // Keep this update written out: vec3.mulAddOut boxes both double arguments when spring exhausts V8's inlining budget.
     s.target.x = f32(position.x + f32(dt * velocity.x));
     s.target.y = f32(position.y + f32(dt * velocity.y));
     s.target.z = f32(position.z + f32(dt * velocity.z));
