@@ -1155,8 +1155,8 @@ const comboUp = (frame: PointShadowFrame, face: number) =>
     frame.spot ? frame.up : POINT_FACES[face].up;
 const comboFov = (frame: PointShadowFrame) => (frame.spot ? frame.coneFov : pointFov(frame.tilePx));
 
-// write a combo's infinite perspective into `_faceProj`. Its own call so V8 inlines `perspective` here: called
-// from writeComboViewProj beside lookAt, it was not inlined and boxed its float arguments every combo
+// write a combo's infinite perspective into `_faceProj`. Its own function: calling `perspective` directly from
+// writeComboViewProj, the allocation oracle reads about 96 KB a window, from perspective's boxed arguments
 function comboProjection(frame: PointShadowFrame): void {
     perspective(comboFov(frame), 1, frame.near, _faceProj);
 }
