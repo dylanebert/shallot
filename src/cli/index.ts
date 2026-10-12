@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { resolveViteCli, runVite, startViteDev } from "../project";
-import { buildProject } from "./build";
+import { resolveViteCli, startViteDev } from "../project";
+import { buildProject, type NativeTarget } from "./build";
 import { previewProject } from "./preview";
 
 const usage = `
@@ -19,7 +19,7 @@ const usage = `
     add [example]             copy an example into your project; with no name, list them
 
   Targets
-    --target <platform>       web (default), windows, mac, linux
+    --target <platform>       windows, mac, linux
     --release                 optimized native build
     --portable                bundle the Chromium runtime (CEF)
 
@@ -29,34 +29,34 @@ const usage = `
 
 const commandUsage = {
     dev: `
-  shallot dev [dir] [Vite options]
+  shallot dev --target <platform> [dir] [Vite options]
 
-  Develop with hot reload. A native target opens the Vite dev URL in a debug desktop shell.
+  Develop with hot reload in a native desktop shell. Web projects run \`bun run dev\`.
   The directory defaults to the current directory (.). Other arguments go to Vite unchanged.
 
   Common examples
-    shallot dev
-    shallot dev --port 4000
+    bun run dev
+    shallot dev --target mac
     shallot dev --target mac --portable
 
   Shallot options
-    --target <platform>   web (default), windows, mac, linux
+    --target <platform>   windows, mac, linux
     --portable            Bundle the Chromium runtime (CEF)
     -h, --help            Show this help
 `,
     build: `
-  shallot build [dir] [Vite options]
+  shallot build --target <platform> [dir] [Vite options]
 
-  Build with the project's Vite config. A native target packages the Vite-built dist/ with a desktop shell.
+  Build a native desktop app with the project's Vite config. Web projects run \`bun run build\`.
   The directory defaults to the current directory (.). Other arguments go to Vite unchanged.
 
   Common examples
-    shallot build
+    bun run build
     shallot build --target mac
     shallot build --target linux --portable
 
   Shallot options
-    --target <platform>   web (default), windows, mac, linux
+    --target <platform>   windows, mac, linux
     --release             Optimized native build
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview.
     -h, --help            Show this help
@@ -73,18 +73,18 @@ const commandUsage = {
     Portable builds download CEF on first build, or use CEF_PATH when set.
 `,
     preview: `
-  shallot preview [dir] [Vite options]
+  shallot preview --target <platform> [dir]
 
-  Run the project's Vite preview server. With a native target, launch its existing desktop build.
-  The directory defaults to the current directory (.). For web, remaining arguments go to Vite unchanged.
+  Launch an existing native desktop build. Web projects run \`bun run preview\`.
+  The directory defaults to the current directory (.).
 
   Common examples
-    shallot preview
+    bun run preview
     shallot preview --target mac
     shallot preview --target linux --portable
 
   Shallot options
-    --target <platform>   web (default), windows, mac, linux
+    --target <platform>   windows, mac, linux
     --release             Launch the optimized native build
     --portable            Launch the build with its bundled Chromium runtime (CEF)
     -h, --help            Show this help
@@ -109,7 +109,11 @@ export type CliArgs =
       };
 
 const PROJECT_VERBS = ["dev", "build", "preview"] as const;
-const TARGETS = ["web", "windows", "mac", "linux"];
+const TARGETS: readonly NativeTarget[] = ["windows", "mac", "linux"];
+
+function isNativeTarget(target: string): target is NativeTarget {
+    return (TARGETS as readonly string[]).includes(target);
+}
 
 /** Separate Shallot's target flags; preserve every Vite argument and its order. */
 export function parseCliArgs(raw: string[]): CliArgs {
@@ -192,44 +196,47 @@ export async function main(
         exit(1);
     }
 
-    if (parsed.target && !TARGETS.includes(parsed.target)) {
-        console.error(`unknown target: ${parsed.target}`);
+    const target = parsed.target;
+    if (!target || target === "web") {
+        console.error(
+            `For web, run \`bun run ${parsed.subcmd}\`; for desktop, rerun with \`--target mac|windows|linux\`.`,
+        );
+        exit(1);
+    }
+    if (!isNativeTarget(target)) {
+        console.error(`unknown target: ${target}`);
         console.error(`See \`shallot ${parsed.subcmd} --help\` for available targets and options.`);
         exit(1);
     }
 
     const projectDir = resolve(parsed.dir);
-    const target = parsed.target;
     if (parsed.subcmd === "dev") {
-        if (target && target !== "web") {
-            let viteCli: string;
-            try {
-                viteCli = resolveViteCli(projectDir);
-            } catch (error) {
-                console.error(error instanceof Error ? error.message : String(error));
-                exit(1);
-            }
-            const status = await buildProject(projectDir, {
-                target,
-                release: false,
-                portable: parsed.portable,
-                dev: true,
-            });
-            if (status !== 0) exit(status);
-            const server = await startViteDev(projectDir, parsed.viteArgs, viteCli);
-            let appStatus: number;
-            try {
-                appStatus = await previewProject(projectDir, {
-                    target,
-                    portable: parsed.portable,
-                    devUrl: server.url,
-                });
-            } finally {
-                await server.close();
-            }
-            exit(appStatus);
+        let viteCli: string;
+        try {
+            viteCli = resolveViteCli(projectDir);
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            exit(1);
         }
-        exit(runVite(projectDir, "dev", parsed.viteArgs));
+        const status = await buildProject(projectDir, {
+            target,
+            release: false,
+            portable: parsed.portable,
+            dev: true,
+        });
+        if (status !== 0) exit(status);
+        const server = await startViteDev(projectDir, parsed.viteArgs, viteCli);
+        let appStatus: number;
+        try {
+            appStatus = await previewProject(projectDir, {
+                target,
+                portable: parsed.portable,
+                devUrl: server.url,
+            });
+        } finally {
+            await server.close();
+        }
+        exit(appStatus);
     }
 
     if (parsed.subcmd === "build") {
@@ -243,9 +250,6 @@ export async function main(
         );
     }
 
-    if (!target || target === "web") {
-        exit(runVite(projectDir, "preview", parsed.viteArgs));
-    }
     try {
         exit(
             await previewProject(projectDir, {

@@ -610,7 +610,7 @@ bunx shallot add first-person
 
 ## `shallot run` and `shallot verify` are removed
 
-Replace `shallot run` with `shallot build` followed by `shallot preview`. Preview never rebuilds. Replace `shallot verify` with the project's own tests.
+Replace `shallot run` with the project's `bun run build` followed by `bun run preview`; preview never rebuilds. For a desktop app, use `shallot build --target <platform>` followed by `shallot preview --target <platform>`. Replace `shallot verify` with the project's own tests.
 
 ## Package imports no longer use `/core` suffixes
 
@@ -998,7 +998,7 @@ import { shallot } from "@dylanebert/shallot/vite";
 export default defineConfig({ plugins: [shallot()] });
 ```
 
-`shallot dev`, `shallot build` and `shallot preview` now run the project's Vite commands. Add `dev`, `build` and `preview` scripts that run `vite`, `vite build` and `vite preview`; do not make them call the corresponding Shallot command. Native commands add the desktop shell to those project commands.
+`shallot dev`, `shallot build` and `shallot preview` no longer run web projects. For web, add `dev`, `build` and `preview` scripts that run `vite`, `vite build` and `vite preview`, then invoke them with `bun run dev`, `bun run build` and `bun run preview`. For desktop, pass `--target mac`, `--target windows` or `--target linux`; native dev and build add the desktop shell, and native preview launches the existing build.
 
 The peer TypeGPU version has also changed:
 

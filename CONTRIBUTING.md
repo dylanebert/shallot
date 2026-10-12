@@ -141,7 +141,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ## Commands
 
 - A `shallot` command does only what Shallot knows: it may invoke project commands, but never owns processes Vite, Bun or Playwright own.
-- Web commands delegate to Vite; native dev and build add the shell, and native preview launches the existing build.
+- Web runs through the project's scripts (`bun run dev`, `bun run build`, `bun run preview`); `shallot dev`, `build` and `preview` require a native target. Native dev and build add the shell, and native preview launches the existing build.
 - Package scripts are lifecycle hooks, the engine build, or:
   - an app's `dev`, `build` and `preview`, calling Vite;
   - `lint` and `format`, where the project has them;

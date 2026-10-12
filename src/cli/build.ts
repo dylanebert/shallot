@@ -1,11 +1,13 @@
 import { basename, relative } from "node:path";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "../native";
-import { buildWeb, requireBackend, runVite } from "../project";
+import { buildWeb, requireBackend } from "../project";
+
+export type NativeTarget = "windows" | "mac" | "linux";
 
 export async function buildProject(
     projectDir: string,
     opts: {
-        target?: string;
+        target: NativeTarget;
         release?: boolean;
         portable?: boolean;
         args?: string[];
@@ -13,10 +15,6 @@ export async function buildProject(
     },
 ): Promise<number> {
     const target = opts.target;
-    if (target !== "windows" && target !== "mac" && target !== "linux") {
-        return runVite(projectDir, "build", opts.args);
-    }
-
     const release = opts.release ?? false;
     const portable = opts.portable ?? false;
     requireBackend(target, portable);

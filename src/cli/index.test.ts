@@ -59,7 +59,7 @@ test("bare shallot presents the project map, loop, commands, targets and help co
     add [example]             copy an example into your project; with no name, list them
 
   Targets
-    --target <platform>       web (default), windows, mac, linux
+    --target <platform>       windows, mac, linux
     --release                 optimized native build
     --portable                bundle the Chromium runtime (CEF)
 
@@ -95,18 +95,18 @@ test("shallot dev --help presents dev options without build-only options", async
     expect(result.code).toBe(0);
     expect(result.stdout.trim()).toBe(
         `
-  shallot dev [dir] [Vite options]
+  shallot dev --target <platform> [dir] [Vite options]
 
-  Develop with hot reload. A native target opens the Vite dev URL in a debug desktop shell.
+  Develop with hot reload in a native desktop shell. Web projects run \`bun run dev\`.
   The directory defaults to the current directory (.). Other arguments go to Vite unchanged.
 
   Common examples
-    shallot dev
-    shallot dev --port 4000
+    bun run dev
+    shallot dev --target mac
     shallot dev --target mac --portable
 
   Shallot options
-    --target <platform>   web (default), windows, mac, linux
+    --target <platform>   windows, mac, linux
     --portable            Bundle the Chromium runtime (CEF)
     -h, --help            Show this help`.trim(),
     );
@@ -116,6 +116,8 @@ test("shallot dev --help presents dev options without build-only options", async
 test("shallot build --help presents build options without dev-only options", async () => {
     const result = await cli("build", "--help");
     expect(result.code).toBe(0);
+    expect(result.stdout).toContain("shallot build --target <platform> [dir] [Vite options]");
+    expect(result.stdout).toContain("--target <platform>   windows, mac, linux");
     expect(result.stdout).toContain("--release");
     expect(result.stdout).toContain("Native requirements");
     expect(result.stdout).toContain("GitHub Releases");
@@ -129,11 +131,48 @@ test("shallot build --help presents build options without dev-only options", asy
 test("shallot preview --help presents launch options without rebuilding or dev-only options", async () => {
     const result = await cli("preview", "--help");
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("Run the project's Vite preview server.");
-    expect(result.stdout).toContain("For web, remaining arguments go to Vite unchanged.");
+    expect(result.stdout).toContain("shallot preview --target <platform> [dir]");
+    expect(result.stdout).toContain("--target <platform>   windows, mac, linux");
+    expect(result.stdout).toContain("Launch an existing native desktop build.");
+    expect(result.stdout).toContain("Web projects run `bun run preview`.");
     expect(result.stdout).toContain("Native targets use the requirements");
     expect(result.stdout).toContain("shallot build --help");
     expect(result.stderr).toBe("");
+});
+
+test("web commands refuse to shadow project scripts and name the desktop target path", async () => {
+    const commands = [
+        [
+            "dev",
+            "For web, run `bun run dev`; for desktop, rerun with `--target mac|windows|linux`.",
+        ],
+        [
+            "build",
+            "For web, run `bun run build`; for desktop, rerun with `--target mac|windows|linux`.",
+        ],
+        [
+            "preview",
+            "For web, run `bun run preview`; for desktop, rerun with `--target mac|windows|linux`.",
+        ],
+    ] as const;
+    const expectedErrors = [
+        /For web, run `bun run dev`;/,
+        /For web, run `bun run build`;/,
+        /For web, run `bun run preview`;/,
+    ];
+    for (const [index, [command, refusal]] of commands.entries()) {
+        expectError(expectedErrors[index]!);
+        const result = await cli(command);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toBe(refusal);
+    }
+
+    expectError(/For web, run `bun run dev`;/);
+    const webTarget = await cli("dev", "--target", "web");
+    expect(webTarget.code).toBe(1);
+    expect(webTarget.stdout).toBe("");
+    expect(webTarget.stderr).toBe(commands[0][1]);
 });
 
 test("shallot add --help presents add usage without writing a destination", async () => {

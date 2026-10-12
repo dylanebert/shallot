@@ -8,13 +8,11 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
-    readFileSync,
     realpathSync,
     rmSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -24,20 +22,6 @@ import {
     viteUrlFromLines,
 } from "../project/vite-command";
 import { parseCliArgs } from "./index";
-
-async function freePort(): Promise<number> {
-    const server = createServer();
-    await new Promise<void>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => resolve());
-    });
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("no TCP address");
-    await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-    );
-    return address.port;
-}
 
 async function waitForPage(url: string): Promise<Response> {
     const deadline = Date.now() + 10_000;
@@ -67,7 +51,7 @@ test("shallot dev preserves Vite flags and values in their original order", () =
     });
 });
 
-test("shallot build refuses a project with no resolvable Vite and names the devDependency fix without fetching", () => {
+test("native dev refuses a project with no resolvable Vite and names the devDependency fix without fetching", () => {
     const root = resolve(import.meta.dir, "../..");
     const project = mkdtempSync(join(tmpdir(), "shallot-no-vite-"));
     writeFileSync(
@@ -81,7 +65,7 @@ test("shallot build refuses a project with no resolvable Vite and names the devD
             if (parent === current) break;
         }
         const result = Bun.spawnSync(
-            [process.execPath, join(root, "bin/shallot.ts"), "build", project],
+            [process.execPath, join(root, "bin/shallot.ts"), "dev", "--target", "mac", project],
             { cwd: root, stdout: "pipe", stderr: "pipe" },
         );
         expect(result.exitCode).toBe(1);
@@ -94,7 +78,7 @@ test("shallot build refuses a project with no resolvable Vite and names the devD
     }
 });
 
-test("a bun-linked Shallot consumer without Vite is told to add Vite as a devDependency", () => {
+test("native dev in a bun-linked Shallot consumer without Vite names the devDependency fix", () => {
     const root = resolve(import.meta.dir, "../..");
     const consumer = mkdtempSync(join(tmpdir(), "shallot-linked-consumer-"));
     const nodeModules = join(consumer, "node_modules");
@@ -111,7 +95,7 @@ test("a bun-linked Shallot consumer without Vite is told to add Vite as a devDep
             const parent = dirname(current);
             if (parent === current) break;
         }
-        const result = Bun.spawnSync([process.execPath, linkedBin, "build"], {
+        const result = Bun.spawnSync([process.execPath, linkedBin, "dev", "--target", "mac"], {
             cwd: consumer,
             stdout: "pipe",
             stderr: "pipe",
@@ -125,14 +109,14 @@ test("a bun-linked Shallot consumer without Vite is told to add Vite as a devDep
     }
 });
 
-test("shallot maps dev, build and preview to Vite and preserves each command's arguments", () => {
+test("Vite CLI argument mapping preserves project command arguments", () => {
     const forwarded = ["--port", "4012", "--mode", "staging"];
     expect(viteCliArgs("dev", forwarded)).toEqual(forwarded);
     expect(viteCliArgs("build", forwarded)).toEqual(["build", ...forwarded]);
     expect(viteCliArgs("preview", forwarded)).toEqual(["preview", ...forwarded]);
 });
 
-test("the real Shallot CLI finds Vite hoisted above a workspace app reached through a directory symlink", () => {
+test("Vite resolution finds a dependency hoisted above a workspace app reached through a symlink", () => {
     const root = resolve(import.meta.dir, "../..");
     const fixture = mkdtempSync(join(tmpdir(), "shallot-workspace-symlink-"));
     const workspace = join(fixture, "workspace");
@@ -143,7 +127,6 @@ test("the real Shallot CLI finds Vite hoisted above a workspace app reached thro
     mkdirSync(dirname(linkedProject), { recursive: true });
     symlinkSync(join(root, "node_modules"), join(workspace, "node_modules"), "dir");
     symlinkSync(realProject, linkedProject, "dir");
-    writeFileSync(join(realProject, "index.html"), "<!doctype html><title>Workspace</title>\n");
     try {
         expect(realpathSync(linkedProject)).toBe(realProject);
         expect(existsSync(join(workspace, "node_modules", "vite", "package.json"))).toBe(true);
@@ -152,72 +135,11 @@ test("the real Shallot CLI finds Vite hoisted above a workspace app reached thro
             const parent = dirname(current);
             if (parent === current) break;
         }
-        const result = Bun.spawnSync(
-            [process.execPath, join(root, "bin/shallot.ts"), "build", linkedProject],
-            { cwd: root, stdout: "pipe", stderr: "pipe" },
+        expect(resolveViteCli(linkedProject)).toBe(
+            join(realpathSync.native(workspace), "node_modules/vite/bin/vite.js"),
         );
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout.toString()).toContain("vite v");
-        expect(existsSync(join(realProject, "dist", "index.html"))).toBe(true);
     } finally {
         rmSync(fixture, { recursive: true, force: true });
-    }
-});
-
-test("shallot dev, build and preview run the Vite declared by the project", async () => {
-    const root = resolve(import.meta.dir, "../..");
-    const project = mkdtempSync(join(tmpdir(), "shallot-project-vite-"));
-    const nodeModules = join(project, "node_modules");
-    const packageManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-    const cli = join(root, "bin/shallot.ts");
-    symlinkSync(join(root, "node_modules"), nodeModules, "dir");
-    writeFileSync(
-        join(project, "package.json"),
-        JSON.stringify({
-            name: "project-vite-contract",
-            private: true,
-            type: "module",
-            devDependencies: { vite: packageManifest.devDependencies.vite },
-        }),
-    );
-    writeFileSync(join(project, "index.html"), "<!doctype html><title>PROJECT VITE</title>\n");
-    try {
-        expect(resolveViteCli(project)).toBe(
-            join(realpathSync(project), "node_modules/vite/bin/vite.js"),
-        );
-
-        const build = Bun.spawnSync([process.execPath, cli, "build"], {
-            cwd: project,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        const buildOutput = `${build.stdout.toString()}${build.stderr.toString()}`;
-        expect(build.exitCode, buildOutput).toBe(0);
-        expect(buildOutput).toContain("vite v");
-        expect(existsSync(join(project, "dist/index.html"))).toBe(true);
-
-        const serve = async (command: "dev" | "preview") => {
-            const port = await freePort();
-            const child = Bun.spawn(
-                [process.execPath, cli, command, "--host", "127.0.0.1", "--port", String(port)],
-                { cwd: project, stdout: "ignore", stderr: "ignore", detached: true },
-            );
-            try {
-                const response = await waitForPage(`http://127.0.0.1:${port}/`);
-                expect(response.status).toBe(200);
-                expect(await response.text()).toContain("PROJECT VITE");
-            } finally {
-                try {
-                    process.kill(-child.pid, "SIGTERM");
-                } catch {}
-                child.kill();
-                await child.exited;
-            }
-        };
-        await serve("dev");
-        await serve("preview");
-    } finally {
-        rmSync(project, { recursive: true, force: true });
     }
 });
 
@@ -249,97 +171,6 @@ test("native dev loads the complete local Vite URL when the project uses a base 
         expect(await response.text()).toContain("BASE PATH");
     } finally {
         await server?.close();
-        rmSync(project, { recursive: true, force: true });
-    }
-});
-
-test("shallot dev --port and vite --port serve the same page and project config", async () => {
-    const root = resolve(import.meta.dir, "../..");
-    // Vite run directly, as the comparison, needs the long-name cwd shallot dev gives it (vite-command.ts).
-    const project = realpathSync.native(mkdtempSync(join(tmpdir(), "shallot-vite-delegation-")));
-    symlinkSync(join(root, "node_modules"), join(project, "node_modules"), "dir");
-    const port = await freePort();
-    writeFileSync(join(project, "index.html"), "<!doctype html><title>OWNED PAGE</title>\n");
-    writeFileSync(
-        join(project, "vite.config.ts"),
-        `export default { server: { headers: { "X-Project-Vite-AppConfig": "same" } } };\n`,
-    );
-    const serve = async (command: string[]) => {
-        const child = Bun.spawn(command, {
-            cwd: project,
-            stdout: "ignore",
-            stderr: "ignore",
-            detached: true,
-        });
-        try {
-            const response = await waitForPage(`http://127.0.0.1:${port}/`);
-            return {
-                status: response.status,
-                header: response.headers.get("X-Project-Vite-AppConfig"),
-                body: await response.text(),
-            };
-        } finally {
-            try {
-                process.kill(-child.pid, "SIGTERM");
-            } catch {}
-            child.kill();
-            await child.exited;
-        }
-    };
-    try {
-        const vite = await serve([
-            process.execPath,
-            join(root, "node_modules/vite/bin/vite.js"),
-            "--port",
-            String(port),
-            "--host",
-            "127.0.0.1",
-        ]);
-        const shallot = await serve([
-            process.execPath,
-            join(root, "bin/shallot.ts"),
-            "dev",
-            "--port",
-            String(port),
-            "--host",
-            "127.0.0.1",
-        ]);
-        expect(vite).toEqual(shallot);
-        expect(vite.status).toBe(200);
-        expect(vite.header).toBe("same");
-        expect(vite.body).toContain("OWNED PAGE");
-    } finally {
-        rmSync(project, { recursive: true, force: true });
-    }
-});
-
-test("Vite returns no entry page when the project has no index.html", async () => {
-    const root = resolve(import.meta.dir, "../..");
-    const project = mkdtempSync(join(tmpdir(), "shallot-no-entry-page-"));
-    symlinkSync(join(root, "node_modules"), join(project, "node_modules"), "dir");
-    const port = await freePort();
-    const child = Bun.spawn(
-        [
-            process.execPath,
-            join(root, "bin/shallot.ts"),
-            "dev",
-            "--port",
-            String(port),
-            "--host",
-            "127.0.0.1",
-        ],
-        { cwd: project, stdout: "ignore", stderr: "ignore", detached: true },
-    );
-    try {
-        const response = await waitForPage(`http://127.0.0.1:${port}/`);
-        expect(response.status).toBe(404);
-        expect(existsSync(join(project, "index.html"))).toBe(false);
-    } finally {
-        try {
-            process.kill(-child.pid, "SIGTERM");
-        } catch {}
-        child.kill();
-        await child.exited;
         rmSync(project, { recursive: true, force: true });
     }
 });
