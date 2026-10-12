@@ -9,6 +9,13 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { DEPTH_FORMAT, Views } from "../../core/rendering";
 import type { World } from "../../engine";
+import {
+    beginComputePass,
+    beginRenderPass,
+    endComputePass,
+    endRenderPass,
+    executeRenderBundles,
+} from "../../engine/runtime";
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
 import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
@@ -987,7 +994,7 @@ export function renderPointShadows(
             (_atlasState.castDraws[i].draw.args.offset ?? 0) / SHADOW_ARG_STRIDE,
         );
     _atlasState.pointRegatherPass.timestampWrites = world.gpu.span?.("standard:pointregather");
-    const cpass = encoder.beginComputePass(_atlasState.pointRegatherPass);
+    const cpass = beginComputePass(encoder, _atlasState.pointRegatherPass);
     _pointRegather.run(
         cpass,
         drawArgs,
@@ -998,7 +1005,7 @@ export function renderPointShadows(
         D,
         pairCount,
     );
-    cpass.end();
+    endComputePass(cpass);
 
     // one pass into the whole atlas — one indirect draw per casting mesh, the VS placing each re-gathered
     // instance into its combo's tile. The point VS projects by faceVP (not view), so the ViewUniforms buffer bound
@@ -1036,9 +1043,9 @@ export function renderPointShadows(
             _atlasState.shadowBundleDesc,
         );
     }
-    const pass = encoder.beginRenderPass(_atlasState.pointShadowPass);
-    if (_atlasState.pointBundle.bundle) pass.executeBundles(_atlasState.pointBundle.replay);
-    pass.end();
+    const pass = beginRenderPass(encoder, _atlasState.pointShadowPass);
+    if (_atlasState.pointBundle.bundle) executeRenderBundles(pass, _atlasState.pointBundle.replay);
+    endRenderPass(pass);
     // one indirect draw per casting mesh — the Dawn indirect-validation floor; the per-combo
     // fan-out is collapsed by the re-gather, not amplified
     world.gpu.indirect?.("standard:pointshadow", D);
@@ -1205,7 +1212,7 @@ export function renderCascades(
         _atlasState.cascadeRegatherPass.timestampWrites = world.gpu.span?.(
             "standard:cascaderegather",
         );
-        const cpass = encoder.beginComputePass(_atlasState.cascadeRegatherPass);
+        const cpass = beginComputePass(encoder, _atlasState.cascadeRegatherPass);
         _cascadeRegather.run(
             cpass,
             batch.drawArgs,
@@ -1217,7 +1224,7 @@ export function renderCascades(
             batch.pairCount,
             b,
         );
-        cpass.end();
+        endComputePass(cpass);
 
         _atlasState.cascadeShadowDepth.view = _atlasState.cascadeAtlasView!;
         _atlasState.cascadeShadowDepth.depthLoadOp = b === 0 ? "clear" : "load";
@@ -1251,9 +1258,9 @@ export function renderCascades(
                 _atlasState.shadowBundleDesc,
             );
         }
-        const pass = encoder.beginRenderPass(_atlasState.cascadeShadowPass);
-        if (bundle.bundle) pass.executeBundles(bundle.replay);
-        pass.end();
+        const pass = beginRenderPass(encoder, _atlasState.cascadeShadowPass);
+        if (bundle.bundle) executeRenderBundles(pass, bundle.replay);
+        endRenderPass(pass);
         totalDraws += D;
     }
     world.gpu.indirect?.("standard:cascadeshadow", totalDraws);

@@ -10,6 +10,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
+import { dispatchWorkgroups, setComputeBindGroup, setComputePipeline } from "../../engine/runtime";
 import { DrawIndexedIndirect } from "./registry";
 
 // one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
@@ -476,12 +477,12 @@ export function createRegather(world: World, label: string): Regather {
             // Pass A (per-mesh args, 1 thread) → Pass B (scatter, one thread per (mesh, combo)) in one pass —
             // the same intra-pass dispatch-ordering the MeshInstance pack relies on, so B sees A's args writes
             //. The atlas render then sees the compute output by in-encoder ordering
-            cpass.setPipeline(regatherState(world).aPipe!);
-            cpass.setBindGroup(0, aGroup(world, drawArgs, meta, runIndex));
-            cpass.dispatchWorkgroups(1);
-            cpass.setPipeline(regatherState(world).bPipe!);
-            cpass.setBindGroup(0, bGroup(world, drawArgs, packedEids, meta, runIndex));
-            cpass.dispatchWorkgroups(Math.ceil((D * C) / 64));
+            setComputePipeline(cpass, regatherState(world).aPipe!);
+            setComputeBindGroup(cpass, 0, aGroup(world, drawArgs, meta, runIndex));
+            dispatchWorkgroups(cpass, 1);
+            setComputePipeline(cpass, regatherState(world).bPipe!);
+            setComputeBindGroup(cpass, 0, bGroup(world, drawArgs, packedEids, meta, runIndex));
+            dispatchWorkgroups(cpass, Math.ceil((D * C) / 64));
         },
         reset(onAlloc: () => void): void {
             _onAlloc = onAlloc;
