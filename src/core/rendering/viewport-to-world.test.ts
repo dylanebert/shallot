@@ -72,7 +72,7 @@ test("orthographic pixels shift ray origins by size and aspect while keeping par
     world.storage(GlobalTransform).translation.set(camera, 3, 2, 5, 0);
     world.storage(GlobalTransform).rotation.set(camera, 0, Math.SQRT1_2, 0, Math.SQRT1_2);
     resizeViewport(world, 0, 800, 400, 1);
-    world.resource(Views).set(camera, { viewportIndex: 0 } as View);
+    world.resource(Views).set(camera, { viewportIndex: 0, camera: world.ref(camera) } as View);
     try {
         const centre = viewportToWorld(world, camera, 400, 200)!;
         const offset = viewportToWorld(world, camera, 600, 100)!;
@@ -97,6 +97,28 @@ test("orthographic pixels shift ray origins by size and aspect while keeping par
             expect.closeTo(0, 6),
             expect.closeTo(0, 6),
         ]);
+    } finally {
+        world.dispose();
+    }
+});
+
+test("a recycled camera eid does not cast rays through its predecessor's viewport before the next frame", () => {
+    const world = new World();
+    world.registry.register(component("Camera", { ...Camera }));
+    world.registry.register(component("GlobalTransform", { ...GlobalTransform }));
+    const camera = world.create();
+    world.add(camera, Camera);
+    world.add(camera, GlobalTransform);
+    resizeViewport(world, 0, 800, 400, 1);
+    world.resource(Views).set(camera, { viewportIndex: 0, camera: world.ref(camera) } as View);
+    try {
+        expect(viewportToWorld(world, camera, 400, 200)).not.toBeNull();
+        world.destroy(camera);
+        const recycled = world.create();
+        expect(recycled).toBe(camera);
+        world.add(recycled, Camera);
+        world.add(recycled, GlobalTransform);
+        expect(viewportToWorld(world, recycled, 400, 200)).toBeNull();
     } finally {
         world.dispose();
     }
