@@ -152,6 +152,7 @@ bun run test --path-ignore-patterns '**/*.gpu.test.ts' # cheap, no-device tier
 bun test src/core/input/devices.test.ts # selected cheap subject
 bun test src/core/mesh/attributes.gpu.test.ts # selected GPU subject
 bun test scripts/check-imports.node.ts # selected Node subject
+bun test ./scripts/check-tooling.node.ts # generated tooling freshness
 cargo fmt --check
 cargo clippy -p shallot-physics --all-targets -- -D warnings
 cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings
@@ -288,7 +289,7 @@ bun run format                  # biome
 
 - Released: `bun add @dylanebert/shallot`.
 - Staged: `bun pm pack` here, then `bun add --no-save <tarball>` in the project; add `--dev` for dev dependencies, or the overlay silently targets the wrong section.
-- Live: `bun link` here, then `bun link @dylanebert/shallot` in the project; Vite dedupe and Bun preload route named `typegpu` imports and subpaths to the project's copy, not copies under other package names.
+- Live: in the Shallot checkout, run `bun run prepare`, then `bun link`; in the project, run `bun link @dylanebert/shallot`. `bun link` does not refresh generated tooling: after changing or updating the linked checkout, rerun `bun run prepare` there before using its `./testing` or `./vite` exports. `bun test ./scripts/check-tooling.node.ts` names missing or stale outputs and the same remedy. Vite dedupe and Bun preload route named `typegpu` imports and subpaths to the project's copy, not copies under other package names.
 - `bun install` restores the manifest pin only if its range resolves on npm: an unpublished `^0.10.0` neither restores nor matches `0.10.0-next.1`, so staged overlays and restores use a published range.
 - The Bun entry is a factory registered from a test preload, not an import side effect; `shallot add` writes that setup, and root resolution walks from the preload to the nearest `package.json`, not from cwd.
 
