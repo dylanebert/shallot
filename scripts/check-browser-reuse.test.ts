@@ -34,7 +34,7 @@ test("browser servers refuse to reuse existing processes", () => {
     const violations: string[] = [];
     let servers = 0;
     if (WEB_SERVER_CONFIG.reuseExistingServer !== false)
-        violations.push("src/project/testing.ts: WEB_SERVER_CONFIG must refuse existing servers");
+        violations.push("src/project/testing.js: WEB_SERVER_CONFIG must refuse existing servers");
     for (const config of configs) {
         const source = readFileSync(resolve(root, config), "utf8");
         const ast = parse(source, { sourceType: "module", plugins: ["typescript"] });

@@ -6,7 +6,7 @@ setDefaultTimeout(CEILING.node);
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -28,16 +28,17 @@ const entries: Entry[] = Object.entries(PACKAGE.exports)
         if (path.endsWith(".d.ts"))
             return {
                 name,
-                source: join(ROOT, "src/project/vite.ts"),
+                source: resolve(ROOT, "src/project", basename(path).replace(/\.d\.ts$/, ".js")),
                 publishedDeclaration: resolve(ROOT, path),
             };
+        if (path.endsWith(".js")) return { name, source: resolve(ROOT, path) };
         if (!path.endsWith(".ts")) return undefined;
         return { name, source: resolve(ROOT, path) };
     })
     .filter((entry): entry is Entry => entry !== undefined);
 
 function emittedPath(outDir: string, source: string): string {
-    return join(outDir, relative(ROOT, source).replace(/\.tsx?$/, ".d.ts"));
+    return join(outDir, relative(ROOT, source).replace(/\.(?:tsx?|js)$/, ".d.ts"));
 }
 function isHandleDeclaration(file: string): boolean {
     return /[/\\]src[/\\]standard[/\\]physics[/\\]api[/\\](?:body|joint|joints|shape|world)\.d\.ts$/.test(

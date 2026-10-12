@@ -3,16 +3,20 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
+type ProjectTool = "testing" | "vite";
 
-export function buildViteDeclaration(): string {
-    const scratch = mkdtempSync(join(tmpdir(), "shallot-vite-declaration-"));
+export function buildProjectDeclaration(entry: ProjectTool): string {
+    const scratch = mkdtempSync(join(tmpdir(), `shallot-${entry}-declaration-`));
     const outdir = join(scratch, "out");
     const config = join(scratch, "tsconfig.json");
+    const source = resolve(ROOT, `src/project/${entry}.js`);
     writeFileSync(
         config,
         JSON.stringify({
             extends: resolve(ROOT, "tsconfig.json"),
             compilerOptions: {
+                allowJs: true,
+                checkJs: true,
                 declaration: true,
                 emitDeclarationOnly: true,
                 noEmit: false,
@@ -21,7 +25,7 @@ export function buildViteDeclaration(): string {
                 skipLibCheck: true,
                 typeRoots: [resolve(ROOT, "node_modules/@types"), resolve(ROOT, "node_modules")],
             },
-            files: [resolve(ROOT, "src/project/vite.ts")],
+            files: [source],
             include: [],
         }),
     );
@@ -33,19 +37,20 @@ export function buildViteDeclaration(): string {
         );
         if (result.exitCode !== 0) {
             throw new Error(
-                `build-vite-types: declaration emit failed:\n${result.stdout.toString()}${result.stderr.toString()}`,
+                `build-tooling: declaration emit for ${source} failed:\n${result.stdout.toString()}${result.stderr.toString()}`,
             );
         }
-        const declaration = readFileSync(join(outdir, "vite.d.ts"), "utf8");
+        const declaration = readFileSync(join(outdir, `${entry}.d.ts`), "utf8");
         const imports = [
             ...declaration.matchAll(
                 /(?:\bfrom\s+|\bimport\s*\(\s*|<reference\s+(?:path|types)=)["']([^"']+)["']/g,
             ),
         ].map(([, specifier]) => specifier);
-        const unexpected = imports.filter((specifier) => specifier !== "vite");
+        const allowed = entry === "vite" ? ["vite"] : ["playwright/test"];
+        const unexpected = imports.filter((specifier) => !allowed.includes(specifier));
         if (unexpected.length) {
             throw new Error(
-                `build-vite-types: dist/vite.d.ts may depend only on Vite types, found: ${[...new Set(unexpected)].join(", ")}`,
+                `build-tooling: dist/${entry}.d.ts may depend only on ${allowed.join(", ")} types, found: ${[...new Set(unexpected)].join(", ")}`,
             );
         }
         return declaration;

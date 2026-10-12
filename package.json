@@ -29,14 +29,14 @@
         ".": "./src/index.ts",
         "./bun": "./src/project/bun.ts",
         "./testing": {
-            "types": "./src/project/testing.ts",
-            "default": "./dist/testing.js"
+            "types": "./dist/testing.d.ts",
+            "default": "./src/project/testing.js"
         },
         "./tsconfig.json": "./tsconfig.base.json",
         "./extras": "./src/extras/index.ts",
         "./vite": {
             "types": "./dist/vite.d.ts",
-            "default": "./dist/vite.js"
+            "default": "./src/project/vite.js"
         },
         "./runtime": "./src/engine/runtime/index.ts",
         "./webgpu": "./src/engine/runtime/webgpu.ts",

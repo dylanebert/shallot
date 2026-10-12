@@ -178,8 +178,8 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
                     "./rendering": "./src/core/rendering/index.ts",
                     "./extras": "./src/extras/index.ts",
                     "./vite": {
-                        types: "./src/project/vite.ts",
-                        default: "./dist/vite.js",
+                        types: "./src/project/vite.js",
+                        default: "./src/project/vite.js",
                     },
                 },
             }),
@@ -213,7 +213,7 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
             "core/input/product.ts",
             'import "./fixtures/page";\nimport "./check.fixture";\n',
         );
-        put(root, "project/vite.ts", "export {};\n");
+        put(root, "project/vite.js", "export {};\n");
         put(root, "core/rendering/index.ts", 'import "@dylanebert/shallot/input";\n');
         put(root, "core/rendering/js-path.ts", 'import "../input/index.js";\n');
         put(root, "core/rendering/alias.ts", 'import "@core/input";\n');

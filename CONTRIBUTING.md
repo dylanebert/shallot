@@ -172,7 +172,7 @@ bun run format                  # biome
 ## Verification
 
 - Module promises are tested beside their owners and through public examples; test names state claims.
-- [The `./testing` subpath](src/project/testing.ts) owns test ceilings and shared browser configuration; ceilings are hang and runaway backstops, not performance targets. A test runs under half its ceiling on every CI host, and CI warns on one that passes half; work needing more splits or moves to a heavier tier.
+- [The `./testing` subpath](src/project/testing.js) owns test ceilings and shared browser configuration; ceilings are hang and runaway backstops, not performance targets. A test runs under half its ceiling on every CI host, and CI warns on one that passes half; work needing more splits or moves to a heavier tier.
 
 | Tier | Files / budget |
 |---|---|
@@ -289,7 +289,7 @@ bun run format                  # biome
 
 - Released: `bun add @dylanebert/shallot`.
 - Staged: `bun pm pack` here, then `bun add --no-save <tarball>` in the project; add `--dev` for dev dependencies, or the overlay silently targets the wrong section.
-- Live: in the Shallot checkout, run `bun run prepare`, then `bun link`; in the project, run `bun link @dylanebert/shallot`. `bun link` does not refresh generated tooling: after changing or updating the linked checkout, rerun `bun run prepare` there before using its `./testing` or `./vite` exports. `bun test ./scripts/check-tooling.node.ts` names missing or stale outputs and the same remedy. Vite dedupe and Bun preload route named `typegpu` imports and subpaths to the project's copy, not copies under other package names.
+- Live: in the Shallot checkout, run `bun run prepare`, then `bun link`. A copied `shallot add` scaffold pins the current version, which may be unpublished; change its Shallot dependency to a published range (currently `^0.9.5`), run `bun install`, then `bun link @dylanebert/shallot` in that project. `./testing` and `./vite` load committed JavaScript, so source edits are live without preparation. After source changes, run `bun run prepare` to refresh their generated declarations; `bun test ./scripts/check-tooling.node.ts` names missing or stale declarations and the same remedy. Vite dedupe and Bun preload route named `typegpu` imports and subpaths to the project's copy, not copies under other package names.
 - `bun install` restores the manifest pin only if its range resolves on npm: an unpublished `^0.10.0` neither restores nor matches `0.10.0-next.1`, so staged overlays and restores use a published range.
 - The Bun entry is a factory registered from a test preload, not an import side effect; `shallot add` writes that setup, and root resolution walks from the preload to the nearest `package.json`, not from cwd.
 

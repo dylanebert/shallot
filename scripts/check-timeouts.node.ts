@@ -23,8 +23,8 @@ test("test tiers and browser subjects follow the shared timeouts", async () => {
     }
     errors.push(
         ...timeoutErrors(
-            "src/project/testing.ts",
-            await Bun.file(resolve(root, "src/project/testing.ts")).text(),
+            "src/project/testing.js",
+            await Bun.file(resolve(root, "src/project/testing.js")).text(),
         ),
     );
     expect(errors).toEqual([]);

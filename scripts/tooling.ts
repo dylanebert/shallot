@@ -1,107 +1,16 @@
-// Compile Node-loaded project tools to JavaScript. Vite configs and Playwright configs resolve through
-// Node's ESM loader; an installed package cannot expose raw `.ts` there. Other source exports stay raw
-// `.ts`, so their types point at source and Bun or the project's TypeGPU transform can load them.
-// `./testing` keeps its types on `src/project/testing.ts` and its Node runtime on `dist/testing.js`;
-// Playwright configs, the app and engine checks all share that one source policy.
-// These outputs are generated here by `bun run build` and `prepare`.
-//
-// `vite.ts`'s runtime graph is a closed island — node builtins plus the `vite` / `unplugin-typegpu`
-// externals it imports, no engine runtime, no TGSL — so bundling it carries no duplicate-TypeGPU-identity
-// risk. Kept external explicitly (not just left to Bun's default builtin handling) so a bundled copy of
-// either package fails loud in review rather than silently inlining. `testing.ts` has no runtime package
-// imports; its Playwright type import is erased.
-
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { buildViteDeclaration } from "./vite-declaration";
+import { buildProjectDeclaration } from "./project-declaration";
 
 const ROOT = resolve(import.meta.dir, "..");
 const OUT = resolve(ROOT, "dist");
 
-// dist/ is regenerated on every build — never accumulate a stale build's leftovers (a manual `shallot
-// build` run against this package as its own project would otherwise land unrelated output here too).
+// Recreate dist/ so a retired declaration cannot survive a later prepare.
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
-const EXTERNAL = [
-    "vite",
-    "unplugin-typegpu",
-    "unplugin-typegpu/vite",
-    "node:fs",
-    "node:path",
-    "node:module",
-    "fs",
-    "path",
-];
-
-const entries: { entry: string; out: string }[] = [
-    { entry: resolve(ROOT, "src/project/vite.ts"), out: "vite" },
-    { entry: resolve(ROOT, "src/project/testing.ts"), out: "testing" },
-];
-
-for (const { entry, out } of entries) {
-    const result = await Bun.build({
-        entrypoints: [entry],
-        outdir: OUT,
-        target: "node",
-        format: "esm",
-        naming: `${out}.js`,
-        external: EXTERNAL,
-        minify: false,
-    });
-    if (!result.success) {
-        for (const log of result.logs) console.error(log);
-        throw new Error(`build-tooling: failed to compile ${entry}`);
-    }
+for (const entry of ["testing", "vite"] as const) {
+    writeFileSync(resolve(OUT, `${entry}.d.ts`), buildProjectDeclaration(entry));
 }
 
-writeFileSync(resolve(OUT, "vite.d.ts"), buildViteDeclaration());
-
-// `src/project/` is a closed island (asset and dependency readers, no engine runtime,
-// no TGSL) —
-// verify empirically rather than assuming, since a duplicate engine identity landing in a Node-loaded
-// bundle would be a serious regression (the exact defect class this whole spec exists to fix).
-//
-// The real check is the emitted bundle's remaining top-level imports: bundling inlines an internal
-// import and erases its statement entirely, so a marker on the erased text (`'from "../engine'`, …)
-// can never fire — it would pass silently on a leaked import whose source text just doesn't happen to
-// contain `GPUShaderStage` / `requestGPU` / `tgpu.resolve`. What survives bundling either way is the
-// import statement for anything Bun couldn't (or was told not to) inline, so asserting that surviving
-// set is a subset of the declared `EXTERNAL` list catches both an engine module surfacing as an import
-// (a leak) and any other unexpected external the entries shouldn't carry. Subset, not equality: an
-// entry legitimately imports only some of the shared list.
-function importsOf(js: string): Set<string> {
-    // matches `import x from "y"`, `import { a, b } from "y"` (multi-line specifier lists included),
-    // and the bare `import "y"` side-effect form — not dynamic `import(...)`, which none of these
-    // entries use and which Bun.build never rewrites into a static `import` anyway.
-    const re = /(?:^|\n)\s*import\s*(?:[^;\n]*?\sfrom\s*)?["']([^"']+)["']/g;
-    const specs = new Set<string>();
-    for (const m of js.matchAll(re)) specs.add(m[1]);
-    return specs;
-}
-
-for (const { out } of entries) {
-    const emitted = readFileSync(resolve(OUT, `${out}.js`), "utf8");
-    const leaked = [...importsOf(emitted)].filter((spec) => !EXTERNAL.includes(spec));
-    if (leaked.length) {
-        throw new Error(
-            `build-tooling: dist/${out}.js carries an import outside the declared externals, expected only ${EXTERNAL.join(", ")}: ${leaked.join(", ")}`,
-        );
-    }
-}
-
-// Content markers stay as a second, cheap check for the case an engine-runtime symbol got inlined
-// (not imported) into the bundle — the import-set check above can't see that shape, since an inlined
-// symbol carries no import statement at all.
-const forbidden = ["GPUShaderStage", "requestGPU", "tgpu.resolve"];
-for (const { out } of entries) {
-    const emitted = readFileSync(resolve(OUT, `${out}.js`), "utf8");
-    const leakedContent = forbidden.filter((needle) => emitted.includes(needle));
-    if (leakedContent.length) {
-        throw new Error(
-            `build-tooling: dist/${out}.js carries engine-runtime content, expected a pure tooling bundle: ${leakedContent.join(", ")}`,
-        );
-    }
-}
-
-console.log(`build-tooling: compiled ${entries.map((e) => `dist/${e.out}.js`).join(", ")}`);
+console.log("build-tooling: generated dist/testing.d.ts, dist/vite.d.ts");

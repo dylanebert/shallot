@@ -84,7 +84,7 @@ test("browser subjects inherit categorical values from their one shared home", (
     ).not.toEqual([]);
     expect(
         timeoutErrors(
-            "src/project/testing.ts",
+            "src/project/testing.js",
             "const CEILING = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { globalTimeout: CEILING.browser }; export const WEB_SERVER_CONFIG = { timeout: CEILING.startup };",
         ),
     ).toEqual([]);

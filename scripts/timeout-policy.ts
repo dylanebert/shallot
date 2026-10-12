@@ -6,7 +6,7 @@ export function timeoutErrors(path: string, text: string): string[] {
     if (path.endsWith(".oracle.ts")) return [];
     const browser = path.endsWith("playwright.config.ts");
     const browserTest = path.endsWith(".e2e.ts");
-    const sharedBrowser = path === "src/project/testing.ts";
+    const sharedBrowser = path === "src/project/testing.js";
     const tier = path.endsWith(".gpu.test.ts")
         ? "gpu"
         : path.endsWith(".node.ts")

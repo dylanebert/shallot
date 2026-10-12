@@ -46,9 +46,12 @@ test("Bun engine exports load without Node-only modules or project tooling", asy
     expect(Object.keys(metafile.inputs).some((path) => path.includes("src/project/"))).toBe(false);
 });
 
-test("the Node Vite entry stays outside the browser and Bun engine graph", async () => {
+test("Node project tooling stays outside the browser and Bun engine graph", async () => {
     const result = await Bun.build({
-        entrypoints: [resolve(ROOT, "scripts/node-vite-entry.ts")],
+        entrypoints: [
+            resolve(ROOT, "src/project/vite.js"),
+            resolve(ROOT, "src/project/testing.js"),
+        ],
         target: "node",
         external: [
             "vite",
@@ -56,6 +59,7 @@ test("the Node Vite entry stays outside the browser and Bun engine graph", async
             "unplugin-typegpu/vite",
             "node:fs",
             "node:path",
+            "node:module",
             "fs",
             "path",
         ],
@@ -64,9 +68,11 @@ test("the Node Vite entry stays outside the browser and Bun engine graph", async
     });
     const metafile = checkBuild(result, "Node Vite");
     expect(edgesOf(metafile).filter((path) => path.startsWith("bun:"))).toEqual([]);
+    const inputs = Object.keys(metafile.inputs);
+    expect(inputs.some((path) => path.endsWith("src/project/vite.js"))).toBe(true);
+    expect(inputs.some((path) => path.endsWith("src/project/assets.js"))).toBe(true);
+    expect(inputs.some((path) => path.endsWith("src/project/testing.js"))).toBe(true);
     expect(
-        Object.keys(metafile.inputs).filter((path) =>
-            /src\/(?:engine|core|standard|extras|transitional)\//.test(path),
-        ),
+        inputs.filter((path) => /src\/(?:engine|core|standard|extras|transitional)\//.test(path)),
     ).toEqual([]);
 });

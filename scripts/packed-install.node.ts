@@ -174,7 +174,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(installedManifest.exports["./brand"]).toBeUndefined();
     expect(existsSync(join(installedPackage, "assets/branding"))).toBe(false);
     expect(installedManifest.scripts.prepare).toBe(rootPackage.scripts.prepare);
-    expect(cliInstall).not.toContain("build-tooling: compiled dist/vite.js");
+    expect(cliInstall).not.toContain("build-tooling: generated dist/");
 
     const publicExports = Object.keys(installedManifest.exports).filter(
         (entry) => entry !== "./tsconfig.json",
@@ -291,7 +291,7 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
         example,
         `installing ${name} from its own manifest`,
     );
-    expect(exampleInstall).not.toContain("build-tooling: compiled dist/vite.js");
+    expect(exampleInstall).not.toContain("build-tooling: generated dist/");
     expect(existsSync(join(example, "node_modules/@types/bun/package.json"))).toBe(true);
     expect(examplePackage.devDependencies.typescript).toBeUndefined();
     run(["bun", "check", "-p", "tsconfig.json"], example, `bun check ${name}`);

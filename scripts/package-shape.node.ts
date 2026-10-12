@@ -47,6 +47,17 @@ test("Playwright is an optional peer for ./testing and the engine's dev dependen
     expect(ENGINE.devDependencies.playwright).toBe("^1.63.0");
 });
 
+test("Node tooling exports committed JavaScript with generated declaration types", () => {
+    expect(ENGINE.exports["./testing"]).toEqual({
+        types: "./dist/testing.d.ts",
+        default: "./src/project/testing.js",
+    });
+    expect(ENGINE.exports["./vite"]).toEqual({
+        types: "./dist/vite.d.ts",
+        default: "./src/project/vite.js",
+    });
+});
+
 test("prepare is the sole tooling pack hook", () => {
     expect(ENGINE.scripts.prepare).toBe("bun run ./scripts/tooling.ts");
     expect(ENGINE.scripts.prepack).toBeUndefined();
