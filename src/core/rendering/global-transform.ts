@@ -59,6 +59,7 @@ export interface GlobalTransformRuntime {
     params?: GPUBuffer;
     historyNeedsPromotion: boolean;
     historyPromotionOnSubmit: boolean;
+    historyDiscontinuitiesOnSubmit: Uint32Array;
     historyDiscarded: boolean;
     commitOnSubmit: () => void;
 }
@@ -75,14 +76,15 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             generation: -1,
             historyNeedsPromotion: false,
             historyPromotionOnSubmit: false,
+            historyDiscontinuitiesOnSubmit: new Uint32Array(1),
             historyDiscarded: false,
             commitOnSubmit: () => {
                 if (!runtime.enabled) return;
                 runtime.tickCount = 0;
                 runtime.ranges.fill(0);
                 runtime.historyNeedsPromotion = runtime.historyPromotionOnSubmit;
+                runtime.historyDiscontinuitiesOnSubmit.fill(0);
                 runtime.historyDiscarded = false;
-                world.resource(TransformRuntime).discontinuities.fill(0);
             },
         };
         world.observeMembership(GlobalTransform, (eid, present) => {
@@ -158,6 +160,7 @@ export function recoverGlobalTransformHistory(world: World) {
             runtime.ranges.fill(0);
             runtime.historyNeedsPromotion = false;
             runtime.historyPromotionOnSubmit = false;
+            runtime.historyDiscontinuitiesOnSubmit.fill(0);
             runtime.historyDiscarded = true;
         },
     };
@@ -205,6 +208,23 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
     }
     return runtime.render!;
 }
+function stageHistoryDiscontinuities(world: World, runtime: GlobalTransformRuntime): Uint32Array {
+    const marks = world.resource(TransformRuntime).discontinuities;
+    if (runtime.historyDiscontinuitiesOnSubmit.length < marks.length) {
+        const next = new Uint32Array(
+            Math.max(marks.length, runtime.historyDiscontinuitiesOnSubmit.length * 2),
+        );
+        next.set(runtime.historyDiscontinuitiesOnSubmit);
+        runtime.historyDiscontinuitiesOnSubmit = next;
+    }
+    const pending = runtime.historyDiscontinuitiesOnSubmit;
+    for (let i = 0; i < pending.length; i++) {
+        const combined = pending[i]! | (marks[i] ?? 0);
+        pending[i] = combined;
+        if (i < marks.length) marks[i] = 0;
+    }
+    return pending;
+}
 function captureCurrent(world: World, phase: number): void {
     const runtime = world.resource(GlobalTransformHistory);
     const current = runtime.current!;
@@ -233,7 +253,12 @@ function captureCurrent(world: World, phase: number): void {
         runtime.ranges[phase * 2 + 1] = size;
     }
 }
-function copyPhase(world: World, encoder: GPUCommandEncoder | undefined, phase: number): boolean {
+function copyPhase(
+    world: World,
+    encoder: GPUCommandEncoder | undefined,
+    phase: number,
+    discontinuities?: Uint32Array,
+): boolean {
     const runtime = world.resource(GlobalTransformHistory);
     const offset = runtime.ranges[phase * 2],
         size = runtime.ranges[phase * 2 + 1];
@@ -261,7 +286,7 @@ function copyPhase(world: World, encoder: GPUCommandEncoder | undefined, phase: 
         return size > 0;
     }
     const current = runtime.current!,
-        marks = world.resource(TransformRuntime).discontinuities;
+        marks = discontinuities ?? world.resource(TransformRuntime).discontinuities;
     for (let word = 0; word < marks.length; word++)
         for (let bits = marks[word]; bits !== 0; bits &= bits - 1) {
             const row = current.rowIndex((word << 5) | (31 - Math.clz32(bits & -bits)));
@@ -281,6 +306,10 @@ export function prepareGlobalTransformFrame(world: World, encoder?: GPUCommandEn
     const runtime = world.resource(GlobalTransformHistory);
     if (!runtime.enabled) return;
     let historyNeedsPromotion = runtime.historyNeedsPromotion;
+    const discontinuities =
+        encoder === undefined
+            ? stageHistoryDiscontinuities(world, runtime)
+            : world.resource(TransformRuntime).discontinuities;
     if (runtime.tickCount) {
         const phase0Copied = copyPhase(world, encoder, 0);
         if (historyNeedsPromotion || phase0Copied) {
@@ -294,9 +323,17 @@ export function prepareGlobalTransformFrame(world: World, encoder?: GPUCommandEn
             historyNeedsPromotion = false;
         }
     }
-    if (copyPhase(world, encoder, 1)) historyNeedsPromotion = true;
+    if (copyPhase(world, encoder, 1, discontinuities)) historyNeedsPromotion = true;
     runtime.historyPromotionOnSubmit = historyNeedsPromotion;
-    if (encoder === undefined) world.onFrameSubmit(runtime.commitOnSubmit);
+    if (encoder === undefined) {
+        world.onFrameSubmit(runtime.commitOnSubmit);
+    } else {
+        runtime.tickCount = 0;
+        runtime.ranges.fill(0);
+        runtime.historyNeedsPromotion = runtime.historyPromotionOnSubmit;
+        runtime.historyDiscarded = false;
+        world.resource(TransformRuntime).discontinuities.fill(0);
+    }
     if (!runtime.current!.count) return;
     const generation =
         runtime.current!.generation +
