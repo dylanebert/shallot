@@ -239,10 +239,15 @@ async function main() {
             // they bracket the profiled run in order, excluding inspector and attribution work, just as
             // the heap attribution does.
             const window = mark(label);
+            // Dawn's Node binding wakes itself with setImmediate and a fresh native callback when a GPU wait
+            // starts on an idle queue; each collection frees that callback and deoptimizes Node's timer code,
+            // which then re-optimizes inside the window. Draining first leaves the wake-up queued before it.
+            const draining = subject.wait?.();
             window.begin();
             const running = run(n);
             if (running && typeof running.then === "function") await running;
             window.end();
+            await draining;
             const { profile } = await session.post("HeapProfiler.stopSampling");
             return sites(profile);
         }
