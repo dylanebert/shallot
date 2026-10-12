@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { PlaywrightTestConfig } from "playwright/test";
 import { CEILING } from "./tests/test-tiers";
 
@@ -43,6 +44,13 @@ export const BROWSER_CONFIG = {
         deviceScaleFactor: 1,
     },
 } satisfies PlaywrightTestConfig;
+
+export function assertChromiumInstalled(executablePath: string): void {
+    if (!existsSync(executablePath))
+        throw new Error(
+            "Playwright Chromium is missing. Run `bun run browser:install`, then `bun run test:browser`.",
+        );
+}
 
 export const WEB_SERVER_CONFIG = {
     reuseExistingServer: false,
