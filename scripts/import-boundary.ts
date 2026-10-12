@@ -350,11 +350,3 @@ export function checkImports(
         violations.push(transitionalRed(src, module));
     return violations;
 }
-
-if (import.meta.main) {
-    const result = Bun.spawnSync(
-        ["bun", "test", "--todo", resolve(import.meta.dir, "check-imports.node.ts")],
-        { cwd: resolve(import.meta.dir, ".."), stdout: "inherit", stderr: "inherit" },
-    );
-    process.exit(result.exitCode);
-}

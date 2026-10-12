@@ -36,11 +36,21 @@ jobs:
       - name: install dependencies
         id: install
         run: bun install --frozen-lockfile
-      - name: static gates
-        run: bun run check
+      - name: Type check
+        run: bun check
+      - name: Import gate
+        run: bun test --todo ./scripts/check-imports.node.ts
+      - name: Lint
+        run: bun run lint
+      - name: Rust format
+        run: cargo fmt --check
+      - name: Clippy (native physics)
+        run: cargo clippy -p shallot-physics --all-targets -- -D warnings
+      - name: Clippy (wasm physics)
+        run: cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings
       - name: cheap tier
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts' --reporter=junit --reporter-outfile=cheap-junit.xml 2>&1 | tee cheap-test.log
+        run: time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --reporter=junit --reporter-outfile=cheap-junit.xml 2>&1 | tee cheap-test.log
       - name: report slow cheap tests
         if: always() && steps.install.outcome == 'success'
         env:
@@ -261,7 +271,7 @@ jobs:
         run: bun crates/physics/scripts/build-kernel.ts --checked
       - name: cheap tier
         if: matrix.shard == '1/3'
-        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --path-ignore-patterns '**/*.test.node.ts' --reporter=junit --reporter-outfile=checked-cheap-junit.xml 2>&1 | tee checked-cheap-test.log
+        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts' --reporter=junit --reporter-outfile=checked-cheap-junit.xml 2>&1 | tee checked-cheap-test.log
       - name: report slow cheap tests
         if: always() && matrix.shard == '1/3'
         env:
@@ -317,4 +327,4 @@ jobs:
       - name: install Playwright Chromium
         run: bunx playwright install chromium
       - name: browser tier
-        run: time -p bun run test:browser
+        run: time -p sh scripts/browser.sh

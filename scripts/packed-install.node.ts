@@ -75,7 +75,6 @@ beforeAll(() => {
                     dependencies: { "@dylanebert/shallot": `file:../${tarballName}` },
                     devDependencies: {
                         "@types/bun": rootPackage.devDependencies["@types/bun"],
-                        typescript: rootPackage.devDependencies.typescript,
                         playwright: rootPackage.devDependencies.playwright,
                         webgpu: rootPackage.devDependencies.webgpu,
                     },
@@ -204,9 +203,9 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         ),
     );
     run(
-        ["node", join(cliProject, "node_modules/typescript/bin/tsc"), "--project", typecheckConfig],
+        ["bun", "check", "-p", typecheckConfig],
         cliProject,
-        "typechecking every public TypeScript export",
+        "checking every public TypeScript export",
     );
 
     const packedProjectTests = run(["bun", "test"], cliProject, "testing packed project exports");
@@ -256,6 +255,9 @@ function installExample(name: "first-person" | "loading-screen"): void {
         rootPackage.devDependencies["@types/bun"],
     );
     expect(examplePackage.devDependencies.typegpu).toBeUndefined();
+    if (name === "first-person")
+        expect(examplePackage.devDependencies.webgpu).toBe(rootPackage.devDependencies.webgpu);
+    else expect(examplePackage.devDependencies.webgpu).toBeUndefined();
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
     expect(readFileSync(join(example, "tests/preload.ts"), "utf8")).toBe(
         'import { setDefaultTimeout } from "bun:test";\nimport { shallot } from "@dylanebert/shallot/bun";\nimport { CEILING } from "@dylanebert/shallot/testing";\nimport { plugin } from "bun";\n\nsetDefaultTimeout(CEILING.cheap);\nplugin(shallot({ root: import.meta.dir }));\n',
@@ -291,11 +293,8 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     );
     expect(exampleInstall).not.toContain("build-tooling: compiled dist/vite.js");
     expect(existsSync(join(example, "node_modules/@types/bun/package.json"))).toBe(true);
-    run(
-        ["node", join(example, "node_modules/typescript/bin/tsc"), "--project", "tsconfig.json"],
-        example,
-        `tsc ${name}`,
-    );
+    expect(examplePackage.devDependencies.typescript).toBeUndefined();
+    run(["bun", "check", "-p", "tsconfig.json"], example, `bun check ${name}`);
     run(
         ["bun", join(example, "node_modules/vite/bin/vite.js"), "build"],
         example,

@@ -84,6 +84,16 @@ test("the allocation-gated first-person composition carries no timing or profili
         target: "node",
         format: "esm",
         metafile: true,
+        plugins: [
+            {
+                name: "shallot-source",
+                setup(build) {
+                    build.onResolve({ filter: /^@dylanebert\/shallot$/ }, () => ({
+                        path: resolve(ROOT, "src/index.ts"),
+                    }));
+                },
+            },
+        ],
     });
     if (!built.success || built.metafile === undefined)
         throw new Error(`gated bundle failed: ${built.logs.map(String).join("\n")}`);

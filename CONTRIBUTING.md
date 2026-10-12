@@ -142,24 +142,30 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - A `shallot` command does only what Shallot knows: it may invoke project commands, but never owns processes Vite, Bun or Playwright own.
 - Web commands delegate to Vite; native dev and build add the shell, and native preview launches the existing build.
-- Package scripts are package-manager lifecycle hooks or verbs every Shallot project has; other tools run by path.
+- Package scripts are lifecycle hooks, the engine build, or verbs no native command owns: `test` with Shallot's timeout flag, `lint`, `format`, and `typecheck` for `svelte-check`. Use native tool verbs for everything else; no package defines a `check` script.
 
 ```bash
-bun run build                    # audio WASM, dist/vite.js, physics kernel
-bun run check                    # static gates; before every push
-bun run test                     # cheap and GPU files; requires a device
-bun run test --path-ignore-patterns '**/*.gpu.test.ts' # no-device tier
-bun test gpu.test                # GPU tier
-bun test ./examples/first-person/src/demo.node.ts # selected Node file
+bun run build
+bun check                       # or bun check <changed paths>
+bun run lint
+bun run test --path-ignore-patterns '**/*.gpu.test.ts' # cheap, no-device tier
+bun test src/core/input/devices.test.ts # selected cheap subject
+bun test src/core/mesh/attributes.gpu.test.ts # selected GPU subject
+bun test scripts/check-imports.node.ts # selected Node subject
+cargo fmt --check
+cargo clippy -p shallot-physics --all-targets -- -D warnings
+cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings
+cargo test -p shallot-physics
 bun node_modules/playwright/cli.js test -c examples/loading-screen # selected browser subject
-bun test --todo                  # quarantined claims
-bun run format                   # biome
+sh scripts/browser.sh           # every browser subject
+bun run test --todo             # quarantined claims
+bun run format                  # biome
 ```
 
 - Iterate on selected files or subjects.
-- Wide runs are CI's, on every push; their reds are settled before a release, and they gate no landing. The wide Node command is in [CI](.github/workflows/test.yml), and `bun run test:browser` runs every browser subject.
+- Wide runs are CI's, on every push; their reds are settled before a release, and they gate no landing. The wide Node command is in [CI](.github/workflows/test.yml), and `sh scripts/browser.sh` runs every browser subject.
 - Manual oracles run by path.
-- The import gate runs its Bun assertions with `--todo`: only the debts named in those assertions are todos, every other finding fails, and a passing todo fails until its scope is retired.
+- The import gate runs `bun test --todo ./scripts/check-imports.node.ts`: only the debts named in those assertions are todos, every other finding fails, and a passing todo fails until its scope is retired.
 - Import-gate todos leave with their migrations; they are not a mechanism for new exceptions.
 
 ## Verification
@@ -220,7 +226,7 @@ bun run format                   # biome
 
 ### Physics iteration
 
-- A change runs, in the loop, the sets of every row it touches. The common set is `bun run check` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`; the kernel set adds `bun crates/physics/scripts/build-kernel.ts`, `cargo test -p shallot-physics`, `src/standard/physics/solver/step.gold.node.ts` and `diagnostics/box3d-parity/phases.oracle.ts`.
+- A change runs, in the loop, the sets of every row it touches. The common set is `bun check`, `bun run lint` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`; the kernel set adds `bun crates/physics/scripts/build-kernel.ts`, `cargo test -p shallot-physics`, `src/standard/physics/solver/step.gold.node.ts` and `diagnostics/box3d-parity/phases.oracle.ts`.
 
 | Change | Loop set |
 |---|---|
@@ -229,7 +235,7 @@ bun run format                   # biome
 | TypeScript API, ECS bridge, world or pool ownership | Common; the non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`; `src/core/transform/{recovery,composition}.node.ts`; `src/core/rendering/{global-transform,physics-interpolation}.node.ts` |
 | Allocation or lifecycle | Common; the affected `*allocation.node.ts` under `src/standard/physics` |
 | Character or Player | Common; `src/standard/physics/character-allocation.node.ts`; `src/extras/player/*.node.ts`; `examples/first-person/src/*.node.ts` |
-| Checks or documentation only | The changed checks; `bun run check` |
+| Checks or documentation only | The changed checks; `bun check`; `bun run lint` |
 
 - A speed claim names its scene, thread count and phase before the A/B; only that phase's verdict decides it, and no difference is not equivalence.
 - A code change's final candidate runs once every row's set but the A/B, with every `diagnostics/box3d-parity` oracle.

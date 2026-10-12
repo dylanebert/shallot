@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Glob } from "bun";
 import { dirname, isAbsolute, relative, resolve } from "path";
@@ -112,60 +113,64 @@ async function checkRealization(root: string): Promise<string[]> {
 
 // Consumer commands use the installed bin; repository commands must resolve in this tree,
 // without a global link or bunx downloading an unrelated registry version.
-const root = resolve(import.meta.dir, "..");
-const commandErrors = await checkRealization(root);
-const entry = (await Bun.file(resolve(root, "CONTRIBUTING.md")).text())
-    .split("## Commands\n")[1]
-    ?.split("\n## ")[0];
-if (!entry) commandErrors.push("CONTRIBUTING.md: missing Commands block");
-const scripts = (await Bun.file(resolve(root, "package.json")).json()).scripts;
-/** Declared package command count; a variant of a command is an argument to it, not a command. Changing it is an edit here in the same commit. */
-const EXPECTED_COMMANDS = 6;
-const declaredCommands = Object.keys(scripts).length;
-if (declaredCommands !== EXPECTED_COMMANDS)
-    commandErrors.push(
-        `package.json has ${declaredCommands} commands, declared ${EXPECTED_COMMANDS}: give an existing command an argument, or set EXPECTED_COMMANDS to ${declaredCommands}`,
-    );
-let inCommandFence = false;
-let commandCount = 0;
-for (const line of (entry ?? "").split("\n")) {
-    if (line.startsWith("```")) {
-        inCommandFence = !inCommandFence;
-        continue;
-    }
-    if (!inCommandFence) continue;
-    for (const segment of line.split("#")[0].split(/&&|;/)) {
-        const command = segment.trim();
-        if (!command || command.startsWith("#")) continue;
-        commandCount++;
-        const match = /^(bunx|bun)\s+(?:run\s+)?([^\s]+)/.exec(command);
-        const token = match?.[2];
-        let reachable = false;
-        if (match?.[1] === "bunx") {
-            const bin = resolve(root, "node_modules/.bin", token!);
-            const expected = resolve(root, "bin/shallot.ts");
-            reachable =
-                token === "shallot" &&
-                existsSync(bin) &&
-                existsSync(expected) &&
-                realpathSync(bin) === realpathSync(expected);
-        } else if (token) {
-            reachable =
-                Object.hasOwn(scripts, token) ||
-                (token.includes("/") && existsSync(resolve(root, token)));
+test("documented commands resolve and package files are realizable", async () => {
+    const root = resolve(import.meta.dir, "..");
+    const commandErrors = await checkRealization(root);
+    const entry = (await Bun.file(resolve(root, "CONTRIBUTING.md")).text())
+        .split("## Commands\n")[1]
+        ?.split("\n## ")[0];
+    if (!entry) commandErrors.push("CONTRIBUTING.md: missing Commands block");
+    const scripts = (await Bun.file(resolve(root, "package.json")).json()).scripts;
+    if ("check" in scripts)
+        commandErrors.push("package.json: the check script shadows Bun's native checker");
+    /** Declared package command count; a variant of a command is an argument to it, not a command. Changing it is an edit here in the same commit. */
+    const ExpectedCommands = 5;
+    const declaredCommands = Object.keys(scripts).length;
+    if (declaredCommands !== ExpectedCommands)
+        commandErrors.push(
+            `package.json has ${declaredCommands} commands, declared ${ExpectedCommands}: give an existing command an argument, or set EXPECTED_COMMANDS to ${declaredCommands}`,
+        );
+    let inCommandFence = false;
+    let commandCount = 0;
+    for (const line of (entry ?? "").split("\n")) {
+        if (line.startsWith("```")) {
+            inCommandFence = !inCommandFence;
+            continue;
         }
-        if (!reachable)
-            commandErrors.push(`CONTRIBUTING.md: unreachable repository command: ${command}`);
+        if (!inCommandFence) continue;
+        for (const segment of line.split("#")[0].split(/&&|;/)) {
+            const command = segment.trim();
+            if (!command || command.startsWith("#")) continue;
+            commandCount++;
+            const match = /^(bunx|bun)\s+(?:run\s+)?([^\s]+)/.exec(command);
+            const token = match?.[2];
+            let reachable = false;
+            if (match?.[1] === "bunx") {
+                const bin = resolve(root, "node_modules/.bin", token!);
+                const expected = resolve(root, "bin/shallot.ts");
+                reachable =
+                    token === "shallot" &&
+                    existsSync(bin) &&
+                    existsSync(expected) &&
+                    realpathSync(bin) === realpathSync(expected);
+            } else if (token) {
+                reachable =
+                    token === "check" ||
+                    Object.hasOwn(scripts, token) ||
+                    (token.includes("/") && existsSync(resolve(root, token)));
+            } else {
+                const [program, path] = command.split(/\s+/, 2);
+                reachable =
+                    (program === "cargo" && existsSync(resolve(root, "Cargo.toml"))) ||
+                    (program === "sh" && !!path && existsSync(resolve(root, path)));
+            }
+            if (!reachable)
+                commandErrors.push(`CONTRIBUTING.md: unreachable repository command: ${command}`);
+        }
     }
-}
-if (!commandCount) commandErrors.push("CONTRIBUTING.md: empty command population");
-commandErrors.push(
-    ...(await checkExists([resolve(root, "package.json")])).map((error) => error.detail),
-);
-if (commandErrors.length) {
-    console.error(`✗ command resolution:\n${commandErrors.join("\n")}`);
-    process.exit(1);
-}
-console.log(
-    `✓ command resolution: ${commandCount} repository commands; declared bin/files realization`,
-);
+    if (!commandCount) commandErrors.push("CONTRIBUTING.md: empty command population");
+    commandErrors.push(
+        ...(await checkExists([resolve(root, "package.json")])).map((error) => error.detail),
+    );
+    expect(commandErrors).toEqual([]);
+});

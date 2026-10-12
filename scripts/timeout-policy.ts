@@ -1,7 +1,5 @@
-import { resolve } from "node:path";
 import { parse } from "@babel/parser";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { Glob } from "bun";
 
 /** Check declarations, not elapsed time. Delay timers inside tests are not tier declarations. */
 export function timeoutErrors(path: string, text: string): string[] {
@@ -192,31 +190,4 @@ export function packageTimeoutErrors(text: string): string[] {
     return values.length === 1 && values[0] === CEILING.cheap
         ? []
         : ["package.json: test --timeout must equal CEILING.cheap"];
-}
-
-if (import.meta.main) {
-    const root = resolve(import.meta.dir, "..");
-    const errors = packageTimeoutErrors(await Bun.file(resolve(root, "package.json")).text());
-    for (const directory of ["src", "examples", "scripts", "diagnostics"]) {
-        for (const path of new Glob(
-            "**/{*.test.ts,*.node.ts,*.e2e.ts,playwright.config.ts}",
-        ).scanSync(resolve(root, directory))) {
-            errors.push(
-                ...timeoutErrors(
-                    `${directory}/${path}`,
-                    await Bun.file(resolve(root, directory, path)).text(),
-                ),
-            );
-        }
-    }
-    errors.push(
-        ...timeoutErrors(
-            "src/project/testing.ts",
-            await Bun.file(resolve(root, "src/project/testing.ts")).text(),
-        ),
-    );
-    if (errors.length) {
-        console.error(errors.join("\n"));
-        process.exit(1);
-    }
 }

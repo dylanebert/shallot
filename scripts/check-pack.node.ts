@@ -1,0 +1,256 @@
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+import { CEILING } from "@dylanebert/shallot/testing";
+
+setDefaultTimeout(CEILING.node);
+
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, relative, resolve, sep } from "node:path";
+import { parse } from "@babel/parser";
+import { Glob } from "bun";
+
+// The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
+// native-window crate, the icon and recipes; never a path the `files` negations name, nor build
+// output. Asserted against the real `bun pm pack` output, not the `files`
+// allowlist in isolation, so a negation the packer ignores still reds.
+test("the npm package contains only declared files and required consumers", async () => {
+    const pkgDir = resolve(import.meta.dir, "..");
+    const packageManifest = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8"));
+
+    const proc = Bun.spawn(["bun", "pm", "pack", "--dry-run"], {
+        cwd: pkgDir,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+    ]);
+
+    if (exitCode !== 0) throw new Error(`bun pm pack --dry-run failed:\n${stderr}`);
+
+    // bun colors `packed` when the ambient env asks for it (FORCE_COLOR, a TTY), and the SGR codes sit
+    // between `^` and the word — a gate whose verdict depends on ambient color config is a latent red.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is the SGR introducer — matching it is the point.
+    const output = `${stdout}\n${stderr}`.replaceAll(/\x1b\[[0-9;]*m/g, "");
+    const files = [...output.matchAll(/^packed\s+\S+\s+(.+)$/gm)].map((m) => m[1]);
+
+    if (files.length === 0)
+        throw new Error("no packed files parsed from `bun pm pack --dry-run` output");
+
+    // The `**/` negations in `files`, read back from package.json so the pack gate and the allowlist can't disagree.
+    const packageFiles = packageManifest.files as string[];
+    const negated = packageFiles
+        .filter((entry) => entry.startsWith("!"))
+        .map((entry) => new Glob(entry.slice(1)));
+    const requiredNegations = [
+        "!src/standard/physics/oracle/**",
+        "!**/fixtures",
+        "!src/**/*.test.ts",
+        "!**/*.oracle.ts",
+        "!src/**/*.node.ts",
+        "!src/**/*.e2e.ts",
+        "!examples/loading-screen/**/*.test.ts",
+        "!examples/loading-screen/**/*.node.ts",
+        "!examples/loading-screen/**/*.e2e.ts",
+    ];
+    const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
+    const isNegated = (file: string): boolean => {
+        const parts = file.split("/");
+        const ancestors = parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+        return negated.some((glob) => ancestors.some((path) => glob.match(path)));
+    };
+    const firstPersonChecks = new Set([
+        "examples/first-person/browser.e2e.ts",
+        "examples/first-person/src/demo.node.ts",
+        "examples/first-person/src/plugins.test.ts",
+        "examples/first-person/tests/ascent.node.ts",
+        "examples/first-person/tests/browser-setup.test.ts",
+    ]);
+    const forbidden: [string, (f: string) => boolean][] = [
+        ["files negation", isNegated],
+        [
+            "non-first-person check",
+            (file) => /\.(?:test|node|e2e)\.ts$/.test(file) && !firstPersonChecks.has(file),
+        ],
+
+        ["non-carrier script", (f) => f.startsWith("scripts/") && f.endsWith(".ts")],
+        ["build output", (f) => f.includes("/node_modules/")],
+        ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
+        ["repo docs", (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/")],
+        ["test-support source", (f) => /^src\/(?:harness|testing)\//.test(f)],
+        ["physics oracle test data", (f) => f.startsWith("src/standard/physics/oracle/")],
+    ];
+    const violations = files.flatMap((f) =>
+        forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
+    );
+
+    const packedFiles = new Set(files);
+    const sourceExtensions = [
+        ".ts",
+        ".tsx",
+        ".mts",
+        ".cts",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".json",
+    ];
+    function isFile(path: string): boolean {
+        return existsSync(path) && statSync(path).isFile();
+    }
+    function resolveRelative(from: string, specifier: string): string | undefined {
+        const base = resolve(dirname(from), specifier);
+        const extension = extname(base);
+        const substitutions: Record<string, string[]> = {
+            ".js": [".ts", ".tsx", ".d.ts"],
+            ".jsx": [".tsx", ".ts"],
+            ".mjs": [".mts"],
+            ".cjs": [".cts"],
+        };
+        const candidates = [base];
+        for (const replacement of substitutions[extension] ?? [])
+            candidates.push(`${base.slice(0, -extension.length)}${replacement}`);
+        candidates.push(...sourceExtensions.map((suffix) => `${base}${suffix}`));
+        for (const candidate of candidates) if (isFile(candidate)) return candidate;
+        if (existsSync(base) && statSync(base).isDirectory()) {
+            for (const suffix of sourceExtensions) {
+                const candidate = resolve(base, `index${suffix}`);
+                if (isFile(candidate)) return candidate;
+            }
+        }
+        return undefined;
+    }
+    for (const file of files.filter((file) => /\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/.test(file))) {
+        const source = readFileSync(resolve(pkgDir, file), "utf8");
+        const ast = parse(source, { sourceType: "unambiguous", plugins: ["typescript", "jsx"] });
+        const imports = new Set<string>();
+        function visit(node: any): void {
+            if (!node || typeof node !== "object") return;
+            if (Array.isArray(node)) {
+                for (const child of node) visit(child);
+                return;
+            }
+            if (
+                ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(
+                    node.type,
+                ) &&
+                typeof node.source?.value === "string"
+            )
+                imports.add(node.source.value);
+            if (node.type === "TSImportType" && typeof node.argument?.value === "string")
+                imports.add(node.argument.value);
+            if (
+                node.type === "CallExpression" &&
+                (node.callee.type === "Import" ||
+                    (node.callee.type === "Identifier" && node.callee.name === "require")) &&
+                typeof node.arguments[0]?.value === "string"
+            )
+                imports.add(node.arguments[0].value);
+            for (const [key, child] of Object.entries(node))
+                if (key !== "loc" && key !== "start" && key !== "end") visit(child);
+        }
+        visit(ast.program);
+        for (const specifier of imports) {
+            if (!specifier.startsWith("./") && !specifier.startsWith("../")) continue;
+            const clean = specifier.split(/[?#]/, 1)[0]!;
+            const targetFile = resolveRelative(resolve(pkgDir, file), clean);
+            if (!targetFile) continue;
+            const target = relative(pkgDir, targetFile).split(sep).join("/");
+            if (!packedFiles.has(target))
+                violations.push(
+                    `${file} -> ${specifier} resolves to unshipped ${target} (relative import)`,
+                );
+        }
+    }
+    const examplesDir = resolve(pkgDir, "examples");
+    const recipes = readdirSync(examplesDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+
+    const required = [
+        "src/index.ts",
+        "src/project/bun.ts",
+        "tsconfig.base.json",
+        "src/core/rendering/capture.ts",
+        "src/extras/text/Inter-Regular.ttf",
+        "src/extras/text/Inter-OFL.txt",
+        "bin/shallot.ts",
+        "src/project/policy.ts",
+        "src/cli/index.ts",
+        "src/project/testing.ts",
+        "examples/first-person/playwright.config.ts",
+        "examples/first-person/browser.e2e.ts",
+        "examples/first-person/tests/ascent.node.ts",
+        "examples/first-person/tests/browser-setup.ts",
+        "examples/first-person/tests/browser-setup.test.ts",
+        "examples/first-person/tests/browser-install.ts",
+        "examples/first-person/tests/capture-page.ts",
+        "examples/first-person/src/plugins.ts",
+        "examples/first-person/src/plugins.test.ts",
+        "examples/first-person/src/demo.node.ts",
+        "dist/vite.js",
+        "dist/testing.js",
+        "crates/native/Cargo.toml",
+        "crates/native/Cargo.lock",
+        "assets/icon-1024.png",
+        "crates/audio/pkg/shallot_audio.js",
+        "crates/audio/pkg/shallot_audio.d.ts",
+        "crates/audio/pkg/shallot_audio.wasm",
+    ];
+    // An example manifest would shadow the root package self-reference; `shallot add` writes the copied project's manifest.
+    for (const name of recipes)
+        if (existsSync(resolve(examplesDir, name, "package.json")))
+            violations.push(
+                `examples/${name}/package.json (example manifest; shallot add writes it)`,
+            );
+
+    const removedTestSupport = Object.keys(packageManifest.exports ?? {}).filter(
+        (entry) => /^\.\/harness(?:\/|$)/.test(entry) || entry.startsWith("./testing/"),
+    );
+    for (const entry of removedTestSupport) violations.push(`${entry} (test-support export)`);
+
+    const missing = required.filter((f) => !files.includes(f));
+    for (const name of recipes) {
+        const config = `examples/${name}/tsconfig.json`;
+        if (!files.includes(config)) missing.push(config);
+    }
+    for (const entry of ["./bun", "./testing", "./tsconfig.json"]) {
+        if (!(entry in (packageManifest.exports ?? {})))
+            violations.push(`${entry} (missing package export)`);
+    }
+    for (const entry of missingNegations) violations.push(`${entry} (missing files negation)`);
+    // Every example directory must be declared and shipped.
+    const declaredExamples = packageFiles
+        .filter((entry) => /^examples\/[^/]+$/.test(entry))
+        .map((entry) => entry.slice("examples/".length))
+        .sort();
+    const shipped = [
+        ...new Set(files.filter((f) => f.startsWith("examples/")).map((f) => f.split("/")[1])),
+    ].sort();
+    if (recipes.length === 0) missing.push("examples/<recipe>/");
+    if (declaredExamples.join() !== recipes.join())
+        violations.push(
+            `package files allowlist names [${declaredExamples.join(", ")}], recipes are [${recipes.join(", ")}]`,
+        );
+    if (shipped.join() !== recipes.join())
+        violations.push(
+            `examples/ ships [${shipped.join(", ")}], recipes are [${recipes.join(", ")}]`,
+        );
+
+    if (violations.length > 0) {
+        console.error(`✗ ${violations.length} file(s) that must not ship in the npm pack:\n`);
+        for (const v of violations) console.error(`  ${v}`);
+    }
+    if (missing.length > 0) {
+        console.error(`✗ ${missing.length} required file(s) missing from the npm pack:\n`);
+        for (const f of missing) console.error(`  ${f}`);
+    }
+    expect(
+        { violations, missing },
+        `Fix the package files allowlist (dist/ needs \`bun run build\`); ${files.length} files packed`,
+    ).toEqual({ violations: [], missing: [] });
+});

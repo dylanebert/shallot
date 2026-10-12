@@ -259,7 +259,7 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
         expect(pkg.dependencies.vite).toBeUndefined();
         expect(pkg.devDependencies.vite).toBe(engine.devDependencies.vite);
         expect(pkg.devDependencies.playwright).toBe(engine.devDependencies.playwright);
-        expect(pkg.devDependencies.typescript).toBeDefined();
+        expect(pkg.devDependencies.typescript).toBeUndefined();
         expect(pkg.devDependencies["@types/bun"]).toBeDefined();
         expect(pkg.devDependencies.typegpu).toBeUndefined();
         expect(pkg.devDependencies.webgpu).toBeUndefined();

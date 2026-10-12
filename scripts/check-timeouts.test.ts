@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { packageTimeoutErrors, timeoutErrors } from "./check-timeouts";
+import { packageTimeoutErrors, timeoutErrors } from "./timeout-policy";
 
 const cheap =
     'import { test } from "bun:test"; import { CEILING } from "@dylanebert/shallot/testing";';

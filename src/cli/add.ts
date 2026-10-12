@@ -112,13 +112,12 @@ function recipePackage(dest: string, recipeDir: string, version: string): string
     const devDependencies: Record<string, string> = {
         "@types/bun": engine.devDependencies["@types/bun"],
         playwright: engine.peerDependencies.playwright,
-        typescript: engine.devDependencies.typescript,
         vite: engine.devDependencies.vite,
     };
-    if (importsPackage(recipeDir, "typegpu"))
-        devDependencies.typegpu = engine.peerDependencies.typegpu;
     if (importsPackage(recipeDir, `${ENGINE}/webgpu`))
         devDependencies.webgpu = engine.peerDependencies.webgpu;
+    if (importsPackage(recipeDir, "typegpu"))
+        devDependencies.typegpu = engine.peerDependencies.typegpu;
     return `${JSON.stringify(
         {
             name: basename(dest),
@@ -187,8 +186,7 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         filter: (src) => basename(src) !== "node_modules",
     });
 
-    // Examples carry no manifest or Bun test setup, so they self-reference the engine and use its root
-    // preload inside its repo; the copy's manifest, ignore and test setup are written here, their one home.
+    // Recipes ship without project metadata; copy-out writes the manifest, ignore rules and Bun preload.
     writeFileSync(resolve(dest, "package.json"), recipePackage(dest, recipeDir, version));
     writeFileSync(resolve(dest, ".gitignore"), PROJECT_GITIGNORE);
     const preload = resolve(dest, "tests/preload.ts");

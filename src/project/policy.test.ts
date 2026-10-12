@@ -1,8 +1,13 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { join } from "node:path";
 import { readProjectPolicy } from "./policy";
+
+test("the repository satisfies its project policy", () => {
+    expect(readProjectPolicy(resolve(import.meta.dir, "../.."))).toEqual([]);
+});
 
 function dependencyViolations(
     spec: string,

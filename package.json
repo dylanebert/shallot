@@ -6,9 +6,9 @@
         "./src/standard/index.ts"
     ],
     "license": "MIT",
-    "packageManager": "bun@1.4.2",
+    "packageManager": "bun@1.4.3",
     "engines": {
-        "bun": ">=1.4.2"
+        "bun": ">=1.4.3"
     },
     "author": "Dylan Ebert <dylan.ebert@gmail.com>",
     "repository": {
@@ -87,10 +87,9 @@
     "scripts": {
         "build": "bun run ./scripts/build.ts",
         "prepare": "bun run ./scripts/tooling.ts",
-        "check": "bun run scripts/check.ts",
         "format": "biome check --write",
-        "test": "bun test --timeout=250",
-        "test:browser": "sh scripts/browser.sh"
+        "lint": "biome check",
+        "test": "bun test --timeout=250"
     },
     "peerDependencies": {
         "playwright": "^1.63.0",
@@ -115,7 +114,7 @@
         "@arethetypeswrong/cli": "0.18.5",
         "@babel/parser": "^8.0.6",
         "@biomejs/biome": "^2.5.14",
-        "@types/bun": "^1.4.2",
+        "@types/bun": "^1.4.3",
         "binaryen": "132.0.0",
         "playwright": "^1.63.0",
         "publint": "0.3.24",

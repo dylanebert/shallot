@@ -7,5 +7,9 @@ import type { Page } from "playwright/test";
  */
 export async function installCaptureFrame(page: Page, entry: string): Promise<void> {
     await page.addScriptTag({ path: entry, type: "module" });
-    await page.waitForFunction(() => typeof window.shallotCaptureFrame === "function");
+    await page.waitForFunction(
+        () =>
+            typeof (window as Window & { shallotCaptureFrame?: unknown }).shallotCaptureFrame ===
+            "function",
+    );
 }

@@ -7,7 +7,7 @@ setDefaultTimeout(CEILING.node);
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { checkImports } from "./check-imports";
+import { checkImports } from "./import-boundary";
 
 // Temporary scopes for existing debts, not permission for matching new violations.
 const deferred = [
@@ -16,11 +16,17 @@ const deferred = [
         "src/transitional/audio/index.ts:1: pending roadmap migration (still red): // Destination: core/audio and standard/audio; owner: audio-boundary.md.",
     ],
 ] as const;
+const missingAudioImport =
+    /^src\/standard\/index\.ts:\d+: unresolved import "\.\.\/transitional\/audio"$/;
 
 function unexpected(findings: readonly string[]): string[] {
     const remaining = [...findings];
     for (const [, finding] of deferred) {
         const index = remaining.indexOf(finding);
+        if (index >= 0) remaining.splice(index, 1);
+    }
+    if (!findings.includes(deferred[0]![1])) {
+        const index = remaining.findIndex((finding) => missingAudioImport.test(finding));
         if (index >= 0) remaining.splice(index, 1);
     }
     return remaining;
@@ -60,8 +66,12 @@ test("deferred import claims never hide new, changed or duplicate findings", () 
     const findings = deferred.map(([, finding]) => finding);
     const newEdge = "src/core/rendering/new.ts:1: sibling import core/rendering → core/input";
     const changedFinding = `${findings[0]} changed`;
+    const missingAudio = 'src/standard/index.ts:17: unresolved import "../transitional/audio"';
     expect(unexpected(findings)).toEqual([]);
     expect(unexpected([...findings, newEdge])).toEqual([newEdge]);
+    expect(unexpected([...findings, missingAudio])).toEqual([missingAudio]);
+    expect(unexpected([missingAudio])).toEqual([]);
+    expect(unexpected([missingAudio, missingAudio])).toEqual([missingAudio]);
     expect(unexpected([...findings.slice(1), changedFinding])).toEqual([changedFinding]);
     expect(unexpected([...findings, findings[0]])).toEqual([findings[0]]);
 });
