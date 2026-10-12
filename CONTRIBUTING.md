@@ -157,7 +157,7 @@ bun run format                   # biome
 ```
 
 - Iterate on selected files or subjects.
-- Wide runs confirm the final candidate before landing or release; CI runs them on every push. The wide Node command is in [CI](.github/workflows/test.yml), and `bun run test:browser` runs every browser subject.
+- Wide runs are CI's, on every push; their reds are settled before a release, and they gate no landing. The wide Node command is in [CI](.github/workflows/test.yml), and `bun run test:browser` runs every browser subject.
 - Manual oracles run by path.
 - The import gate runs its Bun assertions with `--todo`: only the debts named in those assertions are todos, every other finding fails, and a passing todo fails until its scope is retired.
 - Import-gate todos leave with their migrations; they are not a mechanism for new exceptions.
