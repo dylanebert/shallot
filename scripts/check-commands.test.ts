@@ -158,8 +158,9 @@ test("documented commands resolve and package files are realizable", async () =>
                         existsSync(bin) &&
                         existsSync(expected) &&
                         realpathSync(bin) === realpathSync(expected)) ||
+                    // Bun links a Windows bin as playwright.exe, so look it up as a command.
                     (token === "playwright" &&
-                        existsSync(resolve(root, "node_modules/.bin/playwright")));
+                        !!Bun.which("playwright", { PATH: resolve(root, "node_modules/.bin") }));
             } else if (token) {
                 reachable =
                     token === "check" ||
