@@ -7,6 +7,7 @@ import {
     Camera,
     CameraMode,
     computeViewProj,
+    DirectionalLight,
     PointLight,
     RenderContext,
     Views,
@@ -49,6 +50,7 @@ if (typeof ResizeObserver === "undefined") {
 }
 
 const subjects = gpuApps(import.meta.path, [
+    { defaults: false, plugins: [StandardRenderingPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin] },
 ]);
@@ -476,4 +478,35 @@ test("a reloaded cluster runtime cannot commit a stale candidate from an idle fr
     expect(next).not.toBe(original);
     world.step(0);
     expect(original.last[0]).toBe(0);
+});
+
+test("point and directional light overflow each warn once per episode", () => {
+    const world = subjects()[2]!.world;
+    const canvas = {
+        width: 32,
+        height: 24,
+        style: { imageRendering: "auto" },
+        getContext: () => context,
+        getBoundingClientRect: () => ({ width: 32, height: 24 }),
+    } as unknown as HTMLCanvasElement;
+    const context = new CanvasContext(canvas, 32, 24);
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera);
+    attachCanvas(camera, canvas, world);
+    for (let i = 0; i < 300; i++) {
+        const eid = world.create();
+        world.add(eid, Transform);
+        world.add(eid, PointLight);
+    }
+    expectWarning(/shallot: 300 point lights exceed the 256 cap; 44 ignored/);
+    for (let i = 0; i < 3; i++) world.step(1 / 60);
+
+    for (let i = 0; i < 11; i++) {
+        const eid = world.create();
+        world.add(eid, Transform);
+        world.add(eid, DirectionalLight);
+    }
+    expectWarning(/shallot: 11 directional lights exceed the 10 cap; 1 ignored/);
+    for (let i = 0; i < 2; i++) world.step(1 / 60);
 });
