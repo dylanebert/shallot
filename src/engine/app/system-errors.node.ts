@@ -89,6 +89,7 @@ test("runApp delivers each settled frame wait to a fence-wait sink", async () =>
         ],
     };
     const app = await runApp({ defaults: false, plugins: [observer] });
+    expectAdapterNotice(app.world.gpuIfAvailable?.adapter);
     try {
         const waitForFrame = async (frame: number) => {
             const deadline = performance.now() + CEILING.node / 2;
