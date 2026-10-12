@@ -10,12 +10,17 @@ test("documented dependency and Bun pins match their manifests", async () => {
 
     // The doc set is what Git tracks, not what the filesystem holds. A checkout may contain generated
     // or third-party Markdown that is not part of the repository's install instructions.
-    const tracked = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], { cwd: root });
+    // One spawn lists both sets: a process start is most of this check's time on Windows.
+    const tracked = Bun.spawnSync(
+        ["git", "ls-files", "-z", "*.md", "package.json", "**/package.json"],
+        { cwd: root },
+    );
     if (!tracked.success)
         throw new Error(
-            "`git ls-files` failed — the pin scan needs a git checkout to scope its doc set.",
+            "`git ls-files` failed — the pin scan needs a git checkout to scope its docs and manifests.",
         );
-    const docs = tracked.stdout.toString().split("\0").filter(Boolean);
+    const trackedFiles = tracked.stdout.toString().split("\0").filter(Boolean);
+    const docs = trackedFiles.filter((file) => file.endsWith(".md"));
     if (docs.length === 0)
         throw new Error(
             "`git ls-files '*.md'` matched nothing — the pin scan would be vacuously green.",
@@ -75,15 +80,9 @@ test("documented dependency and Bun pins match their manifests", async () => {
         "optionalDependencies",
     ] as const;
 
-    const manifestTracked = Bun.spawnSync(
-        ["git", "ls-files", "-z", "package.json", "**/package.json"],
-        { cwd: root },
+    const manifestFiles = trackedFiles.filter(
+        (file) => file === "package.json" || file.endsWith("/package.json"),
     );
-    if (!manifestTracked.success)
-        throw new Error(
-            "`git ls-files` failed — the pin scan needs a git checkout to scope its manifests.",
-        );
-    const manifestFiles = manifestTracked.stdout.toString().split("\0").filter(Boolean);
     if (manifestFiles.length === 0)
         throw new Error(
             "`git ls-files 'package.json' '**/package.json'` matched nothing — manifest scan is vacuous.",
