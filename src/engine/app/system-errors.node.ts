@@ -75,7 +75,7 @@ test("runApp delivers each settled frame wait to a fence-wait sink", async () =>
                 waits.push(ms);
                 sinkFrames.push(world.gpu.frame);
             };
-            // Hold each next frame until the previous fence settles so every wait reaches the sink separately.
+            // Hold after each admitted frame until its fence settles, so waits cannot coalesce.
             world.gpu.pending = () => (world.gpu.frame >= allowedFrames ? 6 : 0);
         },
         systems: [
