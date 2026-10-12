@@ -18,5 +18,17 @@ export async function loadDawn<T>(
     load: () => Promise<T>,
 ): Promise<T> {
     assertDawnHost(platform, execPath);
-    return load();
+    try {
+        return await load();
+    } catch (cause) {
+        const code = (cause as { code?: unknown } | null)?.code;
+        if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") {
+            throw new UnsupportedError(
+                'The optional "webgpu" peer is missing; install it with `bun add webgpu` before calling setupGlobals().',
+                [],
+                { cause },
+            );
+        }
+        throw cause;
+    }
 }
