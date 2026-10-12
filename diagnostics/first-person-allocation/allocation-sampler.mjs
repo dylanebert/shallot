@@ -117,7 +117,10 @@ export function attribute(profile, runSite, siteOf, expressions = []) {
                 ? candidate
                 : undefined;
         if (boundary && topJavaScript >= 0) stack[topJavaScript].boundary = boundary.wrapperSite;
-        const site = boundary?.wrapperSite ?? top?.site ?? "<no JavaScript frame>";
+        // With no JavaScript frame below the run frame (an allocation inlined into it, or one made by a
+        // frame without a script, such as the display control's breakpoint condition), the run frame is
+        // the site, as it was before 7bc62165 kept whole stacks.
+        const site = boundary?.wrapperSite ?? top?.site ?? runSite(path[runIndex]);
         const key = JSON.stringify({ site, stack });
         const row = rows.get(key) ?? { site, bytes: 0, count: 0, stack, boundary: boundary?.wrapperSite };
         row.bytes += size;

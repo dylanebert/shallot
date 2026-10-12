@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve, sep } from "node:path";
-import { prepareSamplingSession } from "./allocation-sampler.mjs";
+import { attribute, prepareSamplingSession } from "./allocation-sampler.mjs";
 import {
     type AllocationSample,
     allocatesNothing,
@@ -185,4 +185,24 @@ test("the allocation gate reds on any sampled steady allocation and prints its s
     expect(allocationFailure(sample)).toBe(
         "steady play allocated JavaScript heap; sampler sites are diagnosis only:\n  A/A repeat: 96 B at stepChunk src/transitional/character/sweep.ts:42",
     );
+});
+
+test("an allocation with no JavaScript frame below the run frame is credited to the run frame, so the display control's breakpoint literal lands at the frame loop", () => {
+    const frame = (id: number, functionName: string, url: string, children: unknown[] = []) => ({
+        id,
+        callFrame: { functionName, url, scriptId: String(id), lineNumber: 496, columnNumber: 12 },
+        children,
+    });
+    // root -> frame (the page's run frame) -> the breakpoint condition, which has no script URL
+    const profile = {
+        head: frame(1, "(root)", "", [frame(2, "frame", "http://page/app.js", [frame(3, "", "")])]),
+        samples: [{ nodeId: 3, size: 24 }],
+    };
+    const loop = "frame src/engine/app/index.ts:497:13";
+    const sites = attribute(
+        profile,
+        (callFrame: { functionName: string }) => (callFrame.functionName === "frame" ? loop : undefined),
+        () => undefined,
+    );
+    expect(sites.map((row: { site: string; bytes: number }) => [row.site, row.bytes])).toEqual([[loop, 24]]);
 });
