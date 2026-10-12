@@ -539,7 +539,10 @@ function loading(
         },
 
         error(error) {
-            if (!overlay) return;
+            if (!overlay) {
+                overlay = createOverlay(transparent ? "transparent" : theme.bg, options.container);
+                if (!overlay) return;
+            }
             dispatch({ type: "error" });
             renderError(overlay, error, theme);
         },

@@ -28,9 +28,9 @@ test("other Dawn loader failures keep their original error", async () => {
     const failure = Object.assign(new Error("Dawn native addon failed to load"), {
         code: "ERR_DLOPEN_FAILED",
     });
-    await expect(loadDawn("darwin", "/usr/local/bin/bun", async () => Promise.reject(failure))).rejects.toBe(
-        failure,
-    );
+    await expect(
+        loadDawn("darwin", "/usr/local/bin/bun", async () => Promise.reject(failure)),
+    ).rejects.toBe(failure);
 });
 
 test("the Windows Dawn loader refuses unsupported hosts before import and accepts node.exe", async () => {

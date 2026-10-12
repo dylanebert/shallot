@@ -180,6 +180,17 @@ test("the standard failure screen shows the no-adapter remedy", async () => {
     });
 });
 
+test("the standard loading screen can show a startup error after progress cleanup", () => {
+    withDocument((body) => {
+        const screen = minimalDark();
+        screen.show()?.();
+        screen.error?.(new Error("GPU device lost unknown: startup loss"));
+
+        expect(body.children).toHaveLength(1);
+        expect(text(body.children[0]!)).toContain("GPU device lost unknown: startup loss");
+    });
+});
+
 test("the shallot-branded dark loading screen keeps its established opaque background", () => {
     withDocument((body) => {
         shallotDark().show();

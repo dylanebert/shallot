@@ -31,6 +31,7 @@ declare global {
         __revealBeforeFence?: boolean;
         __releaseFirstFrameFence?: () => void;
         __firstFrameFenceReady?: boolean;
+        __startupDeviceLoss?: boolean;
         __subjectDeviceRecord?: {
             identity: string;
             requestedFeatures: string[];
@@ -52,6 +53,36 @@ async function waitForScene(page: Page): Promise<void> {
     await openPage(page);
     await expect(page.locator("#scene")).toHaveClass(/visible/);
 }
+
+test("a device lost before its first frame reaches the standard failure screen", async ({
+    page,
+}) => {
+    await page.addInitScript(() => {
+        window.__startupDeviceLoss = false;
+        const original = GPUAdapter.prototype.requestDevice;
+        GPUAdapter.prototype.requestDevice = async function (descriptor?: GPUDeviceDescriptor) {
+            const device = await original.call(this, descriptor);
+            const onSubmittedWorkDone = GPUQueue.prototype.onSubmittedWorkDone;
+            let fences = 0;
+            GPUQueue.prototype.onSubmittedWorkDone = function (this: GPUQueue): Promise<void> {
+                const fence = onSubmittedWorkDone.call(this);
+                if (++fences === 2) {
+                    window.__startupDeviceLoss = true;
+                    device.destroy();
+                }
+                return fence;
+            } as typeof GPUQueue.prototype.onSubmittedWorkDone;
+            return device;
+        };
+    });
+
+    await page.goto("/");
+    const failure = page.locator(overlaySelector);
+    await expect(failure).toContainText("Something went wrong");
+    await expect(failure).toContainText("GPU device lost destroyed:");
+    expect(await page.evaluate(() => window.__startupDeviceLoss)).toBe(true);
+    await expect(page.locator(".frame-error")).toHaveCount(0);
+});
 
 test("a missing browser adapter offers the browser-specific remedy", async ({ page }) => {
     await page.addInitScript(() => {

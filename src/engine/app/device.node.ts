@@ -1,5 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 
+import { expectError, expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
@@ -12,7 +13,7 @@ import "../../standard";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { globalTransformTable } from "../../core/rendering";
 import { type Plugin, Time, type World } from "../index";
-import { createApp } from "./index";
+import { createApp, runApp } from "./index";
 
 await setupGlobals();
 
@@ -64,6 +65,32 @@ test("no adapter has its own acquisition refusal", async () => {
     } finally {
         restore();
     }
+});
+
+test("runApp sends a device lost before its first frame through the loading error", async () => {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("runApp device-loss test has no adapter");
+    const device = await adapter.requestDevice();
+    expectWarning(/adapter with no identity/);
+    expectError(/GPU device lost destroyed: device was destroyed/);
+    let failure: unknown;
+    live = await runApp({
+        defaults: false,
+        device,
+        plugins: [],
+        loading: {
+            show() {},
+            update() {},
+            error(error) {
+                failure = error;
+            },
+        },
+    });
+
+    device.destroy();
+    const info = await device.lost;
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).toMatchObject({ message: `GPU device lost ${info.reason}: ${info.message}` });
 });
 
 test("device creation failure names both the stage and its cause", async () => {
