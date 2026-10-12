@@ -6,7 +6,10 @@
 //
 // Run by path on the seat host, only when the person starts it; it takes the declared monitor while it runs:
 //   SHALLOT_DISPLAY_SEAT=<monitor> bun diagnostics/first-person-allocation/chrome-ab.oracle.ts [--dry]
-// `--dry` does everything but open a browser.
+//     [--arms=<project>,<project>…]
+// `--dry` does everything but open a browser. `--arms` narrows instead: each named project, a first-person
+// variant with one candidate disabled, is built beside first-person (the baseline) and the control, and
+// every page gets ARM_LAUNCHES launches, interleaved by round, alternating browser by round.
 //
 // The browsers are the desktop's own wrappers, so they read the same Omarchy flag files the failing spike
 // runs read, each with a fresh profile and attached over CDP as the spike was. The pages request no input,
@@ -30,19 +33,32 @@ const BROWSERS = [
     { name: "chromium", path: "/usr/bin/chromium", major: "152" },
 ] as const;
 type BrowserName = (typeof BROWSERS)[number]["name"];
-type PageName = "first-person" | "control";
+/** "first-person", "control", or an arm's project name */
+type PageName = string;
 
-/** runs per browser; each run opens both pages, each in its own launch. */
+const ARMS = (process.argv.find((arg) => arg.startsWith("--arms="))?.slice("--arms=".length) ?? "")
+    .split(",")
+    .filter(Boolean);
+/** runs per browser in the A/B; each run opens both pages, each in its own launch. */
 const RUNS = 3;
+/** launches per page when narrowing: at a baseline rate near 4 in 19, 14 clean launches have about a 4%
+ * chance of all missing the fault. */
+const ARM_LAUNCHES = 14;
 /** how long each page is observed once loaded: the spike's losses all came within ten seconds of launch. */
-const OBSERVE_MS = 15_000;
+const OBSERVE_MS = ARMS.length > 0 ? 12_000 : 15_000;
 /** one launch's bound: start, load, observe, read chrome://gpu, close. */
-const LAUNCH_MS = 45_000;
-/** the whole run's bound: 12 launches at their bound, plus the build and preview. */
-const TOTAL_MS = 12 * LAUNCH_MS + 60_000;
+const LAUNCH_MS = ARMS.length > 0 ? 40_000 : 45_000;
+/** the whole run's bound: the A/B's 12 launches at their bound plus the build; 25 minutes when narrowing. */
+const TOTAL_MS = ARMS.length > 0 ? 25 * 60_000 : 12 * LAUNCH_MS + 60_000;
 const PORT = 4177;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 const PROJECT = resolve(import.meta.dir, "../../examples/first-person");
+/** an arm's page name: its project directory, less the scratch prefix. */
+const armName = (project: string) =>
+    project
+        .split("/")
+        .pop()!
+        .replace(/^zz-ab-/, "");
 
 // The control is the WebGPU samples' helloTriangle (github.com/webgpu/webgpu-samples, sample/helloTriangle/
 // main.ts, triangle.vert.wgsl, red.frag.wgsl at e040ec1a), inlined as one page. One change: it requests a
@@ -203,7 +219,7 @@ async function startPreview(outDir: string): Promise<{ close(): Promise<void> }>
     while (performance.now() < deadline) {
         if (child.exitCode !== null)
             throw new Error(`vite preview exited with status ${child.exitCode}`);
-        const ok = await fetch(ORIGIN).then(
+        const ok = await fetch(`${ORIGIN}/webgpu-control.html`).then(
             (r) => {
                 void r.body?.cancel();
                 return r.ok;
@@ -338,7 +354,7 @@ async function launchOnce(
             if (r.status() >= 400) record.failedResponses.push(`${r.status()} ${r.url()}`);
         });
         await tab.addInitScript({ content: OBSERVER });
-        await tab.goto(`${ORIGIN}/${page === "control" ? "webgpu-control.html" : ""}`, {
+        await tab.goto(`${ORIGIN}/${page === "control" ? "webgpu-control.html" : `${page}/`}`, {
             timeout: 10_000,
         });
         await tab.waitForTimeout(OBSERVE_MS);
@@ -400,37 +416,59 @@ function faultsOf(launch: Launch): string[] {
     return faults;
 }
 
+/** the reading, decided before the run and printed at its start. */
+const READING_RULE =
+    ARMS.length > 0
+        ? `reading: a launch faults on a refusal, a device loss (observer or console), an NVRM kernel line, the failure screen, no adapter, or no frame that submitted GPU work. A faulted control means the browser or the driver, and the arms decide nothing about the engine. An arm reads clean, a suspect, at 0 faults in its ${ARM_LAUNCHES} launches while the first-person baseline faults. An arm that faults is not separated. If the baseline is clean too, the run decides nothing.`
+        : "reading: a faulted control means the browser or the driver; faults only on first-person mean the engine's workload on this driver; clean on both means the earlier faults did not recur.";
+
 function verdict(launches: readonly Launch[]): string {
-    const cell = (browser: BrowserName, page: PageName) => {
-        const rows = launches.filter((l) => l.browser === browser && l.page === page);
+    const pages = [...new Set(launches.map((l) => l.page))];
+    const tally = (page: PageName, browser?: BrowserName) => {
+        const rows = launches.filter((l) => l.page === page && (!browser || l.browser === browser));
         return { faulted: rows.filter((l) => faultsOf(l).length > 0).length, of: rows.length };
     };
-    const cells = {
-        "chrome first-person": cell("chrome", "first-person"),
-        "chrome control": cell("chrome", "control"),
-        "chromium first-person": cell("chromium", "first-person"),
-        "chromium control": cell("chromium", "control"),
-    };
-    const control = cells["chrome control"].faulted + cells["chromium control"].faulted;
-    const firstPerson = (["chrome", "chromium"] as const).filter(
-        (browser) => cells[`${browser} first-person`].faulted > 0,
-    );
-    const reading =
-        control > 0
-            ? "A control page, which has no Shallot, faulted: the cause is the browser or the driver, not the engine."
-            : firstPerson.length > 0
-              ? `Only first-person faulted, in ${firstPerson.join(" and ")}: the engine's workload is exposed on this driver; bisect it.`
-              : "Every launch was clean: the earlier faults did not recur with the game closed; run the game-open comparison next.";
+    const lines = pages.map((page) => {
+        const all = tally(page);
+        const per = BROWSERS.map((b) => {
+            const t = tally(page, b.name);
+            return `${b.name} ${t.faulted}/${t.of}`;
+        }).join(", ");
+        return `  ${page}: ${all.faulted}/${all.of} (${per})`;
+    });
     const faulted = launches
         .filter((l) => faultsOf(l).length > 0)
         .map((l) => `  run ${l.run} ${l.browser} ${l.page}: ${faultsOf(l).join("; ")}`);
-    return [
-        `faulted launches: ${Object.entries(cells)
-            .map(([name, { faulted, of }]) => `${name} ${faulted}/${of}`)
-            .join(", ")}`,
-        ...faulted,
-        reading,
-    ].join("\n");
+    const control = tally("control");
+    const baseline = tally("first-person");
+    const arms = pages.filter((page) => page !== "control" && page !== "first-person");
+    let reading: string;
+    if (control.faulted > 0) {
+        reading =
+            "A control page, which has no Shallot, faulted: the cause is the browser or the driver, not the engine.";
+    } else if (baseline.faulted === 0) {
+        reading =
+            arms.length > 0
+                ? "The first-person baseline was clean: this run decides nothing."
+                : "Every launch was clean: the earlier faults did not recur.";
+    } else if (arms.length === 0) {
+        const browsers = BROWSERS.filter((b) => tally("first-person", b.name).faulted > 0).map(
+            (b) => b.name,
+        );
+        reading = `Only first-person faulted, in ${browsers.join(" and ")}: the engine's workload is exposed on this driver; bisect it.`;
+    } else {
+        const rate = baseline.faulted / baseline.of;
+        reading = arms
+            .map((arm) => {
+                const t = tally(arm);
+                if (t.faulted > 0) return `${arm}: not separated (${t.faulted}/${t.of}).`;
+                if (t.of < ARM_LAUNCHES)
+                    return `${arm}: 0/${t.of}, short of ${ARM_LAUNCHES}, so not read.`;
+                return `${arm}: clean 0/${t.of} against baseline ${baseline.faulted}/${baseline.of}, a suspect (at the baseline's rate, ${(100 * (1 - rate) ** t.of).toFixed(0)}% of ${t.of}-launch arms would be clean by chance).`;
+            })
+            .join("\n");
+    }
+    return ["faulted launches by page:", ...lines, ...faulted, reading].join("\n");
 }
 
 const dry = process.argv.includes("--dry");
@@ -471,46 +509,66 @@ const shots = mkdtempSync(join(tmpdir(), "shallot-chrome-ab-shots-"));
 let preview: { close(): Promise<void> } | undefined;
 try {
     const { buildWeb } = await import("../../src/project/build");
-    await buildWeb(PROJECT, { outDir });
+    // Each project is built under its own base, so the pages share one preview without sharing assets.
+    const projects = [PROJECT, ...ARMS.map((arm) => resolve(import.meta.dir, "../..", arm))];
+    const names = projects.map((project, i) => (i === 0 ? "first-person" : armName(project)));
+    for (const [i, project] of projects.entries())
+        await buildWeb(project, { outDir: join(outDir, names[i]) }, ["--base", `/${names[i]}/`]);
     writeFileSync(join(outDir, "webgpu-control.html"), CONTROL_PAGE);
     preview = await startPreview(outDir);
-    for (const path of ["/", "/webgpu-control.html"]) {
+    for (const path of [...names.map((name) => `/${name}/`), "/webgpu-control.html"]) {
         const response = await fetch(ORIGIN + path);
         if (!response.ok) throw new Error(`${ORIGIN}${path} answered ${response.status}`);
         await response.body?.cancel();
     }
+    console.info(`[chrome-ab] ${READING_RULE}`);
     console.info(
         `[chrome-ab] seat ${monitor.name} (${monitor.width}x${monitor.height} @ ${monitor.refreshRate.toFixed(2)} Hz); ${[...versions.values()].join(" / ")}; bound ${Math.round(TOTAL_MS / 1000)} s`,
     );
     if (dry) {
         console.info(
-            `[chrome-ab] dry run: built, served ${ORIGIN}/ and /webgpu-control.html; no browser opened`,
+            `[chrome-ab] dry run: built and served ${names.map((name) => `/${name}/`).join(", ")} and /webgpu-control.html; no browser opened`,
         );
     } else {
         const launches: Launch[] = [];
-        for (let runIndex = 1; runIndex <= RUNS; runIndex++) {
-            for (const browser of BROWSERS) {
+        const schedule: { run: number; browser: (typeof BROWSERS)[number]; page: PageName }[] = [];
+        if (ARMS.length === 0) {
+            for (let run = 1; run <= RUNS; run++)
                 // The page order alternates by run, so neither page always runs first in a fresh GPU state.
-                const pages: PageName[] =
-                    runIndex % 2 === 1 ? ["first-person", "control"] : ["control", "first-person"];
-                for (const page of pages) {
-                    if (remaining() < LAUNCH_MS)
-                        throw new Error(
-                            `the run's ${TOTAL_MS} ms bound leaves no room for another launch`,
-                        );
-                    refuseOpenGame();
-                    const launch = await launchOnce(
-                        declared,
-                        browser,
-                        versions.get(browser.name)!,
-                        page,
-                        runIndex,
-                        shots,
-                    );
-                    launches.push(launch);
-                    console.info(`[chrome-ab] ${JSON.stringify(launch)}`);
-                }
+                for (const browser of BROWSERS)
+                    for (const page of run % 2 === 1
+                        ? ["first-person", "control"]
+                        : ["control", "first-person"])
+                        schedule.push({ run, browser, page });
+        } else {
+            // Every round opens every page once in one browser; the browser alternates by round and the page
+            // order rotates, so time-dependent effects spread across pages and browsers.
+            const pages = [...names, "control"];
+            for (let run = 1; run <= ARM_LAUNCHES; run++) {
+                const browser = BROWSERS[(run - 1) % BROWSERS.length];
+                for (let i = 0; i < pages.length; i++)
+                    schedule.push({ run, browser, page: pages[(i + run - 1) % pages.length] });
             }
+        }
+        console.info(`[chrome-ab] ${schedule.length} launches planned`);
+        for (const { run, browser, page } of schedule) {
+            if (remaining() < LAUNCH_MS) {
+                console.info(
+                    `[chrome-ab] the ${Math.round(TOTAL_MS / 1000)} s bound stopped the run after ${launches.length} of ${schedule.length} launches`,
+                );
+                break;
+            }
+            refuseOpenGame();
+            const launch = await launchOnce(
+                declared,
+                browser,
+                versions.get(browser.name)!,
+                page,
+                run,
+                shots,
+            );
+            launches.push(launch);
+            console.info(`[chrome-ab] ${JSON.stringify(launch)}`);
         }
         writeFileSync(join(shots, "launches.json"), JSON.stringify(launches, null, 2));
         console.info(`[chrome-ab] records and screenshots: ${shots}`);
