@@ -394,6 +394,8 @@ interface ShadowRuntime {
     faceVP: Float32Array;
     comboMeta: Uint32Array;
     tileRects: Float32Array;
+    casterProj: Float32Array[];
+    casterProjKey: Float64Array;
     packer: Packer | undefined;
     packSizes: Int32Array;
     packRects: Float64Array;
@@ -428,6 +430,8 @@ const createShadowRuntime = (): ShadowRuntime => {
         faceVP: new Float32Array(0),
         comboMeta: new Uint32Array(0),
         tileRects: new Float32Array(0),
+        casterProj: Array.from({ length: MAX_POINT_CASTERS }, () => new Float32Array(16)),
+        casterProjKey: new Float64Array(MAX_POINT_CASTERS * 2).fill(Number.NaN),
         packer: undefined,
         packSizes: new Int32Array(MAX_POINT_CASTERS),
         packRects: new Float64Array(MAX_POINT_CASTERS * 6 * 4),
@@ -1082,7 +1086,6 @@ function newPointFrame(): PointShadowFrame {
 
 // per-combo view scratch stays process-local; retained outputs and pooled eids live in ShadowRuntime.
 const _faceView = new Float32Array(16);
-const _faceProj = new Float32Array(16);
 // the proj·view product before the tile transform is folded on (the combo viewProj carries the tile
 // placement, so the VS emits `tileVP·world` directly — see {@link tileTransform})
 const _pv = new Float32Array(16);
@@ -1155,17 +1158,11 @@ const comboUp = (frame: PointShadowFrame, face: number) =>
     frame.spot ? frame.up : POINT_FACES[face].up;
 const comboFov = (frame: PointShadowFrame) => (frame.spot ? frame.coneFov : pointFov(frame.tilePx));
 
-// write a combo's infinite perspective into `_faceProj`. Its own function: calling `perspective` directly from
-// writeComboViewProj, the allocation oracle reads about 96 KB a window, from perspective's boxed arguments
-function comboProjection(frame: PointShadowFrame): void {
-    perspective(comboFov(frame), 1, frame.near, _faceProj);
-}
-
 // write combo `ci`'s tile viewProj into `faceVP`: `tileTransform(rect at `at`) × perspective × lookAt`. The
 // tile placement is folded in, so the VS emits `tileVP·world` with no manual divide and the hardware clips a
 // triangle behind the face near plane. Takes no float arguments, so a call boxes no number.
 function writeComboViewProj(
-    faceVP: Float32Array,
+    shadow: ShadowRuntime,
     ci: number,
     frame: PointShadowFrame,
     face: number,
@@ -1177,11 +1174,20 @@ function writeComboViewProj(
     const px = frame.pos[0];
     const py = frame.pos[1];
     const pz = frame.pos[2];
-    comboProjection(frame);
+    // the caster's projection depends only on its fov and near, so it is rebuilt only when packing resizes the
+    // tile or the cone or range changes: steady play, a moving light included, makes no perspective call
+    const proj = shadow.casterProj[frame.slot];
+    const key = frame.slot * 2;
+    const fov = comboFov(frame);
+    if (shadow.casterProjKey[key] !== fov || shadow.casterProjKey[key + 1] !== frame.near) {
+        perspective(fov, 1, frame.near, proj);
+        shadow.casterProjKey[key] = fov;
+        shadow.casterProjKey[key + 1] = frame.near;
+    }
     lookAt(px, py, pz, px + fwd[0], py + fwd[1], pz + fwd[2], up[0], up[1], up[2], _faceView);
-    multiplyMat4(_faceProj, _faceView, _pv);
+    multiplyMat4(proj, _faceView, _pv);
     multiplyMat4(tileTransform(rects, _tileMat, at), _pv, _tileVP);
-    faceVP.set(_tileVP, ci * 16);
+    shadow.faceVP.set(_tileVP, ci * 16);
 }
 
 // each cube face's camera rotation (x, y, z, w). A lookAt orientation depends only on its direction and up,
@@ -1553,7 +1559,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         const faces = frame.spot ? 1 : 6;
         for (let face = 0; face < faces; face++) {
             const at = (frame.slot * 6 + face) * 4;
-            writeComboViewProj(shadow.faceVP, ci, frame, face, rects, at);
+            writeComboViewProj(shadow, ci, frame, face, rects, at);
             // a spot's lone combo is face 0 of its slot
             shadow.comboMeta[ci * 4] = frame.slot;
             shadow.comboMeta[ci * 4 + 1] = face;
