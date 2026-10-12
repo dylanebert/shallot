@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { buildArtifactIsFresh, buildInputHash } from "../../build-inputs";
 
 export const KERNEL_ARTIFACTS = [
     "src/standard/physics/kernel/kernel.wasm.ts",
@@ -8,38 +6,28 @@ export const KERNEL_ARTIFACTS = [
 ];
 export const KERNEL_BUILD_COMMAND = "bun run crates/physics/scripts/build-kernel.ts";
 
-/** Fingerprints tree inputs, not machine-local toolchains or build outputs. */
 export function kernelInputHash(root: string): string {
-    const files = [
-        "Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        "scripts/wasm-opt.ts",
-        "crates/physics/Cargo.toml",
-        "crates/physics/.cargo/config.toml",
-        "crates/physics/scripts/build-kernel.ts",
-        "crates/physics/scripts/kernel-inputs.ts",
-    ];
-    function sources(dir: string): void {
-        for (const entry of readdirSync(resolve(root, dir), { withFileTypes: true })) {
-            const path = `${dir}/${entry.name}`;
-            if (entry.isDirectory()) sources(path);
-            else files.push(path);
-        }
-    }
-    sources("crates/physics/src");
-    const hash = createHash("sha256");
-    for (const path of files.sort()) {
-        const bytes = readFileSync(resolve(root, path));
-        hash.update(`${path}\0${bytes.length}\0`);
-        hash.update(bytes);
-    }
-    // Of the Bun manifests, only Binaryen's locked package is a build input (scripts/wasm-opt.ts), so
-    // an unrelated package.json or bun.lock edit leaves the kernels fresh.
-    const binaryen = readFileSync(resolve(root, "bun.lock"), "utf8").match(
-        /^\s*"binaryen": \[.*$/m,
-    )?.[0];
-    if (!binaryen) throw new Error("bun.lock locks no binaryen package, which pins wasm-opt");
-    hash.update(`bun.lock binaryen\0${binaryen.trim()}`);
-    return hash.digest("hex");
+    return buildInputHash(
+        root,
+        [
+            "Cargo.toml",
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            "scripts/wasm-opt.ts",
+            "scripts/rust-remap.ts",
+            "crates/build-inputs.ts",
+            "crates/physics/Cargo.toml",
+            "crates/physics/.cargo/config.toml",
+            "crates/physics/scripts/build-kernel.ts",
+            "crates/physics/scripts/kernel-inputs.ts",
+        ],
+        ["crates/physics/src"],
+    );
+}
+
+export function kernelArtifactsAreFresh(root: string): boolean {
+    const inputHash = kernelInputHash(root);
+    return KERNEL_ARTIFACTS.every((artifact) =>
+        buildArtifactIsFresh(root, artifact, artifact, inputHash),
+    );
 }

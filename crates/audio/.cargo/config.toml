@@ -1,10 +1,10 @@
 # wasm is the shipped target — +simd128 lets rustc vectorize the DSP hot loops
 # (Stage 1). Target-scoped so native builds (the golden `cargo test`, `cargo
 # bench`, the diff_vector reference) compile for the host ISA, untouched. The
-# shipped build (scripts/build.ts) pairs this with `wasm-opt --enable-simd`; the
-# scalar A/B leg in scripts/audio-wasm-bench.ts overrides it via RUSTFLAGS.
+# shipped build pairs this with `wasm-opt --enable-simd`; scripts/audio.ts repeats
+# this flag when adding host-independent source remaps through RUSTFLAGS. The scalar
+# A/B leg in scripts/audio-wasm-bench.ts overrides it via RUSTFLAGS.
 [target.wasm32-unknown-unknown]
 # --remap-path-prefix strips the workspace-member prefix rustc now sees (crates/audio/src/x.rs), so
-# embedded panic-location paths read src/x.rs as they did before the Cargo workspace, and the shipped
-# bytes stay identical.
+# embedded panic-location paths read src/x.rs as they did before the Cargo workspace.
 rustflags = ["-C", "target-feature=+simd128", "--remap-path-prefix=crates/audio/="]

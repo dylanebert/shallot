@@ -4,6 +4,6 @@
 # `cargo test` runs on the host.
 [target.wasm32-unknown-unknown]
 # --remap-path-prefix strips the workspace-member prefix rustc now sees (crates/physics/src/x.rs), so
-# embedded panic-location paths read src/x.rs as they did before the Cargo workspace, and the shipped
-# bytes stay identical.
+# embedded panic-location paths read src/x.rs as they did before the Cargo workspace. build-kernel.ts
+# repeats the SIMD and workspace-prefix flags when its RUSTFLAGS add rust-src and registry remaps.
 rustflags = ["-C", "target-feature=+simd128", "--remap-path-prefix=crates/physics/="]

@@ -2,7 +2,7 @@
 // src/standard/physics/kernel/. Inlining (not a separate .wasm asset) keeps the engine pure JS — no
 // asset-path resolution for downstream bundlers, identical in browser / bun / node / deno. The
 // generated files are committed so tests and package consumers run without a Rust toolchain;
-// `bun run build` regenerates them, as does running this after any crates/physics/ change.
+// `bun run build` regenerates them only when their input stamps are stale, while this command forces it.
 //
 // Two artifacts, from the same source:
 //
@@ -32,6 +32,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { rustSourceRemaps } from "../../../scripts/rust-remap";
 import { optimize, version } from "../../../scripts/wasm-opt";
 import { kernelInputHash } from "./kernel-inputs";
 
@@ -50,20 +51,32 @@ const SHARED_STACK_SIZE = 3145728;
  * only lower it — the import's declared maximum is the hard cap. */
 const SHARED_MAX_MEMORY = 1073741824;
 
-const SHARED_RUSTFLAGS = [
-    "-C target-feature=+simd128,+atomics,+bulk-memory,+mutable-globals",
-    "-C link-arg=--import-memory",
-    "-C link-arg=--shared-memory",
-    `-C link-arg=--max-memory=${SHARED_MAX_MEMORY}`,
-    `-C link-arg=-zstack-size=${SHARED_STACK_SIZE}`,
-    "-C link-arg=--export=__stack_pointer",
-    "-C link-arg=--export=__tls_base",
-    "-C link-arg=--export=__tls_size",
-    "-C link-arg=--export=__tls_align",
-    "-C link-arg=--export=__wasm_init_tls",
-    // RUSTFLAGS replaces .cargo/config.toml's, so repeat its workspace-prefix remap (see there).
-    "--remap-path-prefix=crates/physics/=",
-].join(" ");
+function stableRustflags(): string {
+    return [
+        // RUSTFLAGS replaces .cargo/config.toml's, so repeat its SIMD and workspace-prefix flags.
+        "-C target-feature=+simd128",
+        "--remap-path-prefix=crates/physics/=",
+        ...rustSourceRemaps(),
+    ].join(" ");
+}
+
+function sharedRustflags(): string {
+    return [
+        "-C target-feature=+simd128,+atomics,+bulk-memory,+mutable-globals",
+        "-C link-arg=--import-memory",
+        "-C link-arg=--shared-memory",
+        `-C link-arg=--max-memory=${SHARED_MAX_MEMORY}`,
+        `-C link-arg=-zstack-size=${SHARED_STACK_SIZE}`,
+        "-C link-arg=--export=__stack_pointer",
+        "-C link-arg=--export=__tls_base",
+        "-C link-arg=--export=__tls_size",
+        "-C link-arg=--export=__tls_align",
+        "-C link-arg=--export=__wasm_init_tls",
+        // RUSTFLAGS replaces .cargo/config.toml's, so repeat its SIMD and workspace-prefix flags.
+        "--remap-path-prefix=crates/physics/=",
+        ...rustSourceRemaps(NIGHTLY),
+    ].join(" ");
+}
 
 async function build(
     args: string[],
@@ -171,6 +184,8 @@ if (probe.status !== 0 || !/^rust-src/m.test(probe.stdout)) {
     console.error(`[build-kernel] ${NIGHTLY} with rust-src is missing. Install it: ${INSTALL}`);
     process.exit(1);
 }
+const stableFlags = stableRustflags();
+const sharedFlags = sharedRustflags();
 const sharedBuild = build(
     [
         `+${NIGHTLY}`,
@@ -183,14 +198,14 @@ const sharedBuild = build(
         "--target-dir",
         "target-shared",
     ],
-    { RUSTFLAGS: SHARED_RUSTFLAGS },
+    { RUSTFLAGS: sharedFlags },
     "target-shared",
 );
 // Each build is one LTO unit on one core, so the two run side by side.
 const [st, shared] = await Promise.all([
     build(
         ["build", "--release", "--target", "wasm32-unknown-unknown"],
-        undefined,
+        { RUSTFLAGS: stableFlags },
         // A workspace member: the stable build lands in the workspace root target/.
         resolve(pkgRoot, "target"),
     ),

@@ -21,3 +21,31 @@ test("checked kernel artifacts match their build inputs", () => {
     }
     expect(failed).toBe(false);
 });
+
+test("committed WASM contains no host paths", () => {
+    const root = resolve(import.meta.dir, "..");
+    const inlinedKernels = KERNEL_ARTIFACTS.map((artifact) => {
+        const contents = readFileSync(resolve(root, artifact), "utf8");
+        const base64 = contents.match(
+            /export const KERNEL(?:_SHARED)?_WASM_BASE64 =\s+"([^"]+)";/,
+        )?.[1];
+        expect(base64).toBeDefined();
+        return [artifact, Buffer.from(base64!, "base64")] as const;
+    });
+    const wasm = [
+        [
+            "crates/audio/pkg/shallot_audio.wasm",
+            readFileSync(resolve(root, "crates/audio/pkg/shallot_audio.wasm")),
+        ] as const,
+        ...inlinedKernels,
+    ];
+    const forbidden = ["/Users/", "/home/", ".rustup", ".cargo"].map((path) => Buffer.from(path));
+    const failures: string[] = [];
+    for (const [artifact, bytes] of wasm) {
+        for (const path of forbidden) {
+            if (bytes.includes(path)) failures.push(`${artifact}: contains ${path.toString()}`);
+        }
+    }
+    if (failures.length) console.error(failures.join("\n"));
+    expect(failures).toEqual([]);
+});
