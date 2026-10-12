@@ -43,5 +43,5 @@ printf '%s\n' "$subjects" | while IFS= read -r subject; do
     fi
 
     echo "Browser subject: $subject"
-    bunx playwright test -c "$subject"
+    bunx playwright test -c "$subject" --global-timeout=60000 --workers=1
 done

@@ -25,7 +25,6 @@ export function timeoutErrors(path: string, text: string): string[] {
     let defaults = 0;
     let correctDefault = false;
     let browserDefaults = 0;
-    let serverDefaults = 0;
     for (const statement of file.program.body) {
         if (statement.type === "ImportDeclaration") {
             for (const item of statement.specifiers) {
@@ -94,15 +93,20 @@ export function timeoutErrors(path: string, text: string): string[] {
             browserDefaults++;
         if (node.type === "ObjectProperty") {
             const key = node.key.name ?? node.key.value;
-            if (!browser && !sharedBrowser && ["timeout", "globalTimeout"].includes(key))
+            if (!browser && ["timeout", "globalTimeout"].includes(key))
                 checkBudget(node.value, CEILING.startup);
-            if (sharedBrowser && ["globalTimeout", "timeout"].includes(key)) {
-                const expected = key === "globalTimeout" ? CEILING.browser : CEILING.startup;
-                if (budget(node.value) !== expected)
-                    fail(node, `shared ${key} must derive from CEILING`);
-                if (key === "globalTimeout") browserDefaults++;
-                else serverDefaults++;
-            }
+            if (
+                sharedBrowser &&
+                [
+                    "globalTimeout",
+                    "workers",
+                    "fullyParallel",
+                    "reporter",
+                    "viewport",
+                    "deviceScaleFactor",
+                ].includes(key)
+            )
+                fail(node, `shared ${key} belongs to scripts/browser.sh or Playwright's defaults`);
             if (browser) {
                 if (
                     [
@@ -169,8 +173,6 @@ export function timeoutErrors(path: string, text: string): string[] {
     visit(file.program);
     if (browser && browserDefaults !== 1)
         errors.push(`${path}: spread BROWSER_CONFIG from @dylanebert/shallot/testing exactly once`);
-    if (sharedBrowser && (browserDefaults !== 1 || serverDefaults !== 1))
-        errors.push(`${path}: define the shared browser and startup backstops exactly once`);
     if (
         !browser &&
         !browserTest &&
@@ -180,6 +182,19 @@ export function timeoutErrors(path: string, text: string): string[] {
     )
         errors.push(`${path}: one setDefaultTimeout(CEILING.${tier}) header is required`);
     return [...new Set(errors)];
+}
+
+export function browserCommandErrors(text: string): string[] {
+    const timeouts = [...text.matchAll(/--global-timeout(?:=|\s+)(\d+)/g)].map((match) =>
+        Number(match[1]),
+    );
+    const workers = [...text.matchAll(/--workers(?:=|\s+)(\d+)/g)].map((match) => Number(match[1]));
+    const errors: string[] = [];
+    if (timeouts.length !== 1 || timeouts[0] !== CEILING.browser)
+        errors.push("scripts/browser.sh: --global-timeout must equal CEILING.browser");
+    if (workers.length !== 1 || workers[0] !== 1)
+        errors.push("scripts/browser.sh: each subject must run with --workers=1");
+    return errors;
 }
 
 export function packageTimeoutErrors(text: string): string[] {

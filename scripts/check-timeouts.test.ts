@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { packageTimeoutErrors, timeoutErrors } from "./timeout-policy";
+import { browserCommandErrors, packageTimeoutErrors, timeoutErrors } from "./timeout-policy";
 
 const cheap =
     'import { test } from "bun:test"; import { CEILING } from "@dylanebert/shallot/testing";';
@@ -85,9 +85,17 @@ test("browser subjects inherit categorical values from their one shared home", (
     expect(
         timeoutErrors(
             "src/project/testing.js",
-            "const CEILING = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { globalTimeout: CEILING.browser }; export const WEB_SERVER_CONFIG = { timeout: CEILING.startup };",
+            'const CEILING = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { testMatch: "**/*.e2e.ts" }; export const WEB_SERVER_CONFIG = { timeout: CEILING.startup };',
         ),
     ).toEqual([]);
+    expect(
+        timeoutErrors(
+            "src/project/testing.js",
+            "const CEILING = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { globalTimeout: CEILING.browser }; export const WEB_SERVER_CONFIG = { timeout: CEILING.startup };",
+        ),
+    ).toContain(
+        "src/project/testing.js:1: shared globalTimeout belongs to scripts/browser.sh or Playwright's defaults",
+    );
 });
 
 test("browser tests leave Playwright's test timeout at its default", () => {
@@ -96,6 +104,17 @@ test("browser tests leave Playwright's test timeout at its default", () => {
     expect(
         timeoutErrors("subject.e2e.ts", `${source} test.setTimeout(${CEILING.startup});`),
     ).toHaveLength(1);
+});
+
+test("the browser runner pins the global and worker budgets", () => {
+    const command = `bunx playwright test -c "$subject" --global-timeout=${CEILING.browser} --workers=1`;
+    expect(browserCommandErrors(command)).toEqual([]);
+    expect(browserCommandErrors(command.replace(String(CEILING.browser), "30000"))).toContain(
+        "scripts/browser.sh: --global-timeout must equal CEILING.browser",
+    );
+    expect(browserCommandErrors(command.replace("--workers=1", "--workers=2"))).toContain(
+        "scripts/browser.sh: each subject must run with --workers=1",
+    );
 });
 
 test("package test timeout follows the cheap tier and manual oracles remain unbounded", () => {

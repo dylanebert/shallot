@@ -38,16 +38,10 @@ const launchOptions =
 /** @satisfies {import("playwright/test").PlaywrightTestConfig} */
 export const BROWSER_CONFIG = {
     testMatch: "**/*.e2e.ts",
-    globalTimeout: CEILING.browser,
-    fullyParallel: false,
-    workers: 1,
-    reporter: "list",
     use: {
         browserName: "chromium",
         channel: "chromium",
         launchOptions,
-        viewport: { width: 1280, height: 720 },
-        deviceScaleFactor: 1,
     },
 };
 
