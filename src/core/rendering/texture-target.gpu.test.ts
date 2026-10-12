@@ -104,6 +104,27 @@ test("a re-attached or recreated camera's view carries its view-from-world matri
     expect(world.resource(Views).get(recreated)!.viewFromWorld).toEqual(expected);
 });
 
+test("a recycled camera eid neither inherits nor is refused its predecessor's texture before the next frame", async () => {
+    const { world } = subjects()[1];
+    const eid = world.create();
+    world.add(eid, Camera);
+    world.add(eid, Transform);
+    attachTexture(world, eid, { width: 4, height: 4 });
+    world.step(0);
+    const predecessor = spyOn(world.resource(Views).get(eid)!.texture!, "destroy");
+    world.destroy(eid);
+    const recycled = world.create();
+    expect(recycled).toBe(eid);
+    world.add(recycled, Camera);
+    world.add(recycled, Transform);
+    await expect(captureTexture(world, recycled)).rejects.toThrow("no texture target");
+    attachTexture(world, recycled, { width: 8, height: 8 });
+    expect(predecessor).toHaveBeenCalledTimes(1);
+    expect(world.resource(Views).get(recycled)!.width).toBe(8);
+    detachCanvas(world, recycled);
+    world.destroy(recycled);
+});
+
 test("texture final frames capture tight RGBA and refuse missing presentation; owned targets release", async () => {
     const app = subjects()[0];
     const { world } = app;
