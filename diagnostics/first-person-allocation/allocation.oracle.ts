@@ -18,7 +18,8 @@ function table(
     const bracket = span
         ? `; page frame-counter bracket ${span.frames}–${span.framesAtMost} frames`
         : "";
-    const admitted = browser === undefined ? "" : `, beside ${browser} bytes the browser allocated`;
+    const admitted =
+        browser === undefined ? "" : `, beside ${browser} bytes admitted inside WebGPU and native then calls`;
     return [
         `${label}: ${bytes} bytes${bracket} at ${sites.length} sites${admitted}`,
         ...sites.map(
@@ -57,7 +58,7 @@ function traceReport(sample: PageSample): string {
     ].join("\n");
 }
 
-test("a warm requestAnimationFrame frame of the production first-person web build, stepped by its own page loop in a headed browser on a real adapter, allocates no JavaScript heap in any steady window outside the browser's WebGPU calls and completion-fence callbacks, with nothing surviving a full collection", async () => {
+test("a warm requestAnimationFrame frame of the production first-person web build, stepped by its own page loop in a headed browser on a real adapter, allocates no JavaScript heap in any steady window outside WebGPU calls, the harness's wrapper included, and native then calls, with nothing surviving a full collection", async () => {
     // 5400 warm frames reach past the last first optimization of per-frame code: on a 240 Hz seat
     // flushMeshes, which returns at its first check most frames, first optimizes near frame 5000, and
     // per-tick functions after the 500 invocations V8 waits following a type-feedback change. That warm

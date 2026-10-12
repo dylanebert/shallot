@@ -227,7 +227,7 @@ bun run format                  # biome
 - An oracle is a separate measurement: run when its claim or tool changes, its result recorded in its commit message, and repeated only for a named doubt; the tree keeps the tool, never a run's output.
 - The shared transparent-phase oracle records CPU keying, sorting, preparation, draw recording and upload per frame at declared sizes, views and material mixes; it sets no timing threshold and excludes GPU execution.
 - `diagnostics/readback-allocation/render.oracle.ts` holds steady rendering to zero sampled heap outside the submission's single-use objects: the command encoder, each pass's begin and `end()`, `finish`, `submit` and the completion fence. Each admitted wrapper is one call, checked from source; the first frame after each profiler session is unmeasured. It reruns when the frame path, the sampler or its admission list changes.
-- `diagnostics/first-person-allocation/allocation.oracle.ts` holds first-person's steady play in Chromium to zero sampled heap outside what the browser allocates inside its WebGPU calls and the completion fences' callbacks.
+- `diagnostics/first-person-allocation/allocation.oracle.ts` holds first-person's steady play in Chromium to zero sampled heap, except allocation inside WebGPU calls (its harness wrapper included) and inside native `then` calls; callbacks that run after the frame loop are not counted.
 
 | Claim | Tool / tier |
 |---|---|

@@ -67,7 +67,7 @@ export interface DisplaySeat {
     presented: number;
 }
 
-/** a page window: its engine sites, and the bytes admitted as the browser's, which it does not list */
+/** a page window: its engine sites, and the bytes {@link browserAllocated} admits, which it does not list */
 export interface PageWindow extends AllocationWindow {
     /** sampled bytes {@link browserAllocated} admits */
     browser: number;
@@ -75,7 +75,7 @@ export interface PageWindow extends AllocationWindow {
 
 /**
  * a page sample: the steady windows and control of {@link AllocationSample}, and the adapter it ran on. Windows and
- * survivors list only the sites the browser did not allocate.
+ * survivors list only the sites {@link browserAllocated} does not admit.
  */
 export interface PageSample extends AllocationSample {
     windows: readonly PageWindow[];
@@ -151,8 +151,9 @@ const WEBGPU_BOUNDARY_SCRIPT = `(() => {
 `;
 
 /**
- * True for a sample the browser allocated: one whose frames below the WebGPU boundary are all native, or whose
- * innermost frame is the built-in `then` a completion fence's callbacks are registered through.
+ * True for a sample admitted as the browser's: one whose frames from the innermost WebGPU boundary down are all
+ * native, so the harness's boundary frame is admitted with the WebGPU call it wraps, or whose innermost frame is
+ * any native `then`.
  */
 export function browserAllocated(row: AllocationSite): boolean {
     const stack = row.stack ?? [];
@@ -164,7 +165,7 @@ export function browserAllocated(row: AllocationSite): boolean {
     return boundary >= 0 && stack.slice(boundary + 1).every((frame) => frame.native);
 }
 
-/** `sites` split into the engine's, which are listed, and the bytes the browser allocated. */
+/** `sites` split into the engine's, which are listed, and the bytes {@link browserAllocated} admits. */
 function admitBrowser(sites: readonly AllocationSite[]): { sites: AllocationSite[]; browser: number } {
     const engine: AllocationSite[] = [];
     let browser = 0;
