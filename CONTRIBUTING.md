@@ -35,7 +35,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback. GPU-only tables have no CPU record source or upload.
 - Unchanged records upload nothing; a changed record uploads its spanning range.
 - Uploads preserve command order across buffer growth. Outside draw, queue writes and immediate growth submissions follow program order; during draw, distinct staging ranges preserve encoded observations on the World's lazy frame encoder.
-- The engine submits once after the draw group, only when its encoder was opened; that submission owns the completion fence `runApp` waits on. Upload staging recycles when it completes, with no extra staging fence. The upload-byte bound applies to one encoded frame, not accumulated exact ticks.
+- The engine submits once after the draw group, only when its encoder was opened; that submission owns the completion fence `runApp` waits on. `onFrameSubmit` queues a callback for this draw group only: register it during draw where its state is encoded. It runs after submission, or at successful group end without an encoder, and is dropped on abort. Reuse a stable callback; the queue reuses its storage. Upload staging recycles when it completes, with no extra staging fence. The upload-byte bound applies to one encoded frame, not accumulated exact ticks.
 - On a propagated draw error, system draw commands are discarded; only engine copies replay in their own fenced submission.
 - Growth preserves contents and changes generation; consumers rebuild affected bind groups, not pipelines.
 - Shader arrays are runtime-sized. Device buffer limits bound table capacity, and refusal names the cause.

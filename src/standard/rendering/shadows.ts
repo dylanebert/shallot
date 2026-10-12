@@ -395,36 +395,52 @@ interface ShadowRuntime {
     comboMeta: Uint32Array;
     tileRects: Float32Array;
     lastCasters: Set<number>;
+    pendingCasters: Set<number>;
+    casterSelectionPending: boolean;
+    commitCasters: () => void;
     capWarned: boolean;
     overflowWarned: boolean;
     slotWarned: boolean;
 }
 const shadowRuntimeKey = { create: () => createShadowRuntime() };
-const createShadowRuntime = (): ShadowRuntime => ({
-    cascadeEids: [],
-    cascadeCount: 0,
-    cascadeVP: new Float32Array(MAX_CASCADES * 16),
-    cascadeRecv: new Float32Array(MAX_CASCADES * 16),
-    cascadeMeta: new Uint32Array(MAX_CASCADES * 4),
-    cascadeRects: new Float32Array(MAX_CASCADES * 4),
-    cascadeFar: new Float32Array(MAX_CASCADES),
-    cascadeCover: new Float32Array(MAX_CASCADES),
-    cascadeDepth: new Float32Array(MAX_CASCADES),
-    sunBias: new Float64Array(2),
-    sunTowardLight: new Float64Array(3),
-    sunCascades: 0,
-    sunOverlap: 0,
-    cascKey: new Float64Array(CASC_KEY_FLOATS).fill(Number.NaN),
-    comboEids: [],
-    comboCount: 0,
-    faceVP: new Float32Array(0),
-    comboMeta: new Uint32Array(0),
-    tileRects: new Float32Array(0),
-    lastCasters: new Set(),
-    capWarned: false,
-    overflowWarned: false,
-    slotWarned: false,
-});
+const createShadowRuntime = (): ShadowRuntime => {
+    let runtime: ShadowRuntime;
+    runtime = {
+        cascadeEids: [],
+        cascadeCount: 0,
+        cascadeVP: new Float32Array(MAX_CASCADES * 16),
+        cascadeRecv: new Float32Array(MAX_CASCADES * 16),
+        cascadeMeta: new Uint32Array(MAX_CASCADES * 4),
+        cascadeRects: new Float32Array(MAX_CASCADES * 4),
+        cascadeFar: new Float32Array(MAX_CASCADES),
+        cascadeCover: new Float32Array(MAX_CASCADES),
+        cascadeDepth: new Float32Array(MAX_CASCADES),
+        sunBias: new Float64Array(2),
+        sunTowardLight: new Float64Array(3),
+        sunCascades: 0,
+        sunOverlap: 0,
+        cascKey: new Float64Array(CASC_KEY_FLOATS).fill(Number.NaN),
+        comboEids: [],
+        comboCount: 0,
+        faceVP: new Float32Array(0),
+        comboMeta: new Uint32Array(0),
+        tileRects: new Float32Array(0),
+        lastCasters: new Set(),
+        pendingCasters: new Set(),
+        casterSelectionPending: false,
+        commitCasters: () => {
+            if (!runtime.casterSelectionPending) return;
+            const previous = runtime.lastCasters;
+            runtime.lastCasters = runtime.pendingCasters;
+            runtime.pendingCasters = previous;
+            runtime.casterSelectionPending = false;
+        },
+        capWarned: false,
+        overflowWarned: false,
+        slotWarned: false,
+    };
+    return runtime;
+};
 const shadows = (world: World): ShadowRuntime => world.resource(shadowRuntimeKey);
 const _cascNext = new Float64Array(CASC_KEY_FLOATS);
 const _cascWorld = new Float32Array(16);
@@ -1158,10 +1174,18 @@ export function destroyPointShadows(world: World): void {
 export function resetPointShadows(world: World): void {
     const shadow = shadows(world);
     shadow.comboEids.length = 0;
+    shadow.lastCasters.clear();
+    shadow.pendingCasters.clear();
+    shadow.casterSelectionPending = false;
     shadow.capWarned = false;
     shadow.overflowWarned = false;
     shadow.slotWarned = false;
-    shadow.lastCasters.clear();
+}
+
+/** @internal Queue the selected caster set when the point atlas has encoded its draw. */
+export function commitPointCastersOnSubmit(world: World): void {
+    const shadow = shadows(world);
+    if (shadow.casterSelectionPending) world.onFrameSubmit(shadow.commitCasters);
 }
 
 // rect = atlas-UV [u0, v0, du, dv] (square, du == dv)
@@ -1365,13 +1389,22 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
     } else {
         shadow.slotWarned = false;
     }
-    // record the surviving winners as next frame's incumbents (the hysteresis basis)
+    // Keep the hysteresis basis at the last submitted caster set; an aborted draw must not make its
+    // CPU-selected winners incumbents before their atlas reaches the frame.
     let sameCasters = shadow.lastCasters.size === count;
     for (let i = 0; sameCasters && i < count; i++)
         sameCasters = shadow.lastCasters.has(frames[i].light);
-    if (!sameCasters) {
-        shadow.lastCasters.clear();
-        for (let i = 0; i < count; i++) shadow.lastCasters.add(frames[i].light);
+    if (sameCasters) {
+        shadow.casterSelectionPending = false;
+    } else {
+        let samePending = shadow.pendingCasters.size === count;
+        for (let i = 0; samePending && i < count; i++)
+            samePending = shadow.pendingCasters.has(frames[i].light);
+        if (!samePending) {
+            shadow.pendingCasters.clear();
+            for (let i = 0; i < count; i++) shadow.pendingCasters.add(frames[i].light);
+        }
+        shadow.casterSelectionPending = true;
     }
 
     // resolve each caster's tile pixel size + (for spots) the cone basis, now that sizes are known

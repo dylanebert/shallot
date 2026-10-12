@@ -38,6 +38,7 @@ import {
     cascadeMeta,
     cascadeRecvVP,
     cascadeTileRects,
+    commitPointCastersOnSubmit,
     MAX_CASCADES,
     MAX_POINT_CASTERS,
     type PointShadowFrame,
@@ -1041,6 +1042,7 @@ export function renderPointShadows(
     // one indirect draw per casting mesh — the Dawn indirect-validation floor; the per-combo
     // fan-out is collapsed by the re-gather, not amplified
     world.gpu.indirect?.("standard:pointshadow", D);
+    commitPointCastersOnSubmit(world);
 }
 
 /**

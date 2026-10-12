@@ -5,6 +5,7 @@ import {
     disposeGpuApps,
     gpuRequirements,
 } from "../../../scripts/gpu.fixture";
+import { expectWarning } from "../../../scripts/test-console";
 import { CEILING } from "../../../scripts/test-tiers";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -22,7 +23,7 @@ import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
 import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
-import { PointShadows } from "./shadows";
+import { PointShadows, updatePointShadows } from "./shadows";
 
 setDefaultTimeout(CEILING.node);
 
@@ -108,5 +109,69 @@ for (const [atlas0, atlas1] of [
         });
     }
 }
+
+test("an aborted point-shadow draw does not promote its unsubmitted caster to an incumbent", async () => {
+    expectWarning(/2 shadowed point lights exceed the 1 caster cap/);
+    expectWarning(/2 shadowed point lights exceed the 1 caster cap/);
+    const reference = await build(256);
+    const aborted = await build(256);
+    try {
+        const makeIncumbents = (world: World) => {
+            const camera = world.create();
+            world.add(camera, Transform);
+            world.add(camera, Camera);
+            world.add(camera, StandardRenderer);
+            attachTexture(world, camera, { width: 16, height: 16 });
+            const lights = [10, 10.54].map((x) => {
+                const eid = world.create();
+                world.add(eid, Transform, { translation: [x, 0, 0, 0] });
+                world.add(eid, PointLight, { intensity: 100, range: 10 });
+                world.storage(PointLight).shadowMapsEnabled.set(eid, 1);
+                return eid;
+            });
+            Object.assign(world.resource(PointShadows), {
+                atlas: 256,
+                casters: 1,
+                hysteresis: 0.25,
+            });
+            return { camera, lights };
+        };
+        const referenceScene = makeIncumbents(reference.world);
+        const abortedScene = makeIncumbents(aborted.world);
+        const selected = (world: World, camera: number) => {
+            const frames: Parameters<typeof updatePointShadows>[2] = [];
+            const count = updatePointShadows(world, camera, frames);
+            return frames.slice(0, count).map((frame) => frame.light);
+        };
+        for (const app of [reference, aborted]) {
+            app.world.step(0);
+            app.world.step(0);
+        }
+        const incumbent = referenceScene.lights[0]!;
+        const challenger = abortedScene.lights[1]!;
+        expect(selected(reference.world, referenceScene.camera)).toEqual([incumbent]);
+        expect(selected(aborted.world, abortedScene.camera)).toEqual([incumbent]);
+
+        reference.world.step(0);
+        const expected = selected(reference.world, referenceScene.camera);
+        aborted.world.storage(PointLight).intensity.set(challenger, 500);
+        let fail = true;
+        aborted.world.addSystem({
+            group: "draw",
+            last: true,
+            update() {
+                if (!fail) return;
+                fail = false;
+                throw new Error("abort point-shadow draw");
+            },
+        });
+        expect(() => aborted.world.step(0)).toThrow("abort point-shadow draw");
+        aborted.world.storage(PointLight).intensity.set(challenger, 100);
+        aborted.world.step(0);
+        expect(selected(aborted.world, abortedScene.camera)).toEqual(expected);
+    } finally {
+        await disposeGpuApps([reference, aborted]);
+    }
+});
 
 afterAll(() => disposeGpuApps([subjects().owner]));

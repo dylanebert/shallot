@@ -36,6 +36,7 @@ import {
     prepareGlobalTransformFrame,
     GlobalTransformHistory as TransformRuntime,
 } from "./global-transform";
+import { BeginFrameSystem } from "./substrate";
 
 setDefaultTimeout(CEILING.node);
 if (typeof ResizeObserver === "undefined") {
@@ -307,6 +308,254 @@ async function placementHistoryApp(): Promise<{
     await world.gpu.device.queue.onSubmittedWorkDone();
     return { app, world, eid, writeOnTick: (x) => (tickWrite = x) };
 }
+
+test("aborted GlobalTransform history matches across fixed, restore, and teleport sequences", async () => {
+    type Action =
+        | { kind: "tick"; x?: number; teleport?: boolean; abort?: boolean }
+        | { kind: "draw"; teleport?: boolean; abort?: boolean }
+        | { kind: "restore" };
+    const sequences: { id: number; actions: Action[] }[] = [
+        {
+            id: 1,
+            actions: [
+                { kind: "tick", x: 20, teleport: true, abort: true },
+                { kind: "tick", x: 30 },
+            ],
+        },
+        { id: 2, actions: [{ kind: "tick", x: 20, abort: true }, { kind: "tick" }] },
+        {
+            id: 3,
+            actions: [
+                { kind: "tick", x: 20, abort: true },
+                { kind: "tick", x: 30, abort: true },
+                { kind: "tick", x: 40 },
+            ],
+        },
+        {
+            id: 4,
+            actions: [
+                { kind: "tick", x: 20, teleport: true, abort: true },
+                { kind: "draw", teleport: true },
+            ],
+        },
+        {
+            id: 5,
+            actions: [
+                { kind: "tick", x: 20, teleport: true, abort: true },
+                { kind: "restore" },
+                { kind: "draw" },
+                { kind: "tick", x: 30 },
+            ],
+        },
+        {
+            id: 6,
+            actions: [{ kind: "restore" }, { kind: "draw", abort: true }, { kind: "tick", x: 30 }],
+        },
+        {
+            id: 7,
+            actions: [
+                { kind: "tick", x: 20, abort: true },
+                { kind: "restore" },
+                { kind: "draw", abort: true },
+                { kind: "draw", teleport: true },
+            ],
+        },
+        {
+            id: 8,
+            actions: [
+                { kind: "tick", x: 20, abort: true },
+                { kind: "tick", x: 30, teleport: true },
+            ],
+        },
+    ];
+
+    async function runSequence(
+        actions: Action[],
+        abortVariant: boolean,
+    ): Promise<{
+        current: number[];
+        previous: number[];
+        render: number[];
+        flags: {
+            tickCount: number;
+            ranges: number[];
+            historyNeedsPromotion: boolean;
+            historyPromotionOnSubmit: boolean;
+            historyDiscarded: boolean;
+            historyDiscontinuitiesOnSubmit: number[];
+            discontinuities: number[];
+        };
+    }> {
+        const { app, world, eid, writeOnTick } = await placementHistoryApp();
+        let teleportNextTick = false;
+        let abortNextDraw = false;
+        try {
+            attachTestCamera(world);
+            world.addSystem(
+                {
+                    name: "DifferentialPlacementTeleport",
+                    group: "fixed",
+                    terminal: true,
+                    update(world) {
+                        if (!teleportNextTick) return;
+                        teleportNextTick = false;
+                        teleportPlacement(world, eid);
+                    },
+                },
+                "PlacementHistoryWriter",
+            );
+            if (abortVariant)
+                world.addSystem({
+                    name: "DifferentialDrawAbort",
+                    group: "draw",
+                    terminal: true,
+                    update() {
+                        if (!abortNextDraw) return;
+                        abortNextDraw = false;
+                        throw new Error("abort differential draw");
+                    },
+                });
+
+            writeOnTick(10);
+            world.step(Time.FIXED_DT);
+            await world.gpu.device.queue.onSubmittedWorkDone();
+            const snapshot = world.snapshot();
+
+            function draw(delta: number, abort: boolean): void {
+                abortNextDraw = abort && abortVariant;
+                try {
+                    if (abortNextDraw)
+                        expect(() => world.step(delta)).toThrow("abort differential draw");
+                    else world.step(delta);
+                } finally {
+                    abortNextDraw = false;
+                }
+            }
+
+            for (const action of actions) {
+                if (action.kind === "restore") {
+                    world.restore(snapshot);
+                } else if (action.kind === "tick") {
+                    if (action.x !== undefined) writeOnTick(action.x);
+                    teleportNextTick = action.teleport ?? false;
+                    draw(Time.FIXED_DT, action.abort ?? false);
+                } else {
+                    if (action.teleport) teleportPlacement(world, eid);
+                    draw(0, action.abort ?? false);
+                }
+            }
+
+            world.step(0);
+            await world.gpu.device.queue.onSubmittedWorkDone();
+
+            const runtime = world.resource(TransformRuntime);
+            async function row(table: typeof runtime.current): Promise<number[]> {
+                if (!table) throw new Error("GlobalTransform differential table is unavailable");
+                const index = table.rowIndex(eid);
+                expect(index).toBeGreaterThanOrEqual(0);
+                const result = await probeBuffer(world, table.buffer, { size: table.buffer.size });
+                const values = new Float32Array(result.bytes);
+                return Array.from(values.subarray(index * 12, index * 12 + 12));
+            }
+            return {
+                current: await row(runtime.current),
+                previous: await row(runtime.previous),
+                render: await row(runtime.render),
+                flags: {
+                    tickCount: runtime.tickCount,
+                    ranges: Array.from(runtime.ranges),
+                    historyNeedsPromotion: runtime.historyNeedsPromotion,
+                    historyPromotionOnSubmit: runtime.historyPromotionOnSubmit,
+                    historyDiscarded: runtime.historyDiscarded,
+                    historyDiscontinuitiesOnSubmit: Array.from(
+                        runtime.historyDiscontinuitiesOnSubmit,
+                    ),
+                    discontinuities: Array.from(
+                        world.resource(transform.TransformRuntime).discontinuities,
+                    ),
+                },
+            };
+        } finally {
+            app.dispose();
+        }
+    }
+
+    for (const sequence of sequences) {
+        const reference = await runSequence(sequence.actions, false);
+        const aborted = await runSequence(sequence.actions, true);
+        try {
+            expect(aborted).toEqual(reference);
+        } catch (error) {
+            throw new Error(`GlobalTransform differential sequence ${sequence.id} diverged`, {
+                cause: error,
+            });
+        }
+    }
+});
+
+test("a GlobalTransform created after history preparation remains pending for the next draw", async () => {
+    const { app, world } = await placementHistoryApp();
+    let eid = -1;
+    try {
+        world.addSystem({
+            group: "draw",
+            last: true,
+            update(world) {
+                if (eid >= 0) return;
+                eid = world.create();
+                world.add(eid, Transform);
+            },
+        });
+        world.step(0);
+        const marks = world.resource(transform.TransformRuntime).discontinuities;
+        const mask = 1 << (eid & 31);
+        expect(marks[eid >>> 5]! & mask).not.toBe(0);
+
+        world.step(0);
+        expect(marks[eid >>> 5]! & mask).toBe(0);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("an unrelated successful draw cannot commit aborted GlobalTransform history", async () => {
+    const { app, world, eid, writeOnTick } = await placementHistoryApp();
+    try {
+        attachTestCamera(world);
+        world.step(0);
+        writeOnTick(10);
+        world.step(Time.FIXED_DT);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+
+        writeOnTick(20);
+        let abort = true;
+        world.addSystem({
+            group: "draw",
+            last: true,
+            update() {
+                if (!abort) return;
+                abort = false;
+                throw new Error("abort GlobalTransform history");
+            },
+        });
+        expect(() => world.step(Time.FIXED_DT)).toThrow("abort GlobalTransform history");
+
+        world.removeSystem(BeginFrameSystem);
+        world.step(0);
+        world.addSystem(BeginFrameSystem);
+        world.step(0);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+
+        const current = world.resource(TransformRuntime).current!;
+        const previous = world.resource(TransformRuntime).previous!;
+        const row = current.rowIndex(eid);
+        expect(row).toBeGreaterThanOrEqual(0);
+        const result = await probeBuffer(world, previous.buffer, { size: previous.buffer.size });
+        expect(new Float32Array(result.bytes)[row * 12]).toBe(10);
+    } finally {
+        app.dispose();
+    }
+});
 
 async function expectCurrentPlacement(world: engine.World, eid: number): Promise<void> {
     const current = world.resource(TransformRuntime).current!;

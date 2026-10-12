@@ -165,6 +165,85 @@ test("active frames use one encoder, finish and submit; idle frames create none"
     }
 });
 
+test("frame-submit callbacks run after successful work, on empty frames, and not after aborts", async () => {
+    const app = await createTestGpuApp({
+        defaults: false,
+        plugins: [{ name: "FrameCommit", gpu: {} }],
+    });
+    const { world } = app;
+    const device = world.gpu.device;
+    const buffer = device.createBuffer({
+        label: "frame-commit-test",
+        size: 4,
+        usage: GPUBufferUsage.COPY_DST,
+    });
+    world.own(buffer);
+    let commits = 0;
+    let recordWork = false;
+    const afterSubmission: boolean[] = [];
+    const commit = () => {
+        commits++;
+        afterSubmission.push(world.frameFence !== undefined);
+    };
+    world.addSystem({
+        group: "draw",
+        update(world) {
+            world.onFrameSubmit(commit);
+            if (recordWork) world.frameEncoder()!.clearBuffer(buffer);
+        },
+    });
+    try {
+        expect(() => world.onFrameSubmit(commit)).toThrow("only during the draw group");
+        world.step(0);
+        expect(commits).toBe(1);
+        expect(afterSubmission).toEqual([false]);
+
+        const aborted = {
+            group: "draw" as const,
+            update(world: World) {
+                world.frameEncoder()!.clearBuffer(buffer);
+                throw new Error("abort frame commit");
+            },
+        };
+        const frame = world.gpu.frame;
+        world.addSystem(aborted);
+        expect(() => world.step(0)).toThrow("abort frame commit");
+        expect(commits).toBe(1);
+        expect(world.gpu.frame).toBe(frame);
+
+        world.removeSystem(aborted);
+        recordWork = true;
+        world.step(0);
+        expect(commits).toBe(2);
+        expect(afterSubmission).toEqual([false, true]);
+    } finally {
+        await disposeGpuApps([app]);
+    }
+});
+
+test("disposing in a frame-submit callback cancels the remaining callbacks", async () => {
+    const app = await createTestGpuApp({
+        defaults: false,
+        plugins: [{ name: "FrameCommitDisposal", gpu: {} }],
+    });
+    const { world } = app;
+    let laterCallbackRan = false;
+    world.addSystem({
+        group: "draw",
+        update(world) {
+            world.onFrameSubmit(() => world.dispose());
+            world.onFrameSubmit(() => (laterCallbackRan = true));
+        },
+    });
+    try {
+        expect(() => world.step(0)).not.toThrow();
+        expect(world.disposed).toBe(true);
+        expect(laterCallbackRan).toBe(false);
+    } finally {
+        await disposeGpuApps([app]);
+    }
+});
+
 test("a propagated draw failure discards its commands and fence", async () => {
     const app = await createTestGpuApp({
         defaults: false,
