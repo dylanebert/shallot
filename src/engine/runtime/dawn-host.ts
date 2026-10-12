@@ -11,15 +11,16 @@ function assertDawnHost(platform: string, execPath: string): void {
     }
 }
 
-/** Check the native host before asking the caller to import Dawn. */
+/** Resolve the optional peer itself before loading Dawn, so internal module failures keep their cause. */
 export async function loadDawn<T>(
     platform: string,
     execPath: string,
     load: () => Promise<T>,
+    resolvePeer: () => string = () => import.meta.resolve("webgpu"),
 ): Promise<T> {
     assertDawnHost(platform, execPath);
     try {
-        return await load();
+        resolvePeer();
     } catch (cause) {
         const code = (cause as { code?: unknown } | null)?.code;
         if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") {
@@ -31,4 +32,5 @@ export async function loadDawn<T>(
         }
         throw cause;
     }
+    return load();
 }
