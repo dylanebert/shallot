@@ -67,8 +67,18 @@ export interface DisplaySeat {
     presented: number;
 }
 
-/** a page sample: the steady windows and control of {@link AllocationSample}, and the adapter it ran on. */
+/** a page window: its engine sites, and the bytes admitted as the browser's, which it does not list */
+export interface PageWindow extends AllocationWindow {
+    /** sampled bytes {@link browserAllocated} admits */
+    browser: number;
+}
+
+/**
+ * a page sample: the steady windows and control of {@link AllocationSample}, and the adapter it ran on. Windows and
+ * survivors list only the sites the browser did not allocate.
+ */
 export interface PageSample extends AllocationSample {
+    windows: readonly PageWindow[];
     /** the positively identified real adapter the display seat resolved on */
     adapter: string;
     /** the monitor the page was pinned to, and the rate it presented there */
@@ -77,6 +87,8 @@ export interface PageSample extends AllocationSample {
     loopSite: string;
     /** sites of a fourth window's allocations still live after a full collection */
     survivors: readonly AllocationSite[];
+    /** survivor bytes {@link browserAllocated} admits */
+    survivorsBrowser: number;
     /** the control span, bracketed as the windows are */
     controlSpan: AllocationWindow;
     /** the GC trace and long-frame correlation over the steady windows */
@@ -92,6 +104,72 @@ const FRAME_LOOP = {
     source: resolve(import.meta.dir, "../../src/engine/app/index.ts"),
     name: "frame",
 };
+
+/** the name of the harness's frame at each WebGPU method */
+const WEBGPU_BOUNDARY = "shallotWebGpuBoundary";
+
+/**
+ * The harness's frame at the WebGPU API, injected into every document before the page's scripts. The sampler
+ * charges an allocation to the outermost optimized JavaScript frame, so what Blink allocates inside a WebGPU call
+ * would land on whichever engine function inlined the call. Each `GPU*` prototype method is replaced by a
+ * forwarding function V8 never optimizes, and so never inlines, which stays on the stack between the engine's
+ * caller and the browser. It forwards without allocating, dropping trailing `undefined` arguments, which WebIDL
+ * treats as missing; the engine's argument expressions still run in the engine's frame.
+ */
+const WEBGPU_BOUNDARY_SCRIPT = `(() => {
+    const forward = (original) =>
+        function ${WEBGPU_BOUNDARY}(a, b, c, d, e, f, g) {
+            if (g !== undefined) return original.call(this, a, b, c, d, e, f, g);
+            if (f !== undefined) return original.call(this, a, b, c, d, e, f);
+            if (e !== undefined) return original.call(this, a, b, c, d, e);
+            if (d !== undefined) return original.call(this, a, b, c, d);
+            if (c !== undefined) return original.call(this, a, b, c);
+            if (b !== undefined) return original.call(this, a, b);
+            if (a !== undefined) return original.call(this, a);
+            return original.call(this);
+        };
+    let methods = 0;
+    for (const name of Object.getOwnPropertyNames(globalThis)) {
+        const constructor = globalThis[name];
+        if (!name.startsWith("GPU") || typeof constructor !== "function" || !constructor.prototype) continue;
+        const prototype = constructor.prototype;
+        for (const key of Object.getOwnPropertyNames(prototype)) {
+            const descriptor = Object.getOwnPropertyDescriptor(prototype, key);
+            if (key === "constructor" || typeof descriptor?.value !== "function") continue;
+            const boundary = forward(descriptor.value);
+            %NeverOptimizeFunction(boundary);
+            Object.defineProperty(prototype, key, { ...descriptor, value: boundary });
+            methods++;
+        }
+    }
+    window.__shallotWebGpuMethods = methods;
+})();
+`;
+
+/**
+ * True for a sample the browser allocated: one whose frames below the WebGPU boundary are all native, or whose
+ * innermost frame is the built-in `then` a completion fence's callbacks are registered through.
+ */
+export function browserAllocated(row: AllocationSite): boolean {
+    const stack = row.stack ?? [];
+    const last = stack[stack.length - 1];
+    if (last?.native && last.functionName === "then") return true;
+    const boundary = stack.findLastIndex(
+        (frame) => frame.native && frame.functionName === WEBGPU_BOUNDARY,
+    );
+    return boundary >= 0 && stack.slice(boundary + 1).every((frame) => frame.native);
+}
+
+/** `sites` split into the engine's, which are listed, and the bytes the browser allocated. */
+function admitBrowser(sites: readonly AllocationSite[]): { sites: AllocationSite[]; browser: number } {
+    const engine: AllocationSite[] = [];
+    let browser = 0;
+    for (const row of sites) {
+        if (browserAllocated(row)) browser += row.bytes;
+        else engine.push(row);
+    }
+    return { sites: engine, browser };
+}
 
 /**
  * The harness's frame counter, injected into every document. It is read over CDP to step and bracket
@@ -134,7 +212,7 @@ const FRAME_EVENT = "AnimationFrame::Presentation";
 /**
  * V8's reasons for the collections the harness's own CDP calls cause: `HeapProfiler.collectGarbage`
  * before each window, and the sampling profiler's own start and stop. Neither is steady play's, so both
- * are reported beside the gate rather than counted by it.
+ * are reported apart from play's own collections.
  */
 const FORCED_REASONS = ["low memory notification", "sampling profiler"];
 
@@ -231,18 +309,6 @@ async function adapterFacts(page: import("playwright").Page): Promise<AdapterFac
     });
 }
 
-/**
- * Build `projectDir` with its own Vite config and preview server, then open it in the display seat's
- * headed Chromium, resolving the seat on the adapter the page reaches. The page's own
- * frame loop is the run frame, attributed by the same rule as {@link sampleAllocation}. Once the loop runs,
- * wait `warm` frames, then sample `frames` after warm, after twice that, and an A/A repeat, each after a
- * collection. The control runs last, over {@link CONTROL_FRAMES} frames: a conditional breakpoint where the
- * frame loop begins allocates one literal per frame. After the warm, the page's presented rate is read
- * under both of those conditions and reported in `runtime`, and the calls that step no frame are timed
- * once; a page that cannot supply the frames still to come and that reserve before `deadline` refuses its
- * premise before any sampled window. Every wait ends by `deadline`, a `performance.now()` time, and
- * the build, server and browser are gone when it returns. Needs the `display` requirement resolved.
- */
 async function startPreview(
     projectDir: string,
     outDir: string,
@@ -295,6 +361,19 @@ async function startPreview(
     }
 }
 
+/**
+ * Build `projectDir` with its own Vite config and preview server, then open it in the display seat's
+ * headed Chromium, resolving the seat on the adapter the page reaches. The page's own
+ * frame loop is the run frame, attributed by the same rule as {@link sampleAllocation}, and what
+ * {@link browserAllocated} admits is counted, not listed. Once the loop runs, wait `warm` frames, then sample
+ * `frames` after warm, after twice that, and an A/A repeat, each after a collection. The control runs last,
+ * over {@link CONTROL_FRAMES} frames: a conditional breakpoint where the frame loop begins allocates one
+ * literal per frame. Halfway through the warm, the page's presented rate is read under both of those
+ * conditions and reported in `runtime`, and the calls that step no frame are timed once; a page that cannot
+ * supply the frames still to come and that reserve before `deadline` refuses its premise before any sampled
+ * window. Every wait ends by `deadline`, a `performance.now()` time, and the build, server and browser are
+ * gone when it returns. Needs the `display` requirement resolved.
+ */
 export async function samplePage(
     projectDir: string,
     { warm, frames, deadline }: { warm: number; frames: number; deadline: number },
@@ -368,7 +447,8 @@ export async function samplePage(
         const placement = await bounded("the display placement", openOnDisplay(declared));
 
         const { chromium } = await import("playwright");
-        const tiers = `--js-flags=${TIER_FLAGS.join(" ")}`;
+        // Natives syntax lets the WebGPU boundary keep its frame; it changes nothing V8 optimizes.
+        const tiers = `--js-flags=${[...TIER_FLAGS, "--allow-natives-syntax"].join(" ")}`;
         // The browser tier's Linux flags select SwiftShader GL, under which Chromium reports WebGPU as
         // software only (gpu/config/gpu_util.cc, GetWebGPUFeatureStatus), so this seat would see only the
         // fallback adapter. On Linux it takes Chrome's documented WebGPU flags: unsafe WebGPU and Vulkan.
@@ -395,8 +475,17 @@ export async function samplePage(
         // The harness's frame count and its per-frame sentinel: its own rAF callback, outside the run frame,
         // never wrapping the engine's.
         await page.addInitScript({ content: FRAME_TICK_SCRIPT });
+        await page.addInitScript({ content: WEBGPU_BOUNDARY_SCRIPT });
         const cdp = await bounded("newCDPSession", page.context().newCDPSession(page));
         await bounded("goto", page.goto(`${origin}/`, { waitUntil: "load", timeout: remaining() }));
+        const boundaryMethods = await bounded(
+            "the WebGPU boundary",
+            page.evaluate(
+                () => (window as unknown as { __shallotWebGpuMethods?: number }).__shallotWebGpuMethods,
+            ),
+        );
+        if (!boundaryMethods)
+            throw new Error("the WebGPU boundary was not installed: no GPU* method has a harness frame");
         const facts = await bounded("adapterFacts", adapterFacts(page));
         const seat = resolveSeat("display", {
             display: { source: declared, browser: { launch: plan, adapter: facts } },
@@ -476,7 +565,7 @@ export async function samplePage(
             const { profile } = await stopSampling();
             const after = await frameCount();
             return {
-                sites: attribute(profile, runSite, siteOf),
+                ...admitBrowser(attribute(profile, runSite, siteOf)),
                 frames: count,
                 framesAtMost: after - before,
             };
@@ -492,7 +581,7 @@ export async function samplePage(
             await advance(count);
             await collect();
             const { profile } = await stopSampling();
-            return attribute(profile, runSite, siteOf);
+            return admitBrowser(attribute(profile, runSite, siteOf));
         };
         const timed = async <T>(work: () => Promise<T>): Promise<[T, number]> => {
             const at = performance.now();
@@ -500,8 +589,12 @@ export async function samplePage(
             return [value, performance.now() - at];
         };
 
-        await advance(warm);
-        // This row's premise, read after the warm: the page builds its world over its first frames, and a
+        // The premise probe's breakpoint discards the frame loop's optimized code, so it runs halfway through the
+        // warm, and the rest of the warm re-optimizes the loop before any sampled window.
+        const firstWarm = Math.floor(warm / 2);
+        const restWarm = warm - firstWarm;
+        await advance(firstWarm);
+        // This row's premise, read halfway through the warm: the page builds its world over its first frames, and a
         // one-byte sampling interval costs most where the page allocates most, so a rate read over loading
         // frames refuses a host that steady play fits. It is still the last point at which a slow host is a
         // missing premise rather than a hung page. A rate read on an idle page licenses a frame budget the
@@ -531,8 +624,9 @@ export async function samplePage(
         // The time the row still spends on calls that step no frame, measured rather than guessed: the probe
         // above ran one whole sampling cycle and one whole debugger cycle and timed each call in them. What
         // remains is four sampling cycles — the three windows and the control — one more debugger cycle, and
-        // six frame waits, each of which may overshoot the target by one poll. `HeapProfiler.enable` is not
-        // in it: the probe paid it once, for the row.
+        // seven frame waits, each of which may overshoot the target by one poll. `HeapProfiler.enable` is not
+        // in it: the probe paid it once, for the row. The rest of the warm runs unsampled, and is budgeted at
+        // the sampled rate.
         const reserve =
             5 * (collectMs + startMs + stopMs) +
             collectMs +
@@ -540,20 +634,21 @@ export async function samplePage(
             setMs +
             removeMs +
             disableMs +
-            7 * ADVANCE_POLL_MS;
-        const budget = warm + 3 * frames + CONTROL_FRAMES;
+            8 * ADVANCE_POLL_MS;
+        const budget = restWarm + warm + 3 * frames + CONTROL_FRAMES;
         const frameMs = (count: number, rate: number) => (count * 1000) / rate;
         const needed =
-            frameMs(warm + 3 * frames, sampledRate) +
+            frameMs(restWarm + warm + 3 * frames, sampledRate) +
             frameMs(CONTROL_FRAMES, controlRate) +
             reserve;
         const left = remaining();
         const required = (budget * 1000) / Math.max(1, left - reserve);
         if (needed > left)
             throw new Error(
-                `the page presents at ${sampledRate.toFixed(1)} Hz under the heap sampler and ${controlRate.toFixed(1)} Hz under the control breakpoint, so this row's ${budget} frames still to come (the second warm's ${warm - frames}, three ${frames}-frame windows, a ${frames}-frame survivor window and a ${CONTROL_FRAMES}-frame control) need ${needed.toFixed(0)} ms, including ${reserve.toFixed(0)} ms of calls that step no frame, against the ${left.toFixed(0)} ms left before the deadline; an even ${required.toFixed(1)} Hz would be required`,
+                `the page presents at ${sampledRate.toFixed(1)} Hz under the heap sampler and ${controlRate.toFixed(1)} Hz under the control breakpoint, so this row's ${budget} frames still to come (the warm's remaining ${restWarm}, the second warm's ${warm - frames}, three ${frames}-frame windows, a ${frames}-frame survivor window and a ${CONTROL_FRAMES}-frame control) need ${needed.toFixed(0)} ms, including ${reserve.toFixed(0)} ms of calls that step no frame, against the ${left.toFixed(0)} ms left before the deadline; an even ${required.toFixed(1)} Hz would be required`,
             );
         // The remaining frame sample runs against the same wall-clock deadline and fails if it overruns.
+        await advance(restWarm);
 
         // the GC and frame-pacing trace spans the three steady windows: the collections, their pauses and
         // promoted bytes, and the rAF intervals, all on one trace clock
@@ -607,7 +702,8 @@ export async function samplePage(
                 presented: trace.period > 0 ? 1000 / trace.period : 0,
             },
             loopSite,
-            survivors,
+            survivors: survivors.sites,
+            survivorsBrowser: survivors.browser,
             trace,
             warm,
             frames,
