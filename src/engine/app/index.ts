@@ -534,9 +534,9 @@ export async function runApp(config: AppConfig): Promise<App> {
                 world.fenceWaitSink?.(pendingFenceWaitMs);
                 pendingFenceWaitMs = 0;
                 world.step(dt);
-                // The engine-owned frame submission issues this fence; wait on it rather than adding another.
+                // Fence timing has a reader only when requested; time the World's submission fence, not a second one.
                 const fence = world.frameFence;
-                if (fence) {
+                if (fence && world.fenceWaitSink) {
                     fenceIssued[fenceTail] = now();
                     fenceTail = (fenceTail + 1) % MAX_FRAMES_IN_FLIGHT;
                     fence.then(fenceSettled, fenceRejected);
