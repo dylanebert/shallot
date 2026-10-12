@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, relative, resolve, sep } from "node:path";
+import { parse } from "@babel/parser";
 import { Glob } from "bun";
-import { resolve } from "path";
 
 // The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
 // native-window crate, the icon and recipes; never a path the `files` negations name, nor build
@@ -48,6 +49,9 @@ const requiredNegations = [
     "!**/*.oracle.ts",
     "!src/**/*.node.ts",
     "!src/**/*.e2e.ts",
+    "!examples/loading-screen/**/*.test.ts",
+    "!examples/loading-screen/**/*.node.ts",
+    "!examples/loading-screen/**/*.e2e.ts",
 ];
 const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
 const isNegated = (file: string): boolean => {
@@ -55,8 +59,21 @@ const isNegated = (file: string): boolean => {
     const ancestors = parts.map((_, index) => parts.slice(0, index + 1).join("/"));
     return negated.some((glob) => ancestors.some((path) => glob.match(path)));
 };
+const firstPersonChecks = new Set([
+    "examples/first-person/browser.e2e.ts",
+    "examples/first-person/src/demo-files.node.ts",
+    "examples/first-person/src/demo.node.ts",
+    "examples/first-person/src/plugins.test.ts",
+    "examples/first-person/tests/ascent.node.ts",
+    "examples/first-person/tests/browser-setup.test.ts",
+]);
 const forbidden: [string, (f: string) => boolean][] = [
     ["files negation", isNegated],
+    [
+        "non-first-person check",
+        (file) => /\.(?:test|node|e2e)\.ts$/.test(file) && !firstPersonChecks.has(file),
+    ],
+
     ["non-carrier script", (f) => f.startsWith("scripts/") && f.endsWith(".ts")],
     ["build output", (f) => f.includes("/node_modules/")],
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
@@ -67,6 +84,76 @@ const forbidden: [string, (f: string) => boolean][] = [
 const violations = files.flatMap((f) =>
     forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
 );
+
+const packedFiles = new Set(files);
+const sourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json"];
+function isFile(path: string): boolean {
+    return existsSync(path) && statSync(path).isFile();
+}
+function resolveRelative(from: string, specifier: string): string | undefined {
+    const base = resolve(dirname(from), specifier);
+    const extension = extname(base);
+    const substitutions: Record<string, string[]> = {
+        ".js": [".ts", ".tsx", ".d.ts"],
+        ".jsx": [".tsx", ".ts"],
+        ".mjs": [".mts"],
+        ".cjs": [".cts"],
+    };
+    const candidates = [base];
+    for (const replacement of substitutions[extension] ?? [])
+        candidates.push(`${base.slice(0, -extension.length)}${replacement}`);
+    candidates.push(...sourceExtensions.map((suffix) => `${base}${suffix}`));
+    for (const candidate of candidates) if (isFile(candidate)) return candidate;
+    if (existsSync(base) && statSync(base).isDirectory()) {
+        for (const suffix of sourceExtensions) {
+            const candidate = resolve(base, `index${suffix}`);
+            if (isFile(candidate)) return candidate;
+        }
+    }
+    return undefined;
+}
+for (const file of files.filter((file) => /\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/.test(file))) {
+    const source = readFileSync(resolve(pkgDir, file), "utf8");
+    const ast = parse(source, { sourceType: "unambiguous", plugins: ["typescript", "jsx"] });
+    const imports = new Set<string>();
+    function visit(node: any): void {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) {
+            for (const child of node) visit(child);
+            return;
+        }
+        if (
+            ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(
+                node.type,
+            ) &&
+            typeof node.source?.value === "string"
+        )
+            imports.add(node.source.value);
+        if (node.type === "TSImportType" && typeof node.argument?.value === "string")
+            imports.add(node.argument.value);
+        if (
+            node.type === "CallExpression" &&
+            (node.callee.type === "Import" ||
+                (node.callee.type === "Identifier" && node.callee.name === "require")) &&
+            typeof node.arguments[0]?.value === "string"
+        )
+            imports.add(node.arguments[0].value);
+        for (const [key, child] of Object.entries(node))
+            if (key !== "loc" && key !== "start" && key !== "end") visit(child);
+    }
+    visit(ast.program);
+    for (const specifier of imports) {
+        if (!specifier.startsWith("./") && !specifier.startsWith("../")) continue;
+        const clean = specifier.split(/[?#]/, 1)[0]!;
+        const targetFile = resolveRelative(resolve(pkgDir, file), clean);
+        if (!targetFile) continue;
+        const target = relative(pkgDir, targetFile).split(sep).join("/");
+        if (!packedFiles.has(target))
+            violations.push(
+                `${file} -> ${specifier} resolves to unshipped ${target} (relative import)`,
+            );
+    }
+}
 const examplesDir = resolve(pkgDir, "examples");
 const recipes = readdirSync(examplesDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
