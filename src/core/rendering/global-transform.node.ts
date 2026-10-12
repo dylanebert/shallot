@@ -344,6 +344,31 @@ test("an aborted draw retains GlobalTransform history until a frame submits", as
     }
 });
 
+test("a GlobalTransform created after history preparation remains pending for the next draw", async () => {
+    const { app, world } = await placementHistoryApp();
+    let eid = -1;
+    try {
+        world.addSystem({
+            group: "draw",
+            last: true,
+            update(world) {
+                if (eid >= 0) return;
+                eid = world.create();
+                world.add(eid, Transform);
+            },
+        });
+        world.step(0);
+        const marks = world.resource(transform.TransformRuntime).discontinuities;
+        const mask = 1 << (eid & 31);
+        expect(marks[eid >>> 5]! & mask).not.toBe(0);
+
+        world.step(0);
+        expect(marks[eid >>> 5]! & mask).toBe(0);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("an unrelated successful draw cannot commit aborted GlobalTransform history", async () => {
     const { app, world, eid, writeOnTick } = await placementHistoryApp();
     try {
