@@ -15,6 +15,7 @@ const chromiumArgs =
               "--no-sandbox",
               "--enable-unsafe-webgpu",
               "--enable-features=Vulkan",
+              "--use-vulkan=swiftshader",
           ]
         : process.platform === "win32"
           ? [
