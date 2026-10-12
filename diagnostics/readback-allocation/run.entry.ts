@@ -1,5 +1,5 @@
 import { type Plugin, runApp, type World } from "@dylanebert/shallot";
-import { gpuAllocationExpressions } from "../runtime/allocation-site";
+import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 
 export let controlSink: { frame: number } | undefined;
 export const control = () => {

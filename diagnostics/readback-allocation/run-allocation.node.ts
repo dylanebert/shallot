@@ -5,24 +5,24 @@ import { CEILING } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
-} from "../../../diagnostics/first-person-allocation/allocation";
+} from "../first-person-allocation/allocation";
 import {
     assertAllocationWrappers,
     isAdmittedAllocationSite,
-} from "../../../diagnostics/first-person-allocation/allocation-admissions";
+} from "../first-person-allocation/allocation-admissions";
 
 setDefaultTimeout(CEILING.node);
 test("runApp without a fence-wait reader allocates no fence-reaction heap per frame", async () => {
     assertAllocationWrappers(
-        readFileSync(resolve(import.meta.dir, "../runtime/allocation-site.ts"), "utf8"),
+        readFileSync(resolve(import.meta.dir, "../../src/engine/runtime/allocation-site.ts"), "utf8"),
     );
     // MAX_FRAMES_IN_FLIGHT admits only six frames per 60-frame sampler chunk; the remaining callbacks are skipped.
-    const sample = await sampleAllocation(resolve(import.meta.dir, "run-allocation.entry.ts"), {
+    const sample = await sampleAllocation(resolve(import.meta.dir, "run.entry.ts"), {
         warm: 12_000,
     });
     expect(sample.control.length).toBeGreaterThan(0);
     const harnessSites = sample.windows.flatMap((window) =>
-        window.sites.filter((site) => site.site.includes("run-allocation.entry.ts")),
+        window.sites.filter((site) => site.site.includes("run.entry.ts")),
     );
     expect(harnessSites).toEqual([]);
     // Admit only source-checked WebGPU wrappers; the complete unadmitted sample still gates steady play.
