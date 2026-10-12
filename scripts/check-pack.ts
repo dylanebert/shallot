@@ -44,10 +44,10 @@ const negated = packageFiles
 const requiredNegations = [
     "!src/standard/physics/oracle/**",
     "!**/fixtures",
-    "!**/*.test.ts",
+    "!src/**/*.test.ts",
     "!**/*.oracle.ts",
-    "!**/*.node.ts",
-    "!**/*.e2e.ts",
+    "!src/**/*.node.ts",
+    "!src/**/*.e2e.ts",
 ];
 const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
 const isNegated = (file: string): boolean => {
@@ -67,9 +67,6 @@ const forbidden: [string, (f: string) => boolean][] = [
 const violations = files.flatMap((f) =>
     forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
 );
-for (const file of files.filter((file) => /^examples\/[^/]+\/package\.json$/.test(file)))
-    violations.push(`${file} (example package manifest)`);
-
 const examplesDir = resolve(pkgDir, "examples");
 const recipes = readdirSync(examplesDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -86,6 +83,18 @@ const required = [
     "bin/shallot.ts",
     "src/project/policy.ts",
     "src/cli/index.ts",
+    "examples/first-person/package.json",
+    "examples/first-person/chromium.ts",
+    "examples/first-person/playwright.config.ts",
+    "examples/first-person/browser.e2e.ts",
+    "examples/first-person/tests/ascent.node.ts",
+    "examples/first-person/tests/preload.ts",
+    "examples/first-person/tests/capture-page.ts",
+    "examples/first-person/tests/test-tiers.ts",
+    "examples/first-person/src/plugins.ts",
+    "examples/first-person/src/plugins.test.ts",
+    "examples/first-person/src/demo.node.ts",
+    "examples/first-person/src/demo-files.node.ts",
     "dist/vite.js",
     "crates/native/Cargo.toml",
     "crates/native/Cargo.lock",

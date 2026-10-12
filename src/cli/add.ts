@@ -18,7 +18,7 @@ import { basename, dirname, join, resolve } from "node:path";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const ENGINE = "@dylanebert/shallot";
-const PROJECT_GITIGNORE = "node_modules/\ndist/\nbuild/\n.artifacts/\n";
+const PROJECT_GITIGNORE = "node_modules/\ndist/\nbuild/\n.artifacts/\ntest-results/\n";
 const ADD_USAGE = `
   shallot add [name] [dir]
 

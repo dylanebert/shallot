@@ -204,6 +204,35 @@ test("shallot add writes a Bun plugin preload for the generated project", async 
     }
 });
 
+test("shallot add preserves an example-owned package manifest and pins its engine dependency", async () => {
+    const root = recipes();
+    const sourceManifest = {
+        name: "demo-project",
+        private: true,
+        scripts: { dev: "vite --host 127.0.0.1", test: "bun test --timeout=250" },
+        dependencies: { "@dylanebert/shallot": "^0.10.0-next.1", other: "1.0.0" },
+    };
+    writeFileSync(join(root, "examples/demo/package.json"), JSON.stringify(sourceManifest));
+    try {
+        const dest = join(root, "out");
+        await captureOutput(() =>
+            runAdd(["demo", dest], {
+                recipesDir: join(root, "examples"),
+                version: "0.10.0-next.3",
+            }),
+        );
+        const copied = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
+        expect(copied.name).toBe(sourceManifest.name);
+        expect(copied.scripts).toEqual(sourceManifest.scripts);
+        expect(copied.dependencies).toEqual({
+            "@dylanebert/shallot": "0.10.0-next.3",
+            other: "1.0.0",
+        });
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("shallot add gives a copied recipe the canonical .gitignore", async () => {
     const root = recipes();
     try {
@@ -219,7 +248,7 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
             `copied example demo → ${dest}\n  cd ${dest} && bun install && bunx shallot dev`,
         );
         expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(
-            "node_modules/\ndist/\nbuild/\n.artifacts/\n",
+            "node_modules/\ndist/\nbuild/\n.artifacts/\ntest-results/\n",
         );
         expect(existsSync(join(dest, "tests/preload.ts"))).toBe(true);
         expect(readFileSync(join(dest, "bunfig.toml"), "utf8")).toContain(
