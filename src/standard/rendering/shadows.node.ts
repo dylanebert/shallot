@@ -12,6 +12,7 @@ import {
     CameraMode,
     captureTexture,
     DirectionalLight,
+    PointLight,
 } from "../../core/rendering";
 import { Transform, TransformPlugin } from "../../core/transform";
 import { lookAtRotation, type World } from "../../engine";
@@ -30,9 +31,11 @@ import {
 } from "./shadows";
 
 const rendering = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
-// three headless worlds for the cascade-pool rows, then three rendering worlds for the bound row
+// three headless worlds for the cascade-pool rows, three rendering worlds for the bound row, then one for
+// the re-gather growth row
 const subjects = gpuApps(import.meta.path, [
     ...Array.from({ length: 3 }, () => ({ defaults: false, plugins: [TransformPlugin] })),
+    rendering,
     rendering,
     rendering,
     rendering,
@@ -233,4 +236,51 @@ test("a sun whose firstCascadeFarBound reaches or passes its maximumDistance spl
     expect(await frames(reference.world)).toBeNull();
     const { rgba } = await captureTexture(b.world, sceneB.camera);
     expect(rgba).toEqual((await captureTexture(reference.world, sceneR.camera)).rgba);
+});
+
+test("spawning an entity a frame under a casting sun and point light reallocates each re-gather list and its bind groups only as the high-water mark doubles, not every frame", async () => {
+    const { world } = subjects()[6];
+    renderedScene(world);
+    const point = world.create();
+    world.add(point, Transform, { translation: [2, 2, 3, 0] });
+    world.add(point, PointLight, { intensity: 315225.92, range: 10 });
+    world.storage(PointLight).shadowMapsEnabled.set(point, 1);
+    expect(await frames(world)).toBeNull();
+
+    const device = world.gpu.device;
+    const createBuffer = device.createBuffer.bind(device);
+    const createBindGroup = device.createBindGroup.bind(device);
+    const lists = { "standard-cascade-regather-eids": 0, "standard-point-regather-eids": 0 };
+    let groups = 0;
+    let firstFrameGroups = 0;
+    device.createBuffer = (descriptor) => {
+        const label = descriptor.label as keyof typeof lists;
+        if (label in lists) lists[label]++;
+        return createBuffer(descriptor);
+    };
+    device.createBindGroup = (descriptor) => {
+        groups++;
+        return createBindGroup(descriptor);
+    };
+    const start = world.entityHighWater;
+    device.pushErrorScope("validation");
+    try {
+        for (let frame = 0; frame < 100; frame++) {
+            world.create();
+            world.step(0);
+            if (frame === 0) firstFrameGroups = groups;
+        }
+    } finally {
+        device.createBuffer = createBuffer;
+        device.createBindGroup = createBindGroup;
+    }
+    expect((await device.popErrorScope())?.message ?? null).toBeNull();
+
+    // one growth per doubling of the high-water mark across the run, plus the first spawn's
+    const growths = Math.ceil(Math.log2(world.entityHighWater / start)) + 1;
+    expect(lists["standard-cascade-regather-eids"]).toBeGreaterThan(0);
+    expect(lists["standard-point-regather-eids"]).toBeGreaterThan(0);
+    expect(lists["standard-cascade-regather-eids"]).toBeLessThanOrEqual(growths);
+    expect(lists["standard-point-regather-eids"]).toBeLessThanOrEqual(growths);
+    expect(groups).toBeLessThanOrEqual(growths * firstFrameGroups);
 });
