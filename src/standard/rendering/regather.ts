@@ -240,9 +240,9 @@ export interface Regather {
     /** the indirect buffer the atlas render pass draws from: one DrawIndexedIndirect record per casting
      * mesh (Pass A fills it). `null` until {@link Regather.reserve} allocates it. */
     args(): GPUBuffer | null;
-    /** lazily allocate the packed list (sized `maxCombos × capacity`, the provably-safe bound: each combo
-     * view slot holds ≤ capacity culled eids). Fires the `onAlloc` callback registered via
-     * {@link Regather.reset} (standard rebuilds the bind groups that bind this lane). Idempotent once allocated. */
+    /** lazily allocate the packed list (at least `maxCombos × capacity`, the provably-safe bound: each combo
+     * view slot holds ≤ capacity culled eids); capacity doubles when it grows and never shrinks. Fires the
+     * `onAlloc` callback registered via {@link Regather.reset} (standard rebuilds the bind groups that bind this lane). Idempotent once allocated. */
     ensure(maxCombos: number, capacity: number): void;
     /** preflight the largest batch before recording any run into an encoder. A run never reallocates this
      * shared output: earlier GPU commands in the same unsubmitted encoder must keep the buffer they captured. */
@@ -421,13 +421,14 @@ export function createRegather(world: World, label: string): Regather {
         eids: () => _eids,
         args: () => _args,
         ensure(maxCombos: number, capacity: number): void {
-            if (_eids && _eidCapacity === capacity && _eidCombos >= maxCombos) return;
+            if (_eids && _eidCapacity >= capacity && _eidCombos >= maxCombos) return;
             _eids?.destroy();
-            _eidCapacity = capacity;
+            // doubles like the eid columns, so a high-water mark rising each frame reallocates logarithmically
+            if (capacity > _eidCapacity) _eidCapacity = Math.max(capacity, _eidCapacity * 2);
             _eidCombos = maxCombos;
             _eids = world.gpu.device.createBuffer({
                 label: `standard-${label}-regather-eids`,
-                size: maxCombos * capacity * 16,
+                size: maxCombos * _eidCapacity * 16,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
             _onAlloc();
