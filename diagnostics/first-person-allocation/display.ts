@@ -237,10 +237,10 @@ async function adapterFacts(page: import("playwright").Page): Promise<AdapterFac
  * frame loop is the run frame, attributed by the same rule as {@link sampleAllocation}. Once the loop runs,
  * wait `warm` frames, then sample `frames` after warm, after twice that, and an A/A repeat, each after a
  * collection. The control runs last, over {@link CONTROL_FRAMES} frames: a conditional breakpoint where the
- * frame loop begins allocates one literal per frame. Once the loop is found, the page's presented rate is
- * read under both of those conditions and reported in `runtime`, and the calls that step no frame are timed
- * once; a page that cannot supply the whole frame budget and that reserve before `deadline` refuses its
- * premise rather than timing out mid-warm. Every wait ends by `deadline`, a `performance.now()` time, and
+ * frame loop begins allocates one literal per frame. After the warm, the page's presented rate is read
+ * under both of those conditions and reported in `runtime`, and the calls that step no frame are timed
+ * once; a page that cannot supply the frames still to come and that reserve before `deadline` refuses its
+ * premise before any sampled window. Every wait ends by `deadline`, a `performance.now()` time, and
  * the build, server and browser are gone when it returns. Needs the `display` requirement resolved.
  */
 async function startPreview(
@@ -500,11 +500,15 @@ export async function samplePage(
             return [value, performance.now() - at];
         };
 
-        // This row's premise, and the last point at which a slow host is still a missing premise rather than
-        // a hung page. A rate read on an idle page licenses a frame budget the sampled, broken-at page cannot
-        // supply, so each rate is read under the condition its frames are spent under, and each is the lower
-        // of two spans: the same discipline the row applies to its own windows. The warm is never shrunk to
-        // fit, because its length is what makes three agreeing windows a steadiness claim.
+        await advance(warm);
+        // This row's premise, read after the warm: the page builds its world over its first frames, and a
+        // one-byte sampling interval costs most where the page allocates most, so a rate read over loading
+        // frames refuses a host that steady play fits. It is still the last point at which a slow host is a
+        // missing premise rather than a hung page. A rate read on an idle page licenses a frame budget the
+        // sampled, broken-at page cannot supply, so each rate is read under the condition its frames are spent
+        // under, and each is the lower of two spans: the same discipline the row applies to its own windows.
+        // The warm is never shrunk to fit, because its length is what makes three agreeing windows a
+        // steadiness claim.
         const spanRate = async () => {
             const before = await frameCount();
             const spanStart = performance.now();
@@ -537,21 +541,20 @@ export async function samplePage(
             removeMs +
             disableMs +
             7 * ADVANCE_POLL_MS;
-        const budget = 2 * warm + 3 * frames + CONTROL_FRAMES;
+        const budget = warm + 3 * frames + CONTROL_FRAMES;
         const frameMs = (count: number, rate: number) => (count * 1000) / rate;
         const needed =
-            frameMs(2 * warm + 3 * frames, sampledRate) +
+            frameMs(warm + 3 * frames, sampledRate) +
             frameMs(CONTROL_FRAMES, controlRate) +
             reserve;
         const left = remaining();
         const required = (budget * 1000) / Math.max(1, left - reserve);
         if (needed > left)
             throw new Error(
-                `the page presents at ${sampledRate.toFixed(1)} Hz under the heap sampler and ${controlRate.toFixed(1)} Hz under the control breakpoint, so this row's ${budget} frames (warm ${warm}, three ${frames}-frame windows, a ${frames}-frame survivor window and a ${CONTROL_FRAMES}-frame control) need ${needed.toFixed(0)} ms, including ${reserve.toFixed(0)} ms of calls that step no frame, against the ${left.toFixed(0)} ms left before the deadline; an even ${required.toFixed(1)} Hz would be required`,
+                `the page presents at ${sampledRate.toFixed(1)} Hz under the heap sampler and ${controlRate.toFixed(1)} Hz under the control breakpoint, so this row's ${budget} frames still to come (the second warm's ${warm - frames}, three ${frames}-frame windows, a ${frames}-frame survivor window and a ${CONTROL_FRAMES}-frame control) need ${needed.toFixed(0)} ms, including ${reserve.toFixed(0)} ms of calls that step no frame, against the ${left.toFixed(0)} ms left before the deadline; an even ${required.toFixed(1)} Hz would be required`,
             );
         // The remaining frame sample runs against the same wall-clock deadline and fails if it overruns.
 
-        await advance(warm);
         // the GC and frame-pacing trace spans the three steady windows: the collections, their pauses and
         // promoted bytes, and the rAF intervals, all on one trace clock
         const events: TraceEvent[] = [];
