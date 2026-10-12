@@ -10,7 +10,9 @@ export const config = {
         baseURL: "http://127.0.0.1:4175",
     },
     webServer: {
-        command: `bun run build && bun run preview --host 127.0.0.1 --port 4175 --strictPort`,
+        // Vite directly, not package scripts: in the engine repo the example has no manifest, and `bun run`
+        // would reach the engine's own scripts.
+        command: "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4175 --strictPort",
         url: "http://127.0.0.1:4175",
         ...WEB_SERVER_CONFIG,
     },

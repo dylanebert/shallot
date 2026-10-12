@@ -61,7 +61,6 @@ const isNegated = (file: string): boolean => {
 };
 const firstPersonChecks = new Set([
     "examples/first-person/browser.e2e.ts",
-    "examples/first-person/src/demo-files.node.ts",
     "examples/first-person/src/demo.node.ts",
     "examples/first-person/src/plugins.test.ts",
     "examples/first-person/tests/ascent.node.ts",
@@ -170,7 +169,6 @@ const required = [
     "bin/shallot.ts",
     "src/project/policy.ts",
     "src/cli/index.ts",
-    "examples/first-person/package.json",
     "src/project/testing.ts",
     "examples/first-person/playwright.config.ts",
     "examples/first-person/browser.e2e.ts",
@@ -183,7 +181,6 @@ const required = [
     "examples/first-person/src/plugins.ts",
     "examples/first-person/src/plugins.test.ts",
     "examples/first-person/src/demo.node.ts",
-    "examples/first-person/src/demo-files.node.ts",
     "dist/vite.js",
     "dist/testing.js",
     "crates/native/Cargo.toml",
@@ -193,17 +190,11 @@ const required = [
     "crates/audio/pkg/shallot_audio.d.ts",
     "crates/audio/pkg/shallot_audio.wasm",
 ];
-// A shipped manifest must not name the engine by a local path: copy-out pins the installed version,
-// and a `file:`/`link:`/`workspace:` spec in the tarball points at a directory no consumer has.
-const ENGINE = "@dylanebert/shallot";
-for (const f of files.filter((f) => f.endsWith("package.json") && f !== "package.json")) {
-    const pkg = JSON.parse(readFileSync(resolve(pkgDir, f), "utf8"));
-    for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
-        const range = pkg[field]?.[ENGINE];
-        if (typeof range === "string" && /^(?:workspace:|file:|link:|portal:)/.test(range))
-            violations.push(`${f} (local engine dependency ${field}: ${range})`);
-    }
-}
+// An example manifest opens its own package scope, so the example stops self-referencing the engine and
+// a clean checkout cannot resolve it (TS2307 at 80bc849e); `shallot add` writes the copy's manifest.
+for (const name of recipes)
+    if (existsSync(resolve(examplesDir, name, "package.json")))
+        violations.push(`examples/${name}/package.json (example manifest; shallot add writes it)`);
 
 const removedTestSupport = Object.keys(packageManifest.exports ?? {}).filter(
     (entry) => /^\.\/harness(?:\/|$)/.test(entry) || entry.startsWith("./testing/"),

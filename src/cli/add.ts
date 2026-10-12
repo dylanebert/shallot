@@ -12,7 +12,7 @@ import { basename, dirname, join, resolve } from "node:path";
 // `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/`; running
 // one in place breaks its own dep resolution and users shouldn't edit inside node_modules, so copy-out is
-// the path. The copy gains (or has its local dep rewritten to) the installed engine version so a plain
+// the path. The copy gains a manifest pinned to the installed engine version so a plain
 // `bun install && bunx shallot dev` runs green. Paths resolve relative to this package, never cwd — the
 // corpus lives beside the CLI (`examples/` sits two levels above `src/cli/`, at the package root).
 
@@ -79,26 +79,6 @@ export function occupied(dest: string): boolean {
     return stat.isDirectory() ? readdirSync(dest).length > 0 : true;
 }
 
-const DEP_FIELDS = [
-    "dependencies",
-    "devDependencies",
-    "peerDependencies",
-    "optionalDependencies",
-] as const;
-
-/** Give a copied project the exact engine version from the installed package. */
-export function pinEngine(pkgText: string, version: string): string {
-    const pkg = JSON.parse(pkgText);
-    let found = false;
-    for (const field of DEP_FIELDS) {
-        if (typeof pkg[field]?.[ENGINE] !== "string") continue;
-        pkg[field][ENGINE] = version;
-        found = true;
-    }
-    if (!found) pkg.dependencies = { [ENGINE]: version, ...pkg.dependencies };
-    return `${JSON.stringify(pkg, null, 4)}\n`;
-}
-
 function importsPackage(recipeDir: string, packageName: string): boolean {
     const sourceFile = /\.(?:[cm]?[jt]sx?)$/;
     const importPattern = new RegExp(
@@ -119,7 +99,7 @@ function importsPackage(recipeDir: string, packageName: string): boolean {
     return false;
 }
 
-function recipePackage(dest: string, recipeDir: string): string {
+function recipePackage(dest: string, recipeDir: string, version: string): string {
     const engine = JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf8"));
     const devDependencies: Record<string, string> = {
         "@types/bun": engine.devDependencies["@types/bun"],
@@ -129,6 +109,8 @@ function recipePackage(dest: string, recipeDir: string): string {
     };
     if (importsPackage(recipeDir, "typegpu"))
         devDependencies.typegpu = engine.peerDependencies.typegpu;
+    if (importsPackage(recipeDir, `${ENGINE}/webgpu`))
+        devDependencies.webgpu = engine.peerDependencies.webgpu;
     return `${JSON.stringify(
         {
             name: basename(dest),
@@ -138,9 +120,13 @@ function recipePackage(dest: string, recipeDir: string): string {
             scripts: {
                 dev: "vite --host 127.0.0.1",
                 build: "vite build",
-                preview: "vite preview",
+                preview: "vite preview --host 127.0.0.1",
+                test: "bun test && bun run test:node",
+                "test:node": "bun test ./tests/*.node.ts ./src/*.node.ts",
+                "browser:install": "playwright install chromium",
                 "test:browser": "playwright test",
             },
+            dependencies: { [ENGINE]: version },
             devDependencies,
         },
         null,
@@ -193,15 +179,10 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         filter: (src) => basename(src) !== "node_modules",
     });
 
-    const pkgPath = resolve(dest, "package.json");
-    const pkgText = existsSync(pkgPath)
-        ? readFileSync(pkgPath, "utf8")
-        : recipePackage(dest, resolve(recipesDir, name));
-    writeFileSync(pkgPath, pinEngine(pkgText, version));
-
-    // Bun pack drops `.gitignore`; preserve an example's own ignore when present.
-    const ignore = resolve(dest, ".gitignore");
-    if (!existsSync(ignore)) writeFileSync(ignore, PROJECT_GITIGNORE);
+    // Examples carry no manifest, so they self-reference the engine inside its repo; the copy's
+    // manifest and ignore are written here, their one home.
+    writeFileSync(resolve(dest, "package.json"), recipePackage(dest, recipeDir, version));
+    writeFileSync(resolve(dest, ".gitignore"), PROJECT_GITIGNORE);
     const preload = resolve(dest, "tests/preload.ts");
     const bunfig = resolve(dest, "bunfig.toml");
     if (!existsSync(preload)) {
