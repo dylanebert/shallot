@@ -37,7 +37,7 @@ test("the sampler keeps lazy feedback and Chromium's existing timing flags", () 
     ]);
 });
 
-const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
+const ENTRY = resolve(import.meta.dir, "allocation.entry.ts");
 const ROOT = resolve(import.meta.dir, "../..");
 /** A bundle input's absolute path with `/` separators, so suffix checks hold on Windows. */
 const absolute = (path: string) => resolve(path).replaceAll(sep, "/");
