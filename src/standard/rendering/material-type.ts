@@ -2,7 +2,8 @@ import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { isTgpuFn, readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
-import type { Plugin, Resource, World } from "../../engine";
+import type { Plugin, Resource, System, World } from "../../engine";
+import type { ComponentStorage } from "../../engine/ecs";
 import { Xform } from "../../engine/utils";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 
@@ -386,7 +387,8 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     constructor(world: World, type: MaterialType<P, any, any>) {
         this._world = world;
         this._type = type;
-        registerMaterialType(world, type, type.name === "StandardMaterial");
+        const id = registerMaterialType(world, type, type.name === "StandardMaterial");
+        world.resource(MaterialTypes).assets[id] = this;
         this._rowBytes = d.sizeOf(type.parameters);
         this._scratch = new ArrayBuffer(this._rowBytes);
         this._bytes = new Uint8Array(this._rowBytes);
@@ -482,14 +484,17 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         const declaresMeshMaterial = [...this._world.registry.entries()].some(
             ({ component }) => component === MeshMaterial,
         );
-        if (!declaresMeshMaterial) return;
-        const type = materialTypeId(this._world, this._type);
-        const storage = this._world.storage(MeshMaterial);
-        for (const eid of this._world.query([MeshMaterial])) {
-            if (storage.type.get(eid) !== type || storage.material.get(eid) !== row) continue;
-            storage.alphaMode.set(eid, fields.alphaMode);
-            storage.alphaCutoff.set(eid, fields.alphaCutoff);
-        }
+        if (declaresMeshMaterial) copyMeshAlpha(this._world);
+    }
+
+    /** Copy this type's row alpha into the entity's MeshMaterial where they differ; an unknown row is left. @internal */
+    copyAlpha(storage: MeshMaterialStorage, eid: number): void {
+        const row = storage.material.get(eid);
+        if (row >= this._highWater) return;
+        const alphaMode = this._alphaModes[row];
+        const alphaCutoff = this._alphaCutoffs[row];
+        if (storage.alphaMode.get(eid) !== alphaMode) storage.alphaMode.set(eid, alphaMode);
+        if (storage.alphaCutoff.get(eid) !== alphaCutoff) storage.alphaCutoff.set(eid, alphaCutoff);
     }
 
     /** Release an unused row so producers with entity lifetimes can reuse its storage. Row zero is reserved. */
@@ -562,14 +567,45 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
 }
 
 type ErasedMaterialType = MaterialType<any, any, any>;
+type MeshMaterialStorage = ComponentStorage<typeof MeshMaterial>;
 
 interface MaterialTypeState {
     readonly types: (ErasedMaterialType | undefined)[];
+    /** each registered type's CPU store, by type id, once created */
+    readonly assets: (MaterialAssets<any> | undefined)[];
     readonly ids: WeakMap<object, number>;
     readonly names: Map<string, ErasedMaterialType>;
 }
 const materialTypesKey = {
-    create: (): MaterialTypeState => ({ types: [undefined], ids: new WeakMap(), names: new Map() }),
+    create: (): MaterialTypeState => ({
+        types: [undefined],
+        assets: [],
+        ids: new WeakMap(),
+        names: new Map(),
+    }),
+};
+
+const MESH_MATERIALS = [MeshMaterial];
+
+// The row owns alpha; MeshMaterial's alphaMode and alphaCutoff are its copy for the mesh table's bulk fill.
+// Field change marks belong to the frame upload, so this compares the copy with its row instead.
+function copyMeshAlpha(world: World): void {
+    const assets = world.resource(MaterialTypes).assets;
+    const storage = world.storage(MeshMaterial);
+    for (const eid of world.query(MESH_MATERIALS)) {
+        assets[storage.type.get(eid)]?.copyAlpha(storage, eid);
+    }
+}
+
+/**
+ * Copies each MeshMaterial's row alpha into its `alphaMode` and `alphaCutoff` after simulation, so a
+ * reassigned `type` or `material` takes its row's alpha mode in the same frame's upload.
+ */
+export const MeshMaterialAlphaSystem: System = {
+    name: "mesh-material-alpha",
+    group: "simulation",
+    last: true,
+    update: copyMeshAlpha,
 };
 
 /** Every material type registered in this World, with StandardMaterial reserved at type zero. */
