@@ -257,6 +257,7 @@ bun run format                  # biome
 ### CI coverage
 
 - [CI](.github/workflows/test.yml) owns host and tier commands, and judges operating-system compatibility on the hosts each tier runs on; a local run does not.
+- For a red only one hosted OS shows, run that OS and tier alone from [CI](.github/workflows/test.yml) before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`.
 - Hardware claims on a real adapter, display-bound allocation and native packaging stay outside CI.
 - On Windows, Dawn loads only in a host named `node.exe` ([dawn-host.ts](src/engine/runtime/dawn-host.ts)), so CI runs Bun there from a copy with that name.
 

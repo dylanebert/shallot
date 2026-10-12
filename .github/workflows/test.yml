@@ -7,6 +7,27 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Hosted operating system
+        required: true
+        type: choice
+        options:
+          - ubuntu-latest
+          - macos-15
+          - windows-latest
+      tier:
+        description: One CI job to run; cargo and checked-kernel require Ubuntu
+        required: true
+        type: choice
+        options:
+          - cheap
+          - gpu
+          - node
+          - browser
+          - cargo
+          - checked-kernel
 
 concurrency:
   group: test-${{ github.event.pull_request.number || github.sha }}
@@ -14,11 +35,12 @@ concurrency:
 
 jobs:
   cheap:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'cheap' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15, windows-latest]
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'cheap' && fromJSON(format('["{0}"]', inputs.os)) || fromJSON('["ubuntu-latest","macos-15","windows-latest"]') }}
     defaults:
       run:
         shell: bash
@@ -58,6 +80,7 @@ jobs:
         run: bun scripts/report-slow-tests.ts cheap-junit.xml cheap-test.log
 
   gpu:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'gpu' }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -65,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest, windows-latest]
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'gpu' && fromJSON(format('["{0}"]', inputs.os)) || fromJSON('["macos-15","ubuntu-latest","windows-latest"]') }}
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -122,6 +145,7 @@ jobs:
         run: bun scripts/report-slow-tests.ts gpu-junit.xml gpu-test.log
 
   cargo:
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'cargo' && inputs.os == 'ubuntu-latest') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -134,6 +158,7 @@ jobs:
         run: /usr/bin/time -p cargo test -p shallot-physics
 
   node:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'node' }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -141,21 +166,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            shard: 1/2
-          - os: macos-15
-            shard: 2/2
-          - os: ubuntu-latest
-            shard: 1/2
-          - os: ubuntu-latest
-            shard: 2/2
-          - os: windows-latest
-            shard: 1/3
-          - os: windows-latest
-            shard: 2/3
-          - os: windows-latest
-            shard: 3/3
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && inputs.os == 'windows-latest' && '[{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"}]' || github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && format('[{{"os":"{0}","shard":"1/2"}},{{"os":"{0}","shard":"2/2"}}]', inputs.os) || '[{"os":"macos-15","shard":"1/2"},{"os":"macos-15","shard":"2/2"},{"os":"ubuntu-latest","shard":"1/2"},{"os":"ubuntu-latest","shard":"2/2"},{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"}]') }}
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -224,6 +235,7 @@ jobs:
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'checked-kernel' && inputs.os == 'ubuntu-latest') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -286,6 +298,7 @@ jobs:
         run: bun scripts/report-slow-tests.ts checked-node-junit.xml checked-node-test.log
 
   browser:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'browser' }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -293,7 +306,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest, windows-latest]
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'browser' && fromJSON(format('["{0}"]', inputs.os)) || fromJSON('["macos-15","ubuntu-latest","windows-latest"]') }}
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
