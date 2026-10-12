@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { UnsupportedError } from "../../engine";
+import { requestGPU } from "../../engine/runtime/gpu";
 import { minimalDark, minimalLight, shallotDark } from "./index";
 
 class Element {
@@ -144,6 +145,38 @@ test("minimal dark and light loading are transparent, preserve progress colors, 
             cleanup?.();
             expect(body.children).toHaveLength(0);
         }
+    });
+});
+
+test("the standard failure screen shows the no-adapter remedy", async () => {
+    const previous = Object.getOwnPropertyDescriptor(navigator, "gpu");
+    Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        value: { requestAdapter: async () => null },
+    });
+    let refusal: unknown;
+    try {
+        refusal = await requestGPU().then(
+            () => undefined,
+            (error) => error,
+        );
+    } finally {
+        if (previous) Object.defineProperty(navigator, "gpu", previous);
+        else Reflect.deleteProperty(navigator, "gpu");
+    }
+
+    expect(refusal).toBeInstanceOf(UnsupportedError);
+    withDocument((body) => {
+        const screen = minimalDark();
+        screen.show();
+        screen.error?.(refusal);
+        const overlay = body.children[0]!;
+        expect(text(overlay)).toContain(
+            "Use a supported Dawn backend; on Linux without a GPU, install a software Vulkan driver such as mesa-vulkan-drivers.",
+        );
+        expect(overlay.children[0]!.children[2]!.children[0]!.innerHTML).toContain(
+            "WebGPU not supported.",
+        );
     });
 });
 

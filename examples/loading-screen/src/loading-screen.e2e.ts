@@ -53,6 +53,22 @@ async function waitForScene(page: Page): Promise<void> {
     await expect(page.locator("#scene")).toHaveClass(/visible/);
 }
 
+test("a missing browser adapter offers the browser-specific remedy", async ({ page }) => {
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, "gpu", {
+            configurable: true,
+            value: { requestAdapter: async () => null },
+        });
+    });
+
+    await page.goto("/");
+    const failure = page.locator(overlaySelector);
+    await expect(failure).toContainText(
+        "No WebGPU adapter is available in Browser. In a browser, enable hardware acceleration or use a browser with WebGPU support.",
+    );
+    await expect(failure).toContainText("WebGPU not supported.");
+});
+
 async function inspectPageScreenshot(page: Page, encoded: string) {
     return page.evaluate((base64) => {
         const image = createImageBitmap(

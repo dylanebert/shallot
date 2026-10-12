@@ -58,7 +58,9 @@ test("missing navigator.gpu names the Bun runtime and optional webgpu peer fix",
 test("no adapter has its own acquisition refusal", async () => {
     const restore = replaceGpu({ requestAdapter: async () => null } as unknown as GPU);
     try {
-        expect(await refusalMessage()).toBe("No WebGPU adapter is available in Bun.");
+        expect(await refusalMessage()).toBe(
+            "No WebGPU adapter is available in Bun. Use a supported Dawn backend; on Linux without a GPU, install a software Vulkan driver such as mesa-vulkan-drivers.",
+        );
     } finally {
         restore();
     }

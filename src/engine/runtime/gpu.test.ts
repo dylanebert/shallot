@@ -1,10 +1,26 @@
 import { expect, test } from "bun:test";
-import { checkPipelineStorageBindings, countPipelineStorageBindings } from "./gpu";
+import { checkPipelineStorageBindings, countPipelineStorageBindings, requestGPU } from "./gpu";
 
 const storage = (visibility: number, type: "storage" | "read-only-storage" = "storage") =>
     ({ visibility, buffer: { type } }) as GPUBindGroupLayoutEntry;
 const uniform = (visibility: number) =>
     ({ visibility, buffer: { type: "uniform" } }) as GPUBindGroupLayoutEntry;
+
+test("an unavailable adapter names a host-specific remedy", async () => {
+    const previous = Object.getOwnPropertyDescriptor(navigator, "gpu");
+    Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        value: { requestAdapter: async () => null },
+    });
+    try {
+        await expect(requestGPU()).rejects.toThrow(
+            "No WebGPU adapter is available in Bun. Use a supported Dawn backend; on Linux without a GPU, install a software Vulkan driver such as mesa-vulkan-drivers.",
+        );
+    } finally {
+        if (previous) Object.defineProperty(navigator, "gpu", previous);
+        else Reflect.deleteProperty(navigator, "gpu");
+    }
+});
 
 test("pipeline storage counts sum bound groups by visibility and ignore non-storage bindings", () => {
     expect(

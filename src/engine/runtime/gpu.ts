@@ -1505,6 +1505,7 @@ function gpuRuntimeName(): string {
     ).process?.versions;
     if (versions?.bun) return "Bun";
     if (versions?.node) return "Node.js";
+    if (typeof navigator !== "undefined") return "Browser";
     return "this runtime";
 }
 
@@ -1584,7 +1585,13 @@ async function acquireDevice(
             { cause },
         );
     }
-    if (!adapter) throw new UnsupportedError(`No WebGPU adapter is available in ${runtime}.`);
+    if (!adapter) {
+        const remedy =
+            runtime === "Bun" || runtime === "Node.js"
+                ? "Use a supported Dawn backend; on Linux without a GPU, install a software Vulkan driver such as mesa-vulkan-drivers."
+                : "In a browser, enable hardware acceleration or use a browser with WebGPU support.";
+        throw new UnsupportedError(`No WebGPU adapter is available in ${runtime}. ${remedy}`);
+    }
 
     const required = [...new Set(requirements.flatMap((item) => item.features ?? []))];
     const preferred = [...new Set(requirements.flatMap((item) => item.preferredFeatures ?? []))];
