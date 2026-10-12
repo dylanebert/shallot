@@ -140,7 +140,11 @@ test("the preview serves its isolated page and focused canvas input presents mov
 
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
-    await expect(page.locator("[data-recipe-controls]")).toContainText("WASD");
+    // The controls mount on the first draw, after pipeline warm-up. A cold hosted macOS runner took 5.75 s,
+    // past expect's 5 s, so the wait is bounded by the test's timeout instead.
+    const controls = page.locator("[data-recipe-controls]");
+    await controls.waitFor();
+    await expect(controls).toContainText("WASD");
     expect(pageErrors, "first-person reaches its first draw without a runtime error").toEqual([]);
     const device = await page.evaluate(() => (window as CaptureWindow).__firstPersonDeviceRecord);
     if (!device) throw new Error("first-person browser did not record its presenting device");
