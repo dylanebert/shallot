@@ -4,11 +4,12 @@ import { CEILING } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(CEILING.node);
 
+import { resolve } from "node:path";
 import { allocationFailure, sampleAllocation, windowBytes } from "./allocation";
 
 test("a warm fixed step of the actual first-person GPU-backed gameplay composition allocates no JavaScript heap, so no periodic scavenge follows play", async () => {
     // Exercise the once-per-escape collider refit path before measuring; a compile still refuses a reading.
-    const sample = await sampleAllocation(new URL("./allocation.entry.ts", import.meta.url).pathname, {
+    const sample = await sampleAllocation(resolve(import.meta.dir, "allocation.entry.ts"), {
         warm: 6000,
         frames: 600,
     });
