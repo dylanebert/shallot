@@ -96,7 +96,6 @@ function createClusterGpuState(): ClusterGpuState {
             staging: new Float32Array(INITIAL_VIEW_CAPACITY * CLUSTER_VIEW_FLOATS),
             last: new Float32Array(INITIAL_VIEW_CAPACITY * CLUSTER_VIEW_FLOATS),
             pending: new Float32Array(INITIAL_VIEW_CAPACITY * CLUSTER_VIEW_FLOATS),
-            pendingFrame: -1,
             pendingUsed: 0,
         },
         lightCull: {
@@ -380,16 +379,25 @@ export interface Clusters {
     aabbs: GPUBuffer | null;
     views: GPUBuffer | null;
     staging: Float32Array;
-    /** Projection values whose grid rebuild was encoded but not yet acknowledged by a submitted frame. */
+    /** Projection values encoded in the current draw, committed to `last` after submission. */
     pending: Float32Array;
-    pendingFrame: number;
     pendingUsed: number;
     /** Projection values last acknowledged after a successful frame submission. */
     last: Float32Array;
+    /** Stable callback for the current draw's encoded grid rebuild. */
+    commitOnSubmit?: () => void;
 }
 
 export const Clusters: import("../../engine").Resource<Clusters> = {
-    create: (world) => world.resource(clusterGpuKey).clusters,
+    create: (world) => {
+        const clusters = world.resource(clusterGpuKey).clusters;
+        clusters.commitOnSubmit = () => {
+            if (!clusters.pendingUsed) return;
+            clusters.last.set(clusters.pending.subarray(0, clusters.pendingUsed));
+            clusters.pendingUsed = 0;
+        };
+        return clusters;
+    },
 };
 
 /**
@@ -522,11 +530,7 @@ export const UpdateLightClustersSystem: System = {
         const _clusterGpu = world.resource(clusterGpuKey);
         const _clusters = world.resource(Clusters);
 
-        if (_clusters.pendingFrame >= 0 && world.gpu.frame > _clusters.pendingFrame) {
-            _clusters.last.set(_clusters.pending.subarray(0, _clusters.pendingUsed));
-            _clusters.pendingFrame = -1;
-            _clusters.pendingUsed = 0;
-        }
+        _clusters.pendingUsed = 0;
         if (_render.shadeCount === 0 || !_clusterGpu.pipe) return;
         growClusterCapacity(world, _render.shadeCount);
         world.resource(Views).forEach(updateClusterView, world);
@@ -555,7 +559,7 @@ export const UpdateLightClustersSystem: System = {
         endComputePass(pass);
         _clusters.pending.set(_clusters.staging.subarray(0, used));
         _clusters.pendingUsed = used;
-        _clusters.pendingFrame = world.gpu.frame;
+        world.onFrameSubmit(_clusters.commitOnSubmit!);
     },
 };
 
@@ -628,7 +632,6 @@ export function warmClusters(world: World): void {
     if (!world.gpu.device) return;
     const root = world.gpu.root;
     _clusters.last.fill(0);
-    _clusters.pendingFrame = -1;
     _clusters.pendingUsed = 0;
     _clusterGpu.viewCapacity = INITIAL_VIEW_CAPACITY;
     _clusterGpu.bound = null;

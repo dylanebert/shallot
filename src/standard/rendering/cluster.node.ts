@@ -29,6 +29,7 @@ import {
     lightClusters,
     requestLightOverflow,
     sliceDepth,
+    UpdateLightClustersSystem,
 } from "./cluster";
 import { StandardRenderingPlugin } from "./index";
 import { MAX_POINT_LIGHTS } from "./lighting";
@@ -48,6 +49,7 @@ if (typeof ResizeObserver === "undefined") {
 }
 
 const subjects = gpuApps(import.meta.path, [
+    { defaults: false, plugins: [StandardRenderingPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin] },
 ]);
 
@@ -459,3 +461,19 @@ async function checkClusterScene(world: World): Promise<void> {
     world.step(0);
     expect(clusters.last.slice(0, 8)).not.toEqual(committed);
 }
+
+test("a reloaded cluster runtime cannot commit a stale candidate from an idle frame", async () => {
+    const world = subjects()[1]!.world;
+    const original = world.resource(Clusters);
+    original.last[0] = 0;
+    original.pending[0] = 123;
+    original.pendingUsed = 4;
+    world.removeSystem(UpdateLightClustersSystem);
+
+    const version = "aborted-draw-reload";
+    const reloaded = await import(`./cluster.ts?${version}`);
+    const next = world.resource(reloaded.Clusters);
+    expect(next).not.toBe(original);
+    world.step(0);
+    expect(original.last[0]).toBe(0);
+});
