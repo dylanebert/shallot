@@ -369,6 +369,67 @@ test("a GlobalTransform created after history preparation remains pending for th
     }
 });
 
+test("a fixed tick supersedes discontinuities staged by an aborted draw", async () => {
+    async function previousAfter(abortTeleportedFrame: boolean): Promise<number> {
+        const { app, world, eid, writeOnTick } = await placementHistoryApp();
+        let teleportNextTick = false;
+        try {
+            attachTestCamera(world);
+            world.addSystem({
+                group: "fixed",
+                last: true,
+                update(world) {
+                    if (!teleportNextTick) return;
+                    teleportNextTick = false;
+                    teleportPlacement(world, eid);
+                },
+            });
+            let abort = false;
+            if (abortTeleportedFrame) {
+                world.addSystem({
+                    group: "draw",
+                    last: true,
+                    update() {
+                        if (!abort) return;
+                        abort = false;
+                        throw new Error("abort teleported GlobalTransform frame");
+                    },
+                });
+            }
+
+            writeOnTick(10);
+            world.step(Time.FIXED_DT);
+            await world.gpu.device.queue.onSubmittedWorkDone();
+
+            writeOnTick(20);
+            teleportNextTick = true;
+            abort = abortTeleportedFrame;
+            if (abortTeleportedFrame)
+                expect(() => world.step(Time.FIXED_DT)).toThrow(
+                    "abort teleported GlobalTransform frame",
+                );
+            else world.step(Time.FIXED_DT);
+            await world.gpu.device.queue.onSubmittedWorkDone();
+
+            writeOnTick(30);
+            world.step(Time.FIXED_DT);
+            await world.gpu.device.queue.onSubmittedWorkDone();
+
+            const runtime = world.resource(TransformRuntime);
+            const row = runtime.current!.rowIndex(eid);
+            const result = await probeBuffer(world, runtime.previous!.buffer, {
+                size: runtime.previous!.buffer.size,
+            });
+            return new Float32Array(result.bytes)[row * 12]!;
+        } finally {
+            app.dispose();
+        }
+    }
+
+    expect(await previousAfter(false)).toBe(20);
+    expect(await previousAfter(true)).toBe(20);
+});
+
 test("an unrelated successful draw cannot commit aborted GlobalTransform history", async () => {
     const { app, world, eid, writeOnTick } = await placementHistoryApp();
     try {
