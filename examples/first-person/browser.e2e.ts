@@ -8,9 +8,20 @@ const CAPTURE_ENTRY = resolve(
     ".artifacts/capture-page.js",
 );
 
+type BrowserDeviceRecord = {
+    info: Pick<GPUAdapterInfo, "vendor" | "architecture" | "device" | "description"> & {
+        isFallbackAdapter?: boolean;
+    };
+    requestedFeatures: string[];
+    requestedLimits: Record<string, number | undefined>;
+    features: string[];
+    maxStorageBuffersPerShaderStage: number;
+};
+
 type CaptureWindow = Window & {
     shallotCaptureFrame?: (canvas: HTMLCanvasElement) => Promise<Capture>;
     __capturedFrames?: Record<string, Uint8ClampedArray>;
+    __firstPersonDeviceRecord?: BrowserDeviceRecord;
 };
 
 type Frame = Pick<Capture, "width" | "height" | "identity"> & { scenePixels: number };
@@ -91,6 +102,29 @@ test("the preview serves its isolated page and focused canvas input presents mov
 }, testInfo) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.addInitScript(() => {
+        const original = GPUAdapter.prototype.requestDevice;
+        GPUAdapter.prototype.requestDevice = async function (descriptor?: GPUDeviceDescriptor) {
+            const info = this.info as GPUAdapterInfo & { isFallbackAdapter?: boolean };
+            const device = await original.call(this, descriptor);
+            (window as CaptureWindow).__firstPersonDeviceRecord = {
+                info: {
+                    vendor: info.vendor,
+                    architecture: info.architecture,
+                    device: info.device,
+                    description: info.description,
+                    isFallbackAdapter: info.isFallbackAdapter,
+                },
+                requestedFeatures: [...(descriptor?.requiredFeatures ?? [])].sort(),
+                requestedLimits: { ...(descriptor?.requiredLimits ?? {}) },
+                features: [...device.features]
+                    .filter((feature) => feature !== "core-features-and-limits")
+                    .sort(),
+                maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
+            };
+            return device;
+        };
+    });
     const response = await page.goto("/");
     expect(response?.status()).toBe(200);
     expect(response?.headers()["cross-origin-opener-policy"]).toBe("same-origin");
@@ -108,6 +142,15 @@ test("the preview serves its isolated page and focused canvas input presents mov
     await expect(canvas).toBeVisible();
     await expect(page.locator("[data-recipe-controls]")).toContainText("WASD");
     expect(pageErrors, "first-person reaches its first draw without a runtime error").toEqual([]);
+    const device = await page.evaluate(() => (window as CaptureWindow).__firstPersonDeviceRecord);
+    if (!device) throw new Error("first-person browser did not record its presenting device");
+    expect(device.info).toHaveProperty("vendor");
+    console.info(`First-person browser device: ${JSON.stringify(device)}`);
+    const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
+    expect(device.requestedFeatures).toEqual(floorFeatures);
+    expect(device.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
+    expect(device.features).toEqual(floorFeatures);
+    expect(device.maxStorageBuffersPerShaderStage).toBe(8);
     await page.addScriptTag({ path: CAPTURE_ENTRY });
     const first = await captureCanvasFrame(page, "idle-before");
     expect(first.width).toBe(1280);
