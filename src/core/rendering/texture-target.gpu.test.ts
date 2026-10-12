@@ -8,6 +8,7 @@ import {
     BeginFrameSystem,
     Camera,
     captureTexture,
+    computeViewFromWorld,
     detachCanvas,
     RenderingPlugin,
     Resolution,
@@ -71,8 +72,37 @@ const subjects = gpuApps(import.meta.path, [
             },
         ],
     },
+    { defaults: false, plugins: [RenderingPlugin] },
 ]);
 const pipelineKey = { create: () => ({ pipeline: null as GPURenderPipeline | null }) };
+
+test("a re-attached or recreated camera's view carries its view-from-world matrix", () => {
+    const { world } = subjects()[1];
+    const expected = new Float32Array(16);
+    const placed = (eid: number) => {
+        world.add(eid, Camera);
+        world.add(eid, Transform, { translation: [0, 0, 6, 0] });
+        attachTexture(world, eid, { width: 4, height: 4 });
+    };
+    const eid = world.create();
+    placed(eid);
+    world.step(0);
+    computeViewFromWorld(world, eid, expected);
+    expect(world.resource(Views).get(eid)!.viewFromWorld).toEqual(expected);
+
+    detachCanvas(world, eid);
+    attachTexture(world, eid, { width: 4, height: 4 });
+    world.step(0);
+    expect(world.resource(Views).get(eid)!.viewFromWorld).toEqual(expected);
+
+    world.destroy(eid);
+    world.step(0);
+    const recreated = world.create();
+    expect(recreated).toBe(eid);
+    placed(recreated);
+    world.step(0);
+    expect(world.resource(Views).get(recreated)!.viewFromWorld).toEqual(expected);
+});
 
 test("texture final frames capture tight RGBA and refuse missing presentation; owned targets release", async () => {
     const app = subjects()[0];
