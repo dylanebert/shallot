@@ -220,7 +220,7 @@ test("shallot add writes a Bun plugin preload for the generated project", async 
             }),
         );
         expect(readFileSync(join(dest, "tests/preload.ts"), "utf8")).toBe(
-            'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: import.meta.dir }));\n',
+            'import { setDefaultTimeout } from "bun:test";\nimport { shallot } from "@dylanebert/shallot/bun";\nimport { CEILING } from "@dylanebert/shallot/testing";\nimport { plugin } from "bun";\n\nsetDefaultTimeout(CEILING.cheap);\nplugin(shallot({ root: import.meta.dir }));\n',
         );
         expect(readFileSync(join(dest, "bunfig.toml"), "utf8")).toBe(
             '[test]\npreload = ["./tests/preload.ts"]\n',

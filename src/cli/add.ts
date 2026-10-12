@@ -18,6 +18,14 @@ import { basename, dirname, join, resolve } from "node:path";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const ENGINE = "@dylanebert/shallot";
+const PROJECT_PRELOAD = `import { setDefaultTimeout } from "bun:test";
+import { shallot } from "@dylanebert/shallot/bun";
+import { CEILING } from "@dylanebert/shallot/testing";
+import { plugin } from "bun";
+
+setDefaultTimeout(CEILING.cheap);
+plugin(shallot({ root: import.meta.dir }));
+`;
 const PROJECT_GITIGNORE = "node_modules/\ndist/\nbuild/\n.artifacts/\ntest-results/\n";
 const ADD_USAGE = `
   shallot add [name] [dir]
@@ -103,7 +111,7 @@ function recipePackage(dest: string, recipeDir: string, version: string): string
     const engine = JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf8"));
     const devDependencies: Record<string, string> = {
         "@types/bun": engine.devDependencies["@types/bun"],
-        playwright: engine.devDependencies.playwright,
+        playwright: engine.peerDependencies.playwright,
         typescript: engine.devDependencies.typescript,
         vite: engine.devDependencies.vite,
     };
@@ -179,20 +187,14 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         filter: (src) => basename(src) !== "node_modules",
     });
 
-    // Examples carry no manifest, so they self-reference the engine inside its repo; the copy's
-    // manifest and ignore are written here, their one home.
+    // Examples carry no manifest or Bun test setup, so they self-reference the engine and use its root
+    // preload inside its repo; the copy's manifest, ignore and test setup are written here, their one home.
     writeFileSync(resolve(dest, "package.json"), recipePackage(dest, recipeDir, version));
     writeFileSync(resolve(dest, ".gitignore"), PROJECT_GITIGNORE);
     const preload = resolve(dest, "tests/preload.ts");
-    const bunfig = resolve(dest, "bunfig.toml");
-    if (!existsSync(preload)) {
-        mkdirSync(dirname(preload), { recursive: true });
-        writeFileSync(
-            preload,
-            'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: import.meta.dir }));\n',
-        );
-    }
-    if (!existsSync(bunfig)) writeFileSync(bunfig, '[test]\npreload = ["./tests/preload.ts"]\n');
+    mkdirSync(dirname(preload), { recursive: true });
+    writeFileSync(preload, PROJECT_PRELOAD);
+    writeFileSync(resolve(dest, "bunfig.toml"), '[test]\npreload = ["./tests/preload.ts"]\n');
     console.log(`copied example ${name} → ${dest}`);
     console.log(`  cd ${args[1] || name} && bun install && bunx shallot dev`);
     return 0;

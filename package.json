@@ -93,11 +93,15 @@
         "test:browser": "sh scripts/browser.sh"
     },
     "peerDependencies": {
+        "playwright": "^1.63.0",
         "webgpu": "^0.6.2",
         "typegpu": "~0.12.6",
         "vite": "^8.0.0"
     },
     "peerDependenciesMeta": {
+        "playwright": {
+            "optional": true
+        },
         "webgpu": {
             "optional": true
         }

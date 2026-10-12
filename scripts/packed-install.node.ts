@@ -76,6 +76,7 @@ beforeAll(() => {
                     devDependencies: {
                         "@types/bun": rootPackage.devDependencies["@types/bun"],
                         typescript: rootPackage.devDependencies.typescript,
+                        playwright: rootPackage.devDependencies.playwright,
                         webgpu: rootPackage.devDependencies.webgpu,
                     },
                 },
@@ -120,7 +121,8 @@ import { resolve } from "node:path";
 const manifest = JSON.parse(readFileSync(resolve(import.meta.dir, "node_modules/@dylanebert/shallot/package.json"), "utf8"));
 
 test("the packed engine exposes no test-support namespace or capture helpers", () => {
-    expect(Object.keys(manifest.exports).some((path) => /^\\.\\/(?:harness|testing)(?:\\/|$)/.test(path))).toBe(false);
+    // ./testing is the published test policy; only the retired harness and testing/* namespaces are refused.
+    expect(Object.keys(manifest.exports).some((path) => /^\\.\\/(?:harness(?:\\/|$)|testing\\/)/.test(path))).toBe(false);
     expect(existsSync(resolve(import.meta.dir, "node_modules/@dylanebert/shallot/src/harness"))).toBe(false);
     expect("captureArtifact" in Rendering).toBe(false);
     expect("captureIdentityLabel" in Rendering).toBe(false);
@@ -256,7 +258,7 @@ function installExample(name: "first-person" | "loading-screen"): void {
     expect(examplePackage.devDependencies.typegpu).toBeUndefined();
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
     expect(readFileSync(join(example, "tests/preload.ts"), "utf8")).toBe(
-        'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: import.meta.dir }));\n',
+        'import { setDefaultTimeout } from "bun:test";\nimport { shallot } from "@dylanebert/shallot/bun";\nimport { CEILING } from "@dylanebert/shallot/testing";\nimport { plugin } from "bun";\n\nsetDefaultTimeout(CEILING.cheap);\nplugin(shallot({ root: import.meta.dir }));\n',
     );
     expect(readFileSync(join(example, "bunfig.toml"), "utf8")).toBe(
         '[test]\npreload = ["./tests/preload.ts"]\n',
@@ -303,7 +305,10 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
         readdirSync(join(example, "dist/assets")).some((file) => file.startsWith("Inter-Regular")),
     ).toBe(false);
     const testOutput = run(["bun", "test"], example, `bun test ${name}`);
-    expect(testOutput).toContain("1 pass");
+    expect(testOutput).toContain(
+        "(pass) the Bun preload transforms engine TGSL and keeps it callable on the CPU",
+    );
+    expect(testOutput).toContain(" 0 fail");
 
     const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
         cwd: example,

@@ -173,7 +173,6 @@ const required = [
     "examples/first-person/playwright.config.ts",
     "examples/first-person/browser.e2e.ts",
     "examples/first-person/tests/ascent.node.ts",
-    "examples/first-person/tests/preload.ts",
     "examples/first-person/tests/browser-setup.ts",
     "examples/first-person/tests/browser-setup.test.ts",
     "examples/first-person/tests/browser-install.ts",
