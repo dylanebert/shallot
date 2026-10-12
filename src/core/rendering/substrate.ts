@@ -230,14 +230,17 @@ function slotInputsChanged(
     _renderFrame.viewKeyNext[26] = ambientColor;
     _renderFrame.viewKeyNext[27] = ambientBrightness;
     const at = slot * VIEW_KEY_FLOATS;
-    let changed = false;
+    let changed = _renderFrame.slotViews[slot] !== view;
     for (let i = 0; i < VIEW_KEY_FLOATS; i++) {
         if (_renderFrame.viewKeys[at + i] !== _renderFrame.viewKeyNext[i]) {
             changed = true;
             break;
         }
     }
-    if (changed) _renderFrame.viewKeys.set(_renderFrame.viewKeyNext, at);
+    if (changed) {
+        _renderFrame.viewKeys.set(_renderFrame.viewKeyNext, at);
+        _renderFrame.slotViews[slot] = view;
+    }
     return changed;
 }
 
@@ -365,6 +368,7 @@ export const BeginFrameSystem: System = {
             );
         }
         const count = shadeCount + depthCount;
+        _renderFrame.slotViews.length = count;
         _render.viewCount = count;
         // per-slot writer: only shading slots ([0, shadeCount)) ever bind a real ViewUniforms buffer — the
         // point/cascade atlas passes bind slot 0's buffer as an unread placeholder — so a depth-only slot

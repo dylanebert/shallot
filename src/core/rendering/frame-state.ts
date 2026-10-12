@@ -13,6 +13,8 @@ export const renderFrameKey = {
         presentingViews: [] as import("./view").View[],
         viewProjs: [] as Float32Array[],
         invViewProjs: [] as Float32Array[],
+        // the View each slot was last packed for: a new View starts with an unfilled viewFromWorld
+        slotViews: [] as (import("./view").View | undefined)[],
         viewKeys: new Float64Array(INITIAL_VIEW_CAPACITY * VIEW_KEY_FLOATS).fill(Number.NaN),
         viewKeyNext: new Float64Array(VIEW_KEY_FLOATS),
     }),
