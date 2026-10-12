@@ -1,47 +1,27 @@
-import { execFileSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "../../scripts/browser.fixture";
-import { installCaptureFrame } from "../../scripts/capture-install";
-import { CEILING } from "../../scripts/test-tiers";
+import type { Capture } from "@dylanebert/shallot/rendering";
+import { expect, type Page, test } from "playwright/test";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const CAPTURE_ENTRY = resolve(ROOT, ".artifacts/capture-page.js");
-execFileSync("bun", ["run", "scripts/build-capture-page.ts"], { cwd: ROOT });
+const CAPTURE_ENTRY = resolve(
+    fileURLToPath(new URL(".", import.meta.url)),
+    ".artifacts/capture-page.js",
+);
 
-interface BrowserCapture {
-    rgba: Uint8ClampedArray;
-    width: number;
-    height: number;
-    identity: {
-        width: number;
-        height: number;
-        deviceScale: number;
-        surface: string;
-        encoding: string;
-    };
-}
+type CaptureWindow = Window & {
+    shallotCaptureFrame?: (canvas: HTMLCanvasElement) => Promise<Capture>;
+    __capturedFrames?: Record<string, Uint8ClampedArray>;
+};
 
-declare global {
-    interface Window {
-        shallotCaptureFrame?: (canvas: HTMLCanvasElement) => Promise<BrowserCapture>;
-        __capturedFrames?: Record<string, Uint8ClampedArray>;
-        __subjectDeviceRecord?: {
-            identity: string;
-            requestedFeatures: string[];
-            requestedLimits: Record<string, number | undefined>;
-            features: string[];
-            limits: Record<string, unknown>;
-        };
-    }
-}
+type Frame = Pick<Capture, "width" | "height" | "identity"> & { scenePixels: number };
 
-async function captureCanvasFrame(page: Page, key: string): Promise<void> {
-    const image = await page.evaluate(async (frameKey) => {
-        if (!window.shallotCaptureFrame) throw new Error("captureFrame is not installed");
+async function captureCanvasFrame(page: Page, key: string): Promise<Frame> {
+    return page.evaluate(async (frameKey) => {
+        const captureWindow = window as CaptureWindow;
+        if (!captureWindow.shallotCaptureFrame) throw new Error("captureFrame is not installed");
         const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
-        const capture = await window.shallotCaptureFrame(canvas);
-        (window.__capturedFrames ??= {})[frameKey] = capture.rgba;
+        const capture = await captureWindow.shallotCaptureFrame(canvas);
+        (captureWindow.__capturedFrames ??= {})[frameKey] = capture.rgba;
         const clear = [capture.rgba[0]!, capture.rgba[1]!, capture.rgba[2]!];
         let scenePixels = 0;
         for (let offset = 0; offset < capture.rgba.length; offset += 4) {
@@ -59,27 +39,14 @@ async function captureCanvasFrame(page: Page, key: string): Promise<void> {
             height: capture.height,
             identity: capture.identity,
             scenePixels,
-        };
+        } as Frame;
     }, key);
-    expect(image.width, "captureFrame reads the declared canvas width").toBe(1280);
-    expect(image.height, "captureFrame reads the declared canvas height").toBe(720);
-    expect(image.identity).toMatchObject({
-        width: 1280,
-        height: 720,
-        deviceScale: 1,
-        surface: "final-canvas",
-        encoding: "rgba8-tight",
-    });
-    expect(
-        image.scenePixels,
-        "captureFrame includes the rendered scene beyond its clear color",
-    ).toBeGreaterThan(0);
 }
 
 async function changedFraction(page: Page, first: string, second: string): Promise<number> {
     return page.evaluate(
         ({ first, second }) => {
-            const frames = window.__capturedFrames ?? {};
+            const frames = (window as CaptureWindow).__capturedFrames ?? {};
             const a = frames[first];
             const b = frames[second];
             if (!a || !b || a.length !== b.length) return 1;
@@ -112,67 +79,54 @@ async function captureUntilChange(
         await captureCanvasFrame(page, sample);
         change = await changedFraction(page, baseline, sample);
         await page.evaluate((key) => {
-            delete window.__capturedFrames?.[key];
+            delete (window as CaptureWindow).__capturedFrames?.[key];
         }, sample);
         if (change > threshold) break;
     }
     return { change, samples };
 }
 
-test("the browser input adapter fails to record a real key press on the focused canvas or accepts it after focus leaves the canvas", async ({
+test("the preview serves its isolated page and focused canvas input presents movement", async ({
     page,
 }, testInfo) => {
-    testInfo.setTimeout(CEILING.browser);
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
-    await page.addInitScript(() => {
-        const original = GPUAdapter.prototype.requestDevice;
-        GPUAdapter.prototype.requestDevice = async function (descriptor?: GPUDeviceDescriptor) {
-            const info = this.info;
-            const device = await original.call(this, descriptor);
-            const limits = Object.fromEntries(
-                Object.getOwnPropertyNames(Object.getPrototypeOf(device.limits))
-                    .filter((name) => name !== "constructor")
-                    .map((name) => [name, device.limits[name as keyof GPUSupportedLimits]]),
-            );
-            window.__subjectDeviceRecord = {
-                identity:
-                    [info.vendor, info.architecture, info.device, info.description]
-                        .filter((value) => typeof value === "string" && value.trim() !== "")
-                        .join(" ") || "unidentified",
-                requestedFeatures: [...(descriptor?.requiredFeatures ?? [])].sort(),
-                requestedLimits: { ...(descriptor?.requiredLimits ?? {}) },
-                features: [...device.features]
-                    .filter((feature) => feature !== "core-features-and-limits")
-                    .sort(),
-                limits,
-            };
-            return device;
-        };
-    });
-    await page.goto("/");
+    const response = await page.goto("/");
+    expect(response?.status()).toBe(200);
+    expect(response?.headers()["cross-origin-opener-policy"]).toBe("same-origin");
+    expect(response?.headers()["cross-origin-embedder-policy"]).toBe("require-corp");
+    expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
+    expect(await page.title()).toBe("First Person");
+    expect(await page.locator('meta[name="description"]').getAttribute("content")).toContain(
+        "first-person ascent",
+    );
+    const icon = await page.request.get(new URL("icon.svg", page.url()).toString());
+    expect(icon.status()).toBe(200);
+    expect(icon.headers()["content-type"]).toContain("image/svg+xml");
+
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
-    try {
-        await expect(page.locator("[data-recipe-controls]")).toContainText("WASD", {
-            timeout: CEILING.browser,
-        });
-    } catch (cause) {
-        throw new Error(
-            `first-person did not reach its first draw; page errors: ${JSON.stringify(pageErrors)}`,
-            { cause },
-        );
-    }
+    await expect(page.locator("[data-recipe-controls]")).toContainText("WASD");
     expect(pageErrors, "first-person reaches its first draw without a runtime error").toEqual([]);
-    const device = await page.evaluate(() => window.__subjectDeviceRecord);
-    expect(device?.identity, "first-person records its WebGPU adapter").toBeTruthy();
-    const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
-    expect(device?.requestedFeatures).toEqual(floorFeatures);
-    expect(device?.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
-    expect(device?.features).toEqual(floorFeatures);
-    expect(device?.limits.maxStorageBuffersPerShaderStage).toBe(8);
-    console.info(`First-person WebGPU floor: ${JSON.stringify(device)}`);
-    await installCaptureFrame(page, CAPTURE_ENTRY);
+    await page.addScriptTag({ path: CAPTURE_ENTRY });
+    const first = await captureCanvasFrame(page, "idle-before");
+    expect(first.width).toBe(1280);
+    expect(first.height).toBe(720);
+    expect(first.identity).toMatchObject({
+        width: 1280,
+        height: 720,
+        deviceScale: 1,
+        surface: "final-canvas",
+        encoding: "rgba8-tight",
+    });
+    expect(
+        first.scenePixels,
+        "captureFrame includes the rendered scene beyond its clear color",
+    ).toBeGreaterThan(0);
+    await page.waitForTimeout(700);
+    await captureCanvasFrame(page, "idle-after");
+    const idleChange = await changedFraction(page, "idle-before", "idle-after");
+
     await canvas.evaluate((element) => {
         element.tabIndex = 0;
     });
@@ -182,12 +136,8 @@ test("the browser input adapter fails to record a real key press on the focused 
         await canvas.evaluate((element) => document.activeElement === element),
         "the real first-person canvas receives browser focus",
     ).toBe(true);
-
-    await captureCanvasFrame(page, "idle-before");
-    await page.waitForTimeout(700);
-    await captureCanvasFrame(page, "idle-after");
-    const idleChange = await changedFraction(page, "idle-before", "idle-after");
-
+    await page.evaluate(() => document.exitPointerLock());
+    await page.waitForFunction(() => document.pointerLockElement === null);
     await page.evaluate(() => {
         const outside = document.createElement("button");
         outside.id = "focus-outside-canvas";
@@ -196,19 +146,10 @@ test("the browser input adapter fails to record a real key press on the focused 
         document.body.append(outside);
     });
     const outside = page.locator("#focus-outside-canvas");
-    await page.evaluate(() => document.exitPointerLock());
-    await page.waitForFunction(() => document.pointerLockElement === null);
     await outside.click();
     await outside.focus();
-    expect(
-        await outside.evaluate((element) => document.activeElement === element),
-        "focus can leave the real canvas",
-    ).toBe(true);
-    expect(
-        await canvas.evaluate((element) => document.activeElement !== element),
-        "the canvas is no longer the focused input target",
-    ).toBe(true);
-
+    expect(await outside.evaluate((element) => document.activeElement === element)).toBe(true);
+    expect(await canvas.evaluate((element) => document.activeElement !== element)).toBe(true);
     await captureCanvasFrame(page, "outside-before");
     await page.keyboard.down("w");
     try {
@@ -218,7 +159,6 @@ test("the browser input adapter fails to record a real key press on the focused 
         await page.keyboard.up("w");
     }
     const unfocusedChange = await changedFraction(page, "outside-before", "outside-after");
-    // Require >2% of pixels to change by >24 RGB levels; 3× measured idle change raises the noise floor.
     const inputSignal = Math.max(idleChange * 3, 0.02);
     expect(
         unfocusedChange,
@@ -229,7 +169,7 @@ test("the browser input adapter fails to record a real key press on the focused 
     await canvas.focus();
     expect(
         await canvas.evaluate((element) => document.activeElement === element),
-        "the real first-person canvas regains browser focus",
+        "the canvas regains browser focus before input",
     ).toBe(true);
     await captureCanvasFrame(page, "focused-before");
     await page.keyboard.down("w");

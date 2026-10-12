@@ -2,14 +2,11 @@ import { expect, test } from "bun:test";
 import {
     AmbientLight,
     Camera,
-    CharacterPlugin,
     createApp,
     Materials,
     MeshInstance,
     MeshMaterial,
-    PlayerPlugin,
     StandardMaterial,
-    StandardPhysicsPlugin,
     StandardRenderer,
     Time,
     Transform,
@@ -17,7 +14,7 @@ import {
 } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { Demo } from "./demo";
+import { APP_PLUGINS } from "./plugins";
 
 await bounded("frame probe WebGPU setup", setupGlobals());
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
@@ -139,10 +136,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
         for (const name of ["first-person", "stress-10k"] as const) {
             const app = await createApp({
                 device,
-                plugins:
-                    name === "first-person"
-                        ? [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo]
-                        : [],
+                plugins: name === "first-person" ? APP_PLUGINS : [],
                 setup: name === "stress-10k" ? stress : undefined,
             });
             try {

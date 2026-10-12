@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "../../../scripts/test-tiers";
+import { CEILING } from "../tests/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
@@ -44,7 +44,7 @@ test("Git ignores first-person build outputs while reporting source and lockfile
     try {
         const ignore = readFileSync(resolve(import.meta.dir, "../.gitignore"), "utf8");
         writeFileSync(join(root, ".gitignore"), ignore);
-        for (const dir of ["src", "dist", "build", ".artifacts"])
+        for (const dir of ["src", "dist", "build", ".artifacts", "test-results"])
             mkdirSync(join(root, dir), { recursive: true });
         for (const file of [
             "src/demo.ts",
@@ -52,6 +52,7 @@ test("Git ignores first-person build outputs while reporting source and lockfile
             "dist/index.js",
             "build/app.js",
             ".artifacts/run",
+            "test-results/results.json",
         ])
             writeFileSync(join(root, file), "fixture\n");
         git("init", "-q", `--template=${template}`);
@@ -62,6 +63,7 @@ test("Git ignores first-person build outputs while reporting source and lockfile
             "dist/index.js",
             "build/app.js",
             ".artifacts/run",
+            "test-results/results.json",
         );
         const status = git("status", "--short", "--untracked-files=all");
         expect(ignored).toContain("build/app.js");
@@ -75,6 +77,7 @@ test("Git ignores first-person build outputs while reporting source and lockfile
         expect(status).not.toContain("dist/");
         expect(status).not.toContain("build/");
         expect(status).not.toContain(".artifacts/");
+        expect(status).not.toContain("test-results/");
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }

@@ -6,7 +6,7 @@ import {
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
 
-import { Demo } from "./demo";
+import { Demo } from "../../examples/first-person/src/demo";
 
 // A compile-time constant equal to Time.FIXED_DT: that one is an object property, so passing it
 // across the arrow boxes a double every frame, which is the harness's cost, not the scene's.

@@ -15,11 +15,10 @@
     <body>
         <canvas id="canvas"></canvas>
         <script type="module">
-            import { PhysicsPlugin, CharacterPlugin, PlayerPlugin, runApp } from "@dylanebert/shallot";
-            import { Demo } from "./src/demo";
-            await runApp({
-                plugins: [PhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo],
-            });
+            import { runApp } from "@dylanebert/shallot";
+            import { APP_PLUGINS } from "./src/plugins";
+
+            await runApp({ plugins: APP_PLUGINS });
         </script>
     </body>
 </html>
