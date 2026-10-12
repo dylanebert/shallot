@@ -25,7 +25,7 @@ export function originalPosition(frame, map, base) {
     const entry = map?.findEntry(frame.lineNumber, frame.columnNumber);
     if (entry === undefined || !("originalSource" in entry)) return undefined;
     const source = entry.originalSource.startsWith("file://")
-        ? new URL(entry.originalSource).pathname
+        ? fileURLToPath(entry.originalSource)
         : resolve(base, entry.originalSource);
     return { source, line: entry.originalLine, column: entry.originalColumn };
 }

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { resolve, sep } from "node:path";
-import { attribute, prepareSamplingSession } from "./allocation-sampler.mjs";
+import { dirname, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { attribute, originalPosition, prepareSamplingSession, subjectSite } from "./allocation-sampler.mjs";
 import {
     type AllocationSample,
     allocatesNothing,
@@ -35,6 +36,28 @@ test("the sampler keeps lazy feedback and Chromium's existing timing flags", () 
         "--invocation-count-for-turbofan=10",
         "--no-wasm-inlining",
     ]);
+});
+
+test("source-map sites resolve Windows-shaped file URLs as filesystem paths", () => {
+    const url = "file:///D:/a%20b/shallot/src/engine/runtime/allocation-site.ts";
+    const root = fileURLToPath("file:///D:/a%20b/shallot");
+    const map = {
+        findEntry: () => ({
+            originalSource: url,
+            originalLine: 8,
+            originalColumn: 34,
+        }),
+    };
+    const frame = { lineNumber: 0, columnNumber: 0 };
+
+    expect(originalPosition(frame, map, dirname(root))).toEqual({
+        source: fileURLToPath(url),
+        line: 8,
+        column: 34,
+    });
+    expect(subjectSite(frame, map, dirname(root), "bundle", root)).toBe(
+        "(anonymous) src/engine/runtime/allocation-site.ts:9:35",
+    );
 });
 
 const ENTRY = resolve(import.meta.dir, "allocation.entry.ts");
