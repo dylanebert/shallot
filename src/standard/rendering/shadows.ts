@@ -394,6 +394,9 @@ interface ShadowRuntime {
     faceVP: Float32Array;
     comboMeta: Uint32Array;
     tileRects: Float32Array;
+    packer: Packer | undefined;
+    packSizes: Int32Array;
+    packRects: Float64Array;
     lastCasters: Set<number>;
     pendingCasters: Set<number>;
     casterSelectionPending: boolean;
@@ -425,6 +428,9 @@ const createShadowRuntime = (): ShadowRuntime => {
         faceVP: new Float32Array(0),
         comboMeta: new Uint32Array(0),
         tileRects: new Float32Array(0),
+        packer: undefined,
+        packSizes: new Int32Array(MAX_POINT_CASTERS),
+        packRects: new Float64Array(MAX_POINT_CASTERS * 6 * 4),
         lastCasters: new Set(),
         pendingCasters: new Set(),
         casterSelectionPending: false,
@@ -863,67 +869,62 @@ export function pointFov(tilePx: number): number {
     return (Math.atan(pointTanHalf(tilePx)) * 360) / Math.PI;
 }
 
-/**
- * a buddy quadtree packer over a square atlas of side `side` pixels (a power of two). `alloc(size)` returns
- * the pixel origin `[x, y]` of a free `size × size` tile (`size` a power of two ≤ `side`), or `null` when
- * the atlas can't fit it; `reset()` reclaims the whole atlas: the per-frame reuse path, so a dropped
- * caster's space is free again next frame. Power-of-two square tiles pack with no fragmentation when
- * allocated largest-first. Pure; the allocator the importance sizing builds on (exported for the pack tests).
- */
-export function createPacker(side: number): {
-    reset: () => void;
-    alloc: (size: number) => [number, number] | null;
-} {
-    // free tile origins per size, encoded `y*side + x`; a node splits into four children on demand
-    const free = new Map<number, number[]>();
-    const reset = (): void => {
-        free.clear();
-        free.set(side, [0]);
-    };
-    const alloc = (size: number): [number, number] | null => {
-        let code: number;
-        const list = free.get(size);
-        if (list && list.length > 0) {
-            code = list.pop()!;
-        } else {
-            if (size >= side) return null;
-            const parent = alloc(size * 2);
-            if (!parent) return null;
-            const [px, py] = parent;
-            const kids = free.get(size) ?? [];
-            // keep the parent's own corner; free the other three quadrants for later (same-size) allocs
-            kids.push(
-                py * side + px + size,
-                (py + size) * side + px,
-                (py + size) * side + px + size,
-            );
-            free.set(size, kids);
-            code = py * side + px;
-        }
-        const x = code % side;
-        return [x, (code - x) / side];
-    };
-    reset();
-    return { reset, alloc };
+/** a buddy quadtree packer over a square atlas; {@link createPacker} builds it */
+export interface Packer {
+    /** the atlas side in pixels */
+    readonly side: number;
+    /** reclaim the whole atlas: the per-frame reuse path, so a dropped caster's space is free again next frame */
+    reset(): void;
+    /** the origin code `y·side + x` of a free `size × size` tile, or -1 when the atlas can't fit it */
+    alloc(size: number): number;
 }
 
-type Vec3 = [number, number, number];
-const cross = (a: Vec3, b: Vec3): Vec3 => [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-];
-const norm = (v: Vec3): Vec3 => {
-    const l = Math.hypot(v[0], v[1], v[2]) || 1;
-    return [v[0] / l, v[1] / l, v[2] / l];
-};
+/**
+ * a buddy quadtree packer over a square atlas of side `side` pixels (a power of two), for tiles from `min` to
+ * `side` pixels (powers of two). Power-of-two square tiles pack with no fragmentation when allocated
+ * largest-first. Each size's free list is preallocated to every tile of that size, so `alloc` and `reset`
+ * allocate nothing. Pure; the allocator the importance sizing builds on.
+ */
+export function createPacker(side: number, min: number): Packer {
+    const levels = 32 - Math.clz32(side / min);
+    // free tile origins per size level (level 0 is the whole atlas), a stack each; a tile splits into four
+    // children on demand
+    const free: Int32Array[] = [];
+    for (let level = 0; level < levels; level++) free.push(new Int32Array(4 ** level));
+    const top = new Int32Array(levels);
+    const reset = (): void => {
+        top.fill(0);
+        free[0][0] = 0;
+        top[0] = 1;
+    };
+    const alloc = (size: number): number => {
+        const level = Math.clz32(size) - Math.clz32(side);
+        if (level < 0 || level >= levels) return -1;
+        if (top[level] > 0) return free[level][--top[level]];
+        if (level === 0) return -1;
+        const parent = alloc(size * 2);
+        if (parent < 0) return -1;
+        const px = parent % side;
+        const py = (parent - px) / side;
+        // keep the parent's own corner; free the other three quadrants for later (same-size) allocs
+        const list = free[level];
+        const t = top[level];
+        list[t] = py * side + px + size;
+        list[t + 1] = (py + size) * side + px;
+        list[t + 2] = (py + size) * side + px + size;
+        top[level] = t + 3;
+        return parent;
+    };
+    reset();
+    return { side, reset, alloc };
+}
 
 /** a spot caster's cone basis for the atlas render + the FS reconstruct, from the light's Transform
- * rotation. `fwd` = the cone axis (the entity's local -Z, the same forward the compact pass oct-packs);
- * `right`/`up` = the `lookAt` basis (`right = normalize(fwd × up0)`, `up = right × fwd`) so the FS's
- * analytic receiver matches the rendered viewProj exactly. `coneTanHalf` is `tan(outer)` widened by the PCF
- * margin of the caster's allocated tile (`tilePx` pixels, the spot analogue of {@link pointTanHalf}); the
- * perspective FOV derives from it. Pure; the oracle the spot's WGSL receiver reconstruct is pinned to. */
+ * rotation, written into `out`. `fwd` = the cone axis (the entity's local -Z, the same forward the compact
+ * pass oct-packs); `right`/`up` = the `lookAt` basis (`right = normalize(fwd × up0)`, `up = right × fwd`) so
+ * the FS's analytic receiver matches the rendered viewProj exactly. `coneTanHalf` is `tan(outer)` widened by
+ * the PCF margin of the caster's allocated tile (`tilePx` pixels, the spot analogue of {@link pointTanHalf});
+ * the perspective FOV `coneFov` derives from it. The oracle the spot's WGSL receiver reconstruct is pinned to. */
 export function spotBasis(
     qx: number,
     qy: number,
@@ -931,22 +932,41 @@ export function spotBasis(
     qw: number,
     outerDeg: number,
     tilePx: number,
-) {
-    const fwd = norm([
-        -2 * (qx * qz + qw * qy),
-        -2 * (qy * qz - qw * qx),
-        -(1 - 2 * (qx * qx + qy * qy)),
-    ]);
+    out: Pick<PointShadowFrame, "fwd" | "right" | "up" | "coneTanHalf" | "coneFov">,
+): void {
+    const ax = -2 * (qx * qz + qw * qy);
+    const ay = -2 * (qy * qz - qw * qx);
+    const az = -(1 - 2 * (qx * qx + qy * qy));
+    const al = Math.sqrt(ax * ax + ay * ay + az * az) || 1;
+    const fx = ax / al;
+    const fy = ay / al;
+    const fz = az / al;
     // up0 dodges the cone-axis-parallel degenerate; the orthonormalized `up` carries it past here
-    const up0: Vec3 = Math.abs(fwd[1]) > 0.99 ? [0, 0, 1] : [0, 1, 0];
-    const right = norm(cross(fwd, up0));
-    const up = cross(right, fwd);
+    const parallel = Math.abs(fy) > 0.99;
+    const ux = 0;
+    const uy = parallel ? 0 : 1;
+    const uz = parallel ? 1 : 0;
+    const cx = fy * uz - fz * uy;
+    const cy = fz * ux - fx * uz;
+    const cz = fx * uy - fy * ux;
+    const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+    const rx = cx / cl;
+    const ry = cy / cl;
+    const rz = cz / cl;
+    out.fwd[0] = fx;
+    out.fwd[1] = fy;
+    out.fwd[2] = fz;
+    out.right[0] = rx;
+    out.right[1] = ry;
+    out.right[2] = rz;
+    out.up[0] = ry * fz - rz * fy;
+    out.up[1] = rz * fx - rx * fz;
+    out.up[2] = rx * fy - ry * fx;
     // clamp the outer half-angle so the perspective frustum stays under 180° (tan finite); widen by the
     // PCF seam margin like pointTanHalf, so a cone-edge fragment's 3×3 footprint stays inside its tile
     const clamped = Math.min(Math.max(outerDeg, 1), 80);
-    const coneTanHalf = Math.tan((clamped * Math.PI) / 180) + (2 * EDGE_TEXELS) / tilePx;
-    const coneFov = (Math.atan(coneTanHalf) * 360) / Math.PI;
-    return { fwd, right, up, coneTanHalf, coneFov };
+    out.coneTanHalf = Math.tan((clamped * Math.PI) / 180) + (2 * EDGE_TEXELS) / tilePx;
+    out.coneFov = (Math.atan(out.coneTanHalf) * 360) / Math.PI;
 }
 
 /** one cube face's render basis. `right` is derived (fwd × up, the camera basis `lookAtRotation` produces), so the
@@ -1068,6 +1088,8 @@ const _faceProj = new Float32Array(16);
 const _pv = new Float32Array(16);
 // scratch for the per-combo tile-placement matrix, reused across combos (no per-frame matrix alloc)
 const _tileMat = new Float32Array(16);
+// the tile-folded combo viewProj before it is copied into the dense faceVP upload
+const _tileVP = new Float32Array(16);
 
 /** the per-combo **tile** viewProjs the renderer uploads each shadowed frame, dense (one per active
  * combo, the first active-combo-count entries valid). Each carries its atlas tile placement folded in
@@ -1125,38 +1147,120 @@ function syncComboPool(world: World, shadows: ShadowRuntime, n: number): void {
     }
 }
 
-// pose a pooled combo camera so render's `computeViewProj` reproduces this combo's face/cone projection —
-// the frustum the pack culls against. `lookAtRotation` returns the lookAt orientation as a quaternion (the sun
-// camera's path), so `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's
-// `_faceVP` folds the tile placement onto — the cull frustum and the render projection agree (to f32).
-function poseCombo(
-    world: World,
-    eid: number,
-    px: number,
-    py: number,
-    pz: number,
-    fwd: readonly [number, number, number],
-    up: readonly [number, number, number],
-    fov: number,
-    near: number,
-    far: number,
+// a combo's look basis and vertical FOV: a spot's cone, else the point caster's cube face `face`. A spot's
+// `up` is orthonormal to its `fwd`, so it serves as the lookAt up directly (same basis as up0)
+const comboFwd = (frame: PointShadowFrame, face: number) =>
+    frame.spot ? frame.fwd : POINT_FACES[face].fwd;
+const comboUp = (frame: PointShadowFrame, face: number) =>
+    frame.spot ? frame.up : POINT_FACES[face].up;
+const comboFov = (frame: PointShadowFrame) => (frame.spot ? frame.coneFov : pointFov(frame.tilePx));
+
+// write a combo's infinite perspective into `_faceProj`. Its own call so V8 inlines `perspective` here: called
+// from writeComboViewProj beside lookAt, it was not inlined and boxed its float arguments every combo
+function comboProjection(frame: PointShadowFrame): void {
+    perspective(comboFov(frame), 1, frame.near, _faceProj);
+}
+
+// write combo `ci`'s tile viewProj into `faceVP`: `tileTransform(rect at `at`) × perspective × lookAt`. The
+// tile placement is folded in, so the VS emits `tileVP·world` with no manual divide and the hardware clips a
+// triangle behind the face near plane. Takes no float arguments, so a call boxes no number.
+function writeComboViewProj(
+    faceVP: Float32Array,
+    ci: number,
+    frame: PointShadowFrame,
+    face: number,
+    rects: Float64Array,
+    at: number,
 ): void {
-    const q = lookAtRotation(
-        px,
-        py,
-        pz,
-        px + fwd[0],
-        py + fwd[1],
-        pz + fwd[2],
-        up[0],
-        up[1],
-        up[2],
-    );
-    world.storage(Transform).translation.set(eid, px, py, pz, 1);
-    world.storage(Transform).rotation.set(eid, q.x, q.y, q.z, q.w);
-    world.storage(Camera).fov.set(eid, fov);
-    world.storage(Camera).near.set(eid, near);
-    world.storage(Camera).far.set(eid, far);
+    const fwd = comboFwd(frame, face);
+    const up = comboUp(frame, face);
+    const px = frame.pos[0];
+    const py = frame.pos[1];
+    const pz = frame.pos[2];
+    comboProjection(frame);
+    lookAt(px, py, pz, px + fwd[0], py + fwd[1], pz + fwd[2], up[0], up[1], up[2], _faceView);
+    multiplyMat4(_faceProj, _faceView, _pv);
+    multiplyMat4(tileTransform(rects, _tileMat, at), _pv, _tileVP);
+    faceVP.set(_tileVP, ci * 16);
+}
+
+// each cube face's camera rotation (x, y, z, w). A lookAt orientation depends only on its direction and up,
+// not the eye, so the six are constants
+const POINT_FACE_ROTATIONS = new Float64Array(6 * 4);
+for (let face = 0; face < 6; face++) {
+    const { fwd, up } = POINT_FACES[face];
+    const q = lookAtRotation(0, 0, 0, fwd[0], fwd[1], fwd[2], up[0], up[1], up[2]);
+    POINT_FACE_ROTATIONS.set([q.x, q.y, q.z, q.w], face * 4);
+}
+
+// write a spot combo camera's rotation from its frame's orthonormal cone basis: the camera's x, y and z axes
+// are `right`, `up` and `-fwd`, the basis `lookAtRotation` builds, converted to a quaternion as it does
+function poseSpotRotation(world: World, eid: number, frame: PointShadowFrame): void {
+    const xx = frame.right[0];
+    const xy = frame.right[1];
+    const xz = frame.right[2];
+    const yx = frame.up[0];
+    const yy = frame.up[1];
+    const yz = frame.up[2];
+    const zx = -frame.fwd[0];
+    const zy = -frame.fwd[1];
+    const zz = -frame.fwd[2];
+    const trace = xx + yy + zz;
+    let qw: number;
+    let qx: number;
+    let qy: number;
+    let qz: number;
+    if (trace > 0) {
+        const s = 0.5 / Math.sqrt(trace + 1);
+        qw = 0.25 / s;
+        qx = (yz - zy) * s;
+        qy = (zx - xz) * s;
+        qz = (xy - yx) * s;
+    } else if (xx > yy && xx > zz) {
+        const s = 2 * Math.sqrt(1 + xx - yy - zz);
+        qw = (yz - zy) / s;
+        qx = 0.25 * s;
+        qy = (yx + xy) / s;
+        qz = (zx + xz) / s;
+    } else if (yy > zz) {
+        const s = 2 * Math.sqrt(1 + yy - xx - zz);
+        qw = (zx - xz) / s;
+        qx = (yx + xy) / s;
+        qy = 0.25 * s;
+        qz = (yz + zy) / s;
+    } else {
+        const s = 2 * Math.sqrt(1 + zz - xx - yy);
+        qw = (xy - yx) / s;
+        qx = (zx + xz) / s;
+        qy = (yz + zy) / s;
+        qz = 0.25 * s;
+    }
+    world.storage(Transform).rotation.set(eid, qx, qy, qz, qw);
+}
+
+// pose a pooled combo camera so render's `computeViewProj` reproduces this combo's face/cone projection —
+// the frustum the pack culls against. The rotation is the lookAt orientation of the combo's basis, so
+// `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's `_faceVP` folds
+// the tile placement onto — the cull frustum and the render projection agree (to f32). Takes no float
+// arguments, so a call boxes no number.
+function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: number): void {
+    world.storage(Transform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2], 1);
+    if (frame.spot) poseSpotRotation(world, eid, frame);
+    else {
+        const r = face * 4;
+        world
+            .storage(Transform)
+            .rotation.set(
+                eid,
+                POINT_FACE_ROTATIONS[r],
+                POINT_FACE_ROTATIONS[r + 1],
+                POINT_FACE_ROTATIONS[r + 2],
+                POINT_FACE_ROTATIONS[r + 3],
+            );
+    }
+    world.storage(Camera).fov.set(eid, comboFov(frame));
+    world.storage(Camera).near.set(eid, frame.near);
+    world.storage(Camera).far.set(eid, frame.far);
 }
 
 /** destroy the pooled combo cameras + their views (at plugin dispose) */
@@ -1188,50 +1292,57 @@ export function commitPointCastersOnSubmit(world: World): void {
     if (shadow.casterSelectionPending) world.onFrameSubmit(shadow.commitCasters);
 }
 
-// rect = atlas-UV [u0, v0, du, dv] (square, du == dv)
-type Rect = [number, number, number, number];
-
 /** size + place the first `count` casters' face tiles by importance: tile **area ∝ score** (side ∝ √score),
  * the most important the largest tile that still lets the whole set pack into the square atlas. A point
- * requests 6 same-size face tiles, a spot 1. Returns the per-(caster, face) atlas-UV rects (indexed
- * `[frame][face]`), or `null` when even the smallest uniform tiling (every face MIN_TILE) overflows: the
- * caller drops the least-important caster and retries. Pure (reads only its args). */
+ * requests 6 same-size face tiles, a spot 1. Writes each (caster, face) atlas-UV rect `[u0, v0, du, dv]`
+ * (square) into `rects` at `(frame·6 + face)·4` and returns true, or returns false when even the smallest
+ * uniform tiling (every face MIN_TILE) overflows: the caller drops the least-important caster and retries.
+ * `packer` covers a `side` atlas; `sizes` holds a tile size per caster. Reads only its args, writes only
+ * `packer`, `sizes` and `rects`. */
 export function packCasters(
     frames: PointShadowFrame[],
     count: number,
     side: number,
-): Rect[][] | null {
+    packer: Packer,
+    sizes: Int32Array,
+    rects: Float64Array,
+): boolean {
     let maxScore = 1e-9;
     for (let i = 0; i < count; i++) maxScore = Math.max(maxScore, frames[i].score);
     // halve the hero's "base" tile until the whole set packs; area ∝ score so side drops one power of two
-    // per 4× score drop (0.5·log2). MIN_TILE is the floor; an over-budget set fails every base and returns null
+    // per 4× score drop (0.5·log2). MIN_TILE is the floor; an over-budget set fails every base and returns false
     for (let base = side; base >= MIN_TILE; base >>= 1) {
-        const packer = createPacker(side);
-        const reqs: { frame: number; face: number; size: number }[] = [];
+        packer.reset();
         for (let i = 0; i < count; i++) {
             const drop = Math.max(
                 0,
                 Math.round(0.5 * Math.log2(maxScore / Math.max(frames[i].score, 1e-9))),
             );
-            const size = Math.max(MIN_TILE, base / 2 ** Math.min(drop, 20));
-            const faces = frames[i].spot ? 1 : 6;
-            for (let face = 0; face < faces; face++) reqs.push({ frame: i, face, size });
+            sizes[i] = Math.max(MIN_TILE, base / 2 ** Math.min(drop, 20));
         }
-        reqs.sort((a, b) => b.size - a.size); // largest first — buddy packs with no fragmentation
-        const rects: Rect[][] = [];
-        for (let i = 0; i < count; i++) rects.push([]);
+        // largest first, then caster and face order — buddy packs with no fragmentation
         let ok = true;
-        for (const r of reqs) {
-            const o = packer.alloc(r.size);
-            if (!o) {
-                ok = false;
-                break;
+        for (let size = base; ok && size >= MIN_TILE; size >>= 1)
+            for (let i = 0; ok && i < count; i++) {
+                if (sizes[i] !== size) continue;
+                const faces = frames[i].spot ? 1 : 6;
+                for (let face = 0; face < faces; face++) {
+                    const code = packer.alloc(size);
+                    if (code < 0) {
+                        ok = false;
+                        break;
+                    }
+                    const x = code % side;
+                    const at = (i * 6 + face) * 4;
+                    rects[at] = x / side;
+                    rects[at + 1] = (code - x) / side / side;
+                    rects[at + 2] = size / side;
+                    rects[at + 3] = size / side;
+                }
             }
-            rects[r.frame][r.face] = [o[0] / side, o[1] / side, r.size / side, r.size / side];
-        }
-        if (ok) return rects;
+        if (ok) return true;
     }
-    return null;
+    return false;
 }
 
 /**
@@ -1353,12 +1464,12 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
 
     // size + pack by importance; on atlas overflow drop the least important (the tail, frames are rank-sorted)
     // and retry, warning once per episode. No caster packs nothing
-    let rects = count > 0 ? packCasters(frames, count, atlas) : null;
+    if (shadow.packer?.side !== atlas) shadow.packer = createPacker(atlas, MIN_TILE);
+    const { packer, packSizes, packRects: rects } = shadow;
     let dropped = 0;
-    while (!rects && count > 0) {
+    while (count > 0 && !packCasters(frames, count, atlas, packer, packSizes, rects)) {
         count--;
         dropped++;
-        rects = count > 0 ? packCasters(frames, count, atlas) : null;
     }
     if (dropped > 0) {
         if (!shadow.overflowWarned) {
@@ -1410,23 +1521,17 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
     // resolve each caster's tile pixel size + (for spots) the cone basis, now that sizes are known
     for (let i = 0; i < count; i++) {
         const f = frames[i];
-        const rect = rects ? rects[f.slot][0] : undefined;
-        f.tilePx = rect ? rect[2] * atlas : MIN_TILE;
-        if (f.spot) {
-            const b = spotBasis(
+        f.tilePx = rects[f.slot * 6 * 4 + 2] * atlas;
+        if (f.spot)
+            spotBasis(
                 world.storage(GlobalTransform).rotation.x.get(f.light),
                 world.storage(GlobalTransform).rotation.y.get(f.light),
                 world.storage(GlobalTransform).rotation.z.get(f.light),
                 world.storage(GlobalTransform).rotation.w.get(f.light),
                 world.storage(SpotLight).outerAngle.get(f.light),
                 f.tilePx,
+                f,
             );
-            f.fwd = b.fwd;
-            f.right = b.right;
-            f.up = b.up;
-            f.coneTanHalf = b.coneTanHalf;
-            f.coneFov = b.coneFov;
-        }
     }
 
     // size the combo-camera pool to the active combo count, so each cube face / spot cone is its own
@@ -1445,81 +1550,19 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
     let ci = 0;
     for (let k = 0; k < count; k++) {
         const frame = frames[k];
-        const px = frame.pos[0];
-        const py = frame.pos[1];
-        const pz = frame.pos[2];
-        const faceRects = rects![frame.slot];
-        if (frame.spot) {
-            const rect = faceRects[0];
-            perspective(frame.coneFov, 1, frame.near, _faceProj);
-            // `up` is orthonormal to `fwd`, so it serves as the lookAt up directly (same basis as up0)
-            lookAt(
-                px,
-                py,
-                pz,
-                px + frame.fwd[0],
-                py + frame.fwd[1],
-                pz + frame.fwd[2],
-                frame.up[0],
-                frame.up[1],
-                frame.up[2],
-                _faceView,
-            );
-            // fold the tile placement into the viewProj, so the VS projects straight into the atlas tile
-            // with the hardware doing the divide + near-plane clip
-            multiplyMat4(_faceProj, _faceView, _pv);
-            multiplyMat4(tileTransform(rect, _tileMat), _pv, shadow.faceVP.subarray(ci * 16));
+        const faces = frame.spot ? 1 : 6;
+        for (let face = 0; face < faces; face++) {
+            const at = (frame.slot * 6 + face) * 4;
+            writeComboViewProj(shadow.faceVP, ci, frame, face, rects, at);
+            // a spot's lone combo is face 0 of its slot
             shadow.comboMeta[ci * 4] = frame.slot;
-            shadow.comboMeta[ci * 4 + 1] = 0; // a spot's lone combo is face 0 of its slot
-            shadow.tileRects.set(rect, frame.slot * 6 * 4);
-            // pose this combo's cull camera (its frustum == the pre-fold `_pv` above) so the pack culls
-            // casters into its slot independently
+            shadow.comboMeta[ci * 4 + 1] = face;
+            for (let j = 0; j < 4; j++) shadow.tileRects[at + j] = rects[at + j];
+            // pose this combo's cull camera (its frustum is the pre-fold `_pv`) so the pack culls casters
+            // into its slot independently
             const comboCam = shadow.comboEids[ci];
-            if (comboCam !== undefined)
-                poseCombo(
-                    world,
-                    comboCam,
-                    px,
-                    py,
-                    pz,
-                    frame.fwd,
-                    frame.up,
-                    frame.coneFov,
-                    frame.near,
-                    frame.far,
-                );
+            if (comboCam !== undefined) poseCombo(world, comboCam, frame, face);
             ci++;
-        } else {
-            const fov = pointFov(frame.tilePx);
-            perspective(fov, 1, frame.near, _faceProj);
-            for (let f = 0; f < 6; f++) {
-                const { fwd, up } = POINT_FACES[f];
-                const rect = faceRects[f];
-                lookAt(
-                    px,
-                    py,
-                    pz,
-                    px + fwd[0],
-                    py + fwd[1],
-                    pz + fwd[2],
-                    up[0],
-                    up[1],
-                    up[2],
-                    _faceView,
-                );
-                // fold the face's atlas tile placement into its viewProj — the VS emits `tileVP·world`
-                // with no manual divide, so the hardware clips a triangle behind the face near plane
-                multiplyMat4(_faceProj, _faceView, _pv);
-                multiplyMat4(tileTransform(rect, _tileMat), _pv, shadow.faceVP.subarray(ci * 16));
-                shadow.comboMeta[ci * 4] = frame.slot;
-                shadow.comboMeta[ci * 4 + 1] = f;
-                shadow.tileRects.set(rect, (frame.slot * 6 + f) * 4);
-                // pose this face's cull camera (its frustum == the pre-fold `_pv` above)
-                const comboCam = shadow.comboEids[ci];
-                if (comboCam !== undefined)
-                    poseCombo(world, comboCam, px, py, pz, fwd, up, fov, frame.near, frame.far);
-                ci++;
-            }
         }
     }
     shadow.comboCount = ci;
