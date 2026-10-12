@@ -64,6 +64,8 @@ export class World {
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
     private _frameEncoder: GPUCommandEncoder | undefined;
+    private readonly _frameSubmitCallbacks: ((() => void) | undefined)[] = [];
+    private _frameSubmitCallbackCount = 0;
     private readonly _frameEncoderDescriptor: GPUCommandEncoderDescriptor = {
         label: "shallot-frame",
     };
@@ -206,6 +208,20 @@ export class World {
         };
     }
 
+    /** Queue a stable callback for this draw group only. Call while drawing, where the state it commits
+     * is encoded; it runs after submission, or at successful group end without an encoder, and is dropped
+     * on a draw error. The callback must not throw. */
+    onFrameSubmit(callback: () => void): void {
+        if (!this._inDrawGroup)
+            throw new Error(
+                "World.onFrameSubmit is available only during the draw group of step()",
+            );
+        if (this._disposed) throw new Error("World.onFrameSubmit: world is disposed");
+        const index = this._frameSubmitCallbackCount++;
+        if (index === this._frameSubmitCallbacks.length) this._frameSubmitCallbacks.push(callback);
+        else this._frameSubmitCallbacks[index] = callback;
+    }
+
     /** The current draw group's command encoder, opened on first use. Outside draw this refuses;
      * a CPU-only World returns undefined while a GPU-backed draw may record commands. */
     frameEncoder(): GPUCommandEncoder | undefined {
@@ -230,6 +246,7 @@ export class World {
     }
 
     private beginDrawGroup(): void {
+        this.resetFrameSubmitCallbacks();
         this._inDrawGroup = true;
     }
 
@@ -241,12 +258,35 @@ export class World {
         if (encoder && !this._disposed) this.submitDrawEncoder(encoder);
         else this.releaseRetiredBuffers();
         this.resetFrameCopies();
+        if (!this._disposed) this.runFrameSubmitCallbacks();
+        else this.resetFrameSubmitCallbacks();
+    }
+
+    private runFrameSubmitCallbacks(): void {
+        const count = this._frameSubmitCallbackCount;
+        this._frameSubmitCallbackCount = 0;
+        try {
+            for (let i = 0; i < count; i++) {
+                const callback = this._frameSubmitCallbacks[i]!;
+                this._frameSubmitCallbacks[i] = undefined;
+                callback();
+            }
+        } finally {
+            for (let i = 0; i < count; i++) this._frameSubmitCallbacks[i] = undefined;
+        }
+    }
+
+    private resetFrameSubmitCallbacks(): void {
+        for (let i = 0; i < this._frameSubmitCallbackCount; i++)
+            this._frameSubmitCallbacks[i] = undefined;
+        this._frameSubmitCallbackCount = 0;
     }
 
     /** Drop system work and submit only the engine copies needed to preserve table state. */
     private abortDrawGroup(): void {
         this._inDrawGroup = false;
         this._frameEncoder = undefined;
+        this.resetFrameSubmitCallbacks();
         if (this._frameCopyCount > 0 && !this._disposed) {
             const encoder = this.gpu.device.createCommandEncoder({ label: "shallot-frame-replay" });
             for (let i = 0; i < this._frameCopyCount; i++) {
@@ -945,6 +985,8 @@ export class World {
         this._tables.clear();
         this._frameEncoder = undefined;
         this._lastSubmittedEncoder = undefined;
+        this._frameSubmitCallbacks.length = 0;
+        this._frameSubmitCallbackCount = 0;
         this._commandBuffers.length = 0;
         this._inDrawGroup = false;
         for (const buffer of this._retiredBuffers) buffer.destroy();

@@ -36,6 +36,7 @@ import {
     prepareGlobalTransformFrame,
     GlobalTransformHistory as TransformRuntime,
 } from "./global-transform";
+import { BeginFrameSystem } from "./substrate";
 
 setDefaultTimeout(CEILING.node);
 if (typeof ResizeObserver === "undefined") {
@@ -307,6 +308,80 @@ async function placementHistoryApp(): Promise<{
     await world.gpu.device.queue.onSubmittedWorkDone();
     return { app, world, eid, writeOnTick: (x) => (tickWrite = x) };
 }
+
+test("an aborted draw retains GlobalTransform history until a frame submits", async () => {
+    const { app, world, eid, writeOnTick } = await placementHistoryApp();
+    try {
+        attachTestCamera(world);
+        world.step(0);
+        writeOnTick(10);
+        world.step(Time.FIXED_DT);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+
+        writeOnTick(20);
+        let abort = true;
+        world.addSystem({
+            group: "draw",
+            last: true,
+            update() {
+                if (!abort) return;
+                abort = false;
+                throw new Error("abort GlobalTransform history");
+            },
+        });
+        expect(() => world.step(Time.FIXED_DT)).toThrow("abort GlobalTransform history");
+        world.step(0);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+
+        const current = world.resource(TransformRuntime).current!;
+        const previous = world.resource(TransformRuntime).previous!;
+        const row = current.rowIndex(eid);
+        expect(row).toBeGreaterThanOrEqual(0);
+        const result = await probeBuffer(world, previous.buffer, { size: previous.buffer.size });
+        expect(new Float32Array(result.bytes)[row * 12]).toBe(10);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("an unrelated successful draw cannot commit aborted GlobalTransform history", async () => {
+    const { app, world, eid, writeOnTick } = await placementHistoryApp();
+    try {
+        attachTestCamera(world);
+        world.step(0);
+        writeOnTick(10);
+        world.step(Time.FIXED_DT);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+
+        writeOnTick(20);
+        let abort = true;
+        world.addSystem({
+            group: "draw",
+            last: true,
+            update() {
+                if (!abort) return;
+                abort = false;
+                throw new Error("abort GlobalTransform history");
+            },
+        });
+        expect(() => world.step(Time.FIXED_DT)).toThrow("abort GlobalTransform history");
+
+        world.removeSystem(BeginFrameSystem);
+        world.step(0);
+        world.addSystem(BeginFrameSystem);
+        world.step(0);
+        await world.gpu.device.queue.onSubmittedWorkDone();
+
+        const current = world.resource(TransformRuntime).current!;
+        const previous = world.resource(TransformRuntime).previous!;
+        const row = current.rowIndex(eid);
+        expect(row).toBeGreaterThanOrEqual(0);
+        const result = await probeBuffer(world, previous.buffer, { size: previous.buffer.size });
+        expect(new Float32Array(result.bytes)[row * 12]).toBe(10);
+    } finally {
+        app.dispose();
+    }
+});
 
 async function expectCurrentPlacement(world: engine.World, eid: number): Promise<void> {
     const current = world.resource(TransformRuntime).current!;
