@@ -13,8 +13,8 @@ import {
     validateGpu,
     withPipelineOwner,
 } from "../runtime";
-import { coalesce, frameDelta, median } from "./coalesce";
 import { resolvePlugins } from "./compose";
+import { frameDelta } from "./frame-delta";
 
 export * from "./compose";
 
@@ -176,15 +176,9 @@ function pluginHookError(plugin: Plugin, hook: "initialize" | "warm", error: unk
     return new Error(`Plugin "${plugin.name}" ${hook} threw: ${detail}`);
 }
 
-// runaway backstop: the most frames the loop may run ahead of the GPU before skipping a step, so the CPU
-// can't queue unboundedly past a saturated GPU. Sized well above a present-throttled pipeline's depth —
-// `world.gpu.sync` counts frames by `onSubmittedWorkDone`, which is present-gated, so a 60Hz fullscreen
-// throttle reads ~3 frames in flight with the GPU otherwise idle; a tighter cap would drop frames Chrome
-// is ready to present (the fullscreen-throttle judder). Per-present pacing is the double-fire `coalesce`,
-// not this; the bound engages only under sustained genuine GPU saturation.
+// Caps the queue at GPU-load onset, where Chrome's throttle engages late (24 frames in 0.12 s on Omarchy);
+// stage 1 measured that it never fires in steady GPU-bound play.
 const MAX_FRAMES_IN_FLIGHT = 6;
-// the recent rAF-callback intervals the double-fire coalescer's median reads
-const MEDIAN_WINDOW = 20;
 
 export const ClearChangeMarksSystem: System = {
     group: "draw",
@@ -470,13 +464,6 @@ export async function runApp(config: AppConfig): Promise<App> {
         // a negative dt into the scheduler's throw
         let lastTime = -1;
         let pendingFenceWaitMs = 0;
-        // the last MEDIAN_WINDOW raw-callback intervals in a ring + an insertion scratch, feeding the
-        // double-fire coalescer's median
-        let lastCallback = -1;
-        const intervals = new Float64Array(MEDIAN_WINDOW);
-        const scratch = new Float64Array(MEDIAN_WINDOW);
-        let intervalCount = 0;
-        let intervalNext = 0;
         // the issue time of each fence still in flight, oldest at `fenceHead`: the queue settles fences in
         // submission order, and the in-flight backstop below keeps at most MAX_FRAMES_IN_FLIGHT of them
         const fenceIssued = new Float64Array(MAX_FRAMES_IN_FLIGHT);
@@ -514,20 +501,6 @@ export async function runApp(config: AppConfig): Promise<App> {
                 // the actual present (Raph Levien, "Swapchains and frame pacing"). The headless setTimeout path,
                 // with no timestamp, falls back to now().
                 const t = timestamp ?? now();
-                if (lastCallback >= 0) {
-                    const raw = t - lastCallback;
-                    if (raw > 0) {
-                        intervals[intervalNext] = raw;
-                        intervalNext = (intervalNext + 1) % MEDIAN_WINDOW;
-                        if (intervalCount < MEDIAN_WINDOW) intervalCount++;
-                    }
-                }
-                lastCallback = t;
-                // coalesce a Chrome rAF double-fire so the loop submits once per present (else the extra frame fills
-                // the swapchain queue → input latency). This is the present-pacing mechanism; MAX_FRAMES_IN_FLIGHT is
-                // only the runaway backstop below.
-                if (coalesce(t, lastTime, median(intervals, intervalCount, scratch))) return;
-                // Runaway backstop; MAX_FRAMES_IN_FLIGHT says why it sits above a throttled present's depth.
                 if ((pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
                 const dt = frameDelta(t, lastTime);
                 lastTime = t;

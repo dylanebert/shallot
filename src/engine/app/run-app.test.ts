@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { runApp } from "./index";
 
-test("runApp steps early callbacks but holds a callback with six frames pending", async () => {
+test("runApp steps a callback under half the median cadence but holds six pending frames", async () => {
     const callbacks: (() => void)[] = [];
     const originalSetTimeout = globalThis.setTimeout;
     const originalNow = Object.getOwnPropertyDescriptor(performance, "now");
