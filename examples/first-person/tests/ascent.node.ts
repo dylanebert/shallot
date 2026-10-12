@@ -6,7 +6,7 @@ setDefaultTimeout(CEILING.node);
 import {
     Body,
     Character,
-    createApp,
+    type createApp,
     GlobalTransform,
     GroundState,
     PlayerInput,
@@ -16,7 +16,9 @@ import { attachTexture, Camera, type Capture, captureTexture } from "@dylanebert
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { Route } from "../src/demo";
 import { APP_PLUGINS } from "../src/plugins";
+import { openGpuApp } from "./gpu-app";
 
+// Before openApp, which wraps GPUAdapter's requestDevice to record the floor request.
 await setupGlobals();
 
 async function openApp(): Promise<{
@@ -30,7 +32,7 @@ async function openApp(): Promise<{
         return requestDevice.call(this, descriptor);
     };
     try {
-        return { app: await createApp({ plugins: APP_PLUGINS }), deviceRequest };
+        return { app: await openGpuApp({ plugins: APP_PLUGINS }), deviceRequest };
     } finally {
         GPUAdapter.prototype.requestDevice = requestDevice;
     }

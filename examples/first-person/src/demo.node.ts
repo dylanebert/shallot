@@ -7,7 +7,6 @@ setDefaultTimeout(CEILING.node);
 import {
     Body,
     BodyType,
-    createApp,
     Devices,
     GlobalTransform,
     LocalPlayer,
@@ -18,11 +17,12 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
+import { openGpuApp } from "../tests/gpu-app";
 import { Route } from "./demo";
 import { APP_PLUGINS } from "./plugins";
 
 async function ascent() {
-    return createApp({ defaults: false, plugins: APP_PLUGINS });
+    return openGpuApp({ defaults: false, plugins: APP_PLUGINS });
 }
 
 type Ascent = Awaited<ReturnType<typeof ascent>>;
