@@ -84,7 +84,7 @@ const spriteGpuKey = {
 function writeValues(
     world: World,
     eid: number,
-    alphaMode: AlphaMode,
+    blend: number,
     width: number,
     height: number,
     anchorX: number,
@@ -106,7 +106,7 @@ function writeValues(
             fill: packSpriteFill(fill, fillMode),
             billboard,
         },
-        { alphaMode },
+        { alphaMode: blend === SpriteBlend.Alpha ? AlphaMode.Blend : AlphaMode.Mask(0.5) },
     );
     const halfWidth = Math.max(Math.abs(width * anchorX), Math.abs(width * (1 - anchorX)));
     const halfHeight = Math.max(Math.abs(height * anchorY), Math.abs(height * (1 - anchorY)));
@@ -151,7 +151,6 @@ const SpriteSystem: System = {
             const blend = Math.min(sprite.blend.get(eid), 1);
             const fill = sprite.fill.get(eid);
             const fillMode = sprite.fillMode.get(eid);
-            const alphaMode = blend === SpriteBlend.Alpha ? AlphaMode.Blend : AlphaMode.Mask(0.5);
             if (current) {
                 if (
                     current.blend === blend &&
@@ -171,7 +170,7 @@ const SpriteSystem: System = {
                 const radius = writeValues(
                     world,
                     eid,
-                    alphaMode,
+                    blend,
                     width,
                     height,
                     anchorX,
@@ -209,7 +208,7 @@ const SpriteSystem: System = {
             const radius = writeValues(
                 world,
                 eid,
-                alphaMode,
+                blend,
                 width,
                 height,
                 anchorX,
