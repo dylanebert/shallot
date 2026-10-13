@@ -498,3 +498,35 @@ test("after presenting cameras are removed, light allocation and the pack scan d
         app.dispose();
     }
 });
+
+test("adding presenting cameras one at a time grows per-view storage by doubling", async () => {
+    const app = await withStandard();
+    const world = app.world;
+    const device = world.gpu.device!;
+    const createBuffer = device.createBuffer;
+    try {
+        const mesh = world.create();
+        world.add(mesh, Transform);
+        world.add(mesh, MeshInstance);
+        renderedCamera(world, 1);
+        world.step(0);
+
+        const created = new Map<string, number>();
+        device.createBuffer = (descriptor) => {
+            const label = descriptor.label ?? "";
+            created.set(label, (created.get(label) ?? 0) + 1);
+            return createBuffer.call(device, descriptor);
+        };
+        for (let count = 2; count <= 9; count++) {
+            renderedCamera(world, 1);
+            world.step(0);
+        }
+        expect(world.resource(RenderContext).shadeCount).toBe(9);
+        // capacities 2, 4, 8 and 16
+        expect(created.get("shallot-draw-args")).toBe(4);
+        expect(created.get("shallot-light-clusters")).toBe(4);
+    } finally {
+        device.createBuffer = createBuffer;
+        app.dispose();
+    }
+});
