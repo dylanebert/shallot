@@ -9,30 +9,13 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { checkImports } from "./import-boundary";
 
-// The stable clip API left transitional; the experimental inventory remains until its external move.
-const deferred = [
-    [
-        "audio experiments leave transitional",
-        "src/transitional/audio/index.ts:1: pending roadmap migration (still red): // Destination: shallot-audio-lab; owner: audio-boundary.md.",
-    ],
-] as const;
-
-function unexpected(findings: readonly string[]): string[] {
-    const remaining = [...findings];
-    for (const [, finding] of deferred) {
-        const index = remaining.indexOf(finding);
-        if (index >= 0) remaining.splice(index, 1);
-    }
-    return remaining;
-}
-
 let repositoryFindings: string[];
 beforeAll(() => {
     repositoryFindings = checkImports(resolve(import.meta.dir, ".."));
 });
 
-test("repository imports have no violations outside deferred module moves", () => {
-    expect(unexpected(repositoryFindings)).toEqual([]);
+test("repository imports have no violations", () => {
+    expect(repositoryFindings).toEqual([]);
 });
 
 test("physics-boundary: physics leaves transitional", () => {
@@ -44,19 +27,6 @@ test("physics-boundary: physics leaves transitional", () => {
 
 test("presentation: Glaze leaves transitional", () => {
     expect(existsSync(resolve(import.meta.dir, "../src/transitional/glaze"))).toBe(false);
-});
-
-test.todo.each(deferred)("%s", (_claim, finding) => {
-    expect(repositoryFindings.filter((red) => red === finding)).toEqual([]);
-});
-
-test("deferred module moves do not hide changed or duplicate findings", () => {
-    const finding = deferred[0]![1];
-    const newEdge = "src/core/rendering/new.ts:1: sibling import core/rendering → core/input";
-    expect(unexpected([finding])).toEqual([]);
-    expect(unexpected([finding, newEdge])).toEqual([newEdge]);
-    expect(unexpected([`${finding} changed`])).toEqual([`${finding} changed`]);
-    expect(unexpected([finding, finding])).toEqual([finding]);
 });
 
 test("rendering-boundary: rendering does not import input", () => {

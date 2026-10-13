@@ -251,7 +251,7 @@ type BufferEntry = {
 };
 
 /**
- * Validate a typed mesh override against the synthesized TypeGPU layout entry before the deliberately
+ * Validate a typed mesh override against the generated TypeGPU layout entry before the deliberately
  * loose createBindGroup boundary. Raw GPUBuffer remains the explicit unchecked WebGPU escape.
  * @internal
  */

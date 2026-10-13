@@ -125,7 +125,7 @@ export const brdf = tgpu.fn(
 /**
  * the sphere-source BRDF for a point light: diffuse on the light CENTER (`Lc`, half-Lambert, identical to
  * {@link brdf}), specular on Karis's representative point (Real Shading in UE4) — the closest point on the
- * source sphere to the mirror reflection ray. A point source gives a pinpoint highlight a rough surface
+ * source sphere to the mirror ray. A point source gives a pinpoint highlight a rough surface
  * barely catches; a sphere of radius `radius` gives a soft round highlight scaled to the source size. The
  * roughness widens to `aPrime` by the solid angle the sphere subtends and the peak is renormalized by
  * `(a/aPrime)²`, so total specular energy is conserved (the highlight spreads, it doesn't brighten). At

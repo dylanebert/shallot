@@ -2058,7 +2058,7 @@ export function getCompiledMaterial(
 // the `forcedZero` scope-forcing precedent (preserving `compileBackground`'s documented group-count-
 // compatibility reason: a bg pipeline with only group 0 would drop group 1 for the blend draws that follow
 // in the same pass); group 2 = the background's own bindings, through `contract.ts`'s `bgLayout` — the
-// SAME `layoutEntry` synthesis `layout()` uses for a surface, minus the `vertices` injection (no mesh).
+// SAME `layoutEntry` construction `layout()` uses for a surface, minus the `vertices` injection (no mesh).
 
 /** the widest `Background` shape (any bindings) — the bare `Background` default pins `B` to
  *  `Record<string, Binding>` already, so this alias exists only to name the widened form at call

@@ -333,7 +333,7 @@ export interface GpuDiagnostics {
 }
 
 const ARTIFACT_LIMIT = 16;
-const _instrumentedDevices = new WeakSet<GPUDevice>();
+const _trackedDevices = new WeakSet<GPUDevice>();
 
 type ArtifactState = "pending" | "success" | "error";
 interface ArtifactScope {
@@ -409,8 +409,8 @@ function beginArtifactSession(device: GPUDevice): void {
     };
     _artifactSession = session;
 
-    if (_instrumentedDevices.has(device)) return;
-    _instrumentedDevices.add(device);
+    if (_trackedDevices.has(device)) return;
+    _trackedDevices.add(device);
     const original = device.createShaderModule.bind(device);
     device.createShaderModule = (descriptor: GPUShaderModuleDescriptor) => {
         const active = _artifactSession;

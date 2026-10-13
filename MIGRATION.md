@@ -40,12 +40,12 @@ requestGPU(device, [
 Import `AudioPlugin`, `Sound`, `Listener`, `registerClip`, and `play` from `/audio` (or the root). `AudioPlugin` owns the stable data and clip registry; add the opt-in `StandardAudioPlugin` from `/standard/audio` to run playback. `loadClip` in `/standard/audio` decodes a URL or `Blob` into the World's registry. The running implementation publishes its `AudioContext` and connection bus through the World's `AudioOutput` resource.
 
 - Replace `sample(pcm, name)` with `registerClip(world, name, pcm, sampleRate)`, or replace URL/`Blob` loading with `await loadClip(world, name, source)`. Clip IDs and decoded PCM now belong to each World.
-- `play(world, name, { pos })` becomes `play(world, clip, { position })`; `clip` may be the registered name or its ID. `play` no longer resolves instrument names; register a clip for stable playback.
-- `Sound.instrument` becomes `Sound.clip`; `Sound.pitch` and the runtime-owned `Sound.voice` are gone. `Sound.loop` remains, and `Sound.paused` is added.
+- `play(world, name, { pos })` becomes `play(world, clip, { position })`; `clip` may be the registered name or its ID. `play` no longer resolves named graph definitions; register a clip for stable playback.
+- The old graph-driven `Sound` field becomes `Sound.clip`; `Sound.pitch` and the runtime-owned `Sound.voice` are gone. `Sound.loop` remains, and `Sound.paused` is added.
 - `Sound.volume` is now linear gain rather than quadratic. For former sample playback, preserve an old value `v` in `[0, 1]` by setting the new volume to `v * v`.
 - Raw `Float32Array` PCM now defaults to 48 kHz; v0.9.5 used the audio context's rate. To keep that behavior, pass `world.resource(AudioOutput).context?.sampleRate ?? 48000` as `registerClip`'s fourth argument. URL/`Blob` decoding via `loadClip` retains the decoded sample rate.
 - `AudioPlugin`, `Sound`, and `Listener` move from `/standard` to `/audio`; `play` moves to `/audio` with `position` in place of `pos`.
-- The experimental `Instrument`, `InstrumentDef`, `Instruments`, `instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `byId`, `getParamPairs`, and `MAX_INSTRUMENTS` names formerly exported by `/audio/core` move to `/transitional/audio`, not `/standard`. The stable `play` API accepts registered clips, not instrument names.
+- The experimental `Instrument`, `InstrumentDef`, `Instruments`, `instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `byId`, `getParamPairs`, and `MAX_INSTRUMENTS` names formerly exported by `/audio/core` are removed from Shallot; the inventory now lives in [shallot-audio-lab](https://github.com/dylanebert/shallot-audio-lab). The stable `play` API accepts registered clips, not graph definitions.
 - `sfx` and `SfxPolicy` are deleted; per-name caps and cooldowns are not part of clip playback.
 
 ### Released `/audio/core` helpers
@@ -58,7 +58,7 @@ These names were also public in v0.9.5 through `/audio/core`; they are not stabl
 | `initAudio`, `disposeAudio`, `tickAudio` | Compose `StandardAudioPlugin`; it owns initialization, disposal, and per-frame reconciliation. Do not call lifecycle helpers directly. |
 | `MAX_VOICES`, `slotOf`, `valid`, `alloc`, `free`, `gate`, `setParam`, `oneShot`, `watchIdle`, `assign` | Voice slots and handles are runtime-owned. Use `play` and author `Sound` data; there is no public voice-handle API. |
 | `spatialize`, `polar`, `addSpatial`, `flushSpatial` | Position `Sound` with `Transform` and mark a `Listener`; `StandardAudioPlugin` derives and batches spatial data. |
-| `InstrumentDef`, `Instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `Instruments`, `instrument`, `byId`, `getParamPairs`, `MAX_INSTRUMENTS` | Experimental DAG authoring and its registry helpers move to `/transitional/audio`. `noteFreq` has no stable replacement. |
+| `InstrumentDef`, `Instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `Instruments`, `instrument`, `byId`, `getParamPairs`, `MAX_INSTRUMENTS` | Experimental DAG authoring and its registry helpers are removed from Shallot and now live in [shallot-audio-lab](https://github.com/dylanebert/shallot-audio-lab). `noteFreq` has no stable replacement. |
 | `Samples`, `MAX_SAMPLES`, `sample`, `getSample`, `whenLoaded` | Use the per-World `Clips` registry and `registerClip`, or await `loadClip` for a URL/`Blob`; decoded PCM and clip IDs are world-owned. Sample upload and readiness helpers are runtime-owned. |
 
 ## Fixed systems read tick time
@@ -398,7 +398,7 @@ The v0.9.5 package had no indirect-light source registration API, so there is no
 
 Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. Component declarations keep `defaults` and add-only `requires`; `excludes` is removed and runtime `provides` becomes `requires`. System annotations remain.
 
-The reflection exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `dependencies`, `provides`, `exclusions` and `kebab` are removed. The `getComponent` and `getTraits` wrappers and registry methods are removed too. Query imported component handles with `world.query([Component])`; a game resolves components and enum values by import, not by name.
+The component metadata exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `dependencies`, `provides`, `exclusions` and `kebab` are removed. The `getComponent` and `getTraits` wrappers and registry methods are removed too. Query imported component handles with `world.query([Component])`; a game resolves components and enum values by import, not by name.
 
 Remove `Alias`, `laneAlias`, `eulerAlias`, `formatHex` and the input metadata helpers (`Input`, `Unit`, `units`, `angle`, `degrees`, `radians`). Quaternion conversion helpers remain.
 
@@ -1036,7 +1036,7 @@ Remove `OrbitOverlayPlugin` from plugin imports and registrations. `OrbitPlugin`
 
 ## Vite configuration and project scripts are now the project's
 
-0.9.5's CLI synthesized a Vite configuration for manifest projects. Create a `vite.config.ts` with Shallot's plugin. For an ejected 0.9.5 config, replace its separate TypeGPU plugin (or `typegpuPlugin()`) with this one. Remove the old `CROSS_ORIGIN_ISOLATION` import; the plugin sets those headers:
+0.9.5's CLI generated a Vite configuration for manifest projects. Create a `vite.config.ts` with Shallot's plugin. For an ejected 0.9.5 config, replace its separate TypeGPU plugin (or `typegpuPlugin()`) with this one. Remove the old `CROSS_ORIGIN_ISOLATION` import; the plugin sets those headers:
 
 ```ts
 // 0.9.5 ejected config

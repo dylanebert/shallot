@@ -105,7 +105,7 @@ class ShallotAudioProcessor extends AudioWorkletProcessor {
     setSpatial(buffer, offset, voice) {
         if (buffer[offset + 5] !== 0) {
             this.wasm.audio_set_voice_spatial(voice, 1);
-            this.wasm.audio_set_spatial(voice, buffer[offset + 6], buffer[offset + 7], buffer[offset + 8], 3, 100, 1);
+            this.wasm.audio_set_spatial(voice, buffer[offset + 6], buffer[offset + 7], buffer[offset + 8]);
         } else {
             this.wasm.audio_set_voice_spatial(voice, 0);
         }

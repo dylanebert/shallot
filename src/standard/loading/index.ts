@@ -3,7 +3,7 @@
 // Without the attribute Node ≥26 throws `TypeError: Module "…/package.json" needs an import attribute of
 // "type: json"` at load; with it, a *named* import throws `SyntaxError: The requested module
 // '../../../package.json' does not provide an export named 'version'`, since a Node JSON module exposes
-// its object as the default export only (bun synthesizes named ones). Either way a Node-side consumer of
+// its object as the default export only (Bun adds named exports). Either way a Node-side consumer of
 // this package — a Playwright driver, a vite/playwright config — dies before running.
 import pkg from "../../../package.json" with { type: "json" };
 import { UnsupportedError } from "../../engine";

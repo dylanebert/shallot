@@ -279,7 +279,7 @@ export function lanes(value: unknown): 0 | 1 | 2 | 4 {
 
 /**
  * A component's declared bare storage types paired with their names, in declaration order.
- * This enumerates metadata for reflection and schema comparison, not a world's field handles.
+ * This enumerates metadata for schema comparison, not a world's field handles.
  * Keys with no CPU storage type are skipped; resolve entity data with `world.storage(component)`.
  */
 export function fields(component: Component): { name: string; field: FieldType }[] {

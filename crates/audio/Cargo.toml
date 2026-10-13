@@ -9,8 +9,3 @@ crate-type = ["cdylib", "lib"]
 
 [features]
 count-alloc = []
-
-[[bench]]
-name = "process"
-harness = false
-

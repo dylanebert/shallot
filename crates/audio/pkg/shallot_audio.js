@@ -1,4 +1,4 @@
-// Build inputs: sha256:f279a6e456a6ca7d5f22fa2f71fb5e9f90117b462a94e677d5705ff5899bb505
+// Build inputs: sha256:b45a5bc628caba2907a5147c6a122e4885fa0ce15c44ed85f62ae7500ff44696
 const url = new URL("shallot_audio.wasm", import.meta.url);
 export default async function loadAudioWasm() {
     const response = await fetch(url);

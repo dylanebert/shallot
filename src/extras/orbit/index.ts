@@ -218,7 +218,7 @@ const OrbitSystem: System = {
             const locked = world.storage(Orbit).mode.get(eid) === OrbitMode.Locked;
             const touchCount = input.touch.count;
             // touch overrides the mouse-button read entirely rather than adding to it, while any finger
-            // is down: the first finger's continued capture keeps `pointer.left` synthesized true for the
+            // is down: the first finger's continued capture keeps `pointer.left` true for the
             // whole gesture (the old incidental path), so reading it during a two-finger pinch/pan would
             // orbit alongside the intended gesture. Gesture count alone decides the mode instead — one
             // finger rotates, two-plus pan, matching three.js OrbitControls' / Babylon's touch map. Fly

@@ -38,8 +38,8 @@ pub fn sample_read(buffer: &[f32], position: f64) -> f32 {
 /// Loop-aware read: the Hermite taps wrap `mod len` instead of clamping at the
 /// buffer ends, so a seam-matched loop is C¹-continuous across the wrap (no flat
 /// sample, no derivative break — the tick `sample_read`'s edge clamp leaves). The
-/// caller (`sample_node`) already wraps the read position into `[0, len)`;
-/// `rem_euclid` guards a defensive out-of-range or negative position. Same f64
+/// the caller already wraps the position into `[0, len)`; `rem_euclid` guards a
+/// defensive out-of-range or negative position. Same f64
 /// position contract as `sample_read`.
 pub fn sample_read_loop(buffer: &[f32], position: f64) -> f32 {
     let len = buffer.len();
