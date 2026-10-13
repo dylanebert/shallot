@@ -78,7 +78,14 @@ test("the npm package contains only declared files and required consumers", asyn
         ["non-carrier script", (f) => f.startsWith("scripts/") && f.endsWith(".ts")],
         ["build output", (f) => f.includes("/node_modules/")],
         ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
-        ["repo docs", (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/")],
+        [
+            "repo docs",
+            (f) =>
+                f.endsWith(".md") &&
+                f !== "README.md" &&
+                f !== "src/cli/skill.md" &&
+                !f.startsWith("examples/"),
+        ],
         ["test-support source", (f) => /^src\/(?:harness|testing)\//.test(f)],
         ["physics oracle test data", (f) => f.startsWith("src/standard/physics/oracle/")],
     ];
@@ -181,6 +188,7 @@ test("the npm package contains only declared files and required consumers", asyn
         "bin/shallot.ts",
         "src/project/policy.ts",
         "src/cli/index.ts",
+        "src/cli/skill.md",
         "src/project/assets.js",
         "src/project/testing.js",
         "src/project/vite.js",

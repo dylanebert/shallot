@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveViteCli, startViteDev } from "../project";
 import { buildProject, type NativeTarget } from "./build";
@@ -24,6 +25,7 @@ const usage = `
     --portable                bundle the Chromium runtime (CEF)
 
   Help
+    --skill                   print the Shallot project skill
     shallot <command> --help
 `;
 
@@ -95,6 +97,7 @@ const commandUsage = {
 
 export type CliArgs =
     | { kind: "add"; rest: string[] }
+    | { kind: "skill" }
     | { kind: "command-help"; command: keyof typeof commandUsage }
     | { kind: "unknown"; verb: string }
     | { kind: "usage"; exitCode: 0 | 1 }
@@ -118,6 +121,7 @@ function isNativeTarget(target: string): target is NativeTarget {
 /** Separate Shallot's target flags; preserve every Vite argument and its order. */
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
+    if (raw.length === 1 && verb === "--skill") return { kind: "skill" };
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.some((command) => command === verb))
         return { kind: "unknown", verb };
@@ -184,6 +188,10 @@ export async function main(
     }
     if (parsed.kind === "command-help") {
         console.log(commandUsage[parsed.command]);
+        exit(0);
+    }
+    if (parsed.kind === "skill") {
+        console.log(readFileSync(new URL("./skill.md", import.meta.url), "utf8").trimEnd());
         exit(0);
     }
     if (parsed.kind === "add") {

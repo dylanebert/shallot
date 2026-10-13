@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { expectError } from "../../scripts/test-console";
 import { main, parseCliArgs } from "./index";
 
@@ -64,15 +65,22 @@ test("bare shallot presents the project map, loop, commands, targets and help co
     --portable                bundle the Chromium runtime (CEF)
 
   Help
+    --skill                   print the Shallot project skill
     shallot <command> --help`.trim(),
     );
 });
 
-test("the current shallot command map omits unimplemented create and skill commands", async () => {
-    expect(parseCliArgs(["create", "my-game"])).toEqual({ kind: "unknown", verb: "create" });
-    const result = await cli();
-    expect(result.stdout).not.toContain("create");
-    expect(result.stdout).not.toContain("--skill");
+test("shallot --skill prints the project skill and bare usage names it", async () => {
+    const result = await cli("--skill");
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(
+        readFileSync(new URL("./skill.md", import.meta.url), "utf8").trimEnd(),
+    );
+
+    const usage = await cli();
+    expect(usage.code).toBe(0);
+    expect(usage.stdout).toContain("--skill");
 });
 
 test("leading flags show usage instead of becoming a project command", async () => {
