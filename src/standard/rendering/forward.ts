@@ -115,7 +115,7 @@ import {
     resetPipelineCaches,
     setGroup,
 } from "./pipelines";
-import { MeshDrawBuffers, meshInstanceTable } from "./preprocess";
+import { MeshDrawBuffers, MeshPreprocessSystem, meshInstanceTable } from "./preprocess";
 import { initializeRegatherState, prepareRegather } from "./regather";
 import { type Draw, DrawIndexedIndirect, Draws } from "./registry";
 import {
@@ -1174,11 +1174,11 @@ async function prepareStandardRenderer(
     ]);
 }
 
-// Resolve once before core's prepass; the prepass, shadow maps and main pass share this draw list.
-
+// Resolve once, after the pack registers draws and replaces their args buffer and before core's prepass;
+// the prepass, shadow maps and main pass share this draw list.
 const ResolveDrawsSystem: System = {
     group: "draw",
-    after: [BeginFrameSystem, CullLightsSystem],
+    after: [BeginFrameSystem, CullLightsSystem, MeshPreprocessSystem],
     before: [PrepassSystem],
     update(world) {
         resolveDraws(world, world.entityHighWater);
