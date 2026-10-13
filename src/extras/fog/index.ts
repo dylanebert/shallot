@@ -9,7 +9,7 @@
 // uniform schema live in `./march`; the pipeline (the two bind-group layouts + the compute kernel
 // calling them) lives in `./pipeline`. This file is the ECS/system/plugin half: the component, the
 // per-frame uniform pack, and the per-camera dispatch.
-import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
+import type { TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import {
     Camera,
     DepthPrepassRequests,
@@ -23,7 +23,14 @@ import {
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
 import { component, f32, u32 } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import {
+    beginComputePass,
+    dispatchWorkgroups2,
+    endComputePass,
+    precompile,
+    setComputeBindGroup,
+    setComputePipeline,
+} from "../../engine/runtime";
 import {
     indirectLightSlot,
     indirectLightSources,
@@ -106,7 +113,7 @@ interface FogState {
         buffer: (TgpuBuffer<typeof FogGpu> & UniformFlag) | null;
     };
     staging: Float32Array;
-    lights: { keys: (GPUBuffer | GPUTextureView | GPUSampler)[]; group: LightsGroup } | null;
+    lights: { keys: (GPUBuffer | GPUTextureView | GPUSampler)[]; group: GPUBindGroup } | null;
     views: Map<
         number,
         {
@@ -115,7 +122,8 @@ interface FogState {
             depth: GPUTextureView;
             slot: number;
             multisampled: boolean;
-            group: ViewGroup;
+            bindGroup: GPUBindGroup;
+            pass: GPUComputePassDescriptor;
         }
     >;
 }
@@ -133,11 +141,6 @@ function initializeFogState(world: World): void {
     world.resource(fogStateKey);
 }
 
-type LightsGroup = TgpuBindGroup<(typeof fogLayout1)["entries"]>;
-type ViewGroup =
-    | TgpuBindGroup<(typeof fogLayout0)["entries"]>
-    | TgpuBindGroup<(typeof fogLayout0Multisampled)["entries"]>;
-
 // the camera-independent light + shadow service group (group 1), cached on the identities of the resources
 // it binds. The cull already binned every shading view this frame, so one group serves all cameras; standard's
 // shadow resources can flip identity (the atlas allocates lazily, the sun map toggles with a casting frame),
@@ -147,7 +150,7 @@ type ViewGroup =
 // write + the depth view (all three reallocate only on a resize, so the group rebuilds then, not every
 // frame) and the view slot (the per-slot ViewUniforms buffer it binds — a per-slot-buffer design)
 
-function fogLights(world: World): LightsGroup {
+function fogLights(world: World): GPUBindGroup {
     const _lightCull = world.resource(LightCull);
     const _lighting = world.resource(Lighting);
 
@@ -157,6 +160,19 @@ function fogLights(world: World): LightsGroup {
     const sampler = shadowSampler(world)!;
     const sunMap = sunShadowView(world)!;
     const sunParams = sunShadowParams(world)!;
+    const cached = fogState(world).lights;
+    if (
+        cached &&
+        cached.keys[0] === _lightCull.lights &&
+        cached.keys[1] === atlas &&
+        cached.keys[2] === casters &&
+        cached.keys[3] === sampler &&
+        cached.keys[4] === sunMap &&
+        cached.keys[5] === sunParams &&
+        cached.keys[6] === _lighting.buffer &&
+        cached.keys[7] === tileRects
+    )
+        return cached.group;
     const keys = [
         _lightCull.lights!,
         atlas,
@@ -167,18 +183,18 @@ function fogLights(world: World): LightsGroup {
         _lighting.buffer,
         tileRects,
     ];
-    const cached = fogState(world).lights;
-    if (cached && keys.every((k, i) => cached.keys[i] === k)) return cached.group;
-    const group = world.gpu.root.createBindGroup(fogLayout1, {
-        pointLights: _lightCull.lights!,
-        pointAtlas: atlas,
-        pointShadows: casters,
-        shadowSamp: sampler,
-        shadowMap: sunMap,
-        sunShadow: sunParams,
-        lighting: _lighting.buffer,
-        tileRects,
-    });
+    const group = world.gpu.root.unwrap(
+        world.gpu.root.createBindGroup(fogLayout1, {
+            pointLights: _lightCull.lights!,
+            pointAtlas: atlas,
+            pointShadows: casters,
+            shadowSamp: sampler,
+            shadowMap: sunMap,
+            sunShadow: sunParams,
+            lighting: _lighting.buffer,
+            tileRects,
+        }),
+    );
     fogState(world).lights = { keys, group };
     return group;
 }
@@ -232,43 +248,43 @@ const FogSystem: System = {
                 cam.slot !== view.slot ||
                 cam.multisampled !== multisampled
             ) {
+                const group = multisampled
+                    ? world.gpu.root.createBindGroup(fogLayout0Multisampled, {
+                          sceneTex: read,
+                          depthTex: view.depth,
+                          output: write,
+                          view: _render.viewBuffers[view.slot],
+                          fog: _fogState.fog.buffer,
+                      })
+                    : world.gpu.root.createBindGroup(fogLayout0, {
+                          sceneTex: read,
+                          depthTex: view.depth,
+                          output: write,
+                          view: _render.viewBuffers[view.slot],
+                          fog: _fogState.fog.buffer,
+                      });
                 cam = {
                     read,
                     write,
                     depth: view.depth,
                     slot: view.slot,
                     multisampled,
-                    group: multisampled
-                        ? world.gpu.root.createBindGroup(fogLayout0Multisampled, {
-                              sceneTex: read,
-                              depthTex: view.depth,
-                              output: write,
-                              view: _render.viewBuffers[view.slot],
-                              fog: _fogState.fog.buffer,
-                          })
-                        : world.gpu.root.createBindGroup(fogLayout0, {
-                              sceneTex: read,
-                              depthTex: view.depth,
-                              output: write,
-                              view: _render.viewBuffers[view.slot],
-                              fog: _fogState.fog.buffer,
-                          }),
+                    bindGroup: world.gpu.root.unwrap(group),
+                    pass: { label: `fog/${eid}` },
                 };
                 fogState(world).views.set(eid, cam);
             }
-            const pass = world.frameEncoder()!.beginComputePass({
-                label: `fog/${eid}`,
-                timestampWrites: world.gpu.span?.("fog:march"),
-            });
-            pipeline
-                .with(cam.group as never)
-                .with(lights)
-                .with(pass)
-                .dispatchWorkgroups(
-                    Math.ceil(view.width / WORKGROUP),
-                    Math.ceil(view.height / WORKGROUP),
-                );
-            pass.end();
+            cam.pass.timestampWrites = world.gpu.span?.("fog:march");
+            const pass = beginComputePass(world.frameEncoder()!, cam.pass);
+            setComputePipeline(pass, world.gpu.root.unwrap(pipeline));
+            setComputeBindGroup(pass, 0, cam.bindGroup);
+            setComputeBindGroup(pass, 1, lights);
+            dispatchWorkgroups2(
+                pass,
+                Math.ceil(view.width / WORKGROUP),
+                Math.ceil(view.height / WORKGROUP),
+            );
+            endComputePass(pass);
         }
     },
 };

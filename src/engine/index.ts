@@ -99,4 +99,5 @@ export {
     slerp,
     srgbToLinear,
     unpackColor,
+    unpackColorInto,
 } from "./utils";

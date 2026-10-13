@@ -9,6 +9,7 @@ export {
     packColor,
     srgbToLinear,
     unpackColor,
+    unpackColorInto,
 } from "./color";
 export {
     decodePos,

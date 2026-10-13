@@ -1,5 +1,5 @@
 import type { World } from "../../engine";
-import { unpackColor } from "../../engine";
+import { unpackColorInto } from "../../engine";
 import { Fog } from "./index";
 import { FOG_MAX_STEPS, FOG_PARAMS } from "./march";
 
@@ -10,10 +10,7 @@ import { FOG_MAX_STEPS, FOG_PARAMS } from "./march";
  * shaft response without folding that factor into the Henyey–Greenstein phase. */
 export function packFog(world: World, eid: number, out: Float32Array): void {
     out.fill(0);
-    const rgb = unpackColor(world.storage(Fog).color.get(eid));
-    out[FOG_PARAMS.color] = rgb.r;
-    out[FOG_PARAMS.color + 1] = rgb.g;
-    out[FOG_PARAMS.color + 2] = rgb.b;
+    unpackColorInto(world.storage(Fog).color.get(eid), out, FOG_PARAMS.color);
     out[FOG_PARAMS.march] = world.storage(Fog).density.get(eid);
     out[FOG_PARAMS.march + 1] = world.storage(Fog).heightBase.get(eid);
     out[FOG_PARAMS.march + 2] = world.storage(Fog).heightFalloff.get(eid);

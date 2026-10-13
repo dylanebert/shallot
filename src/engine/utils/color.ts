@@ -10,12 +10,24 @@ export function linearToSrgb(c: number): number {
     return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
 }
 
+/** decode one packed sRGB byte to its linear channel value */
+function unpackColorChannel(packed: number, shift: number): number {
+    return srgbToLinear(((packed >> shift) & 0xff) / 255);
+}
+
+/** Write the linear RGB channels of a packed `0xRRGGBB` color into `out` at `offset`, without allocating. */
+export function unpackColorInto(packed: number, out: Float32Array, offset = 0): void {
+    out[offset] = unpackColorChannel(packed, 16);
+    out[offset + 1] = unpackColorChannel(packed, 8);
+    out[offset + 2] = unpackColorChannel(packed, 0);
+}
+
 /** unpack a 0xRRGGBB sRGB byte triple to linear-space r/g/b */
 export function unpackColor(packed: number): { r: number; g: number; b: number } {
     return {
-        r: srgbToLinear(((packed >> 16) & 0xff) / 255),
-        g: srgbToLinear(((packed >> 8) & 0xff) / 255),
-        b: srgbToLinear((packed & 0xff) / 255),
+        r: unpackColorChannel(packed, 16),
+        g: unpackColorChannel(packed, 8),
+        b: unpackColorChannel(packed, 0),
     };
 }
 
