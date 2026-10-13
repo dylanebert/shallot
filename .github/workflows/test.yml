@@ -128,10 +128,9 @@ jobs:
           Copy-Item (Get-Command bun).Source (Join-Path $hostDir 'node.exe')
           Add-Content -Path $env:GITHUB_PATH -Value $hostDir
           Write-Output "Bun node.exe host: $hostDir"
-      - name: Identify WARP adapter
-        if: matrix.os == 'windows-latest'
+      - name: Identify adapter
         run: |
-          node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then((adapter) => { if (!adapter) throw new Error('WARP adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (!/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); console.info('WARP adapter:', identity); })"
+          node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then(async (adapter) => { if (!adapter) throw new Error('WebGPU adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (process.platform === 'win32' && !/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); (await adapter.requestDevice()).destroy(); console.info('WebGPU adapter:', identity); })"
       - name: GPU tier
         if: matrix.os != 'windows-latest'
         run: /usr/bin/time -p bun scripts/gpu-compile.oracle.ts --reporter=junit --reporter-outfile=gpu-junit.xml 2>&1 | tee gpu-test.log
@@ -214,10 +213,9 @@ jobs:
           Copy-Item (Get-Command bun).Source (Join-Path $hostDir 'node.exe')
           Add-Content -Path $env:GITHUB_PATH -Value $hostDir
           Write-Output "Bun node.exe host: $hostDir"
-      - name: Identify WARP adapter
-        if: matrix.os == 'windows-latest'
+      - name: Identify adapter
         run: |
-          node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then((adapter) => { if (!adapter) throw new Error('WARP adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (!/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); console.info('WARP adapter:', identity); })"
+          node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then(async (adapter) => { if (!adapter) throw new Error('WebGPU adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (process.platform === 'win32' && !/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); (await adapter.requestDevice()).destroy(); console.info('WebGPU adapter:', identity); })"
       - name: Node tier
         if: matrix.os != 'windows-latest'
         run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee node-test.log
@@ -289,6 +287,9 @@ jobs:
         env:
           RUNNER_OS: ${{ runner.os }}
         run: bun scripts/report-slow-tests.ts checked-cheap-junit.xml checked-cheap-test.log
+      - name: Identify adapter
+        run: |
+          node -e "import('webgpu').then(({ create, globals }) => { Object.assign(globalThis, globals); return create([]).requestAdapter(); }).then(async (adapter) => { if (!adapter) throw new Error('WebGPU adapter unavailable'); const info = adapter.info; const identity = [info.vendor, info.architecture, info.device, info.description].join(' '); if (process.platform === 'win32' && !/warp|basic render/i.test(identity)) throw new Error('Expected WARP, got ' + identity); (await adapter.requestDevice()).destroy(); console.info('WebGPU adapter:', identity); })"
       - name: Node tier
         run: /usr/bin/time -p bun test --reporter=junit --reporter-outfile=checked-node-junit.xml --shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee checked-node-test.log
       - name: report slow Node tests
