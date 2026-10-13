@@ -1,4 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+import { CEILING } from "@dylanebert/shallot/testing";
+
+setDefaultTimeout(CEILING.node);
+
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { packageManifest } from "../src/cli/create";
