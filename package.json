@@ -76,8 +76,6 @@
         "!**/*.oracle.ts",
         "!src/**/*.node.ts",
         "!src/**/*.e2e.ts",
-        "!examples/loading-screen/**/*.node.ts",
-        "!examples/loading-screen/**/*.e2e.ts",
         "!src/**/*.probes.ts",
         "!**/*.fixture.ts",
         "!**/*.gold.json",

@@ -4,10 +4,10 @@ import { CEILING } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(CEILING.node);
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, extname, relative, resolve, sep } from "node:path";
-import { parse } from "@babel/parser";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { relative, resolve, sep } from "node:path";
 import { Glob } from "bun";
+import { importsIn, resolveRelative } from "./example-imports";
 
 // The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
 // native-window crate, the icon and recipes; never a path the `files` negations name, nor build
@@ -51,8 +51,6 @@ test("the npm package contains only declared files and required consumers", asyn
         "!**/*.oracle.ts",
         "!src/**/*.node.ts",
         "!src/**/*.e2e.ts",
-        "!examples/loading-screen/**/*.node.ts",
-        "!examples/loading-screen/**/*.e2e.ts",
     ];
     const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
     const isNegated = (file: string): boolean => {
@@ -60,22 +58,8 @@ test("the npm package contains only declared files and required consumers", asyn
         const ancestors = parts.map((_, index) => parts.slice(0, index + 1).join("/"));
         return negated.some((glob) => ancestors.some((path) => glob.match(path)));
     };
-    const shippedExampleChecks = new Set([
-        "examples/minimal/src/welcome/welcome.test.ts",
-        "examples/loading-screen/src/reveal.test.ts",
-        "examples/first-person/browser.e2e.ts",
-        "examples/first-person/src/demo.node.ts",
-        "examples/first-person/src/plugins.test.ts",
-        "examples/first-person/tests/ascent.node.ts",
-        "examples/first-person/tests/browser-setup.test.ts",
-    ]);
     const forbidden: [string, (f: string) => boolean][] = [
         ["files negation", isNegated],
-        [
-            "unapproved example check",
-            (file) => /\.(?:test|node|e2e)\.ts$/.test(file) && !shippedExampleChecks.has(file),
-        ],
-
         ["non-carrier script", (f) => f.startsWith("scripts/") && f.endsWith(".ts")],
         ["build output", (f) => f.includes("/node_modules/")],
         ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
@@ -95,73 +79,9 @@ test("the npm package contains only declared files and required consumers", asyn
     );
 
     const packedFiles = new Set(files);
-    const sourceExtensions = [
-        ".ts",
-        ".tsx",
-        ".mts",
-        ".cts",
-        ".js",
-        ".jsx",
-        ".mjs",
-        ".cjs",
-        ".json",
-    ];
-    function isFile(path: string): boolean {
-        return existsSync(path) && statSync(path).isFile();
-    }
-    function resolveRelative(from: string, specifier: string): string | undefined {
-        const base = resolve(dirname(from), specifier);
-        const extension = extname(base);
-        const substitutions: Record<string, string[]> = {
-            ".js": [".ts", ".tsx", ".d.ts"],
-            ".jsx": [".tsx", ".ts"],
-            ".mjs": [".mts"],
-            ".cjs": [".cts"],
-        };
-        const candidates = [base];
-        for (const replacement of substitutions[extension] ?? [])
-            candidates.push(`${base.slice(0, -extension.length)}${replacement}`);
-        candidates.push(...sourceExtensions.map((suffix) => `${base}${suffix}`));
-        for (const candidate of candidates) if (isFile(candidate)) return candidate;
-        if (existsSync(base) && statSync(base).isDirectory()) {
-            for (const suffix of sourceExtensions) {
-                const candidate = resolve(base, `index${suffix}`);
-                if (isFile(candidate)) return candidate;
-            }
-        }
-        return undefined;
-    }
     for (const file of files.filter((file) => /\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/.test(file))) {
         const source = readFileSync(resolve(pkgDir, file), "utf8");
-        const ast = parse(source, { sourceType: "unambiguous", plugins: ["typescript", "jsx"] });
-        const imports = new Set<string>();
-        function visit(node: any): void {
-            if (!node || typeof node !== "object") return;
-            if (Array.isArray(node)) {
-                for (const child of node) visit(child);
-                return;
-            }
-            if (
-                ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(
-                    node.type,
-                ) &&
-                typeof node.source?.value === "string"
-            )
-                imports.add(node.source.value);
-            if (node.type === "TSImportType" && typeof node.argument?.value === "string")
-                imports.add(node.argument.value);
-            if (
-                node.type === "CallExpression" &&
-                (node.callee.type === "Import" ||
-                    (node.callee.type === "Identifier" && node.callee.name === "require")) &&
-                typeof node.arguments[0]?.value === "string"
-            )
-                imports.add(node.arguments[0].value);
-            for (const [key, child] of Object.entries(node))
-                if (key !== "loc" && key !== "start" && key !== "end") visit(child);
-        }
-        visit(ast.program);
-        for (const specifier of imports) {
+        for (const specifier of importsIn(source, file).specifiers) {
             if (!specifier.startsWith("./") && !specifier.startsWith("../")) continue;
             const clean = specifier.split(/[?#]/, 1)[0]!;
             const targetFile = resolveRelative(resolve(pkgDir, file), clean);
@@ -197,20 +117,13 @@ test("the npm package contains only declared files and required consumers", asyn
         "examples/minimal/playwright.config.ts",
         "examples/minimal/public/icon.svg",
         "examples/minimal/src/welcome/index.ts",
-        "examples/minimal/src/welcome/welcome.test.ts",
         "examples/minimal/tsconfig.json",
         "examples/minimal/vite.config.ts",
         "examples/first-person/playwright.config.ts",
-        "examples/first-person/browser.e2e.ts",
-        "examples/first-person/tests/ascent.node.ts",
         "examples/first-person/tests/browser-setup.ts",
-        "examples/first-person/tests/browser-setup.test.ts",
         "examples/first-person/tests/browser-install.ts",
         "examples/first-person/tests/capture-page.ts",
-        "examples/loading-screen/src/reveal.test.ts",
         "examples/first-person/src/plugins.ts",
-        "examples/first-person/src/plugins.test.ts",
-        "examples/first-person/src/demo.node.ts",
         "dist/testing.d.ts",
         "dist/vite.d.ts",
         "crates/native/Cargo.toml",
@@ -233,6 +146,11 @@ test("the npm package contains only declared files and required consumers", asyn
     for (const entry of removedTestSupport) violations.push(`${entry} (test-support export)`);
 
     const missing = required.filter((f) => !files.includes(f));
+    const exampleChecks = ["examples/**/*.test.ts", "examples/**/*.node.ts", "examples/**/*.e2e.ts"]
+        .flatMap((pattern) => [...new Glob(pattern).scanSync(pkgDir)])
+        .sort();
+    for (const check of exampleChecks)
+        if (!files.includes(check)) missing.push(`${check} (example check not shipped)`);
     for (const name of recipes) {
         const config = `examples/${name}/tsconfig.json`;
         if (!files.includes(config)) missing.push(config);

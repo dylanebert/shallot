@@ -73,7 +73,7 @@ function occupied(destination: string): boolean {
 
 function containsImport(root: string, packageName: string): boolean {
     const importPattern = new RegExp(
-        `(?:\\bfrom\\s*|\\bimport\\s*(?:\\(\\s*)?)["']${packageName}(?:/[^"']*)?["']`,
+        `(?:\\bfrom\\s*|\\bimport\\s*(?:\\(\\s*)?|\\brequire\\s*\\(\\s*)["']${packageName}(?:/[^"']*)?["']`,
     );
     const pending = [root];
     while (pending.length > 0) {
@@ -82,7 +82,7 @@ function containsImport(root: string, packageName: string): boolean {
             if (entry.name === "node_modules") continue;
             const path = join(dir, entry.name);
             if (entry.isDirectory()) pending.push(path);
-            else if (entry.isFile() && /\.(?:[cm]?[jt]sx?)$/.test(entry.name)) {
+            else if (entry.isFile() && /\.(?:[cm]?[jt]sx?|html)$/.test(entry.name)) {
                 if (importPattern.test(readFileSync(path, "utf8"))) return true;
             }
         }
@@ -90,7 +90,11 @@ function containsImport(root: string, packageName: string): boolean {
     return false;
 }
 
-function packageManifest(destination: string, templateDir: string, packageRoot: string): string {
+export function packageManifest(
+    destination: string,
+    templateDir: string,
+    packageRoot: string,
+): string {
     const engine = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
     const devDependencies: Record<string, string> = {
         "@types/bun": engine.devDependencies["@types/bun"],

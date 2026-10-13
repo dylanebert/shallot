@@ -2,14 +2,10 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { Camera } from "@dylanebert/shallot";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { openGpuApp as createApp } from "../tests/gpu-app";
 import { LoadingWorld } from "./scene";
 
 setDefaultTimeout(CEILING.node);
-
-import { setupGlobals } from "@dylanebert/shallot/webgpu";
-
-await setupGlobals();
 
 test("loading-screen draws with default WebGPU limits", async () => {
     const app = await createApp({ plugins: [LoadingWorld] });

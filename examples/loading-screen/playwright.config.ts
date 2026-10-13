@@ -7,6 +7,7 @@ const subject = fileURLToPath(new URL(".", import.meta.url)).replaceAll("\\", "/
 export const config = {
     testDir: ".",
     ...BROWSER_CONFIG,
+    globalSetup: "./tests/browser-setup.ts",
     use: {
         ...BROWSER_CONFIG.use,
         baseURL: "http://127.0.0.1:4173",

@@ -1,0 +1,94 @@
+import { test as base, expect, type Page } from "playwright/test";
+
+const noticePrefix = "__shallot_browser_startup_failure__: ";
+type FailureKind = "page error" | "startup alert";
+type ExpectedFailure = { kind: FailureKind; pattern: RegExp; matched: boolean };
+const expectedFailures = new WeakMap<Page, ExpectedFailure[]>();
+
+export type { Page };
+export { expect };
+
+function expectFailure(page: Page, kind: FailureKind, pattern: RegExp): void {
+    const failures = expectedFailures.get(page) ?? [];
+    failures.push({ kind, pattern, matched: false });
+    expectedFailures.set(page, failures);
+}
+
+export function expectPageError(page: Page, pattern: RegExp): void {
+    expectFailure(page, "page error", pattern);
+}
+
+export function expectStartupAlert(page: Page, pattern: RegExp): void {
+    expectFailure(page, "startup alert", pattern);
+}
+
+export const test = base.extend({
+    page: async ({ page }, use) => {
+        const failures = expectedFailures.get(page) ?? [];
+        expectedFailures.set(page, failures);
+        const unexpected: string[] = [];
+        let closing: Promise<void> | undefined;
+        const fail = (message: string): void => {
+            unexpected.push(message);
+            closing ??= page.close().catch(() => {});
+        };
+        const consumeExpected = (kind: FailureKind, message: string): boolean => {
+            const expected = failures.find((entry) => {
+                entry.pattern.lastIndex = 0;
+                return entry.kind === kind && entry.pattern.test(message);
+            });
+            if (!expected) return false;
+            expected.matched = true;
+            return true;
+        };
+        const onPageError = (error: Error): void => {
+            const message = `${error.name}: ${error.message}`;
+            if (!consumeExpected("page error", error.message)) fail(`page error: ${message}`);
+        };
+        const onConsole = (message: { type(): string; text(): string }): void => {
+            if (message.type() !== "error" || !message.text().startsWith(noticePrefix)) return;
+            const notice = message.text().slice(noticePrefix.length);
+            if (!consumeExpected("startup alert", notice)) fail(`startup alert: ${notice}`);
+        };
+
+        page.on("pageerror", onPageError);
+        page.on("console", onConsole);
+        await page.addInitScript((prefix) => {
+            const reported = new WeakSet<HTMLElement>();
+            const inspect = (): void => {
+                for (const notice of document.querySelectorAll<HTMLElement>(
+                    '[role="alert"], [style*="z-index: 10000"]',
+                )) {
+                    const text = notice.textContent?.replace(/\s+/g, " ").trim() ?? "";
+                    if (!text || reported.has(notice)) continue;
+                    reported.add(notice);
+                    console.error(`${prefix}${text}`);
+                }
+            };
+            new MutationObserver(inspect).observe(document, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+            });
+            inspect();
+        }, noticePrefix);
+
+        let testFailure: unknown;
+        try {
+            await use(page);
+        } catch (error) {
+            testFailure = error;
+        } finally {
+            page.off("pageerror", onPageError);
+            page.off("console", onConsole);
+            expectedFailures.delete(page);
+        }
+        await closing;
+        const missing = failures
+            .filter((failure) => !failure.matched)
+            .map((failure) => `expected ${failure.kind} matching ${failure.pattern}`);
+        if (unexpected.length || missing.length)
+            throw new Error([...unexpected, ...missing].join("\n"));
+        if (testFailure) throw testFailure;
+    },
+});

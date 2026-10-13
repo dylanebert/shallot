@@ -1,11 +1,11 @@
-import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "../../scripts/browser.fixture";
+import { expect, test } from "./tests/browser-fixture";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const CAPTURE_ENTRY = resolve(ROOT, ".artifacts/capture-page.js");
-execFileSync("bun", ["run", "scripts/build-capture-page.ts"], { cwd: ROOT });
+const CAPTURE_ENTRY = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    ".artifacts/capture-page.js",
+);
 
 test("a browser capture preserves the declared page geometry and shows its color tag", async ({
     page,
@@ -58,7 +58,8 @@ test("a browser capture preserves the declared page geometry and shows its color
     expect(pixels.height, "the page screenshot uses the declared height").toBe(720);
     expect(pixels.ink, "the real page's color-tag description remains visible").toBeGreaterThan(20);
 
-    await page.addScriptTag({ path: CAPTURE_ENTRY, type: "module" });
+    await page.addScriptTag({ path: CAPTURE_ENTRY });
+    await page.waitForFunction(() => typeof window.shallotCaptureFrame === "function");
     await page.addStyleTag({
         content: "#frame { width: 1280px !important; height: 720px !important; }",
     });

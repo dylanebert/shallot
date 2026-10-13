@@ -140,14 +140,14 @@ function assertProject(destination: string, templateFiles: string[]): void {
     expect(readme).not.toContain("publish targets");
 
     const source = files(destination)
-        .filter((file) => /\.(?:[cm]?[jt]sx?)$/.test(file))
+        .filter((file) => /\.(?:[cm]?[jt]sx?|html)$/.test(file))
         .map((file) => readFileSync(join(destination, file), "utf8"))
         .join("\n");
     expect(manifest.devDependencies.webgpu).toBe(
         source.includes("@dylanebert/shallot/webgpu") ? ENGINE.peerDependencies.webgpu : undefined,
     );
     expect(manifest.devDependencies.typegpu).toBe(
-        /(?:from\s*|import\s*(?:\(\s*)?)["']typegpu(?:\/[^"']*)?["']/.test(source)
+        /(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']typegpu(?:\/[^"']*)?["']/.test(source)
             ? ENGINE.peerDependencies.typegpu
             : undefined,
     );
@@ -193,7 +193,7 @@ test("create declares WebGPU and TypeGPU only when the template imports them", (
     );
     writeFileSync(
         join(templateDir, "src/fixture.test.ts"),
-        'import { setupGlobals } from "@dylanebert/shallot/webgpu";\nimport tgpu from "typegpu";\nvoid setupGlobals;\nvoid tgpu;\n',
+        'import { setupGlobals } from "@dylanebert/shallot/webgpu";\nconst tgpu = require("typegpu");\nvoid setupGlobals;\nvoid tgpu;\n',
     );
     const destination = join(SCRATCH, "dependency-fixture");
     expect(
@@ -207,6 +207,23 @@ test("create declares WebGPU and TypeGPU only when the template imports them", (
     expect(workflow).not.toContain("  gpu:");
     expect(workflow).not.toContain("  node:");
     expect(workflow).not.toContain("  browser:");
+});
+
+test("create detects conditional imports in inline module scripts", () => {
+    const examplesDir = join(SCRATCH, "html-examples");
+    const templateDir = join(examplesDir, "html-import");
+    mkdirSync(templateDir, { recursive: true });
+    writeFileSync(
+        join(templateDir, "index.html"),
+        '<meta name="description" content="HTML module import"><script type="module">import "typegpu";</script>',
+    );
+    const destination = join(SCRATCH, "html-import-project");
+    expect(
+        runCreate([destination, "--template", "html-import"], { examplesDir, packageRoot: ROOT }),
+    ).toBe(0);
+    const manifest = JSON.parse(readFileSync(join(destination, "package.json"), "utf8"));
+    expect(manifest.devDependencies.typegpu).toBe(ENGINE.peerDependencies.typegpu);
+    assertProject(destination, ["index.html"]);
 });
 
 test("an unknown template names installed examples and their descriptions", () => {

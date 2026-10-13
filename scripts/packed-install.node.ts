@@ -49,6 +49,17 @@ function packedInstall(): PackedInstall {
     return install;
 }
 
+function projectFiles(directory: string): string[] {
+    return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) {
+            if (entry.name === "node_modules") return [];
+            return projectFiles(path);
+        }
+        return entry.isFile() ? [path] : [];
+    });
+}
+
 beforeAll(() => {
     const scratch = mkdtempSync(join(tmpdir(), "shallot-packed-install-"));
     try {
@@ -258,7 +269,9 @@ function installExample(name: "minimal" | "first-person" | "loading-screen"): vo
     expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
     expect(manifest.devDependencies.typegpu).toBeUndefined();
     expect(manifest.devDependencies.webgpu).toBe(
-        name === "first-person" ? rootPackage.peerDependencies.webgpu : undefined,
+        name === "first-person" || name === "loading-screen"
+            ? rootPackage.peerDependencies.webgpu
+            : undefined,
     );
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
@@ -291,6 +304,21 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
         "(pass) the Bun preload transforms engine TGSL and keeps it callable on the CPU",
     );
     expect(testOutput).toContain("0 fail");
+    const copiedFiles = projectFiles(project);
+    for (const file of copiedFiles.filter((path) => path.endsWith(".node.ts")).sort()) {
+        const subject = `./${relative(project, file).replaceAll("\\", "/")}`;
+        const output = run(["bun", "test", subject], project, `bun test ${name} ${subject}`);
+        expect(output).toContain("0 fail");
+    }
+    if (process.platform === "darwin" && copiedFiles.some((path) => path.endsWith(".e2e.ts"))) {
+        run(["bunx", "playwright", "install", "chromium"], project, `Playwright install ${name}`);
+        const browser = run(
+            ["bunx", "playwright", "test"],
+            project,
+            `bunx playwright test ${name}`,
+        );
+        expect(browser).toContain("passed");
+    }
     const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
         cwd: project,
         stdout: "pipe",

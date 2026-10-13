@@ -1,12 +1,11 @@
-import { execFileSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "../../../scripts/browser.fixture";
-import { installCaptureFrame } from "../../../scripts/capture-install";
+import { expect, expectStartupAlert, type Page, test } from "../tests/browser-fixture";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const CAPTURE_ENTRY = resolve(ROOT, ".artifacts/capture-page.js");
-execFileSync("bun", ["run", "scripts/build-capture-page.ts"], { cwd: ROOT });
+const CAPTURE_ENTRY = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../.artifacts/capture-page.js",
+);
 
 interface BrowserCapture {
     rgba: Uint8ClampedArray;
@@ -360,6 +359,7 @@ test("a real GPU process crash after presentation reaches the failure screen", a
     page,
     browser,
 }) => {
+    expectStartupAlert(page, /^Something went wrong/);
     await waitForScene(page);
     await page.evaluate(
         () =>
@@ -390,6 +390,10 @@ test("a real GPU process crash after presentation reaches the failure screen", a
 });
 
 test("a missing browser adapter offers the browser-specific remedy", async ({ page }) => {
+    expectStartupAlert(
+        page,
+        /^(?:Unsupported configuration|No WebGPU adapter is available in Browser)/,
+    );
     await page.addInitScript(() => {
         Object.defineProperty(navigator, "gpu", {
             configurable: true,
@@ -919,7 +923,8 @@ test("the first and later scene frames match the projected unit cube and remain 
     await page.waitForTimeout(200);
     const bounds = await page.locator("#scene").boundingBox();
     expect(bounds, "the scene canvas has a page rectangle").not.toBeNull();
-    await installCaptureFrame(page, CAPTURE_ENTRY);
+    await page.addScriptTag({ path: CAPTURE_ENTRY });
+    await page.waitForFunction(() => typeof window.shallotCaptureFrame === "function");
     const first = await inspectScene(page, "first");
     expect(first.width, "captureFrame matches the real canvas width").toBe(
         Math.round(bounds!.width),
