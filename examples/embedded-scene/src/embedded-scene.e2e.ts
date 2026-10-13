@@ -928,6 +928,10 @@ test("the description and scene frame stay fitted in six responsive viewports", 
             return {
                 width: window.innerWidth,
                 height: window.innerHeight,
+                textEdges: ["h1", ".description", ".afterword"].map((selector) => {
+                    const bounds = document.querySelector(selector)!.getBoundingClientRect();
+                    return { left: bounds.left, width: bounds.width };
+                }),
                 lineTop: line.top,
                 lineBottom: line.bottom,
                 frameLeft: frame.left,
@@ -946,6 +950,16 @@ test("the description and scene frame stay fitted in six responsive viewports", 
                 bodyWidth: document.body.scrollWidth,
             };
         });
+        for (const edge of layout.textEdges) {
+            expect(
+                Math.abs(edge.left - layout.frameLeft),
+                `text and frame share their left edge at ${viewport.width}x${viewport.height}`,
+            ).toBeLessThanOrEqual(1);
+            expect(
+                Math.abs(edge.width - layout.frameWidth),
+                `text and frame share their width at ${viewport.width}x${viewport.height}`,
+            ).toBeLessThanOrEqual(1);
+        }
         expect(
             layout.lineBottom,
             `description stays above the frame at ${viewport.width}x${viewport.height}`,

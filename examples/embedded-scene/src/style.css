@@ -33,11 +33,21 @@ body {
     flex-direction: column;
     justify-content: center;
     gap: var(--page-gap);
-    width: min(100%, 880px);
+    width: min(
+        100%,
+        880px,
+        calc((100svh - var(--page-pad-y) - var(--page-pad-y) - 190px) * 16 / 9 + 48px)
+    );
     min-height: 100svh;
     margin: 0 auto;
     padding-block: var(--page-pad-y);
     padding-inline: min(24px, 5vw);
+}
+
+@media (max-height: 480px) {
+    body { font-size: 13px; line-height: 1.4; }
+    h1 { font-size: 20px; }
+    .page { --page-gap: 8px; }
 }
 
 .description {
@@ -50,10 +60,7 @@ body {
 
 .frame {
     position: relative;
-    width: min(
-        100%,
-        calc((100svh - var(--page-pad-y) - var(--page-pad-y) - 190px) * 16 / 9)
-    );
+    width: 100%;
     aspect-ratio: 16 / 9;
     overflow: hidden;
     border-radius: 6px;

@@ -19,7 +19,7 @@ export function authorWorld(world: World): void {
     ambient.color = 0xd8e4ff;
     ambient.brightness = 499.04787;
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -1, -0.55);
+    const sunRotation = lookAtRotation(0, 0, 0, 0.5, -1, 0.6);
     world.add(sun, Transform, {
         rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
     });
