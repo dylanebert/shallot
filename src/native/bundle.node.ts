@@ -74,11 +74,14 @@ const targetDir = process.env.CARGO_TARGET_DIR;
 const suffix = target.includes('windows') ? '.exe' : '';
 const output = path.join(targetDir, target, profile);
 fs.mkdirSync(output, { recursive: true });
-fs.writeFileSync(path.join(output, 'shallot-native' + suffix), 'shell');
+const shell = path.join(output, 'shallot-native' + suffix);
+fs.writeFileSync(shell, "#!/usr/bin/env node\\nif(process.env.FIXTURE_LAUNCH_LOG) require('node:fs').appendFileSync(process.env.FIXTURE_LAUNCH_LOG, JSON.stringify({ executable: process.argv[1], devUrl: process.env.SHALLOT_DEV_URL }) + String.fromCharCode(10));\\n");
+fs.chmodSync(shell, 0o755);
 if (target.includes('darwin')) fs.writeFileSync(path.join(output, 'shallot-helper'), 'helper');
 if (process.env.CARGO_FIXTURE_LOG) fs.appendFileSync(process.env.CARGO_FIXTURE_LOG, 'cargo\\n');
+if (process.env.ASSET_FIXTURE_LOG) fs.appendFileSync(process.env.ASSET_FIXTURE_LOG, JSON.stringify({ dist: process.env.SHALLOT_DIST, hasIndex: process.env.SHALLOT_DIST ? fs.existsSync(path.join(process.env.SHALLOT_DIST, 'index.html')) : false }) + '\\n');
 const runtime = process.env.CEF_PATH || process.env.FIXTURE_RUNTIME;
-const env = process.env.OMIT_CEF_PROVENANCE === '1' ? [] : [['SHALLOT_CEF_DIR', runtime]];
+const env = process.env.OMIT_CEF_PROVENANCE === '1' || !runtime ? [] : [['SHALLOT_CEF_DIR', runtime]];
 console.log(JSON.stringify({ reason: 'build-script-executed', package_id: 'path+file:///fixture#shallot-native@0.10.0', env }));
 `;
     writeTool(tools, "cargo", cargo);
@@ -154,6 +157,34 @@ try {
    await bundleNativeLinux(project,output,{release:true,portable:true});
    assert.equal(process.env.CEF_PATH,process.env.CALLER_CEF_PATH);
  }
+ else if(kind==='dev-sequence') {
+   const { nativeOutDir } = await import(${JSON.stringify(resolve(native, "index.ts"))});
+   const { bundleNativeLinux, bundleNativeMac, bundleNativeWindows } = await import(${JSON.stringify(resolve(native, "index.ts"))});
+   const { buildProject } = await import(${JSON.stringify(resolve(pkg, "src/cli/build.ts"))});
+   const { previewProject } = await import(${JSON.stringify(resolve(pkg, "src/cli/preview.ts"))});
+   const platform = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux';
+   const portable = platform === 'linux';
+   const standalone = nativeOutDir(project,platform,false,portable);
+   const bundle = platform === 'windows' ? bundleNativeWindows : platform === 'mac' ? bundleNativeMac : bundleNativeLinux;
+   await bundle(project,standalone,{portable});
+   await buildProject(project,{target:platform,portable,dev:true});
+   const standaloneDist = (await import('node:fs')).existsSync(platform === 'mac' ? standalone+'/game.app/Contents/Resources/dist/index.html' : standalone+'/dist/index.html');
+   const devShell = nativeOutDir(project,platform,false,portable,true);
+   const fs = await import('node:fs');
+   const originalSpawnSync = Bun.spawnSync;
+   Bun.spawnSync = (command, options) => {
+     const args = Array.isArray(command) ? command : [command];
+     const executable = args[0] === 'open' ? args[args.length - 1] : args[0];
+     fs.appendFileSync(process.env.FIXTURE_LAUNCH_LOG, JSON.stringify({executable,devUrl:options?.env?.SHALLOT_DEV_URL}) + String.fromCharCode(10));
+     return {exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)};
+   };
+   let previewStatus; let standalonePreviewStatus;
+   try {
+     previewStatus = await previewProject(project,{target:platform,portable,devUrl:'http://127.0.0.1:5173'});
+     standalonePreviewStatus = await previewProject(project,{target:platform,portable});
+   } finally { Bun.spawnSync = originalSpawnSync; }
+   (await import('node:fs')).writeFileSync(process.env.DEV_SEQUENCE_LOG, JSON.stringify({platform,portable,standalone,standaloneDist,devShell,previewStatus,standalonePreviewStatus}));
+ }
 } catch(error) {
  if(kind==='missing') { assert.match(String(error),/no CEF runtime provenance/); assert.equal((await import('node:fs')).existsSync(output),false); }
  else throw error;
@@ -218,6 +249,7 @@ function run(
             ...process.env,
             PATH: [f.tools, process.env.PATH].filter(Boolean).join(delimiter),
             CEF_PATH: undefined,
+            SHALLOT_DEV_URL: undefined,
             WSL_INTEROP: undefined,
             ...extraEnv,
         },
@@ -228,6 +260,179 @@ function run(
         stderr: new TextDecoder().decode(result.stderr),
     };
 }
+
+function stagedAssetPath(output: string, platform: string): string {
+    return platform === "mac"
+        ? resolve(output, "game.app/Contents/Resources/dist/index.html")
+        : resolve(output, "dist/index.html");
+}
+
+function seedSystemPrebuilt(
+    f: ReturnType<typeof fixture>,
+    platform: string,
+): Record<string, string> {
+    const target = {
+        linux: "x86_64-unknown-linux-gnu",
+        mac: "aarch64-apple-darwin",
+        windows: "x86_64-pc-windows-msvc",
+    }[platform]!;
+    const cacheRoot = resolve(f.root, "asset-cache");
+    const version = JSON.parse(readFileSync(resolve(f.pkg, "package.json"), "utf8")).version;
+    const cache = resolve(cacheRoot, "shallot/prebuilt", version, `${target}-system`);
+    mkdirSync(cache, { recursive: true });
+    writeFileSync(
+        resolve(cache, platform === "windows" ? "shallot-native.exe" : "shallot-native"),
+        "shell",
+    );
+    writeFileSync(resolve(cache, ".complete"), "");
+    return { XDG_CACHE_HOME: cacheRoot, LOCALAPPDATA: cacheRoot };
+}
+
+function assetBundle(
+    platform: string,
+    mode: "debug" | "source-release" | "prebuilt-release" | "dev",
+) {
+    const f = fixture();
+    try {
+        const output = resolve(f.root, `${platform}-${mode}`);
+        if (mode === "dev") rmSync(resolve(f.project, "dist"), { recursive: true, force: true });
+        if (mode === "source-release") {
+            const pkg = JSON.parse(readFileSync(resolve(f.pkg, "package.json"), "utf8"));
+            pkg.version = null;
+            writeFileSync(resolve(f.pkg, "package.json"), JSON.stringify(pkg));
+        }
+        const extraEnv =
+            mode === "source-release"
+                ? { ASSET_FIXTURE_LOG: resolve(f.root, "asset.log") }
+                : mode === "prebuilt-release"
+                  ? seedSystemPrebuilt(f, platform)
+                  : {};
+        const result = run(
+            f,
+            platform,
+            output,
+            { release: mode.endsWith("release"), portable: false, dev: mode === "dev" },
+            extraEnv,
+        );
+        expect(result.code, result.stderr).toBe(0);
+        const staged = mode === "debug" || mode === "prebuilt-release";
+        expect(existsSync(stagedAssetPath(output, platform))).toBe(staged);
+        if (mode === "source-release") {
+            const [record] = readFileSync(resolve(f.root, "asset.log"), "utf8").trim().split("\\n");
+            expect(JSON.parse(record)).toEqual({
+                dist: resolve(f.project, "dist"),
+                hasIndex: true,
+            });
+        }
+        if (mode === "dev") expect(existsSync(resolve(f.project, "dist"))).toBe(false);
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+}
+
+for (const platform of ["linux", "mac", "windows"]) {
+    for (const mode of ["debug", "source-release", "prebuilt-release", "dev"] as const) {
+        test(`native asset delivery: ${platform} ${mode}`, () => assetBundle(platform, mode));
+    }
+}
+
+for (const platform of ["linux", "mac", "windows"]) {
+    test(`native standalone ${platform} build refuses without dist/index.html`, () => {
+        const f = fixture();
+        try {
+            rmSync(resolve(f.project, "dist/index.html"));
+            const output = resolve(f.root, `${platform}-missing-index`);
+            const result = run(f, platform, output, { portable: false });
+            expect(result.code).not.toBe(0);
+            expect(result.stderr).toContain("vite build produced no dist/index.html");
+            expect(existsSync(output)).toBe(false);
+        } finally {
+            rmSync(f.root, { recursive: true, force: true });
+        }
+    });
+}
+
+test("native source release refuses without dist/index.html", () => {
+    const f = fixture();
+    try {
+        rmSync(resolve(f.project, "dist/index.html"));
+        const output = resolve(f.root, "linux-source-release-missing-index");
+        const result = run(f, "linux", output, { release: true, portable: false });
+        expect(result.code).not.toBe(0);
+        expect(result.stderr).toContain("vite build produced no dist/index.html");
+        expect(existsSync(output)).toBe(false);
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});
+
+test("native standalone build keeps the absent-directory refusal", () => {
+    const f = fixture();
+    try {
+        rmSync(resolve(f.project, "dist"), { recursive: true, force: true });
+        const output = resolve(f.root, "linux-missing-dist");
+        const result = run(f, "linux", output, { portable: false });
+        expect(result.code).not.toBe(0);
+        expect(result.stderr).toContain("vite build produced no dist/ directory");
+        expect(result.stderr).not.toContain("vite build produced no dist/index.html");
+        expect(existsSync(output)).toBe(false);
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});
+
+test("native dev builds preserve the standalone bundle and preview launches the dev shell", () => {
+    const f = fixture();
+    try {
+        const platform =
+            process.platform === "win32"
+                ? "windows"
+                : process.platform === "darwin"
+                  ? "mac"
+                  : "linux";
+        const portable = platform === "linux";
+        const runtime = portable ? runtimeDir(f, "dev-sequence", "libcef.so") : undefined;
+        const reportPath = resolve(f.root, "dev-sequence.json");
+        const launchPath = resolve(f.root, "launch.jsonl");
+        const output = resolve(f.root, "unused-output");
+        const result = run(
+            f,
+            "dev-sequence",
+            output,
+            {},
+            {
+                FIXTURE_RUNTIME: runtime,
+                DEV_SEQUENCE_LOG: reportPath,
+                FIXTURE_LAUNCH_LOG: launchPath,
+            },
+        );
+        expect(result.code, result.stderr).toBe(0);
+        const report = JSON.parse(readFileSync(reportPath, "utf8"));
+        expect(report.standaloneDist).toBe(true);
+        expect(report.devShell).not.toBe(report.standalone);
+        expect(report.previewStatus, result.stderr).toBe(0);
+        expect(report.standalonePreviewStatus, result.stderr).toBe(0);
+        const launches = readFileSync(launchPath, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line));
+        const binary = (dir: string) =>
+            report.platform === "mac"
+                ? resolve(dir, "game.app", "Contents", "MacOS", "game")
+                : resolve(dir, `game${report.platform === "windows" ? ".exe" : ""}`);
+        const standaloneLaunch =
+            report.platform === "mac"
+                ? resolve(report.standalone, "game.app")
+                : binary(report.standalone);
+        expect(launches).toHaveLength(2);
+        expect(launches[0].executable).toBe(binary(report.devShell));
+        expect(launches[0].devUrl).toBe("http://127.0.0.1:5173");
+        expect(launches[1].executable).toBe(standaloneLaunch);
+        expect(launches[1].devUrl).toBeUndefined();
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});
 
 function staleLinuxBundle(includeRelease: boolean) {
     const f = fixture();

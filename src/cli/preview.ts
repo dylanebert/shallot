@@ -59,7 +59,13 @@ export async function previewProject(
     }
 
     const name = basename(projectDir);
-    const outputDir = nativeOutDir(projectDir, target.kind, release, portable);
+    const outputDir = nativeOutDir(
+        projectDir,
+        target.kind,
+        release,
+        portable,
+        Boolean(opts.devUrl),
+    );
     const artifact =
         target.kind === "mac"
             ? resolve(outputDir, `${name}.app`)

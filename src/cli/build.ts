@@ -21,7 +21,7 @@ export async function buildProject(
 
     if (!opts.dev) await buildWeb(projectDir, {}, opts.args);
 
-    const outputDir = nativeOutDir(projectDir, target, release, portable);
+    const outputDir = nativeOutDir(projectDir, target, release, portable, opts.dev);
     const label = normalizePath(relative(projectDir, outputDir));
     console.log(`\n  building ${basename(projectDir)} → ${label}/\n`);
     const bundleOpts = { release, portable, dev: opts.dev };

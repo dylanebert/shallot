@@ -27,7 +27,7 @@ test("a native debug process receives the Vite URL instead of its packaged asset
     const name = basename(project);
     // The host's own target: a Windows host launches an .exe, others a Linux executable script.
     const windows = process.platform === "win32";
-    const output = nativeOutDir(project, windows ? "windows" : "linux", false, false);
+    const output = nativeOutDir(project, windows ? "windows" : "linux", false, false, true);
     mkdirSync(output, { recursive: true });
     const observed = join(project, "observed-url.txt");
     if (windows) {

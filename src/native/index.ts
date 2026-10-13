@@ -39,19 +39,19 @@ export function dropSwiftshader(): boolean {
 }
 
 /**
- * a native build's output dir: `build/<platform>/<profile>-<mode>`. The mode segment keeps a portable
- * (CEF) and a system-webview build of the same project + profile in separate dirs (they'd otherwise
- * share a path and clobber).
+ * A native build's output dir: `build/<platform>/<profile>-<mode>`, with `-dev` for dev shells.
+ * Portable and system shells, and dev and standalone shells, occupy separate directories.
  */
 export function nativeOutDir(
     projectDir: string,
     platform: string,
     release: boolean,
     portable: boolean,
+    dev = false,
 ): string {
     const profile = release ? "release" : "debug";
     const mode = portable ? "portable" : "system";
-    return resolve(projectDir, "build", platform, `${profile}-${mode}`);
+    return resolve(projectDir, "build", platform, `${profile}-${mode}${dev ? "-dev" : ""}`);
 }
 
 // cargo's build output root for the crate. The windows-portable WSL build redirects to a local
@@ -248,6 +248,20 @@ function ensureIcon(distDir: string): void {
     }
 }
 
+function projectDist(projectDir: string, dev: boolean): string {
+    const distDir = resolve(projectDir, "dist");
+    if (!dev && !existsSync(distDir)) {
+        console.error("  vite build produced no dist/ directory");
+        process.exit(1);
+    }
+    if (!dev && !existsSync(resolve(distDir, "index.html"))) {
+        console.error("  vite build produced no dist/index.html");
+        process.exit(1);
+    }
+    if (!dev) ensureIcon(distDir);
+    return distDir;
+}
+
 // The runtime path comes from this invocation's Cargo build-script message, not the target cache.
 
 // strip is the single biggest CEF size win — the Spotify builds ship libcef unstripped. Skips when the
@@ -281,12 +295,7 @@ export async function bundleNativeWindows(
     const dev = opts.dev ?? false;
     const name = basename(projectDir);
 
-    const distDir = resolve(projectDir, "dist");
-    if (!dev && !existsSync(distDir)) {
-        console.error("  vite build produced no dist/ directory");
-        process.exit(1);
-    }
-    if (!dev) ensureIcon(distDir);
+    const distDir = projectDist(projectDir, dev);
 
     // portable on WSL builds into a local Windows dir (off the 9p share); read its artifacts back
     // through the /mnt view. Every other case uses the in-tree target/.
@@ -332,7 +341,7 @@ export async function bundleNativeWindows(
     // portable ships the Chromium runtime beside the exe (Windows resolves DLLs from the exe dir).
     if (portable) copyCefDlls(outputDir, cefDir!);
 
-    if (!release && !dev) {
+    if (!dev && (!release || prebuilt)) {
         cpSync(distDir, resolve(outputDir, "dist"), { recursive: true });
     }
 
@@ -463,12 +472,7 @@ export async function bundleNativeMac(
     const dev = opts.dev ?? false;
     const name = basename(projectDir);
 
-    const distDir = resolve(projectDir, "dist");
-    if (!dev && !existsSync(distDir)) {
-        console.error("  vite build produced no dist/ directory");
-        process.exit(1);
-    }
-    if (!dev) ensureIcon(distDir);
+    const distDir = projectDist(projectDir, dev);
 
     console.log(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
@@ -554,10 +558,9 @@ export async function bundleNativeMac(
         if (release) tryStrip(resolve(fwOut, "Chromium Embedded Framework"), "-x -S");
     }
 
-    // Debug stages dist/ on disk so asset edits show without a recompile (see crates/native/src/main.rs).
-    // It goes in Resources/, not MacOS/ — codesign treats everything under MacOS/ as nested code and
-    // rejects the bundle on the first non-Mach-O asset; Resources is where bundled data belongs.
-    if (!release && !dev) {
+    // Disk assets live in Resources/, not MacOS/ — codesign treats everything under MacOS/ as nested
+    // code and rejects the bundle on the first non-Mach-O asset; Resources is where bundled data belongs.
+    if (!dev && (!release || prebuilt)) {
         cpSync(distDir, resolve(resourcesDir, "dist"), { recursive: true });
     }
 
@@ -648,12 +651,7 @@ export async function bundleNativeLinux(
     const dev = opts.dev ?? false;
     const name = basename(projectDir);
 
-    const distDir = resolve(projectDir, "dist");
-    if (!dev && !existsSync(distDir)) {
-        console.error("  vite build produced no dist/ directory");
-        process.exit(1);
-    }
-    if (!dev) ensureIcon(distDir);
+    const distDir = projectDist(projectDir, dev);
 
     console.log(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
@@ -686,7 +684,7 @@ export async function bundleNativeLinux(
     // portable ships the Chromium runtime; the default depends on the host's WebKitGTK (no copy).
     if (portable) copyCefLibs(outputDir, cefDir!, release);
 
-    if (!release && !dev) {
+    if (!dev && (!release || prebuilt)) {
         cpSync(distDir, resolve(outputDir, "dist"), { recursive: true });
     }
 }
