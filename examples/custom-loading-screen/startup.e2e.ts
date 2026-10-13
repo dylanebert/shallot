@@ -1,3 +1,4 @@
+import { CEILING } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 declare global {
@@ -226,7 +227,7 @@ test("the light bootstrap hands off to the minimalLight progress track", async (
     ).toBe(0);
     await hiddenOverlay.evaluate((element) => element.parentNode?.removeChild(element));
     await page.evaluate(() => window.__releaseDeviceRequest?.());
-    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: CEILING.browser });
 });
 
 test("the screenshot witness rejects a blank bootstrap text control", async ({ page }) => {

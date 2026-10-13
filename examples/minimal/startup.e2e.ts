@@ -1,3 +1,4 @@
+import { CEILING } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 const entry = "**/assets/index-*.js";
@@ -101,7 +102,7 @@ test("releasing the entry hands off to the loading screen and starts the scene",
     release();
     await expect(page.locator("[data-shallot-bootstrap]")).toHaveCount(0);
     await expect(page.locator(loadingOverlay)).toBeVisible();
-    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: CEILING.browser });
 
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
