@@ -46,7 +46,6 @@
         "./input": "./src/core/input/index.ts",
         "./audio": "./src/core/audio/index.ts",
         "./standard/audio": "./src/standard/audio/index.ts",
-        "./transitional/audio": "./src/transitional/audio/index.ts",
         "./mesh": "./src/core/mesh/index.ts",
         "./rendering": "./src/core/rendering/index.ts",
         "./standard/rendering": "./src/standard/rendering/index.ts",
