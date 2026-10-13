@@ -40,8 +40,10 @@ const MINIMAL_FILES = [
     "package.json",
     "playwright.config.ts",
     "public/icon.svg",
+    "public/startup.js",
     "src/welcome/index.ts",
     "src/welcome/welcome.test.ts",
+    "startup.e2e.ts",
     "tests/preload.ts",
     "tsconfig.json",
     "vite.config.ts",
@@ -50,8 +52,10 @@ const MINIMAL_TEMPLATE_FILES = [
     "index.html",
     "playwright.config.ts",
     "public/icon.svg",
+    "public/startup.js",
     "src/welcome/index.ts",
     "src/welcome/welcome.test.ts",
+    "startup.e2e.ts",
     "tsconfig.json",
     "vite.config.ts",
 ];
@@ -153,7 +157,7 @@ function assertProject(destination: string, templateFiles: string[]): void {
     );
 }
 
-test("create writes exactly the 14-file minimal project", () => {
+test("create writes exactly the 16-file minimal project", () => {
     const destination = join(SCRATCH, "minimal");
     expect(runCreate([destination])).toBe(0);
     expect(files(destination).sort()).toEqual([...MINIMAL_FILES].sort());
