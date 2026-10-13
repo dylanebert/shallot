@@ -60,7 +60,8 @@ export const test = base.extend({
                     '[role="alert"], [style*="z-index: 10000"]',
                 )) {
                     const text = notice.textContent?.replace(/\s+/g, " ").trim() ?? "";
-                    if (!text || reported.has(notice)) continue;
+                    // A software adapter's notice is accepted, as browser observations accept software adapters.
+                    if (!text || /^\w+ adapter: /.test(text) || reported.has(notice)) continue;
                     reported.add(notice);
                     console.error(`${prefix}${text}`);
                 }

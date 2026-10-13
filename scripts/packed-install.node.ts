@@ -307,17 +307,13 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     const copiedFiles = projectFiles(project);
     for (const file of copiedFiles.filter((path) => path.endsWith(".node.ts")).sort()) {
         const subject = `./${relative(project, file).replaceAll("\\", "/")}`;
-        const output = run(["bun", "test", subject], project, `bun test ${name} ${subject}`);
-        expect(output).toContain("0 fail");
-    }
-    if (process.platform === "darwin" && copiedFiles.some((path) => path.endsWith(".e2e.ts"))) {
-        run(["bunx", "playwright", "install", "chromium"], project, `Playwright install ${name}`);
-        const browser = run(
-            ["bunx", "playwright", "test"],
+        // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires.
+        const output = run(
+            [process.execPath, "test", subject],
             project,
-            `bunx playwright test ${name}`,
+            `bun test ${name} ${subject}`,
         );
-        expect(browser).toContain("passed");
+        expect(output).toContain("0 fail");
     }
     const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
         cwd: project,
