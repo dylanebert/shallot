@@ -37,8 +37,8 @@ type PackedInstall = {
 
 let install: PackedInstall | undefined;
 
-function run(command: string[], cwd: string, label: string): string {
-    const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
+function run(command: string[], cwd: string, label: string, argv0?: string): string {
+    const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe", argv0 });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
     if (result.exitCode !== 0) throw new Error(`${label} failed:\n${output}`);
     return output;
@@ -307,11 +307,13 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     const copiedFiles = projectFiles(project);
     for (const file of copiedFiles.filter((path) => path.endsWith(".node.ts")).sort()) {
         const subject = `./${relative(project, file).replaceAll("\\", "/")}`;
-        // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires.
+        // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
+        // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
         const output = run(
             [process.execPath, "test", subject],
             project,
             `bun test ${name} ${subject}`,
+            "bun",
         );
         expect(output).toContain("0 fail");
     }

@@ -148,6 +148,7 @@ test("the npm package contains only declared files and required consumers", asyn
     const missing = required.filter((f) => !files.includes(f));
     const exampleChecks = ["examples/**/*.test.ts", "examples/**/*.node.ts", "examples/**/*.e2e.ts"]
         .flatMap((pattern) => [...new Glob(pattern).scanSync(pkgDir)])
+        .map((check) => check.split(sep).join("/"))
         .sort();
     for (const check of exampleChecks)
         if (!files.includes(check)) missing.push(`${check} (example check not shipped)`);
