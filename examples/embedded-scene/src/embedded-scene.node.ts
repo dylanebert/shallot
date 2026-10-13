@@ -28,6 +28,7 @@ test("embedded-scene draws with default WebGPU limits", async () => {
         attachTexture(world, camera, { width: 64, height: 64 });
         world.step(0);
         const frame = await captureTexture(world, camera);
+        console.info("rendered clear", Array.from(frame.rgba.slice(0, 4)));
         expect(frame.rgba.some((value, index) => value !== frame.rgba[index % 4])).toBe(true);
         await device.queue.onSubmittedWorkDone();
     } finally {

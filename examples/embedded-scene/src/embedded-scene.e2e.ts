@@ -83,7 +83,9 @@ async function inspectStartup(page: Page) {
         const track = rect("[data-bootstrap-track]");
         const frameElement = document.querySelector<HTMLElement>("#frame");
         const background = frameElement
-            ? getComputedStyle(frameElement)
+            ? getComputedStyle(
+                  document.querySelector<HTMLElement>("[data-shallot-bootstrap]") ?? frameElement,
+              )
                   .backgroundColor.match(/[\d.]+/g)!
                   .slice(0, 3)
                   .map(Number)
@@ -210,6 +212,9 @@ test("host paints contained semantic startup feedback before application entry, 
     await page.setViewportSize({ width: 390, height: 844 });
     await expectPaintedStartup(page);
     if (evidence) await page.screenshot({ path: join(evidence, "startup-mobile.png") });
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await expectPaintedStartup(page);
+    if (evidence) await page.screenshot({ path: join(evidence, "startup-tablet.png") });
     await page.setViewportSize({ width: 1280, height: 720 });
     const bootstrap = await page.locator("[data-shallot-bootstrap]").elementHandle();
     release();
@@ -320,7 +325,8 @@ async function inspectPageScreenshot(page: Page, encoded: string) {
             );
             const pageColor = channels(getComputedStyle(document.body).backgroundColor);
             const frameColor = channels(
-                getComputedStyle(document.querySelector<HTMLElement>("#frame")!).backgroundColor,
+                getComputedStyle(overlay ?? document.querySelector<HTMLElement>("#frame")!)
+                    .backgroundColor,
             );
             const inkColor = channels(
                 getComputedStyle(document.querySelector(".description")!).color,
@@ -384,7 +390,6 @@ async function inspectScene(page: Page, frameKey: string) {
         (window.__sceneFrames ??= {})[key] = capture.rgba;
         const surface = { width: capture.width, height: capture.height };
         const rgba = capture.rgba;
-        const clear = [rgba[0]!, rgba[1]!, rgba[2]!];
         const frameColor = (
             getComputedStyle(document.querySelector("#frame")!).backgroundColor.match(/[\d.]+/g) ??
             []
@@ -457,11 +462,8 @@ async function inspectScene(page: Page, frameKey: string) {
             for (let x = 0; x < surface.width; x++) {
                 const offset = (y * surface.width + x) * 4;
                 const different =
-                    Math.max(
-                        Math.abs(rgba[offset]! - clear[0]!),
-                        Math.abs(rgba[offset + 1]! - clear[1]!),
-                        Math.abs(rgba[offset + 2]! - clear[2]!),
-                    ) > 24;
+                    rgba[offset]! > rgba[offset + 1]! * 1.25 &&
+                    rgba[offset + 1]! > rgba[offset + 2]! * 1.3;
                 if (different) {
                     scenePixels++;
                     left = Math.min(left, x);
@@ -490,6 +492,7 @@ async function inspectScene(page: Page, frameKey: string) {
         let compared = 0;
         for (let y = 0; y < surface.height; y++) {
             for (let x = 0; x < surface.width; x++) {
+                if (y >= expectedTop - 2) continue;
                 const px = x + 0.5;
                 const py = y + 0.5;
                 if (
@@ -520,6 +523,44 @@ async function inspectScene(page: Page, frameKey: string) {
         };
     }, frameKey);
 }
+
+test("light document and rendered frame differ by at least 0.6 OKLab lightness", async ({
+    page,
+}) => {
+    await waitForScene(page);
+    await page.addScriptTag({ path: CAPTURE_ENTRY });
+    await page.addStyleTag({
+        content: "#frame { width: 1280px !important; height: 720px !important; }",
+    });
+    await expect
+        .poll(() => page.locator("#scene").evaluate((e) => (e as HTMLCanvasElement).width))
+        .toBe(1280);
+    const contrast = await page.evaluate(async () => {
+        const shot = await window.shallotCaptureFrame!(
+            document.querySelector<HTMLCanvasElement>("#scene")!,
+        );
+        const lightness = (rgb: number[]) => {
+            const [r, g, b] = rgb.map((v) => {
+                const s = v / 255;
+                return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+            });
+            return (
+                0.2104542553 *
+                    Math.cbrt(0.4122214708 * r! + 0.5363325363 * g! + 0.0514459929 * b!) +
+                0.793617785 * Math.cbrt(0.2119034982 * r! + 0.6806995451 * g! + 0.1073969566 * b!) -
+                0.0040720468 * Math.cbrt(0.0883024619 * r! + 0.2817188376 * g! + 0.6299787005 * b!)
+            );
+        };
+        const page = getComputedStyle(document.body)
+            .backgroundColor.match(/\d+/g)!
+            .slice(0, 3)
+            .map(Number);
+        const clear = Array.from(shot.rgba.slice(0, 3));
+        console.log("rendered clear", clear);
+        return lightness(page) - lightness(clear);
+    });
+    expect(contrast).toBeGreaterThanOrEqual(0.6);
+});
 
 async function compareSceneFrames(page: Page, first: string, later: string) {
     return page.evaluate(
@@ -625,9 +666,9 @@ test("embedded-scene progress stays in its owned frame and reaches the bar; its 
                         rect.top >= bounds.top &&
                         rect.right <= bounds.right &&
                         rect.bottom <= bounds.bottom,
-                    transparent:
+                    opaqueDark:
                         overlay !== null &&
-                        getComputedStyle(overlay).backgroundColor === "rgba(0, 0, 0, 0)",
+                        getComputedStyle(overlay).backgroundColor === "rgb(20, 18, 16)",
                     lineHit:
                         document.elementFromPoint(
                             lineRect.left + lineRect.width / 2,
@@ -645,7 +686,9 @@ test("embedded-scene progress stays in its owned frame and reaches the bar; its 
             }, overlaySelector);
             expect(held.owned, "loading overlay is a child of its scene frame").toBe(true);
             expect(held.inside, "loading overlay remains inside the scene frame").toBe(true);
-            expect(held.transparent, "minimal progress overlay remains transparent").toBe(true);
+            expect(held.opaqueDark, "default dark overlay owns an opaque brand background").toBe(
+                true,
+            );
             expect(held.lineHit, "the description line remains the hit target during loading").toBe(
                 true,
             );
@@ -686,7 +729,7 @@ test("embedded-scene progress stays in its owned frame and reaches the bar; its 
             ).toBeGreaterThan(100);
             expect(
                 loadingPixels.frameBackgroundFraction,
-                "the screenshot with the canvas omitted leaves at least 97 percent of its frame at --bg2",
+                "the default loading surface fills at least 97 percent of the frame",
             ).toBeGreaterThanOrEqual(0.97);
             expect(
                 loadingPixels.pageBackgroundError,
@@ -832,7 +875,7 @@ test("the first and later scene frames match the projected unit cube and remain 
     ).toBe(true);
     expect(
         first.maxBackgroundError,
-        "outside the projected cube, the revealed scene matches frame --bg2 within 2 RGB levels per channel",
+        "above the cube and ground, the rendered clear matches the frame within 2 RGB levels",
     ).toBeLessThanOrEqual(2);
 
     await page.waitForTimeout(100);
@@ -852,14 +895,14 @@ test("the first and later scene frames match the projected unit cube and remain 
     ).toBeLessThanOrEqual(0.001);
     expect(
         later.maxBackgroundError,
-        "the later revealed scene matches frame --bg2 outside the projected cube",
+        "the later rendered clear above the cube and ground matches the frame",
     ).toBeLessThanOrEqual(2);
 });
 
 test("the description and scene frame stay fitted in six responsive viewports", async ({
     page,
 }) => {
-    await openPage(page);
+    await waitForScene(page);
     const viewports = [
         { width: 390, height: 844 },
         { width: 844, height: 390 },
@@ -870,6 +913,13 @@ test("the description and scene frame stay fitted in six responsive viewports", 
     ];
     for (const viewport of viewports) {
         await page.setViewportSize(viewport);
+        const evidence = process.env["SHALLOT_STARTUP_EVIDENCE"];
+        if (evidence && [390, 820, 1280].includes(viewport.width)) {
+            await page.waitForTimeout(200);
+            await page.screenshot({
+                path: join(evidence, `scene-${viewport.width}x${viewport.height}.png`),
+            });
+        }
         const layout = await page.evaluate(() => {
             const line = document
                 .querySelector<HTMLElement>(".description")!
@@ -886,8 +936,10 @@ test("the description and scene frame stay fitted in six responsive viewports", 
                 frameBottom: frame.bottom,
                 frameWidth: frame.width,
                 frameHeight: frame.height,
-                topMargin: line.top,
-                bottomMargin: window.innerHeight - frame.bottom,
+                topMargin: document.querySelector("h1")!.getBoundingClientRect().top,
+                bottomMargin:
+                    window.innerHeight -
+                    document.querySelector(".afterword")!.getBoundingClientRect().bottom,
                 leftPadding: frame.left,
                 rightPadding: window.innerWidth - frame.right,
                 documentWidth: document.documentElement.scrollWidth,

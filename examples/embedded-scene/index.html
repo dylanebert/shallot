@@ -2,7 +2,7 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
-        <meta name="description" content="Show a Shallot scene inside a host page, its loading contained to the frame." />
+        <meta name="description" content="Embed a Shallot scene in an ordinary web page, with loading and rendering contained in its frame." />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>embedded-scene</title>
         <link rel="stylesheet" href="/src/style.css" />
@@ -10,7 +10,8 @@
     <body>
         <div id="app">
             <main class="page">
-                <p class="description">scene with minimal loading bar</p>
+                <h1>A scene inside a page</h1>
+                <p class="description">This Shallot scene is embedded in an ordinary web page. Its loading screen and canvas stay inside the frame.</p>
                 <section class="scene" aria-label="Embedded Shallot scene">
                     <div class="frame" id="frame">
                         <canvas id="scene" aria-label="Rendered Shallot scene"></canvas>
@@ -20,11 +21,14 @@
                             role="status"
                             aria-label="Loading"
                         >
-                            <span data-bootstrap-label>Loading…</span>
-                            <span data-bootstrap-track aria-hidden="true"></span>
+                            <div class="bootstrap-panel">
+                                <span data-bootstrap-label>Loading…</span>
+                                <span data-bootstrap-track aria-hidden="true"></span>
+                            </div>
                         </div>
                     </div>
                 </section>
+                <p class="afterword">The document continues here, outside the scene.</p>
             </main>
         </div>
         <script src="/startup.js"></script>
