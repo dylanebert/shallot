@@ -1,10 +1,9 @@
 import { component } from "../../engine";
 // Text — the shallot SDF-text producer. A retained `Text` component (string content, font, size,
 // anchor, color) lays each label out into instanced glyph quads, drawn in core's transparent phase (one
-// draw per font atlas). The glyph buffer holds glyph-local positions + the owning entity id; the VS resolves
+// draw per label). The glyph buffer holds glyph-local positions + the owning entity id; the VS resolves
 // the entity's dense row through `globalTransformRows` each frame, so placement flows through
-// GlobalTransform and triggers no glyph rebuild. Text previously used an alpha surface, so it never
-// entered the opaque depth prepass or either shadow path; moving it drops no shadow-casting behavior.
+// GlobalTransform and triggers no glyph rebuild.
 // The SDF atlas / font / layout substance remains renderer-agnostic. Single-channel SDF (Valve "Improved
 // Alpha-Tested Magnification").
 
@@ -25,7 +24,6 @@ import {
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import { f32, type Plugin, Registry, type System, u32, vec2, type World } from "../../engine";
 import { packColor, type Xform } from "../../engine/utils";
-import { DrawIndexedIndirect } from "../../standard/rendering";
 import {
     createGlyphAtlas,
     disposeAtlases,
@@ -141,20 +139,15 @@ interface TextState {
     atlases: (GlyphAtlas | null)[];
     sampler: GPUSampler | null;
     glyphBuf: (TgpuBuffer<d.WgslArray<typeof Glyph>> & StorageFlag) | null;
-    argBuf:
-        | (TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> & { usableAsIndirect: true })
-        | null;
     staging: ArrayBuffer;
     f32: Float32Array;
     u32: Uint32Array;
     cap: number;
     count: number;
     quad: MeshHandle | null;
-    quadBase: number;
     sig: number;
     byFont: LabelGlyph[][];
     labelDraws: TextLabelDraw[];
-    ranges: { start: number; count: number }[];
     lastPipeline: import("typegpu").TgpuRenderPipeline | null;
     lastViewGroup: GPUBindGroup | null;
     lastFontGroup: GPUBindGroup | null;
@@ -180,18 +173,15 @@ function createTextState(): TextState {
         atlases: [],
         sampler: null,
         glyphBuf: null,
-        argBuf: null,
         staging,
         f32: new Float32Array(staging),
         u32: new Uint32Array(staging),
         cap: INITIAL,
         count: 0,
         quad: null,
-        quadBase: 0,
         sig: -1,
         byFont: [],
         labelDraws: [],
-        ranges: [],
         lastPipeline: null,
         lastViewGroup: null,
         lastFontGroup: null,
@@ -249,15 +239,13 @@ function grow(world: World, min: number): void {
 }
 
 // lay every visible label out into per-font glyph lists, pack them into the shared staging in font-id
-// order (each font's draw indexes its contiguous range via firstInstance), grow + upload the GPU buffer,
-// and write each font's indirect record. Runs only on a signature change
+// order (each label's draw indexes its contiguous range via firstInstance), then grow + upload the GPU
+// buffer. Runs only on a signature change
 function rebuild(world: World, device: GPUDevice): void {
     const _textState = world.resource(textStateKey);
     _textState.labelDraws.length = 0;
 
     while (_textState.byFont.length < _textState.atlases.length) _textState.byFont.push([]);
-    while (_textState.ranges.length < _textState.atlases.length)
-        _textState.ranges.push({ start: 0, count: 0 });
     for (let i = 0; i < _textState.atlases.length; i++) _textState.byFont[i].length = 0;
 
     for (const eid of world.query(TEXT_TRANSFORM_QUERY)) {
@@ -310,7 +298,6 @@ function rebuild(world: World, device: GPUDevice): void {
 
     let n = 0;
     for (let id = 0; id < _textState.atlases.length; id++) {
-        _textState.ranges[id].start = n;
         for (const g of _textState.byFont[id] ?? []) {
             const label = _textState.labelDraws[g.label];
             if (label.count === 0) label.start = n;
@@ -329,7 +316,6 @@ function rebuild(world: World, device: GPUDevice): void {
             _textState.u32[o + GLYPH_AT.color] = g.color;
             n++;
         }
-        _textState.ranges[id].count = n - _textState.ranges[id].start;
     }
     _textState.count = n;
 
@@ -351,16 +337,6 @@ function rebuild(world: World, device: GPUDevice): void {
             0,
             _textState.count * GLYPH_BYTES,
         );
-
-    _textState.argBuf!.write(
-        Array.from({ length: Math.max(1, _textState.atlases.length) }, (_, id) => ({
-            indexCount: 6,
-            instanceCount: _textState.atlases[id] ? _textState.ranges[id].count : 0,
-            firstIndex: _textState.quadBase,
-            baseVertex: 0,
-            firstInstance: _textState.atlases[id] ? _textState.ranges[id].start : 0,
-        })),
-    );
 }
 
 // runs before standard reads the glyph buffer (the VS positions glyphs from it), so it pins before:
@@ -370,22 +346,10 @@ const TextSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     before: [PrepassSystem],
-    setup(world: World) {
-        const _textState = world.resource(textStateKey);
-        _textState.quadBase =
-            (_textState.quad === null ? undefined : world.resource(Meshes).get(_textState.quad))
-                ?.indexBase ?? 0;
-    },
     update(world) {
         const _textState = world.resource(textStateKey);
 
-        if (
-            !world.gpu.device ||
-            !_textState.glyphBuf ||
-            !_textState.argBuf ||
-            _textState.atlases.length === 0
-        )
-            return;
+        if (!world.gpu.device || !_textState.glyphBuf || _textState.atlases.length === 0) return;
         const sig = signature(world);
         if (sig === _textState.sig) return;
         _textState.sig = sig;
@@ -551,7 +515,7 @@ function drawText(
 
 /**
  * the shallot text producer: the retained {@link Text} component laid out into instanced SDF glyph quads,
- * drawn in core's transparent phase (one draw per font). Register fonts with {@link registerFont} and
+ * drawn in core's transparent phase (one draw per label). Register fonts with {@link registerFont} and
  * label strings with {@link internText}. Depends on {@link CorePipelinePlugin}; a core camera renders it
  */
 export const TextPlugin: Plugin = {
@@ -565,7 +529,6 @@ export const TextPlugin: Plugin = {
         const _textState = world.resource(textStateKey);
         const _fonts = world.resource(Fonts);
 
-        _textState;
         initializeSdfState(world);
         world.resource(RenderPhases).push({
             transparent: queueText,
@@ -575,7 +538,6 @@ export const TextPlugin: Plugin = {
         _textState.loaded = [];
         _textState.atlases = [];
         _textState.glyphBuf = null;
-        _textState.argBuf = null;
         _textState.sampler = null;
         _textState.sig = -1;
 
@@ -633,10 +595,6 @@ export const TextPlugin: Plugin = {
             .$name("shallot-text-glyphs");
         world.gpu.buffers.set("textGlyphs", world.gpu.root.unwrap(_textState.glyphBuf));
         world.gpu.typed.set("textGlyphs", _textState.glyphBuf);
-        _textState.argBuf = world.gpu.root
-            .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _textState.atlases.length)))
-            .$usage("indirect")
-            .$name("shallot-text-args");
         const format = world.resource(RenderContext).format;
         _textState.colorPipelines = {
             single: createTextPipeline(world.gpu.root, format, 1),
@@ -652,11 +610,9 @@ export const TextPlugin: Plugin = {
         const _textState = world.resource(textStateKey);
 
         _textState.glyphBuf?.destroy();
-        _textState.argBuf?.destroy();
         disposeAtlases(_textState.atlases);
         resetPipelines(world);
         _textState.glyphBuf = null;
-        _textState.argBuf = null;
         _textState.atlases = [];
         _textState.loaded = [];
         _textState.count = 0;
