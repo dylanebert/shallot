@@ -82,18 +82,13 @@ wrap_app! {
                     Some(&CefString::from("enable-dawn-features")),
                     Some(&CefString::from("allow_unsafe_apis")),
                 );
-                // The Linux stall workaround selects the compositor's ANGLE backend, not just WebGPU's.
+                // ANGLE Vulkan avoids the observed stalls without forcing Chromium's Vulkan compositor,
+                // which produced transparent Wayland windows.
                 #[cfg(target_os = "linux")]
-                {
-                    cmd.append_switch_with_value(
-                        Some(&CefString::from("use-angle")),
-                        Some(&CefString::from("vulkan")),
-                    );
-                    cmd.append_switch_with_value(
-                        Some(&CefString::from("enable-features")),
-                        Some(&CefString::from("Vulkan")),
-                    );
-                }
+                cmd.append_switch_with_value(
+                    Some(&CefString::from("use-angle")),
+                    Some(&CefString::from("vulkan")),
+                );
                 // Windows: run the GPU in-process. The re-exec'd GPU subprocess can't initialize GL in
                 // this single-exe CEF build — gl::init::InitializeStaticGLBindingsOneOff fails, the GPU
                 // process exits, Chromium falls back to use-gl=disabled, and requestAdapter() returns
@@ -137,6 +132,33 @@ wrap_browser_process_handler! {
                 None,
             );
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linux_keeps_angle_vulkan_without_forcing_the_vulkan_compositor() {
+        let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
+        let mut command_line = command_line_create().expect("failed to create CEF command line");
+        ShallotApp::new().on_before_command_line_processing(None, Some(&mut command_line));
+
+        assert_eq!(
+            CefString::from(&command_line.switch_value(Some(&CefString::from("use-angle"))))
+                .to_string(),
+            "vulkan"
+        );
+        let enabled_features =
+            CefString::from(&command_line.switch_value(Some(&CefString::from("enable-features"))))
+                .to_string();
+        assert!(
+            enabled_features
+                .split(',')
+                .all(|feature| feature != "Vulkan"),
+            "forcing the Vulkan compositor makes the Wayland window transparent"
+        );
     }
 }
 
