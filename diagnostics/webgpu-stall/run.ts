@@ -654,6 +654,7 @@ async function runShell(endpoint: string, label: string): Promise<void> {
     let scriptId: string | undefined;
     let tracing = false;
     let page: Page | undefined;
+    let restoreUrl: string | undefined;
     try {
         session = await browser.newBrowserCDPSession();
         const gpuInfo = await session.send("SystemInfo.getInfo");
@@ -664,16 +665,28 @@ async function runShell(endpoint: string, label: string): Promise<void> {
         if (pages.length !== 1) throw new Error(`Expected one shell page, found ${pages.length}`);
         page = pages[0]!;
         pageSession = await page.context().newCDPSession(page);
+        await pageSession.send("Page.enable");
+        const pageErrors: string[] = [];
+        page.on("pageerror", error => pageErrors.push(error.message));
         // Capture the game's adapter request, not a second diagnostic adapter. Reload the same game.
         const script = await pageSession.send("Page.addScriptToEvaluateOnNewDocument", {
             source: shellAdapterScript,
         });
         scriptId = script.identifier;
         await page.reload({ timeout: 15_000, waitUntil: "domcontentloaded" });
-        await page.waitForFunction(() => {
-            const state = (window as any).__cefStall;
-            return state?.deviceReady || state?.error;
-        }, undefined, { timeout: 15_000 });
+        try {
+            await page.waitForFunction(() => {
+                const state = (window as any).__cefStall;
+                return state?.deviceReady || state?.error;
+            }, undefined, { timeout: 15_000 });
+        } catch (error) {
+            const startup = await page.evaluate(() => ({
+                state: (window as any).__cefStall,
+                body: document.body.innerText.slice(0, 1000),
+                gpu: Boolean(navigator.gpu),
+            }));
+            throw new Error(`Shell adapter capture did not complete: ${JSON.stringify({ startup, pageErrors })}; ${error}`);
+        }
         await pageSession.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: scriptId });
         scriptId = undefined;
         await page.waitForTimeout(1_000);
@@ -742,6 +755,7 @@ async function runShell(endpoint: string, label: string): Promise<void> {
         const end = traceMark(trace.traceEvents, "cef-measurement-end");
         if (start === undefined || end === undefined || end - start < pageDurationMs * 1000)
             throw new Error("Shell trace does not contain at least 12 s between measurement marks");
+        if (pageErrors.length) throw new Error(`Shell page errors: ${pageErrors.join("; ")}`);
         if (measurement.interruptions.length || measurement.errors.length)
             throw new Error(`Interrupted or GPU-invalid shell run: ${JSON.stringify(measurement)}`);
         const intervals = measurement.frames.slice(1).map((time, i) => time - measurement.frames[i]!);
@@ -763,6 +777,15 @@ async function runShell(endpoint: string, label: string): Promise<void> {
                 periodMs: swaps.slice(1).map((event, i) => (event.ts! - swaps[i]!.ts!) / 1000) },
             traceEvents: trace.traceEvents.length,
         }));
+        // A zygote-forked GPU can retain its parent's /proc argv; chrome://gpu supplies effective GL and flags.
+        restoreUrl = initial.url;
+        await page.goto("chrome://gpu", { timeout: 10_000, waitUntil: "domcontentloaded" });
+        await page.waitForFunction(() => {
+            const view = document.querySelector("info-view");
+            return view?.shadowRoot?.textContent?.includes("ANGLE");
+        }, undefined, { timeout: 10_000 });
+        const chromeGpu = await page.evaluate(() => document.querySelector("info-view")!.shadowRoot!.textContent);
+        console.log(JSON.stringify({ arm: label, chromeGpu }));
     } finally {
         if (scriptId && pageSession)
             await pageSession.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: scriptId }).catch(() => {});
@@ -773,6 +796,8 @@ async function runShell(endpoint: string, label: string): Promise<void> {
             state?.cleanup?.();
             delete (window as any).__cefStall;
         }).catch(() => {});
+        if (restoreUrl && page && !page.isClosed())
+            await page.goto(restoreUrl, { timeout: 10_000, waitUntil: "domcontentloaded" }).catch(() => {});
         if (pageSession) await pageSession.detach().catch(() => {});
         if (session) await session.detach().catch(() => {});
         // connectOverCDP's close disconnects its transport; the externally owned shell stays open.
