@@ -48,6 +48,7 @@ const ALLPASS_COUNT: usize = 4;
 const ALLPASS_DELAYS: [usize; ALLPASS_COUNT] = [225, 341, 441, 556];
 const ALLPASS_FEEDBACK: f32 = 0.5;
 const FADE_SAMPLES: i32 = 240;
+const CLIP_GAIN_SETTLE_EPSILON: f32 = 1e-5;
 
 struct Voice {
     active: bool,
@@ -819,8 +820,11 @@ impl AudioEngine {
             for i in 0..count as usize {
                 let vi = self.sorted_indices[i] as usize;
                 if self.voices[vi].virtual_voice {
-                    self.voices[vi].virtual_voice = false;
-                    self.voices[vi].fade_samples = FADE_SAMPLES;
+                    let voice = &mut self.voices[vi];
+                    voice.virtual_voice = false;
+                    if !voice.clip_stopping {
+                        voice.fade_samples = FADE_SAMPLES;
+                    }
                 }
             }
             return;
@@ -852,10 +856,12 @@ impl AudioEngine {
                 if v.virtual_voice {
                     if rank < budget - 1 || v.audibility > below_boundary * 1.2 {
                         v.virtual_voice = false;
-                        if v.fade_samples < 0 {
-                            v.fade_samples = -v.fade_samples;
-                        } else {
-                            v.fade_samples = FADE_SAMPLES;
+                        if !v.clip_stopping {
+                            if v.fade_samples < 0 {
+                                v.fade_samples = -v.fade_samples;
+                            } else {
+                                v.fade_samples = FADE_SAMPLES;
+                            }
                         }
                     }
                 }
@@ -1694,7 +1700,13 @@ impl AudioEngine {
             left
         };
         for i in 0..BLOCK_SIZE {
-            voice.clip_gain += smooth_coeff * (voice.clip_gain_target - voice.clip_gain);
+            let gain_delta = voice.clip_gain_target - voice.clip_gain;
+            let next_gain = voice.clip_gain + smooth_coeff * gain_delta;
+            if gain_delta.abs() <= CLIP_GAIN_SETTLE_EPSILON || next_gain == voice.clip_gain {
+                voice.clip_gain = voice.clip_gain_target;
+            } else {
+                voice.clip_gain = next_gain;
+            }
             if virtual_skip {
                 voice.clip_position += 1.0;
             } else if voice.clip_looping {
@@ -2580,18 +2592,18 @@ mod tests {
         assert!(e.play_clip(0, 0, false, 1.0));
 
         process_blocks(&mut e, 32);
-        let source_start = e.voices[0].clip_position as usize;
+        let source_start = 32 * BLOCK_SIZE;
+        // The per-voice buffers isolate the PCM before the master mix and limiter.
         e.process();
-        let out = clip_output(&e, 0);
-        for (i, &sample) in out.iter().enumerate() {
-            assert!(
-                (sample - pcm[source_start + i]).abs() < 1e-4,
-                "direct clip differs before limiter at sample {}: {} vs {}",
-                source_start + i,
-                sample,
-                pcm[source_start + i]
+        for i in 0..BLOCK_SIZE {
+            let expected = pcm[source_start + i];
+            assert_eq!(
+                e.voices[0].buffers[0][i],
+                expected,
+                "direct clip differs before limiter at sample {}",
+                source_start + i
             );
-            assert_eq!(clip_output(&e, 1)[i], sample);
+            assert_eq!(e.voices[0].buffers[1][i], expected);
         }
     }
 
@@ -2614,6 +2626,9 @@ mod tests {
             "gain target should move smoothly rather than step"
         );
         assert!(changed_gain[BLOCK_SIZE - 1] > 0.0);
+        e.set_clip_gain(0, 0.3);
+        process_blocks(&mut e, 32);
+        assert_eq!(e.voices[0].clip_gain, 0.3);
     }
 
     #[test]
@@ -2706,14 +2721,13 @@ mod tests {
     #[test]
     fn beyond_24_audible_clip_voices_virtualize_quietest_and_return_with_fade() {
         let mut e = new_engine(48000.0);
-        upload_mono(&mut e, 0, &[0.1; 4096]);
+        let pcm: Vec<f32> = (0..4093).map(|i| 0.05 + i as f32 * 0.00001).collect();
+        upload_mono(&mut e, 0, &pcm);
         for voice_id in 0..25 {
-            assert!(e.play_clip(voice_id, 0, true, 1.0));
-            e.set_voice_spatial(voice_id, 1);
-            let distance = if voice_id == 24 { 100.0 } else { 1.0 };
-            e.set_spatial(voice_id, 0.0, 0.0, distance, 1.0, 100.0, 1.0);
+            let gain = if voice_id == 24 { 0.5 } else { 1.0 };
+            assert!(e.play_clip(voice_id, 0, true, gain));
         }
-        process_blocks(&mut e, 3);
+        process_blocks(&mut e, 32);
         assert!(
             e.voices[24].virtual_voice,
             "the quietest clip should be virtual"
@@ -2723,22 +2737,103 @@ mod tests {
             "the 24 most audible clips should retain real voices"
         );
 
-        e.set_spatial(0, 0.0, 0.0, 100.0, 1.0, 100.0, 1.0);
-        e.set_spatial(24, 0.0, 0.0, 1.0, 1.0, 100.0, 1.0);
-        for _ in 0..20 {
+        e.set_clip_gain(0, 0.0);
+        e.set_clip_gain(24, 1.0);
+        let mut blocks_processed = 32usize;
+        let mut return_cursor = None;
+        let mut gain_at_return = 0.0;
+        for _ in 0..32 {
+            let cursor = (blocks_processed * BLOCK_SIZE) % pcm.len();
+            let gain = e.voices[24].clip_gain;
             e.process();
+            blocks_processed += 1;
             if !e.voices[24].virtual_voice {
+                return_cursor = Some(cursor);
+                gain_at_return = gain;
                 break;
             }
         }
+        let return_cursor = return_cursor.expect("louder clip should regain a real voice");
+
+        let mut expected_gain = gain_at_return;
+        for i in 0..BLOCK_SIZE {
+            let delta = 1.0 - expected_gain;
+            expected_gain = if delta.abs() <= 1e-5 {
+                1.0
+            } else {
+                expected_gain + e.param_smooth_coeff * delta
+            };
+            let source = pcm[(return_cursor + i) % pcm.len()];
+            let fade = i as f32 / FADE_SAMPLES as f32;
+            let expected = (source * expected_gain) * fade;
+            assert!(
+                (e.voices[24].buffers[0][i] - expected).abs() < 1e-8,
+                "returned voice fade/cursor at {i}: got {}, expected {expected}",
+                e.voices[24].buffers[0][i]
+            );
+        }
+
+        let next_cursor = (return_cursor + BLOCK_SIZE) % pcm.len();
+        expected_gain = e.voices[24].clip_gain;
+        e.process();
+        for i in 0..BLOCK_SIZE {
+            let delta = 1.0 - expected_gain;
+            expected_gain = if delta.abs() <= 1e-5 {
+                1.0
+            } else {
+                expected_gain + e.param_smooth_coeff * delta
+            };
+            let source = pcm[(next_cursor + i) % pcm.len()];
+            let fade = ((BLOCK_SIZE + i) as f32 / FADE_SAMPLES as f32).min(1.0);
+            let expected = (source * expected_gain) * fade;
+            assert!(
+                (e.voices[24].buffers[0][i] - expected).abs() < 1e-8,
+                "continued clip cursor/fade at {i}: got {}, expected {expected}",
+                e.voices[24].buffers[0][i]
+            );
+        }
+    }
+
+    #[test]
+    fn clip_voice_budget_ranks_gain_at_equal_distance() {
+        let mut e = new_engine(48000.0);
+        upload_mono(&mut e, 0, &[0.1; 4096]);
+        e.set_real_voice_budget(1);
+        assert!(e.play_clip(0, 0, true, 0.25));
+        assert!(e.play_clip(1, 0, true, 0.9));
+        for voice_id in 0..2 {
+            e.set_voice_spatial(voice_id, 1);
+            e.set_spatial(voice_id, 0.0, 0.0, 1.0, 1.0, 100.0, 1.0);
+        }
+        process_blocks(&mut e, 8);
+        assert!(e.voices[0].virtual_voice, "quieter clip should be virtual");
         assert!(
-            !e.voices[24].virtual_voice,
-            "near clip should regain a real voice"
+            !e.voices[1].virtual_voice,
+            "louder clip should keep the real slot"
         );
-        assert!(
-            e.voices[24].fade_samples > 0,
-            "a clip returning from virtualization should fade in"
-        );
+        assert!(e.voices[1].audibility > e.voices[0].audibility);
+    }
+
+    #[test]
+    fn virtual_stopping_clip_keeps_fade_out_when_voice_budget_frees() {
+        let mut e = new_engine(48000.0);
+        upload_mono(&mut e, 0, &[0.2; 4096]);
+        e.set_real_voice_budget(1);
+        assert!(e.play_clip(0, 0, true, 1.0));
+        assert!(e.play_clip(1, 0, true, 1.0));
+        process_blocks(&mut e, 32);
+        assert!(!e.voices[0].virtual_voice);
+        assert!(e.voices[1].virtual_voice);
+
+        e.stop_clip(1);
+        e.voice_active(0, 0);
+        e.process();
+        assert_eq!(e.voices[1].fade_samples, -112);
+        assert!(e.voices[1].clip_stopping);
+        e.process();
+        assert_eq!(e.voices[1].fade_samples, 0);
+        assert!(!e.voices[1].clip_playing);
+        assert_eq!(e.voice_idle(1), 1);
     }
 
     #[cfg(feature = "count-alloc")]
