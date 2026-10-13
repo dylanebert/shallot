@@ -9,16 +9,16 @@ Run the capture tool from the repository root:
 bun diagnostics/default-look/run.ts
 ```
 
-The tool serves the scene page, drives headless Chromium at a 1280×720 viewport and device scale 1, and writes one PNG per scene and palette under the ignored `test-results/` directory. It requires a hardware WebGPU adapter and refuses software adapters. To verify repeatability on the same machine, save the PNG hashes, rerun the tool, and compare:
+The tool serves the scene page, drives headless Chromium at a 1280×720 viewport and device scale 1, and writes one PNG per scene and palette under the ignored `test-results/` directory. `test-results/default-look/index.html` compares the captures and lists colour values with range statuses. Candidate range violations fail the report; the unchanged baseline's violations are shown. It requires a hardware WebGPU adapter and refuses software adapters. To verify repeatability on the same machine, save the image and page hashes, rerun the tool, and compare:
 
 ```sh
-shasum -a 256 test-results/default-look/current/*.png > /tmp/default-look.sha256
+shasum -a 256 test-results/default-look/{current,dev-orange,tidal-teal,orchid-garden}/*.png test-results/default-look/index.html > /tmp/default-look.sha256
 bun diagnostics/default-look/run.ts
-shasum -a 256 test-results/default-look/current/*.png | diff -u /tmp/default-look.sha256 -
+shasum -a 256 test-results/default-look/{current,dev-orange,tidal-teal,orchid-garden}/*.png test-results/default-look/index.html | diff -u /tmp/default-look.sha256 -
 ```
 */
 
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { resolve } from "node:path";
 import { BROWSER_CONFIG } from "@dylanebert/shallot/testing";
@@ -26,6 +26,7 @@ import { shallot } from "@dylanebert/shallot/vite";
 import { chromium, type Page } from "playwright";
 import { createServer as createViteServer } from "vite";
 import { PALETTES } from "./palette";
+import { reportHtml } from "./report";
 import { SCENES } from "./scenes";
 
 const root = resolve(import.meta.dir, "../..");
@@ -169,6 +170,8 @@ try {
             console.log(`Captured ${ready}: ${path}`);
         }
     }
+    await writeFile(resolve(outputRoot, "index.html"), reportHtml());
+    console.log(`Comparison page: ${resolve(outputRoot, "index.html")}`);
 } finally {
     await browser?.close();
     await new Promise<void>((resolve_, reject) => {
