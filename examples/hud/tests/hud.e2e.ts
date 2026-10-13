@@ -1,7 +1,11 @@
 import { expect, type Page, test } from "playwright/test";
 
 type Turn = { angle: number; turns: number };
-type SteppedWindow = Window & { stepHud?: (steps: number) => Turn };
+type SteppedWindow = Window & {
+    stepHud?: (steps: number) => Turn;
+    captureHud?: () => Promise<number[]>;
+    materialHud?: () => number[];
+};
 
 const STEPPED = "http://127.0.0.1:4176/tests/stepped.html";
 
@@ -35,7 +39,6 @@ test("each value the HUD shows is the game's own Turn after each step", async ({
     await page.goto(STEPPED);
     await page.waitForFunction(() => (window as SteppedWindow).stepHud !== undefined);
 
-    // Past a whole turn (5.2 s at 1.2 rad/s), so the turn count is seen to change as well as the angle.
     let previous: Turn | undefined;
     for (const steps of [1, 29, 300, 37]) {
         const turn = await step(page, steps);
@@ -43,9 +46,34 @@ test("each value the HUD shows is the game's own Turn after each step", async ({
         const degrees = Math.floor((turn.angle * 180) / Math.PI) % 360;
         // `stepHud` flushes Svelte's updates before it returns, so the text is already the step's.
         expect(await page.locator('[data-hud="angle"]').textContent()).toBe(`${degrees}°`);
-        expect(await page.locator('[data-hud="turns"]').textContent()).toBe(`${turn.turns}`);
         previous = turn;
     }
     expect(previous!.turns).toBeGreaterThan(0);
     expect(errors).toEqual([]);
+});
+
+test("DOM controls change stepped speed, material colour and the cube centre hue", async ({
+    page,
+}) => {
+    await page.goto(STEPPED);
+    await page.waitForFunction(() => (window as SteppedWindow).stepHud !== undefined);
+    const before = await step(page, 1);
+    const orange = await page.evaluate(() => (window as SteppedWindow).captureHud!());
+    await page.locator("#speed").fill("2.4");
+    await page.getByRole("button", { name: "Blue" }).click();
+    await expect(page.getByRole("button", { name: "Blue" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+    );
+    const after = await step(page, 1);
+    expect(after.angle - before.angle).toBeCloseTo(2.4 / 60, 8);
+    const color = await page.evaluate(() => (window as SteppedWindow).materialHud!());
+    for (const [index, value] of [0.15270135, 0.36628627, 0.70424525, 1].entries())
+        expect(color[index]).toBeCloseTo(value, 6);
+    const blue = await page.evaluate(() => (window as SteppedWindow).captureHud!());
+    expect(orange[0]).toBeGreaterThan(orange[2]);
+    expect(blue[2]).toBeGreaterThan(blue[0]);
+    if (process.env.SHALLOT_CAPTURE_DIR) {
+        await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/hud-blue-2.4.png` });
+    }
 });

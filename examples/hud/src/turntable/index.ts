@@ -15,15 +15,17 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
-
-/** Radians per second. */
-const SPEED = 1.2;
+import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
 
 export const Turntable = component("Turntable", {});
 
-/** How far the turntable has turned: `angle` in radians, `turns` completed. */
-export const Turn: Resource<{ angle: number; turns: number }> = {
-    create: () => ({ angle: 0, turns: 0 }),
+/** Angle in radians, completed turns, and speed in radians per second. */
+export const Turn: Resource<{ angle: number; turns: number; speed: number }> = {
+    create: () => ({ angle: 0, turns: 0, speed: 1.2 }),
+};
+
+export const CubeMaterial: Resource<{ handle?: MaterialHandle }> = {
+    create: () => ({}),
 };
 
 function makeScene(world: World): void {
@@ -48,16 +50,14 @@ function makeScene(world: World): void {
     const materials = world.resource(Materials);
     const cube = world.create();
     world.add(cube, MeshInstance);
-    world.add(
-        cube,
-        MeshMaterial,
-        materials.add(
-            StandardMaterial({
-                baseColor: [0.621407, 0.26791815, 0.11756791, 1],
-                perceptualRoughness: 0.38,
-            }),
-        ),
+    const handle = materials.add(
+        StandardMaterial({
+            baseColor: [0.621407, 0.26791815, 0.11756791, 1],
+            perceptualRoughness: 0.38,
+        }),
     );
+    world.resource(CubeMaterial).handle = handle;
+    world.add(cube, MeshMaterial, handle);
     world.add(cube, Transform, { translation: [0, 0.15, 0, 0] });
     world.add(cube, Turntable);
 
@@ -80,7 +80,7 @@ const TurnCube = {
     name: "Turntable/Turn",
     update(world: World): void {
         const turn = world.resource(Turn);
-        turn.angle += world.time.deltaTime * SPEED;
+        turn.angle += world.time.deltaTime * turn.speed;
         turn.turns = Math.floor(turn.angle / (2 * Math.PI));
         const half = turn.angle * 0.5;
         const rotation = world.storage(Transform).rotation;

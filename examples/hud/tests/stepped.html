@@ -5,18 +5,31 @@
         <title>hud, stepped</title>
     </head>
     <body>
-        <canvas width="640" height="360"></canvas>
+        <canvas width="1280" height="720"></canvas>
         <script type="module">
             // The game and its HUD composed as the page composes them, but stepped by the check rather than by
             // requestAnimationFrame, so each value the HUD shows can be compared with the world's own.
-            import { createApp, mountOverlay } from "@dylanebert/shallot";
+            import { createApp, mountOverlay, Materials } from "@dylanebert/shallot";
             import { flushSync } from "svelte";
             import { hud } from "../src/hud";
-            import { Turn, TurntablePlugin } from "../src/turntable";
+            import { CubeMaterial, Turn, TurntablePlugin } from "../src/turntable";
 
-            const app = await createApp({ defaults: false, plugins: [TurntablePlugin] });
+            import { captureFrame } from "@dylanebert/shallot/rendering";
+            const app = await createApp({ plugins: [TurntablePlugin] });
             hud(mountOverlay(document.querySelector("canvas"), app.world), app.world);
             flushSync();
+            window.captureHud = async () => {
+                const capture = captureFrame(document.querySelector("canvas"));
+                app.world.step(0);
+                const image = await capture;
+                const offset = (Math.floor(image.height / 2) * image.width + Math.floor(image.width / 2)) * 4;
+                return Array.from(image.rgba.slice(offset, offset + 4));
+            };
+            window.materialHud = () => {
+                const store = app.world.resource(Materials);
+                const handle = app.world.resource(CubeMaterial).handle;
+                return Array.from(new Float32Array(store.table.bytes.buffer, store.table.bytes.byteOffset + handle.material * store.table.rowBytes, 4));
+            };
             window.stepHud = (steps) => {
                 for (let step = 0; step < steps; step++) app.world.step(1 / 60);
                 flushSync();

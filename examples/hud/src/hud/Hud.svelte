@@ -1,20 +1,34 @@
 <script lang="ts">
-    import type { System, World } from "@dylanebert/shallot";
-    import { onMount } from "svelte";
-    import { Turn } from "../turntable";
+    import { Materials, type System, type World } from "@dylanebert/shallot";
+    import { onMount, untrack } from "svelte";
+    import { CubeMaterial, Turn } from "../turntable";
 
     let { world }: { world: World } = $props();
     let degrees = $state(0);
-    let turns = $state(0);
+    let speed = $state(untrack(() => world.resource(Turn).speed));
+    let selected = $state(0);
+    const swatches = [
+        { name: "Orange", color: [0.621407, 0.26791815, 0.11756791, 1], hue: 55 },
+        { name: "Blue", color: [0.15270135, 0.36628627, 0.70424525, 1], hue: 250 },
+        { name: "Yellow", color: [0.41696574, 0.35106622, 0.08533862, 1], hue: 100 },
+        { name: "Red", color: [0.66982564, 0.23598303, 0.21147319, 1], hue: 25 },
+    ];
+
+    $effect(() => { world.resource(Turn).speed = speed; });
+
+    function recolor(index: number) {
+        world.resource(Materials).update(world.resource(CubeMaterial).handle!, {
+            baseColor: swatches[index].color as [number, number, number, number],
+        });
+        selected = index;
+    }
 
     onMount(() => {
         const read: System = {
             name: "Hud/Read",
             group: "draw",
             update(world) {
-                const turn = world.resource(Turn);
-                degrees = Math.floor((turn.angle * 180) / Math.PI) % 360;
-                turns = turn.turns;
+                degrees = Math.floor((world.resource(Turn).angle * 180) / Math.PI) % 360;
             },
         };
         world.addSystem(read);
@@ -22,29 +36,36 @@
     });
 </script>
 
-<dl class="hud">
-    <dt>Angle</dt>
-    <dd data-hud="angle">{degrees}°</dd>
-    <dt>Turns</dt>
-    <dd data-hud="turns">{turns}</dd>
-</dl>
+<section class="hud" aria-label="Cube controls">
+    <div>Angle <span data-hud="angle">{degrees}°</span></div>
+    <div class="swatches" aria-label="Cube colour">
+        {#each swatches as swatch, index}
+            <button aria-label={swatch.name} aria-pressed={selected === index}
+                style:background="oklch(70% 0.1 {swatch.hue})" onclick={() => recolor(index)}></button>
+        {/each}
+    </div>
+    <label for="speed">Speed <span>{speed.toFixed(1)} rad/s</span></label>
+    <input id="speed" type="range" min="0" max="3" step="0.1" bind:value={speed} />
+</section>
 
 <style>
     .hud {
+        pointer-events: auto;
         position: absolute;
         top: 16px;
         left: 16px;
         display: grid;
-        grid-template-columns: max-content max-content;
-        gap: 4px 16px;
+        gap: 8px;
+        width: 180px;
         padding: 10px 12px;
         border-radius: 6px;
         background: #373635;
         color: #efe3cf;
         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
-    dd {
-        margin: 0;
-        font-variant-numeric: tabular-nums;
-    }
+    span { float: right; font-variant-numeric: tabular-nums; }
+    .swatches { display: flex; gap: 8px; }
+    button { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 4px; cursor: pointer; }
+    button[aria-pressed="true"] { border-color: #efe3cf; }
+    input { width: 100%; margin: 0; accent-color: #efe3cf; }
 </style>
