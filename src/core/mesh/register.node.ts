@@ -2,15 +2,22 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp, expectAdapterNotice, gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
-import type { createApp, Plugin, World } from "../../engine";
+import type { createApp, Plugin, System, World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { classifyAdapter } from "../../engine/runtime/adapter";
 import {
+    MeshPreprocessSystem,
     MeshRenderPlugin,
     StandardRenderer,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { AmbientLight, attachTexture, Camera, captureTexture } from "../rendering";
+import {
+    AmbientLight,
+    attachTexture,
+    BeginFrameSystem,
+    Camera,
+    captureTexture,
+} from "../rendering";
 import { Transform } from "../transform";
 import {
     type Mesh,
@@ -35,6 +42,21 @@ function handleForLabel(world: World, label: string): MeshHandle {
         if (mesh.name === label) return handle;
     throw new Error(`no mesh labelled "${label}"`);
 }
+// four draw systems, each after the last, ending before the pack, as a producer writing its instances does
+function chainedDrawSystems(): System[] {
+    const systems: System[] = [];
+    let previous: System = BeginFrameSystem;
+    for (let i = 0; i < 4; i++) {
+        previous = {
+            group: "draw",
+            after: [previous],
+            before: i === 3 ? [MeshPreprocessSystem] : [],
+            update() {},
+        };
+        systems.push(previous);
+    }
+    return systems;
+}
 const place = (world: World, mesh: MeshHandle) => {
     const slab = world.create();
     world.add(slab, Transform);
@@ -56,6 +78,11 @@ const arms = {
         },
     },
     "after createApp": { name: "LateSlab", dependencies: [MeshPlugin] },
+    "after createApp behind four chained draw systems": {
+        name: "ChainedSlab",
+        dependencies: [MeshPlugin],
+        systems: chainedDrawSystems(),
+    },
     "in a system": {
         name: "SystemSlab",
         dependencies: [MeshPlugin],
@@ -102,12 +129,14 @@ const subjects = gpuApps(
     })),
 );
 
+const chained = "after createApp behind four chained draw systems";
+let chainedValidation: GPUError | null = null;
 const frames = new Map<Arm, Uint8ClampedArray>();
 async function frame(arm: Arm, steps = 1): Promise<Uint8ClampedArray> {
     const cached = frames.get(arm);
     if (cached) return cached;
     const { world } = subjects()[order.indexOf(arm)];
-    if (arm === "after createApp") register(world);
+    if (arm.startsWith("after createApp")) register(world);
     if (arm === "directly without streams") {
         const meshes = world.resource(Meshes);
         const [, cube] = [...meshes.entries()].find(([, mesh]) => mesh.name === "cube")!;
@@ -121,8 +150,10 @@ async function frame(arm: Arm, steps = 1): Promise<Uint8ClampedArray> {
     attachTexture(world, camera, { width: 32, height: 32 });
     if (!arm.endsWith("system")) place(world, handleForLabel(world, "slab"));
     if (arm === "reinitialized") await reinitialize(world);
+    if (arm === chained) world.gpu.device.pushErrorScope("validation");
     for (let i = 0; i < steps; i++) world.step(0);
     const { rgba } = await captureTexture(world, camera);
+    if (arm === chained) chainedValidation = await world.gpu.device.popErrorScope();
     frames.set(arm, rgba);
     return rgba;
 }
@@ -139,6 +170,11 @@ for (const arm of late) {
         expect(await frame(arm)).toEqual(await frame("during initialize"));
     });
 }
+
+test("a mesh registered after createApp behind four chained draw systems before the pack draws on the next frame as one registered during initialize", async () => {
+    expect(await frame(chained)).toEqual(await frame("during initialize"));
+    expect(chainedValidation).toBeNull();
+});
 
 test("a mesh registered in a draw-group system draws on the following frame without a warning", async () => {
     const rgba = await frame("in a draw-group system", 2);
