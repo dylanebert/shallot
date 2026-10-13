@@ -2,12 +2,15 @@ import {
     CharacterPlugin,
     type createApp,
     DEFAULT_PLUGINS,
+    FogPlugin,
     InputPlugin,
     OrbitPlugin,
+    OutlinePlugin,
     PlayerPlugin,
     ProfilePlugin,
     RenderingPlugin,
     StandardPhysicsPlugin,
+    VignettePlugin,
 } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
 import { createTestGpuApp, gpuRequirements } from "./gpu.fixture";
@@ -38,6 +41,9 @@ export const compileSubjects = [
     { name: "Orbit", config: { defaults: false, plugins: [OrbitPlugin] } },
     { name: "profiling", config: { defaults: false, plugins: [ProfilePlugin] } },
     { name: "default plugins", config: { plugins: [] } },
+    { name: "Fog", config: { plugins: [FogPlugin] } },
+    { name: "Outline", config: { plugins: [OutlinePlugin] } },
+    { name: "Vignette", config: { plugins: [VignettePlugin] } },
 ] satisfies { name: string; config: Parameters<typeof createApp>[0] }[];
 
 export async function measureCompile(config: Parameters<typeof createApp>[0]) {

@@ -19,6 +19,9 @@ const pipelineCounts: Record<string, number> = {
     profiling: 0,
     "default plugins": 23, // Unlit became a StandardMaterial branch; it no longer compiles its own
     // color, prepass, point-shadow or cascade-shadow pipeline.
+    Fog: 25, // single-sample and multisampled march
+    Outline: 28, // three mask variants, jump flood and composite
+    Vignette: 24,
 };
 
 for (const subject of compileSubjects) {
