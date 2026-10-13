@@ -33,8 +33,6 @@ export const OrbitMode = { Free: 0, Locked: 1 } as const;
  * button's press edge, with the cursor in canvas-local CSS pixels; returning true suppresses orbit rotation
  * for that whole drag (until the button releases), while pan and fly stay unaffected. Unregistered, every
  * press orbits (the optional slot is a `?.` no-op). Analogous to `world.gpu.span`.
- * @example
- * OrbitPick.claim = (x, y) => bodyUnderCursor(x, y) !== null;
  */
 export const OrbitPick: { claim?: (x: number, y: number) => boolean } = {};
 
