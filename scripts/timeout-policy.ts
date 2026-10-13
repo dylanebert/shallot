@@ -21,6 +21,17 @@ export function timeoutErrors(path: string, text: string): string[] {
     const tiers = new Set<string>();
     const browserConfigs = new Set<string>();
     const serverConfigs = new Set<string>();
+    const childProcessNamespaces = new Set<string>();
+    const childProcessFunctions = new Set<string>();
+    const childProcessApis = new Set([
+        "spawn",
+        "spawnSync",
+        "exec",
+        "execSync",
+        "execFile",
+        "execFileSync",
+        "fork",
+    ]);
     const constants = new Map<string, any>();
     let defaults = 0;
     let correctDefault = false;
@@ -28,10 +39,20 @@ export function timeoutErrors(path: string, text: string): string[] {
     for (const statement of file.program.body) {
         if (statement.type === "ImportDeclaration") {
             for (const item of statement.specifiers) {
+                const source = statement.source.value;
+                if (source === "node:child_process" || source === "child_process") {
+                    if (item.type === "ImportSpecifier") {
+                        const imported =
+                            item.imported.type === "Identifier"
+                                ? item.imported.name
+                                : item.imported.value;
+                        if (childProcessApis.has(imported))
+                            childProcessFunctions.add(item.local.name);
+                    } else childProcessNamespaces.add(item.local.name);
+                }
                 if (item.type !== "ImportSpecifier") continue;
                 const name =
                     item.imported.type === "Identifier" ? item.imported.name : item.imported.value;
-                const source = statement.source.value;
                 if (source === "@dylanebert/shallot/testing") {
                     if (name === "CEILING") tiers.add(item.local.name);
                     if (name === "BROWSER_CONFIG") browserConfigs.add(item.local.name);
@@ -73,6 +94,22 @@ export function timeoutErrors(path: string, text: string): string[] {
         if (expression?.type === "CallExpression") return root(expression.callee);
         return undefined;
     }
+    function startsProcess(expression: any): boolean {
+        if (expression?.type === "Identifier") return childProcessFunctions.has(expression.name);
+        if (expression?.type !== "MemberExpression") return false;
+        const object = expression.object;
+        const name =
+            expression.property.type === "Identifier"
+                ? expression.property.name
+                : expression.property.type === "StringLiteral"
+                  ? expression.property.value
+                  : undefined;
+        if (!name || object.type !== "Identifier") return false;
+        return (
+            (object.name === "Bun" && ["spawn", "spawnSync", "$"].includes(name)) ||
+            (childProcessNamespaces.has(object.name) && childProcessApis.has(name))
+        );
+    }
     function checkBudget(node: any, maximum: number, repeated?: number): void {
         const value = budget(node);
         if (value === undefined)
@@ -91,6 +128,25 @@ export function timeoutErrors(path: string, text: string): string[] {
         }
         if (browser && node.type === "SpreadElement" && browserConfigs.has(node.argument.name))
             browserDefaults++;
+        if (
+            node.type === "VariableDeclarator" &&
+            node.init?.type === "CallExpression" &&
+            node.init.callee.type === "Identifier" &&
+            node.init.callee.name === "require" &&
+            ["node:child_process", "child_process"].includes(node.init.arguments[0]?.value)
+        ) {
+            if (node.id.type === "Identifier") childProcessNamespaces.add(node.id.name);
+            if (node.id.type === "ObjectPattern") {
+                for (const property of node.id.properties) {
+                    if (
+                        property.type === "ObjectProperty" &&
+                        property.value.type === "Identifier" &&
+                        childProcessApis.has(property.key.name ?? property.key.value)
+                    )
+                        childProcessFunctions.add(property.value.name);
+                }
+            }
+        }
         if (node.type === "ObjectProperty") {
             const key = node.key.name ?? node.key.value;
             if (!browser && ["timeout", "globalTimeout"].includes(key))
@@ -139,7 +195,16 @@ export function timeoutErrors(path: string, text: string): string[] {
                     );
             }
         }
+        if (
+            tier === "cheap" &&
+            path.endsWith(".test.ts") &&
+            node.type === "TaggedTemplateExpression" &&
+            startsProcess(node.tag)
+        )
+            fail(node, "cheap tests must not start processes; move this file to the Node tier");
         if (node.type === "CallExpression") {
+            if (tier === "cheap" && path.endsWith(".test.ts") && startsProcess(node.callee))
+                fail(node, "cheap tests must not start processes; move this file to the Node tier");
             const name = root(node.callee);
             if (name && setters.has(name)) {
                 defaults++;

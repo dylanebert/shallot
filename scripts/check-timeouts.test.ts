@@ -8,6 +8,38 @@ const header = (tier: "gpu" | "node") =>
     `import { test, setDefaultTimeout } from "bun:test"; import { CEILING } from "@dylanebert/shallot/testing"; setDefaultTimeout(CEILING.${tier});`;
 const browser = 'import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";';
 
+test("cheap test fixtures that start a process require the Node tier", () => {
+    const revertedPinScan = `${cheap} Bun.spawnSync(["git", "ls-files"]);`;
+    expect(timeoutErrors("scripts/check-pins.test.ts", revertedPinScan)).toEqual([
+        "scripts/check-pins.test.ts:1: cheap tests must not start processes; move this file to the Node tier",
+    ]);
+    expect(timeoutErrors("fixture.test.ts", `${cheap} Bun.$\`git status\`;`)).toHaveLength(1);
+    expect(
+        timeoutErrors(
+            "fixture.test.ts",
+            'import { spawn as start } from "node:child_process"; start("git");',
+        ),
+    ).toHaveLength(1);
+    expect(
+        timeoutErrors(
+            "fixture.test.ts",
+            'import * as childProcess from "node:child_process"; childProcess.execSync("git status");',
+        ),
+    ).toHaveLength(1);
+    expect(
+        timeoutErrors(
+            "fixture.test.ts",
+            'const { spawnSync: start } = require("node:child_process"); start("git", ["status"]);',
+        ),
+    ).toHaveLength(1);
+    expect(
+        timeoutErrors("fixture.gpu.test.ts", `${header("gpu")} Bun.spawnSync(["git"]);`),
+    ).toEqual([]);
+    expect(timeoutErrors("fixture.node.ts", `${header("node")} Bun.spawnSync(["git"]);`)).toEqual(
+        [],
+    );
+});
+
 test("tier headers derive from the published tooling subpath and reject literal declarations", () => {
     for (const tier of ["gpu", "node"] as const) {
         const path = tier === "gpu" ? "subject.gpu.test.ts" : "subject.node.ts";
