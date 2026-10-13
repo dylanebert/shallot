@@ -176,27 +176,6 @@ export class Scheduler {
         return this._systems.has(system);
     }
 
-    /**
-     * hot-swap a live system's behavior in place. Copies the new system's
-     * `update`/`setup`/`dispose` onto the registered object, so its identity
-     * (ordering edges, `_initialized` setup state, profiler label) is preserved
-     * while the code that runs becomes the reloaded module's. No version bump —
-     * ordering is unchanged, so the sort cache stays valid. PlayCanvas `swap`.
-     */
-    swap(old: System, next: System): void {
-        if (!this._systems.has(old)) return;
-        const m = old as {
-            update?: System["update"];
-            setup?: System["setup"];
-            dispose?: System["dispose"];
-        };
-        m.update = next.update;
-        m.setup = next.setup;
-        m.dispose = next.dispose;
-        // the swapped-in code is the fix a paused (thrown) system was waiting for — let it run
-        this._errored.delete(old);
-    }
-
     step(
         world: World,
         input: Readonly<{ deltaTime: number }>,

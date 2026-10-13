@@ -155,8 +155,7 @@ test("a mesh registered directly without quantized streams is skipped with a war
     await frame("directly without streams");
 });
 
-// MeshPlugin.initialize reruns on a live world as swapPlugins reruns it, followed by the slab's own
-// initialize; each rerun packs a new family on the next step
+// Reinitialization makes each new family replace the previous one on the next step.
 const families: Mesh[] = [];
 let validation: GPUError | null = null;
 async function reinitialize(world: World): Promise<void> {

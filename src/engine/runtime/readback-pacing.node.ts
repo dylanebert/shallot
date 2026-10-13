@@ -1,7 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { swapPlugins } from "../app";
 import { component, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 
@@ -74,18 +73,4 @@ test("a deterministic composition hashes identically under two frame pacings wit
         }
     }
     expect(await run(1 / 120, 120)).toBe(await run(1 / 30, 30));
-});
-
-test("a determinism declaration is metadata, not runtime readback permission state", async () => {
-    const system = { group: "fixed" as const, update() {} };
-    const before = { name: "ChangedPermission", deterministic: false, systems: [system] };
-    const after = { name: "ChangedPermission", deterministic: true, systems: [{ ...system }] };
-    const app = await createApp({ defaults: false, plugins: [before] });
-    try {
-        expect(await swapPlugins(app.world, [before], [after])).toEqual({
-            ok: true,
-        });
-    } finally {
-        app.dispose();
-    }
 });

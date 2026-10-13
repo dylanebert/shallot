@@ -11,11 +11,10 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 
-test("runApp logs a system error once, keeps healthy frames running and resumes after swapSystem", async () => {
+test("runApp logs a system error once, pauses the failed system, and keeps healthy frames running", async () => {
     const cause = new Error("broken");
     let attempts = 0;
     let frames = 0;
-    let resumed = 0;
     const broken = {
         name: "spawn",
         update() {
@@ -45,13 +44,8 @@ test("runApp logs a system error once, keeps healthy frames running and resumes 
         await waitFor(() => frames >= 3);
         expect(attempts).toBe(1);
         const before = frames;
-        app.world.swapSystem(broken, {
-            update() {
-                resumed++;
-            },
-        });
         await waitFor(() => frames >= before + 3);
-        expect(resumed).toBeGreaterThanOrEqual(3);
+        expect(attempts).toBe(1);
     } finally {
         app.dispose();
     }

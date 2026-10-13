@@ -2,7 +2,7 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
-import { component, idOf } from "../ecs";
+import { component } from "../ecs";
 import { classifyAdapter } from "../runtime/adapter";
 
 setDefaultTimeout(CEILING.node);
@@ -19,7 +19,6 @@ import { f32, probeBuffer, requestGPU, Time, World } from "../index";
 import "../../standard";
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { swapPlugins } from "./index";
 
 await setupGlobals();
 
@@ -299,173 +298,6 @@ test("entity ids and component columns grow without a configured capacity", asyn
     expect(app.world.entityHighWater).toBe(eid + 1);
     expect(app.world.storage(Grow).value.column.length).toBeGreaterThan(eid);
     expect(app.world.storage(Grow).value.get(eid)).toBe(73.5);
-});
-
-test("reordered component fields swap without rebuilding their world columns", async () => {
-    const firstValue = { x: f32, y: f32 };
-    const firstPlugin = {
-        name: "WorldFieldOrderProbe",
-        components: [component("Value", firstValue)],
-    };
-    const app = await createApp({ defaults: false, plugins: [firstPlugin] });
-    apps.push(app);
-    const eid = app.world.create();
-    app.world.add(eid, firstValue);
-    const before = app.world.storage(firstValue);
-    before.x.set(eid, 17);
-    const beforeX = before.x.column;
-    const beforeY = before.y.column;
-
-    const reloadedValue = { y: f32, x: f32 };
-    const reloaded = {
-        name: "WorldFieldOrderProbe",
-        components: [component("Value", reloadedValue)],
-    };
-    expect(idOf(reloadedValue)).toBe(idOf(firstValue));
-    expect(await swapPlugins(app.world, [firstPlugin], [reloaded])).toEqual({ ok: true });
-
-    const after = app.world.storage(reloadedValue);
-    expect(after.x.column).toBe(beforeX);
-    expect(after.y.column).toBe(beforeY);
-    expect(after.x.get(eid)).toBe(17);
-});
-
-test("a same-named Type with a different array layout forces a rebuild", async () => {
-    const firstValue = { amount: f32 };
-    const firstPlugin = {
-        name: "WorldTypeLayoutProbe",
-        components: [component("Value", firstValue)],
-    };
-    const app = await createApp({ defaults: false, plugins: [firstPlugin] });
-    apps.push(app);
-
-    const wordF32 = { ...f32, ctor: Uint32Array };
-    const reloadedValue = { amount: wordF32 };
-    const reloaded = {
-        name: "WorldTypeLayoutProbe",
-        components: [component("Value", reloadedValue)],
-    };
-    expect(await swapPlugins(app.world, [firstPlugin], [reloaded])).toEqual({
-        ok: false,
-        reason: 'WorldTypeLayoutProbe: component "Value" schema changed',
-    });
-    app.world.registry.register(component("Value", reloadedValue));
-    expect(() => app.world.storage(reloadedValue)).toThrow("schema changed");
-});
-
-test("a Type's debug name does not invalidate an identical storage layout", async () => {
-    const firstValue = { amount: f32 };
-    const firstPlugin = {
-        name: "WorldTypeDebugNameProbe",
-        components: [component("Value", firstValue)],
-    };
-    const app = await createApp({ defaults: false, plugins: [firstPlugin] });
-    apps.push(app);
-
-    const debugAlias = { ...f32, name: "f32-debug-alias" };
-    const reloadedValue = { amount: debugAlias };
-    const reloaded = {
-        name: "WorldTypeDebugNameProbe",
-        components: [component("Value", reloadedValue)],
-    };
-    expect(await swapPlugins(app.world, [firstPlugin], [reloaded])).toEqual({ ok: true });
-});
-
-test("original, reloaded, and rebuilt component accessors stop rechecking bound schemas", async () => {
-    const originalValue = { amount: f32 };
-    const originalPlugin = {
-        name: "WorldAccessorCacheProbe",
-        components: [component("Value", originalValue)],
-    };
-    const first = await createApp({ defaults: false, plugins: [originalPlugin] });
-    apps.push(first);
-    const originalEid = first.world.create();
-    first.world.add(originalEid, originalValue);
-
-    const reloadedValue = { amount: f32 };
-    const reloadedPlugin = {
-        name: "WorldAccessorCacheProbe",
-        components: [component("Value", reloadedValue)],
-    };
-    expect(await swapPlugins(first.world, [originalPlugin], [reloadedPlugin])).toEqual({
-        ok: true,
-    });
-
-    const rebuilt = await createApp({ defaults: false, plugins: [reloadedPlugin] });
-    apps.push(rebuilt);
-    const rebuiltEid = rebuilt.world.create();
-    rebuilt.world.add(rebuiltEid, reloadedValue);
-
-    const originalSort = Array.prototype.sort;
-    let sortCalls = 0;
-    let originalRead = 0;
-    let reloadedRead = 0;
-    let rebuiltRead = 0;
-    Array.prototype.sort = function <T>(this: T[], compareFn?: (a: T, b: T) => number): T[] {
-        sortCalls++;
-        return originalSort.call(this, compareFn);
-    };
-    try {
-        const original = first.world.storage(originalValue);
-        original.amount.set(originalEid, 11);
-        originalRead = original.amount.get(originalEid);
-
-        const reloaded = first.world.storage(reloadedValue);
-        reloaded.amount.set(originalEid, 22);
-        reloadedRead = reloaded.amount.get(originalEid);
-
-        const rebuiltStorage = rebuilt.world.storage(reloadedValue);
-        rebuiltStorage.amount.set(rebuiltEid, 33);
-        rebuiltRead = rebuiltStorage.amount.get(rebuiltEid);
-    } finally {
-        Array.prototype.sort = originalSort;
-    }
-
-    expect([originalRead, reloadedRead, rebuiltRead]).toEqual([11, 22, 33]);
-    expect(sortCalls).toBe(0);
-});
-
-test("a compatible hot swap reattaches its schema in only the target world", async () => {
-    const firstPlugin = {
-        name: "SwappableWorldSchema",
-        components: [component("Value", Value)],
-        initialize(world: World) {
-            const eid = world.create();
-            world.add(eid, this.components[0]);
-            amount(world).set(eid, 7);
-        },
-    };
-    const first = await createApp({ defaults: false, plugins: [firstPlugin] });
-    apps.push(first);
-    const second = await createApp({ defaults: false, plugins: [firstPlugin] });
-    apps.push(second);
-    const firstEid = first.world.entities()[0];
-    const secondEid = second.world.entities()[0];
-    amount(first.world).set(firstEid, 13);
-
-    const reloadedValue = { amount: f32 };
-    const reloaded = {
-        name: "SwappableWorldSchema",
-        components: [component("Value", reloadedValue)],
-        initialize(world: World) {
-            expect(world.storage(reloadedValue).amount.get(firstEid)).toBe(13);
-        },
-    };
-    expect(await swapPlugins(first.world, [firstPlugin], [reloaded])).toEqual({ ok: true });
-    expect(amount(first.world).get(firstEid)).toBe(13);
-    expect(amount(second.world).get(secondEid)).toBe(7);
-
-    const incompatibleValue = { amount: f32, extra: f32 };
-    const incompatible = {
-        name: "SwappableWorldSchema",
-        components: [component("Value", incompatibleValue)],
-    };
-    expect(await swapPlugins(first.world, [reloaded], [incompatible])).toEqual({
-        ok: false,
-        reason: 'SwappableWorldSchema: component "Value" schema changed',
-    });
-    expect(amount(first.world).get(firstEid)).toBe(13);
-    expect(amount(second.world).get(secondEid)).toBe(7);
 });
 
 const OWNERSHIP_FONT = `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`;

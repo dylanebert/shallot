@@ -10,12 +10,10 @@ export {
     mountOverlay,
     type Plugin,
     type PluginComposition,
-    type PluginSwapResult,
     resolvePlugins,
     runApp,
     setDefaultLoading,
     setDefaultPlugins,
-    swapPlugins,
     warmPlugins,
 } from "./app";
 export {

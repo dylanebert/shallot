@@ -1,6 +1,6 @@
 /// <reference types="@webgpu/types" />
 
-import { type Component, declaration, type System, sameComponentSchema, World } from "../ecs";
+import { type Component, type System, World } from "../ecs";
 import {
     type AdapterVerdict,
     deviceLost,
@@ -22,7 +22,7 @@ export * from "./compose";
  * bundle of components, systems, and lifecycle hooks: the unit of behavior a project enables.
  */
 export interface Plugin {
-    /** unique name; `swapPlugins` pairs reloads by it */
+    /** unique name */
     readonly name: string;
     /** Declares whether fixed simulation replays deterministically (default true).
      * Fixed consumers of GPU readback declare false. Byte access is not guarded. */
@@ -51,9 +51,7 @@ export interface Plugin {
      * GPU setup and derived spawns after initialization; may report progress.
      * idempotent: entity spawns need nothing (they live in the `World`). Tie any external effect
      * (a DOM mount, listener, or rAF loop) to the World via `world.onDispose` / `world.signal` so it
-     * unwinds at dispose. warm also re-runs on an in-place rebuild with no `dispose` first (`swapPlugins()`),
-     * where `onDispose` doesn't fire — so also clear a warm-created mount at the top of `warm` before
-     * re-creating it
+     * unwinds at dispose.
      */
     readonly warm?: (world: World, onProgress?: (progress: number) => void) => void | Promise<void>;
     /**
@@ -561,197 +559,4 @@ export async function runApp(config: AppConfig): Promise<App> {
         }
         throw error;
     }
-}
-
-/** outcome of a {@link swapPlugins}: `ok` when the in-place swap applied, else `reason` says why a rebuild is needed */
-export interface PluginSwapResult {
-    ok: boolean;
-    reason?: string;
-}
-
-/**
- * hot-swap a live `World`'s plugins in place, preserving runtime state. For each
- * plugin (paired by name) it re-registers the components: the stable-id layer
- * reuses their storage and id, so membership, queries, and the GPU firehose
- * (GPU table buffers, bind groups, pipelines) survive untouched. It swaps each system's
- * behavior onto the live scheduler object (identity + ordering + setup state
- * preserved), and re-runs `initialize` to repopulate module singletons with the
- * reloaded code. A schema / system-set / ordering / dependency / feature change
- * it can't carry safely returns `{ ok: false, reason }`; the caller then rebuilds
- * from the world's component values. A `warm`- or `setup`-body edit is undetectable (a closure body can't
- * be diffed) and lands on the next rebuild rather than this swap. A live host
- * drives this from its HMR seam; `prev`/`next` are the project's own plugins
- * before and after the reload.
- *
- * A recovery factory or `initialize` that throws returns `{ ok: false, reason }`.
- * The World may already be partly updated; the caller must rebuild, not continue stepping it.
- */
-export async function swapPlugins(
-    world: World,
-    prev: readonly Plugin[],
-    next: readonly Plugin[],
-): Promise<PluginSwapResult> {
-    const prevByName = new Map(prev.map((p) => [p.name, p]));
-    const nextByName = new Map(next.map((p) => [p.name, p]));
-    if (prevByName.size !== nextByName.size) return { ok: false, reason: "plugin set changed" };
-
-    // ordering refs into the swapped set resolve by slot — a reload recreates the objects, so
-    // identity can't pair them. Index every system across the whole set in one shared order.
-    const prevIndex = new Map<System, number>();
-    const nextIndex = new Map<System, number>();
-    let slot = 0;
-    for (const [name, nextPlugin] of nextByName) {
-        const prevPlugin = prevByName.get(name);
-        if (!prevPlugin) continue;
-        const ps = prevPlugin.systems ?? [];
-        const ns = nextPlugin.systems ?? [];
-        for (let i = 0; i < Math.min(ps.length, ns.length); i++) {
-            prevIndex.set(ps[i], slot);
-            nextIndex.set(ns[i], slot);
-            slot++;
-        }
-    }
-
-    // validate every pair before mutating anything — any shape change falls back to a rebuild
-    for (const [name, nextPlugin] of nextByName) {
-        const prevPlugin = prevByName.get(name);
-        if (!prevPlugin) return { ok: false, reason: `plugin "${name}" added or renamed` };
-        const diff = shapeDiff(prevPlugin, nextPlugin, prevIndex, nextIndex);
-        if (diff) return { ok: false, reason: `${name}: ${diff}` };
-        for (const system of prevPlugin.systems ?? []) {
-            if (!world.hasSystem(system)) return { ok: false, reason: `${name}: system not live` };
-        }
-    }
-
-    for (const [name, nextPlugin] of nextByName) {
-        const prevPlugin = prevByName.get(name)!;
-        if (
-            nextPlugin.recovery !== undefined ||
-            nextPlugin.systems?.some((system) => system.group === "fixed")
-        ) {
-            try {
-                world.registerRecovery(
-                    name,
-                    typeof nextPlugin.recovery === "function"
-                        ? nextPlugin.recovery(world)
-                        : nextPlugin.recovery,
-                );
-            } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e);
-                return { ok: false, reason: `${name}: recovery threw — ${msg}` };
-            }
-        }
-        for (const entry of nextPlugin.components ?? []) {
-            world.registry.register(entry, nextPlugin.name);
-            world.storage(entry);
-        }
-        const prevSystems = prevPlugin.systems ?? [];
-        const nextSystems = nextPlugin.systems ?? [];
-        for (let i = 0; i < nextSystems.length; i++)
-            world.swapSystem(prevSystems[i], nextSystems[i]);
-    }
-
-    // initialize is registration-only and idempotent (the lifecycle contract), so re-running it
-    // repopulates singletons with the new code without touching entities or warm GPU state.
-    // A throw here lands after the system swap, so the World is half-updated — report ok:false
-    // and let the caller's rebuild fallback recover, never wedge on an unhandled throw
-    for (const nextPlugin of nextByName.values()) {
-        try {
-            await withPipelineOwner(world.gpuIfAvailable?.device, nextPlugin.name, () =>
-                nextPlugin.initialize?.(world),
-            );
-        } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            return { ok: false, reason: `${nextPlugin.name}: initialize threw — ${msg}` };
-        }
-    }
-
-    return { ok: true };
-}
-
-// a plugin's shape signature for the swap-vs-rebuild decision: a component-schema, system-set,
-// ordering, dependency, or device-feature change can't be carried in place, so it forces a rebuild instead.
-function shapeDiff(
-    prev: Plugin,
-    next: Plugin,
-    prevIndex: Map<System, number>,
-    nextIndex: Map<System, number>,
-): string | null {
-    if (typeof prev.recovery !== typeof next.recovery) return "recovery declaration changed";
-    const pc = Object.fromEntries(
-        (prev.components ?? []).map((fields) => [declaration(fields, prev.name).key, fields]),
-    );
-    const nc = Object.fromEntries(
-        (next.components ?? []).map((fields) => [declaration(fields, next.name).key, fields]),
-    );
-    const pcKeys = Object.keys(pc).sort();
-    const ncKeys = Object.keys(nc).sort();
-    if (pcKeys.join(",") !== ncKeys.join(",")) return "component set changed";
-    for (const key of ncKeys) {
-        if (!sameComponentSchema(pc[key], nc[key])) return `component "${key}" schema changed`;
-    }
-    const ps = prev.systems ?? [];
-    const ns = next.systems ?? [];
-    if (ps.length !== ns.length) return "system set changed";
-    for (let i = 0; i < ns.length; i++) {
-        if (systemSig(ps[i]) !== systemSig(ns[i])) return `system ${i} scheduling changed`;
-        if (
-            !sameRefs(ps[i].before, ns[i].before, prevIndex, nextIndex) ||
-            !sameRefs(ps[i].after, ns[i].after, prevIndex, nextIndex)
-        )
-            return `system ${i} scheduling changed`;
-    }
-    const pdeps = (prev.dependencies ?? [])
-        .map((d) => d.name)
-        .sort()
-        .join(",");
-    const ndeps = (next.dependencies ?? [])
-        .map((d) => d.name)
-        .sort()
-        .join(",");
-    if (pdeps !== ndeps) return "dependencies changed";
-    if (gpuSig(prev.gpu) !== gpuSig(next.gpu)) return "GPU requirements changed";
-    return null;
-}
-
-function gpuSig(gpu: GpuRequirements | undefined): string {
-    if (gpu === undefined) return "undefined";
-    return JSON.stringify({
-        features: gpu.features ?? [],
-        preferredFeatures: gpu.preferredFeatures ?? [],
-        limits: Object.fromEntries(
-            Object.entries(gpu.limits ?? {}).sort(([a], [b]) => a.localeCompare(b)),
-        ),
-    });
-}
-
-function systemSig(s: System): string {
-    return [
-        s.group ?? "simulation",
-        s.first ? 1 : 0,
-        s.last ? 1 : 0,
-        s.terminal ? 1 : 0,
-        s.boundary ?? "",
-        (s.annotations?.layer as string) ?? "",
-    ].join("|");
-}
-
-// an ordering ref into the swapped set compares by slot; one outside it (an engine
-// anchor like BeginFrameSystem, never reloaded) compares by identity
-function sameRefs(
-    prev: readonly System[] | undefined,
-    next: readonly System[] | undefined,
-    prevIndex: Map<System, number>,
-    nextIndex: Map<System, number>,
-): boolean {
-    const a = prev ?? [];
-    const b = next ?? [];
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-        const pi = prevIndex.get(a[i]) ?? -1;
-        const ni = nextIndex.get(b[i]) ?? -1;
-        if (pi !== ni) return false;
-        if (pi === -1 && a[i] !== b[i]) return false;
-    }
-    return true;
 }

@@ -884,17 +884,7 @@ export class World {
         this._snapshots.removeSystem(system);
     }
 
-    /**
-     * hot-swap a live system's behavior in place. the reloaded module's
-     * `update`/`setup`/`dispose` replace the old ones on the same registered
-     * object, preserving its identity, ordering, and setup state. The engine
-     * `swapPlugins` (plugin-level) drives this per system; not a per-frame call.
-     */
-    swapSystem(old: System, next: System): void {
-        this._scheduler.swap(old, next);
-    }
-
-    /** true if the system is live in the scheduler; `swapPlugins` validates its pairing against this */
+    /** true if the system is live in the scheduler */
     hasSystem(system: System): boolean {
         return this._scheduler.has(system);
     }

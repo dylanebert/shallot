@@ -10,7 +10,7 @@ import {
     viewportToWorld,
 } from "../../core/rendering";
 import * as engine from "../../engine";
-import { probeBuffer, swapPlugins, u32 } from "../../engine";
+import { probeBuffer, u32 } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { component } from "../../engine/ecs/component";
 import type { System } from "../../engine/ecs/scheduler";
@@ -911,83 +911,6 @@ test("restore followed by a tick still interpolates between restored and ticked 
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         const rows = await interpolatedRows(world, table);
         expect(rows[table.rowIndex(eid) * 12]).toBeCloseTo(5, 5);
-    } finally {
-        app.dispose();
-    }
-});
-
-test("a compatible TransformPlugin reload preserves pending GPU history and interpolates the same tick pair", async () => {
-    const load = async (version: string): Promise<typeof import("./global-transform")> =>
-        import(`./global-transform.ts?${version}`);
-    const old = await import("./global-transform");
-    const next = await load("gpu-new");
-    const oldTransform = await import("../transform/global-transform");
-    const nextTransform: typeof oldTransform = await import(
-        `../transform/global-transform.ts?${"gpu-new"}`
-    );
-    const app = await createApp({
-        defaults: false,
-        plugins: [oldTransform.TransformPlugin, RenderingPlugin],
-    });
-    try {
-        const { world } = app;
-        const eid = world.create();
-        world.add(eid, oldTransform.Transform);
-        const table = old.globalTransformTable(world);
-        const runtime = world.resource(old.GlobalTransformHistory);
-        const present = async () => {
-            world.gpu.device.queue.writeBuffer(
-                runtime.params!,
-                0,
-                new Float32Array([0.5, runtime.current!.count, 0, 0]),
-            );
-            const encoder = world.gpu.device.createCommandEncoder();
-            prepareGlobalTransformFrame(world, encoder);
-            const pass = encoder.beginComputePass();
-            pass.setPipeline(runtime.pipeline!);
-            pass.setBindGroup(0, runtime.group!);
-            pass.dispatchWorkgroups(Math.ceil(runtime.current!.count / 64));
-            pass.end();
-            world.gpu.device.queue.submit([encoder.finish()]);
-            return renderedX(world, table, eid);
-        };
-        world.tick();
-        expect(await present()).toBeCloseTo(0, 5);
-        let position = 0;
-        world.addSystem({
-            group: "fixed",
-            update: (world) =>
-                world.storage(oldTransform.Transform).translation.x.set(eid, (position += 10)),
-        });
-        world.tick();
-        const stages = [...runtime.stages];
-        const ranges = [...runtime.ranges];
-        const previous = runtime.previous;
-        const current = runtime.current;
-        const pipeline = runtime.pipeline;
-        const group = runtime.group;
-        expect(
-            await swapPlugins(
-                world,
-                [oldTransform.TransformPlugin],
-                [nextTransform.TransformPlugin],
-            ),
-        ).toEqual({
-            ok: true,
-        });
-        expect(world.resource(next.GlobalTransformHistory)).toBe(runtime);
-        expect(next.globalTransformTable(world)).toBe(table);
-        expect(runtime.previous).toBe(previous);
-        expect(runtime.current).toBe(current);
-        expect(runtime.pipeline).toBe(pipeline);
-        expect(runtime.group).toBe(group);
-        expect(runtime.stages).toEqual(stages);
-        expect([...runtime.ranges]).toEqual(ranges);
-        expect(runtime.tickCount).toBe(1);
-        expect(await present()).toBeCloseTo(5, 5);
-        world.tick();
-        expect(world.storage(nextTransform.Transform).translation.x.get(eid)).toBe(20);
-        expect(await present()).toBeCloseTo(15, 5);
     } finally {
         app.dispose();
     }

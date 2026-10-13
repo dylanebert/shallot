@@ -48,8 +48,8 @@ Outside `runApp`, `world.step()` now throws when a system's setup or update thro
 The Error names the system and carries the thrown value as `cause`; later systems
 do not run, and the next step retries the failing system. Checks that provoke an
 error must expect it with `expect(() => world.step()).toThrow(...)`. Catch the error
-in a custom frame loop. `runApp` still logs, pauses the failing system until a swap
-or rebuild, and finishes the frame.
+in a custom frame loop. `runApp` still logs, pauses the failing system until the page
+reloads, and finishes the frame.
 
 ## Camera rays belong to rendering
 
@@ -279,11 +279,13 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `/render/core` `View.cluster` | `ViewUniforms.projection` (near, far, perspective flag, slot; unchanged byte layout) |
 | Root `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
 | Root `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
-| `build`, `run`, `Config`, `swap`, `SwapResult` | `createApp`, `runApp`, `AppConfig`, `swapPlugins`, `PluginSwapResult` |
+| `build`, `run`, `Config` | `createApp`, `runApp`, `AppConfig` |
+| `swap`, `SwapResult` | Removed; use `bun run dev`, which reloads the page. |
 | `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
 | `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
 | `composeTransform` | `composeGlobalTransform` |
-| `state.stamp`, `state.timescale`, `state.swap` | `world.ref` and `world.resolve`, `world.setTimeScale`, `world.swapSystem` |
+| `state.stamp`, `state.timescale` | `world.ref` and `world.resolve`, `world.setTimeScale` |
+| `state.swap` | Removed; use `bun run dev`, which reloads the page. |
 | `/sear/core` `PrepassSystem`, `ColorSystem` | `/rendering` `PrepassSystem`, `MainPassSystem` |
 | `/src/standard/render/cluster.ts` `ClusterSystem`, `LightCullSystem` | Remove direct imports; these systems are now internal to `StandardRenderingPlugin`. |
 | `CharacterSweepSystem` | Order fixed velocity producers before `CharacterPlugin.systems` |

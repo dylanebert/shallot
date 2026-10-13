@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { type Plugin, swapPlugins } from "../app";
 import { component, f32 } from "./component";
 import { Scheduler, type System } from "./scheduler";
 import { World } from "./world";
@@ -137,45 +136,6 @@ for (const boundary of ["before", "after"] as const) {
         }
     });
 }
-
-test("hot swap pairs every member of an ordered boundary set without duplicating or reordering it", async () => {
-    const world = new World();
-    const calls: string[] = [];
-    const make = (label: string): Plugin => {
-        const a: System = {
-            group: "fixed",
-            boundary: "after",
-            name: "a",
-            update: () => {
-                calls.push(`${label}/a`);
-            },
-        };
-        const b: System = {
-            group: "fixed",
-            boundary: "after",
-            name: "b",
-            after: [a],
-            update: () => {
-                calls.push(`${label}/b`);
-            },
-        };
-        return { name: "BoundarySet", recovery: "stateless", systems: [b, a] };
-    };
-    const old = make("old"),
-        next = make("next");
-    try {
-        world.registerRecovery(old.name, "stateless");
-        for (const system of old.systems!) world.addSystem(system, old.name);
-        world.tick();
-        expect(await swapPlugins(world, [old], [next])).toEqual({ ok: true });
-        world.tick();
-        expect(calls).toEqual(["old/a", "old/b", "next/a", "next/b"]);
-        for (const system of old.systems!) expect(world.hasSystem(system)).toBe(true);
-        for (const system of next.systems!) expect(world.hasSystem(system)).toBe(false);
-    } finally {
-        world.dispose();
-    }
-});
 
 for (const boundary of ["before", "after"] as const) {
     test(`${boundary} boundary set follows edges outside every ordinary system`, () => {
