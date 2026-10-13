@@ -8,7 +8,7 @@ import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { packColor } from "../../engine/utils";
-import { DrawIndirect, Segment } from "./pipeline";
+import { Segment } from "./pipeline";
 
 // one segment = two world endpoints + a pixel width + a packed sRGBA color, 32 bytes / two vec4 reads
 // (read-all per instance coalesces near the floor). `a.xyz` shares its 16-byte slot with `width`,
@@ -29,9 +29,6 @@ interface SegmentState {
     capacity: number;
     count: number;
     publishedCount: number;
-    args: (TgpuBuffer<typeof DrawIndirect> & { usableAsIndirect: true }) | null;
-    argsRaw: GPUBuffer | null;
-    argsStaging: Uint32Array;
 }
 
 const segmentStateKey = { create: createSegmentState };
@@ -48,9 +45,6 @@ function createSegmentState(): SegmentState {
         capacity: INITIAL,
         count: 0,
         publishedCount: 0,
-        args: null,
-        argsRaw: null,
-        argsStaging: new Uint32Array([6, 0, 0, 0]),
     };
 }
 
@@ -62,14 +56,9 @@ export function initializeSegmentState(world: World): void {
     world.resource(segmentStateKey);
 }
 
-// the producer's GPU publication. `count` is the segments packed this frame (reset after upload);
-// `args` is the non-indexed indirect draw record consumed by the transparent phase.
-// Internal — the unit test reads `count` to check the immediate-API expansion; `args` is COPY_SRC so a
-// A one-shot probe can read back the produced instance count
+// the producer's GPU publication: the segment storage buffer the transparent phase binds.
 interface Lines {
-    readonly count: number;
     buffer: (TgpuBuffer<d.WgslArray<typeof Segment>> & StorageFlag) | null;
-    args: (TgpuBuffer<typeof DrawIndirect> & { usableAsIndirect: true }) | null;
 }
 
 export const Lines: import("../../engine").Resource<Lines> = {
@@ -281,7 +270,7 @@ export function drawArrow(
 
 /** true once the GPU buffers are allocated (`warmSegments` ran with a device) */
 export function ready(world: World): boolean {
-    return !!segmentState(world).buffer && !!world.resource(Lines).args;
+    return !!segmentState(world).buffer;
 }
 
 /** Segment data published by the latest draw update, indexed by `instance_index`. */
@@ -310,8 +299,8 @@ export function resetCount(world: World): void {
     segmentState(world).publishedCount = 0;
 }
 
-/** allocate the segment storage + indirect-args buffers and publish `lineSegments` */
-export function warmSegments(world: World, _device: GPUDevice): void {
+/** allocate the segment storage buffer and publish `lineSegments` */
+export function warmSegments(world: World): void {
     segmentState(world).capacity = INITIAL;
     segmentState(world).staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
     segmentState(world).f32 = new Float32Array(segmentState(world).staging);
@@ -328,20 +317,13 @@ export function warmSegments(world: World, _device: GPUDevice): void {
     resources.buffer = buffer;
     world.gpu.buffers.set("lineSegments", world.gpu.root.unwrap(buffer));
     world.gpu.typed.set("lineSegments", buffer);
-    resources.args = world.gpu.root
-        .createBuffer(DrawIndirect)
-        .$usage("indirect")
-        .$name("shallot-line-args");
-    resources.argsRaw = world.gpu.root.unwrap(resources.args);
 }
 
 // grow the GPU buffer to match the CPU staging (rare); republish so standard re-resolves the binding, then
-// upload this frame's segments, write the indirect record (instanceCount = live count), and clear
+// upload this frame's segments and clear
 export function flushSegments(world: World, device: GPUDevice): void {
-    const _lines = world.resource(Lines);
-
     const resources = segmentState(world);
-    if (!resources.buffer || !_lines.args || !resources.argsRaw) return;
+    if (!resources.buffer) return;
     if (resources.capacity * SEGMENT_BYTES > world.gpu.root.unwrap(resources.buffer).size) {
         const stale = resources.buffer;
         const buffer = world.gpu.root
@@ -354,8 +336,6 @@ export function flushSegments(world: World, device: GPUDevice): void {
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
     const buffer = resources.buffer;
-    const args = _lines.args;
-    if (!buffer || !args) return;
     if (resources.count > 0)
         device.queue.writeBuffer(
             world.gpu.root.unwrap(buffer),
@@ -364,20 +344,12 @@ export function flushSegments(world: World, device: GPUDevice): void {
             0,
             resources.count * SEGMENT_BYTES,
         );
-    resources.argsStaging[1] = resources.count;
-    device.queue.writeBuffer(resources.argsRaw, 0, resources.argsStaging);
     segmentState(world).publishedCount = resources.count;
     segmentState(world).count = 0;
 }
 
 export function disposeSegments(world: World): void {
-    const _lines = world.resource(Lines);
-
     segmentState(world).buffer?.destroy();
-    _lines.args?.destroy();
     segmentState(world).buffer = null;
-    segmentState(world).args = null;
-    segmentState(world).argsRaw = null;
-    _lines.args = null;
     segmentState(world).count = 0;
 }

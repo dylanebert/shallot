@@ -9,11 +9,6 @@ export const Segment = d
     .struct({ a: d.vec3f, width: d.f32, b: d.vec3f, color: d.u32 })
     .$name("Segment");
 
-/** non-indexed indirect draw arguments for six vertices per segment. */
-export const DrawIndirect = d
-    .struct({ vertexCount: d.u32, instanceCount: d.u32, firstVertex: d.u32, firstInstance: d.u32 })
-    .$name("LineDrawIndirect");
-
 const viewLayout = tgpu
     .bindGroupLayout({ view: { uniform: ViewUniforms, visibility: ["vertex"] } })
     .$idx(0);

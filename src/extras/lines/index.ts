@@ -263,7 +263,7 @@ export const LinesPlugin: Plugin = {
 
     warm(world: World) {
         if (!world.gpu.device) return;
-        warmSegments(world, world.gpu.device);
+        warmSegments(world);
         const format = world.resource(RenderContext).format;
         const state = world.resource(lineRendererKey);
         state.single = createLinePipeline(world.gpu.root, format, 1);
