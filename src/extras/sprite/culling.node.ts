@@ -84,3 +84,20 @@ test("a Sprite spawned before a frame draws in that frame", async () => {
     });
     expect(new Uint32Array(snapshot.bytes)[1]).toBe(1);
 });
+
+test("a terminal simulation system's Sprite size change reaches that frame's cull bounds", () => {
+    const { world } = subjects()[0];
+    const sprite = world.create();
+    world.add(sprite, Transform);
+    world.add(sprite, Sprite, { size: [1, 1] });
+    world.step(0);
+
+    world.addSystem({
+        name: "sprite-size-terminal",
+        group: "simulation",
+        terminal: true,
+        update: (world) => world.storage(Sprite).size.x.set(sprite, 10),
+    });
+    world.step(0);
+    expect(world.storage(MeshInstance).cullBounds.w.get(sprite)).toBeGreaterThan(5);
+});
