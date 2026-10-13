@@ -54,31 +54,9 @@ async function waitForScene(page: Page): Promise<void> {
     await expect(page.locator("#scene")).toHaveClass(/visible/);
 }
 
-test("the host paints startup feedback before its application entry is released", async ({
-    page,
-}) => {
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-        release = resolve;
-    });
-    await page.route("**/assets/index-*.js", async (route) => {
-        await held;
-        await route.continue();
-    });
-
-    await page.goto("/", { waitUntil: "commit" });
-    const startup = page.locator("[data-shallot-startup]");
-    await expect(startup).toBeVisible();
-    await page.evaluate(
-        () =>
-            new Promise<void>((resolve) =>
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-            ),
-    );
+async function inspectStartup(page: Page) {
     const screenshot = await page.screenshot();
-    const evidence = process.env["SHALLOT_STARTUP_EVIDENCE"];
-    if (evidence) await page.screenshot({ path: join(evidence, "startup.png") });
-    const painted = await page.evaluate(async (base64) => {
+    const inspection = await page.evaluate(async (base64) => {
         const image = await createImageBitmap(
             new Blob([Uint8Array.from(atob(base64), (value) => value.charCodeAt(0))]),
         );
@@ -87,29 +65,266 @@ test("the host paints startup feedback before its application entry is released"
         canvas.height = image.height;
         const context = canvas.getContext("2d")!;
         context.drawImage(image, 0, 0);
-        const pixel = [...context.getImageData(image.width / 2, image.height * 0.515, 1, 1).data];
+        const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const rect = (selector: string) => {
+            const element = document.querySelector<HTMLElement>(selector);
+            if (!element) return null;
+            const bounds = element.getBoundingClientRect();
+            return {
+                left: bounds.left,
+                top: bounds.top,
+                right: bounds.right,
+                bottom: bounds.bottom,
+            };
+        };
+        const frame = rect("#frame");
+        const label = rect("[data-bootstrap-label]");
+        const track = rect("[data-bootstrap-track]");
+        const frameElement = document.querySelector<HTMLElement>("#frame");
+        const background = frameElement
+            ? getComputedStyle(frameElement)
+                  .backgroundColor.match(/[\d.]+/g)!
+                  .slice(0, 3)
+                  .map(Number)
+            : [28, 25, 23];
+        const countContrasting = (bounds: NonNullable<typeof frame>) => {
+            let count = 0;
+            for (
+                let y = Math.max(0, Math.floor(bounds.top));
+                y < Math.min(canvas.height, Math.ceil(bounds.bottom));
+                y++
+            ) {
+                for (
+                    let x = Math.max(0, Math.floor(bounds.left));
+                    x < Math.min(canvas.width, Math.ceil(bounds.right));
+                    x++
+                ) {
+                    const offset = (y * canvas.width + x) * 4;
+                    if (
+                        Math.max(
+                            ...background.map((channel, index) =>
+                                Math.abs(rgba[offset + index]! - channel),
+                            ),
+                        ) > 4
+                    )
+                        count++;
+                }
+            }
+            return count;
+        };
+        const result = {
+            width: canvas.width,
+            height: canvas.height,
+            frame,
+            label,
+            track,
+            labelInkPixels: label ? countContrasting(label) : 0,
+            trackContrastPixels: track ? countContrasting(track) : 0,
+            description: rect(".description"),
+            bootstrap: rect("[data-shallot-bootstrap]"),
+        };
         image.close();
-        return pixel;
+        return result;
     }, screenshot.toString("base64"));
-    expect([
-        [20, 18, 16, 255],
-        [28, 25, 23, 255],
-    ]).toContainEqual(painted);
-    release();
-    await expect(startup).toHaveCount(0);
-});
+    return inspection;
+}
 
-test("an application-entry failure changes startup status instead of leaving Loading", async ({
+function expectStartupPixels(shot: Awaited<ReturnType<typeof inspectStartup>>): void {
+    expect(
+        shot.labelInkPixels,
+        "screenshot contains loading-label ink inside its label bounds",
+    ).toBeGreaterThan(8);
+    expect(
+        shot.trackContrastPixels,
+        "screenshot contains the track within its declared bounds",
+    ).toBeGreaterThan(100);
+}
+
+async function expectPaintedStartup(
+    page: Page,
+): Promise<Awaited<ReturnType<typeof inspectStartup>>> {
+    const shot = await inspectStartup(page);
+    expectStartupPixels(shot);
+    await expect(page.locator(".description")).toBeVisible();
+    await expect(page.locator("#frame")).toBeVisible();
+    await expect(page.locator("[data-shallot-bootstrap]")).toBeVisible();
+    await expect(page.locator("[data-bootstrap-label]")).toHaveText("Loading…");
+    await expect(page.locator("[data-bootstrap-track]")).toBeVisible();
+    const descriptionHit = await page.locator(".description").evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return (
+            document.elementFromPoint(
+                bounds.left + bounds.width / 2,
+                bounds.top + bounds.height / 2,
+            ) === element
+        );
+    });
+    expect(
+        descriptionHit,
+        "the description remains hit-testable while the bootstrap is active",
+    ).toBe(true);
+    expect(shot.description, "the host description exists before entry").not.toBeNull();
+    expect(shot.frame).not.toBeNull();
+    const { description, frame, bootstrap } = shot;
+    expect(description!.top).toBeGreaterThanOrEqual(0);
+    expect(description!.bottom).toBeLessThanOrEqual(frame!.top);
+    expect(description!.left).toBeGreaterThanOrEqual(0);
+    expect(description!.right).toBeLessThanOrEqual(shot.width);
+    expect(bootstrap!.left).toBeCloseTo(frame!.left, 0);
+    expect(bootstrap!.top).toBeCloseTo(frame!.top, 0);
+    expect(bootstrap!.right).toBeCloseTo(frame!.right, 0);
+    expect(bootstrap!.bottom).toBeCloseTo(frame!.bottom, 0);
+    expect(frame!.left).toBeGreaterThanOrEqual(0);
+    expect(frame!.top).toBeGreaterThanOrEqual(0);
+    expect(frame!.right).toBeLessThanOrEqual(shot.width);
+    expect(frame!.bottom).toBeLessThanOrEqual(shot.height);
+    return shot;
+}
+
+test("host paints contained semantic startup feedback before application entry, then hands off", async ({
     page,
 }) => {
-    await page.route("**/assets/index-*.js", (route) => route.abort());
+    let release!: () => void;
+    let entryStarted!: () => void;
+    let applicationEntry = "";
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const reached = new Promise<void>((resolve) => {
+        entryStarted = resolve;
+    });
+    await page.route("**/assets/index-*.js", async (route) => {
+        applicationEntry = route.request().url();
+        entryStarted();
+        await held;
+        await route.continue();
+    });
     await page.goto("/", { waitUntil: "commit" });
-    const startup = page.locator("[data-shallot-startup]");
-    await expect(startup).toHaveAttribute("aria-label", "Unable to load the application");
-    await expect(startup).toHaveAttribute("role", "alert");
-    await expect(startup).toContainText(
-        "Unable to load the application. Check the console and reload.",
+    await reached;
+    expect(applicationEntry).toMatch(/\/assets\/index-[^/]+\.js$/);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expectPaintedStartup(page);
+    const evidence = process.env["SHALLOT_STARTUP_EVIDENCE"];
+    if (evidence) await page.screenshot({ path: join(evidence, "startup.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectPaintedStartup(page);
+    if (evidence) await page.screenshot({ path: join(evidence, "startup-mobile.png") });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const bootstrap = await page.locator("[data-shallot-bootstrap]").elementHandle();
+    release();
+    await expect(page.locator("[data-shallot-bootstrap]")).toHaveCount(0);
+    await expect(page.locator(overlaySelector)).toBeVisible();
+    await expect(page.locator(".description")).toHaveCount(1);
+    await page.evaluate(() =>
+        window.dispatchEvent(new ErrorEvent("error", { message: "late unrelated error" })),
     );
+    expect(
+        await bootstrap?.evaluate((element) => ({
+            connected: element.isConnected,
+            text: element.textContent?.trim(),
+            state: element.getAttribute("data-state"),
+        })),
+    ).toEqual({
+        connected: false,
+        text: "Loading…",
+        state: "loading",
+    });
+});
+
+test("the screenshot witness rejects the held base and a blank-feedback control", async ({
+    page,
+}) => {
+    let release!: () => void;
+    let releaseBlank!: () => void;
+    let entryStarted!: () => void;
+    let blankStarted!: () => void;
+    let entryCount = 0;
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const blankHeld = new Promise<void>((resolve) => {
+        releaseBlank = resolve;
+    });
+    const reached = new Promise<void>((resolve) => {
+        entryStarted = resolve;
+    });
+    const blankReached = new Promise<void>((resolve) => {
+        blankStarted = resolve;
+    });
+    await page.route("**/assets/index-*.js", async (route) => {
+        if (entryCount++ === 0) {
+            entryStarted();
+            await held;
+        } else {
+            blankStarted();
+            await blankHeld;
+        }
+        await route.continue();
+    });
+    await page.goto("/", { waitUntil: "commit" });
+    await reached;
+    await page.evaluate(() => document.querySelector("#app")!.replaceChildren());
+    const evidence = process.env["SHALLOT_STARTUP_EVIDENCE"];
+    if (evidence) await page.screenshot({ path: join(evidence, "startup-base-control.png") });
+    const base = await inspectStartup(page);
+    expect(
+        () => expectStartupPixels(base),
+        "held base screenshot fails the same ink-and-track witness",
+    ).toThrow();
+    release();
+
+    await page.goto("/", { waitUntil: "commit" });
+    await blankReached;
+    await page.addStyleTag({
+        content:
+            "[data-bootstrap-label], [data-bootstrap-track] { visibility: hidden !important; }",
+    });
+    if (evidence) await page.screenshot({ path: join(evidence, "startup-blank-control.png") });
+    const blank = await inspectStartup(page);
+    expect(
+        () => expectStartupPixels(blank),
+        "blank screenshot fails the same ink-and-track witness",
+    ).toThrow();
+    releaseBlank();
+});
+
+test("entry evaluation, dependency rejection, and entry load failure settle the active bootstrap", async ({
+    browser,
+}) => {
+    const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    for (const failure of ["evaluation", "dependency", "load", "rejection"] as const) {
+        await page.route("**/assets/index-*.js", async (route) => {
+            if (failure === "load") await route.abort();
+            else
+                await route.fulfill({
+                    status: 200,
+                    contentType: "text/javascript",
+                    body:
+                        failure === "evaluation"
+                            ? 'throw new Error("controlled entry evaluation failure");'
+                            : failure === "rejection"
+                              ? 'void Promise.reject(new Error("controlled entry rejection"));'
+                              : 'import "./missing-startup-dependency.js";',
+                });
+        });
+        await page.route("**/assets/missing-startup-dependency.js", (route) => route.abort());
+        await page.goto("/", { waitUntil: "commit" });
+        const startup = page.locator("[data-shallot-bootstrap]");
+        await expect(startup).toHaveAttribute("data-state", "error");
+        await expect(startup).toHaveAttribute("role", "alert");
+        await expect(startup).toContainText("Unable to start this application");
+        await expect(startup.locator("[data-bootstrap-label], [data-bootstrap-track]")).toHaveCount(
+            0,
+        );
+        if (failure === "evaluation") {
+            await expect.poll(() => pageErrors).toContain("controlled entry evaluation failure");
+        }
+        await page.unrouteAll({ behavior: "wait" });
+        await page.goto("about:blank");
+    }
+    await page.close();
 });
 
 test("a destroyed device before its first frame does not reach the failure screen", async ({

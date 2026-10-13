@@ -6,44 +6,28 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Embedded Shallot scene</title>
         <link rel="stylesheet" href="/src/style.css" />
-        <style>
-            [data-shallot-startup] {
-                position: fixed;
-                inset: 0;
-                z-index: 10000;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                gap: 16px;
-                background: var(--bg);
-                color: var(--ink);
-                font: 14px/1.5 system-ui, sans-serif;
-            }
-            [data-shallot-startup]::before {
-                content: "Loading…";
-            }
-            [data-shallot-startup]::after {
-                width: 228px;
-                max-width: 80vw;
-                height: 4px;
-                background: var(--bg2);
-                content: "";
-            }
-        </style>
     </head>
     <body>
-        <div data-shallot-startup role="status" aria-label="Loading"></div>
-        <div id="app"></div>
-        <script>
-            window.addEventListener("error", (event) => {
-                if (!(event.target instanceof HTMLScriptElement) || event.target.type !== "module") return;
-                const startup = document.querySelector("[data-shallot-startup]");
-                startup?.setAttribute("role", "alert");
-                startup?.setAttribute("aria-label", "Unable to load the application");
-                if (startup) startup.textContent = "Unable to load the application. Check the console and reload.";
-            }, true);
-        </script>
+        <div id="app">
+            <main class="page">
+                <p class="description">scene with minimal loading bar</p>
+                <section class="scene" aria-label="Embedded Shallot scene">
+                    <div class="frame" id="frame">
+                        <canvas id="scene" aria-label="Rendered Shallot scene"></canvas>
+                        <div
+                            data-shallot-bootstrap
+                            data-state="loading"
+                            role="status"
+                            aria-label="Loading"
+                        >
+                            <span data-bootstrap-label>Loading…</span>
+                            <span data-bootstrap-track aria-hidden="true"></span>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+        <script src="/startup.js"></script>
         <script type="module" src="/src/main.ts"></script>
     </body>
 </html>

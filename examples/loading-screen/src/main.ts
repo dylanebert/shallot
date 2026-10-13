@@ -6,7 +6,7 @@ import { LoadingWorld } from "./scene";
 const host = mountHost();
 const loading = minimalDark({
     container: host.frame,
-    bootstrap: document.querySelector<HTMLElement>("[data-shallot-startup]") ?? undefined,
+    bootstrap: host.frame.querySelector<HTMLElement>("[data-shallot-bootstrap]") ?? undefined,
 });
 let app: Awaited<ReturnType<typeof runApp>> | undefined;
 let pageClosed = false;

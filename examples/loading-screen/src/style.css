@@ -2,6 +2,7 @@
     --bg: #141210;
     --bg2: #1c1917;
     --ink: #f0e6d6;
+    --frame-error: #cd6559;
     --sans: "IBM Plex Sans", system-ui, sans-serif;
     color-scheme: dark;
 }
@@ -57,6 +58,33 @@ body {
     overflow: hidden;
     margin-inline: auto;
     background: var(--bg2);
+}
+
+[data-shallot-bootstrap] {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 24px;
+    background: var(--bg2);
+    color: var(--ink);
+    font: 14px/1.5 var(--sans);
+    text-align: center;
+}
+
+[data-bootstrap-track] {
+    width: 228px;
+    max-width: 100%;
+    height: 4px;
+    background: var(--bg);
+}
+
+[data-shallot-bootstrap][data-state="error"] {
+    font-weight: 600;
 }
 
 canvas {

@@ -1,6 +1,3 @@
-export const FRAME_BACKGROUND_COLOR = "#1c1917";
-export const FRAME_ERROR_COLOR = "#cd6559";
-
 export interface HostFrame {
     frame: HTMLElement;
     canvas: HTMLCanvasElement;
@@ -9,22 +6,7 @@ export interface HostFrame {
 }
 
 export function mountHost(): HostFrame {
-    const root = document.documentElement;
-    root.style.setProperty("--bg", "#141210");
-    root.style.setProperty("--ink", "#f0e6d6");
-    root.style.setProperty("--bg2", FRAME_BACKGROUND_COLOR);
-    root.style.setProperty("--frame-error", FRAME_ERROR_COLOR);
     const app = document.querySelector<HTMLElement>("#app")!;
-    app.innerHTML = `
-        <main class="page">
-            <p class="description">scene with minimal loading bar</p>
-            <section class="scene" aria-label="Embedded Shallot scene">
-                <div class="frame" id="frame">
-                    <canvas id="scene" aria-label="Rendered Shallot scene"></canvas>
-                </div>
-            </section>
-        </main>`;
-
     const frame = app.querySelector<HTMLElement>("#frame")!;
     const canvas = app.querySelector<HTMLCanvasElement>("#scene")!;
 

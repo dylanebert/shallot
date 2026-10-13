@@ -1,7 +1,15 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { World } from "@dylanebert/shallot";
-import { FRAME_BACKGROUND_COLOR, FRAME_ERROR_COLOR, mountHost } from "./host";
+import { mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
+
+const styles = readFileSync(new URL("./style.css", import.meta.url), "utf8");
+function themeColor(token: string): string {
+    const value = styles.match(new RegExp(`--${token}:\\s*(#[\\da-fA-F]{6});`))?.[1];
+    if (!value) throw new Error(`Missing --${token} theme token`);
+    return value;
+}
 
 type FakeElement = {
     className: string;
@@ -60,7 +68,7 @@ function fakeElement(): FakeElement {
 }
 
 test("a missing device on the first stepped frame leaves a readable alert inside its scene frame, with at least 4.5:1 contrast", async () => {
-    const errorContrast = contrast(FRAME_ERROR_COLOR, FRAME_BACKGROUND_COLOR);
+    const errorContrast = contrast(themeColor("frame-error"), themeColor("bg2"));
     const app = fakeElement();
     const frame = fakeElement();
     const canvas = fakeElement();
