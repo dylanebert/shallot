@@ -61,6 +61,7 @@ interface ClusterGpuState {
     allocationLocalPipe: GPUComputePipeline | null;
     allocationGlobalPipe: GPUComputePipeline | null;
     allocationBound: GPUBindGroup | null;
+    allocationSlots: number;
     countPipe: GPURenderPipeline | null;
     countBound: GPUBindGroup | null;
     populatePipe: GPURenderPipeline | null;
@@ -119,6 +120,7 @@ function createClusterGpuState(): ClusterGpuState {
         allocationLocalPipe: null,
         allocationGlobalPipe: null,
         allocationBound: null,
+        allocationSlots: -1,
         countPipe: null,
         countBound: null,
         populatePipe: null,
@@ -1310,13 +1312,7 @@ function bindLightCullGroups(world: World): void {
             ],
         }),
     };
-    state.allocationBound = device.createBindGroup({
-        layout: state.allocationLayout,
-        entries: [
-            { binding: 0, resource: { buffer: clusterCounts } },
-            { binding: 1, resource: { buffer: lights } },
-        ],
-    });
+    state.allocationBound = null;
     state.countBound = device.createBindGroup({
         layout: state.countLayout,
         entries: [
@@ -1380,7 +1376,6 @@ export const CullLightsSystem: System = {
         const _clusterGpu = world.resource(clusterGpuKey);
         const _lightCull = world.resource(LightCull);
         const zSlice = _clusterGpu.zSliceBound;
-        const allocation = _clusterGpu.allocationBound;
         const count = _clusterGpu.countBound;
         const populate = _clusterGpu.populateBound;
         const args = _clusterGpu.rasterArgs;
@@ -1394,7 +1389,6 @@ export const CullLightsSystem: System = {
             !count ||
             !_clusterGpu.populatePipe ||
             !populate ||
-            !allocation ||
             !_clusterGpu.clusterCounts ||
             !args ||
             !_clusterGpu.rasterIndexBuffer ||
@@ -1403,6 +1397,7 @@ export const CullLightsSystem: System = {
         )
             return;
         warnLightOverflow(world);
+        const allocation = bindAllocation(world, _render.shadeCount);
 
         world.gpu.device.queue.writeBuffer(
             _lightCull.viewMats!,
@@ -1421,8 +1416,8 @@ export const CullLightsSystem: System = {
         const encoder = world.frameEncoder()!;
         encoder.clearBuffer(_lightCull.lights!, 0, 16);
         encoder.clearBuffer(_lightCull.lights!, LIGHT_INDICES_OFFSET, POOL_HEADER * 4);
-        encoder.clearBuffer(_clusterGpu.clusterCounts!, 0, _clusterGpu.clusterCounts!.size);
-        for (let slot = 0; slot < _clusterGpu.viewCapacity; slot++)
+        encoder.clearBuffer(_clusterGpu.clusterCounts!, 0, scratchCount(_render.shadeCount) * 8);
+        for (let slot = 0; slot < _render.shadeCount; slot++)
             encoder.clearBuffer(args, slot * RASTER_ARGS_SIZE + 4, 4);
 
         if (lightCount > 0) {
@@ -1455,10 +1450,7 @@ export const CullLightsSystem: System = {
         const localPass = beginComputePass(encoder, _clusterGpu.allocationLocalPass);
         setComputePipeline(localPass, _clusterGpu.allocationLocalPipe);
         setComputeBindGroup(localPass, 0, allocation);
-        dispatchWorkgroups(
-            localPass,
-            scratchCount(_clusterGpu.viewCapacity) / ALLOCATION_WORKGROUP_SIZE,
-        );
+        dispatchWorkgroups(localPass, scratchCount(_render.shadeCount) / ALLOCATION_WORKGROUP_SIZE);
         endComputePass(localPass);
 
         _clusterGpu.allocationGlobalPass.timestampWrites =
@@ -1481,6 +1473,25 @@ export const CullLightsSystem: System = {
         }
     },
 };
+
+// The counters binding spans only the presenting prefix, so the allocation passes scan live slots,
+// not the grown capacity; slots past it are never shaded.
+function bindAllocation(world: World, shadeCount: number): GPUBindGroup {
+    const state = world.resource(clusterGpuKey);
+    if (state.allocationBound && state.allocationSlots === shadeCount) return state.allocationBound;
+    state.allocationBound = world.gpu.device.createBindGroup({
+        layout: state.allocationLayout!,
+        entries: [
+            {
+                binding: 0,
+                resource: { buffer: state.clusterCounts!, size: scratchCount(shadeCount) * 8 },
+            },
+            { binding: 1, resource: { buffer: world.resource(LightCull).lights! } },
+        ],
+    });
+    state.allocationSlots = shadeCount;
+    return state.allocationBound;
+}
 
 function encodeLightRaster(
     world: World,

@@ -271,10 +271,10 @@ export const MeshPreprocessSystem: System = {
             setBound(pass, count);
             dispatchWorkgroups2(pass, rows, views);
         }
-        // one workgroup per allocated view slot (the counts buffer spans _meshPreprocess.viewDim ×
-        // pairCount); slots past the active views carry zero counts → zero instanceCount
+        // one workgroup per live view slot; slots past them are never drawn, and a slot that becomes
+        // live again is scanned before its draw
         setBound(pass, scan);
-        dispatchWorkgroups(pass, _meshPreprocess.viewDim);
+        dispatchWorkgroups(pass, views);
         if (rows > 0) {
             setBound(pass, scatter);
             dispatchWorkgroups2(pass, rows, views);
