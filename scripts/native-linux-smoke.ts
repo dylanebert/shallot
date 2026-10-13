@@ -16,7 +16,8 @@ import {
     writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
-import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, relative, resolve } from "node:path";
+import { normalizePath } from "../src/project/paths";
 import { CEILING } from "../src/project/testing.js";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -833,10 +834,10 @@ async function createConsumer(
 async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Promise<void> {
     if (process.platform !== "linux") throw new Error("native Linux smoke must run on Linux");
     const consumer = resolve(options.consumer!);
-    const fromRoot = relative(ROOT, consumer);
+    const fromRoot = normalizePath(relative(ROOT, consumer));
     const insideCheckout =
         fromRoot === "" ||
-        (!isAbsolute(fromRoot) && fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`));
+        (!isAbsolute(fromRoot) && fromRoot !== ".." && !fromRoot.startsWith("../"));
     if (insideCheckout) throw new Error(`--consumer must be outside the checkout: ${consumer}`);
     const logs = resolve(options.logs ?? resolve(consumer, "logs"));
     mkdirSync(consumer, { recursive: true });
