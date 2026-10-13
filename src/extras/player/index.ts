@@ -57,7 +57,7 @@ export const Player = component(
         jumpBuffer: f32,
         /** sprint multiplier applied while Shift is held */
         sprint: f32,
-        /** Height the capsule floats above walkable ground, in metres. Player writes it to `Character.pogoRest`. Walking climbs a step only up to about this plus what the rounded capsule rides up an edge. */
+        /** Height the capsule floats above walkable ground, in metres. Player writes it to `Character.pogoRest` and turns on `Character.steepWalls`, so walking climbs a step only about as tall as the capsule's walkable rounding below `maxSlope`. */
         hover: f32,
         /** camera height above the capsule centre (the eye offset) */
         eyeHeight: f32,
@@ -216,6 +216,7 @@ export const DrivePlayerSystem: System = {
             const pogoRest = 1 + players.hover.column[eid] / shapes.capsuleB.column[eid * 4 + 3];
             if (characters.pogoRest.column[eid] !== Math.fround(pogoRest))
                 characters.pogoRest.set(eid, pogoRest);
+            if (characters.steepWalls.column[eid] !== 1) characters.steepWalls.set(eid, 1);
             const grounded = characters.groundState.column[eid] === GroundState.OnGround;
             let coyote = grounded
                 ? players.coyoteTime.column[eid]

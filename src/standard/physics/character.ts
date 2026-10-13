@@ -59,6 +59,8 @@ export const Character = component(
         pogoVelocity: field,
         /** Pogo spring rest length in capsule radii, down from the lower sphere's centre, so the capsule rests `pogoRest - 1` radii above contact. Box3D's mover sample uses 3. */
         pogoRest: field,
+        /** 1 adds a vertical wall behind each contact steeper than `maxSlope`, so a rounded capsule cannot ride up a step edge, as Jolt's `CharacterVirtual` does. Box3D's mover sample does not, so 0 is the default. */
+        steepWalls: u32,
     },
     {
         requires: [Body],
@@ -71,6 +73,7 @@ export const Character = component(
             up: [0, 1, 0, 0],
             pogoVelocity: 0,
             pogoRest: 3,
+            steepWalls: 0,
         }),
     },
 );
@@ -80,7 +83,7 @@ const terms = [Character, Body];
 export const characterScratch = {
     create: () => ({
         planes: Array.from(
-            { length: 8 },
+            { length: 16 },
             (): CollisionPlane => ({
                 plane: { normal: vec3.zero(), offset: 0 },
                 pushLimit: 3.4028234663852886e38,
@@ -119,6 +122,9 @@ export const characterScratch = {
         solved: { delta: vec3.zero(), iterationCount: 0 },
         dt: 0,
         count: 0,
+        planeCount: 0,
+        steepWalls: 0,
+        cosMaxSlope: 0,
         radius: 0,
         groundShape: -1,
         passes: 0,
@@ -173,10 +179,12 @@ function moveCharacter(world: World, eid: number): void {
     s.local.y = capsuleB[shapeOffset + 1];
     s.local.z = capsuleB[shapeOffset + 2];
     quat.rotateOut(s.pose.q, s.local, s.center2);
+    s.steepWalls = character.steepWalls.column[eid];
+    s.cosMaxSlope = Math.cos(character.maxSlope.column[eid]);
     spring(world, eid, state, bodyId, s);
     collide(state, bodyId, s);
     push(state, s);
-    clipVector(velocity, s.planes, s.count, velocity);
+    clipVector(velocity, s.planes, s.planeCount, velocity);
     vc[offset] = velocity.x;
     vc[offset + 1] = velocity.y;
     vc[offset + 2] = velocity.z;
@@ -352,8 +360,28 @@ function collide(
             s.points[i].z = f32(position.z + q.resultF[n + 7]);
             s.shapes[i] = q.resultU[n];
         }
+        let planeCount = count;
+        if (s.steepWalls) {
+            // Jolt's CharacterVirtual adds a vertical plane behind a steep upward contact, at the horizontal
+            // distance to the contact plane, so sliding along the contact cannot lift the capsule.
+            const up = s.up;
+            for (let i = 0; i < count && planeCount < s.planes.length; ++i) {
+                const contact = s.planes[i].plane;
+                const d = vec3.dot(contact.normal, up);
+                if (d <= 1e-3 || d >= s.cosMaxSlope) continue;
+                const hx = contact.normal.x - d * up.x;
+                const hy = contact.normal.y - d * up.y;
+                const hz = contact.normal.z - d * up.z;
+                const length = Math.sqrt(hx * hx + hy * hy + hz * hz);
+                const wall = s.planes[planeCount++].plane;
+                wall.normal.x = f32(hx / length);
+                wall.normal.y = f32(hy / length);
+                wall.normal.z = f32(hz / length);
+                wall.offset = f32(contact.offset / length);
+            }
+        }
         vec3.subOut(s.target, position, s.delta);
-        const solved = solvePlanes(s.delta, s.planes, count, s.solved);
+        const solved = solvePlanes(s.delta, s.planes, planeCount, s.solved);
         s.passes++;
         s.solverIterations += solved.iterationCount;
         q.prepare(position);
@@ -365,6 +393,7 @@ function collide(
         k.worldQuery(state.worldId, 6, 0);
         vec3.scaleOut(q.resultF[3], solved.delta, s.delta);
         vec3.addOut(position, s.delta, position);
+        s.planeCount = planeCount;
         if (vec3.lengthSq(s.delta) < f32(f32(0.01) * f32(0.01))) break;
     }
     s.count = count;

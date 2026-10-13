@@ -192,8 +192,8 @@ test("a rider keeps a kinematic platform's reported velocity rather than accumul
 test("a rider stays grounded on a diagonal platform about 1000 m from the origin", () =>
     checkDiagonalCarry(1000, 2));
 
-// The capsule floats Player.hover above contact; walking also rides the rounded capsule up an edge below it,
-// up to about 0.2 m at walk and sprint speed.
+// The capsule floats Player.hover above contact, and steep contacts are walls, so walking climbs only the edges its
+// rounding meets below maxSlope: about 0.1 m.
 async function walkAtStep(height: number): Promise<boolean> {
     let player = 0;
     const app = await createApp({
@@ -238,7 +238,7 @@ async function walkAtStep(height: number): Promise<boolean> {
     }
 }
 
-test("walking climbs a 0.1 m step but not a 0.3 m one", async () => {
-    expect(await walkAtStep(0.1)).toBe(true);
-    expect(await walkAtStep(0.3)).toBe(false);
+test("walking climbs a 0.08 m step but not a 0.15 m one", async () => {
+    expect(await walkAtStep(0.08)).toBe(true);
+    expect(await walkAtStep(0.15)).toBe(false);
 });

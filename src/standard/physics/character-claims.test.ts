@@ -174,3 +174,37 @@ test("a sideways-moving kinematic platform reports velocity but does not carry t
         dispose();
     }
 });
+
+async function walkInto(stepHeight: number, steepWalls: number): Promise<number> {
+    const { world, eid, dispose } = await scene();
+    try {
+        floor(world);
+        const step = world.create();
+        world.add(step, Body, { type: BodyType.Static, position: [0, stepHeight / 2, -3, 0] });
+        world.add(step, Shape, { scale: [4, stepHeight / 2, 1, 0] });
+        const c = world.storage(Character);
+        c.pogoRest.set(eid, 1 + 0.05 / 0.3);
+        c.steepWalls.set(eid, steepWalls);
+        let furthest = 0;
+        for (let tick = 0; tick < 120; ++tick) {
+            const grounded = c.groundState.get(eid) === GroundState.OnGround;
+            c.velocity.set(
+                eid,
+                0,
+                grounded ? 0 : c.velocity.y.get(eid) - 30 * Time.FIXED_DT,
+                -4,
+                0,
+            );
+            world.step(Time.FIXED_DT);
+            furthest = Math.min(furthest, world.storage(GlobalTransform).translation.z.get(eid));
+        }
+        return furthest;
+    } finally {
+        dispose();
+    }
+}
+
+test("steep walls stop a capsule riding its rounding up a step edge it climbs without them", async () => {
+    expect(await walkInto(0.15, 0)).toBeLessThan(-4);
+    expect(await walkInto(0.15, 1)).toBeGreaterThan(-2);
+});
