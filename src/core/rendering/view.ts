@@ -160,10 +160,23 @@ export interface CanvasFrameCaptureRequest {
     reject: (error: Error) => void;
 }
 
+interface SceneTransformResult {
+    read: GPUTextureView;
+    write: GPUTextureView;
+}
+
+interface ScratchPair {
+    a: Scratch | null;
+    b: Scratch | null;
+    w: number;
+    h: number;
+    result: SceneTransformResult;
+}
+
 interface ViewResources {
     views: Map<number, View>;
     offscreen: Map<number, { texture: GPUTexture; view: GPUTextureView; w: number; h: number }>;
-    scratch: Map<number, { a: Scratch | null; b: Scratch | null; w: number; h: number }>;
+    scratch: Map<number, ScratchPair>;
 }
 
 export const viewResourcesKey = { create: createViewResources };
@@ -618,13 +631,10 @@ function scratchTexture(world: World, eid: number, slot: "a" | "b", w: number, h
  * `before: [OverlaySystem]`, overlays `after: [OverlaySystem]`): bind `read` as input, `write` as the
  * storage output, dispatch once. `write` is always the pair slot `read` isn't, so two effects chain
  * (fog reads the offscreen → writes `a`; outline reads `a` → writes `b`) and `read` is never `write`. The
- * renderer resets `view.framebuffer` to the offscreen each frame, so the chain restarts every frame.
+ * renderer resets `view.framebuffer` to the offscreen each frame, so the chain restarts every frame. The result
+ * object is reused for this camera until its next call to `sceneTransform`.
  */
-export function sceneTransform(
-    world: World,
-    view: View,
-    eid: number,
-): { read: GPUTextureView; write: GPUTextureView } {
+export function sceneTransform(world: World, view: View, eid: number): SceneTransformResult {
     const _viewResources = world.resource(viewResourcesKey);
 
     const read = view.framebuffer;
@@ -633,7 +643,13 @@ export function sceneTransform(
     if (!pair || pair.w !== view.width || pair.h !== view.height) {
         pair?.a?.texture.destroy();
         pair?.b?.texture.destroy();
-        pair = { a: null, b: null, w: view.width, h: view.height };
+        pair = {
+            a: null,
+            b: null,
+            w: view.width,
+            h: view.height,
+            result: { read, write: read },
+        };
         _viewResources.scratch.set(eid, pair);
     }
     // write to whichever slot isn't the current read (first call read=offscreen → `a`; second read=`a` → `b`)
@@ -641,7 +657,9 @@ export function sceneTransform(
     const scratch = (pair[slot] ??= scratchTexture(world, eid, slot, view.width, view.height));
     view.framebuffer = scratch.view;
     view.framebufferFormat = SCENE_SCRATCH_FORMAT;
-    return { read, write: scratch.view };
+    pair.result.read = read;
+    pair.result.write = scratch.view;
+    return pair.result;
 }
 
 // free one camera's scene-transform scratch pair (on detach). Safe on cameras that never allocated one
