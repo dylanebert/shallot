@@ -65,11 +65,20 @@ test("browser subjects inherit categorical values from their one shared home", (
             config("webServer: { ...WEB_SERVER_CONFIG, command: 'vite' }"),
         ),
     ).toEqual([]);
+    expect(
+        timeoutErrors(
+            "playwright.config.ts",
+            config(
+                "webServer: [{ ...WEB_SERVER_CONFIG, command: 'vite preview' }, { ...WEB_SERVER_CONFIG, command: 'vite' }]",
+            ),
+        ),
+    ).toEqual([]);
     for (const properties of [
         `globalTimeout: ${CEILING.browser}`,
         `timeout: ${CEILING.node}`,
         `timeout: ${CEILING.startup}`,
         `webServer: { timeout: ${CEILING.startup} }`,
+        `webServer: [{ ...WEB_SERVER_CONFIG, command: "vite" }, { timeout: ${CEILING.startup} }]`,
         "workers: 2",
         "...BROWSER_CONFIG",
     ]) {

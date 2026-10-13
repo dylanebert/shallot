@@ -120,12 +120,17 @@ export function timeoutErrors(path: string, text: string): string[] {
                     ].includes(key)
                 )
                     fail(node, `subject ${key} must come from @dylanebert/shallot/testing`);
+                // Playwright takes one server or an array of them; each spreads the shared config.
+                const servers =
+                    node.value.type === "ArrayExpression" ? node.value.elements : [node.value];
                 if (
                     key === "webServer" &&
-                    !node.value.properties?.some(
-                        (property: any) =>
-                            property.type === "SpreadElement" &&
-                            serverConfigs.has(property.argument.name),
+                    !servers.every((server: any) =>
+                        server?.properties?.some(
+                            (property: any) =>
+                                property.type === "SpreadElement" &&
+                                serverConfigs.has(property.argument.name),
+                        ),
                     )
                 )
                     fail(
