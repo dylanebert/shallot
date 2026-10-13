@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+check_only=false
+if [ "$#" -eq 1 ] && [ "$1" = "--check-only" ]; then
+    check_only=true
+elif [ "$#" -ne 0 ]; then
+    echo "Usage: sh scripts/browser.sh [--check-only]" >&2
+    exit 2
+fi
+
 subjects=$(
     find examples scripts src -type f \( -name 'vite.config.ts' -o -name 'playwright.config.ts' \) \
         -exec dirname {} \; | sort -u
@@ -30,17 +38,22 @@ if [ -z "$subjects" ]; then
 fi
 
 printf '%s\n' "$subjects" | while IFS= read -r subject; do
-    vite_config="$subject/vite.config.ts"
-    playwright_config="$subject/playwright.config.ts"
+    if [ ! -f "$subject/vite.config.ts" ]; then
+        echo "Missing Vite config: $subject/vite.config.ts" >&2
+        exit 1
+    fi
+    if [ ! -f "$subject/playwright.config.ts" ]; then
+        echo "Missing browser config: $subject/playwright.config.ts" >&2
+        exit 1
+    fi
+done
 
-    if [ ! -f "$vite_config" ]; then
-        echo "Missing Vite config: $vite_config" >&2
-        exit 1
-    fi
-    if [ ! -f "$playwright_config" ]; then
-        echo "Missing browser config: $playwright_config" >&2
-        exit 1
-    fi
+if [ "$check_only" = true ]; then
+    exit 0
+fi
+
+printf '%s\n' "$subjects" | while IFS= read -r subject; do
+    playwright_config="$subject/playwright.config.ts"
 
     # A subject with no browser check yet, as a fresh minimal project, has nothing for Playwright to run.
     if [ -z "$(find "$subject" -name node_modules -prune -o -type f -name '*.e2e.ts' -print)" ]; then
