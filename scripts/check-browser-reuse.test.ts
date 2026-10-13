@@ -57,8 +57,11 @@ test("browser servers refuse to reuse existing processes", () => {
         }
         const webServers: Record<string, any>[] = [];
         walk(ast.program, (node) => {
+            // Playwright takes one server or an array of them; each is held to the same rule.
             if (node.type === "ObjectProperty" && propertyName(node.key) === "webServer")
-                webServers.push(node.value);
+                webServers.push(
+                    ...(node.value.type === "ArrayExpression" ? node.value.elements : [node.value]),
+                );
         });
         for (const webServer of webServers) {
             servers++;
