@@ -136,7 +136,7 @@ const STAR_PI = 3.14159;
 const STAR_HALF_PI = 1.5708;
 
 /** hash-grid stars: one candidate per neighboring azimuth/elevation cell. */
-export const sampleStars = tgpu
+const sampleStars = tgpu
     .fn(
         [d.vec3f, d.f32, d.f32],
         d.vec3f,
@@ -192,7 +192,7 @@ const sampleClouds = tgpu
     .$name("sampleClouds");
 
 /** The view-ray sky. Every directional light carrying SunDisk draws its own light-colored disk and glow. */
-export const sampleSky = tgpu
+const sampleSky = tgpu
     .fn(
         [SkyGpu, d.vec3f, LightingGpu],
         d.vec3f,
@@ -285,7 +285,7 @@ export const sampleSky = tgpu
     })
     .$name("sampleSky");
 
-export const skyLayout = backgroundLayout({ sky: { type: "uniform", struct: SkyGpu } });
+const skyLayout = backgroundLayout({ sky: { type: "uniform", struct: SkyGpu } });
 
 const skyFs = tgpu
     .fn(

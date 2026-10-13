@@ -268,7 +268,7 @@ export function drawArrow(
     head(world, b[0], b[1], b[2], a[0], a[1], a[2], size, width, c);
 }
 
-/** true once the GPU buffers are allocated (`warmSegments` ran with a device) */
+/** true once the GPU buffer is allocated (`warmSegments` ran with a device) */
 export function ready(world: World): boolean {
     return !!segmentState(world).buffer;
 }
