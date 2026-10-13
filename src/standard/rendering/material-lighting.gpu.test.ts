@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
@@ -31,7 +31,7 @@ setDefaultTimeout(CEILING.gpu);
 const AMBIENT = 249.52394;
 const LIGHTED = 0.25;
 const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
-const subjects = gpuApps(import.meta.path, [config, config, config]);
+const subjects = gpuApps(import.meta.path, [config, config, config, config]);
 
 function srgbByte(linear: number): number {
     const encoded = linear <= 0.0031308 ? linear * 12.92 : 1.055 * linear ** (1 / 2.4) - 0.055;
@@ -65,6 +65,20 @@ function makeScene(world: World) {
     };
     return { add, camera, capture };
 }
+
+// The device's first frame through the forward pipelines costs far more than later ones, and
+// stalled past the GPU ceiling on hosted WARP; a fourth world pays it here so tests time only their work.
+beforeAll(async () => {
+    const { world } = subjects()[3];
+    const { add, capture } = makeScene(world);
+    add(
+        -0.7,
+        world.resource(Materials).add(StandardMaterial({ baseColor: [0, 0, 1, 1], unlit: true })),
+    );
+    add(0, world.resource(VertexMaterialType).add(StandardMaterial({ baseColor: [0, 1, 0, 1] })));
+    add(0.7, world.resource(Materials).add(StandardMaterial({ baseColor: [0, 0, 1, 1] })));
+    await capture();
+}, CEILING.startup);
 
 test("StandardMaterial unlit preserves base colour under lighting that dims a lit material", async () => {
     const { world } = subjects()[0];
