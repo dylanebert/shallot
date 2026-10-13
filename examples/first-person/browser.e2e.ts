@@ -172,7 +172,7 @@ test("the preview serves its isolated page and presents its first frame", async 
     expect(response?.headers()["cross-origin-opener-policy"]).toBe("same-origin");
     expect(response?.headers()["cross-origin-embedder-policy"]).toBe("require-corp");
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
-    expect(await page.title()).toBe("First Person");
+    expect(await page.title()).toBe("first-person");
     expect(await page.locator('meta[name="description"]').getAttribute("content")).toContain(
         "first-person ascent",
     );

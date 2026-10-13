@@ -37,7 +37,7 @@ import {
 type Vec4 = readonly [number, number, number, number];
 const GROUND_COLOR = [0.2078536, 0.17658735, 0.13200411, 1] as const;
 const STEP_COLOR = [0.38498746, 0.3374035, 0.26791645, 1] as const;
-const LIFT_COLOR = [0.41696574, 0.35106622, 0.08533862, 1] as const;
+const LIFT_COLOR = [0.621407, 0.26791815, 0.11756791, 1] as const;
 const TOWER_COLOR = [0.42949409, 0.37823729, 0.3031091, 1] as const;
 const PERCH_COLOR = [0.48282395, 0.42732621, 0.34567192, 1] as const;
 

@@ -373,6 +373,13 @@ export function runCreate(args: string[], e: Env = env()): number {
         mkdirSync(dirname(absolute), { recursive: true });
         writeFileSync(absolute, contents);
     };
+    write(
+        "index.html",
+        readFileSync(resolve(destination, "index.html"), "utf8").replace(
+            /<title>.*?<\/title>/s,
+            () => `<title>${basename(destination)}</title>`,
+        ),
+    );
     write("package.json", packageManifest(destination, templateDir, e.packageRoot));
     write(".gitignore", PROJECT_GITIGNORE);
     write("bunfig.toml", '[test]\npreload = ["./tests/preload.ts"]\n');

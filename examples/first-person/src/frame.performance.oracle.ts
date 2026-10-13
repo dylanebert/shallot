@@ -128,7 +128,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
             });
             const material = world
                 .resource(Materials)
-                .add(StandardMaterial({ baseColor: [0.15270135, 0.36628627, 0.70424525, 1] }));
+                .add(StandardMaterial({ baseColor: [0.621407, 0.26791815, 0.11756791, 1] }));
             world.add(eid, MeshMaterial, material);
         }
     };

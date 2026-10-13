@@ -164,14 +164,17 @@ test("create writes exactly the 16-file minimal project", () => {
     assertProject(destination, MINIMAL_TEMPLATE_FILES);
 });
 
-test("create writes its literal first-person files and copies each template file unchanged", () => {
-    const destination = join(SCRATCH, "first-person");
+test("create copies each first-person template file unchanged except the project's index.html title", () => {
+    const destination = join(SCRATCH, "my-game");
     const templateDir = join(ROOT, "examples/first-person");
     expect(runCreate([destination, "--template", "first-person"])).toBe(0);
     expect(files(destination).sort()).toEqual([...FIRST_PERSON_FILES].sort());
     for (const path of FIRST_PERSON_TEMPLATE_FILES) {
-        expect(readFileSync(join(destination, path))).toEqual(
-            readFileSync(join(templateDir, path)),
+        const original = readFileSync(join(templateDir, path), "utf8");
+        expect(readFileSync(join(destination, path), "utf8")).toBe(
+            path === "index.html"
+                ? original.replace(/<title>.*?<\/title>/s, "<title>my-game</title>")
+                : original,
         );
     }
     assertProject(destination, FIRST_PERSON_TEMPLATE_FILES);

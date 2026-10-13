@@ -109,7 +109,7 @@ export const MATERIAL_ROLES = {
 
 // The original three candidates share lightness and chroma; only their hues change.
 export const CANDIDATES = {
-    "dev-orange": { neutral: 80, accents: [250, 55, 100, 25] },
+    "dev-orange": { neutral: 80, accents: [55, 250, 100, 25] },
     "tidal-teal": { neutral: 220, accents: [290, 185, 225, 145] },
     "orchid-garden": { neutral: 320, accents: [145, 325, 300, 80] },
 } as const;
