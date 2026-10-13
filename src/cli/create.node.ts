@@ -209,6 +209,42 @@ test("create declares WebGPU and TypeGPU only when the template imports them", (
     expect(workflow).not.toContain("  browser:");
 });
 
+test("create declares each package a template imports, Svelte components included, at the engine's range", () => {
+    const examplesDir = join(SCRATCH, "svelte-examples");
+    const templateDir = join(examplesDir, "svelte");
+    const packageRoot = join(SCRATCH, "svelte-engine");
+    mkdirSync(join(templateDir, "src"), { recursive: true });
+    mkdirSync(packageRoot);
+    writeFileSync(
+        join(packageRoot, "package.json"),
+        JSON.stringify({
+            version: ENGINE.version,
+            peerDependencies: ENGINE.peerDependencies,
+            devDependencies: {
+                ...ENGINE.devDependencies,
+                svelte: "^5.0.0",
+                "@sveltejs/vite-plugin-svelte": "^7.0.0",
+                unimported: "^1.0.0",
+            },
+        }),
+    );
+    writeFileSync(join(templateDir, "index.html"), '<meta name="description" content="Svelte">\n');
+    writeFileSync(
+        join(templateDir, "vite.config.ts"),
+        'import { svelte } from "@sveltejs/vite-plugin-svelte";\nexport default { plugins: [svelte()] };\n',
+    );
+    writeFileSync(
+        join(templateDir, "src/Hud.svelte"),
+        '<script lang="ts">\n    import { onMount } from "svelte";\n    onMount(() => {});\n</script>\n',
+    );
+    const destination = join(SCRATCH, "svelte-project");
+    expect(runCreate([destination, "--template", "svelte"], { examplesDir, packageRoot })).toBe(0);
+    const manifest = JSON.parse(readFileSync(join(destination, "package.json"), "utf8"));
+    expect(manifest.devDependencies.svelte).toBe("^5.0.0");
+    expect(manifest.devDependencies["@sveltejs/vite-plugin-svelte"]).toBe("^7.0.0");
+    expect(manifest.devDependencies.unimported).toBeUndefined();
+});
+
 test("create detects conditional imports in inline module scripts", () => {
     const examplesDir = join(SCRATCH, "html-examples");
     const templateDir = join(examplesDir, "html-import");

@@ -71,10 +71,11 @@ function occupied(destination: string): boolean {
     return stat.isDirectory() ? readdirSync(destination).length > 0 : true;
 }
 
-function containsImport(root: string, packageName: string): boolean {
-    const importPattern = new RegExp(
-        `(?:\\bfrom\\s*|\\bimport\\s*(?:\\(\\s*)?|\\brequire\\s*\\(\\s*)["']${packageName}(?:/[^"']*)?["']`,
-    );
+/** The bare specifiers a template's sources import, `node:` and `bun:` builtins aside. */
+function bareImports(root: string): Set<string> {
+    const importPattern =
+        /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["']([^"'./][^"']*)["']/g;
+    const specifiers = new Set<string>();
     const pending = [root];
     while (pending.length > 0) {
         const dir = pending.pop()!;
@@ -82,12 +83,18 @@ function containsImport(root: string, packageName: string): boolean {
             if (entry.name === "node_modules") continue;
             const path = join(dir, entry.name);
             if (entry.isDirectory()) pending.push(path);
-            else if (entry.isFile() && /\.(?:[cm]?[jt]sx?|html)$/.test(entry.name)) {
-                if (importPattern.test(readFileSync(path, "utf8"))) return true;
+            else if (entry.isFile() && /\.(?:[cm]?[jt]sx?|html|svelte)$/.test(entry.name)) {
+                for (const match of readFileSync(path, "utf8").matchAll(importPattern))
+                    if (!/^(?:node|bun):/.test(match[1]!)) specifiers.add(match[1]!);
             }
         }
     }
-    return false;
+    return specifiers;
+}
+
+function packageName(specifier: string): string {
+    const parts = specifier.split("/");
+    return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
 }
 
 export function packageManifest(
@@ -101,10 +108,14 @@ export function packageManifest(
         playwright: engine.peerDependencies.playwright,
         vite: engine.devDependencies.vite,
     };
-    if (containsImport(templateDir, `${ENGINE}/webgpu`))
-        devDependencies.webgpu = engine.peerDependencies.webgpu;
-    if (containsImport(templateDir, "typegpu"))
-        devDependencies.typegpu = engine.peerDependencies.typegpu;
+    const imports = bareImports(templateDir);
+    if (imports.has(`${ENGINE}/webgpu`)) devDependencies.webgpu = engine.peerDependencies.webgpu;
+    // A template's own packages are those the engine is proved against, at the engine's range; the
+    // import gate refuses a package the engine does not declare.
+    for (const name of new Set([...imports].map(packageName))) {
+        const range = engine.peerDependencies[name] ?? engine.devDependencies[name];
+        if (name !== ENGINE && range) devDependencies[name] ??= range;
+    }
 
     return `${JSON.stringify(
         {
