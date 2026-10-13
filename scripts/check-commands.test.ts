@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Glob } from "bun";
 import { dirname, isAbsolute, relative, resolve } from "path";
+import { normalizePath } from "../src/project/paths";
 
 async function readScripts(pkgPath: string): Promise<Record<string, string>> {
     const pkg = (await Bun.file(pkgPath).json()) as { scripts?: Record<string, string> };
@@ -20,7 +21,10 @@ async function workspacePkgPaths(rootDir: string, patterns: string[]): Promise<s
         }
         const base = pattern.slice(0, starIdx).replace(/\/$/, "");
         const glob = new Glob(pattern.slice(base.length + 1));
-        for await (const match of glob.scan({ cwd: resolve(rootDir, base), onlyFiles: false })) {
+        for (const match of await Array.fromAsync(
+            glob.scan({ cwd: resolve(rootDir, base), onlyFiles: false }),
+            normalizePath,
+        )) {
             paths.push(resolve(rootDir, base, match, "package.json"));
         }
     }
@@ -90,19 +94,20 @@ async function checkRealization(root: string): Promise<string[]> {
             for (const declared of targets) {
                 const target = declared.replace(/^\.\//, "");
                 const path = resolve(dir, target);
-                const inside = relative(dir, path);
+                const inside = normalizePath(relative(dir, path));
                 const present =
                     kind === "bin"
                         ? existsSync(path) && statSync(path).isFile()
                         : existsSync(path) ||
-                          [...new Glob(target).scanSync({ cwd: dir })].length > 0;
+                          Array.from(new Glob(target).scanSync({ cwd: dir }), normalizePath)
+                              .length > 0;
                 if (
                     inside.startsWith("..") ||
                     isAbsolute(inside) ||
                     (!present && !projected(target, kind))
                 ) {
                     errors.push(
-                        `${relative(root, manifest)} ${kind}: ${declared} is missing and has no pack-time projection`,
+                        `${normalizePath(relative(root, manifest))} ${kind}: ${declared} is missing and has no pack-time projection`,
                     );
                 }
             }

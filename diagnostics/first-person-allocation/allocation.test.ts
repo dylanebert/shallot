@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { dirname, resolve, sep, win32 } from "node:path";
+import { dirname, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { attribute, originalPosition, prepareSamplingSession, subjectSite } from "./allocation-sampler.mjs";
 import { isAdmittedAllocationSite } from "./allocation-admissions";
@@ -12,6 +12,7 @@ import {
     tracedSample,
     TIER_FLAGS,
 } from "./allocation";
+import { normalizePath } from "../../src/project/paths";
 
 test("a sampling session starts after one collected and drained subject step", async () => {
     const order: string[] = [];
@@ -88,7 +89,7 @@ test("source-map sites resolve Windows-shaped file URLs as filesystem paths", ()
 const ENTRY = resolve(import.meta.dir, "allocation.entry.ts");
 const ROOT = resolve(import.meta.dir, "../..");
 /** A bundle input's absolute path with `/` separators, so suffix checks hold on Windows. */
-const absolute = (path: string) => resolve(path).replaceAll(sep, "/");
+const absolute = (path: string) => normalizePath(resolve(path));
 /** A bundle input's root-relative path with `/` separators. */
 const rooted = (path: string) => absolute(resolve(ROOT, path)).slice(ROOT.length + 1);
 

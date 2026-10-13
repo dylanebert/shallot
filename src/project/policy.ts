@@ -1,14 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { relative, resolve } from "node:path";
 import { Glob } from "bun";
+import { normalizePath } from "./paths";
 
 const SKIP = new Set([".git", ".cache", "node_modules", "fixtures", "target", "dist", "coverage"]);
 const DEEP_RECIPE_IMPORT = /(?:from\s+|import\s*\(\s*)["'][^"']*\/src(?:\/|["'])/;
 const PHYSICS_WORLD_ESCAPE = /\bPhysics\.world\b|\bphysicsWorld\s*\(/;
 
 function relativeFile(root: string, path: string): string {
-    return relative(root, path).split(sep).join("/");
+    return normalizePath(relative(root, path));
 }
 
 function recipeSourceViolations(root: string): string[] {
@@ -19,7 +20,7 @@ function recipeSourceViolations(root: string): string[] {
         if (!entry.isDirectory()) continue;
         const sourceRoot = resolve(examples, entry.name, "src");
         if (!existsSync(sourceRoot)) continue;
-        for (const match of new Glob("**/*.ts").scanSync({ cwd: sourceRoot, dot: false })) {
+        for (const match of Array.from(new Glob("**/*.ts").scanSync({ cwd: sourceRoot, dot: false }), normalizePath)) {
             const path = resolve(sourceRoot, match);
             const file = relativeFile(root, path);
             const source = readFileSync(path, "utf8");
@@ -117,7 +118,7 @@ function checkedTarballViolation(root: string, file: string, spec: string): stri
 function dependencyViolations(root: string): string[] {
     const violations: string[] = [];
     const lock = lockText(root);
-    const files = [...new Glob("**/package.json").scanSync({ cwd: root, dot: false })]
+    const files = Array.from(new Glob("**/package.json").scanSync({ cwd: root, dot: false }), normalizePath)
         .filter((file) => !file.split("/").some((part) => SKIP.has(part)))
         .sort();
     for (const file of files) {

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { BunPlugin } from "bun";
 import typegpu from "unplugin-typegpu/bun";
+import { normalizePath } from "./paths";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const SHALLOT = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8"));
@@ -68,7 +69,7 @@ export function shallot({ root }: Options): BunPlugin {
                     const importerRoot = importer ? typegpuRootFrom(importer) : undefined;
                     if (importerRoot && (path.startsWith("./") || path.startsWith("../"))) {
                         if (importerRoot === projectTypegpuRoot) return;
-                        const subpath = relative(importerRoot, resolve(dirname(importer), path));
+                        const subpath = normalizePath(relative(importerRoot, resolve(dirname(importer), path)));
                         if (subpath.startsWith("..")) return;
                         const target = resolve(projectTypegpuRoot, subpath);
                         if (!existsSync(target)) {
@@ -85,10 +86,11 @@ export function shallot({ root }: Options): BunPlugin {
 
                     const sourceRoot = typegpuRootFrom(path);
                     if (!sourceRoot || sourceRoot === projectTypegpuRoot) return;
-                    const target = resolve(projectTypegpuRoot, relative(sourceRoot, resolve(path)));
+                    const subpath = normalizePath(relative(sourceRoot, resolve(path)));
+                    const target = resolve(projectTypegpuRoot, subpath);
                     if (!existsSync(target)) {
                         throw new Error(
-                            `Shallot's TypeGPU peer ${TYPEGPU_RANGE} cannot resolve ${relative(sourceRoot, resolve(path))} in project TypeGPU ${projectVersion} at ${projectTypegpuManifestPath}.`,
+                            `Shallot's TypeGPU peer ${TYPEGPU_RANGE} cannot resolve ${subpath} in project TypeGPU ${projectVersion} at ${projectTypegpuManifestPath}.`,
                         );
                     }
                     return { path: target };

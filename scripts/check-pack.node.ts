@@ -5,9 +5,10 @@ import { CEILING } from "@dylanebert/shallot/testing";
 setDefaultTimeout(CEILING.node);
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { relative, resolve } from "node:path";
 import { Glob } from "bun";
 import { PROJECT_OUTPUT } from "../src/cli/create";
+import { normalizePath } from "../src/project/paths";
 import { importsIn, resolveRelative } from "./example-imports";
 
 // The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
@@ -94,7 +95,7 @@ test("the npm package contains only declared files and required consumers", asyn
             const clean = specifier.split(/[?#]/, 1)[0]!;
             const targetFile = resolveRelative(resolve(pkgDir, file), clean);
             if (!targetFile) continue;
-            const target = relative(pkgDir, targetFile).split(sep).join("/");
+            const target = normalizePath(relative(pkgDir, targetFile));
             if (!packedFiles.has(target))
                 violations.push(
                     `${file} -> ${specifier} resolves to unshipped ${target} (relative import)`,
@@ -155,8 +156,7 @@ test("the npm package contains only declared files and required consumers", asyn
 
     const missing = required.filter((f) => !files.includes(f));
     const exampleChecks = ["examples/**/*.test.ts", "examples/**/*.node.ts", "examples/**/*.e2e.ts"]
-        .flatMap((pattern) => [...new Glob(pattern).scanSync(pkgDir)])
-        .map((check) => check.split(sep).join("/"))
+        .flatMap((pattern) => Array.from(new Glob(pattern).scanSync(pkgDir), normalizePath))
         .sort();
     for (const check of exampleChecks)
         if (!files.includes(check)) missing.push(`${check} (example check not shipped)`);

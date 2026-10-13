@@ -3,6 +3,7 @@ import { builtinModules } from "node:module";
 import { dirname, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
+import { normalizePath } from "../src/project/paths";
 
 const GAME_TIERS = ["engine", "core", "standard", "extras"] as const;
 const TIER_ORDER = new Map(GAME_TIERS.map((tier, index) => [tier, index]));
@@ -100,7 +101,7 @@ export function references(source: string, file = "<source>"): ImportReference[]
 }
 
 function moduleAt(src: string, file: string): Module | undefined {
-    const path = relative(src, file).split(sep).join("/");
+    const path = normalizePath(relative(src, file));
     const parts = path.split("/");
     const top = parts[0];
     if (TOOLING.has(top))
@@ -125,7 +126,7 @@ function moduleAt(src: string, file: string): Module | undefined {
 }
 
 function gameTierAt(src: string, file: string): string | undefined {
-    const top = relative(src, file).split(sep)[0];
+    const top = normalizePath(relative(src, file)).split("/")[0];
     return TIER_ORDER.has(top as (typeof GAME_TIERS)[number]) ? top : undefined;
 }
 
@@ -196,7 +197,7 @@ function transitionalRed(src: string, module: Module): string {
     const lines = source.split("\n");
     const line = lines.findIndex((entry) => entry.startsWith("// Destination:"));
     const destination = line < 0 ? "// Destination: not recorded." : lines[line];
-    return `${relative(dirname(src), index).split(sep).join("/")}:${line < 0 ? 1 : line + 1}: pending roadmap migration (still red): ${destination}`;
+    return `${normalizePath(relative(dirname(src), index))}:${line < 0 ? 1 : line + 1}: pending roadmap migration (still red): ${destination}`;
 }
 
 function siblingCycles(edges: readonly SiblingEdge[]): string[] {
@@ -233,7 +234,7 @@ export function checkImports(
     siblingEdges: readonly SiblingEdge[] = SIBLING_EDGES,
 ): string[] {
     const src = resolve(root, SOURCE_ROOT);
-    const files = [...new Glob("**/*.{ts,tsx,mts,cts}").scanSync(src)]
+    const files = Array.from(new Glob("**/*.{ts,tsx,mts,cts}").scanSync(src), normalizePath)
         .filter((file) => !/\.(?:test|node|oracle)\.(?:ts|tsx|mts|cts)$/.test(file))
         .map((file) => resolve(src, file))
         .sort();
@@ -243,12 +244,12 @@ export function checkImports(
 
     for (const file of files) {
         const sourceModule = moduleAt(src, file);
-        const sourcePath = relative(src, file).split(sep).join("/");
+        const sourcePath = normalizePath(relative(src, file));
         const fixtureSource = isPrivateFixture(sourcePath);
         const transition = sourceModule?.kind === "transitional" && !fixtureSource;
         if (transition && sourceModule) transitional.set(sourceModule.directory, sourceModule);
         const sourceTier = gameTierAt(src, file);
-        const path = relative(root, file).split(sep).join("/");
+        const path = normalizePath(relative(root, file));
         const source = readFileSync(file, "utf8");
         if (sourceTier === "engine" && !fixtureSource) {
             const placement =
@@ -276,7 +277,7 @@ export function checkImports(
             if (!target || (target !== src && !target.startsWith(`${src}${sep}`))) continue;
             const targetModule = moduleAt(src, target);
             const targetTier = gameTierAt(src, target);
-            const targetPath = relative(src, target).split(sep).join("/");
+            const targetPath = normalizePath(relative(src, target));
             const location = `${path}:${reference.line}`;
 
             if (isPrivateFixture(targetPath) && !fixtureSource) {
@@ -340,7 +341,7 @@ export function checkImports(
                 (!fixtureSource || packageExportTarget(root, reference.specifier) !== target)
             ) {
                 violations.push(
-                    `${location}: import past ${modulePath(targetModule)}/index.ts → ${relative(src, target).split(sep).join("/")}`,
+                    `${location}: import past ${modulePath(targetModule)}/index.ts → ${normalizePath(relative(src, target))}`,
                 );
             }
         }

@@ -4,6 +4,7 @@ import { createApp, type Plugin } from "@dylanebert/shallot";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { rawDevice } from "../src/engine/runtime";
 import type { AdapterVerdict } from "../src/engine/runtime/adapter";
+import { normalizePath } from "../src/project/paths";
 import { expectWarning } from "./test-console";
 
 export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () => T {
@@ -16,7 +17,7 @@ export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () =
         if (process.env.SHALLOT_GPU_COMPILE_ORACLE === "1") {
             console.log(
                 JSON.stringify({
-                    gpuCompile: relative(process.cwd(), path),
+                    gpuCompile: normalizePath(relative(process.cwd(), path)),
                     ms: performance.now() - start,
                 }),
             );

@@ -9,11 +9,13 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { Glob } from "bun";
+import { normalizePath } from "../../../src/project/paths";
 
 const owner = resolve(import.meta.dir, "../../..");
-const files = [...new Glob("src/standard/physics/**/*.fixture.ts").scanSync(owner)].map(
-    (f) => `./${f}`,
-);
+const files = Array.from(
+    new Glob("src/standard/physics/**/*.fixture.ts").scanSync(owner),
+    normalizePath,
+).map((f) => `./${f}`);
 if (files.length === 0) {
     console.error("[test:fixture] no fixture files found under src/");
     process.exit(1);

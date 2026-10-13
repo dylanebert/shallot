@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { type AdapterFacts, classifyAdapter } from "../../src/engine/runtime";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "@dylanebert/shallot/rendering";
@@ -16,6 +16,7 @@ import {
     type AllocationWindow,
     TIER_FLAGS,
 } from "./allocation";
+import { normalizePath } from "../../src/project/paths";
 
 /** one collection in the steady windows, read from V8's GC trace over CDP */
 export interface Collection {
@@ -424,10 +425,10 @@ export async function samplePage(
         preview = await startPreview(projectDir, outDir, remaining());
         const { origin } = preview;
         const maps = new Map<string, { map: SourceMap; base: string }>();
-        for (const file of readdirSync(outDir, { recursive: true }) as string[]) {
+        for (const file of Array.from(readdirSync(outDir, { recursive: true }) as string[], normalizePath)) {
             const mapFile = join(outDir, `${file}.map`);
             if (file.endsWith(".js") && existsSync(mapFile))
-                maps.set(`${origin}/${file.split(sep).join("/")}`, {
+                maps.set(`${origin}/${file}`, {
                     map: new SourceMap(JSON.parse(readFileSync(mapFile, "utf8"))),
                     base: dirname(mapFile),
                 });

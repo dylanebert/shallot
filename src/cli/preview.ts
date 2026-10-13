@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, posix, relative, resolve } from "node:path";
 import { nativeOutDir } from "../native";
+import { normalizePath } from "../project";
 
 export type PreviewTarget =
     | { kind: "mac" }
@@ -39,7 +40,7 @@ export function windowsPreviewCommand(winPath: string, projectName: string): str
 function requireBuild(projectDir: string, target: string, artifact: string): void {
     if (existsSync(artifact)) return;
     throw new Error(
-        `no ${target} build found at ${relative(projectDir, artifact)}; run \`shallot build --target ${target}\` first.`,
+        `no ${target} build found at ${normalizePath(relative(projectDir, artifact))}; run \`shallot build --target ${target}\` first.`,
     );
 }
 

@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
+import { normalizePath } from "../src/project/paths";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
@@ -38,7 +39,7 @@ const entries: Entry[] = Object.entries(PACKAGE.exports)
     .filter((entry): entry is Entry => entry !== undefined);
 
 function emittedPath(outDir: string, source: string): string {
-    return join(outDir, relative(ROOT, source).replace(/\.(?:tsx?|js)$/, ".d.ts"));
+    return join(outDir, normalizePath(relative(ROOT, source)).replace(/\.(?:tsx?|js)$/, ".d.ts"));
 }
 function isHandleDeclaration(file: string): boolean {
     return /[/\\]src[/\\]standard[/\\]physics[/\\]api[/\\](?:body|joint|joints|shape|world)\.d\.ts$/.test(
@@ -297,7 +298,7 @@ test("public declarations do not expose private solver handles", () => {
                 const targetName = target.name;
                 if (isHandleDeclaration(targetFile)) {
                     errors.add(
-                        `${via} exposes solver handle ${targetName} from ${relative(ROOT, targetFile)}`,
+                        `${via} exposes solver handle ${targetName} from ${normalizePath(relative(ROOT, targetFile))}`,
                     );
                     continue;
                 }

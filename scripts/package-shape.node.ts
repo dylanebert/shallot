@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+import { normalizePath } from "../src/project/paths";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
@@ -205,7 +206,7 @@ test("a Bun test from the workspace root resolves TypeGPU from the package that 
         expect(existsSync(workspaceTypegpu)).toBe(false);
         const gameTypegpu = join(game, "node_modules/typegpu/package.json");
         expect(existsSync(gameTypegpu)).toBe(true);
-        expect(gameTypegpu.replaceAll("\\", "/")).toContain(
+        expect(normalizePath(gameTypegpu)).toContain(
             "packages/game/node_modules/typegpu/package.json",
         );
         writeFileSync(
@@ -252,7 +253,7 @@ test("an out-of-range project TypeGPU fails before either module evaluates", () 
         expect(result.exitCode).not.toBe(0);
         expect(output).toContain("project has TypeGPU 0.13.0 at");
         expect(output).toContain(TYPEGPU_RANGE);
-        expect(output.replaceAll("\\", "/")).toContain("node_modules/typegpu/package.json");
+        expect(normalizePath(output)).toContain("node_modules/typegpu/package.json");
         expect(output).not.toContain("TYPEGPU_PROJECT_COPY_EVALUATED");
         expect(output).not.toContain("TEST_MODULE_EVALUATED");
     } finally {
@@ -304,7 +305,7 @@ test("a staged overlay and bun install restore a published project pin", () => {
 
         // A ./-relative tarball path, the same on every host.
         run(
-            ["bun", "add", "--no-save", `./${relative(project, tarball).replaceAll("\\", "/")}`],
+            ["bun", "add", "--no-save", `./${normalizePath(relative(project, tarball))}`],
             project,
             "overlaying the packed Shallot tarball",
         );

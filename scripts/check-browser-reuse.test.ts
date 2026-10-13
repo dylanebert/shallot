@@ -4,12 +4,19 @@ import { resolve } from "node:path";
 import { parse } from "@babel/parser";
 import { WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";
 import { Glob } from "bun";
+import { normalizePath } from "../src/project/paths";
 
 test("browser servers refuse to reuse existing processes", () => {
     const root = resolve(import.meta.dir, "..");
     const configs = [
-        ...new Glob("examples/**/playwright.config.ts").scanSync({ cwd: root }),
-        ...new Glob("scripts/**/playwright.config.ts").scanSync({ cwd: root }),
+        ...Array.from(
+            new Glob("examples/**/playwright.config.ts").scanSync({ cwd: root }),
+            normalizePath,
+        ),
+        ...Array.from(
+            new Glob("scripts/**/playwright.config.ts").scanSync({ cwd: root }),
+            normalizePath,
+        ),
     ].sort();
 
     function walk(node: unknown, visit: (node: Record<string, any>) => void): void {

@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { packageManifest } from "../src/cli/create";
+import { normalizePath } from "../src/project/paths";
 import {
     importsIn as collectImports,
     componentImportsIn,
@@ -88,17 +89,17 @@ function importViolations(): string[] {
         const dependencies = createdDependencies(exampleRoot, entry.name);
 
         for (const file of files) {
-            const relativeFile = relative(ROOT, file).replaceAll("\\", "/");
+            const relativeFile = normalizePath(relative(ROOT, file));
             const imports = importsByFile.get(file)!;
             for (const unresolved of imports.unresolved)
                 violations.push(`${relativeFile} -> ${unresolved}`);
             for (const specifier of imports.specifiers) {
                 if (specifier.startsWith("./") || specifier.startsWith("../")) {
                     const base = resolve(dirname(file), specifier.split(/[?#]/, 1)[0]!);
-                    const withinExample = relative(exampleRoot, base);
+                    const withinExample = normalizePath(relative(exampleRoot, base));
                     if (
                         withinExample === ".." ||
-                        withinExample.startsWith(`..${sep}`) ||
+                        withinExample.startsWith("../") ||
                         isAbsolute(withinExample)
                     ) {
                         violations.push(
@@ -113,10 +114,10 @@ function importViolations(): string[] {
                         );
                         continue;
                     }
-                    const targetRelative = relative(exampleRoot, target);
+                    const targetRelative = normalizePath(relative(exampleRoot, target));
                     if (
                         targetRelative === ".." ||
-                        targetRelative.startsWith(`..${sep}`) ||
+                        targetRelative.startsWith("../") ||
                         isAbsolute(targetRelative)
                     )
                         violations.push(

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
+import { normalizePath } from "../project";
 
 // Prebuilts layer over the lazy path, never replace it. A release-profile shell published to GitHub
 // Releases (tag v<version>) is downloaded + SHA256-verified + extracted into a cache dir; any miss
@@ -136,7 +137,7 @@ export function extractTarGz(archivePath: string, destDir: string): void {
     for (const entry of entries) {
         const cleaned = entry.replace(/^\.\//, "").replace(/\/$/, "");
         const target = resolve(destDir, cleaned);
-        const rel = relative(destDir, target);
+        const rel = normalizePath(relative(destDir, target));
         if (rel.startsWith("..") || isAbsolute(rel)) {
             throw new Error(`archive entry escapes dest dir: ${entry}`);
         }

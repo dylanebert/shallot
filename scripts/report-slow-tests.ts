@@ -1,4 +1,5 @@
 import { CEILING } from "@dylanebert/shallot/testing";
+import { normalizePath } from "../src/project/paths";
 
 export type Tier = "cheap" | "gpu" | "node";
 
@@ -38,8 +39,7 @@ function tierForFile(file: string): Tier {
 }
 
 function normalized(path: string): string {
-    return path
-        .replaceAll("\\", "/")
+    return normalizePath(path)
         .replace(/^\.\//, "")
         .replace(/\/{2,}/g, "/");
 }

@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { normalizePath } from "../src/project/paths";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -290,7 +291,7 @@ function createExample(name: Example): void {
         );
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
-    const packedRange = `file:${relative(project, tarball).replaceAll("\\", "/")}`;
+    const packedRange = `file:${normalizePath(relative(project, tarball))}`;
     manifest.dependencies["@dylanebert/shallot"] = packedRange;
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
     writeFileSync(join(project, "no-preload.toml"), "[test]\n");
@@ -349,7 +350,7 @@ for (const name of ["minimal", "first-person", "loading-screen", "hud"] as const
         for (const file of projectFiles(project)
             .filter((path) => path.endsWith(".node.ts"))
             .sort()) {
-            const subject = `./${relative(project, file).replaceAll("\\", "/")}`;
+            const subject = `./${normalizePath(relative(project, file))}`;
             // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
             // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
             const output = run(

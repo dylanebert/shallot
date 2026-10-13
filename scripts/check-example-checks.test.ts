@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { normalizePath } from "../src/project/paths";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -23,7 +24,7 @@ function examplesWithoutChecks(): string[] {
             const hasCheck = exampleFiles(directory).some((path) =>
                 /\.(?:test|node|e2e)\.ts$/.test(path),
             );
-            return hasCheck ? undefined : relative(ROOT, directory).replaceAll("\\", "/");
+            return hasCheck ? undefined : normalizePath(relative(ROOT, directory));
         })
         .filter((path): path is string => path !== undefined)
         .sort();

@@ -11,6 +11,7 @@ import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { normalizePath } from "../../src/project/paths.ts";
 
 /**
  * A profile frame's original source and zero-based line through `map`, a `node:module` SourceMap whose
@@ -47,9 +48,9 @@ export function subjectSite(frame, map, base, fallback, root = process.cwd(), pa
     const at = originalPosition(frame, map, base, pathModule);
     if (at === undefined)
         return `${name} ${fallback}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`;
-    const source = pathModule
-        .relative(root.replace(/^\/private/, ""), at.source.replace(/^\/private/, ""))
-        .replaceAll(pathModule.sep, "/");
+    const source = normalizePath(
+        pathModule.relative(root.replace(/^\/private/, ""), at.source.replace(/^\/private/, "")),
+    );
     return `${name} ${source}:${at.line + 1}:${at.column + 1}`;
 }
 
@@ -220,9 +221,7 @@ async function main() {
 
         const runSite = (frame) => {
             if (frame.url !== samplerUrl || !RUN_FRAMES.has(frame.functionName)) return undefined;
-            const source = path
-                .relative(process.cwd(), fileURLToPath(samplerUrl))
-                .replaceAll(path.sep, "/");
+            const source = normalizePath(path.relative(process.cwd(), fileURLToPath(samplerUrl)));
             return `${frame.functionName} ${source}:${frame.lineNumber + 1}`;
         };
         const bundleSite = (frame) =>
