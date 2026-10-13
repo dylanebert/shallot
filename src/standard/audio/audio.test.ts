@@ -140,6 +140,38 @@ test("restoring a snapshot reconciles one loop voice and no finished once voice"
     world.dispose();
 });
 
+test("repeated once completion keeps a bounded restore window and suppresses recent restores", () => {
+    const world = new World();
+    const messages = setup(world);
+    registerClip(world, "many-once", new Float32Array([0.25]));
+    let snapshot: ReturnType<World["snapshot"]> | undefined;
+    let lastEid = -1;
+
+    for (let i = 0; i < 1000; i++) {
+        lastEid = play(world, "many-once");
+        if (i === 999) snapshot = world.snapshot();
+        reconcileAudio(world);
+        const data = commands(lastBatch(messages));
+        returnAudioBuffer(world, data, [data[3]]);
+        messages.length = 0;
+    }
+
+    const runtime = world.resource(AudioRuntime);
+    expect(runtime.completed.size).toBe(64);
+    world.restore(snapshot!);
+    reconcileAudio(world);
+    expect(world.exists(lastEid)).toBe(false);
+    expect(runtime.completed.size).toBe(64);
+    returnBatch(world, messages);
+    messages.length = 0;
+
+    world.restore(snapshot!);
+    reconcileAudio(world);
+    expect(world.exists(lastEid)).toBe(false);
+    expect(runtime.completed.size).toBe(64);
+    world.dispose();
+});
+
 test("removing a loop fades and frees its voice", () => {
     const world = new World();
     const messages = setup(world);

@@ -43,9 +43,23 @@ Import `AudioPlugin`, `Sound`, `Listener`, `registerClip`, and `play` from `/aud
 - `play(world, name, { pos })` becomes `play(world, clip, { position })`; `clip` may be the registered name or its ID. `play` no longer resolves instrument names; register a clip for stable playback.
 - `Sound.instrument` becomes `Sound.clip`; `Sound.pitch` and the runtime-owned `Sound.voice` are gone. `Sound.loop` remains, and `Sound.paused` is added.
 - `Sound.volume` is now linear gain rather than quadratic. For former sample playback, preserve an old value `v` in `[0, 1]` by setting the new volume to `v * v`.
+- Raw `Float32Array` PCM now defaults to 48 kHz; v0.9.5 used the audio context's rate. To keep that behavior, pass `world.resource(AudioOutput).context?.sampleRate ?? 48000` as `registerClip`'s fourth argument. URL/`Blob` decoding via `loadClip` retains the decoded sample rate.
 - `AudioPlugin`, `Sound`, and `Listener` move from `/standard` to `/audio`; `play` moves to `/audio` with `position` in place of `pos`.
-- The experimental `InstrumentDef`, `Instruments`, `instrument`, `ModulationDef`, `NodeDef`, and `NodeType` exports move to `/transitional/audio`.
+- The experimental `Instrument`, `InstrumentDef`, `Instruments`, `instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `byId`, `getParamPairs`, and `MAX_INSTRUMENTS` names formerly exported by `/audio/core` move to `/transitional/audio`, not `/standard`. The stable `play` API accepts registered clips, not instrument names.
 - `sfx` and `SfxPolicy` are deleted; per-name caps and cooldowns are not part of clip playback.
+
+### Released `/audio/core` helpers
+
+These names were also public in v0.9.5 through `/audio/core`; they are not stable clip APIs:
+
+| v0.9.5 names | Replacement |
+|---|---|
+| `Audio`, `started`, `running` | Use `AudioOutput.context` and `AudioOutput.bus` for the running implementation, and `Devices.audio.context` for `running`, `suspended`, or `closed`. There is no replacement for the internal `started` flag. |
+| `initAudio`, `disposeAudio`, `tickAudio` | Compose `StandardAudioPlugin`; it owns initialization, disposal, and per-frame reconciliation. Do not call lifecycle helpers directly. |
+| `MAX_VOICES`, `slotOf`, `valid`, `alloc`, `free`, `gate`, `setParam`, `oneShot`, `watchIdle`, `assign` | Voice slots and handles are runtime-owned. Use `play` and author `Sound` data; there is no public voice-handle API. |
+| `spatialize`, `polar`, `addSpatial`, `flushSpatial` | Position `Sound` with `Transform` and mark a `Listener`; `StandardAudioPlugin` derives and batches spatial data. |
+| `InstrumentDef`, `Instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `Instruments`, `instrument`, `byId`, `getParamPairs`, `MAX_INSTRUMENTS` | Experimental DAG authoring and its registry helpers move to `/transitional/audio`. `noteFreq` has no stable replacement. |
+| `Samples`, `MAX_SAMPLES`, `sample`, `getSample`, `whenLoaded` | Use the per-World `Clips` registry and `registerClip`, or await `loadClip` for a URL/`Blob`; decoded PCM and clip IDs are world-owned. Sample upload and readiness helpers are runtime-owned. |
 
 ## Fixed systems read tick time
 

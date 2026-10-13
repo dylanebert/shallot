@@ -10,6 +10,8 @@ import type { EntityRef, Plugin, Resource, System, World } from "../../engine";
 import { createWorkletURL } from "./worklet";
 
 const MAX_VOICES = 64;
+// Keep a voice-pool-sized tail of completion refs for rollback reconciliation.
+const MAX_COMPLETED = MAX_VOICES;
 const COMMANDS = 128;
 const STRIDE = 9;
 const FINISHED_OFFSET = 2 + COMMANDS * STRIDE;
@@ -78,6 +80,15 @@ function freeSlots(): number[] {
     const free: number[] = [];
     for (let slot = MAX_VOICES - 1; slot >= 0; slot--) free.push(slot);
     return free;
+}
+
+function rememberCompleted(runtime: Runtime, ref: EntityRef): void {
+    runtime.completed.delete(ref);
+    runtime.completed.add(ref);
+    if (runtime.completed.size > MAX_COMPLETED) {
+        const oldest = runtime.completed.values().next().value;
+        if (oldest !== undefined) runtime.completed.delete(oldest);
+    }
 }
 
 function stateOf(context: globalThis.AudioContextState): AudioContextState {
@@ -392,7 +403,7 @@ function stealOldest(world: World, runtime: Runtime, buffer: Float64Array, count
     if (!victim) return count;
     count = stopVoice(victim, buffer, count);
     if (world.ref(victim.eid) === victim.ref) {
-        runtime.completed.add(victim.ref);
+        rememberCompleted(runtime, victim.ref);
         world.destroy(victim.eid);
     }
     return count;
@@ -498,7 +509,7 @@ function releaseFinished(world: World, runtime: Runtime, handle: number): void {
         world.storage(Sound).loop.get(eid) === 0 &&
         world.storage(Sound).paused.get(eid) === 0
     ) {
-        runtime.completed.add(voice.ref);
+        rememberCompleted(runtime, voice.ref);
         world.destroy(eid);
     }
 }

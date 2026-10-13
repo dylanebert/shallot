@@ -6,7 +6,7 @@ const PLAY = 1;
 const UPDATE = 2;
 const STOP = 3;
 
-const WORKLET_CODE = `
+export const WORKLET_CODE = `
 const MAX_VOICES = ${MAX_VOICES};
 const COMMANDS = ${COMMANDS};
 const STRIDE = ${STRIDE};
@@ -28,6 +28,10 @@ class ShallotAudioProcessor extends AudioWorkletProcessor {
         this.batch = null;
         this.batchApplied = false;
         this.blocks = 0;
+        this.recycleMessage = { type: "recycle", buffer: null };
+        this.recycleTransfer = [null];
+        this.heartbeatMessage = { type: "heartbeat" };
+        this.errorMessage = { type: "error", message: "" };
         this.port.onmessage = (event) => {
             const message = event.data;
             if (message.type === "clip") {
@@ -110,7 +114,7 @@ class ShallotAudioProcessor extends AudioWorkletProcessor {
         if (!this.wasm) return true;
         try {
             if (!this.batchApplied) this.applyBatch();
-            const ptr = this.wasm.audio_process();
+            const ptr = this.wasm.audio_process_pre_limiter();
             this.outputPtr = ptr;
             this.refreshMemory();
             const output = outputs[0];
@@ -139,13 +143,16 @@ class ShallotAudioProcessor extends AudioWorkletProcessor {
                 }
                 this.batch[1] = finished;
                 const buffer = this.batch.buffer;
-                this.port.postMessage({ type: "recycle", buffer }, [buffer]);
+                this.recycleMessage.buffer = buffer;
+                this.recycleTransfer[0] = buffer;
+                this.port.postMessage(this.recycleMessage, this.recycleTransfer);
                 this.batch = null;
                 this.batchApplied = false;
             }
-            if (++this.blocks % 344 === 0) this.port.postMessage({ type: "heartbeat" });
+            if (++this.blocks % 344 === 0) this.port.postMessage(this.heartbeatMessage);
         } catch (error) {
-            this.port.postMessage({ type: "error", message: String(error) });
+            this.errorMessage.message = String(error);
+            this.port.postMessage(this.errorMessage);
         }
         return true;
     }

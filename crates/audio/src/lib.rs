@@ -2187,7 +2187,7 @@ impl AudioEngine {
         }
     }
 
-    pub fn process(&mut self) -> *const f32 {
+    pub fn process_pre_limiter(&mut self) -> *const f32 {
         self.schedule_transport_events();
         self.classify_voices();
 
@@ -2210,13 +2210,6 @@ impl AudioEngine {
             self.pre_tanh_peak = self.output.iter().fold(0.0f32, |m, s| m.max(s.abs()));
             self.pre_limiter_output.copy_from_slice(&self.output);
         }
-        // Master soft-clip limiter: tanh is the deliberate final choice for a
-        // realtime audio thread — zero lookahead/latency, smooth odd-harmonic
-        // saturation, transparent below ~0.7 and graceful above. A lookahead
-        // brickwall would add latency the worklet can't spend; this stays.
-        for s in self.output.iter_mut() {
-            *s = s.tanh();
-        }
 
         for tidx in 0..MAX_TRANSPORTS {
             let t = &self.transports[tidx];
@@ -2229,6 +2222,15 @@ impl AudioEngine {
         }
 
         self.output.as_ptr()
+    }
+
+    /// Process and apply the kernel limiter for standalone consumers.
+    pub fn process(&mut self) -> *const f32 {
+        let output = self.process_pre_limiter();
+        for sample in self.output.iter_mut() {
+            *sample = sample.tanh();
+        }
+        output
     }
 
     pub fn readbacks(&self) -> &[TransportReadback; MAX_TRANSPORTS] {
@@ -2522,6 +2524,11 @@ pub extern "C" fn audio_process() -> *const f32 {
     engine().process()
 }
 
+#[no_mangle]
+pub extern "C" fn audio_process_pre_limiter() -> *const f32 {
+    engine().process_pre_limiter()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2605,6 +2612,18 @@ mod tests {
             );
             assert_eq!(e.voices[0].buffers[1][i], expected);
         }
+    }
+
+    #[test]
+    fn clip_process_exposes_the_unlimited_mix_for_the_worklet_master_limiter() {
+        let mut e = new_engine(48000.0);
+        upload_mono(&mut e, 0, &[0.8; 8192]);
+        assert!(e.play_clip(0, 0, true, 1.0));
+        process_blocks(&mut e, 32);
+
+        e.process_pre_limiter();
+        assert!((e.output[0] - 0.8).abs() < 1e-5);
+        assert!(e.output[0] > e.output[0].tanh());
     }
 
     #[test]
