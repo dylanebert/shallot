@@ -12,7 +12,7 @@ import { component } from "../../engine";
 //      texture (each covered pixel seeds its own coordinate) + an attribute texture (per-entity color +
 //      width). Always-on-top by default; `Outline.occlude` depth-tests against core's `view.depth` lane
 //      so an occluded object's outline hides. The plugin requests the lane only while an occluding outline exists.
-//   2. JFA — ping-pong fullscreen passes (`jfaSteps(maxWidth)` of them) that flood the nearest seed
+//   2. JFA — ping-pong fullscreen passes (`jfaPassCount(maxWidth)` of them) that flood the nearest seed
 //      coordinate outward, producing a distance field within `width` pixels of every silhouette.
 //   3. composite — one fullscreen **compute** dispatch through the `sceneTransform` seam: reads the
 //      resolved scene (format-agnostic — the offscreen, or the fog scratch), the JFA distance field, and
@@ -25,13 +25,7 @@ import { component } from "../../engine";
 // storage, not a render attachment — which is what let the two effects collide. Both anchor refs drop
 // harmlessly when their plugin isn't registered. Targets the standard rendering path and requests core's shared depth lane.
 
-import type {
-    TgpuBindGroup,
-    TgpuBuffer,
-    TgpuComputePipeline,
-    TgpuRenderPipeline,
-    UniformFlag,
-} from "typegpu";
+import type { TgpuBuffer, TgpuComputePipeline, TgpuRenderPipeline, UniformFlag } from "typegpu";
 import * as d from "typegpu/data";
 import { type Mesh, Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
 import {
@@ -49,16 +43,29 @@ import {
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
 import { f32, vec4 } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import {
+    beginComputePass,
+    beginRenderPass,
+    dispatchWorkgroups2,
+    draw,
+    endComputePass,
+    endRenderPass,
+    precompile,
+    setComputeBindGroup,
+    setComputePipeline,
+    setRenderBindGroup,
+    setRenderPipeline,
+} from "../../engine/runtime";
 import { MeshRenderPlugin, StandardRenderer } from "../../standard/rendering";
 import {
     compositeKernel,
     compositeLayout,
     fullscreenVs,
-    groupByMesh,
     jfaFs,
     jfaLayout,
-    jfaSteps,
+    jfaPassCount,
+    jfaStep,
+    MAX_JFA_PASSES,
     MAX_WIDTH,
     maskFragment,
     maskLayoutOcclude,
@@ -107,68 +114,123 @@ const ATTR_FORMAT: GPUTextureFormat = "rgba16float";
 // the "no seed" sentinel the seed textures clear to: a coordinate far off-screen, so any real seed wins
 // the nearest-distance test and a pixel that never reaches a seed reads a huge distance (no band)
 const SENTINEL = 30000;
+const SEED_CLEAR: GPUColor = { r: SENTINEL, g: SENTINEL, b: 0, a: 0 };
+const ATTR_CLEAR: GPUColor = { r: 0, g: 0, b: 0, a: 0 };
 const INITIAL_INSTANCES = 64;
-// one uniform buffer per JFA pass slot, all written up front: a queued write lands before the submit, so a
-// single rewritten uniform would clobber every pass with the last step. Distinct buffers can't collide by
-// construction. The count is exactly what `jfaSteps` can return — the ladder halves from the first power of
-// two ≥ MAX_WIDTH down to 1
-const MAX_JFA_PASSES = Math.ceil(Math.log2(MAX_WIDTH)) + 1;
+// the final JFA slot writes seed[(MAX_JFA_PASSES) % 2] whatever the band width, so the composite reads one
+// fixed seed texture
+const FINAL_SEED = MAX_JFA_PASSES % 2;
 
 type StepBuffer = TgpuBuffer<typeof d.f32> & UniformFlag;
 
 type MaskTargets = { seed: d.Vec4u; attr: d.Vec4f };
 
 // per-camera screen-space targets: two ping-pong seed textures + the static attr texture, sized to the
-// view and recreated on resize (standard's _laneTargets pattern). Keyed by camera eid so multi-view never
-// shares one set
+// view and recreated on resize (standard's _laneTargets pattern), with the pass descriptors and JFA bind
+// groups that read them. Keyed by camera eid so multi-view never shares one set
 interface Targets {
-    seedA: GPUTexture;
-    seedAView: GPUTextureView;
-    seedB: GPUTexture;
-    seedBView: GPUTextureView;
+    seeds: [GPUTexture, GPUTexture];
+    seedViews: [GPUTextureView, GPUTextureView];
     attr: GPUTexture;
     attrView: GPUTextureView;
     w: number;
     h: number;
+    // mask[i] writes seeds[i]; jfa[i] writes seeds[1 - i], read by the slots whose parity is i
+    mask: [GPURenderPassDescriptor, GPURenderPassDescriptor];
+    jfa: [GPURenderPassDescriptor, GPURenderPassDescriptor];
+    composite: GPUComputePassDescriptor;
+    // JFA slot k reads seeds[k % 2] with step uniform k
+    jfaGroups: GPUBindGroup[];
 }
+
+function destroyTargets(t: Targets): void {
+    t.seeds[0].destroy();
+    t.seeds[1].destroy();
+    t.attr.destroy();
+}
+
 function targets(world: World, eid: number, w: number, h: number): Targets {
-    const cached = outlineState(world).targets.get(eid);
+    const _outlineState = outlineState(world);
+    const cached = _outlineState.targets.get(eid);
     if (cached && cached.w === w && cached.h === h) return cached;
-    cached?.seedA.destroy();
-    cached?.seedB.destroy();
-    cached?.attr.destroy();
+    if (cached) destroyTargets(cached);
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
     const tex = (label: string, format: GPUTextureFormat) =>
         world.gpu.device.createTexture({ label, size: { width: w, height: h }, format, usage });
-    const seedA = tex(`outline-seedA-${eid}`, SEED_FORMAT);
-    const seedB = tex(`outline-seedB-${eid}`, SEED_FORMAT);
+    const seeds: [GPUTexture, GPUTexture] = [
+        tex(`outline-seedA-${eid}`, SEED_FORMAT),
+        tex(`outline-seedB-${eid}`, SEED_FORMAT),
+    ];
+    const seedViews: [GPUTextureView, GPUTextureView] = [
+        seeds[0].createView(),
+        seeds[1].createView(),
+    ];
     const attr = tex(`outline-attr-${eid}`, ATTR_FORMAT);
+    const attrView = attr.createView();
+    const mask = (seed: GPUTextureView): GPURenderPassDescriptor => ({
+        label: `outline-mask/${eid}`,
+        colorAttachments: [
+            { view: seed, loadOp: "clear", storeOp: "store", clearValue: SEED_CLEAR },
+            { view: attrView, loadOp: "clear", storeOp: "store", clearValue: ATTR_CLEAR },
+        ],
+    });
+    const jfa = (seed: GPUTextureView): GPURenderPassDescriptor => ({
+        label: `outline-jfa/${eid}`,
+        colorAttachments: [
+            { view: seed, loadOp: "clear", storeOp: "store", clearValue: SEED_CLEAR },
+        ],
+    });
+    const jfaGroups: GPUBindGroup[] = [];
+    for (let k = 0; k < MAX_JFA_PASSES; k++) {
+        jfaGroups.push(
+            world.gpu.root.unwrap(
+                world.gpu.root.createBindGroup(jfaLayout, {
+                    seed: seedViews[k % 2],
+                    step: _outlineState.gpu.steps[k],
+                }),
+            ),
+        );
+    }
     const entry: Targets = {
-        seedA,
-        seedAView: seedA.createView(),
-        seedB,
-        seedBView: seedB.createView(),
+        seeds,
+        seedViews,
         attr,
-        attrView: attr.createView(),
+        attrView,
         w,
         h,
+        mask: [mask(seedViews[0]), mask(seedViews[1])],
+        jfa: [jfa(seedViews[1]), jfa(seedViews[0])],
+        composite: { label: `outline-composite/${eid}` },
+        jfaGroups,
     };
-    outlineState(world).targets.set(eid, entry);
+    _outlineState.targets.set(eid, entry);
     return entry;
 }
 
-// per-camera composite bind group, cached on the sceneTransform read + write + the final JFA seed + the
-// attr view (mirroring fog's per-view cache). All four reallocate only on a resize, and the final seed view
-// flips only when the band width changes JFA-pass parity — so this holds across frames, unlike the per-frame
-// mask/JFA bind groups (rebuilt each frame because their seed src ping-pongs within the JFA loop)
-type CompositeGroup = TgpuBindGroup<(typeof compositeLayout)["entries"]>;
-
+// per-camera composite bind group, cached on the sceneTransform read + write + the attr view (mirroring
+// fog's per-view cache); the seed it reads is fixed per target set
 type CompositeEntry = {
     read: GPUTextureView;
     write: GPUTextureView;
-    seed: GPUTextureView;
     attr: GPUTextureView;
-    group: CompositeGroup;
+    group: GPUBindGroup;
+};
+
+type MaskVariant = "plain" | "occlude" | "occlude-multisampled";
+
+// per-camera, per-mesh mask bind group, rebuilt only when a buffer or view it binds changes
+type MaskEntry = {
+    variant: MaskVariant;
+    view: GPUBuffer;
+    position: unknown;
+    indices: unknown;
+    globalTransforms: GPUBuffer;
+    globalTransformRows: GPUBuffer;
+    eids: GPUBuffer;
+    attrs: GPUBuffer;
+    quant: unknown;
+    depth: GPUTextureView | null;
+    group: GPUBindGroup;
 };
 
 interface OutlineGpuState {
@@ -183,12 +245,24 @@ interface OutlineGpuState {
     capacity: number;
 }
 
+interface Group {
+    mesh: Mesh;
+    meshId: number;
+    first: number;
+    count: number;
+}
+
 interface OutlineState {
     gpu: OutlineGpuState;
     eidsStaging: Uint32Array;
     attrStaging: Float32Array;
     targets: Map<number, Targets>;
     composites: Map<number, CompositeEntry>;
+    masks: Map<number, Map<number, MaskEntry>>;
+    // persistent per-frame scratch: the highlighted eids, their meshes, and the mesh groups
+    eids: number[];
+    meshes: number[];
+    groups: Group[];
 }
 
 const outlineStateKey = { create: () => createOutlineState() };
@@ -208,6 +282,10 @@ const createOutlineState = (): OutlineState => ({
     attrStaging: new Float32Array(0),
     targets: new Map(),
     composites: new Map(),
+    masks: new Map(),
+    eids: [],
+    meshes: [],
+    groups: [],
 });
 const outlineState = (world: World) => world.resource(outlineStateKey);
 
@@ -220,25 +298,93 @@ function compositeBind(
     eid: number,
     read: GPUTextureView,
     write: GPUTextureView,
-    seed: GPUTextureView,
-    attr: GPUTextureView,
-): CompositeGroup {
-    const cached = outlineState(world).composites.get(eid);
+    t: Targets,
+): GPUBindGroup {
+    const _outlineState = outlineState(world);
+    const cached = _outlineState.composites.get(eid);
+    if (cached && cached.read === read && cached.write === write && cached.attr === t.attrView)
+        return cached.group;
+    const group = world.gpu.root.unwrap(
+        world.gpu.root.createBindGroup(compositeLayout, {
+            scene: read,
+            seed: t.seedViews[FINAL_SEED],
+            attr: t.attrView,
+            output: write,
+        }),
+    );
+    _outlineState.composites.set(eid, { read, write, attr: t.attrView, group });
+    return group;
+}
+
+function maskBind(
+    world: World,
+    camEid: number,
+    view: View,
+    mesh: Mesh,
+    meshId: number,
+    globalTransforms: GPUBuffer,
+    variant: MaskVariant,
+): GPUBindGroup {
+    const _outlineState = outlineState(world);
+    let byMesh = _outlineState.masks.get(camEid);
+    if (!byMesh) {
+        byMesh = new Map();
+        _outlineState.masks.set(camEid, byMesh);
+    }
+    const viewBuffer = world.resource(RenderContext).viewBuffers[view.slot]!;
+    const globalTransformRows = world.gpu.buffers.get("globalTransformRows")!;
+    const eids = _outlineState.gpu.eids!;
+    const attrs = _outlineState.gpu.attrs!;
+    const depth = variant === "plain" ? null : view.depth;
+    const cached = byMesh.get(meshId);
     if (
         cached &&
-        cached.read === read &&
-        cached.write === write &&
-        cached.seed === seed &&
-        cached.attr === attr
+        cached.variant === variant &&
+        cached.view === viewBuffer &&
+        cached.position === mesh.position &&
+        cached.indices === mesh.indices &&
+        cached.globalTransforms === globalTransforms &&
+        cached.globalTransformRows === globalTransformRows &&
+        cached.eids === eids &&
+        cached.attrs === attrs &&
+        cached.quant === mesh.quant &&
+        cached.depth === depth
     )
         return cached.group;
-    const group = world.gpu.root.createBindGroup(compositeLayout, {
-        scene: read,
-        seed,
-        attr,
-        output: write,
+    const bindings = {
+        view: viewBuffer,
+        position: mesh.position!,
+        indices: mesh.indices,
+        globalTransforms,
+        globalTransformRows,
+        maskEids: eids,
+        maskAttrs: attrs,
+        meshQuant: mesh.quant!,
+    };
+    const root = world.gpu.root;
+    const group = root.unwrap(
+        variant === "plain"
+            ? root.createBindGroup(maskLayoutPlain, bindings)
+            : variant === "occlude"
+              ? root.createBindGroup(maskLayoutOcclude, { ...bindings, sceneDepth: depth! })
+              : root.createBindGroup(maskLayoutOccludeMultisampled, {
+                    ...bindings,
+                    sceneDepth: depth!,
+                }),
+    );
+    byMesh.set(meshId, {
+        variant,
+        view: viewBuffer,
+        position: mesh.position,
+        indices: mesh.indices,
+        globalTransforms,
+        globalTransformRows,
+        eids,
+        attrs,
+        quant: mesh.quant,
+        depth,
+        group,
     });
-    outlineState(world).composites.set(eid, { read, write, seed, attr, group });
     return group;
 }
 
@@ -261,14 +407,8 @@ function ensureInstances(world: World, n: number): void {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     _outlineState.gpu.capacity = cap;
-    outlineState(world).eidsStaging = new Uint32Array(cap);
-    outlineState(world).attrStaging = new Float32Array(cap * 8);
-}
-
-interface Group {
-    mesh: Mesh;
-    first: number;
-    count: number;
+    _outlineState.eidsStaging = new Uint32Array(cap);
+    _outlineState.attrStaging = new Float32Array(cap * 8);
 }
 
 function renderOutline(
@@ -276,94 +416,60 @@ function renderOutline(
     camEid: number,
     view: View,
     globalTransforms: GPUBuffer,
-    groups: Group[],
-    steps: number[],
+    groupCount: number,
+    passes: number,
     occlude: boolean,
 ): void {
-    const _render = world.resource(RenderContext);
     const _outlineState = world.resource(outlineStateKey);
+    const gpu = _outlineState.gpu;
+    const root = world.gpu.root;
 
     if (!view.framebuffer) return;
     const encoder = world.frameEncoder()!;
     const t = targets(world, camEid, view.width, view.height);
-    const multisampled = world.storage(Camera).antialias.get(camEid) !== 0;
-    const seedClear = { r: SENTINEL, g: SENTINEL, b: 0, a: 0 };
+    const variant = !occlude
+        ? "plain"
+        : world.storage(Camera).antialias.get(camEid) !== 0
+          ? "occlude-multisampled"
+          : "occlude";
+    // the ladder's first slot; the mask seeds the texture that slot reads
+    const offset = MAX_JFA_PASSES - passes;
 
     // 1. mask — the scoped instanced draw, grouped by mesh, into seed + attr (MRT, no depth attachment)
-    const mask = encoder.beginRenderPass({
-        label: `outline-mask/${camEid}`,
-        timestampWrites: world.gpu.span?.("outline:mask"),
-        colorAttachments: [
-            { view: t.seedAView, loadOp: "clear", storeOp: "store", clearValue: seedClear },
-            {
-                view: t.attrView,
-                loadOp: "clear",
-                storeOp: "store",
-                clearValue: { r: 0, g: 0, b: 0, a: 0 },
-            },
-        ],
-    });
-    for (const g of groups) {
-        if (!g.mesh.position || !g.mesh.quant) continue; // un-quantized producer — nothing to outline
-        if (occlude) {
-            const depthPipeline = multisampled
-                ? _outlineState.gpu.maskOccludeMultisampled!
-                : _outlineState.gpu.maskOcclude!;
-            const bindings = {
-                view: _render.viewBuffers[view.slot],
-                position: g.mesh.position,
-                indices: g.mesh.indices,
-                globalTransforms,
-                globalTransformRows: world.gpu.buffers.get("globalTransformRows")!,
-                maskEids: _outlineState.gpu.eids!,
-                maskAttrs: _outlineState.gpu.attrs!,
-                meshQuant: g.mesh.quant,
-                sceneDepth: view.depth!,
-            };
-            const group = multisampled
-                ? world.gpu.root.createBindGroup(maskLayoutOccludeMultisampled, bindings)
-                : world.gpu.root.createBindGroup(maskLayoutOcclude, bindings);
-            depthPipeline
-                .with(group as never)
-                .with(mask)
-                .draw(g.mesh.indexCount, g.count, g.mesh.indexBase, g.first);
-        } else {
-            const group = world.gpu.root.createBindGroup(maskLayoutPlain, {
-                view: _render.viewBuffers[view.slot],
-                position: g.mesh.position,
-                indices: g.mesh.indices,
-                globalTransforms,
-                globalTransformRows: world.gpu.buffers.get("globalTransformRows")!,
-                maskEids: _outlineState.gpu.eids!,
-                maskAttrs: _outlineState.gpu.attrs!,
-                meshQuant: g.mesh.quant,
-            });
-            _outlineState.gpu
-                .maskPlain!.with(group)
-                .with(mask)
-                .draw(g.mesh.indexCount, g.count, g.mesh.indexBase, g.first);
-        }
+    const maskDescriptor = t.mask[offset % 2];
+    maskDescriptor.timestampWrites = world.gpu.span?.("outline:mask");
+    const mask = beginRenderPass(encoder, maskDescriptor);
+    setRenderPipeline(
+        mask,
+        root.unwrap(
+            variant === "plain"
+                ? gpu.maskPlain!
+                : variant === "occlude"
+                  ? gpu.maskOcclude!
+                  : gpu.maskOccludeMultisampled!,
+        ),
+    );
+    for (let i = 0; i < groupCount; i++) {
+        const g = _outlineState.groups[i]!;
+        setRenderBindGroup(
+            mask,
+            0,
+            maskBind(world, camEid, view, g.mesh, g.meshId, globalTransforms, variant),
+        );
+        mask.draw(g.mesh.indexCount, g.count, g.mesh.indexBase, g.first);
     }
-    mask.end();
+    endRenderPass(mask);
 
-    // 2. JFA — ping-pong the seed field outward; after the loop `srcView` holds the final distance field
-    let srcView = t.seedAView;
-    let dstView = t.seedBView;
-    for (let k = 0; k < steps.length; k++) {
-        const pass = encoder.beginRenderPass({
-            label: `outline-jfa/${camEid}`,
-            timestampWrites: world.gpu.span?.("outline:jfa"),
-            colorAttachments: [
-                { view: dstView, loadOp: "clear", storeOp: "store", clearValue: seedClear },
-            ],
-        });
-        const group = world.gpu.root.createBindGroup(jfaLayout, {
-            seed: srcView,
-            step: _outlineState.gpu.steps[k],
-        });
-        _outlineState.gpu.jfa!.with(group).with(pass).draw(3);
-        pass.end();
-        [srcView, dstView] = [dstView, srcView];
+    // 2. JFA — slot k reads seeds[k % 2] and writes the other; the last slot always writes FINAL_SEED
+    const jfa = root.unwrap(gpu.jfa!);
+    for (let k = offset; k < MAX_JFA_PASSES; k++) {
+        const descriptor = t.jfa[k % 2];
+        descriptor.timestampWrites = world.gpu.span?.("outline:jfa");
+        const pass = beginRenderPass(encoder, descriptor);
+        setRenderPipeline(pass, jfa);
+        setRenderBindGroup(pass, 0, t.jfaGroups[k]!);
+        draw(pass, 3);
+        endRenderPass(pass);
     }
 
     // 3. composite — blend the band over the resolved scene through the sceneTransform seam. A compute pass
@@ -371,15 +477,16 @@ function renderOutline(
     // JFA field, writes the rgba16float scratch, repoints `view.framebuffer`. `sceneTransform` is called here,
     // last — the caller's early-outs already ran, so the framebuffer is never repointed at an unwritten scratch
     const { read, write } = sceneTransform(world, view, camEid);
-    const composite = encoder.beginComputePass({
-        label: `outline-composite/${camEid}`,
-        timestampWrites: world.gpu.span?.("outline:composite"),
-    });
-    _outlineState.gpu
-        .composite!.with(compositeBind(world, camEid, read, write, srcView, t.attrView))
-        .with(composite)
-        .dispatchWorkgroups(Math.ceil(view.width / WORKGROUP), Math.ceil(view.height / WORKGROUP));
-    composite.end();
+    t.composite.timestampWrites = world.gpu.span?.("outline:composite");
+    const composite = beginComputePass(encoder, t.composite);
+    setComputePipeline(composite, root.unwrap(gpu.composite!));
+    setComputeBindGroup(composite, 0, compositeBind(world, camEid, read, write, t));
+    dispatchWorkgroups2(
+        composite,
+        Math.ceil(view.width / WORKGROUP),
+        Math.ceil(view.height / WORKGROUP),
+    );
+    endComputePass(composite);
 }
 
 /**
@@ -400,57 +507,76 @@ const OutlineSystem: System = {
         const _meshes = world.resource(Meshes);
 
         if (!_outlineState.gpu.maskPlain) return;
-        const eids = [...world.query(OUTLINE_MESH_QUERY)];
-        if (eids.length === 0) return; // bare path — no passes
+        const instances = world.storage(MeshInstance);
+        const eids = _outlineState.eids;
+        const meshes = _outlineState.meshes;
+        let n = 0;
+        for (const eid of world.query(OUTLINE_MESH_QUERY)) {
+            eids[n] = eid;
+            meshes[n] = instances.mesh.get(eid);
+            n++;
+        }
+        if (n === 0) return; // bare path — no passes
         const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
         if (!globalTransforms) return;
 
-        ensureInstances(world, eids.length);
-        const byMesh = groupByMesh(eids, (eid) => world.storage(MeshInstance).mesh.get(eid));
-        const groups: Group[] = [];
+        ensureInstances(world, n);
+        const outline = world.storage(Outline);
+        const eidsStaging = _outlineState.eidsStaging;
+        const attrStaging = _outlineState.attrStaging;
+        const groups = _outlineState.groups;
+        let groupCount = 0;
         let cursor = 0;
         let maxWidth = 1;
         let occlude = false;
-        for (const [meshId, group] of byMesh) {
+        // group by mesh in first-seen order: each group's eids become a contiguous instance slice
+        for (let i = 0; i < n; i++) {
+            const meshId = meshes[i]!;
+            let seen = false;
+            for (let j = 0; j < i; j++) {
+                if (meshes[j] === meshId) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (seen) continue;
             const mesh = _meshes.get(meshId as MeshHandle);
-            if (!mesh) continue; // mesh deleted / unregistered — skip the group
+            // mesh deleted / unregistered, or an un-quantized producer — nothing to outline
+            if (!mesh?.position || !mesh.quant) continue;
             const first = cursor;
-            for (const eid of group) {
-                outlineState(world).eidsStaging[cursor] = eid;
+            for (let j = i; j < n; j++) {
+                if (meshes[j] !== meshId) continue;
+                const eid = eids[j]!;
+                eidsStaging[cursor] = eid;
                 const o = cursor * 8;
-                outlineState(world).attrStaging[o] = world.storage(Outline).color.x.get(eid);
-                outlineState(world).attrStaging[o + 1] = world.storage(Outline).color.y.get(eid);
-                outlineState(world).attrStaging[o + 2] = world.storage(Outline).color.z.get(eid);
-                outlineState(world).attrStaging[o + 3] = world.storage(Outline).color.w.get(eid);
-                const w = Math.max(0, Math.min(MAX_WIDTH, world.storage(Outline).width.get(eid)));
-                const occ = world.storage(Outline).occlude.get(eid);
-                outlineState(world).attrStaging[o + 4] = w;
-                outlineState(world).attrStaging[o + 5] = occ;
+                attrStaging[o] = outline.color.x.get(eid);
+                attrStaging[o + 1] = outline.color.y.get(eid);
+                attrStaging[o + 2] = outline.color.z.get(eid);
+                attrStaging[o + 3] = outline.color.w.get(eid);
+                const w = Math.max(0, Math.min(MAX_WIDTH, outline.width.get(eid)));
+                const occ = outline.occlude.get(eid);
+                attrStaging[o + 4] = w;
+                attrStaging[o + 5] = occ;
                 if (w > maxWidth) maxWidth = w;
                 if (occ > 0.5) occlude = true;
                 cursor++;
             }
-            groups.push({ mesh, first, count: group.length });
+            let group = groups[groupCount];
+            if (!group) {
+                group = { mesh, meshId, first, count: 0 };
+                groups[groupCount] = group;
+            }
+            group.mesh = mesh;
+            group.meshId = meshId;
+            group.first = first;
+            group.count = cursor - first;
+            groupCount++;
         }
         if (cursor === 0) return;
-        world.gpu.device.queue.writeBuffer(
-            _outlineState.gpu.eids!,
-            0,
-            outlineState(world).eidsStaging,
-            0,
-            cursor,
-        );
-        world.gpu.device.queue.writeBuffer(
-            _outlineState.gpu.attrs!,
-            0,
-            outlineState(world).attrStaging,
-            0,
-            cursor * 8,
-        );
+        world.gpu.device.queue.writeBuffer(_outlineState.gpu.eids!, 0, eidsStaging, 0, cursor);
+        world.gpu.device.queue.writeBuffer(_outlineState.gpu.attrs!, 0, attrStaging, 0, cursor * 8);
 
-        const steps = jfaSteps(maxWidth);
-        for (let k = 0; k < steps.length; k++) _outlineState.gpu.steps[k].write(steps[k]);
-
+        const passes = jfaPassCount(maxWidth);
         for (const camEid of world.query(OUTLINE_CAMERA_QUERY)) {
             const view = world.resource(Views).get(camEid);
             if (!view?.framebuffer) continue;
@@ -460,26 +586,40 @@ const OutlineSystem: System = {
                 camEid,
                 view,
                 globalTransforms,
-                groups,
-                steps,
+                groupCount,
+                passes,
                 occlude && !!view.depth,
             );
         }
     },
 };
 
+function releaseTargets(world: World): void {
+    const _outlineState = outlineState(world);
+    for (const t of _outlineState.targets.values()) destroyTargets(t);
+    _outlineState.targets.clear();
+    _outlineState.composites.clear();
+    _outlineState.masks.clear();
+}
+
 function prepareOutline(world: World): void {
     const _outlineState = world.resource(outlineStateKey);
 
     // the JFA + composite layouts are the `jfaLayout` / `compositeLayout` in passes.ts — declared
     // beside the kernels that read them, bound by layout object, never by group index. Only the per-pass
-    // step uniforms are this module's: rebuilt here (not reused) so a re-warm on a fresh device can't hold a
-    // buffer from the old one, and the prior set is freed rather than leaked
+    // step uniforms are this module's: one buffer per ladder slot, written once here, since a queued write lands
+    // before the submit and one rewritten uniform would clobber every pass with the last step. Rebuilt (not
+    // reused) so a re-warm on a fresh device can't hold a buffer from the old one; the prior set and the
+    // targets whose bind groups read it are freed rather than leaked
+    releaseTargets(world);
     for (const s of _outlineState.gpu.steps) s.destroy();
     _outlineState.gpu.steps.length = 0;
     for (let k = 0; k < MAX_JFA_PASSES; k++) {
         _outlineState.gpu.steps.push(
-            world.gpu.root.createBuffer(d.f32).$usage("uniform").$name(`outline-jfa-step-${k}`),
+            world.gpu.root
+                .createBuffer(d.f32, jfaStep(k))
+                .$usage("uniform")
+                .$name(`outline-jfa-step-${k}`),
         );
     }
 
@@ -541,13 +681,7 @@ function disposeOutline(world: World): void {
     _outlineState.gpu.eids?.destroy();
     _outlineState.gpu.attrs?.destroy();
     for (const s of _outlineState.gpu.steps) s.destroy();
-    for (const t of outlineState(world).targets.values()) {
-        t.seedA.destroy();
-        t.seedB.destroy();
-        t.attr.destroy();
-    }
-    outlineState(world).targets.clear();
-    outlineState(world).composites.clear();
+    releaseTargets(world);
     _outlineState.gpu.eids = null;
     _outlineState.gpu.attrs = null;
     _outlineState.gpu.steps = [];
@@ -557,8 +691,8 @@ function disposeOutline(world: World): void {
     _outlineState.gpu.jfa = null;
     _outlineState.gpu.composite = null;
     _outlineState.gpu.capacity = 0;
-    outlineState(world).eidsStaging = new Uint32Array(0);
-    outlineState(world).attrStaging = new Float32Array(0);
+    _outlineState.eidsStaging = new Uint32Array(0);
+    _outlineState.attrStaging = new Float32Array(0);
 }
 
 /**

@@ -5,46 +5,33 @@ import { ViewUniforms } from "../../core/rendering";
 import { decodePos, MeshQuant, meshIdOf, Xform, xformPoint } from "../../engine/utils";
 
 // The outline's pass internals: the JFA + composite kernels with their bind group layouts, plus the pure
-// CPU logic the three passes build on (the JFA step ladder, the mesh-group batching for the scoped mask
-// draw, and the mask shader codegen). Split off the barrel (orbit's smooth.ts shape) — index.ts keeps the
-// component / system / plugin / per-camera resource management, this file the shader half.
+// CPU logic the three passes build on (the JFA step ladder and the mask shader codegen). Split off the
+// barrel (orbit's smooth.ts shape) — index.ts keeps the component / system / plugin / per-camera resource
+// management, this file the shader half.
 
 // px cap on the band width — bounds the JFA pass count (`ceil(log2(width)) + 1`) and the attr texture's
 // width channel. 64px is a generous outline; wider would want a coarser/clamped field anyway
 export const MAX_WIDTH = 64;
 
-/**
- * the jump-flood step ladder for a band of `maxWidth` pixels: the largest power of two ≥ the width,
- * halving to 1. Bounding the first jump by the width (not the screen) is what makes the pass count
- * `ceil(log2(width)) + 1` (the ladder runs from the first power of two ≥ the width down through 1,
- * inclusive): a pixel only needs to find seeds within `width`, so seeds nearer than the start
- * step resolve correctly. Pure.
- */
-export function jfaSteps(maxWidth: number): number[] {
-    const w = Math.max(1, Math.min(MAX_WIDTH, Math.ceil(maxWidth)));
-    let s = 1;
-    while (s < w) s <<= 1;
-    const steps: number[] = [];
-    for (; s >= 1; s >>= 1) steps.push(s);
-    return steps;
+/** the JFA ladder's slot count: one per power of two from the first ≥ MAX_WIDTH down to 1. */
+export const MAX_JFA_PASSES = Math.ceil(Math.log2(MAX_WIDTH)) + 1;
+
+/** the jump step of ladder slot `k`: MAX_JFA_PASSES slots halving from the first power of two ≥ MAX_WIDTH to 1. */
+export function jfaStep(k: number): number {
+    return 2 ** (MAX_JFA_PASSES - 1 - k);
 }
 
 /**
- * group highlighted eids by their mesh handle, preserving insertion order. The mask draws one instanced
- * call per mesh: each group's eids become a contiguous instance slice. Pure.
+ * the jump-flood pass count for a band of `maxWidth` pixels: the ladder's last `ceil(log2(width)) + 1`
+ * slots, from the first power of two ≥ the width down to 1. Bounding the first jump by the width (not the
+ * screen) bounds the pass count: a pixel only needs to find seeds within `width`, so seeds nearer than the
+ * start step resolve correctly.
  */
-export function groupByMesh(
-    eids: number[],
-    meshOf: (eid: number) => number,
-): Map<number, number[]> {
-    const groups = new Map<number, number[]>();
-    for (const eid of eids) {
-        const m = meshOf(eid);
-        const g = groups.get(m);
-        if (g) g.push(eid);
-        else groups.set(m, [eid]);
-    }
-    return groups;
+export function jfaPassCount(maxWidth: number): number {
+    const w = Math.max(1, Math.min(MAX_WIDTH, Math.ceil(maxWidth)));
+    let passes = 1;
+    for (let s = 1; s < w; s <<= 1) passes++;
+    return passes;
 }
 
 /** the always-on-top mask layout: view/position/indices/globalTransforms/maskEids/maskAttrs/meshQuant.
