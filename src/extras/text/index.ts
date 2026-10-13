@@ -34,7 +34,7 @@ import {
 import { DEFAULT_FONT, type Font, loadFont } from "./font";
 import { GLYPH_AT, GLYPH_BYTES, GLYPH_FLOATS, Glyph } from "./glyph";
 import { createTextPipeline, textLayout, viewLayout } from "./pipeline";
-import { initializeSdfState, resetPipelines } from "./sdf";
+import { resetPipelines } from "./sdf";
 
 /** registered fonts, keyed by name (the url when unnamed); the id is the atlas slot */
 export const Fonts = { create: () => new Registry<{ name: string; url: string }>() };
@@ -529,7 +529,6 @@ export const TextPlugin: Plugin = {
         const _textState = world.resource(textStateKey);
         const _fonts = world.resource(Fonts);
 
-        initializeSdfState(world);
         world.resource(RenderPhases).push({
             transparent: queueText,
             prepareTransparent: prepareText,

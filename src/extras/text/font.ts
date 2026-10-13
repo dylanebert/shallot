@@ -4,9 +4,6 @@ export const DEFAULT_FONT = new URL("./Inter-Regular.ttf", import.meta.url).href
 
 export interface Font {
     unitsPerEm: number;
-    ascender: number;
-    descender: number;
-    lineGap: number;
     glyphPath(char: string): string | null;
     glyphBounds(char: string): [number, number, number, number] | null;
     advance(char: string): number;
@@ -86,17 +83,9 @@ function parseHead(r: Reader, table: TableEntry): { unitsPerEm: number; indexToL
     return { unitsPerEm, indexToLocFormat };
 }
 
-function parseHhea(
-    r: Reader,
-    table: TableEntry,
-): { ascender: number; descender: number; lineGap: number; numHMetrics: number } {
-    seek(r, table.offset + 4);
-    const ascender = i16(r);
-    const descender = i16(r);
-    const lineGap = i16(r);
+function parseHheaMetricCount(r: Reader, table: TableEntry): number {
     seek(r, table.offset + 34);
-    const numHMetrics = u16(r);
-    return { ascender, descender, lineGap, numHMetrics };
+    return u16(r);
 }
 
 function parseHmtx(
@@ -544,9 +533,9 @@ export function parseFont(buffer: ArrayBuffer): Font {
     }
 
     const head = parseHead(r, headTable);
-    const hhea = parseHhea(r, hheaTable);
+    const numHMetrics = parseHheaMetricCount(r, hheaTable);
     const numGlyphs = parseMaxp(r, maxpTable);
-    const hmtx = parseHmtx(r, hmtxTable, hhea.numHMetrics, numGlyphs);
+    const hmtx = parseHmtx(r, hmtxTable, numHMetrics, numGlyphs);
     const loca = parseLoca(r, locaTable, numGlyphs, head.indexToLocFormat);
     const cmap = parseCmap(r, cmapTable);
     const kern = kernTable ? parseKern(r, kernTable) : new Map<number, number>();
@@ -572,9 +561,6 @@ export function parseFont(buffer: ArrayBuffer): Font {
 
     return {
         unitsPerEm: head.unitsPerEm,
-        ascender: hhea.ascender,
-        descender: hhea.descender,
-        lineGap: hhea.lineGap,
 
         glyphPath(char: string): string | null {
             const glyph = getGlyph(getGlyphId(char));

@@ -55,7 +55,7 @@ function pointOnCubicBezier(
     };
 }
 
-export function segmentPath(pathString: string, curvePoints = 16): LineSegment[] {
+function segmentPath(pathString: string, curvePoints = 16): LineSegment[] {
     const segments: LineSegment[] = [];
     const segmentRE = /([MLQCZ])([^MLQCZ]*)/g;
     let match: RegExpExecArray | null;
@@ -141,8 +141,8 @@ export function segmentPath(pathString: string, curvePoints = 16): LineSegment[]
 }
 
 /** the per-glyph distance-pass uniform: the padded glyph bounds the triangle rasterizes across (xy = min,
- *  zw = max), the max distance the falloff normalizes by, and the SDF exponent. @internal */
-export const SdfUniforms = d.struct({
+ *  zw = max), the max distance the falloff normalizes by, and the SDF exponent. */
+const SdfUniforms = d.struct({
     glyphBounds: d.vec4f,
     maxDistance: d.f32,
     exponent: d.f32,
@@ -152,9 +152,8 @@ export const SdfUniforms = d.struct({
 /** the distance pass's I/O: the per-glyph uniform + the glyph's flattened outline segments (each
  *  `(x1, y1, x2, y2)`), one instance per segment. The stages are pinned rather than defaulted —
  *  `segments` reaches only the fs, and a vertex-visible storage binding is what a device reporting
- *  `maxStorageBuffersInVertexStage: 0` rejects (the `layout: "auto"` this replaced derived the same
- *  narrow visibility from use). @internal */
-export const distanceLayout = tgpu.bindGroupLayout({
+ *  `maxStorageBuffersInVertexStage: 0` rejects. */
+const distanceLayout = tgpu.bindGroupLayout({
     uniforms: { uniform: SdfUniforms, visibility: ["vertex", "fragment"] },
     segments: {
         storage: (n: number) => d.arrayOf(d.vec4f, n),
@@ -163,8 +162,8 @@ export const distanceLayout = tgpu.bindGroupLayout({
     },
 });
 
-/** the finalize pass's I/O: the accumulated intermediate + the nearest-filter sampler. @internal */
-export const finalizeLayout = tgpu.bindGroupLayout({
+/** the finalize pass's I/O: the accumulated intermediate + the nearest-filter sampler. */
+const finalizeLayout = tgpu.bindGroupLayout({
     intermediate: { texture: d.texture2d(d.f32), visibility: ["fragment"] },
     samp: { sampler: "non-filtering", visibility: ["fragment"] },
 });
@@ -270,10 +269,6 @@ const sdfPipelinesKey = { create: () => createSdfPipelines() };
 const createSdfPipelines = () => ({ value: null as SdfPipelines | null });
 const sdfPipelines = (world: World) => world.resource(sdfPipelinesKey);
 
-export function initializeSdfState(world: World): void {
-    world.resource(sdfPipelinesKey);
-}
-
 function pipelines(world: World) {
     const cache = sdfPipelines(world);
     if (cache.value) return cache.value;
@@ -312,7 +307,7 @@ export function resetPipelines(world: World): void {
     sdfPipelines(world).value = null;
 }
 
-export interface SDFGeneratorConfig {
+interface SDFGeneratorConfig {
     device: GPUDevice;
     sdfSize: number;
     exponent: number;
@@ -363,8 +358,7 @@ export class SDFGenerator {
 
     begin(world: World): void {
         // built here, drawn from `flush` microseconds later, so there is no force-compile forcer: a
-        // `precompile` thunk drains after warm, long after these draws already went out (the load-path
-        // blit's refuted precompile)
+        // `precompile` thunk drains after warm, long after these draws already went out
         this._pipelines = pipelines(world);
         this.ensureIntermediateTexture();
         this._pending = [];

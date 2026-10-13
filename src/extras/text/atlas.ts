@@ -4,8 +4,6 @@ import { SDF_EXPONENT, SDFGenerator } from "./sdf";
 const SDF_SIZE = 96;
 
 export interface GlyphMetrics {
-    width: number;
-    height: number;
     glyphWidth: number;
     glyphHeight: number;
     glyphTop: number;
@@ -19,7 +17,6 @@ export interface GlyphMetrics {
 
 export interface GlyphAtlas {
     texture: GPUTexture;
-    textureView: GPUTextureView;
     width: number;
     height: number;
     glyphs: Map<string, GlyphMetrics>;
@@ -32,8 +29,7 @@ export interface GlyphAtlas {
 
 /** tear down every atlas's GPU-owned state: the glyph texture and the SDF generator's own
  *  {@link SDFGenerator.destroy} (its `_intermediateTexture`) — both, or a rebuilt atlas leaks the
- *  generator's texture on every teardown. `@internal`, pure iteration over caller-owned handles so
- *  `TextPlugin.dispose` and this module's test can drive the same code. */
+ *  generator's texture on every teardown. @internal */
 export function disposeAtlases(atlases: readonly (GlyphAtlas | null | undefined)[]): void {
     for (const atlas of atlases) {
         atlas?.sdfGenerator.destroy();
@@ -61,7 +57,6 @@ export function createGlyphAtlas(device: GPUDevice, font: Font): GlyphAtlas {
 
     return {
         texture,
-        textureView: texture.createView(),
         width,
         height,
         glyphs: new Map(),
@@ -73,7 +68,7 @@ export function createGlyphAtlas(device: GPUDevice, font: Font): GlyphAtlas {
     };
 }
 
-export interface PendingGlyphEntry {
+interface PendingGlyphEntry {
     path: string;
     paddedBounds: [number, number, number, number];
     atlasX: number;
@@ -83,9 +78,8 @@ export interface PendingGlyphEntry {
 /** the shelf packer: place `char`'s glyph on the atlas's current row (wrapping to a new row, or throwing
  *  once the atlas is full), record its {@link GlyphMetrics} (UV rect + font-unit-normalized box) into
  *  `atlas.glyphs`, and return the SDF-render request for the caller to batch. `null` when the font has no
- *  outline for `char` (e.g. space). @internal, exported for direct testing — `Font` is a duck-typed
- *  interface, so a hand-built fake reaches this without a real GPU device. */
-export function computeGlyphMetrics(atlas: GlyphAtlas, char: string): PendingGlyphEntry | null {
+ *  outline for `char` (e.g. space). */
+function computeGlyphMetrics(atlas: GlyphAtlas, char: string): PendingGlyphEntry | null {
     const path = atlas.font.glyphPath(char);
     const bounds = atlas.font.glyphBounds(char);
     const advance = atlas.font.advance(char);
@@ -117,8 +111,6 @@ export function computeGlyphMetrics(atlas: GlyphAtlas, char: string): PendingGly
     }
 
     const metrics: GlyphMetrics = {
-        width: SDF_SIZE,
-        height: SDF_SIZE,
         glyphWidth: glyphWidth / unitsPerEm,
         glyphHeight: glyphHeight / unitsPerEm,
         glyphTop: paddedBounds[3] / unitsPerEm,
@@ -173,8 +165,6 @@ export interface LayoutGlyph {
     y: number;
     width: number;
     height: number;
-    texelWidth: number;
-    texelHeight: number;
     u0: number;
     v0: number;
     u1: number;
@@ -215,8 +205,6 @@ export function layoutText(text: string, atlas: GlyphAtlas, fontSize: number): L
             y,
             width: glyphW,
             height: glyphH,
-            texelWidth: metrics.width,
-            texelHeight: metrics.height,
             u0: metrics.u0,
             v0: metrics.v0,
             u1: metrics.u1,
