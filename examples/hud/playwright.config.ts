@@ -8,11 +8,21 @@ export const config = {
         ...BROWSER_CONFIG.use,
         baseURL: "http://127.0.0.1:4175",
     },
-    webServer: {
-        command: "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4175 --strictPort",
-        url: "http://127.0.0.1:4175",
-        ...WEB_SERVER_CONFIG,
-    },
+    webServer: [
+        {
+            command:
+                "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4175 --strictPort",
+            url: "http://127.0.0.1:4175",
+            ...WEB_SERVER_CONFIG,
+        },
+        // The stepped page under tests/ is served by Vite's dev server, which compiles it as the build
+        // compiles the app's own page; the build holds only the app's page.
+        {
+            command: "bunx vite --host 127.0.0.1 --port 4176 --strictPort",
+            url: "http://127.0.0.1:4176/tests/stepped.html",
+            ...WEB_SERVER_CONFIG,
+        },
+    ],
 } satisfies PlaywrightTestConfig;
 
 export default config;

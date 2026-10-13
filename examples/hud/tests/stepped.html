@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>hud, stepped</title>
+    </head>
+    <body>
+        <canvas width="640" height="360"></canvas>
+        <script type="module">
+            // The game and its HUD composed as the page composes them, but stepped by the check rather than by
+            // requestAnimationFrame, so each value the HUD shows can be compared with the world's own.
+            import { createApp, mountOverlay } from "@dylanebert/shallot";
+            import { flushSync } from "svelte";
+            import { hud } from "../src/hud";
+            import { Turn, TurntablePlugin } from "../src/turntable";
+
+            const app = await createApp({ defaults: false, plugins: [TurntablePlugin] });
+            hud(mountOverlay(document.querySelector("canvas"), app.world), app.world);
+            flushSync();
+            window.stepHud = (steps) => {
+                for (let step = 0; step < steps; step++) app.world.step(1 / 60);
+                flushSync();
+                return { ...app.world.resource(Turn) };
+            };
+        </script>
+    </body>
+</html>
