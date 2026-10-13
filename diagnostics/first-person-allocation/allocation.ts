@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { SAMPLE_RESULT } from "./allocation-sampler.mjs";
+import { LATE_TIER_FLAG, SAMPLE_RESULT } from "./allocation-sampler.mjs";
 
 export interface AllocationFrame {
     functionName: string;
@@ -70,12 +70,13 @@ const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
  * Keep production's lazy feedback: eager feedback changes steady allocation, not just compile timing.
  * No WebAssembly inlining: the feedback it collects allocates on the JavaScript heap outside the optimization
  * trace, and the sampler charges those bytes to the subject frame that called into the module.
- * Chromium receives these same timing flags, without the Node trace refusal.
+ * Chromium receives these same timing flags, without the Node trace refusal. The Node sampler starts
+ * without LATE_TIER_FLAG and sets it once the subject is created, so Turbofan skips run-once setup.
  */
 export const TIER_FLAGS = [
     "--no-concurrent-recompilation",
     "--invocation-count-for-maglev=10",
-    "--invocation-count-for-turbofan=10",
+    LATE_TIER_FLAG,
     "--no-wasm-inlining",
 ];
 
@@ -252,7 +253,7 @@ async function runBuiltSampler(
                 "node",
                 "--expose-gc",
                 "--enable-source-maps",
-                ...TIER_FLAGS,
+                ...TIER_FLAGS.filter((flag) => flag !== LATE_TIER_FLAG),
                 "--trace-opt",
                 // One stdout carries every isolate's traces; a worker's optimization would refuse
                 // a main-thread window. Per-isolate files keep only the measured isolate's.

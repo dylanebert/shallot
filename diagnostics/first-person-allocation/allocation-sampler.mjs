@@ -4,13 +4,15 @@
 // Needs node --expose-gc --allow-natives-syntax.
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
-// its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces;
+// its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces and
+// every tier flag but LATE_TIER_FLAG, which it sets itself once the subject is created;
 // writes window markers into this isolate's trace file and one JSON sample to allocation-result.json in its working directory.
 import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { setFlagsFromString } from "node:v8";
 import { normalizePath } from "../../src/project/paths.ts";
 
 /**
@@ -190,6 +192,12 @@ export function traceMarks() {
 /** The result file the sampler writes in its working directory. */
 export const SAMPLE_RESULT = "allocation-result.json";
 
+/**
+ * The tier flag the sampler sets once the subject is created rather than at start: at ten calls under
+ * synchronous recompilation, it would compile the subject's run-once setup on the main thread.
+ */
+export const LATE_TIER_FLAG = "--invocation-count-for-turbofan=10";
+
 async function main() {
     const [bundle, warmArg, framesArg, inputFile, mode] = process.argv.slice(2);
     const warm = Number(warmArg);
@@ -268,6 +276,7 @@ async function main() {
         if (warm % CHUNK !== 0 || frames % CHUNK !== 0)
             throw new Error(`allocation sampler: warm and frames must be multiples of ${CHUNK}`);
         subject = await create(readFileSync(inputFile, "utf8"));
+        setFlagsFromString(LATE_TIER_FLAG);
         expressions = (subject.allocationExpressions ?? []).map((entry) => ({
             functionName: entry.fn.name,
             wrapperSite: entry.wrapperSite,
