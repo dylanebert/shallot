@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { BUN_CHILD, bunCommand } from "./bun-child";
 
@@ -23,9 +23,13 @@ function run(command: string[], cwd: string, label: string): string {
     return output;
 }
 
-test("a packed headless app steps on a GPU and refuses without navigator.gpu", async () => {
-    const scratch = mkdtempSync(join(tmpdir(), "shallot-packed-gpu-"));
-    const project = join(scratch, "project");
+let scratch = "";
+let project = "";
+
+// Packing and installing are build work, so the startup ceiling budgets them, not the test.
+beforeAll(() => {
+    scratch = mkdtempSync(join(tmpdir(), "shallot-packed-gpu-"));
+    project = join(scratch, "project");
     const rootPackage = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const tarballName = `dylanebert-shallot-${rootPackage.version}.tgz`;
     const tarball = join(scratch, tarballName);
@@ -134,12 +138,18 @@ test("the packed headless plugin set steps the world through public engine subpa
             project,
             "installing packed project and webgpu",
         );
-        expect(existsSync(join(project, "node_modules/webgpu/package.json"))).toBe(true);
-        const tests = run(["bun", "test"], project, "testing packed GPU project");
-        expect(tests).toContain("the packed engine refuses with Bun's optional peer fix");
-        expect(tests).toContain("the packed headless plugin set steps the world");
-        expect(tests).toContain("2 pass");
-    } finally {
+    } catch (error) {
         rmSync(scratch, { recursive: true, force: true });
+        throw error;
     }
+}, CEILING.startup);
+
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+test("a packed headless app steps on a GPU and refuses without navigator.gpu", () => {
+    expect(existsSync(join(project, "node_modules/webgpu/package.json"))).toBe(true);
+    const tests = run(["bun", "test"], project, "testing packed GPU project");
+    expect(tests).toContain("the packed engine refuses with Bun's optional peer fix");
+    expect(tests).toContain("the packed headless plugin set steps the world");
+    expect(tests).toContain("2 pass");
 });
