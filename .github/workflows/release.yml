@@ -112,6 +112,8 @@ jobs:
 
       - name: Build shallot-native shell (release)
         working-directory: crates/native
+        env:
+          SHALLOT_ASSETS: disk
         run: |
           if [ "${{ matrix.mode }}" = "portable" ]; then
             cargo build --release --target-dir target --target ${{ matrix.target }} --no-default-features --features portable --message-format=json-render-diagnostics > ../../cargo-messages.json

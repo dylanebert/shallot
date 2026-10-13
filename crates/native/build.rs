@@ -44,10 +44,12 @@ fn try_run(prog: &str, args: &[&str]) -> bool {
 
 // Embed the project's built web assets (set via SHALLOT_DIST) directly into the binary so the
 // release exe carries no appended overlay and never extracts itself at runtime — both are dropper
-// signatures that trip Windows Defender on unsigned builds. Empty when SHALLOT_DIST is unset
-// (debug serves from the sibling dist/ instead, so iteration doesn't pay a recompile).
+// signatures that trip Windows Defender on unsigned builds. Empty when SHALLOT_DIST is unset;
+// debug and explicitly disk-mode releases serve from the sibling dist/ instead.
 fn gen_assets() {
     println!("cargo:rerun-if-env-changed=SHALLOT_DIST");
+    println!("cargo:rerun-if-env-changed=SHALLOT_ASSETS");
+    let disk_mode = std::env::var("SHALLOT_ASSETS").as_deref() == Ok("disk");
 
     let mut files = Vec::new();
     if let Ok(dist) = std::env::var("SHALLOT_DIST") {
@@ -59,7 +61,12 @@ fn gen_assets() {
     }
     files.sort();
 
-    if files.is_empty() && std::env::var("PROFILE").as_deref() == Ok("release") {
+    if disk_mode && !files.is_empty() {
+        eprintln!("SHALLOT_ASSETS=disk cannot be used when SHALLOT_DIST contains assets");
+        std::process::exit(1);
+    }
+
+    if files.is_empty() && std::env::var("PROFILE").as_deref() == Ok("release") && !disk_mode {
         println!(
             "cargo:warning=SHALLOT_DIST unset or empty — release binary embeds no web assets; it will serve the sibling dist/ on disk (Contents/Resources/dist on mac) instead"
         );
