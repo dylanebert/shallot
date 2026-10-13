@@ -12,7 +12,7 @@ export function revealAfterFirstFrame(host: HostFrame, loading: Pick<Loading, "e
     };
 
     return {
-        name: "LoadingScreenReveal",
+        name: "EmbeddedSceneReveal",
         systems: [
             {
                 name: "first-frame",

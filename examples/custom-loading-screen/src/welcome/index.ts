@@ -1,0 +1,82 @@
+import {
+    Camera,
+    component,
+    DirectionalLight,
+    GlobalAmbientLight,
+    lookAtRotation,
+    Materials,
+    MeshInstance,
+    MeshMaterial,
+    type Plugin,
+    StandardMaterial,
+    StandardRenderer,
+    Transform,
+    type World,
+} from "@dylanebert/shallot";
+import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
+
+export const WelcomeCube = component("WelcomeCube", {});
+
+function makeScene(world: World): void {
+    const ambient = world.resource(GlobalAmbientLight);
+    ambient.color = 0xd8e4ff;
+    ambient.brightness = 520;
+
+    const sun = world.create();
+    const direction = lookAtRotation(0, 0, 0, -0.5, -1, -0.6);
+    world.add(sun, Transform, {
+        rotation: [direction.x, direction.y, direction.z, direction.w],
+    });
+    world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 3200 });
+
+    const camera = world.create();
+    world.add(camera, Camera);
+    world.add(camera, StandardRenderer);
+    world.add(camera, Orbit, { distance: 5, yaw: 0.7, pitch: 0.32 });
+    world.add(camera, Transform);
+
+    const materials = world.resource(Materials);
+    const cubeMaterial = materials.add(
+        StandardMaterial({ baseColor: [0.27, 0.58, 0.94, 1], perceptualRoughness: 0.38 }),
+    );
+    const cube = world.create();
+    world.add(cube, MeshInstance);
+    world.add(cube, MeshMaterial, cubeMaterial);
+    world.add(cube, Transform, { translation: [0, 0.15, 0, 0] });
+    world.add(cube, WelcomeCube);
+
+    const groundMaterial = materials.add(
+        StandardMaterial({ baseColor: [0.19, 0.23, 0.3, 1], perceptualRoughness: 0.82 }),
+    );
+    const ground = world.create();
+    world.add(ground, MeshInstance);
+    world.add(ground, MeshMaterial, groundMaterial);
+    world.add(ground, Transform, {
+        translation: [0, -0.62, 0, 0],
+        scale: [8, 0.2, 8, 0],
+    });
+}
+
+const SpinCube = {
+    name: "Welcome/SpinCube",
+    update(world: World): void {
+        const halfAngle = world.time.deltaTime * 0.65 * 0.5;
+        if (halfAngle === 0) return;
+        const sine = Math.sin(halfAngle);
+        const cosine = Math.cos(halfAngle);
+        const rotation = world.storage(Transform).rotation;
+        for (const eid of world.query([WelcomeCube])) {
+            const y = rotation.y.get(eid);
+            const w = rotation.w.get(eid);
+            rotation.set(eid, 0, y * cosine + w * sine, 0, w * cosine - y * sine);
+        }
+    },
+};
+
+export const Welcome: Plugin = {
+    name: "Welcome",
+    components: [WelcomeCube],
+    dependencies: [OrbitPlugin],
+    initialize: makeScene,
+    systems: [SpinCube],
+};

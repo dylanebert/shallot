@@ -53,7 +53,7 @@ const selected = arguments_.filter((argument) => argument !== "--self-test");
 const chosen = selected.length ? arms.filter((arm) => selected.includes(arm.name)) : [];
 if (attach ? (!endpoint || !label || arguments_.length !== 3) :
     ((!selfTest && !chosen.length) || selected.some((name) => !arms.some((arm) => arm.name === name)))) {
-    throw new Error(`Use --cdp <endpoint> <arm-label> for the loading-screen CEF shell, or arm names: ${arms.map(({ name }) => name).join(", ")}`);
+    throw new Error(`Use --cdp <endpoint> <arm-label> for the embedded-scene CEF shell, or arm names: ${arms.map(({ name }) => name).join(", ")}`);
 }
 
 function html(arm: Arm): string {
@@ -601,8 +601,8 @@ async function run(arm: Arm) {
     }
 }
 
-function isLoadingScreenCommandLine(commandLine: string): boolean {
-    return /^(?:\S*\/)?loading-screen(?:\s|$)/.test(commandLine);
+function isEmbeddedSceneCommandLine(commandLine: string): boolean {
+    return /^(?:\S*\/)?embedded-scene(?:\s|$)/.test(commandLine);
 }
 
 const shellAdapterScript = `(() => {
@@ -635,7 +635,7 @@ const shellAdapterScript = `(() => {
     };
 })();`;
 
-// Attach only to the loading-screen shell; an occupied debug port must not instrument personal Chrome.
+// Attach only to the embedded-scene shell; an occupied debug port must not instrument personal Chrome.
 async function runShell(endpoint: string, label: string): Promise<void> {
     if (process.env.SHALLOT_DISPLAY_SEAT !== "DP-1")
         throw new Error("Declare SHALLOT_DISPLAY_SEAT=DP-1 for this physical-display oracle");
@@ -659,8 +659,8 @@ async function runShell(endpoint: string, label: string): Promise<void> {
         session = await browser.newBrowserCDPSession();
         const gpuInfo = await session.send("SystemInfo.getInfo");
         const commandLine = String(gpuInfo.commandLine ?? "");
-        if (!isLoadingScreenCommandLine(commandLine))
-            throw new Error(`Refusing non-loading-screen CDP browser: ${commandLine}`);
+        if (!isEmbeddedSceneCommandLine(commandLine))
+            throw new Error(`Refusing non-embedded-scene CDP browser: ${commandLine}`);
         const pages = browser.contexts().flatMap((context) => context.pages());
         if (pages.length !== 1) throw new Error(`Expected one shell page, found ${pages.length}`);
         page = pages[0]!;
@@ -837,8 +837,8 @@ if (selfTest) {
     if (!globals.__cefStall.deviceReady) throw new Error("Synthetic game device capture failed");
     globals.__cefStall.cleanup();
     if (!globals.__cefStall.cleaned) throw new Error("Synthetic adapter cleanup failed");
-    if (!isLoadingScreenCommandLine("/tmp/game/loading-screen --enable-unsafe-webgpu") ||
-        isLoadingScreenCommandLine("/usr/bin/chrome --app=http://localhost/loading-screen"))
+    if (!isEmbeddedSceneCommandLine("/tmp/game/embedded-scene --enable-unsafe-webgpu") ||
+        isEmbeddedSceneCommandLine("/usr/bin/chrome --app=http://localhost/embedded-scene"))
         throw new Error("Synthetic shell CDP identity check failed");
     for (const arm of arms) {
         const script = html(arm).match(/<script>([\s\S]*)<\/script>/)?.[1];

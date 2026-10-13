@@ -1,6 +1,6 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, expectStartupAlert, type Page, releasing, test } from "../tests/browser-fixture";
+import { expect, type Page, releasing, test } from "../tests/browser-fixture";
 
 const CAPTURE_ENTRY = resolve(
     dirname(fileURLToPath(import.meta.url)),
@@ -287,129 +287,6 @@ test("the screenshot witness rejects the held base and a blank-feedback control"
     releaseBlank();
 });
 
-test("entry evaluation, dependency rejection, and entry load failure settle the active bootstrap", async ({
-    browser,
-}) => {
-    const page = await browser.newPage();
-    const pageErrors: string[] = [];
-    page.on("pageerror", (error) => pageErrors.push(error.message));
-    for (const failure of ["evaluation", "dependency", "load", "rejection"] as const) {
-        await page.route("**/assets/index-*.js", async (route) => {
-            if (failure === "load") await route.abort();
-            else
-                await route.fulfill({
-                    status: 200,
-                    contentType: "text/javascript",
-                    body:
-                        failure === "evaluation"
-                            ? 'throw new Error("controlled entry evaluation failure");'
-                            : failure === "rejection"
-                              ? 'void Promise.reject(new Error("controlled entry rejection"));'
-                              : 'import "./missing-startup-dependency.js";',
-                });
-        });
-        await page.route("**/assets/missing-startup-dependency.js", (route) => route.abort());
-        await page.goto("/", { waitUntil: "commit" });
-        const startup = page.locator("[data-shallot-bootstrap]");
-        await expect(startup).toHaveAttribute("data-state", "error");
-        await expect(startup).toHaveAttribute("role", "alert");
-        await expect(startup).toContainText("Unable to start this application");
-        await expect(startup.locator("[data-bootstrap-label], [data-bootstrap-track]")).toHaveCount(
-            0,
-        );
-        if (failure === "evaluation") {
-            await expect.poll(() => pageErrors).toContain("controlled entry evaluation failure");
-        }
-        await page.unrouteAll({ behavior: "wait" });
-        await page.goto("about:blank");
-    }
-    await page.close();
-});
-
-test("a destroyed device before its first frame does not reach the failure screen", async ({
-    page,
-}) => {
-    await page.addInitScript(() => {
-        window.__startupDeviceLoss = false;
-        const original = GPUAdapter.prototype.requestDevice;
-        GPUAdapter.prototype.requestDevice = async function (descriptor?: GPUDeviceDescriptor) {
-            const device = await original.call(this, descriptor);
-            const onSubmittedWorkDone = GPUQueue.prototype.onSubmittedWorkDone;
-            let fences = 0;
-            GPUQueue.prototype.onSubmittedWorkDone = function (this: GPUQueue): Promise<void> {
-                const fence = onSubmittedWorkDone.call(this);
-                if (++fences === 2) {
-                    window.__startupDeviceLoss = true;
-                    device.destroy();
-                }
-                return fence;
-            } as typeof GPUQueue.prototype.onSubmittedWorkDone;
-            return device;
-        };
-    });
-
-    await page.goto("/");
-    await page.waitForFunction(() => window.__startupDeviceLoss === true);
-    await expect(page.getByText("Something went wrong", { exact: true })).toHaveCount(0);
-    await expect(page.getByText(/GPU device lost destroyed:/)).toHaveCount(0);
-    await expect(page.locator(".frame-error")).toHaveCount(0);
-});
-
-test("a real GPU process crash after presentation reaches the failure screen", async ({
-    page,
-    browser,
-}) => {
-    expectStartupAlert(page, /^Something went wrong/);
-    await waitForScene(page);
-    await page.evaluate(
-        () =>
-            new Promise<void>((resolve) => {
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-            }),
-    );
-
-    const cdp = await browser.newBrowserCDPSession();
-    await releasing(
-        async () => {
-            await cdp.send("Browser.crashGpuProcess");
-
-            const failure = page.locator(overlaySelector);
-            await page.waitForFunction(
-                (selector) =>
-                    document.querySelector(selector)?.textContent?.includes("Something went wrong"),
-                overlaySelector,
-            );
-            await expect(failure).toContainText("Something went wrong");
-            await expect(failure).toContainText(
-                "An error occurred in the app. The details below can help identify the cause.",
-            );
-            await expect(failure).toContainText("GPU device lost unknown:");
-            await expect(failure).toContainText("Reloading the page may resolve this issue.");
-        },
-        () => cdp.detach(),
-    );
-});
-
-test("a missing browser adapter offers the browser-specific remedy", async ({ page }) => {
-    expectStartupAlert(
-        page,
-        /^(?:Unsupported configuration|No WebGPU adapter is available in Browser)/,
-    );
-    await page.addInitScript(() => {
-        Object.defineProperty(navigator, "gpu", {
-            configurable: true,
-            value: { requestAdapter: async () => null },
-        });
-    });
-
-    await page.goto("/");
-    const failure = page.locator(overlaySelector);
-    await expect(failure).toContainText(
-        "No WebGPU adapter is available in Browser. In a browser, enable hardware acceleration or use a browser with WebGPU support.",
-    );
-    await expect(failure).toContainText("WebGPU not supported.");
-});
-
 async function inspectPageScreenshot(page: Page, encoded: string) {
     return page.evaluate((base64) => {
         const image = createImageBitmap(
@@ -670,7 +547,7 @@ async function compareSceneFrames(page: Page, first: string, later: string) {
     );
 }
 
-test("loading progress stays in its owned frame and reaches the bar; its description remains hit-testable", async ({
+test("embedded-scene progress stays in its owned frame and reaches the bar; its description remains hit-testable", async ({
     page,
 }) => {
     await page.addInitScript(() => {
@@ -766,7 +643,7 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
             }, overlaySelector);
             expect(held.owned, "loading overlay is a child of its scene frame").toBe(true);
             expect(held.inside, "loading overlay remains inside the scene frame").toBe(true);
-            expect(held.transparent, "minimal loading overlay remains transparent").toBe(true);
+            expect(held.transparent, "minimal progress overlay remains transparent").toBe(true);
             expect(held.lineHit, "the description line remains the hit target during loading").toBe(
                 true,
             );

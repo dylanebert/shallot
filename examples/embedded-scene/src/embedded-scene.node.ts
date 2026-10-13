@@ -7,14 +7,14 @@ import { LoadingWorld } from "./scene";
 
 setDefaultTimeout(CEILING.node);
 
-test("loading-screen draws with default WebGPU limits", async () => {
+test("embedded-scene draws with default WebGPU limits", async () => {
     const app = await createApp({ plugins: [LoadingWorld] });
     try {
         const { world } = app;
         const device = world.gpu.device;
-        if (!device) throw new Error("loading-screen renderer did not acquire a device");
+        if (!device) throw new Error("embedded-scene renderer did not acquire a device");
         const adapter = world.gpu.adapter;
-        console.info("loading-screen floor", {
+        console.info("embedded-scene floor", {
             adapter,
             features: [...device.features],
             maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
@@ -24,7 +24,7 @@ test("loading-screen draws with default WebGPU limits", async () => {
         expect(device.features.has("indirect-first-instance")).toBe(true);
         expect(device.features.has("rg11b10ufloat-renderable")).toBe(true);
         const camera = [...world.query([Camera])][0];
-        if (camera === undefined) throw new Error("loading-screen scene has no camera");
+        if (camera === undefined) throw new Error("embedded-scene scene has no camera");
         attachTexture(world, camera, { width: 64, height: 64 });
         world.step(0);
         const frame = await captureTexture(world, camera);

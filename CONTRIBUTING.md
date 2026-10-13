@@ -185,7 +185,7 @@ cargo fmt --check
 cargo clippy -p shallot-physics --all-targets -- -D warnings
 cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings
 cargo test -p shallot-physics
-bunx playwright test -c examples/loading-screen # selected browser subject
+bunx playwright test -c examples/minimal # selected browser subject
 sh scripts/browser.sh           # every browser subject
 bun run test --todo             # quarantined claims
 bun run format                  # biome

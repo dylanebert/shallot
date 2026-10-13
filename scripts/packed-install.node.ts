@@ -234,7 +234,13 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort();
-    expect(recipes).toEqual(["first-person", "hud", "loading-screen", "minimal"]);
+    expect(recipes).toEqual([
+        "custom-loading-screen",
+        "embedded-scene",
+        "first-person",
+        "hud",
+        "minimal",
+    ]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
     // By file name from its directory: GNU tar, which Git Bash puts first on Windows, reads `C:` as a host.
@@ -248,13 +254,15 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).toContain("examples/minimal/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/minimal/src/welcome/welcome.test.ts");
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/custom-loading-screen/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/embedded-scene/tsconfig.json");
     expect(packed.stdout.toString()).not.toContain("examples/minimal/package.json");
     expect(packed.stdout.toString()).not.toContain("examples/first-person/package.json");
-    expect(packed.stdout.toString()).not.toContain("examples/loading-screen/package.json");
+    expect(packed.stdout.toString()).not.toContain("examples/custom-loading-screen/package.json");
+    expect(packed.stdout.toString()).not.toContain("examples/embedded-scene/package.json");
 });
 
-type Example = "minimal" | "first-person" | "loading-screen" | "hud";
+type Example = "minimal" | "first-person" | "custom-loading-screen" | "embedded-scene" | "hud";
 
 const created = new Set<Example>();
 
@@ -281,7 +289,7 @@ function createExample(name: Example): void {
     expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
     expect(manifest.devDependencies.typegpu).toBeUndefined();
     expect(manifest.devDependencies.webgpu).toBe(
-        name === "first-person" || name === "loading-screen"
+        name === "first-person" || name === "embedded-scene"
             ? rootPackage.peerDependencies.webgpu
             : undefined,
     );
@@ -317,7 +325,13 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
 }
 
 // Each example's project loop runs as one test per step, so no step's cost is hidden in another's ceiling.
-for (const name of ["minimal", "first-person", "loading-screen", "hud"] as const) {
+for (const name of [
+    "minimal",
+    "first-person",
+    "custom-loading-screen",
+    "embedded-scene",
+    "hud",
+] as const) {
     test(`${name} creates and installs from the packed CLI`, () => {
         createExample(name);
     });

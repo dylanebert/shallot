@@ -287,6 +287,11 @@ test("an unknown template names installed examples and their descriptions", () =
     expect(existsSync(destination)).toBe(false);
     expect(output.join("\n")).toContain("minimal");
     expect(output.join("\n")).toContain("first-person");
-    expect(output.join("\n")).toContain("loading-screen");
+    expect(output.join("\n")).toContain(
+        "custom-loading-screen — Override the default loading screen: the pre-import bootstrap and the runtime screen.",
+    );
+    expect(output.join("\n")).toContain(
+        "embedded-scene — Show a Shallot scene inside a host page, its loading contained to the frame.",
+    );
     expect(output.join("\n")).toMatch(/first-person.*—.*Climb/i);
 });
