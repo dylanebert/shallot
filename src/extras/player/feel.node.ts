@@ -109,9 +109,9 @@ test("a jump within 0.1 seconds after leaving a ledge fires; a later one does no
     expect(await leaveLedgeAndPress(8)).toBeLessThan(0);
 });
 
-// Minecraft Java at 20 ticks/s: ground speed v' = 0.546 v + 0.454 * 4.317 m/s per tick, and a 0.42 block/tick
-// jump under 0.08 block/tick² gravity and 0.98 drag peaks at 1.2522 m after 6 ticks, landing after 12.
-test("default movement walks, stops and jumps like Minecraft Java", async () => {
+// Minecraft Java's walk is 4.317 m/s, and its 0.42 block/tick jump under 0.08 block/tick² gravity and 0.98 drag
+// peaks at 1.2522 m after 6 of its 20 Hz ticks, landing after 12. Ground response is snappier than its spin-up.
+test("default movement reaches walk speed within 0.1 s, falls below 5% of it within 0.15 s and jumps like Minecraft Java", async () => {
     const { app, world, player } = await scene();
     try {
         const c = world.storage(Character);
@@ -120,14 +120,12 @@ test("default movement walks, stops and jumps like Minecraft Java", async () => 
         for (let tick = 0; tick < 120; tick++) world.step(Time.FIXED_DT);
         const rest = y.get(player);
         pressKey(world, "KeyW");
-        for (let tick = 0; tick < 3; tick++) world.step(Time.FIXED_DT);
-        expect(speed()).toBeCloseTo(4.317 * 0.454, 1);
-        for (let tick = 3; tick < 15; tick++) world.step(Time.FIXED_DT);
-        expect(speed()).toBeGreaterThan(4.317 * (1 - 0.546 ** 5) - 0.02);
+        for (let tick = 0; tick < 6; tick++) world.step(Time.FIXED_DT);
+        expect(speed()).toBeGreaterThan(4.317 * 0.98);
         expect(speed()).toBeLessThanOrEqual(4.317);
         releaseKey(world, "KeyW");
-        for (let tick = 0; tick < 15; tick++) world.step(Time.FIXED_DT);
-        expect(speed()).toBeLessThan(4.317 * 0.546 ** 5);
+        for (let tick = 0; tick < 9; tick++) world.step(Time.FIXED_DT);
+        expect(speed()).toBeLessThan(4.317 * 0.05);
         pressKey(world, "Space");
         let apex = 0,
             apexTick = 0,
@@ -193,3 +191,54 @@ test("a rider keeps a kinematic platform's reported velocity rather than accumul
 
 test("a rider stays grounded on a diagonal platform about 1000 m from the origin", () =>
     checkDiagonalCarry(1000, 2));
+
+// The capsule floats Player.hover above contact; walking also rides the rounded capsule up an edge below it,
+// up to about 0.2 m at walk and sprint speed.
+async function walkAtStep(height: number): Promise<boolean> {
+    let player = 0;
+    const app = await createApp({
+        defaults: false,
+        plugins: [PlayerPlugin],
+        setup(world) {
+            const camera = world.create();
+            world.add(camera, Transform);
+            const floor = world.create();
+            world.add(floor, Body, { type: BodyType.Static });
+            world.add(floor, Shape, { scale: [20, 0.5, 20, 0] });
+            const step = world.create();
+            world.add(step, Body, {
+                type: BodyType.Static,
+                position: [0, 0.5 + height / 2, -3, 0],
+            });
+            world.add(step, Shape, { scale: [4, height / 2, 1, 0] });
+            player = world.create();
+            world.add(player, Body, { type: BodyType.Kinematic, position: [0, 2, 0, 0] });
+            world.add(player, Shape, { kind: ShapeKind.Capsule });
+            world.storage(Shape).capsuleA.set(player, 0, -0.6, 0, 0);
+            world.storage(Shape).capsuleB.set(player, 0, 0.6, 0, 0.3);
+            world.add(player, Character);
+            world.add(player, Player, { camera });
+            world.add(player, LocalPlayer);
+        },
+    });
+    try {
+        for (let tick = 0; tick < 60; tick++) app.world.step(Time.FIXED_DT);
+        pressKey(app.world, "KeyW");
+        let furthest = 0;
+        for (let tick = 0; tick < 90; tick++) {
+            app.world.step(Time.FIXED_DT);
+            furthest = Math.min(
+                furthest,
+                app.world.storage(GlobalTransform).translation.z.get(player),
+            );
+        }
+        return furthest < -4;
+    } finally {
+        app.dispose();
+    }
+}
+
+test("walking climbs a 0.1 m step but not a 0.3 m one", async () => {
+    expect(await walkAtStep(0.1)).toBe(true);
+    expect(await walkAtStep(0.3)).toBe(false);
+});

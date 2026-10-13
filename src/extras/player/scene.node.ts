@@ -52,10 +52,13 @@ test("a Player capsule retains its collider geometry and rests above the floor",
         expect(shape.capsuleB.y.get(eid)).toBeCloseTo(0.6);
         expect(shape.capsuleB.w.get(eid)).toBeCloseTo(0.3);
         for (let i = 0; i < 120; i++) app.world.step(Time.FIXED_DT);
-        // Gravity's per-tick displacement balances the spring slightly below its three-radius rest length.
+        // Gravity's per-tick displacement balances the spring slightly below its rest length.
         const omega = 2 * Math.PI * 4;
+        // Floor top, hover, capsule half-height and radius.
         const equilibrium =
-            2 -
+            0.5 +
+            app.world.storage(Player).hover.get(eid) +
+            0.9 -
             (app.world.storage(Player).gravity.get(eid) *
                 Time.FIXED_DT *
                 (2 * 0.7 * omega * Time.FIXED_DT + (omega * Time.FIXED_DT) ** 2)) /

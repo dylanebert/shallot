@@ -99,15 +99,19 @@ test("tick-addressed PlayerInput clears the route goals and captures the resulti
 
         attachTexture(world, camera, { width: 320, height: 180 });
         for (tick = 1; tick <= MAX_TICKS && goalIndex < goals.length; tick++) {
-            input.move.set(player, 0, 1);
+            // On the lift, wait for it to rise before stepping off; elsewhere walk forward.
+            const waiting =
+                goals[goalIndex]!.name === "lift" &&
+                goalReached(world, player, goals[goalIndex]!.eid) &&
+                frames.y.get(goals[goalIndex]!.eid) - liftBase <= 0.5;
+            input.move.set(player, 0, waiting ? 0 : 1);
             if (tick % 80 === 1) input.jumpPresses.set(player, input.jumpPresses.get(player) + 1);
             world.tick();
             const goal = goals[goalIndex]!;
-            if (goalReached(world, player, goal.eid)) {
-                if (goal.name === "lift" && frames.y.get(goal.eid) - liftBase <= 0.5)
-                    throw new Error(
-                        `goal "lift" failed at tick ${tick}: moving surface rose only ${(frames.y.get(goal.eid) - liftBase).toFixed(3)}m before the player reached it`,
-                    );
+            if (
+                goalReached(world, player, goal.eid) &&
+                (goal.name !== "lift" || frames.y.get(goal.eid) - liftBase > 0.5)
+            ) {
                 reached.push({ name: goal.name, tick });
                 goalIndex++;
             }

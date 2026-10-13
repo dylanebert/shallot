@@ -57,6 +57,8 @@ export const Character = component(
         up: vec4,
         /** Pogo spring speed in metres per second; persists between fixed ticks. */
         pogoVelocity: field,
+        /** Pogo spring rest length in capsule radii, down from the lower sphere's centre, so the capsule rests `pogoRest - 1` radii above contact. Box3D's mover sample uses 3. */
+        pogoRest: field,
     },
     {
         requires: [Body],
@@ -68,6 +70,7 @@ export const Character = component(
             maxSlope: Math.PI / 4,
             up: [0, 1, 0, 0],
             pogoVelocity: 0,
+            pogoRest: 3,
         }),
     },
 );
@@ -211,7 +214,7 @@ function spring(
         up = s.up;
     const radius = world.storage(ShapeComponent).capsuleB.column[eid * 4 + 3];
     const dt = s.dt;
-    const rest = f32(3 * radius);
+    const rest = f32(character.pogoRest.column[eid] * radius);
     const rayLength = f32(rest + radius);
     vec3.addOut(position, s.center1, s.ray);
     const k = q.prepare(s.ray);

@@ -83,7 +83,8 @@ export function route(world: World) {
     });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const eye = world.create();
-    world.add(eye, Camera);
+    // Minecraft Java's default vertical field of view.
+    world.add(eye, Camera, { fov: 70 });
     world.add(eye, StandardRenderer);
     world.add(eye, Transform, { translation: [0, 2.7, 12, 0] });
     const player = world.create();

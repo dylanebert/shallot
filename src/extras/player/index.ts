@@ -5,7 +5,7 @@ import {
     releasePointerLock,
     requirePointerLock,
 } from "../../core/input";
-import { Body } from "../../core/physics";
+import { Body, Shape } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import {
     component,
@@ -57,6 +57,8 @@ export const Player = component(
         jumpBuffer: f32,
         /** sprint multiplier applied while Shift is held */
         sprint: f32,
+        /** Height the capsule floats above walkable ground, in metres. Player writes it to `Character.pogoRest`. Walking climbs a step only up to about this plus what the rounded capsule rides up an edge. */
+        hover: f32,
         /** camera height above the capsule centre (the eye offset) */
         eyeHeight: f32,
         /** camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding) */
@@ -65,18 +67,21 @@ export const Player = component(
         camera: entity,
     },
     {
-        // Minecraft Java's walk, sprint, ground spin-up and stop, and its 1.2522 m jump peaking at 0.3 s.
+        // Minecraft Java's walk and sprint speeds and its 1.2522 m jump peaking at 0.3 s, with full speed in
+        // about 0.1 s and a stop in about 0.15 s, snappier than its ground spin-up; a 0.05 m hover puts the eye
+        // about 1.6 m above ground with the 1.8 m capsule, near Minecraft's 1.62.
         defaults: () => ({
             yaw: 0,
             pitch: 0,
             speed: 4.317,
             sprint: 1.3,
-            acceleration: 10.9,
-            friction: 10.9,
+            acceleration: 20,
+            friction: 16,
             gravity: 29.5,
             jumpSpeed: 8.85,
             coyoteTime: 0.1,
             jumpBuffer: 0.1,
+            hover: 0.05,
             eyeHeight: 0.7,
             distance: 0,
             camera: 0,
@@ -198,6 +203,7 @@ export const DrivePlayerSystem: System = {
         const characters = world.storage(Character);
         const motion = world.storage(PlayerMotion);
         const inputs = world.storage(PlayerInput);
+        const shapes = world.storage(Shape);
         const dt = Time.FIXED_DT;
         for (const eid of world.query(DRIVEN_PLAYERS)) {
             if (!world.has(eid, PlayerMotion)) world.add(eid, PlayerMotion);
@@ -207,6 +213,9 @@ export const DrivePlayerSystem: System = {
                     pitch: players.pitch.get(eid),
                 });
             }
+            const pogoRest = 1 + players.hover.column[eid] / shapes.capsuleB.column[eid * 4 + 3];
+            if (characters.pogoRest.column[eid] !== Math.fround(pogoRest))
+                characters.pogoRest.set(eid, pogoRest);
             const grounded = characters.groundState.column[eid] === GroundState.OnGround;
             let coyote = grounded
                 ? players.coyoteTime.column[eid]
