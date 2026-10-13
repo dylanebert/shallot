@@ -1,18 +1,9 @@
-import type { LazyAlloc, Plugin, System, World } from "../../engine";
+import type { Plugin, System, World } from "../../engine";
 import { mountOverlay } from "../../engine";
-import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
 import { cpuTotal } from "./cpu";
 import { reorderRows } from "./reorder";
 
-export type {
-    BenchmarkAPI,
-    BenchmarkCompileStats,
-    BenchmarkCpuStats,
-    BenchmarkFrameStats,
-    BenchmarkGpuStats,
-    BenchmarkMeasurement,
-    BenchmarkMemoryStats,
-} from "./benchmark";
+const INDIRECT_FLOOR_US = 1;
 
 /**
  * live read-only view of the profiler: per-frame CPU and GPU pass timings, memory, and one-shot compile timings. Populated by {@link ProfilePlugin}; empty without it.
@@ -29,77 +20,25 @@ export interface Profile {
      *  display: a fixed-group pass keeps its last value across frames it doesn't fire (see the
      *  drain hold). For exact per-occurrence accounting, use {@link gpuTime} / {@link gpuFires}. */
     readonly gpu: ReadonlyMap<string, number>;
-    /** cumulative GPU time per pass since attach, in milliseconds: summed over every actual
-     *  occurrence (a fixed-group pass once per fixed step, a draw pass once per frame). Pair with
-     *  {@link gpuFires} to derive the per-occurrence cost: `gpuTime / gpuFires`. Immune to the
-     *  greedy hold the display {@link gpu} map applies, the source of truth for the benchmark. */
+    /** cumulative GPU time per pass since attach, in milliseconds, summed over every occurrence. */
     readonly gpuTime: ReadonlyMap<string, number>;
-    /** cumulative occurrence count per pass since attach: how many times the pass actually fired.
-     *  Divided into a window's frame count it gives the pass's fire cadence (≈1 for a per-frame
-     *  render pass, ≈fixed-steps-per-frame for a per-step sim pass). */
+    /** cumulative occurrence count per pass since attach: how many times the pass actually fired. */
     readonly gpuFires: ReadonlyMap<string, number>;
-    /** cumulative indirect-draw count per pass since attach: summed over every frame the pass issued
-     *  draws. Pair with {@link indirectFires} for the per-frame count (`indirectCount / indirectFires`)
-     *  and derive Dawn's injected-validation floor via `INDIRECT_FLOOR_US`. The benchmark
-     *  window-diffs it like {@link gpuTime} / {@link gpuFires}, untimed by `timestampWrites`. */
-    readonly indirectCount: ReadonlyMap<string, number>;
-    /** cumulative frame count per pass: how many frames the pass reported indirect draws. */
-    readonly indirectFires: ReadonlyMap<string, number>;
-    /** per-pipeline compile durations from app startup, in milliseconds, keyed by descriptor label (a
-     *  missing label disambiguates as `"(unlabeled)"`, `"(unlabeled)#2"`, … so anonymous pipelines never
-     *  collapse into one entry; a repeated named label overwrites instead). A raw-WGSL pipeline's entry
-     *  is a direct await of `create*PipelineAsync`. TypeGPU builds
-     *  every pipeline through the **synchronous** `createRenderPipeline` / `createComputePipeline`
-     *  instead, which return before the driver finishes compiling — so a typed pipeline's duration is
-     *  near-zero and not trustworthy on its own, only its presence is (the pipeline-count golden this
-     *  table backs). Where a `precompile` forcer also wraps that same
-     *  pipeline, its later `world.gpu.precompiled` completion measurement (an error-scope wrap, not a
-     *  fence — only compile-timing attribution is reported here) overwrites
-     *  the sync stub under the pipeline's own label; a typed pipeline with no forcer (or one forcer
-     *  covering several pipelines) keeps only the near-zero sync entry — real
-     *  per-pipeline compile time has no honest post-port instrument there. */
+    /** Per-pipeline compile durations from app startup, in milliseconds, keyed by descriptor label.
+     *  A repeated named label overwrites. TypeGPU's synchronous constructors return before the driver
+     *  finishes compiling, so their duration is near-zero; a `precompile` scope can measure the later
+     *  completion under the pipeline's own label. */
     readonly compile: ReadonlyMap<string, number>;
-    /** the subset of {@link compile}'s keys an actual `create*Pipeline(Async)` call produced, as opposed
-     *  to a `precompile` forcer-scope label that wraps several pipelines under one measurement
-     *  — a scope-only label's
-     *  timing still lands in {@link compile}, but it isn't one real pipeline, so a pipeline-count golden
-     *  reads `[...compile.keys()].filter(k => compiledPipelines.has(k)).length`, never `compile.size`
-     *  directly. */
-    readonly compiledPipelines: ReadonlySet<string>;
-    /** raw `create*Pipeline(Async)` invocations since attach — every constructor call, counted before
-     *  labels collapse. {@link compiledPipelines} counts distinct labels instead, and a repeated label
-     *  overwrites, so a pipeline built under an existing label moves that count by zero while this one
-     *  still moves. The two are NOT equal in general: TypeGPU derives
-     *  several raw pipelines from one named typed pipeline. */
-    readonly pipelineCalls: number;
     /** wall-clock span from the first pipeline build start to the last build end */
     readonly compileMs: number;
     /** ms spent awaiting the prior frame's GPU fence before this frame began */
     readonly fenceWaitMs: number;
     /** live GPU buffer bytes, summed over every buffer allocated since attach and decremented on
-     *  `destroy()`: exact and device-independent for a fixed scenario at fixed params, the byte-budget
-     *  gate's total. */
+     *  `destroy()`. */
     readonly bufferBytes: number;
-    /** live GPU texture bytes, the texture twin of {@link bufferBytes}. */
+    /** live GPU texture bytes, summed over every texture allocated since attach and decremented on
+     *  `destroy()`. */
     readonly textureBytes: number;
-    /** live GPU bytes (buffer + texture) per allocation label: every allocation sharing a label sums
-     *  into one entry, decremented on `destroy()`. The per-label attribution a byte-budget gate reads
-     *  once {@link bufferBytes} + {@link textureBytes} fails, to find which label grew. */
-    readonly allocBytes: ReadonlyMap<string, number>;
-    /** live bytes across every allocation the allocator marked {@link LazyAlloc.lazy} at creation — a
-     *  subset of {@link bufferBytes} + {@link textureBytes}, summed and decremented on `destroy()` the
-     *  same way. Timing-dependent by construction (such as the world's readback
-     *  staging pool, that grows lazily under real GPU backpressure rather than deterministically for a
-     *  fixed scenario at fixed params), so a byte-budget gate excludes it from its gated total and
-     *  reports it separately: `bufferBytes + textureBytes - lazyBytes` is the exact, device-independent
-     *  quantity. */
-    readonly lazyBytes: number;
-    /** cumulative `device.queue.submit` calls since attach. Each submit is a renderer→GPU-process IPC
-     *  round-trip + a GPU serialization point, untimed by `timestampWrites` (the cost surfaces in fence
-     *  wait, not a pass). A frame issues several (render, table upload, requested readback, the
-     *  profiler's own resolve), so the benchmark window-diffs this into submits/frame, the lever for
-     *  collapsing them into one encoder. */
-    readonly submitCount: number;
 }
 
 interface ResourceAlloc {
@@ -107,7 +46,6 @@ interface ResourceAlloc {
     bytes: number;
     kind: "buffer" | "texture";
     destroy: () => void;
-    lazy: boolean;
 }
 
 // One timestamp result plus the pass names and count captured at its request. Staging belongs to the
@@ -123,9 +61,8 @@ interface ReadSlot {
 // Reporting the display `gpu` map per frame then oscillates: 0 on a step-less frame, N× on a multi-step
 // one. So drain HOLDS a pass's last value across frames it doesn't fire (shown as if it ran every frame),
 // stacking when it fires multiple times — a steady readout. A pass absent this many drained frames is
-// evicted, so a genuinely one-shot pass (an initial slab:flush) decays out fast — well inside a bench
-// warmup — while a fixed-group pass (fires within the window) stays held. The hold is a DISPLAY smoothing
-// only; the benchmark reads the exact per-occurrence counters (gpuTime / gpuFires), never the held map.
+// evicted after a genuinely one-shot pass stops firing, while a fixed-group pass remains held. The hold
+// is display smoothing only; gpuTime and gpuFires retain the exact per-occurrence totals.
 const GPU_HOLD_DRAINS = 8;
 
 // Bound the number of timestamp requests in flight. Metadata returns after the result is drained;
@@ -147,19 +84,11 @@ class ProfileImpl implements Profile {
     readonly gpu = new Map<string, number>();
     readonly gpuTime = new Map<string, number>();
     readonly gpuFires = new Map<string, number>();
-    // this frame's per-pass indirect-draw tally (summed across a pass's occurrences — standard:color reports
-    // once per camera), cleared at frame begin like `cpu`. The overlay reads it for the live floor; `reset`
-    // folds it into the cumulative counters first (one fire per pass per frame), the benchmark's window-diff
-    // unit. Synchronous per-frame data — no readback delay, so no greedy hold like the timed `gpu` map
+    // Per-frame CPU-counted indirect draws for the overlay's validation-floor estimate.
     readonly indirect = new Map<string, number>();
-    readonly indirectCount = new Map<string, number>();
-    readonly indirectFires = new Map<string, number>();
     readonly compile = new Map<string, number>();
-    readonly compiledPipelines = new Set<string>();
-    pipelineCalls = 0;
     compileMs = 0;
     fenceWaitMs = 0;
-    submitCount = 0;
     // bumps each time drain repopulates `gpu` so the overlay can integrate
     // new gpu samples once per readback (the map is sticky between drains;
     // sampling it every display frame would multiply-count).
@@ -168,10 +97,8 @@ class ProfileImpl implements Profile {
     readonly buffers = new Set<GPUBuffer>();
     readonly textures = new Set<GPUTexture>();
     readonly sizes = new Map<object, ResourceAlloc>();
-    readonly allocBytes = new Map<string, number>();
     bufferBytes = 0;
     textureBytes = 0;
-    lazyBytes = 0;
 
     private _compileEarliest = Infinity;
     private _compileLatest = -Infinity;
@@ -221,7 +148,7 @@ class ProfileImpl implements Profile {
         device.createComputePipelineAsync = async (desc: GPUComputePipelineDescriptor) => {
             const start = performance.now();
             const pipeline = await origCompute(desc);
-            this.recordCompile(desc.label ?? "", start, performance.now(), true);
+            this.recordCompile(desc.label ?? "", start, performance.now());
             return pipeline;
         };
         this._restorePatches.push(() => {
@@ -231,25 +158,20 @@ class ProfileImpl implements Profile {
         device.createRenderPipelineAsync = async (desc: GPURenderPipelineDescriptor) => {
             const start = performance.now();
             const pipeline = await origRender(desc);
-            this.recordCompile(desc.label ?? "", start, performance.now(), true);
+            this.recordCompile(desc.label ?? "", start, performance.now());
             return pipeline;
         };
         this._restorePatches.push(() => {
             device.createRenderPipelineAsync = origRender;
         });
 
-        // TypeGPU builds every pipeline through these SYNCHRONOUS constructors, never the awaited
-        // `*Async` pair above — so without this patch no typed pipeline ever reaches `compile` at all,
-        // and `.size` only counts hand-written `precompile` scope names.
-        // The sync call returns before the driver finishes compiling, so the recorded span here is
-        // near-zero and NOT a real compile duration — only the entry's presence (the pipeline count) is
-        // trustworthy off this path. A typed pipeline's real duration is measured separately by the
-        // `precompile` drain under its own forcer-scope label (`recordCompile`'s other caller).
+        // The synchronous constructor returns before the driver finishes compiling. A precompile scope
+        // can record the later completion under the pipeline's own label.
         const origComputeSync = device.createComputePipeline.bind(device);
         device.createComputePipeline = (desc: GPUComputePipelineDescriptor) => {
             const start = performance.now();
             const pipeline = origComputeSync(desc);
-            this.recordCompile(desc.label ?? "", start, performance.now(), true);
+            this.recordCompile(desc.label ?? "", start, performance.now());
             return pipeline;
         };
         this._restorePatches.push(() => {
@@ -259,7 +181,7 @@ class ProfileImpl implements Profile {
         device.createRenderPipeline = (desc: GPURenderPipelineDescriptor) => {
             const start = performance.now();
             const pipeline = origRenderSync(desc);
-            this.recordCompile(desc.label ?? "", start, performance.now(), true);
+            this.recordCompile(desc.label ?? "", start, performance.now());
             return pipeline;
         };
         this._restorePatches.push(() => {
@@ -274,7 +196,6 @@ class ProfileImpl implements Profile {
                 desc.size,
                 this.buffers,
                 "buffer",
-                (desc as GPUBufferDescriptor & LazyAlloc).lazy === true,
             );
         this._restorePatches.push(() => {
             device.createBuffer = origCreateBuffer;
@@ -288,23 +209,11 @@ class ProfileImpl implements Profile {
                 textureByteSize(desc),
                 this.textures,
                 "texture",
-                (desc as GPUTextureDescriptor & LazyAlloc).lazy === true,
             );
         this._restorePatches.push(() => {
             device.createTexture = origCreateTexture;
         });
 
-        // count every submit (the patch lives on the queue object, so a caller caching `device.queue`
-        // still sees it). The profiler's own resolve submit counts too — it's a real per-frame submit.
-        const queue = device.queue;
-        const origSubmit = queue.submit.bind(queue);
-        queue.submit = (buffers) => {
-            this.submitCount++;
-            origSubmit(buffers);
-        };
-        this._restorePatches.push(() => {
-            queue.submit = origSubmit;
-        });
     }
 
     private trackAlloc<T extends GPUBuffer | GPUTexture>(
@@ -313,25 +222,18 @@ class ProfileImpl implements Profile {
         bytes: number,
         set: Set<T>,
         kind: "buffer" | "texture",
-        lazy: boolean,
     ): T {
         const totals = kind === "buffer" ? "bufferBytes" : "textureBytes";
         const origDestroy = obj.destroy.bind(obj);
-        const allocation: ResourceAlloc = { label, bytes, kind, destroy: origDestroy, lazy };
+        const allocation: ResourceAlloc = { label, bytes, kind, destroy: origDestroy };
         set.add(obj);
         this[totals] += bytes;
-        if (lazy) this.lazyBytes += bytes;
         this.sizes.set(obj, allocation);
-        this.allocBytes.set(label, (this.allocBytes.get(label) ?? 0) + bytes);
         (obj as { destroy: () => void }).destroy = () => {
             if (this.sizes.get(obj) !== allocation) return;
             set.delete(obj);
             this[totals] -= bytes;
-            if (lazy) this.lazyBytes -= bytes;
             this.sizes.delete(obj);
-            const remaining = (this.allocBytes.get(label) ?? 0) - bytes;
-            if (remaining <= 0) this.allocBytes.delete(label);
-            else this.allocBytes.set(label, remaining);
             origDestroy();
         };
         return obj;
@@ -355,22 +257,17 @@ class ProfileImpl implements Profile {
         this.buffers.clear();
         this.textures.clear();
         this.sizes.clear();
-        this.allocBytes.clear();
         this.cpu.clear();
         this.gpu.clear();
         this.gpuTime.clear();
         this.gpuFires.clear();
         this.indirect.clear();
-        this.indirectCount.clear();
-        this.indirectFires.clear();
         this.compile.clear();
-        this.compiledPipelines.clear();
         this._slotCache.length = 0;
         this._passes.length = 0;
         this._capacity = 0;
         this.bufferBytes = 0;
         this.textureBytes = 0;
-        this.lazyBytes = 0;
     }
 
     record(name: string, ms: number): void {
@@ -382,9 +279,6 @@ class ProfileImpl implements Profile {
     }
 
     reset(): void {
-        // fold the just-completed frame's indirect tally into the cumulative counters before clearing (the
-        // overlay read it at the prior frame's draw-last; the benchmark window-diffs the cumulative maps)
-        foldIndirect(this.indirect, this.indirectCount, this.indirectFires);
         this.indirect.clear();
         this.cpu.clear();
         this._nextSlot = 0;
@@ -486,12 +380,8 @@ class ProfileImpl implements Profile {
         }
     }
 
-    /** @internal — also the `world.gpu.precompiled` sink for typed pipelines. `isPipeline` marks a call
-     *  that came from an actual `create*Pipeline(Async)` constructor (real pipelines: {@link compiledPipelines}),
-     *  as opposed to a `precompile` forcer-scope span observing one after the fact — membership is
-     *  monotonic (only added, never revoked) so a forcer's later, non-pipeline call can still refine an
-     *  already-pipeline-marked label's timing without downgrading its classification. */
-    recordCompile(label: string, start: number, end: number, isPipeline = false): void {
+    /** @internal — also the `world.gpu.precompiled` sink for typed pipelines. */
+    recordCompile(label: string, start: number, end: number): void {
         // A named label overwrites — this is what lets a typed pipeline's own sync-constructor patch
         // (fires first, inside the precompile forcer's dispatch, near-zero) and that same forcer's later
         // `world.gpu.precompiled` completion measurement (an error-scope wrap, not a fence — only
@@ -513,12 +403,6 @@ class ProfileImpl implements Profile {
             key = seen === 1 ? "(unlabeled)" : `(unlabeled)#${seen}`;
         }
         this.compile.set(key, end - start);
-        // counted per CALL, before the `set` above collapses a repeated label ({@link
-        // Profile.pipelineCalls}) — the quantity a pipeline multiplication always moves.
-        if (isPipeline) {
-            this.pipelineCalls++;
-            this.compiledPipelines.add(key);
-        }
         if (start < this._compileEarliest) this._compileEarliest = start;
         if (end > this._compileLatest) this._compileLatest = end;
         this.compileMs = this._compileLatest - this._compileEarliest;
@@ -1128,9 +1012,7 @@ function collectStats(s: World, profile: ProfileImpl): OverlayData {
 const profileUi = {
     create: () => ({
         overlay: null as Overlay | null,
-        benchmarkReady: false,
         visible: false,
-        benchmark: undefined as Window["__benchmark"],
     }),
 };
 // the overlay is a convenience HUD, off by default and toggled with F3 (owned here, not per-consumer).
@@ -1169,16 +1051,14 @@ const ProfileFrameBeginSystem: System = {
     },
 };
 
-// runs in the draw group's "last" bucket: signals benchmark readiness and refreshes the overlay from the
-// drained per-frame state. Resolve lives at the frame's start, not here — capturing queries at the tail
-// races the render submit (a `last: true` tie with EndFrameSystem, which the render contract warns off).
+// runs in the draw group's "last" bucket and refreshes the overlay from the drained per-frame state.
+// Resolve lives at the frame's start, not here — capturing queries at the tail races the render submit.
 const ProfileRenderSystem: System = {
     group: "draw",
     last: true,
     update(world: World) {
         const _profileUi = world.resource(profileUi);
 
-        _profileUi.benchmarkReady = true;
         if (typeof document === "undefined" || !_profileUi.visible) return;
         if (!_profileUi.overlay) _profileUi.overlay = createOverlay();
         _profileUi.overlay.update(world, world.resource(Profile) as ProfileImpl);
@@ -1187,8 +1067,8 @@ const ProfileRenderSystem: System = {
 
 /**
  * performance profiler: an F3-toggled stats overlay (FPS, per-pass GPU/CPU timings, memory, shader
- * compile) plus the World-owned {@link Profile} view and the `window.__benchmark` measurement API. Off by
- * default: add it and press F3 to show the overlay; the data is on `Profile` whether it's shown or not.
+ * compile) plus the World-owned {@link Profile} view. Off by default: add it and press F3 to show the
+ * overlay; the data is on `Profile` whether it's shown or not.
  * Register it first so its `createBuffer` / pipeline patches catch every allocation. Composed systems
  * may record phase timings through the world's record sink; this plugin adds no simulation.
  */
@@ -1222,15 +1102,6 @@ export const ProfilePlugin: Plugin = {
         });
 
         if (typeof window !== "undefined") {
-            ui.benchmarkReady = false;
-            const measure = createMeasure(world, profiler);
-            window.__benchmark = ui.benchmark = {
-                get ready() {
-                    return ui.benchmarkReady;
-                },
-                measure,
-            };
-
             // F3 toggle rides `world.signal` — no manual removal, no module-scoped handler ref.
             window.addEventListener(
                 "keydown",
@@ -1244,11 +1115,9 @@ export const ProfilePlugin: Plugin = {
         }
     },
 
-    // Clear the active state.gpu hooks and the window.__benchmark global; the DOM overlay + F3 listener
-    // ride the World (initialize above), and the profiler releases its own resources below.
+    // Clear the active state.gpu hooks; the DOM overlay + F3 listener ride the World (initialize above),
+    // and the profiler releases its own resources below.
     dispose(world: World) {
-        const _profileUi = world.resource(profileUi);
-
         const profiler = world.resource(Profile) as ProfileImpl;
         const compute = world.gpu;
         if (compute) {
@@ -1258,10 +1127,6 @@ export const ProfilePlugin: Plugin = {
         }
         world.recordSink = undefined;
         world.fenceWaitSink = undefined;
-        if (typeof window !== "undefined" && window.__benchmark === _profileUi.benchmark) {
-            delete window.__benchmark;
-        }
-        _profileUi.benchmarkReady = false;
         profiler.dispose();
     },
 };

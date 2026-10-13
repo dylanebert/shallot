@@ -55,7 +55,6 @@ export {
     drainLog,
     type GpuLog,
     type GpuRequirements,
-    type LazyAlloc,
     type NamedGpuRequirements,
     now,
     PIPELINE_COMPILE_MEASURE_PREFIX,

@@ -565,6 +565,29 @@ These helpers use the owning World:
 - `Profile` data is read with `world.resource(Profile)`.
 - `cascadeComboEids()` and `pointComboEids()` take World first; `cascadeCount()` and `pointComboCount()` are removed.
 
+## Profile no longer exposes benchmark windows
+
+`ProfilePlugin` still provides its live profiler overlay and `Profile` resource, but no longer installs a measurement-window global or tracks benchmark-only counters.
+
+| v0.9.5 export or field (path) | 0.10 replacement |
+|---|---|
+| `window.__benchmark` | Removed; read live data through `world.resource(Profile)`. |
+| Root and `/extras` `BenchmarkAPI` | Removed; there is no measurement-window API. |
+| Root and `/extras` `BenchmarkCompileStats` | Removed; inspect `Profile.compile` and `Profile.compileMs` for live compile data. |
+| Root and `/extras` `BenchmarkCpuStats` | Removed; inspect `Profile.cpu` for current-frame timings. |
+| Root and `/extras` `BenchmarkFrameStats` | Removed; frame-window summaries are no longer provided. |
+| Root and `/extras` `BenchmarkGpuStats` | Removed; inspect `Profile.gpu` for displayed pass timings. |
+| Root and `/extras` `BenchmarkMeasurement` | Removed; there is no measurement-window API. |
+| Root and `/extras` `BenchmarkMemoryStats` | Removed; inspect `Profile.bufferBytes` and `Profile.textureBytes` for live totals. |
+| `Profile.indirectCount` | Removed; indirect-draw windows are no longer tracked. |
+| `Profile.indirectFires` | Removed; indirect-draw windows are no longer tracked. |
+| `Profile.compiledPipelines` | Removed; pipeline-only counts are no longer tracked. |
+| `Profile.pipelineCalls` | Removed; pipeline-constructor counts are no longer tracked. |
+| `Profile.submitCount` | Removed; submit counts are no longer tracked. |
+| `Profile.allocBytes` | Removed; use the overlay's per-allocation memory details. |
+| `Profile.lazyBytes` | Removed; lazy allocations are included in `Profile.bufferBytes` and `Profile.textureBytes`. |
+| Root and `/runtime` `LazyAlloc` | Removed; remove `lazy` metadata used only for profiler accounting. |
+
 ## Character movement and player feel
 
 Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallot/standard/physics` (also re-exported from the root). `/character` and `/character/core` are removed. `Character` requires a capsule `Body` with `type: BodyType.Kinematic`; its pogo spring floats the lower sphere centre three radii above ground. Retune spawn and camera heights for that float.

@@ -1,5 +1,5 @@
 import type { World } from "../ecs";
-import { deviceLost, type LazyAlloc } from "./gpu";
+import { deviceLost } from "./gpu";
 
 interface Slot {
     buffer: GPUBuffer;
@@ -103,11 +103,10 @@ export class ReadbackPool {
         const fixedTick = this._world.time.fixedTick;
         let slot = this._slots.find((entry) => !entry.busy && entry.buffer.size === size);
         if (!slot) {
-            const descriptor: GPUBufferDescriptor & LazyAlloc = {
+            const descriptor: GPUBufferDescriptor = {
                 label: "shallot-readback-staging",
                 size,
                 usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-                lazy: true,
             };
             slot = {
                 buffer: this._device.createBuffer(descriptor),

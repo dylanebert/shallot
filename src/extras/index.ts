@@ -31,13 +31,6 @@ export {
     UpdatePlayerControlSystem,
 } from "./player";
 export {
-    type BenchmarkAPI,
-    type BenchmarkCompileStats,
-    type BenchmarkCpuStats,
-    type BenchmarkFrameStats,
-    type BenchmarkGpuStats,
-    type BenchmarkMeasurement,
-    type BenchmarkMemoryStats,
     Profile,
     ProfilePlugin,
     showProfiler,

@@ -29,7 +29,6 @@ export {
     checkTgsl,
     deviceLost,
     type GpuRequirements,
-    type LazyAlloc,
     type NamedGpuRequirements,
     PIPELINE_COMPILE_MEASURE_PREFIX,
     precompile,
