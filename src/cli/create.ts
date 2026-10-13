@@ -118,6 +118,9 @@ export function packageManifest(
         const range = engine.peerDependencies[name] ?? engine.devDependencies[name];
         if (name !== ENGINE && range) devDependencies[name] ??= range;
     }
+    // Bun's typecheck reads no Svelte component; svelte-check is the project's `typecheck`.
+    const typecheck = hasComponents(templateDir);
+    if (typecheck) devDependencies["svelte-check"] = engine.devDependencies["svelte-check"];
 
     return `${JSON.stringify(
         {
@@ -129,6 +132,7 @@ export function packageManifest(
                 dev: "vite --host 127.0.0.1",
                 build: "vite build",
                 preview: "vite preview --host 127.0.0.1",
+                ...(typecheck ? { typecheck: "svelte-check" } : {}),
             },
             dependencies: { [ENGINE]: engine.version },
             devDependencies,
@@ -143,6 +147,10 @@ function listFiles(root: string, prefix = ""): string[] {
         const path = prefix ? join(prefix, entry.name) : entry.name;
         return entry.isDirectory() ? listFiles(root, path) : [path];
     });
+}
+
+function hasComponents(projectDir: string): boolean {
+    return listFiles(projectDir).some((file) => file.endsWith(".svelte"));
 }
 
 function tierFiles(projectDir: string): Record<string, boolean> {
@@ -202,7 +210,7 @@ function windowsGpuSetup(): string {
 `;
 }
 
-function tierJob(tier: string): string {
+function tierJob(tier: string, tiers: Record<string, boolean>, typecheck: boolean): string {
     const osList = '"macos-15", "ubuntu-latest", "windows-latest"';
     let job = `  ${tier}:\n${setup(osList)}`;
     if (tier === "gpu" || tier === "node") {
@@ -231,7 +239,11 @@ function tierJob(tier: string): string {
     if (tier === "browser") job += mesaSetup();
     job += `      - run: bun install
 `;
-    if (tier === "cheap")
+    if (tier === "cheap" && typecheck)
+        job += `      - name: typecheck
+        run: bun run typecheck
+`;
+    if (tier === "cheap" && tiers.cheap)
         job += `      - name: cheap tier
         run: bun test --path-ignore-patterns '**/*.gpu.test.ts'
 `;
@@ -246,9 +258,10 @@ function tierJob(tier: string): string {
 
 function testWorkflow(projectDir: string): string {
     const tiers = tierFiles(projectDir);
+    const typecheck = hasComponents(projectDir);
     const jobs = Object.keys(tiers)
-        .filter((tier) => tiers[tier])
-        .map((tier) => tierJob(tier))
+        .filter((tier) => tiers[tier] || (tier === "cheap" && typecheck))
+        .map((tier) => tierJob(tier, tiers, typecheck))
         .join("\n");
     return `name: test
 

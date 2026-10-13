@@ -209,7 +209,7 @@ test("create declares WebGPU and TypeGPU only when the template imports them", (
     expect(workflow).not.toContain("  browser:");
 });
 
-test("create declares each package a template imports, Svelte components included, at the engine's range", () => {
+test("create declares each package a template imports, Svelte components included, at the engine's range, and checks the components with svelte-check", () => {
     const examplesDir = join(SCRATCH, "svelte-examples");
     const templateDir = join(examplesDir, "svelte");
     const packageRoot = join(SCRATCH, "svelte-engine");
@@ -224,6 +224,7 @@ test("create declares each package a template imports, Svelte components include
                 ...ENGINE.devDependencies,
                 svelte: "^5.0.0",
                 "@sveltejs/vite-plugin-svelte": "^7.0.0",
+                "svelte-check": "^4.0.0",
                 unimported: "^1.0.0",
             },
         }),
@@ -243,6 +244,12 @@ test("create declares each package a template imports, Svelte components include
     expect(manifest.devDependencies.svelte).toBe("^5.0.0");
     expect(manifest.devDependencies["@sveltejs/vite-plugin-svelte"]).toBe("^7.0.0");
     expect(manifest.devDependencies.unimported).toBeUndefined();
+    expect(manifest.scripts.typecheck).toBe("svelte-check");
+    expect(manifest.devDependencies["svelte-check"]).toBe("^4.0.0");
+    const workflow = readFileSync(join(destination, ".github/workflows/test.yml"), "utf8");
+    const cheap = workflow.slice(workflow.indexOf("  cheap:"));
+    expect(cheap).toContain("      - name: typecheck\n        run: bun run typecheck\n");
+    expect(cheap).not.toContain("bun test");
 });
 
 test("create detects conditional imports in inline module scripts", () => {

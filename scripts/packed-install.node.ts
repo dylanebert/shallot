@@ -302,6 +302,12 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     const installOutput = run(["bun", "install"], project, `bun install ${name}`);
     expect(installOutput).not.toContain("build-tooling: generated dist/");
     run(["bun", "check"], project, `bun check ${name}`);
+    // Bun's typecheck reads no Svelte component; the copy's own svelte-check does.
+    expect(manifest.scripts.typecheck).toBe(name === "hud" ? "svelte-check" : undefined);
+    if (manifest.scripts.typecheck)
+        expect(run(["bun", "run", "typecheck"], project, `bun run typecheck ${name}`)).toContain(
+            "svelte-check found 0 errors",
+        );
     run(["bun", "run", "build"], project, `bun run build ${name}`);
     const testOutput = run(["bun", "test"], project, `bun test ${name}`);
     expect(testOutput).toContain(
