@@ -8,6 +8,7 @@ import {
     computeViewFromWorld,
     globalTransformTable,
     INITIAL_VIEW_CAPACITY,
+    MAX_VIEWS,
     PointLight,
     RenderContext,
     SpotLight,
@@ -476,9 +477,11 @@ const gridKernel = tgpu.computeFn({
     gridLayout.$.aabbs[base + 1] = d.vec4f(mx.x, mx.y, -dNear, 0);
 });
 
-function growClusterCapacity(world: World, capacity: number): void {
+function growClusterCapacity(world: World, shadeCount: number): void {
     const state = world.resource(clusterGpuKey);
-    if (capacity <= state.viewCapacity) return;
+    if (shadeCount <= state.viewCapacity) return;
+    // doubles like the eid columns, so cameras added one at a time reallocate logarithmically
+    const capacity = Math.min(MAX_VIEWS, Math.max(shadeCount, state.viewCapacity * 2));
     const clusters = world.resource(Clusters);
     const lightCull = world.resource(LightCull);
     const previousBuffers = [

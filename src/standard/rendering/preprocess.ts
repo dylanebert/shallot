@@ -11,6 +11,7 @@ import { Meshes, MeshInstance } from "../../core/mesh";
 import {
     BeginFrameSystem,
     globalTransformTable,
+    MAX_SLOTS,
     NotShadowCaster,
     RenderContext,
 } from "../../core/rendering";
@@ -436,16 +437,21 @@ function syncBuffers(world: World): void {
 
     if (_meshPreprocess.materialTypeCount === 0) return;
     const meshCount = world.resource(Meshes).size;
-    const viewDim = Math.max(1, world.resource(RenderContext).viewCount);
+    const viewCount = Math.max(1, world.resource(RenderContext).viewCount);
     const rowCapacity = meshInstanceTable(world).capacity;
     const growMesh = meshCount > _meshPreprocess.meshCount;
-    const growView = viewDim > _meshPreprocess.viewDim;
+    const growView = viewCount > _meshPreprocess.viewDim;
     const growRows = rowCapacity > _meshPreprocess.rowCapacity;
     if (!growMesh && !growView && !growRows && _meshDraws.drawArgs) return;
 
     const device = world.gpu.device;
     _meshPreprocess.meshCount = Math.max(_meshPreprocess.meshCount, meshCount);
-    _meshPreprocess.viewDim = Math.max(_meshPreprocess.viewDim, viewDim);
+    // doubles like the eid columns, so cameras added one at a time reallocate logarithmically
+    if (growView)
+        _meshPreprocess.viewDim = Math.min(
+            MAX_SLOTS,
+            Math.max(viewCount, _meshPreprocess.viewDim * 2),
+        );
     _meshPreprocess.rowCapacity = Math.max(_meshPreprocess.rowCapacity, rowCapacity);
     _meshPreprocess.pairCount =
         _meshPreprocess.materialTypeCount * ALPHA_PIPELINE_KEY_COUNT * _meshPreprocess.meshCount;
