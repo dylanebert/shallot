@@ -13,7 +13,14 @@ import {
     Views,
 } from "../../core/rendering";
 import { component, f32, type Plugin, vec2, vec4, type World } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import {
+    beginRenderPass,
+    draw,
+    endRenderPass,
+    precompile,
+    setRenderBindGroup,
+    setRenderPipeline,
+} from "../../engine/runtime";
 
 /** Bevy's HDR vignette. Color is sRGB, center is UV; only carrying cameras run the pass. */
 export const Vignette = component(
@@ -39,6 +46,7 @@ export const Vignette = component(
         }),
     },
 );
+const VIGNETTE_CAMERAS = [Camera, Vignette];
 const Settings = d.struct({
     intensity: d.f32,
     radius: d.f32,
@@ -110,6 +118,34 @@ const stateKey = {
         } as GPURenderPassDescriptor,
     }),
 };
+type VignetteState = ReturnType<typeof stateKey.create>;
+
+// Built outside the system's update so the closure's captures never give that update a context to allocate.
+function vignetteEffect(
+    state: VignetteState,
+    buffer: GPUBuffer,
+    groups: WeakMap<GPUTextureView, GPUBindGroup>,
+): EffectPass {
+    return (w, _eid, _view, input, output) => {
+        let group = groups.get(input);
+        if (!group) {
+            group = w.gpu.device.createBindGroup({
+                layout: state.rawLayout!,
+                entries: [
+                    { binding: 0, resource: input },
+                    { binding: 1, resource: { buffer } },
+                ],
+            });
+            groups.set(input, group);
+        }
+        (state.pass.colorAttachments as GPURenderPassColorAttachment[])[0].view = output;
+        const pass = beginRenderPass(w.frameEncoder()!, state.pass);
+        setRenderPipeline(pass, state.pipeline!);
+        setRenderBindGroup(pass, 0, group);
+        draw(pass, 3);
+        endRenderPass(pass);
+    };
+}
 
 export const VignettePlugin: Plugin = {
     gpu: {},
@@ -125,41 +161,21 @@ export const VignettePlugin: Plugin = {
                 const state = world.resource(stateKey);
                 const s = world.storage(Vignette);
                 const effects = world.resource(EffectPasses);
-                for (const [eid] of world.resource(Views)) {
-                    if (
-                        !world.has(eid, Camera) ||
-                        !world.has(eid, Vignette) ||
-                        s.intensity.get(eid) <= 0
-                    )
-                        continue;
+                const views = world.resource(Views);
+                for (const eid of world.query(VIGNETTE_CAMERAS)) {
+                    if (!views.has(eid) || s.intensity.get(eid) <= 0) continue;
                     let camera = state.cameras.get(eid);
                     if (!camera) {
                         const buffer = world.gpu.root.unwrap(
                             world.gpu.root.createBuffer(Settings).$usage("uniform"),
                         );
                         const groups = new WeakMap<GPUTextureView, GPUBindGroup>();
-                        const effect: EffectPass = (w, _eid, _view, input, output) => {
-                            let group = groups.get(input);
-                            if (!group) {
-                                group = w.gpu.device.createBindGroup({
-                                    layout: state.rawLayout!,
-                                    entries: [
-                                        { binding: 0, resource: input },
-                                        { binding: 1, resource: { buffer } },
-                                    ],
-                                });
-                                groups.set(input, group);
-                            }
-                            (
-                                state.pass.colorAttachments as GPURenderPassColorAttachment[]
-                            )[0].view = output;
-                            const pass = w.frameEncoder()!.beginRenderPass(state.pass);
-                            pass.setPipeline(state.pipeline!);
-                            pass.setBindGroup(0, group);
-                            pass.draw(3);
-                            pass.end();
+                        camera = {
+                            buffer,
+                            bytes: new Float32Array(12),
+                            groups,
+                            effect: vignetteEffect(state, buffer, groups),
                         };
-                        camera = { buffer, bytes: new Float32Array(12), groups, effect };
                         state.cameras.set(eid, camera);
                     }
                     let stack = effects.get(eid);
@@ -183,12 +199,9 @@ export const VignettePlugin: Plugin = {
                     b[11] = s.color.w.get(eid);
                     world.gpu.device.queue.writeBuffer(camera.buffer, 0, b);
                 }
-                for (const [eid, camera] of state.cameras) {
-                    if (
-                        world.has(eid, Vignette) &&
-                        world.resource(Views).has(eid) &&
-                        s.intensity.get(eid) > 0
-                    )
+                for (const eid of state.cameras.keys()) {
+                    const camera = state.cameras.get(eid)!;
+                    if (world.has(eid, Vignette) && views.has(eid) && s.intensity.get(eid) > 0)
                         continue;
                     const stack = effects.get(eid);
                     const index = stack?.before.indexOf(camera.effect) ?? -1;
