@@ -164,6 +164,7 @@ function html(arm: Arm): string {
 
 type TraceSession = Awaited<ReturnType<Browser["newBrowserCDPSession"]>>;
 type TraceEvent = {
+    pid?: number;
     name?: string;
     ph?: string;
     ts?: number;
@@ -215,6 +216,16 @@ function longSwapsInWindow(events: TraceEvent[], start: number, end: number): Tr
             (event.ts ?? -Infinity) >= start &&
             (event.ts ?? Infinity) < end,
     );
+}
+
+function gpuSwapsInWindow(events: TraceEvent[], start: number, end: number, gpuPids: number[]): TraceEvent[] {
+    const swaps = events.filter(event =>
+        event.name === "SkiaOutputSurfaceImplOnGpu::SwapBuffers" && event.ph === "X" &&
+        event.pid !== undefined && gpuPids.includes(event.pid) && event.dur !== undefined &&
+        (event.ts ?? -Infinity) >= start && (event.ts ?? Infinity) < end);
+    if (!swaps.length)
+        throw new Error("No in-window SwapBuffers events from the identified GPU process; stall-removal reading is invalid");
+    return swaps;
 }
 
 function verifyTraceWindowSelection(): void {
@@ -737,7 +748,8 @@ async function runShell(endpoint: string, label: string): Promise<void> {
         if (!intervals.length) throw new Error("No shell rAF samples");
         const intervalMedian = median(intervals);
         const gaps = intervals.filter(gap => gap > 2.5 * intervalMedian);
-        const swaps = longSwapsInWindow(trace.traceEvents, start, end);
+        const gpuSwaps = gpuSwapsInWindow(trace.traceEvents, start, end, gpuCommandLines.map(process => process.pid));
+        const swaps = longSwapsInWindow(gpuSwaps, start, end);
         const cadenceHz = 1000 / intervalMedian;
         console.log(JSON.stringify({
             arm: label, readingRule, durationMs: (end - start) / 1000,
@@ -746,7 +758,8 @@ async function runShell(endpoint: string, label: string): Promise<void> {
             rafHz: intervals.length / ((end - start) / 1e6), medianCadenceHz: cadenceHz,
             displayRateMatched: Math.abs(cadenceHz / 240.084 - 1) < 0.01,
             intervalMs: { median: intervalMedian, max: Math.max(...intervals), gapsOver2_5x: gaps.length, gapDurationsMs: gaps },
-            swaps: { longOver10ms: swaps.length, durationsMs: swaps.map(event => event.dur! / 1000),
+            swaps: { count: gpuSwaps.length, gpuPids: gpuCommandLines.map(process => process.pid),
+                longOver10ms: swaps.length, durationsMs: swaps.map(event => event.dur! / 1000),
                 periodMs: swaps.slice(1).map((event, i) => (event.ts! - swaps[i]!.ts!) / 1000) },
             traceEvents: trace.traceEvents.length,
         }));
@@ -768,6 +781,19 @@ async function runShell(endpoint: string, label: string): Promise<void> {
 }
 
 if (selfTest) {
+    const swapFixture: TraceEvent[] = [
+        { name: "SkiaOutputSurfaceImplOnGpu::SwapBuffers", ph: "X", pid: 7, ts: 100, dur: 500 },
+        { name: "SkiaOutputSurfaceImplOnGpu::SwapBuffers", ph: "X", pid: 8, ts: 150, dur: 20_000 },
+        { name: "SkiaOutputSurfaceImplOnGpu::SwapBuffers", ph: "X", pid: 7, ts: 200, dur: 20_000 },
+    ];
+    const coveredSwaps = gpuSwapsInWindow(swapFixture, 100, 200, [7]);
+    if (coveredSwaps.length !== 1 || longSwapsInWindow(coveredSwaps, 100, 200).length !== 0)
+        throw new Error("Synthetic GPU swap coverage/identity check failed");
+    for (const missing of [[], swapFixture.slice(1)]) {
+        let refused = false;
+        try { gpuSwapsInWindow(missing, 100, 200, [7]); } catch { refused = true; }
+        if (!refused) throw new Error("Missing GPU swap events were accepted as stall removal");
+    }
     const adapter = {
         info: { vendor: "nvidia", isFallbackAdapter: false },
         requestDevice: async () => ({
@@ -796,7 +822,7 @@ if (selfTest) {
     }
     if (percentile([1,2,3,4],0.99) !== 4 || mean([1,3]) !== 2)
         throw new Error("Synthetic cost-statistics check failed");
-    console.log("Trace-window boundaries, cost statistics, shell CDP identity, adapter capture and injected script syntax checked; no browser run");
+    console.log("Trace-window boundaries, GPU swap coverage/refusal, cost statistics, shell CDP identity, adapter capture and injected script syntax checked; no browser run");
 } else if (attach) {
     await runShell(endpoint!, label!);
 } else {
