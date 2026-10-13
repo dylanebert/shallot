@@ -100,6 +100,11 @@ test("a real GPU process crash after presentation reaches the failure screen", a
         await cdp.send("Browser.crashGpuProcess");
 
         const failure = page.locator(overlaySelector);
+        await page.waitForFunction(
+            (selector) =>
+                document.querySelector(selector)?.textContent?.includes("Something went wrong"),
+            overlaySelector,
+        );
         await expect(failure).toContainText("Something went wrong");
         await expect(failure).toContainText(
             "An error occurred in the app. The details below can help identify the cause.",
