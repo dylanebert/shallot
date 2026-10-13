@@ -425,9 +425,10 @@ function unbind(world: World): void {
  * active MeshInstance table row capacity and camera count, growing when any axis rises
  * after warm. `drawArgs` + `counts` scale with `viewDim × pairCount`; dense
  * output lists scale with `viewDim × rowCapacity`; mesh bounds scale with mesh count.
- * Pair growth appends mesh slots within each `(material type, alpha key)` range, so existing offsets hold, and the pipelines read
- * both dimensions from `cullParams` + `arrayLength`, never recompiling. Old
- * buffers free behind the submit fence: a prior frame may still reference them
+ * A pair's offset strides by mesh count, so pair growth moves existing records and
+ * {@link registerDraws} rewrites them all; the pipelines read both dimensions from `cullParams` +
+ * `arrayLength`, never recompiling. Old buffers free behind the submit fence: a prior frame may
+ * still reference them
  */
 function syncBuffers(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
