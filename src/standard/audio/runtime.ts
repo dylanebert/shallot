@@ -10,8 +10,6 @@ import type { EntityRef, Plugin, Resource, System, World } from "../../engine";
 import { createWorkletURL } from "./worklet";
 
 const MAX_VOICES = 64;
-// Keep a voice-pool-sized tail of completion refs for rollback reconciliation.
-const MAX_COMPLETED = MAX_VOICES;
 const COMMANDS = 128;
 const STRIDE = 9;
 const FINISHED_OFFSET = 2 + COMMANDS * STRIDE;
@@ -40,7 +38,6 @@ interface Runtime {
     generations: Uint32Array;
     owners: Map<number, Voice>;
     slots: (Voice | null)[];
-    completed: Set<number>;
     sentClips: Map<number, number>;
     buffer: Float64Array | null;
     resume: (() => void) | null;
@@ -62,7 +59,6 @@ export const AudioRuntime: Resource<Runtime> = {
         generations: new Uint32Array(MAX_VOICES),
         owners: new Map(),
         slots: Array.from({ length: MAX_VOICES }, () => null),
-        completed: new Set(),
         sentClips: new Map(),
         buffer: new Float64Array(BUFFER_LENGTH),
         resume: null,
@@ -82,13 +78,35 @@ function freeSlots(): number[] {
     return free;
 }
 
-function rememberCompleted(runtime: Runtime, ref: EntityRef): void {
-    runtime.completed.delete(ref);
-    runtime.completed.add(ref);
-    if (runtime.completed.size > MAX_COMPLETED) {
-        const oldest = runtime.completed.values().next().value;
-        if (oldest !== undefined) runtime.completed.delete(oldest);
+function restoredOnceHasVoice(world: World, runtime: Runtime, eid: number): boolean {
+    const voice = runtime.owners.get(eid);
+    return (
+        world.resource(Devices).audio.context === "running" &&
+        world.storage(Sound).loop.get(eid) === 0 &&
+        world.storage(Sound).paused.get(eid) === 0 &&
+        voice !== undefined &&
+        voice.ref === world.ref(eid) &&
+        voice.clip === world.storage(Sound).clip.get(eid) &&
+        !voice.loop &&
+        !voice.stopping &&
+        runtime.slots[voice.handle % MAX_VOICES] === voice
+    );
+}
+
+function discardRestoredOnceSounds(world: World, runtime: Runtime): void {
+    for (const eid of [...world.query([Sound])]) {
+        if (world.storage(Sound).loop.get(eid) === 0 && !restoredOnceHasVoice(world, runtime, eid))
+            world.destroy(eid);
     }
+}
+
+/** Observe restores without snapshotting voice state; only once sounds with a live owner survive. */
+export function installAudioRestore(world: World, runtime = world.resource(AudioRuntime)): void {
+    world.storage(Sound);
+    world.registerRecovery("StandardAudio", {
+        snapshot: () => undefined,
+        restore: () => discardRestoredOnceSounds(world, runtime),
+    });
 }
 
 function stateOf(context: globalThis.AudioContextState): AudioContextState {
@@ -402,10 +420,7 @@ function stealOldest(world: World, runtime: Runtime, buffer: Float64Array, count
     }
     if (!victim) return count;
     count = stopVoice(victim, buffer, count);
-    if (world.ref(victim.eid) === victim.ref) {
-        rememberCompleted(runtime, victim.ref);
-        world.destroy(victim.eid);
-    }
+    if (world.ref(victim.eid) === victim.ref) world.destroy(victim.eid);
     return count;
 }
 
@@ -437,11 +452,6 @@ export function reconcileAudio(world: World): void {
             count = stopVoice(voice, buffer, count);
             continue;
         }
-        if (runtime.completed.has(ref)) {
-            world.destroy(eid);
-            count = stopVoice(voice, buffer, count);
-            continue;
-        }
         const sounds = world.storage(Sound);
         const clip = sounds.clip.get(eid);
         const loop = sounds.loop.get(eid) !== 0;
@@ -463,10 +473,6 @@ export function reconcileAudio(world: World): void {
     let stoleOneShot = false;
     for (const eid of [...world.query([Sound])]) {
         const ref = world.ref(eid);
-        if (runtime.completed.has(ref)) {
-            world.destroy(eid);
-            continue;
-        }
         if (runtime.owners.has(eid)) continue;
         const clip = sounds.clip.get(eid);
         const entry = world.resource(Clips).registry.name(clip);
@@ -509,7 +515,6 @@ function releaseFinished(world: World, runtime: Runtime, handle: number): void {
         world.storage(Sound).loop.get(eid) === 0 &&
         world.storage(Sound).paused.get(eid) === 0
     ) {
-        rememberCompleted(runtime, voice.ref);
         world.destroy(eid);
     }
 }
@@ -557,6 +562,7 @@ export const StandardAudioPlugin: Plugin = {
         const runtime = world.resource(AudioRuntime);
         const output = world.resource(AudioOutput);
         const devices = world.resource(Devices);
+        installAudioRestore(world, runtime);
         world.onDispose(() => {
             void disposeAudio(world, runtime, output, devices);
         });

@@ -3,7 +3,7 @@ import { AudioOutput, Clips, Listener, play, registerClip, Sound } from "../../c
 import { audioContextState } from "../../core/input";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { World } from "../../engine";
-import { AudioRuntime, reconcileAudio, returnAudioBuffer } from "./runtime";
+import { AudioRuntime, installAudioRestore, reconcileAudio, returnAudioBuffer } from "./runtime";
 
 interface Message {
     type: string;
@@ -14,6 +14,7 @@ interface Message {
 function setup(world: World): Message[] {
     const messages: Message[] = [];
     const runtime = world.resource(AudioRuntime);
+    installAudioRestore(world, runtime);
     runtime.context = { sampleRate: 48000 } as AudioContext;
     runtime.node = {
         port: {
@@ -112,7 +113,7 @@ test("a suspended context drops a once Sound and leaves a loop pending", () => {
     world.dispose();
 });
 
-test("restoring a snapshot reconciles one loop voice and no finished once voice", () => {
+test("a restored loop reconciles to one voice while a finished once sound is discarded", () => {
     const world = new World();
     const messages = setup(world);
     registerClip(world, "restored", new Float32Array([0.25]));
@@ -140,35 +141,69 @@ test("restoring a snapshot reconciles one loop voice and no finished once voice"
     world.dispose();
 });
 
-test("repeated once completion keeps a bounded restore window and suppresses recent restores", () => {
+test("a once Sound restored after many later completions is discarded without replay", () => {
     const world = new World();
     const messages = setup(world);
     registerClip(world, "many-once", new Float32Array([0.25]));
-    let snapshot: ReturnType<World["snapshot"]> | undefined;
-    let lastEid = -1;
+    const oldEid = play(world, "many-once");
+    const oldSnapshot = world.snapshot();
 
-    for (let i = 0; i < 1000; i++) {
-        lastEid = play(world, "many-once");
-        if (i === 999) snapshot = world.snapshot();
+    reconcileAudio(world);
+    let data = commands(lastBatch(messages));
+    returnAudioBuffer(world, data, [data[3]]);
+    messages.length = 0;
+
+    for (let i = 0; i < 65; i++) {
+        play(world, "many-once");
         reconcileAudio(world);
-        const data = commands(lastBatch(messages));
+        data = commands(lastBatch(messages));
         returnAudioBuffer(world, data, [data[3]]);
         messages.length = 0;
     }
 
-    const runtime = world.resource(AudioRuntime);
-    expect(runtime.completed.size).toBe(64);
-    world.restore(snapshot!);
+    world.restore(oldSnapshot);
+    expect(world.exists(oldEid)).toBe(false);
+    expect(world.resource(AudioRuntime).owners.size).toBe(0);
     reconcileAudio(world);
-    expect(world.exists(lastEid)).toBe(false);
-    expect(runtime.completed.size).toBe(64);
-    returnBatch(world, messages);
-    messages.length = 0;
+    expect(commands(lastBatch(messages))[0]).toBe(0);
+    world.dispose();
+});
 
-    world.restore(snapshot!);
+test("a once Sound with a live matching voice keeps that voice across restore", () => {
+    const world = new World();
+    const messages = setup(world);
+    const clip = registerClip(world, "active-once", new Float32Array([0.25]));
+    const eid = play(world, clip);
+    const snapshot = world.snapshot();
     reconcileAudio(world);
-    expect(world.exists(lastEid)).toBe(false);
-    expect(runtime.completed.size).toBe(64);
+    const voice = world.resource(AudioRuntime).owners.get(eid)!;
+    returnBatch(world, messages);
+
+    world.restore(snapshot);
+    expect(world.exists(eid)).toBe(true);
+    reconcileAudio(world);
+    expect(world.resource(AudioRuntime).owners.get(eid)).toBe(voice);
+    const update = commands(lastBatch(messages));
+    expect(update[0]).toBe(1);
+    expect(update[2]).toBe(2);
+    expect(update[3]).toBe(voice.handle);
+    world.dispose();
+});
+
+test("a once Sound played after restore starts normally", () => {
+    const world = new World();
+    const messages = setup(world);
+    const clip = registerClip(world, "after-restore", new Float32Array([0.25]));
+    const snapshot = world.snapshot();
+    world.restore(snapshot);
+
+    const eid = play(world, clip);
+    reconcileAudio(world);
+    const data = commands(lastBatch(messages));
+    expect(world.exists(eid)).toBe(true);
+    expect(data[0]).toBe(1);
+    expect(data[2]).toBe(1);
+    expect(world.resource(AudioRuntime).owners.has(eid)).toBe(true);
     world.dispose();
 });
 
