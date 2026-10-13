@@ -1,6 +1,6 @@
 // The fog march's pipeline: the two bind-group layouts (group 0 — the per-camera scene/depth/output
 // + the ViewUniforms/Fog uniforms; group 1 — the camera-independent light + shadow service) and the compute kernel
-// over them. The march primitives themselves (`fogDensity`, `fogTransmittance`, the in-scatter terms) are
+// over them. The march primitives themselves (`fogDensity`, the in-scatter terms) are
 // pure TGSL fns in `./march`, spliced by this pipeline.
 //
 // Six of the ten group-1 bindings (`pointAtlas`/`shadowSamp`/`pointShadows`/`tileRects` for the point path,
@@ -173,8 +173,8 @@ function createFogKernel(
                 const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
                 const slot = d.u32(camView.projection.w);
 
-                // the extinction + in-scatter march, fused on one front-to-back midpoint sweep — see march.ts's
-                // header for the accumulator shapes (`trans` / `inScatter`)
+                // the extinction + in-scatter march, fused on one front-to-back midpoint sweep: `trans` is the
+                // transmittance so far, `inScatter` the radiance scattered toward the camera
                 const ds = dist / d.f32(steps);
                 const albedo = 1 - absorption;
                 let trans = d.f32(1);

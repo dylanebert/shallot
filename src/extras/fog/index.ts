@@ -7,8 +7,8 @@
 // A scene opts in with one `Fog` singleton; the plugin requests core's shared depth lane for each standard camera
 // unless it carries `NoFog`. The march primitives + the Fog
 // uniform schema live in `./march`; the pipeline (the two bind-group layouts + the compute kernel
-// calling them) lives in `./pipeline`. This file is the ECS/system/plugin half: the component, the
-// per-frame uniform pack, and the per-camera dispatch.
+// calling them) lives in `./pipeline`, the uniform pack in `./pack`. This file is the ECS/system/plugin
+// half: the components and the per-camera dispatch.
 import type { TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import {
     Camera,
@@ -137,19 +137,10 @@ const createFogState = (): FogState => ({
 });
 const fogState = (world: World) => world.resource(fogStateKey);
 
-function initializeFogState(world: World): void {
-    world.resource(fogStateKey);
-}
-
 // the camera-independent light + shadow service group (group 1), cached on the identities of the resources
 // it binds. The cull already binned every shading view this frame, so one group serves all cameras; standard's
 // shadow resources can flip identity (the atlas allocates lazily, the sun map toggles with a casting frame),
 // so rebuild only when one changes — standard's `shadowGroup` idiom, not a per-frame allocation
-
-// per-camera group 0 (scene / depth / output / view / fog), cached per eid on the `sceneTransform` read +
-// write + the depth view (all three reallocate only on a resize, so the group rebuilds then, not every
-// frame) and the view slot (the per-slot ViewUniforms buffer it binds — a per-slot-buffer design)
-
 function fogLights(world: World): GPUBindGroup {
     const _lightCull = world.resource(LightCull);
     const _lighting = world.resource(Lighting);
@@ -239,6 +230,8 @@ const FogSystem: System = {
                 ? _fogState.fog.multisampledPipeline
                 : _fogState.fog.pipeline;
             const { read, write } = sceneTransform(world, view, eid);
+            // per-camera group 0, cached per eid on the `sceneTransform` read + write and the depth view (all
+            // three reallocate only on a resize) and the view slot (the per-slot ViewUniforms buffer it binds)
             let cam = fogState(world).views.get(eid);
             if (
                 !cam ||
@@ -303,7 +296,7 @@ export const FogPlugin: Plugin = {
     dependencies: [RenderingPlugin, StandardRenderingPlugin],
 
     initialize(world) {
-        initializeFogState(world);
+        world.resource(fogStateKey);
         world
             .resource(DepthPrepassRequests)
             .push(

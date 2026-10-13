@@ -1,7 +1,5 @@
-// The fog raymarch primitives, each one TGSL function the production `FogSystem` splices.
-//
-// S1 integrates **extinction** only (uniform haze + exponential height fog, Beer-Lambert per step); S2 adds
-// **in-scatter** — each clustered point/spot source and each opted-in directional — on the same march loop.
+// The fog raymarch primitives: TGSL functions the fog kernel (`./pipeline`) calls for extinction (uniform
+// haze + exponential height fog, Beer-Lambert per step) and in-scatter from volumetric lights.
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -16,8 +14,7 @@ export const WORKGROUP = 8;
  * so a clamped step count integrates the full ray at the cap resolution, never a silent under-integration. */
 export const FOG_MAX_STEPS = 256;
 
-// a captured constant folds to a literal in the emitted WGSL, so this is the shader's PI too — the
-// `FOG_PI` the hand-written in-scatter WGSL declared is gone with it
+// a captured constant folds to a literal in the emitted WGSL, so this is the shader's PI too
 const PI = Math.PI;
 
 /**
@@ -54,7 +51,7 @@ export const FOG_PARAMS = {
     extra: at(FogGpu, (f) => f.extra),
 } as const;
 
-// ---- extinction: the midpoint march + the haze composite + the per-pixel ray setup ----
+// ---- extinction: density, the haze composite and the per-pixel ray setup ----
 
 /** exponential height fog's density at a world point: `density · exp(-falloff · (p.y - base))`. Height-only,
  *  so the x/z lanes are unread — the point is the parameter because the in-scatter loop already has one. */
@@ -64,28 +61,6 @@ export const fogDensity = tgpu.fn(
 )((p, density, base, falloff) => {
     "use gpu";
     return density * std.exp(-falloff * (p.y - base));
-});
-
-/**
- * transmittance `exp(-τ)` along `origin + dir·[0, dist]`: the midpoint Riemann sum of optical depth through
- * Beer-Lambert (`sampleOffset` 0.5 = midpoint, per-pixel-jittered on screen). The loop runs to the constant
- * {@link FOG_MAX_STEPS} and breaks at the runtime `steps` — the DXC constant-bound shape.
- */
-export const fogTransmittance = tgpu.fn(
-    [d.vec3f, d.vec3f, d.f32, d.f32, d.f32, d.f32, d.u32, d.f32],
-    d.f32,
-)((origin, dir, dist, density, base, falloff, steps, sampleOffset) => {
-    "use gpu";
-    const ds = dist / d.f32(steps);
-    let tau = d.f32(0);
-    let i = d.u32(0);
-    while (i < FOG_MAX_STEPS) {
-        if (i >= steps) break;
-        const p = std.add(origin, std.mul(dir, (d.f32(i) + sampleOffset) * ds));
-        tau = tau + fogDensity(p, density, base, falloff) * ds;
-        i = i + 1;
-    }
-    return std.exp(-tau);
 });
 
 /** composite the marched extinction over the scene color: `scene·T + fogColor·(1−T)`. */
@@ -127,7 +102,7 @@ export const ign = tgpu.fn(
 /** the Henyey-Greenstein single-scatter phase function. `g` in [-1,1]: 0 isotropic (1/4π), →1 forward-peaked
  *  (a bright halo toward a light), →-1 back-scatter. `cosTheta` is the cosine between the view ray and the
  *  direction toward the light. */
-export const henyeyGreenstein = tgpu.fn(
+const henyeyGreenstein = tgpu.fn(
     [d.f32, d.f32],
     d.f32,
 )((g, cosTheta) => {
