@@ -5,7 +5,10 @@ import { Meshes, MeshInstance, registerMesh } from "../../core/mesh";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import {
+    AlphaMode,
+    Draws,
     Materials,
+    MaterialTypes,
     MeshMaterial,
     MeshRenderPlugin,
     StandardMaterial,
@@ -16,8 +19,8 @@ import {
 setDefaultTimeout(CEILING.node);
 
 const rendering = { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] };
-// the shared labels and handles world, then one for the draw-args growth row
-const subjects = gpuApps(import.meta.path, [rendering, rendering]);
+// the shared labels and handles world, one for the draw-args growth row, one for the alpha-key draws row
+const subjects = gpuApps(import.meta.path, [rendering, rendering, rendering]);
 
 function quad(halfExtent: number): { vertices: Float32Array; indices: Uint32Array } {
     const vertices = new Float32Array([
@@ -156,6 +159,39 @@ test("registering a mesh after warm writes the draw-args records once per view s
     } finally {
         queue.writeBuffer = writeBuffer;
     }
+});
+
+test("draws are registered only for the alpha keys a material type's rows use, and a new key draws on the next step", async () => {
+    const { world } = subjects()[2];
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+    world.add(camera, Camera);
+    world.add(camera, StandardRenderer);
+    attachTexture(world, camera, { width: 64, height: 64 });
+    const opaque = world.resource(Materials).add(StandardMaterial({ emissive: [1, 1, 1] }));
+    for (let i = 0; i < 5; i++) registerMesh(world, { name: `key-${i}`, ...quad(0.1) });
+    const mesh = registerMesh(world, { name: "keyed", ...quad(0.9) });
+    const eid = world.create();
+    world.add(eid, Transform);
+    world.add(eid, MeshInstance, { mesh });
+    world.add(eid, MeshMaterial, opaque);
+    world.step(0);
+    world.step(0);
+
+    // every registered type keeps its default row's Opaque draws; no other key has a row
+    const types = world.resource(MaterialTypes).types.filter(Boolean).length;
+    const meshes = world.resource(Meshes).size;
+    expect(types).toBe(2);
+    expect(world.resource(Draws).size).toBe(types * meshes);
+    expect(await coveredPixels(world, camera)).toBeGreaterThan(100);
+
+    const blended = world
+        .resource(Materials)
+        .add(StandardMaterial({ emissive: [1, 1, 1] }), { alphaMode: AlphaMode.Blend });
+    world.storage(MeshMaterial).material.set(eid, blended.material);
+    world.step(0);
+    expect(world.resource(Draws).size).toBe((types + 1) * meshes);
+    expect(await coveredPixels(world, camera)).toBeGreaterThan(100);
 });
 
 async function coveredPixels(world: ReturnType<typeof subjects>[0]["world"], camera: number) {
