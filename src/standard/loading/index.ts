@@ -32,6 +32,8 @@ export interface SplashOptions {
     profile?: SplashProfile;
     /** parent for the startup overlay; omitted means the canvas parent or document body */
     container?: HTMLElement;
+    /** host-owned surface painted before imports; removed when this loading screen takes over */
+    bootstrap?: HTMLElement;
 }
 
 export type LoadingOptions = SplashOptions;
@@ -488,6 +490,7 @@ function loading(
 
     const screen: Loading = {
         show() {
+            options.bootstrap?.remove();
             overlay = createOverlay(transparent ? "transparent" : theme.bg, options.container);
             if (!overlay) return;
 

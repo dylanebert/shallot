@@ -4,7 +4,10 @@ import { revealAfterFirstFrame } from "./reveal";
 import { LoadingWorld } from "./scene";
 
 const host = mountHost();
-const loading = minimalDark({ container: host.frame });
+const loading = minimalDark({
+    container: host.frame,
+    bootstrap: document.querySelector<HTMLElement>("[data-shallot-startup]") ?? undefined,
+});
 let app: Awaited<ReturnType<typeof runApp>> | undefined;
 let pageClosed = false;
 window.addEventListener("pagehide", () => {

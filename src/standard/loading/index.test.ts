@@ -148,6 +148,19 @@ test("minimal dark and light loading are transparent, preserve progress colors, 
     });
 });
 
+test("loading takes over only the host bootstrap explicitly assigned to it", () => {
+    withDocument((body) => {
+        const bootstrap = body.appendChild(new Element());
+        const embeddedSurface = body.appendChild(new Element());
+        const screen = minimalDark({ bootstrap: bootstrap as unknown as HTMLElement });
+
+        screen.show();
+
+        expect(bootstrap.isConnected).toBe(false);
+        expect(embeddedSurface.isConnected).toBe(true);
+    });
+});
+
 test("the standard failure screen shows the no-adapter remedy", async () => {
     const previous = Object.getOwnPropertyDescriptor(navigator, "gpu");
     Object.defineProperty(navigator, "gpu", {

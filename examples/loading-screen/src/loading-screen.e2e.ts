@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "../../../scripts/browser.fixture";
 import { installCaptureFrame } from "../../../scripts/capture-install";
@@ -53,6 +53,64 @@ async function waitForScene(page: Page): Promise<void> {
     await openPage(page);
     await expect(page.locator("#scene")).toHaveClass(/visible/);
 }
+
+test("the host paints startup feedback before its application entry is released", async ({
+    page,
+}) => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    await page.route("**/assets/index-*.js", async (route) => {
+        await held;
+        await route.continue();
+    });
+
+    await page.goto("/", { waitUntil: "commit" });
+    const startup = page.locator("[data-shallot-startup]");
+    await expect(startup).toBeVisible();
+    await page.evaluate(
+        () =>
+            new Promise<void>((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+            ),
+    );
+    const screenshot = await page.screenshot();
+    const evidence = process.env["SHALLOT_STARTUP_EVIDENCE"];
+    if (evidence) await page.screenshot({ path: join(evidence, "startup.png") });
+    const painted = await page.evaluate(async (base64) => {
+        const image = await createImageBitmap(
+            new Blob([Uint8Array.from(atob(base64), (value) => value.charCodeAt(0))]),
+        );
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        const pixel = [...context.getImageData(image.width / 2, image.height * 0.515, 1, 1).data];
+        image.close();
+        return pixel;
+    }, screenshot.toString("base64"));
+    expect([
+        [20, 18, 16, 255],
+        [28, 25, 23, 255],
+    ]).toContainEqual(painted);
+    release();
+    await expect(startup).toHaveCount(0);
+});
+
+test("an application-entry failure changes startup status instead of leaving Loading", async ({
+    page,
+}) => {
+    await page.route("**/assets/index-*.js", (route) => route.abort());
+    await page.goto("/", { waitUntil: "commit" });
+    const startup = page.locator("[data-shallot-startup]");
+    await expect(startup).toHaveAttribute("aria-label", "Unable to load the application");
+    await expect(startup).toHaveAttribute("role", "alert");
+    await expect(startup).toContainText(
+        "Unable to load the application. Check the console and reload.",
+    );
+});
 
 test("a destroyed device before its first frame does not reach the failure screen", async ({
     page,
