@@ -5,7 +5,7 @@
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
 // its `control` export allocates one known literal per call. Needs --trace-opt --redirect-code-traces and
-// every tier flag but LATE_TIER_FLAG, which it sets itself once the subject is created;
+// every tier flag, plus DEFERRED_TURBOFAN_FLAGS, whose Turbofan it enables itself once the subject is created;
 // writes window markers into this isolate's trace file and one JSON sample to allocation-result.json in its working directory.
 import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector/promises";
@@ -193,10 +193,12 @@ export function traceMarks() {
 export const SAMPLE_RESULT = "allocation-result.json";
 
 /**
- * The tier flag the sampler sets once the subject is created rather than at start: at ten calls under
- * synchronous recompilation, it would compile the subject's run-once setup on the main thread.
+ * The sampler's child starts without Turbofan, which at ten calls under synchronous recompilation would
+ * compile the subject's run-once setup on the main thread, and enables it once the subject is created.
+ * Maglev code compiled meanwhile keeps its tier-up checks, and every interrupt budget is already set from
+ * the Turbofan count, so steady code reaches Turbofan as it would have from the start.
  */
-export const LATE_TIER_FLAG = "--invocation-count-for-turbofan=10";
+export const DEFERRED_TURBOFAN_FLAGS = ["--no-turbofan", "--force-emit-interrupt-budget-checks"];
 
 async function main() {
     const [bundle, warmArg, framesArg, inputFile, mode] = process.argv.slice(2);
@@ -267,16 +269,16 @@ async function main() {
             return sites(profile);
         }
 
-        measuredTrace();
-        const mark = traceMarks();
-
         const { default: create, control } = await import(bundleUrl);
         if (typeof control !== "function")
             throw new Error("allocation sampler: the bundle must export a `control` function");
         if (warm % CHUNK !== 0 || frames % CHUNK !== 0)
             throw new Error(`allocation sampler: warm and frames must be multiples of ${CHUNK}`);
         subject = await create(readFileSync(inputFile, "utf8"));
-        setFlagsFromString(LATE_TIER_FLAG);
+        setFlagsFromString("--turbofan");
+        // The window markers are Turbofan compilations.
+        measuredTrace();
+        const mark = traceMarks();
         expressions = (subject.allocationExpressions ?? []).map((entry) => ({
             functionName: entry.fn.name,
             wrapperSite: entry.wrapperSite,
