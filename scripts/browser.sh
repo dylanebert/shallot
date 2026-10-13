@@ -42,6 +42,12 @@ printf '%s\n' "$subjects" | while IFS= read -r subject; do
         exit 1
     fi
 
+    # A subject with no browser check yet, as a fresh minimal project, has nothing for Playwright to run.
+    if [ -z "$(find "$subject" -name node_modules -prune -o -type f -name '*.e2e.ts' -print)" ]; then
+        echo "No browser checks: $subject"
+        continue
+    fi
+
     echo "Browser subject: $subject"
     bunx playwright test -c "$subject" --global-timeout=60000 --workers=1
 done

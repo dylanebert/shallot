@@ -1,4 +1,9 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+
+import { CEILING } from "@dylanebert/shallot/testing";
+
+setDefaultTimeout(CEILING.node);
+
 import {
     existsSync,
     mkdirSync,
