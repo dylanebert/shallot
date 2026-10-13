@@ -11,7 +11,6 @@ export function kernelInputHash(root: string): string {
         root,
         [
             "Cargo.toml",
-            "Cargo.lock",
             "rust-toolchain.toml",
             "scripts/wasm-opt.ts",
             "scripts/rust-remap.ts",
@@ -22,6 +21,7 @@ export function kernelInputHash(root: string): string {
             "crates/physics/scripts/kernel-inputs.ts",
         ],
         ["crates/physics/src"],
+        "shallot-physics",
     );
 }
 

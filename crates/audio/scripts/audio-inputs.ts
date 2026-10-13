@@ -11,7 +11,6 @@ export function audioInputHash(root: string): string {
         root,
         [
             "Cargo.toml",
-            "Cargo.lock",
             "rust-toolchain.toml",
             "scripts/wasm-opt.ts",
             "scripts/rust-remap.ts",
@@ -22,6 +21,7 @@ export function audioInputHash(root: string): string {
             "crates/audio/scripts/audio-inputs.ts",
         ],
         ["crates/audio/src"],
+        "shallot-audio",
     );
 }
 
