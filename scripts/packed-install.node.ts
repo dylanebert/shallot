@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { normalizePath } from "../src/project/paths";
+import { packedInstall as runPackedInstall } from "./packed-install-spawn";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -39,6 +40,9 @@ type PackedInstall = {
 let install: PackedInstall | undefined;
 
 function run(command: string[], cwd: string, label: string, argv0?: string): string {
+    if (command[0] === "bun" && command[1] === "install") {
+        return runPackedInstall(command.slice(1), cwd, label);
+    }
     const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe", argv0 });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
     if (result.exitCode !== 0) throw new Error(`${label} failed:\n${output}`);
