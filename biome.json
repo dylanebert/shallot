@@ -6,6 +6,7 @@
             "bin/**/*.ts",
             "examples/**/*.ts",
             "scripts/**/*.ts",
+            "diagnostics/default-look/**/*.ts",
             "crates/physics/scripts/**/*.ts",
             "!examples/*/public",
             "!bin",
