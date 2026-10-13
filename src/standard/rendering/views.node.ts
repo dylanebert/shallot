@@ -444,3 +444,57 @@ test("adding a camera builds engine bind groups per mesh family and view slot, n
         app.dispose();
     }
 });
+
+test("after presenting cameras are removed, light allocation and the pack scan dispatch only live slots", async () => {
+    const app = await withStandard();
+    const world = app.world;
+    const device = world.gpu.device!;
+    const createCommandEncoder = device.createCommandEncoder;
+    try {
+        const mesh = world.create();
+        world.add(mesh, Transform);
+        world.add(mesh, MeshInstance);
+        const cameras = [
+            renderedCamera(world, 1),
+            renderedCamera(world, 1),
+            renderedCamera(world, 1),
+        ];
+        world.step(0);
+        world.step(0);
+        world.remove(cameras[1]!, Camera);
+        world.remove(cameras[2]!, Camera);
+        world.step(0);
+
+        // one-dimensional dispatches per compute pass label; the count and scatter passes are two-dimensional
+        const dispatches = new Map<string, number[]>();
+        device.createCommandEncoder = (descriptor) => {
+            const encoder = createCommandEncoder.call(device, descriptor);
+            const beginComputePass = encoder.beginComputePass;
+            encoder.beginComputePass = (passDescriptor) => {
+                const pass = beginComputePass.call(encoder, passDescriptor);
+                const label = passDescriptor?.label ?? "";
+                const dispatch = pass.dispatchWorkgroups;
+                pass.dispatchWorkgroups = (x, y, z) => {
+                    if (y === undefined) {
+                        const list = dispatches.get(label) ?? [];
+                        list.push(x);
+                        dispatches.set(label, list);
+                    }
+                    dispatch.call(pass, x, y, z);
+                };
+                return pass;
+            };
+            return encoder;
+        };
+        world.step(0);
+        const render = world.resource(RenderContext);
+        expect(render.shadeCount).toBe(1);
+        expect(dispatches.get("shallot-light-allocation-local")).toEqual([
+            Math.ceil(CLUSTER_COUNT / 256),
+        ]);
+        expect(dispatches.get("shallot-mesh-preprocess")).toEqual([render.viewCount]);
+    } finally {
+        device.createCommandEncoder = createCommandEncoder;
+        app.dispose();
+    }
+});
