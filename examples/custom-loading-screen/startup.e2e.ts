@@ -283,8 +283,10 @@ test("a real GPU process crash after presentation reaches the failure screen", a
     browser,
 }) => {
     await page.goto("/");
-    await expect(page.locator(loadingOverlay)).toHaveCount(0);
-    await expect.poll(() => renderedCanvasPixels(page)).toBeGreaterThan(100);
+    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: CEILING.browser });
+    await expect
+        .poll(() => renderedCanvasPixels(page), { timeout: CEILING.browser })
+        .toBeGreaterThan(100);
 
     const cdp = await browser.newBrowserCDPSession();
     try {

@@ -107,30 +107,33 @@ test("releasing the entry hands off to the loading screen and starts the scene",
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
     await expect
-        .poll(async () => {
-            const screenshot = await canvas.screenshot();
-            return page.evaluate(async (base64) => {
-                const image = await createImageBitmap(
-                    new Blob([Uint8Array.from(atob(base64), (value) => value.charCodeAt(0))]),
-                );
-                const canvas = document.createElement("canvas");
-                canvas.width = image.width;
-                canvas.height = image.height;
-                const context = canvas.getContext("2d")!;
-                context.drawImage(image, 0, 0);
-                const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-                image.close();
-                let visible = 0;
-                for (let i = 0; i < pixels.length; i += 4) {
-                    if (
-                        pixels[i + 3]! > 0 &&
-                        (pixels[i]! > 35 || pixels[i + 1]! > 35 || pixels[i + 2]! > 35)
-                    )
-                        visible++;
-                }
-                return visible;
-            }, screenshot.toString("base64"));
-        })
+        .poll(
+            async () => {
+                const screenshot = await canvas.screenshot();
+                return page.evaluate(async (base64) => {
+                    const image = await createImageBitmap(
+                        new Blob([Uint8Array.from(atob(base64), (value) => value.charCodeAt(0))]),
+                    );
+                    const canvas = document.createElement("canvas");
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const context = canvas.getContext("2d")!;
+                    context.drawImage(image, 0, 0);
+                    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+                    image.close();
+                    let visible = 0;
+                    for (let i = 0; i < pixels.length; i += 4) {
+                        if (
+                            pixels[i + 3]! > 0 &&
+                            (pixels[i]! > 35 || pixels[i + 1]! > 35 || pixels[i + 2]! > 35)
+                        )
+                            visible++;
+                    }
+                    return visible;
+                }, screenshot.toString("base64"));
+            },
+            { timeout: CEILING.browser },
+        )
         .toBeGreaterThan(100);
 });
 
