@@ -559,7 +559,9 @@ const sampleCascade = tgpu
     let c = sunShadow.cascades[ci];
     // Offset toward the light in world space before projection; normal bias remains texel-scaled.
     let biased = offsetTowardLight(worldPos, sunShadow.lightDirection.xyz, sunShadow.depthBias);
-    let offset = biased + normalize(normal) * (sunShadow.normalBias * 1.4142136 * c.texelWorld);
+    var biasNormal = vec3f(0);
+    if (dot(normal, normal) > 0.0) { biasNormal = normalize(normal); }
+    let offset = biased + biasNormal * (sunShadow.normalBias * 1.4142136 * c.texelWorld);
     let lc = c.lightViewProj * vec4<f32>(offset, 1.0);
     let l = lc.xyz / lc.w;
     if (l.x < -1.0 || l.x > 1.0 || l.y < -1.0 || l.y > 1.0 || l.z < 0.0 || l.z > 1.0) {
@@ -592,10 +594,12 @@ export const viewDepth = tgpu.fn(
 });
 
 /**
- * the sun-shadow receiver as a real callable reference: `sampleSunShadow(worldPos, normal)` selects a
- * cascade by linear view-z (via {@link viewDepth}, reading `view` as a free name), PCF-samples it (via
- * {@link sampleCascade}, reading `shadowMap` / `shadowSamp` / `sunShadow`), and blends across the overlap
- * band. A real-reference caller forces `view` / `shadowMap` / `shadowSamp` / `sunShadow` into scope itself
+ * The sun-shadow receiver as a real callable reference: `sampleSunShadow(worldPos, normal, method)`
+ * selects a cascade by linear view-z (via {@link viewDepth}, reading `view` as a free name), filters it
+ * by the camera's method (via {@link sampleCascade}, reading `shadowMap` / `shadowSamp` / `sunShadow`),
+ * and blends across the overlap band.
+ * `normal` is a unit surface normal, or zero for a volume sample with no normal bias.
+ * A real-reference caller forces `view` / `shadowMap` / `shadowSamp` / `sunShadow` into scope itself
  * (the {@link pointShadowRef} law); `viewDepth` / `sampleCascade` resolve for free via `$uses`.
  */
 export const sampleSunShadow = tgpu

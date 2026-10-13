@@ -59,12 +59,12 @@ const COEFFICIENTS = [
     0.157112, 0.157112, 0.138651, 0.130251, 0.114946, 0.114946, 0.107982, 0.079001,
 ];
 const TAN_HALF = 1 + (2 * EDGE_TEXELS) / SIDE;
-function pointGaussian(offset: number): number {
+function pointGaussian(offset: number, volume: boolean): number {
     const original = [(0.5 - (2 * offset) / SIDE) * TAN_HALF, 0.7, 1];
     const length = Math.hypot(...original);
     const texelWorld = (length * 2 * TAN_HALF) / SIDE;
     const biased = original.map((v) => v * (1 - 0.04 / length));
-    biased[1] += 0.3 * Math.SQRT2 * texelWorld;
+    if (!volume) biased[1] += 0.3 * Math.SQRT2 * texelWorld;
     const n = Math.hypot(...biased);
     const [x, y, z] = biased.map((v) => v / n);
     const a = -1 / (1 + z);
@@ -81,7 +81,10 @@ function pointGaussian(offset: number): number {
     }, 0);
 }
 
-async function profile(kind: "directional" | "spot" | "point"): Promise<Float32Array> {
+async function profile(
+    kind: "directional" | "spot" | "point",
+    volume: boolean,
+): Promise<Float32Array> {
     const device = fixture().world.gpu.device;
     const resources: (GPUBuffer | GPUTexture)[] = [];
     device.pushErrorScope("validation");
@@ -137,7 +140,10 @@ var<private> view: ProfileView;
     let uv = 0.5 + offset / ${SIDE}.0;
     let identity = mat4x4f(vec4f(1,0,0,0),vec4f(0,1,0,0),vec4f(0,0,1,0),vec4f(0,0,0,1));
     view.right = vec4f(1,0,0,0); view.up = vec4f(0,1,0,0);
+    let normal = ${volume ? "vec3f(0)" : "vec3f(0,1,0)"};
     sunShadow.enabled = 1.0; sunShadow.count = 1.0;
+    sunShadow.normalBias = ${volume ? "0.3" : "0.0"};
+    sunShadow.cascades[0].texelWorld = 2.0 / ${SIDE}.0;
     sunShadow.lightDirection = vec4f(0,0,1,0);
     sunShadow.cascades[0].lightViewProj = identity;
     sunShadow.cascades[0].rect = vec4f(0,0,1,1);
@@ -149,16 +155,16 @@ var<private> view: ProfileView;
     pointShadows.casters[0].nf = vec4f(0.5,100,0.04,0.3);
     ${
         kind === "directional"
-            ? "output[id.x] = sampleSunShadow(vec3f(uv * 2.0 - 1.0,0,0.5),vec3f(0,1,0),1u);"
+            ? "output[id.x] = sampleSunShadow(vec3f(uv * 2.0 - 1.0,0,0.5),normal,1u);"
             : kind === "spot"
               ? `
-    pointShadows.casters[0].nf = vec4f(1,100,0,0);
+    pointShadows.casters[0].nf = vec4f(1,100,0,${volume ? "0.3" : "0.0"});
     pointShadows.casters[0].spotA = vec4f(1,0,0,1);
     pointShadows.casters[0].spotB = vec4f(0,1,0,0);
     pointShadows.casters[0].spotC = vec4f(0,0,1,0);
-    output[id.x] = pointShadowOf(light,vec3f(0,1,0),vec3f((uv*2.0-1.0)*2.0,0,2),1u);`
+    output[id.x] = pointShadowOf(light,normal,vec3f((uv*2.0-1.0)*2.0,0,2),1u);`
               : `
-    output[id.x] = pointShadowOf(light,vec3f(0,1,0),vec3f((0.5-2.0*offset/${SIDE}.0)*${TAN_HALF},0.7,1),1u);`
+    output[id.x] = pointShadowOf(light,normal,vec3f((0.5-2.0*offset/${SIDE}.0)*${TAN_HALF},0.7,1),1u);`
     }
 }`,
         });
@@ -222,12 +228,17 @@ var<private> view: ProfileView;
 }
 
 for (const kind of ["directional", "spot", "point"] as const) {
-    test(`${kind} Gaussian edge profile matches Bevy's CPU kernel on a binary shadow map`, async () => {
-        const actual = await profile(kind);
-        const expected = OFFSETS.map(kind === "point" ? pointGaussian : castano);
-        const maxError = Math.max(...expected.map((value, i) => Math.abs(value - actual[i])));
-        console.log(`${kind} Bevy edge-profile maximum error: ${maxError}`);
-        // WebGPU comparison filtering may quantize sub-texel weights to eight fractional bits.
-        expect(maxError).toBeLessThan(1 / 256);
-    });
+    for (const volume of [false, true]) {
+        const receiver = volume ? "zero-normal volume" : "surface";
+        test(`${kind} ${receiver} Gaussian edge profile matches Bevy's CPU kernel on a binary shadow map`, async () => {
+            const actual = await profile(kind, volume);
+            const expected = OFFSETS.map((offset) =>
+                kind === "point" ? pointGaussian(offset, volume) : castano(offset),
+            );
+            const maxError = Math.max(...expected.map((value, i) => Math.abs(value - actual[i])));
+            console.log(`${kind} ${receiver} Bevy edge-profile maximum error: ${maxError}`);
+            // WebGPU comparison filtering may quantize sub-texel weights to eight fractional bits.
+            expect(maxError).toBeLessThan(1 / 256);
+        });
+    }
 }
