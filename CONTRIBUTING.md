@@ -146,6 +146,14 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Every host Shallot owns serves cross-origin isolation: `shallot()`'s `dev` and `preview`, the native shell and every publish target. Elsewhere the kernel steps the single-thread artifact after one log naming the missing headers, and no game branches on which.
 - Standard physics publishes the mover queries and `CharacterPlugin`; movement feel belongs to `extras/player`, over published names only.
 
+### Audio
+
+- `AudioPlugin` (`core/audio`) owns `Sound`, `Listener`, the world's clip registry, `play` and `AudioOutput`; it knows no context, worklet or kernel.
+- `StandardAudioPlugin` (`standard/audio`) owns the context lifecycle, one AudioWorklet running the audio kernel, the voice pool and clip decoding. Its promise is clip playback, basic controls and spatialization; synthesis, effects, sequencing and acoustics live outside the engine, in `shallot-audio-lab`, and reach the mix through `AudioOutput`'s bus ahead of the one master limiter.
+- Voices are pooled because Web Audio's `AudioBufferSourceNode` is single-use and allocates on every play; control crosses to the worklet as one typed buffer per frame that the worklet returns, not over `SharedArrayBuffer`, which needs cross-origin isolation.
+- Audio is presentation: voice handles live in the runtime, keyed by entity, never in ECS, and every frame reconciles them against `Sound`. On restore, a once sound with no live voice is discarded, not replayed.
+- Pan is observable only in the kernel's signal: a TypeScript check proves where a source sits relative to the listener, a cargo test that it pans.
+
 ## Commands
 
 - A `shallot` command does only what Shallot knows: it may invoke project commands, but never owns processes Vite, Bun or Playwright own.
