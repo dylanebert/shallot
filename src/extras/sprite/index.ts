@@ -4,7 +4,7 @@
 
 import * as d from "typegpu/data";
 import { type MeshHandle, MeshInstance, MeshPlugin, registerMesh } from "../../core/mesh";
-import { BeginFrameSystem, imageArray, PrepassSystem, RenderingPlugin } from "../../core/rendering";
+import { imageArray, RenderingPlugin } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import { type Plugin, Registry, type System, type World } from "../../engine";
 import { packColor } from "../../engine/utils";
@@ -12,7 +12,6 @@ import {
     AlphaMode,
     MaterialPlugin,
     MeshMaterial,
-    MeshPreprocessSystem,
     MeshRenderPlugin,
     materialTypeId,
     StandardRenderingPlugin,
@@ -113,11 +112,11 @@ function releaseInstance(world: World, eid: number): void {
     if (world.has(eid, MeshInstance)) world.remove(eid, MeshInstance);
 }
 
+// Last in simulation, after gameplay writes Sprite, so the draw group's head-of-frame upload carries them.
 const SpriteSystem: System = {
     name: "sprite",
-    group: "draw",
-    after: [BeginFrameSystem],
-    before: [MeshPreprocessSystem, PrepassSystem],
+    group: "simulation",
+    last: true,
     update(world) {
         const state = world.resource(spriteGpuKey);
         if (state.quad === null) return;
