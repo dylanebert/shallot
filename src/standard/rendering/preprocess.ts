@@ -101,6 +101,8 @@ interface MeshPreprocessState {
     scanBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     scatterBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
     materialTypeCount: number;
+    /** each material type's `alphaKeys` when draws were last registered */
+    alphaKeys: Int32Array;
     meshCount: number;
     pairCount: number;
     viewDim: number;
@@ -155,6 +157,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
         scanBound: null,
         scatterBound: null,
         materialTypeCount: 0,
+        alphaKeys: new Int32Array(0),
         meshCount: 0,
         pairCount: 0,
         viewDim: 1,
@@ -442,7 +445,12 @@ function syncBuffers(world: World): void {
     const growMesh = meshCount > _meshPreprocess.meshCount;
     const growView = viewCount > _meshPreprocess.viewDim;
     const growRows = rowCapacity > _meshPreprocess.rowCapacity;
-    if (!growMesh && !growView && !growRows && _meshDraws.drawArgs) return;
+    const growKeys = syncAlphaKeys(world);
+    if (!growMesh && !growView && !growRows && _meshDraws.drawArgs) {
+        // a key a type's rows newly hold registers its pairs; records and buffers stay where they are
+        if (growKeys) registerDraws(world);
+        return;
+    }
 
     const device = world.gpu.device;
     _meshPreprocess.meshCount = Math.max(_meshPreprocess.meshCount, meshCount);
@@ -506,13 +514,29 @@ function syncBuffers(world: World): void {
     }
 
     unbind(world);
-    // draw records depend only on the meshes and the args buffer, so rows growth keeps them
-    if (replaceArgs) registerDraws(world);
+    // draw records depend only on the meshes, the types' alpha keys and the args buffer, so rows
+    // growth keeps them
+    if (replaceArgs || growKeys) registerDraws(world);
 
     const stale = [...staleArgs, stalePacked, staleTransparentEids, staleBounds];
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
     for (const buffer of stale) buffer?.destroy();
     staleTransparentArgs?.destroy();
+}
+
+// record each material type's alpha keys, returning whether any gained one since draws were registered
+function syncAlphaKeys(world: World): boolean {
+    const known = world.resource(meshPreprocessKey).alphaKeys;
+    const assets = world.resource(MaterialTypes).assets;
+    let grew = false;
+    for (let type = 0; type < known.length; type++) {
+        const keys = assets[type]?.alphaKeys ?? 0;
+        if (keys !== known[type]) {
+            known[type] = keys;
+            grew = true;
+        }
+    }
+    return grew;
 }
 
 /**
@@ -538,7 +562,7 @@ function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
     return buffer;
 }
 
-/** publish `(material type, alpha pipeline key, mesh)` draw pairs and return the indirect records the GPU buffer needs.
+/** publish `(material type, alpha pipeline key, mesh)` draw pairs for the keys each type's rows have held, and return the indirect records the GPU buffer needs.
  * Device-free so ordering tests can exercise the production publication seam without an adapter.
  * @internal */
 type DrawRecord = {
@@ -555,24 +579,29 @@ export function publishMeshInstanceDraws(
     pairCount: number,
     registries: {
         materialTypes: readonly (MaterialType | undefined)[];
+        assets: readonly ({ readonly alphaKeys: number } | undefined)[];
         meshes: ReturnType<typeof Meshes.create>;
         draws: Registry<Draw>;
     } = {
         materialTypes: world.resource(MaterialTypes).types,
+        assets: world.resource(MaterialTypes).assets,
         meshes: world.resource(Meshes),
         draws: world.resource(Draws),
     },
 ): { offset: number; args: DrawRecord }[] {
-    const { materialTypes, meshes, draws } = registries;
+    const { materialTypes, assets, meshes, draws } = registries;
     const writes: { offset: number; args: DrawRecord }[] = [];
     const viewStride = pairCount * DRAW_ARG_STRIDE;
     for (const [materialType, definition] of materialTypes.entries()) {
         if (!definition) continue;
+        const alphaKeys = assets[materialType]?.alphaKeys ?? 0;
         for (
             let alphaPipelineKey = 0;
             alphaPipelineKey < ALPHA_PIPELINE_KEY_COUNT;
             alphaPipelineKey++
         ) {
+            // a key no row has held has no instance; its records stay unwritten and undrawn
+            if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
             for (const [handle, m] of meshes.entries()) {
                 const pair =
                     (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) * meshes.size +
@@ -646,6 +675,7 @@ export function warmMeshPreprocess(world: World): void {
     if (!world.gpu.device) return;
     const root = world.gpu.root;
     _meshPreprocess.materialTypeCount = materialTypes(world).length;
+    _meshPreprocess.alphaKeys = new Int32Array(_meshPreprocess.materialTypeCount);
     _meshPreprocess.meshCount = 0;
     _meshPreprocess.pairCount = 0;
     _meshPreprocess.viewDim = 1;

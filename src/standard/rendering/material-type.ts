@@ -382,6 +382,8 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     private _alphaCutoffs = new Float32Array([0.5]);
     private readonly _handles: (MaterialHandle | undefined)[] = [undefined];
     private _highWater = 1;
+    // row zero starts Opaque, and rows reserved past the high-water mark start at its zero code
+    private _alphaKeys = 1 << AlphaPipelineKey.Opaque;
     private _table: ReturnType<World["table"]> | undefined;
 
     constructor(world: World, type: MaterialType<P, any, any>) {
@@ -461,13 +463,9 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         return { alphaMode: this._alphaModes[row], alphaCutoff: this._alphaCutoffs[row] };
     }
 
-    /** Pipeline variants currently used by this type's material rows. */
-    alphaPipelineKeys(): number[] {
-        const keys = new Set<number>();
-        for (let row = 0; row < this._highWater; row++) {
-            keys.add(alphaPipelineKey(this._alphaModes[row]));
-        }
-        return [...keys];
+    /** Bit `1 << key` for each alpha pipeline key any of this type's rows has held; it only grows. */
+    get alphaKeys(): number {
+        return this._alphaKeys;
     }
 
     private _writeAlpha(row: number, mode: AlphaMode): void {
@@ -479,6 +477,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
             return;
         this._alphaModes[row] = fields.alphaMode;
         this._alphaCutoffs[row] = fields.alphaCutoff;
+        this._alphaKeys |= 1 << alphaPipelineKey(fields.alphaMode);
         const handle = this._handles[row];
         if (handle) Object.assign(handle, fields);
         const declaresMeshMaterial = [...this._world.registry.entries()].some(

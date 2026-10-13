@@ -38,6 +38,7 @@ import { indirectLightSlot, indirectLightSources } from "./indirect";
 import { Lighting } from "./lighting";
 import type { MaterialBinding, MaterialLayout, MaterialType } from "./material-type";
 import {
+    ALPHA_PIPELINE_KEY_COUNT,
     AlphaModeCode,
     AlphaPipelineKey,
     MaterialVertexInput,
@@ -2223,7 +2224,13 @@ export async function preparePipelines(world: World, capacity: number): Promise<
     for (const type of materialTypes(world)) {
         if (!type) continue;
         world.resource(type).table;
-        for (const alphaPipelineKey of world.resource(type).alphaPipelineKeys()) {
+        const alphaKeys = world.resource(type).alphaKeys;
+        for (
+            let alphaPipelineKey = 0;
+            alphaPipelineKey < ALPHA_PIPELINE_KEY_COUNT;
+            alphaPipelineKey++
+        ) {
+            if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
             const compiled = compileMaterial(world, type, capacity, alphaPipelineKey);
             for (const p of [
                 compiled.color,
