@@ -745,6 +745,8 @@ Material, background and draw contracts belong to `/standard/rendering`. Update 
 | `/render/core` `Clusters`, `clusterCell`, `LightCull` | `/standard/rendering`, same names |
 | `/render/core` `Lighting`, `LightingGpu`, `PointLightGpu`, `distanceAttenuation`, `spotFactor` | `/standard/rendering`, same names |
 
+`sceneTransform` returns one result object per camera, rewritten by the next call for that camera; destructure or copy `read` and `write` before calling it again.
+
 Other implementation helpers in these contracts are removed; see the rendering extension export table above. `MeshInstanceInput` from `/standard/rendering` is new in 0.10 and describes a dense mesh-component row. `StandardMaterial`, `Materials` and `MeshPlugin` are also new exports, replacing the former component-only material values and mesh registration owned by `RenderPlugin`/`PartPlugin`.
 
 Camera prepass markers and attachment constants are imported from `/rendering`:
