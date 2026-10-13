@@ -256,7 +256,7 @@ async function run(arm: Arm) {
             initial.viewport.height !== initial.screen.height ||
             initial.dpr < 1.2
         )
-            throw new Error(`${arm.name}: fullscreen Wayland dimensions/DPR not established`);
+            throw new Error(`${arm.name}: fullscreen dimensions/DPR not established`);
         if (
             initial.canvas &&
             (initial.canvas.width !==
@@ -289,7 +289,7 @@ async function run(arm: Arm) {
                 /NVIDIA GeForce RTX 4090/.test(device.deviceString ?? ""),
             )
         )
-            throw new Error(`${arm.name}: real RTX 4090 GPU backend not identified`);
+            throw new Error(`${arm.name}: SystemInfo did not identify the RTX 4090`);
         await page.waitForTimeout(500);
         await browserSession.send("Tracing.start", {
             categories,
@@ -359,8 +359,8 @@ async function run(arm: Arm) {
             initial,
             browserGpu: {
                 devices: gpuInfo.gpu?.devices,
-                backend: gpuInfo.gpu?.auxAttributes?.displayType,
-                renderer: gpuInfo.gpu?.auxAttributes?.glRenderer,
+                compositorDisplayType: gpuInfo.gpu?.auxAttributes?.displayType,
+                glRenderer: gpuInfo.gpu?.auxAttributes?.glRenderer,
                 webgpu: gpuInfo.gpu?.featureStatus?.webgpu,
                 gpuCompositing: gpuInfo.gpu?.featureStatus?.gpu_compositing,
                 hardwareSupportsVulkan: gpuInfo.gpu?.auxAttributes?.hardwareSupportsVulkan,
