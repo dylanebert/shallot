@@ -208,23 +208,7 @@ export const VignettePlugin: Plugin = {
         });
         state.pipeline = world.gpu.root.unwrap(pipeline);
         state.rawLayout = world.gpu.root.unwrap(layout);
-        precompile(world, "vignette", () => {
-            const input = world.gpu.device.createTexture({
-                size: [1, 1],
-                format: "rgba16float",
-                usage: GPUTextureUsage.TEXTURE_BINDING,
-            });
-            const buffer = world.gpu.root.createBuffer(Settings).$usage("uniform");
-            const bound = pipeline.with(
-                world.gpu.root.createBindGroup(layout, {
-                    input: input.createView(),
-                    settings: buffer,
-                }),
-            );
-            input.destroy();
-            buffer.destroy();
-            return bound;
-        });
+        precompile(world, "vignette", () => [state.pipeline!]);
     },
     dispose(world) {
         const state = world.resource(stateKey);

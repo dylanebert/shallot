@@ -13,13 +13,11 @@
 import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import {
     Camera,
-    DEPTH_FORMAT,
     DepthPrepassRequests,
     MainPassSystem,
     OverlaySystem,
     RenderContext,
     RenderingPlugin,
-    SAMPLE_COUNT,
     sceneTransform,
     TonemappingSystem,
     Views,
@@ -304,8 +302,7 @@ export const FogPlugin: Plugin = {
     async warm(world: World) {
         const _fogState = world.resource(fogStateKey);
 
-        const device = world.gpu.device;
-        if (!device) return;
+        if (!world.gpu.device) return;
         _fogState.fog.buffer?.destroy();
         _fogState.fog.buffer = world.gpu.root
             .createBuffer(FogGpu)
@@ -320,80 +317,10 @@ export const FogPlugin: Plugin = {
         fogState(world).lights = null;
         fogState(world).views.clear();
 
-        // typegpu creates pipelines synchronously, so Dawn defers the real compile — and
-        // the march runs every frame `Fog` + a camera without `NoFog` are both present, so an unfired compile would land the
-        // stall on whichever frame that is. Group 1's real resources (the light/shadow service) exist by the
-        // time this runs (deferred past every plugin's `warm`); group 0 is genuinely per-camera,
-        // so the forcer stands in 1×1 throwaways, like tonemapping's / outline's
-        precompile(world, "fog", () => {
-            const _fogState = world.resource(fogStateKey);
-
-            const src = device.createTexture({
-                label: "fog-precompile-scene",
-                size: { width: 1, height: 1 },
-                format: "rgba16float",
-                usage: GPUTextureUsage.TEXTURE_BINDING,
-            });
-            const depth = device.createTexture({
-                label: "fog-precompile-depth",
-                size: { width: 1, height: 1 },
-                format: DEPTH_FORMAT,
-                usage: GPUTextureUsage.TEXTURE_BINDING,
-            });
-            const dst = device.createTexture({
-                label: "fog-precompile-out",
-                size: { width: 1, height: 1 },
-                format: "rgba16float",
-                usage: GPUTextureUsage.STORAGE_BINDING,
-            });
-            const group0 = world.gpu.root.createBindGroup(fogLayout0, {
-                sceneTex: src.createView(),
-                depthTex: depth.createView(),
-                output: dst.createView(),
-                view: world.resource(RenderContext).viewBuffers[0],
-                fog: _fogState.fog.buffer!,
-            });
-            const bound = _fogState.fog.pipeline!.with(group0).with(fogLights(world));
-            src.destroy();
-            depth.destroy();
-            dst.destroy();
-            return bound;
-        });
-        precompile(world, "fog-msaa", () => {
-            const _fogState = world.resource(fogStateKey);
-
-            const src = device.createTexture({
-                label: "fog-precompile-scene",
-                size: { width: 1, height: 1 },
-                format: "rgba16float",
-                usage: GPUTextureUsage.TEXTURE_BINDING,
-            });
-            const depth = device.createTexture({
-                label: "fog-precompile-depth",
-                size: { width: 1, height: 1 },
-                format: DEPTH_FORMAT,
-                sampleCount: SAMPLE_COUNT,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            });
-            const dst = device.createTexture({
-                label: "fog-precompile-out",
-                size: { width: 1, height: 1 },
-                format: "rgba16float",
-                usage: GPUTextureUsage.STORAGE_BINDING,
-            });
-            const group0 = world.gpu.root.createBindGroup(fogLayout0Multisampled, {
-                sceneTex: src.createView(),
-                depthTex: depth.createView(),
-                output: dst.createView(),
-                view: world.resource(RenderContext).viewBuffers[0],
-                fog: _fogState.fog.buffer!,
-            });
-            const bound = _fogState.fog.multisampledPipeline!.with(group0).with(fogLights(world));
-            src.destroy();
-            depth.destroy();
-            dst.destroy();
-            return bound;
-        });
+        // typegpu creates pipelines lazily, so an uncompiled march would stall the first frame
+        // that has `Fog` and a camera without `NoFog`
+        precompile(world, "fog", () => _fogState.fog.pipeline!);
+        precompile(world, "fog-msaa", () => _fogState.fog.multisampledPipeline!);
     },
 
     dispose(world: World) {

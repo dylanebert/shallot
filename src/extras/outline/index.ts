@@ -36,14 +36,12 @@ import * as d from "typegpu/data";
 import { type Mesh, Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
 import {
     Camera,
-    DEPTH_FORMAT,
     DepthPrepassRequests,
     MainPassSystem,
     OverlaySystem,
     PresentationSystem,
     RenderContext,
     RenderingPlugin,
-    SAMPLE_COUNT,
     sceneTransform,
     TonemappingSystem,
     type View,
@@ -528,194 +526,13 @@ function prepareOutline(world: World): void {
         })
         .$name("outline-mask-occlude-multisampled");
 
-    forceCompile(world);
-}
-
-/**
- * force the two pipelines to compile under the loading screen. typegpu creates pipelines
- * synchronously, so Dawn defers the real compile — and the outline's passes run every frame a
- * highlight exists, which would put that stall on whichever frame the first hover lands. Their real bind
- * groups need per-camera targets that don't exist until a view attaches, so each forcer allocates its own
- * 1×1 stand-ins and binds. Destroying them before the drain is safe because `initAsync` only compiles
- * the pipeline — it records and submits nothing, so compilation never reads the bind groups the
- * stand-ins were bound into.
- */
-function forceCompile(world: World): void {
-    const stand = (format: GPUTextureFormat, usage: number) =>
-        world.gpu.device.createTexture({
-            label: "outline-warm",
-            size: { width: 1, height: 1 },
-            format,
-            usage: usage | GPUTextureUsage.TEXTURE_BINDING,
-        });
-
-    precompile(world, "outline-jfa", () => {
-        const _outlineState = world.resource(outlineStateKey);
-
-        const src = stand(SEED_FORMAT, 0);
-        const dst = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const group = world.gpu.root.createBindGroup(jfaLayout, {
-            seed: src.createView(),
-            step: _outlineState.gpu.steps[0],
-        });
-        const bound = _outlineState.gpu
-            .jfa!.with(group)
-            .withColorAttachment({ view: dst.createView() });
-        src.destroy();
-        dst.destroy();
-        return bound;
-    });
-
-    precompile(world, "outline-composite", () => {
-        const scene = stand(ATTR_FORMAT, 0);
-        const seed = stand(SEED_FORMAT, 0);
-        const attr = stand(ATTR_FORMAT, 0);
-        const out = stand(ATTR_FORMAT, GPUTextureUsage.STORAGE_BINDING);
-        const group = world.gpu.root.createBindGroup(compositeLayout, {
-            scene: scene.createView(),
-            seed: seed.createView(),
-            attr: attr.createView(),
-            output: out.createView(),
-        });
-        const bound = world.resource(outlineStateKey).gpu.composite!.with(group);
-        scene.destroy();
-        seed.destroy();
-        attr.destroy();
-        out.destroy();
-        return bound;
-    });
-
-    // the mask buffers (position/indices/globalTransforms/maskEids/maskAttrs/meshQuant) are storage bindings, not
-    // textures — 4-byte throwaways, same shape as `stand()`'s texture stand-ins
-    const buf = (size: number) =>
-        world.gpu.device.createBuffer({
-            label: "outline-mask-warm",
-            size,
-            usage: GPUBufferUsage.STORAGE,
-        });
-
-    precompile(world, "outline-mask", () => {
-        const position = buf(8);
-        const indices = buf(4);
-        const globalTransformsBuffer = buf(48);
-        const eids = buf(4);
-        const attrs = buf(32);
-        const quant = buf(48);
-        const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const group = world.gpu.root.createBindGroup(maskLayoutPlain, {
-            view: world.resource(RenderContext).viewBuffers[0],
-            position,
-            indices,
-            globalTransforms: globalTransformsBuffer,
-            globalTransformRows: eids,
-            maskEids: eids,
-            maskAttrs: attrs,
-            meshQuant: quant,
-        });
-        const bound = world
-            .resource(outlineStateKey)
-            .gpu.maskPlain!.with(group)
-            .withColorAttachment({
-                seed: { view: seed.createView() },
-                attr: { view: attr.createView() },
-            });
-        position.destroy();
-        indices.destroy();
-        globalTransformsBuffer.destroy();
-        eids.destroy();
-        attrs.destroy();
-        quant.destroy();
-        seed.destroy();
-        attr.destroy();
-        return bound;
-    });
-
-    precompile(world, "outline-mask-occlude", () => {
-        const position = buf(8);
-        const indices = buf(4);
-        const globalTransformsBuffer = buf(48);
-        const eids = buf(4);
-        const attrs = buf(32);
-        const quant = buf(48);
-        const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const depth = stand(DEPTH_FORMAT, 0);
-        const group = world.gpu.root.createBindGroup(maskLayoutOcclude, {
-            view: world.resource(RenderContext).viewBuffers[0],
-            position,
-            indices,
-            globalTransforms: globalTransformsBuffer,
-            globalTransformRows: eids,
-            maskEids: eids,
-            maskAttrs: attrs,
-            meshQuant: quant,
-            sceneDepth: depth.createView(),
-        });
-        const bound = world
-            .resource(outlineStateKey)
-            .gpu.maskOcclude!.with(group)
-            .withColorAttachment({
-                seed: { view: seed.createView() },
-                attr: { view: attr.createView() },
-            });
-        position.destroy();
-        indices.destroy();
-        globalTransformsBuffer.destroy();
-        eids.destroy();
-        attrs.destroy();
-        quant.destroy();
-        seed.destroy();
-        attr.destroy();
-        depth.destroy();
-        return bound;
-    });
-
-    precompile(world, "outline-mask-occlude-multisampled", () => {
-        const position = buf(8);
-        const indices = buf(4);
-        const globalTransformsBuffer = buf(48);
-        const eids = buf(4);
-        const attrs = buf(32);
-        const quant = buf(48);
-        const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
-        const depth = world.gpu.device.createTexture({
-            label: "outline-mask-warm-depth-msaa",
-            size: { width: 1, height: 1 },
-            format: DEPTH_FORMAT,
-            sampleCount: SAMPLE_COUNT,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-        });
-        const group = world.gpu.root.createBindGroup(maskLayoutOccludeMultisampled, {
-            view: world.resource(RenderContext).viewBuffers[0],
-            position,
-            indices,
-            globalTransforms: globalTransformsBuffer,
-            globalTransformRows: eids,
-            maskEids: eids,
-            maskAttrs: attrs,
-            meshQuant: quant,
-            sceneDepth: depth.createView(),
-        });
-        const bound = world
-            .resource(outlineStateKey)
-            .gpu.maskOccludeMultisampled!.with(group)
-            .withColorAttachment({
-                seed: { view: seed.createView() },
-                attr: { view: attr.createView() },
-            });
-        position.destroy();
-        indices.destroy();
-        globalTransformsBuffer.destroy();
-        eids.destroy();
-        attrs.destroy();
-        quant.destroy();
-        seed.destroy();
-        attr.destroy();
-        depth.destroy();
-        return bound;
-    });
+    // typegpu creates pipelines lazily, so an uncompiled pass would stall the first frame a highlight exists
+    const gpu = _outlineState.gpu;
+    precompile(world, "outline-jfa", () => gpu.jfa!);
+    precompile(world, "outline-composite", () => gpu.composite!);
+    precompile(world, "outline-mask", () => gpu.maskPlain!);
+    precompile(world, "outline-mask-occlude", () => gpu.maskOcclude!);
+    precompile(world, "outline-mask-occlude-multisampled", () => gpu.maskOccludeMultisampled!);
 }
 
 function disposeOutline(world: World): void {
