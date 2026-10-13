@@ -118,6 +118,7 @@ export type BindResource =
 interface PipelineState {
     compiledMaterials: Map<string, CompiledMaterial>;
     materialGroups: Map<string, MaterialGroupEntry>;
+    engineCaches: WeakMap<GPUBuffer, Map<number, GPUBindGroup>>;
     bgQuant: GPUBuffer | null;
     compiledBackgrounds: Map<string, CompiledBackground>;
 }
@@ -128,6 +129,7 @@ function createPipelineState(): PipelineState {
     return {
         compiledMaterials: new Map(),
         materialGroups: new Map(),
+        engineCaches: new WeakMap(),
         bgQuant: null,
         compiledBackgrounds: new Map(),
     };
@@ -150,6 +152,7 @@ export function resetPipelineCaches(world: World): void {
     pipelineState(world).compiledMaterials.clear();
     pipelineState(world).compiledBackgrounds.clear();
     pipelineState(world).materialGroups.clear();
+    pipelineState(world).engineCaches = new WeakMap();
     pipelineState(world).bgQuant?.destroy();
     pipelineState(world).bgQuant = null;
 }
@@ -202,11 +205,10 @@ export interface CompiledMaterial {
  * use the full layout/main stream because their fragment cutoff consumes material UVs. `point`/`cascade`
  * swap the `eids` lane to that atlas's re-gathered packed list. View rides group
  * 0 per slot, so this state is slot-independent — one
- * instance per draw. `engineCache` holds the draw's engine group-0 instances per view slot (lazy,
- * entry-scoped so a quant-buffer churn — a glTF import's
- * per-import buffers — drops the old groups with the overwritten entry, never a module map keyed on
- * buffer identity that grows for the app's life). Shadow-atlas passes resolve slot 0 through this cache,
- * using its ViewUniforms buffer as an unread placeholder: the atlas VS projects by its own tile viewProj. */
+ * instance per draw. `engineCache` holds the engine group-0 instances per view slot for the draw's
+ * mesh family, shared by every draw over that family's quant buffer ({@link engineCache}).
+ * Shadow-atlas passes resolve slot 0 through this cache, using its ViewUniforms buffer as an unread
+ * placeholder: the atlas VS projects by its own tile viewProj. */
 export type MaterialGroupEntry = {
     /** exact registry spec this group was built for — resource identity alone is insufficient when a
      * same-name surface replacement carries a different layout with the same buffers. */
@@ -262,10 +264,22 @@ export function setGroup(world: World, name: string, entry: MaterialGroupEntry):
     pipelineState(world).materialGroups.set(name, entry);
 }
 
+/** the engine group-0 cache for one meshQuant buffer, shared by every draw over it. Held weakly per
+ * world, so a churned quant buffer (a glTF import's) drops its groups with its last entry. */
+export function engineCache(world: World, quant: GPUBuffer): Map<number, GPUBindGroup> {
+    const caches = pipelineState(world).engineCaches;
+    let cache = caches.get(quant);
+    if (!cache) {
+        cache = new Map();
+        caches.set(quant, cache);
+    }
+    return cache;
+}
+
 /** the engine group-0 bind group for a view slot against one meshQuant buffer — the shared live
  * `engineLayout` instance a draw at that slot binds (frame / per-slot View / lighting /
- * light-cull outputs / materials / the dequant table), built lazily into the caller-owned `cache` (a
- * `MaterialGroupEntry.engineCache` or a `CompiledBackground.engineCache`). */
+ * light-cull outputs / materials / the dequant table), built lazily into `quant`'s
+ * {@link engineCache}. */
 const engineCacheLights = new WeakMap<Map<number, GPUBindGroup>, GPUBuffer>();
 
 export function engineGroup(
@@ -2126,8 +2140,7 @@ export interface CompiledBackground {
     // backdrop pick) and cached on the resolved resource identities; null for a binding-free background
     // (its empty layout never enters the pipeline layout, so no group is bound at 2)
     group2: { group: GPUBindGroup; resources: BindResource[] } | null;
-    // the background's engine group-0 instances per view slot (`engineGroup`'s caller-owned cache;
-    // the bg's quant fill is the stable per-build `bgQuant()`, so this never sees buffer churn)
+    // the background's engine group-0 instances per view slot: `bgQuant()`'s shared engineCache
     engineCache: Map<number, GPUBindGroup>;
 }
 
@@ -2177,7 +2190,7 @@ export function compileBackground(world: World, bg: AnyBackground): CompiledBack
         color,
         single,
         group2: null,
-        engineCache: new Map(),
+        engineCache: engineCache(world, bgQuant(world)),
     };
     pipelineState(world).compiledBackgrounds.set(bg.name, compiled);
     return compiled;

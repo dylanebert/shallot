@@ -103,6 +103,7 @@ import {
     clearGroups,
     compileBackground,
     compileMaterial,
+    engineCache,
     engineGroup,
     ensureSingle,
     getBackground,
@@ -506,7 +507,7 @@ function recordMaterial(
     if (cascadeList) resources.push(cascadeList);
 
     const root = world.gpu.root;
-    const engineCache = new Map<number, GPUBindGroup>();
+    const quant = root.unwrap(mesh.quant);
     const clip =
         draw.alphaPipelineKey === AlphaPipelineKey.Mask ||
         draw.alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage;
@@ -519,7 +520,7 @@ function recordMaterial(
     const entry: MaterialGroupEntry = {
         owner: surface,
         layout: surface.layout,
-        quant: root.unwrap(mesh.quant),
+        quant,
         color: surfaceGroup(world, resolved.values, surface.layout, mesh.vertices),
         transparentColor: null,
         transparentEids: null,
@@ -543,7 +544,7 @@ function recordMaterial(
         eids: resolved.values.eids
             ? root.unwrap(resolved.values.eids as TgpuBuffer<AnyData>)
             : null,
-        engineCache,
+        engineCache: engineCache(world, quant),
         resources,
         names: resolved.names,
         registries: resolved.registries,
