@@ -7,9 +7,8 @@
 // A scene opts in with one `Fog` singleton; the plugin requests core's shared depth lane for each standard camera
 // unless it carries `NoFog`. The march primitives + the Fog
 // uniform schema live in `./march`; the pipeline (the two bind-group layouts + the compute kernel
-// calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle
-// are the same TGSL source (extinction + clustered + directional in-scatter) — this file is the ECS/system/
-// plugin half: the component, the per-frame uniform pack, and the per-camera dispatch.
+// calling them) lives in `./pipeline`. This file is the ECS/system/plugin half: the component, the
+// per-frame uniform pack, and the per-camera dispatch.
 import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import {
     Camera,

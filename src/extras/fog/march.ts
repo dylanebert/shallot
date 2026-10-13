@@ -1,15 +1,7 @@
-// The fog raymarch. Each primitive is ONE TGSL function: the same source resolves to the WGSL the
-// production `FogSystem` splices, and runs on the CPU as the oracle the unit
-// tests pin the GPU to. There is no twin to keep in step.
+// The fog raymarch primitives, each one TGSL function the production `FogSystem` splices.
 //
 // S1 integrates **extinction** only (uniform haze + exponential height fog, Beer-Lambert per step); S2 adds
 // **in-scatter** — each clustered point/spot source and each opted-in directional — on the same march loop.
-//
-// Two things here are deliberately NOT TGSL. `heightOpticalDepth` is the analytic closed form the march is
-// validated against, so it has no shader twin by construction. `fogInScatter` / `fogDirectionalInScatter` are the
-// single-light march oracles: the production shader fuses that loop with the per-step light gather + shadow
-// lookups, so there is no WGSL function to collapse onto — but they call the TGSL primitives below, never a
-// second copy of the arithmetic.
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -31,8 +23,8 @@ const PI = Math.PI;
 /**
  * the `Fog` uniform's layout, the one source of truth for it: `color.rgb` is the linear haze color, `march`
  * is (density, heightBase, heightFalloff, jitter), `extra` is (steps, anisotropy g, absorption, gain). f32
- * throughout — the shader reads `extra.x` as `u32`. `FOG_BYTES` / `FOG_FLOATS` / `packFog`'s write indices
- * all derive from it.
+ * throughout — the shader reads `extra.x` as `u32`. `FOG_FLOATS` and `packFog`'s write indices derive
+ * from it.
  */
 export const FogGpu = d
     .struct({
@@ -44,11 +36,8 @@ export const FogGpu = d
     // `Gpu` suffix so it doesn't collide with the `Fog` component, the `PointLight` / `PointLightGpu` shape
     .$name("Fog");
 
-/** the `Fog` uniform's byte size, from {@link FogGpu} — a consumer binding it sizes to match. */
-export const FOG_BYTES = d.sizeOf(FogGpu);
-
 /** the `Fog` uniform's f32 count: the length of `packFog`'s staging array. */
-export const FOG_FLOATS = FOG_BYTES / 4;
+export const FOG_FLOATS = d.sizeOf(FogGpu) / 4;
 
 // the f32 index of one field, from the schema — `packFog` fills a Float32Array, so the schema stays the one
 // source for where each value lands (a reordered struct moves the writes with it)
@@ -111,8 +100,7 @@ export const fogComposite = tgpu.fn(
 /**
  * reconstruct a fragment's world position from its screen `uv` (0..1, y-down) + ndc `depth` (0..1) through
  * the camera's inverse view-projection. The matrix is a parameter, not a `view` global, so the function
- * stays pure and its round-trip against a `viewProj` is a unit test — the production march calls it with
- * `view.invViewProj`.
+ * stays pure; the production march calls it with `view.invViewProj`.
  */
 export const reconstructWorld = tgpu.fn(
     [d.mat4x4f, d.vec2f, d.f32],
@@ -177,110 +165,3 @@ export const directionalInScatter = tgpu.fn(
     "use gpu";
     return std.mul(lightColor, henyeyGreenstein(g, std.dot(dir, std.neg(travelDirection))));
 });
-
-// ---- the CPU-only tier: the analytic ground truth + the two single-light march oracles ----
-
-/** the closed-form optical depth τ of exponential height fog along `[originY, dirY]·dist`: the analytic
- * integral `∫₀ᴸ density·exp(-falloff·(originY + dirY·t - base)) dt` the midpoint march converges to. The
- * unit test's ground truth (march vs this within the midpoint-rule error bound), so it has no shader twin. */
-export function heightOpticalDepth(
-    originY: number,
-    dirY: number,
-    dist: number,
-    density: number,
-    base: number,
-    falloff: number,
-): number {
-    const a = density * Math.exp(-falloff * (originY - base));
-    const k = falloff * dirY;
-    if (Math.abs(k) < 1e-9) return a * dist;
-    return (a * (1 - Math.exp(-k * dist))) / k;
-}
-
-/** the atmosphere knobs the in-scatter integral reads: `density`/`base`/`falloff` the same extinction height
- * fog as {@link fogTransmittance}, `absorption` the absorbed fraction (scattering albedo = 1 − absorption),
- * `gain` the combined scatter intensity (scattering · scatterIntensity), `anisotropy` the HG `g`. */
-export interface FogScatter {
-    density: number;
-    base: number;
-    falloff: number;
-    absorption: number;
-    gain: number;
-    anisotropy: number;
-}
-
-/** the single-light in-scatter march: the oracle the fog probe's in-scatter readback is pinned to (the
- * production shader sums this over a froxel's volumetric lights; the probe + this run one light). Marches
- * the same midpoint samples as {@link fogTransmittance}, weighting each step's in-scatter by the
- * transmittance to the step start and integrating the source over the step **analytically**
- * (Hillaire/Frostbite energy-conserving form): the in-scatter over a step of optical depth `σ_t·ds` is
- * `albedo·(1−e^{−σ_t·ds})·gain·source`, the within-step extinction folded in, the analytic twin of the
- * haze composite's `(1−T)`, not a `source·ds` rectangle. Makes shaft brightness step-count-stable. */
-export function fogInScatter(
-    origin: d.v3f,
-    dir: d.v3f,
-    dist: number,
-    fog: FogScatter,
-    light: d.Infer<typeof PointLightGpu>,
-    steps: number,
-    sampleOffset: number,
-): [number, number, number] {
-    const ds = dist / steps;
-    const albedo = 1 - fog.absorption;
-    let trans = 1;
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    for (let i = 0; i < steps; i++) {
-        const t = (i + sampleOffset) * ds;
-        const p = d.vec3f(origin.x + dir.x * t, origin.y + dir.y * t, origin.z + dir.z * t);
-        const dens = fogDensity(p, fog.density, fog.base, fog.falloff);
-        const sampleTrans = Math.exp(-dens * ds);
-        const c = inScatterContribution(light, p, dir, fog.anisotropy);
-        const w = trans * albedo * fog.gain * (1 - sampleTrans);
-        r += w * c.x;
-        g += w * c.y;
-        b += w * c.z;
-        trans *= sampleTrans;
-    }
-    return [r, g, b];
-}
-
-/** One directional light's normalized travel direction and linear RGB radiance at a fog sample. */
-export interface FogDirectionalLight {
-    direction: d.v3f;
-    color: d.v3f;
-}
-
-/** A single-directional in-scatter march, weighted by transmittance and integrated over each step. */
-export function fogDirectionalInScatter(
-    origin: d.v3f,
-    dir: d.v3f,
-    dist: number,
-    fog: FogScatter,
-    light: FogDirectionalLight,
-    steps: number,
-    sampleOffset: number,
-): [number, number, number] {
-    const ds = dist / steps;
-    const albedo = 1 - fog.absorption;
-    const c = directionalInScatter(light.color, light.direction, dir, fog.anisotropy);
-    let trans = 1;
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    for (let i = 0; i < steps; i++) {
-        const t = (i + sampleOffset) * ds;
-        // the full point, not just its y lane: the fused production march samples `origin + dir·t` and
-        // fogDensity reads `.y` off that, so the f32 rounding has to happen on the same value
-        const p = d.vec3f(origin.x + dir.x * t, origin.y + dir.y * t, origin.z + dir.z * t);
-        const dens = fogDensity(p, fog.density, fog.base, fog.falloff);
-        const sampleTrans = Math.exp(-dens * ds);
-        const w = trans * albedo * fog.gain * (1 - sampleTrans);
-        r += w * c.x;
-        g += w * c.y;
-        b += w * c.z;
-        trans *= sampleTrans;
-    }
-    return [r, g, b];
-}

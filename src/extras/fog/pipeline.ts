@@ -1,8 +1,7 @@
 // The fog march's pipeline: the two bind-group layouts (group 0 — the per-camera scene/depth/output
 // + the ViewUniforms/Fog uniforms; group 1 — the camera-independent light + shadow service) and the compute kernel
 // over them. The march primitives themselves (`fogDensity`, `fogTransmittance`, the in-scatter terms) are
-// pure TGSL fns in `./march`, spliced by both this pipeline and the CPU oracles — this file is the
-// pipeline/layout half `march.ts`'s header describes.
+// pure TGSL fns in `./march`, spliced by this pipeline.
 //
 // Six of the ten group-1 bindings (`pointAtlas`/`shadowSamp`/`pointShadows`/`tileRects` for the point path,
 // `shadowMap`/`sunShadow` for the sun path) are read only inside standard's relocatable shadow receivers
@@ -145,7 +144,7 @@ function createFogKernel(
                 }
 
                 // reconstruct the camera→fragment segment from the near plane to the fragment depth (reverse-Z:
-                // near = ndc depth 1.0) — the same round-trip `reconstructWorld`'s own unit test pins
+                // near = ndc depth 1.0)
                 const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim));
                 const nearWorld = reconstructWorld(layout.$.view.invViewProj, uv, 1);
                 const fragWorld = reconstructWorld(layout.$.view.invViewProj, uv, depth);
