@@ -13,6 +13,9 @@ export interface LookPalette {
         greyboxPerch: Rgba;
         embedded: Rgba;
         trim?: Rgba;
+        routeGround?: Rgba;
+        routeTower?: Rgba;
+        routePerch?: Rgba;
     };
     textColor: number;
     ui: {
@@ -99,6 +102,9 @@ export const MATERIAL_ROLES = {
     greyboxPerch: "foreground",
     embedded: "accent",
     trim: "background",
+    routeGround: "foreground",
+    routeTower: "foreground",
+    routePerch: "foreground",
 } satisfies Record<keyof LookPalette["materials"], ColorRole>;
 
 // The original three candidates share lightness and chroma; only their hues change.
@@ -111,6 +117,9 @@ export const CANDIDATES = {
 export function candidateColors(hues: (typeof CANDIDATES)[keyof typeof CANDIDATES]) {
     return {
         ground: [0.7, 0.025, hues.neutral],
+        routeGround: [0.565, 0.025, hues.neutral],
+        routeTower: [0.727, 0.025, hues.neutral],
+        routePerch: [0.757, 0.025, hues.neutral],
         dark: [0.335, 0.002, hues.neutral],
         ink: [0.92, 0.03, hues.neutral],
         primary: [0.7, 0.1, hues.accents[0]],
@@ -138,6 +147,9 @@ function candidate(hues: (typeof CANDIDATES)[keyof typeof CANDIDATES]): LookPale
             greyboxTower: dark,
             greyboxPerch: ground,
             embedded: [r, g, b, 0.72],
+            routeGround: linearFromOklch(colors.routeGround),
+            routeTower: linearFromOklch(colors.routeTower),
+            routePerch: linearFromOklch(colors.routePerch),
         },
         textColor: Number.parseInt(ink.slice(1), 16),
         ui: { panel: colorHex(dark), ink, border: colorHex(ground) },

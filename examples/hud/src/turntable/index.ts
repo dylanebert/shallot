@@ -39,7 +39,7 @@ function makeScene(world: World): void {
     world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 3200 });
 
     const camera = world.create();
-    world.add(camera, Camera);
+    world.add(camera, Camera, { clearColor: 0x1c1917 });
     world.add(camera, StandardRenderer);
     world.add(camera, Orbit, { distance: 5, yaw: 0.7, pitch: 0.32 });
     world.add(camera, Transform);
@@ -51,7 +51,10 @@ function makeScene(world: World): void {
         cube,
         MeshMaterial,
         materials.add(
-            StandardMaterial({ baseColor: [0.94, 0.58, 0.27, 1], perceptualRoughness: 0.38 }),
+            StandardMaterial({
+                baseColor: [0.621407, 0.26791815, 0.11756791, 1],
+                perceptualRoughness: 0.38,
+            }),
         ),
     );
     world.add(cube, Transform, { translation: [0, 0.15, 0, 0] });
@@ -63,7 +66,10 @@ function makeScene(world: World): void {
         ground,
         MeshMaterial,
         materials.add(
-            StandardMaterial({ baseColor: [0.19, 0.23, 0.3, 1], perceptualRoughness: 0.82 }),
+            StandardMaterial({
+                baseColor: [0.38498746, 0.3374035, 0.26791645, 1],
+                perceptualRoughness: 0.82,
+            }),
         ),
     );
     world.add(ground, Transform, { translation: [0, -0.62, 0, 0], scale: [8, 0.2, 8, 0] });

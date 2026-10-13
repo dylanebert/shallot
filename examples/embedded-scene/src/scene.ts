@@ -19,7 +19,7 @@ import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 
 export function authorWorld(world: World): void {
     const ambient = world.resource(GlobalAmbientLight);
-    ambient.color = 0xd0dcec;
+    ambient.color = 0xd8e4ff;
     ambient.brightness = 499.04787;
     const sun = world.create();
     const sunRotation = lookAtRotation(0, 0, 0, -0.4, -1, -0.55);
@@ -27,7 +27,7 @@ export function authorWorld(world: World): void {
         rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
     });
     world.add(sun, DirectionalLight, {
-        color: 0xfff4e0,
+        color: 0xffe8cc,
         illuminance: 3449.1713,
     });
     const camera = world.create();
@@ -42,7 +42,7 @@ export function authorWorld(world: World): void {
     world.add(cube, Transform, { translation: [0, 0, 0, 0] });
     const material = world
         .resource(Materials)
-        .add(StandardMaterial({ baseColor: [0.85, 0.55, 0.35, 0.72] }), {
+        .add(StandardMaterial({ baseColor: [0.66982564, 0.23598303, 0.21147319, 0.72] }), {
             alphaMode: AlphaMode.Blend,
         });
     world.add(cube, MeshMaterial, material);

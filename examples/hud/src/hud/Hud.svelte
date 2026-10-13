@@ -39,8 +39,8 @@
         gap: 4px 16px;
         padding: 10px 12px;
         border-radius: 6px;
-        background: rgba(14, 17, 20, 0.72);
-        color: #fff;
+        background: #373635;
+        color: #efe3cf;
         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
     dd {

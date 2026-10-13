@@ -35,11 +35,11 @@ import {
 } from "@dylanebert/shallot";
 
 type Vec4 = readonly [number, number, number, number];
-const GROUND_COLOR = [0.15, 0.19, 0.2, 1] as const;
-const STEP_COLOR = [0.28, 0.34, 0.34, 1] as const;
-const LIFT_COLOR = [0.83, 0.53, 0.24, 1] as const;
-const TOWER_COLOR = [0.34, 0.4, 0.39, 1] as const;
-const PERCH_COLOR = [0.39, 0.45, 0.43, 1] as const;
+const GROUND_COLOR = [0.2078536, 0.17658735, 0.13200411, 1] as const;
+const STEP_COLOR = [0.38498746, 0.3374035, 0.26791645, 1] as const;
+const LIFT_COLOR = [0.41696574, 0.35106622, 0.08533862, 1] as const;
+const TOWER_COLOR = [0.42949409, 0.37823729, 0.3031091, 1] as const;
+const PERCH_COLOR = [0.48282395, 0.42732621, 0.34567192, 1] as const;
 
 function block(
     world: World,
@@ -67,7 +67,7 @@ export const Route: Resource<{ entities: ReturnType<typeof route> | null }> = {
 
 export function route(world: World) {
     const ambient = world.resource(GlobalAmbientLight);
-    ambient.color = 0xd6dfdf;
+    ambient.color = 0xd8e4ff;
     ambient.brightness = 738.59085;
     const sun = world.create();
     const sunRotation = lookAtRotation(0, 0, 0, -0.45, -1, -0.6);
@@ -75,7 +75,7 @@ export function route(world: World) {
         rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
     });
     world.add(sun, DirectionalLight, {
-        color: 0xffe8c7,
+        color: 0xffe8cc,
         illuminance: 3449.1713,
         maximumDistance: 50,
         depthBias: 0.0005,
@@ -84,7 +84,7 @@ export function route(world: World) {
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const eye = world.create();
     // Minecraft Java's default vertical field of view.
-    world.add(eye, Camera, { fov: 70 });
+    world.add(eye, Camera, { fov: 70, clearColor: 0x1c1917 });
     world.add(eye, StandardRenderer);
     world.add(eye, Transform, { translation: [0, 2.7, 12, 0] });
     const player = world.create();
@@ -198,8 +198,8 @@ function mountControls(world: World): void {
     panel.dataset.recipeControls = "";
     panel.style.cssText =
         "position:absolute;top:20px;left:20px;pointer-events:none;padding:10px 12px;" +
-        "display:grid;row-gap:6px;column-gap:16px;border:1px solid rgba(255,255,255,0.12);" +
-        "border-radius:6px;background:rgba(14,17,20,0.72);color:#ffffff;" +
+        "display:grid;row-gap:6px;column-gap:16px;border:1px solid #a79d8d;" +
+        "border-radius:6px;background:#373635;color:#efe3cf;" +
         "font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
     for (const [control, action] of [
         ["WASD", "Move"],
@@ -213,7 +213,7 @@ function mountControls(world: World): void {
         for (const text of [control, action]) {
             const cell = document.createElement("span");
             cell.textContent = text;
-            cell.style.color = "#ffffff";
+            cell.style.color = "#efe3cf";
             row.append(cell);
         }
         panel.append(row);

@@ -115,8 +115,8 @@ test("report production frame GPU time for first-person and a 10k-instance scene
     });
     const stress = (world: World) => {
         const camera = world.create();
-        world.add(camera, Camera);
-        world.add(camera, AmbientLight, { brightness: 798.4766 });
+        world.add(camera, Camera, { clearColor: 0x1c1917 });
+        world.add(camera, AmbientLight, { color: 0xd8e4ff, brightness: 798.4766 });
         world.add(camera, StandardRenderer);
         world.add(camera, Transform, { translation: [0, 0, 90, 0] });
         for (let i = 0; i < 10000; i++) {
@@ -128,7 +128,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
             });
             const material = world
                 .resource(Materials)
-                .add(StandardMaterial({ baseColor: [0.3, 0.6, 0.8, 1] }));
+                .add(StandardMaterial({ baseColor: [0.15270135, 0.36628627, 0.70424525, 1] }));
             world.add(eid, MeshMaterial, material);
         }
     };

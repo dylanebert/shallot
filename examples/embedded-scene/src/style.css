@@ -1,5 +1,5 @@
 :root {
-    --bg: #141210;
+    --bg: #1c1917;
     --bg2: #1c1917;
     --ink: #f0e6d6;
     --frame-error: #cd6559;
@@ -80,7 +80,7 @@ body {
     width: 228px;
     max-width: 100%;
     height: 4px;
-    background: var(--bg);
+    background: #373635;
 }
 
 [data-shallot-bootstrap][data-state="error"] {

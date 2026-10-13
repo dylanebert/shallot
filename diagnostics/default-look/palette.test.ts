@@ -45,6 +45,24 @@ test("dev-orange-neutral keeps accents but gives large surfaces current's mid-ne
     expect(palette.ui).toEqual(orange.ui);
 });
 
+test("dev-orange route neutrals keep the palette hue and distinguish each route surface from ground", () => {
+    const materials = PALETTES["dev-orange"].materials;
+    const ground = oklchFromLinear(materials.routeGround!)[0];
+    for (const [role, separation] of [
+        ["greyboxStep", 0.13461559834486136],
+        ["routeTower", 0.1613200129072455],
+        ["routePerch", 0.19105840600223323],
+    ] as const) {
+        const [l, c, h] = oklchFromLinear(materials[role]!);
+        expect(h).toBeCloseTo(80, 3);
+        expect(c).toBeCloseTo(0.025, 6);
+        expect(l - ground).toBeGreaterThanOrEqual(separation);
+    }
+    const [, c, h] = oklchFromLinear(materials.routeGround!);
+    expect(h).toBeCloseTo(80, 3);
+    expect(c).toBeCloseTo(0.025, 6);
+});
+
 test("all five candidates meet hard bounds while the report retains theme-reference violations", () => {
     for (const [name, palette] of Object.entries(PALETTES)) {
         if (name === "current") continue;
