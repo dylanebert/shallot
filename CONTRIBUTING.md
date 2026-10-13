@@ -171,6 +171,7 @@ bun run test --path-ignore-patterns '**/*.gpu.test.ts' # cheap, no-device tier
 bun test src/core/input/devices.test.ts # selected cheap subject
 bun test src/core/mesh/attributes.gpu.test.ts # selected GPU subject
 bun test scripts/check-imports.node.ts # selected Node subject
+bun test ./scripts/check-pins.node.ts # dependency and Bun pin consistency
 bun test ./scripts/check-tooling.node.ts # generated tooling freshness
 cargo fmt --check
 cargo clippy -p shallot-physics --all-targets -- -D warnings
