@@ -94,17 +94,14 @@ class ProfileImpl implements Profile {
     // sampling it every display frame would multiply-count).
     drainCount = 0;
 
-    readonly buffers = new Set<GPUBuffer>();
-    readonly textures = new Set<GPUTexture>();
     readonly sizes = new Map<object, ResourceAlloc>();
     bufferBytes = 0;
     textureBytes = 0;
 
     private _compileEarliest = Infinity;
     private _compileLatest = -Infinity;
-    // occurrence count of MISSING compile labels only — every unlabeled pipeline would otherwise
-    // collapse into one "(unlabeled)" `compile` entry, undercounting (`recordCompile`)
-    private readonly _compileSeen = new Map<string, number>();
+    // Unlabelled compile records need unique map keys.
+    private _unlabeledCompileCount = 0;
 
     private _querySet: GPUQuerySet | null = null;
     private _resolveBuffer: GPUBuffer | null = null;
@@ -190,13 +187,7 @@ class ProfileImpl implements Profile {
 
         const origCreateBuffer = device.createBuffer.bind(device);
         device.createBuffer = (desc) =>
-            this.trackAlloc(
-                origCreateBuffer(desc),
-                desc.label ?? "",
-                desc.size,
-                this.buffers,
-                "buffer",
-            );
+            this.trackAlloc(origCreateBuffer(desc), desc.label ?? "", desc.size, "buffer");
         this._restorePatches.push(() => {
             device.createBuffer = origCreateBuffer;
         });
@@ -207,31 +198,26 @@ class ProfileImpl implements Profile {
                 origCreateTexture(desc),
                 desc.label ?? "",
                 textureByteSize(desc),
-                this.textures,
                 "texture",
             );
         this._restorePatches.push(() => {
             device.createTexture = origCreateTexture;
         });
-
     }
 
     private trackAlloc<T extends GPUBuffer | GPUTexture>(
         obj: T,
         label: string,
         bytes: number,
-        set: Set<T>,
         kind: "buffer" | "texture",
     ): T {
         const totals = kind === "buffer" ? "bufferBytes" : "textureBytes";
         const origDestroy = obj.destroy.bind(obj);
         const allocation: ResourceAlloc = { label, bytes, kind, destroy: origDestroy };
-        set.add(obj);
         this[totals] += bytes;
         this.sizes.set(obj, allocation);
         (obj as { destroy: () => void }).destroy = () => {
             if (this.sizes.get(obj) !== allocation) return;
-            set.delete(obj);
             this[totals] -= bytes;
             this.sizes.delete(obj);
             origDestroy();
@@ -254,8 +240,6 @@ class ProfileImpl implements Profile {
         for (const [resource, allocation] of this.sizes) {
             (resource as { destroy: () => void }).destroy = allocation.destroy;
         }
-        this.buffers.clear();
-        this.textures.clear();
         this.sizes.clear();
         this.cpu.clear();
         this.gpu.clear();
@@ -382,24 +366,12 @@ class ProfileImpl implements Profile {
 
     /** @internal — also the `world.gpu.precompiled` sink for typed pipelines. */
     recordCompile(label: string, start: number, end: number): void {
-        // A named label overwrites — this is what lets a typed pipeline's own sync-constructor patch
-        // (fires first, inside the precompile forcer's dispatch, near-zero) and that same forcer's later
-        // `world.gpu.precompiled` completion measurement (an error-scope wrap, not a fence — only
-        // compile-timing attribution is reported here) converge on ONE entry under
-        // the pipeline's own name, rather than the forcer's more-accurate span landing as a spurious
-        // second row beside its own near-zero stub. Two genuinely different pipelines colliding on the
-        // same explicit label lose one entry the same way — accepted, since a label is meant to be a
-        // stable per-pipeline diagnostic key, not disambiguated.
-        //
-        // A MISSING label carries no such naming discipline, so it disambiguates instead: several
-        // anonymous pipelines are common (nobody labeled them), and collapsing them under one
-        // "(unlabeled)" key would silently undercount every one past the first.
+        // Repeated named labels share an entry; unlabelled compile records get distinct keys.
         let key: string;
         if (label) {
             key = label;
         } else {
-            const seen = (this._compileSeen.get("") ?? 0) + 1;
-            this._compileSeen.set("", seen);
+            const seen = ++this._unlabeledCompileCount;
             key = seen === 1 ? "(unlabeled)" : `(unlabeled)#${seen}`;
         }
         this.compile.set(key, end - start);
@@ -419,8 +391,6 @@ function texelBytes(format: string): number {
     if (format.startsWith("r32")) return 4;
     if (format.startsWith("r16")) return 2;
     if (format.startsWith("r8")) return 1;
-    if (format === "depth24plus" || format === "depth32float" || format === "depth24plus-stencil8")
-        return 4;
     return 4;
 }
 
@@ -901,7 +871,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
             ftEl.textContent = (emaFt > 0 ? emaFt.toFixed(1) : "--") + " ms";
             warnEl.textContent = data.throttled ? "throttled" : "";
 
-            const winFence = fenceCount > 0 ? fenceSum / fenceCount : data.fenceWaitMs;
+            const winFence = fenceSum / fenceCount;
             fenceSum = 0;
             fenceCount = 0;
             emaFence = emaFence < 0 ? winFence : emaFence + HERO_ALPHA * (winFence - emaFence);
@@ -956,7 +926,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
                     startupPool,
                     data.compileEntries
                         .sort((a, b) => b[1] - a[1])
-                        .map(([label, ms]) => [label || "(unnamed)", ms.toFixed(1) + " ms"]),
+                        .map(([label, ms]) => [label, ms.toFixed(1) + " ms"]),
                 );
                 startupFrozen = true;
             }
@@ -997,11 +967,11 @@ function collectStats(s: World, profile: ProfileImpl): OverlayData {
         gapMs: Math.max(0, rawMs - total - fenceWaitMs),
         fixedSteps: t.fixedSteps,
         throttled: t.throttled,
-        pending: s.gpu.pending() ?? 0,
+        pending: s.gpu.pending(),
         memBuffers: profile.bufferBytes / MB,
         memTextures: profile.textureBytes / MB,
         memTotal: (profile.bufferBytes + profile.textureBytes) / MB,
-        memCount: profile.buffers.size + profile.textures.size,
+        memCount: profile.sizes.size,
         memDetails: [...profile.sizes.values()].sort((a, b) => b.bytes - a.bytes),
         compileEntries: [...profile.compile.entries()],
         compileTotalMs: profile.compileMs,
@@ -1045,8 +1015,7 @@ const ProfileFrameBeginSystem: System = {
     update(world: World) {
         const profiler = world.resource(Profile) as ProfileImpl;
         profiler.drain();
-        const compute = world.gpu;
-        if (compute) profiler.resolve(world);
+        profiler.resolve(world);
         profiler.reset();
     },
 };
