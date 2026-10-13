@@ -1,6 +1,6 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, expectStartupAlert, type Page, test } from "../tests/browser-fixture";
+import { expect, expectStartupAlert, type Page, releasing, test } from "../tests/browser-fixture";
 
 const CAPTURE_ENTRY = resolve(
     dirname(fileURLToPath(import.meta.url)),
@@ -369,24 +369,25 @@ test("a real GPU process crash after presentation reaches the failure screen", a
     );
 
     const cdp = await browser.newBrowserCDPSession();
-    try {
-        await cdp.send("Browser.crashGpuProcess");
+    await releasing(
+        async () => {
+            await cdp.send("Browser.crashGpuProcess");
 
-        const failure = page.locator(overlaySelector);
-        await page.waitForFunction(
-            (selector) =>
-                document.querySelector(selector)?.textContent?.includes("Something went wrong"),
-            overlaySelector,
-        );
-        await expect(failure).toContainText("Something went wrong");
-        await expect(failure).toContainText(
-            "An error occurred in the app. The details below can help identify the cause.",
-        );
-        await expect(failure).toContainText("GPU device lost unknown:");
-        await expect(failure).toContainText("Reloading the page may resolve this issue.");
-    } finally {
-        await cdp.detach();
-    }
+            const failure = page.locator(overlaySelector);
+            await page.waitForFunction(
+                (selector) =>
+                    document.querySelector(selector)?.textContent?.includes("Something went wrong"),
+                overlaySelector,
+            );
+            await expect(failure).toContainText("Something went wrong");
+            await expect(failure).toContainText(
+                "An error occurred in the app. The details below can help identify the cause.",
+            );
+            await expect(failure).toContainText("GPU device lost unknown:");
+            await expect(failure).toContainText("Reloading the page may resolve this issue.");
+        },
+        () => cdp.detach(),
+    );
 });
 
 test("a missing browser adapter offers the browser-specific remedy", async ({ page }) => {
@@ -728,90 +729,97 @@ test("loading progress stays in its owned frame and reaches the bar; its descrip
 
     await page.goto("/");
     await page.waitForFunction(() => typeof window.__releaseLoading === "function");
-    try {
-        const held = await page.evaluate((selector) => {
-            const frame = document.querySelector<HTMLElement>("#frame")!;
-            const line = document.querySelector<HTMLElement>(".description")!;
-            const overlay = document.querySelector<HTMLElement>(selector);
-            const rect = overlay?.getBoundingClientRect();
-            const bounds = frame.getBoundingClientRect();
-            const lineRect = line.getBoundingClientRect();
-            return {
-                owned: overlay?.parentElement === frame,
-                inside:
-                    rect !== undefined &&
-                    rect.left >= bounds.left &&
-                    rect.top >= bounds.top &&
-                    rect.right <= bounds.right &&
-                    rect.bottom <= bounds.bottom,
-                transparent:
-                    overlay !== null &&
-                    getComputedStyle(overlay).backgroundColor === "rgba(0, 0, 0, 0)",
-                lineHit:
-                    document.elementFromPoint(
-                        lineRect.left + lineRect.width / 2,
-                        lineRect.top + lineRect.height / 2,
-                    ) === line,
-                canvasVisible: document.querySelector("#scene")!.classList.contains("visible"),
-                canvasOpacity: getComputedStyle(document.querySelector("#scene")!).opacity,
-                progressBar: [...(overlay?.querySelectorAll<HTMLElement>("div") ?? [])].some(
-                    (node) =>
-                        node.style.height === "100%" &&
-                        node.parentElement?.style.overflow === "hidden",
-                ),
-                device: window.__subjectDeviceRecord,
-            };
-        }, overlaySelector);
-        expect(held.owned, "loading overlay is a child of its scene frame").toBe(true);
-        expect(held.inside, "loading overlay remains inside the scene frame").toBe(true);
-        expect(held.transparent, "minimal loading overlay remains transparent").toBe(true);
-        expect(held.lineHit, "the description line remains the hit target during loading").toBe(
-            true,
-        );
-        expect(held.canvasVisible, "the canvas is not revealed before its first frame").toBe(false);
-        expect(held.canvasOpacity, "the canvas remains hidden before its first frame").toBe("0");
-        expect(held.progressBar, "the real page owns a progress bar during loading").toBe(true);
-        expect(held.device?.identity, "the subject adapter identity was recorded").toBeTruthy();
-        const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
-        expect(held.device?.requestedFeatures).toEqual(floorFeatures);
-        expect(held.device?.features).toEqual(floorFeatures);
-        expect(held.device?.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
-        expect(held.device?.limits.maxStorageBuffersPerShaderStage).toBe(8);
-        console.log(`Browser WebGPU floor: ${JSON.stringify(held.device)}`);
+    await releasing(
+        async () => {
+            const held = await page.evaluate((selector) => {
+                const frame = document.querySelector<HTMLElement>("#frame")!;
+                const line = document.querySelector<HTMLElement>(".description")!;
+                const overlay = document.querySelector<HTMLElement>(selector);
+                const rect = overlay?.getBoundingClientRect();
+                const bounds = frame.getBoundingClientRect();
+                const lineRect = line.getBoundingClientRect();
+                return {
+                    owned: overlay?.parentElement === frame,
+                    inside:
+                        rect !== undefined &&
+                        rect.left >= bounds.left &&
+                        rect.top >= bounds.top &&
+                        rect.right <= bounds.right &&
+                        rect.bottom <= bounds.bottom,
+                    transparent:
+                        overlay !== null &&
+                        getComputedStyle(overlay).backgroundColor === "rgba(0, 0, 0, 0)",
+                    lineHit:
+                        document.elementFromPoint(
+                            lineRect.left + lineRect.width / 2,
+                            lineRect.top + lineRect.height / 2,
+                        ) === line,
+                    canvasVisible: document.querySelector("#scene")!.classList.contains("visible"),
+                    canvasOpacity: getComputedStyle(document.querySelector("#scene")!).opacity,
+                    progressBar: [...(overlay?.querySelectorAll<HTMLElement>("div") ?? [])].some(
+                        (node) =>
+                            node.style.height === "100%" &&
+                            node.parentElement?.style.overflow === "hidden",
+                    ),
+                    device: window.__subjectDeviceRecord,
+                };
+            }, overlaySelector);
+            expect(held.owned, "loading overlay is a child of its scene frame").toBe(true);
+            expect(held.inside, "loading overlay remains inside the scene frame").toBe(true);
+            expect(held.transparent, "minimal loading overlay remains transparent").toBe(true);
+            expect(held.lineHit, "the description line remains the hit target during loading").toBe(
+                true,
+            );
+            expect(held.canvasVisible, "the canvas is not revealed before its first frame").toBe(
+                false,
+            );
+            expect(held.canvasOpacity, "the canvas remains hidden before its first frame").toBe(
+                "0",
+            );
+            expect(held.progressBar, "the real page owns a progress bar during loading").toBe(true);
+            expect(held.device?.identity, "the subject adapter identity was recorded").toBeTruthy();
+            const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
+            expect(held.device?.requestedFeatures).toEqual(floorFeatures);
+            expect(held.device?.features).toEqual(floorFeatures);
+            expect(held.device?.requestedLimits).not.toHaveProperty(
+                "maxStorageBuffersPerShaderStage",
+            );
+            expect(held.device?.limits.maxStorageBuffersPerShaderStage).toBe(8);
+            console.log(`Browser WebGPU floor: ${JSON.stringify(held.device)}`);
 
-        // Chromium 153.0.8010.12 can composite an opacity-0 WebGPU canvas into Linux headless screenshots:
-        // this measured 2.18% frame background locally and 2.14% in CI. Omit only the canvas in this
-        // page-composition shot; its hidden class and opacity are checked separately above.
-        const loadingScreenshot = await page.screenshot({
-            style: "#scene { visibility: hidden !important; }",
-        });
-        const loadingPixels = await inspectPageScreenshot(
-            page,
-            loadingScreenshot.toString("base64"),
-        );
-        expect(
-            loadingPixels.inkPixels,
-            "the held screenshot contains more than 20 ink-coloured description pixels",
-        ).toBeGreaterThan(20);
-        expect(
-            loadingPixels.progressPixels,
-            "the screenshot shows the loading bar over the frame void",
-        ).toBeGreaterThan(100);
-        expect(
-            loadingPixels.frameBackgroundFraction,
-            "the screenshot with the canvas omitted leaves at least 97 percent of its frame at --bg2",
-        ).toBeGreaterThanOrEqual(0.97);
-        expect(
-            loadingPixels.pageBackgroundError,
-            "the page background matches --bg outside the scene",
-        ).toBeLessThanOrEqual(2);
-        expect(
-            loadingPixels.adjacentBackgroundError,
-            "the page immediately outside the frame remains --bg",
-        ).toBeLessThanOrEqual(2);
-    } finally {
-        await page.evaluate(() => window.__releaseLoading?.());
-    }
+            // Chromium 153.0.8010.12 can composite an opacity-0 WebGPU canvas into Linux headless screenshots:
+            // this measured 2.18% frame background locally and 2.14% in CI. Omit only the canvas in this
+            // page-composition shot; its hidden class and opacity are checked separately above.
+            const loadingScreenshot = await page.screenshot({
+                style: "#scene { visibility: hidden !important; }",
+            });
+            const loadingPixels = await inspectPageScreenshot(
+                page,
+                loadingScreenshot.toString("base64"),
+            );
+            expect(
+                loadingPixels.inkPixels,
+                "the held screenshot contains more than 20 ink-coloured description pixels",
+            ).toBeGreaterThan(20);
+            expect(
+                loadingPixels.progressPixels,
+                "the screenshot shows the loading bar over the frame void",
+            ).toBeGreaterThan(100);
+            expect(
+                loadingPixels.frameBackgroundFraction,
+                "the screenshot with the canvas omitted leaves at least 97 percent of its frame at --bg2",
+            ).toBeGreaterThanOrEqual(0.97);
+            expect(
+                loadingPixels.pageBackgroundError,
+                "the page background matches --bg outside the scene",
+            ).toBeLessThanOrEqual(2);
+            expect(
+                loadingPixels.adjacentBackgroundError,
+                "the page immediately outside the frame remains --bg",
+            ).toBeLessThanOrEqual(2);
+        },
+        () => page.evaluate(() => window.__releaseLoading?.()),
+    );
 
     await page.waitForFunction((selector) => !document.querySelector(selector), overlaySelector);
     const widths = await page.evaluate(() => window.__progressWidths ?? []);
@@ -859,47 +867,54 @@ test("the canvas remains hidden after loading cleanup until its first submitted 
 
     await page.goto("/");
     await page.waitForFunction(() => window.__firstFrameFenceReady || window.__revealBeforeFence);
-    try {
-        const revealBeforeFence = await page.evaluate(() => window.__revealBeforeFence ?? false);
-        expect(
-            revealBeforeFence,
-            "the canvas is not revealed before the submitted-frame fence",
-        ).toBe(false);
-        await page.waitForFunction(() => typeof window.__releaseFirstFrameFence === "function");
-        await page.waitForFunction(
-            (selector) => !document.querySelector(selector),
-            overlaySelector,
-        );
-        await page.evaluate(() => window.__releaseFirstFrameFence?.());
-        await page.waitForFunction(() => typeof window.__releaseReveal === "function");
-        const before = await page.locator("#scene").evaluate((canvas) => ({
-            visible: canvas.classList.contains("visible"),
-            opacity: getComputedStyle(canvas).opacity,
-        }));
-        const beforeFrameScreenshot = await page.screenshot();
-        const beforeFramePixels = await inspectPageScreenshot(
-            page,
-            beforeFrameScreenshot.toString("base64"),
-        );
-        expect(before.visible, "the canvas remains hidden before its first submitted frame").toBe(
-            false,
-        );
-        expect(before.opacity, "the cleared page shows the frame background before reveal").toBe(
-            "0",
-        );
-        expect(beforeFramePixels.overlayPresent, "loading cleanup removes its frame overlay").toBe(
-            false,
-        );
-        expect(
-            beforeFramePixels.frameBackgroundFraction,
-            "the canvas stays hidden over frame --bg2 before reveal",
-        ).toBeGreaterThanOrEqual(0.99);
-    } finally {
-        await page.evaluate(() => {
-            window.__releaseFirstFrameFence?.();
-            window.__releaseReveal?.();
-        });
-    }
+    await releasing(
+        async () => {
+            const revealBeforeFence = await page.evaluate(
+                () => window.__revealBeforeFence ?? false,
+            );
+            expect(
+                revealBeforeFence,
+                "the canvas is not revealed before the submitted-frame fence",
+            ).toBe(false);
+            await page.waitForFunction(() => typeof window.__releaseFirstFrameFence === "function");
+            await page.waitForFunction(
+                (selector) => !document.querySelector(selector),
+                overlaySelector,
+            );
+            await page.evaluate(() => window.__releaseFirstFrameFence?.());
+            await page.waitForFunction(() => typeof window.__releaseReveal === "function");
+            const before = await page.locator("#scene").evaluate((canvas) => ({
+                visible: canvas.classList.contains("visible"),
+                opacity: getComputedStyle(canvas).opacity,
+            }));
+            const beforeFrameScreenshot = await page.screenshot();
+            const beforeFramePixels = await inspectPageScreenshot(
+                page,
+                beforeFrameScreenshot.toString("base64"),
+            );
+            expect(
+                before.visible,
+                "the canvas remains hidden before its first submitted frame",
+            ).toBe(false);
+            expect(
+                before.opacity,
+                "the cleared page shows the frame background before reveal",
+            ).toBe("0");
+            expect(
+                beforeFramePixels.overlayPresent,
+                "loading cleanup removes its frame overlay",
+            ).toBe(false);
+            expect(
+                beforeFramePixels.frameBackgroundFraction,
+                "the canvas stays hidden over frame --bg2 before reveal",
+            ).toBeGreaterThanOrEqual(0.99);
+        },
+        () =>
+            page.evaluate(() => {
+                window.__releaseFirstFrameFence?.();
+                window.__releaseReveal?.();
+            }),
+    );
     await expect(page.locator("#scene")).toHaveClass(/visible/);
 });
 

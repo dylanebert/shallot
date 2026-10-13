@@ -22,6 +22,22 @@ export function expectStartupAlert(page: Page, pattern: RegExp): void {
     expectFailure(page, "startup alert", pattern);
 }
 
+/** Run `body`, then `release`; a release that fails after the body failed never replaces the body's error. */
+export async function releasing<T>(
+    body: () => Promise<T>,
+    release: () => Promise<unknown>,
+): Promise<T> {
+    let result: T;
+    try {
+        result = await body();
+    } catch (error) {
+        await release().catch(() => {});
+        throw error;
+    }
+    await release();
+    return result;
+}
+
 export const test = base.extend({
     page: async ({ page }, use) => {
         const failures = expectedFailures.get(page) ?? [];
@@ -51,8 +67,19 @@ export const test = base.extend({
             if (!consumeExpected("startup alert", notice)) fail(`startup alert: ${notice}`);
         };
 
+        // A crashed page or a lost browser closes the page under the test, whose own error then reads only
+        // "Target page, context or browser has been closed"; record which one did it.
+        const onCrash = (): void => {
+            unexpected.push("page crash");
+        };
+        const onDisconnected = (): void => {
+            unexpected.push("browser disconnected");
+        };
+        const browser = page.context().browser();
         page.on("pageerror", onPageError);
         page.on("console", onConsole);
+        page.on("crash", onCrash);
+        browser?.on("disconnected", onDisconnected);
         await page.addInitScript((prefix) => {
             const reported = new WeakSet<HTMLElement>();
             const inspect = (): void => {
@@ -82,6 +109,8 @@ export const test = base.extend({
         } finally {
             page.off("pageerror", onPageError);
             page.off("console", onConsole);
+            page.off("crash", onCrash);
+            browser?.off("disconnected", onDisconnected);
             expectedFailures.delete(page);
         }
         await closing;

@@ -76,6 +76,20 @@ async function changedFraction(page: Page, first: string, second: string): Promi
     );
 }
 
+/** Hold `key` through `body`; a release that fails after the body failed never replaces the body's error. */
+async function holding<T>(page: Page, key: string, body: () => Promise<T>): Promise<T> {
+    await page.keyboard.down(key);
+    let result: T;
+    try {
+        result = await body();
+    } catch (error) {
+        await page.keyboard.up(key).catch(() => {});
+        throw error;
+    }
+    await page.keyboard.up(key);
+    return result;
+}
+
 async function captureUntilChange(
     page: Page,
     baseline: string,
@@ -198,13 +212,10 @@ test("the preview serves its isolated page and focused canvas input presents mov
     expect(await outside.evaluate((element) => document.activeElement === element)).toBe(true);
     expect(await canvas.evaluate((element) => document.activeElement !== element)).toBe(true);
     await captureCanvasFrame(page, "outside-before");
-    await page.keyboard.down("w");
-    try {
+    await holding(page, "w", async () => {
         await page.waitForTimeout(700);
         await captureCanvasFrame(page, "outside-after");
-    } finally {
-        await page.keyboard.up("w");
-    }
+    });
     const unfocusedChange = await changedFraction(page, "outside-before", "outside-after");
     const inputSignal = Math.max(idleChange * 3, 0.02);
     expect(
@@ -219,17 +230,10 @@ test("the preview serves its isolated page and focused canvas input presents mov
         "the canvas regains browser focus before input",
     ).toBe(true);
     await captureCanvasFrame(page, "focused-before");
-    await page.keyboard.down("w");
-    let focusedChange = 0;
-    let focusedSamples = 0;
-    try {
+    const { change: focusedChange, samples: focusedSamples } = await holding(page, "w", () => {
         const remaining = Math.max(0, testInfo.timeout - testInfo.duration);
-        const result = await captureUntilChange(page, "focused-before", inputSignal, remaining);
-        focusedChange = result.change;
-        focusedSamples = result.samples;
-    } finally {
-        await page.keyboard.up("w");
-    }
+        return captureUntilChange(page, "focused-before", inputSignal, remaining);
+    });
     expect(
         focusedChange,
         `a focused W press changes the rendered scene beyond idle motion (idle ${idleChange}, unfocused ${unfocusedChange}, threshold ${inputSignal}, samples ${focusedSamples})`,
