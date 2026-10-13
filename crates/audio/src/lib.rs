@@ -14,6 +14,9 @@ mod oscillator;
 mod sample;
 mod waveshaper;
 
+#[cfg(all(test, feature = "count-alloc"))]
+mod counting_allocator;
+
 use core::cell::UnsafeCell;
 use core::f32::consts::TAU;
 use delay::DelayLine;
@@ -52,6 +55,14 @@ struct Voice {
     spatial: bool,
     spatial_snap: bool,
     one_shot: bool,
+    clip_voice: bool,
+    clip_id: u32,
+    clip_position: f64,
+    clip_looping: bool,
+    clip_playing: bool,
+    clip_stopping: bool,
+    clip_gain: f32,
+    clip_gain_target: f32,
     params: [f32; MAX_PARAMS],
     smooth_params: [f32; MAX_PARAMS],
     node_states: [NodeState; MAX_NODES],
@@ -90,6 +101,14 @@ fn default_voice() -> Voice {
         spatial: false,
         spatial_snap: true,
         one_shot: false,
+        clip_voice: false,
+        clip_id: 0,
+        clip_position: 0.0,
+        clip_looping: false,
+        clip_playing: false,
+        clip_stopping: false,
+        clip_gain: 0.0,
+        clip_gain_target: 0.0,
         params: [0.0; MAX_PARAMS],
         smooth_params: [0.0; MAX_PARAMS],
         node_states: [NodeState::None; MAX_NODES],
@@ -548,6 +567,8 @@ pub struct AudioEngine {
     // can't recover it). Test-only gain-staging instrumentation, never shipped.
     #[cfg(test)]
     pre_tanh_peak: f32,
+    #[cfg(test)]
+    pre_limiter_output: [f32; BLOCK_SIZE * 2],
 }
 
 /// Dual dot product of `window` (>= [`HRTF_TAPS`] samples) against two reversed
@@ -695,6 +716,8 @@ impl AudioEngine {
             sorted_indices: [0; MAX_VOICES],
             #[cfg(test)]
             pre_tanh_peak: 0.0,
+            #[cfg(test)]
+            pre_limiter_output: [0.0; BLOCK_SIZE * 2],
         };
         e.speakers = hrtf::init_speakers(sample_rate);
         e.hrtf_norm = 1.0 / NUM_SPEAKERS as f32;
@@ -751,6 +774,9 @@ impl AudioEngine {
     // voices); provisional — validated behaviorally (a louder voice outranks a
     // quieter one at equal distance), not against a reference.
     fn voice_loudness(&self, vi: usize) -> f32 {
+        if self.voices[vi].clip_voice {
+            return self.voices[vi].clip_gain;
+        }
         let inst_idx = self.voices[vi].instrument as usize;
         if inst_idx >= MAX_INSTRUMENTS {
             return 1.0;
@@ -1017,6 +1043,8 @@ impl AudioEngine {
         }
         let v = &mut self.voices[idx];
         if active != 0 && !v.active {
+            v.clip_voice = false;
+            v.virtual_voice = false;
             v.smooth_params = v.params;
             v.spatial_snap = true;
             v.distance = v.max_distance;
@@ -1035,6 +1063,11 @@ impl AudioEngine {
         }
         if active == 0 {
             v.gate_off_countdown = -1;
+            v.clip_playing = false;
+            v.clip_stopping = false;
+            if v.clip_voice {
+                v.fade_samples = 0;
+            }
         }
         v.active = active != 0;
     }
@@ -1045,6 +1078,13 @@ impl AudioEngine {
             return 0;
         }
         let v = &mut self.voices[idx];
+        if v.clip_voice {
+            return if !v.clip_playing && (!v.clip_stopping || v.fade_samples == 0) {
+                1
+            } else {
+                0
+            };
+        }
         if !v.active {
             return 0;
         }
@@ -1075,6 +1115,67 @@ impl AudioEngine {
             return 0;
         }
         1
+    }
+
+    pub fn play_clip(&mut self, voice_id: u32, sample_id: u32, looping: bool, gain: f32) -> bool {
+        let vi = voice_id as usize;
+        let si = sample_id as usize;
+        if vi >= MAX_VOICES || si >= MAX_SAMPLES || !gain.is_finite() {
+            return false;
+        }
+        let sample = &self.samples[si];
+        if sample.count == 0 || sample.channels[0].is_empty() {
+            return false;
+        }
+
+        self.voice_active(voice_id, 1);
+        let voice = &mut self.voices[vi];
+        voice.clip_voice = true;
+        voice.clip_id = sample_id;
+        voice.clip_position = 0.0;
+        voice.clip_looping = looping;
+        voice.clip_playing = true;
+        voice.clip_stopping = false;
+        voice.clip_gain = 0.0;
+        voice.clip_gain_target = gain.max(0.0);
+        voice.air_lp = 0.0;
+        voice.occ_gain = 1.0;
+        voice.occ_gain_target = 1.0;
+        voice.refl_gain = 0.0;
+        voice.refl_gain_target = 0.0;
+        voice.fade_samples = FADE_SAMPLES;
+        voice.virtual_voice = false;
+        true
+    }
+
+    pub fn stop_clip(&mut self, voice_id: u32) {
+        let idx = voice_id as usize;
+        if idx >= MAX_VOICES {
+            return;
+        }
+        let voice = &mut self.voices[idx];
+        if voice.clip_voice && voice.clip_playing {
+            voice.clip_stopping = true;
+            voice.fade_samples = -FADE_SAMPLES;
+        }
+    }
+
+    pub fn set_clip_gain(&mut self, voice_id: u32, gain: f32) {
+        let idx = voice_id as usize;
+        if idx >= MAX_VOICES || !gain.is_finite() {
+            return;
+        }
+        let voice = &mut self.voices[idx];
+        if voice.clip_voice {
+            voice.clip_gain_target = gain.max(0.0);
+        }
+    }
+
+    pub fn set_clip_loop(&mut self, voice_id: u32, looping: bool) {
+        let idx = voice_id as usize;
+        if idx < MAX_VOICES && self.voices[idx].clip_voice {
+            self.voices[idx].clip_looping = looping;
+        }
     }
 
     pub fn set_instrument(&mut self, id: u32, node_count: u32, output_buf: u32, output_buf_r: u32) {
@@ -1187,6 +1288,7 @@ impl AudioEngine {
             node_types[ni] = self.instruments[ii].nodes[ni].node_type;
         }
         let v = &mut self.voices[vi];
+        v.clip_voice = false;
         v.instrument = instrument_id as u8;
         v.params = [0.0; MAX_PARAMS];
         v.smooth_params = [0.0; MAX_PARAMS];
@@ -1571,6 +1673,58 @@ impl AudioEngine {
         }
     }
 
+    fn synthesize_clip_voice(&mut self, vi: usize) -> bool {
+        let smooth_coeff = self.param_smooth_coeff;
+        let virtual_skip = self.voices[vi].virtual_voice && self.voices[vi].fade_samples >= 0;
+        let samples = &self.samples;
+        let voice = &mut self.voices[vi];
+        voice.buffers[0].fill(0.0);
+        voice.buffers[1].fill(0.0);
+
+        let sample = &samples[voice.clip_id as usize];
+        let left = &sample.channels[0];
+        if !voice.clip_playing || left.is_empty() {
+            voice.clip_playing = false;
+            return virtual_skip;
+        }
+
+        let right = if sample.count > 1 {
+            &sample.channels[1]
+        } else {
+            left
+        };
+        for i in 0..BLOCK_SIZE {
+            voice.clip_gain += smooth_coeff * (voice.clip_gain_target - voice.clip_gain);
+            if virtual_skip {
+                voice.clip_position += 1.0;
+            } else if voice.clip_looping {
+                let len = left.len() as f64;
+                voice.clip_position = voice.clip_position.rem_euclid(len);
+                voice.buffers[0][i] =
+                    sample::sample_read_loop(left, voice.clip_position) * voice.clip_gain;
+                voice.buffers[1][i] =
+                    sample::sample_read_loop(right, voice.clip_position) * voice.clip_gain;
+                voice.clip_position += 1.0;
+            } else if voice.clip_position < left.len() as f64 {
+                voice.buffers[0][i] =
+                    sample::sample_read(left, voice.clip_position) * voice.clip_gain;
+                voice.buffers[1][i] =
+                    sample::sample_read(right, voice.clip_position) * voice.clip_gain;
+                voice.clip_position += 1.0;
+            } else {
+                voice.clip_playing = false;
+                break;
+            }
+
+            if voice.clip_looping {
+                voice.clip_position = voice.clip_position.rem_euclid(left.len() as f64);
+            } else if voice.clip_position >= left.len() as f64 {
+                voice.clip_playing = false;
+            }
+        }
+        virtual_skip
+    }
+
     fn synthesize_voices(&mut self) {
         for vi in 0..MAX_VOICES {
             if !self.voices[vi].active {
@@ -1579,112 +1733,149 @@ impl AudioEngine {
 
             let evt_count = self.voice_event_counts[vi];
             let inst_idx = self.voices[vi].instrument as usize;
-            if inst_idx >= MAX_INSTRUMENTS {
-                continue;
-            }
-
-            if self.voices[vi].virtual_voice && self.voices[vi].fade_samples >= 0 {
-                for ei in 0..evt_count {
-                    let evt = self.voice_events[vi][ei];
-                    self.apply_voice_event(vi, &evt);
-                }
-                tick_envelopes_only(
-                    &self.instruments[inst_idx],
-                    &mut self.voices[vi].node_states,
-                    &self.voices[vi].params,
-                    self.sample_rate,
-                );
-                let mut one_shot_gate_off = false;
-                if self.voices[vi].one_shot {
-                    let nc = self.instruments[inst_idx].node_count as usize;
-                    for ni in 0..nc {
-                        if let NodeState::Envelope { stage, .. } = &self.voices[vi].node_states[ni]
-                        {
-                            if *stage == EnvStage::Sustain {
-                                one_shot_gate_off = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if one_shot_gate_off {
-                    self.gate_off_voice(vi);
-                }
-                if self.voices[vi].gate_off_countdown >= 0 {
-                    self.voices[vi].gate_off_countdown -= BLOCK_SIZE as i32;
-                    if self.voices[vi].gate_off_countdown <= 0 {
-                        self.voices[vi].gate_off_countdown = -1;
-                        self.gate_off_voice(vi);
-                    }
-                }
-                continue;
-            }
-
-            if evt_count == 0 {
-                let voice = &mut self.voices[vi];
-                let inst = &self.instruments[inst_idx];
-
-                synthesize_graph_voice(
-                    inst,
-                    &mut voice.node_states,
-                    &voice.params,
-                    &mut voice.smooth_params,
-                    &mut voice.buffers,
-                    self.sample_rate,
-                    self.param_smooth_coeff,
-                    &*self.wavetable,
-                    &mut voice.delay_lines,
-                    &self.samples,
-                    0,
-                    BLOCK_SIZE,
-                );
-
-                let mut one_shot_gate_off = false;
-                if voice.one_shot {
-                    let nc = self.instruments[inst_idx].node_count as usize;
-                    for ni in 0..nc {
-                        if let NodeState::Envelope { stage, .. } = &voice.node_states[ni] {
-                            if *stage == EnvStage::Sustain {
-                                one_shot_gate_off = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if one_shot_gate_off {
-                    self.gate_off_voice(vi);
-                }
-                let voice = &mut self.voices[vi];
-
-                if voice.gate_off_countdown >= 0 {
-                    voice.gate_off_countdown -= BLOCK_SIZE as i32;
-                    if voice.gate_off_countdown <= 0 {
-                        voice.gate_off_countdown = -1;
-                        let nc = self.instruments[inst_idx].node_count as usize;
-                        for ni in 0..nc {
-                            voice.node_states[ni].gate_off();
-                        }
-                    }
+            if self.voices[vi].clip_voice {
+                if self.synthesize_clip_voice(vi) {
+                    continue;
                 }
             } else {
-                let mut events_sorted: [VoiceBlockEvent; MAX_VOICE_EVENTS_PER_BLOCK] =
-                    self.voice_events[vi];
-                for i in 1..evt_count {
-                    let key = events_sorted[i];
-                    let mut j = i;
-                    while j > 0 && events_sorted[j - 1].sample_offset > key.sample_offset {
-                        events_sorted[j] = events_sorted[j - 1];
-                        j -= 1;
-                    }
-                    events_sorted[j] = key;
+                if inst_idx >= MAX_INSTRUMENTS {
+                    continue;
                 }
 
-                let mut pos = 0usize;
-                for ei in 0..evt_count {
-                    let evt = events_sorted[ei];
-                    let offset = evt.sample_offset.min(BLOCK_SIZE);
+                if self.voices[vi].virtual_voice && self.voices[vi].fade_samples >= 0 {
+                    for ei in 0..evt_count {
+                        let evt = self.voice_events[vi][ei];
+                        self.apply_voice_event(vi, &evt);
+                    }
+                    tick_envelopes_only(
+                        &self.instruments[inst_idx],
+                        &mut self.voices[vi].node_states,
+                        &self.voices[vi].params,
+                        self.sample_rate,
+                    );
+                    let mut one_shot_gate_off = false;
+                    if self.voices[vi].one_shot {
+                        let nc = self.instruments[inst_idx].node_count as usize;
+                        for ni in 0..nc {
+                            if let NodeState::Envelope { stage, .. } =
+                                &self.voices[vi].node_states[ni]
+                            {
+                                if *stage == EnvStage::Sustain {
+                                    one_shot_gate_off = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if one_shot_gate_off {
+                        self.gate_off_voice(vi);
+                    }
+                    if self.voices[vi].gate_off_countdown >= 0 {
+                        self.voices[vi].gate_off_countdown -= BLOCK_SIZE as i32;
+                        if self.voices[vi].gate_off_countdown <= 0 {
+                            self.voices[vi].gate_off_countdown = -1;
+                            self.gate_off_voice(vi);
+                        }
+                    }
+                    continue;
+                }
 
-                    if offset > pos {
+                if evt_count == 0 {
+                    let voice = &mut self.voices[vi];
+                    let inst = &self.instruments[inst_idx];
+
+                    synthesize_graph_voice(
+                        inst,
+                        &mut voice.node_states,
+                        &voice.params,
+                        &mut voice.smooth_params,
+                        &mut voice.buffers,
+                        self.sample_rate,
+                        self.param_smooth_coeff,
+                        &*self.wavetable,
+                        &mut voice.delay_lines,
+                        &self.samples,
+                        0,
+                        BLOCK_SIZE,
+                    );
+
+                    let mut one_shot_gate_off = false;
+                    if voice.one_shot {
+                        let nc = self.instruments[inst_idx].node_count as usize;
+                        for ni in 0..nc {
+                            if let NodeState::Envelope { stage, .. } = &voice.node_states[ni] {
+                                if *stage == EnvStage::Sustain {
+                                    one_shot_gate_off = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if one_shot_gate_off {
+                        self.gate_off_voice(vi);
+                    }
+                    let voice = &mut self.voices[vi];
+
+                    if voice.gate_off_countdown >= 0 {
+                        voice.gate_off_countdown -= BLOCK_SIZE as i32;
+                        if voice.gate_off_countdown <= 0 {
+                            voice.gate_off_countdown = -1;
+                            let nc = self.instruments[inst_idx].node_count as usize;
+                            for ni in 0..nc {
+                                voice.node_states[ni].gate_off();
+                            }
+                        }
+                    }
+                } else {
+                    let mut events_sorted: [VoiceBlockEvent; MAX_VOICE_EVENTS_PER_BLOCK] =
+                        self.voice_events[vi];
+                    for i in 1..evt_count {
+                        let key = events_sorted[i];
+                        let mut j = i;
+                        while j > 0 && events_sorted[j - 1].sample_offset > key.sample_offset {
+                            events_sorted[j] = events_sorted[j - 1];
+                            j -= 1;
+                        }
+                        events_sorted[j] = key;
+                    }
+
+                    let mut pos = 0usize;
+                    for ei in 0..evt_count {
+                        let evt = events_sorted[ei];
+                        let offset = evt.sample_offset.min(BLOCK_SIZE);
+
+                        if offset > pos {
+                            let voice = &mut self.voices[vi];
+                            let inst = &self.instruments[inst_idx];
+                            synthesize_graph_voice(
+                                inst,
+                                &mut voice.node_states,
+                                &voice.params,
+                                &mut voice.smooth_params,
+                                &mut voice.buffers,
+                                self.sample_rate,
+                                self.param_smooth_coeff,
+                                &*self.wavetable,
+                                &mut voice.delay_lines,
+                                &self.samples,
+                                pos,
+                                offset - pos,
+                            );
+
+                            if self.voices[vi].gate_off_countdown >= 0 {
+                                self.voices[vi].gate_off_countdown -= (offset - pos) as i32;
+                                if self.voices[vi].gate_off_countdown <= 0 {
+                                    self.voices[vi].gate_off_countdown = -1;
+                                    self.gate_off_voice(vi);
+                                }
+                            }
+                        }
+
+                        self.apply_voice_event(vi, &evt);
+                        pos = offset;
+                    }
+
+                    if pos < BLOCK_SIZE {
                         let voice = &mut self.voices[vi];
                         let inst = &self.instruments[inst_idx];
                         synthesize_graph_voice(
@@ -1699,53 +1890,31 @@ impl AudioEngine {
                             &mut voice.delay_lines,
                             &self.samples,
                             pos,
-                            offset - pos,
+                            BLOCK_SIZE - pos,
                         );
 
                         if self.voices[vi].gate_off_countdown >= 0 {
-                            self.voices[vi].gate_off_countdown -= (offset - pos) as i32;
+                            self.voices[vi].gate_off_countdown -= (BLOCK_SIZE - pos) as i32;
                             if self.voices[vi].gate_off_countdown <= 0 {
                                 self.voices[vi].gate_off_countdown = -1;
                                 self.gate_off_voice(vi);
                             }
                         }
                     }
-
-                    self.apply_voice_event(vi, &evt);
-                    pos = offset;
-                }
-
-                if pos < BLOCK_SIZE {
-                    let voice = &mut self.voices[vi];
-                    let inst = &self.instruments[inst_idx];
-                    synthesize_graph_voice(
-                        inst,
-                        &mut voice.node_states,
-                        &voice.params,
-                        &mut voice.smooth_params,
-                        &mut voice.buffers,
-                        self.sample_rate,
-                        self.param_smooth_coeff,
-                        &*self.wavetable,
-                        &mut voice.delay_lines,
-                        &self.samples,
-                        pos,
-                        BLOCK_SIZE - pos,
-                    );
-
-                    if self.voices[vi].gate_off_countdown >= 0 {
-                        self.voices[vi].gate_off_countdown -= (BLOCK_SIZE - pos) as i32;
-                        if self.voices[vi].gate_off_countdown <= 0 {
-                            self.voices[vi].gate_off_countdown = -1;
-                            self.gate_off_voice(vi);
-                        }
-                    }
                 }
             }
 
             let voice = &mut self.voices[vi];
-            let output_buf = self.instruments[inst_idx].output_buf as usize;
-            let output_buf_r = self.instruments[inst_idx].output_buf_r as usize;
+            let output_buf = if voice.clip_voice {
+                0
+            } else {
+                self.instruments[inst_idx].output_buf as usize
+            };
+            let output_buf_r = if voice.clip_voice {
+                1
+            } else {
+                self.instruments[inst_idx].output_buf_r as usize
+            };
 
             if voice.spatial {
                 self.active_spatial_count += 1;
@@ -1819,12 +1988,14 @@ impl AudioEngine {
                 }
 
                 let mut refl_block = [0.0f32; BLOCK_SIZE];
-                if let Some(conv) = &mut voice.convolver {
-                    conv.process(&raw_block, &mut refl_block, &self.fft_plan);
-                    for i in 0..BLOCK_SIZE {
-                        let t = i as f32 * inv_block;
-                        let rg = refl_gain_start + (refl_gain_end - refl_gain_start) * t;
-                        refl_block[i] *= rg;
+                if !voice.clip_voice {
+                    if let Some(conv) = &mut voice.convolver {
+                        conv.process(&raw_block, &mut refl_block, &self.fft_plan);
+                        for i in 0..BLOCK_SIZE {
+                            let t = i as f32 * inv_block;
+                            let rg = refl_gain_start + (refl_gain_end - refl_gain_start) * t;
+                            refl_block[i] *= rg;
+                        }
                     }
                 }
 
@@ -1886,6 +2057,11 @@ impl AudioEngine {
                     self.output[i] += voice.buffers[output_buf][i];
                     self.output[BLOCK_SIZE + i] += voice.buffers[output_buf_r][i];
                 }
+            }
+
+            if voice.clip_voice && voice.clip_stopping && voice.fade_samples == 0 {
+                voice.clip_playing = false;
+                voice.clip_stopping = false;
             }
         }
     }
@@ -2020,6 +2196,7 @@ impl AudioEngine {
         #[cfg(test)]
         {
             self.pre_tanh_peak = self.output.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+            self.pre_limiter_output.copy_from_slice(&self.output);
         }
         // Master soft-clip limiter: tanh is the deliberate final choice for a
         // realtime audio thread — zero lookahead/latency, smooth odd-harmonic
@@ -2112,6 +2289,26 @@ pub extern "C" fn audio_set_voice_spatial(voice_id: u32, spatial: u32) {
 #[no_mangle]
 pub extern "C" fn audio_set_voice_one_shot(voice_id: u32, one_shot: u32) {
     engine().set_voice_one_shot(voice_id, one_shot);
+}
+
+#[no_mangle]
+pub extern "C" fn audio_play_clip(voice_id: u32, sample_id: u32, looping: u32, gain: f32) {
+    engine().play_clip(voice_id, sample_id, looping != 0, gain);
+}
+
+#[no_mangle]
+pub extern "C" fn audio_stop_clip(voice_id: u32) {
+    engine().stop_clip(voice_id);
+}
+
+#[no_mangle]
+pub extern "C" fn audio_set_clip_gain(voice_id: u32, gain: f32) {
+    engine().set_clip_gain(voice_id, gain);
+}
+
+#[no_mangle]
+pub extern "C" fn audio_set_clip_loop(voice_id: u32, looping: u32) {
+    engine().set_clip_loop(voice_id, looping != 0);
 }
 
 #[no_mangle]
@@ -2360,6 +2557,226 @@ mod tests {
         assert_eq!(e.samples[3].count, 0);
         assert_eq!(e.samples[3].channels[0].len(), 0);
         assert_eq!(e.samples[3].channels[1].len(), 0);
+    }
+
+    fn upload_mono(e: &mut AudioEngine, sample_id: u32, pcm: &[f32]) {
+        let ptr = e.sample_alloc(sample_id, 0, 1, pcm.len() as u32);
+        assert!(!ptr.is_null());
+        unsafe { core::ptr::copy_nonoverlapping(pcm.as_ptr(), ptr, pcm.len()) };
+    }
+
+    fn clip_output(e: &AudioEngine, channel: usize) -> &[f32] {
+        let start = channel * BLOCK_SIZE;
+        &e.pre_limiter_output[start..start + BLOCK_SIZE]
+    }
+
+    #[test]
+    fn direct_clip_voice_at_unity_gain_reproduces_pcm_before_limiter() {
+        let mut e = new_engine(48000.0);
+        let pcm: Vec<f32> = (0..20_000)
+            .map(|i| ((i * 37 % 101) as f32 - 50.0) * 0.006)
+            .collect();
+        upload_mono(&mut e, 0, &pcm);
+        assert!(e.play_clip(0, 0, false, 1.0));
+
+        process_blocks(&mut e, 32);
+        let source_start = e.voices[0].clip_position as usize;
+        e.process();
+        let out = clip_output(&e, 0);
+        for (i, &sample) in out.iter().enumerate() {
+            assert!(
+                (sample - pcm[source_start + i]).abs() < 1e-4,
+                "direct clip differs before limiter at sample {}: {} vs {}",
+                source_start + i,
+                sample,
+                pcm[source_start + i]
+            );
+            assert_eq!(clip_output(&e, 1)[i], sample);
+        }
+    }
+
+    #[test]
+    fn clip_start_fades_in_and_gain_changes_smoothly() {
+        let mut e = new_engine(48000.0);
+        upload_mono(&mut e, 0, &[0.4; 4096]);
+        assert!(e.play_clip(0, 0, true, 1.0));
+        e.process();
+        let first = clip_output(&e, 0);
+        assert!(first[0].abs() < 1e-7, "new clip should start at silence");
+        assert!(first[BLOCK_SIZE - 1] > first[0]);
+
+        process_blocks(&mut e, 16);
+        e.set_clip_gain(0, 0.0);
+        e.process();
+        let changed_gain = clip_output(&e, 0);
+        assert!(
+            changed_gain[0] > changed_gain[BLOCK_SIZE - 1],
+            "gain target should move smoothly rather than step"
+        );
+        assert!(changed_gain[BLOCK_SIZE - 1] > 0.0);
+    }
+
+    #[test]
+    fn looping_clip_wraps_without_gap_or_repeated_sample() {
+        let mut e = new_engine(48000.0);
+        let pcm = [0.1, 0.2, 0.3, 0.4, 0.5];
+        upload_mono(&mut e, 0, &pcm);
+        assert!(e.play_clip(0, 0, true, 1.0));
+        process_blocks(&mut e, 32);
+
+        let start = e.voices[0].clip_position as usize;
+        e.process();
+        for (i, &sample) in clip_output(&e, 0).iter().enumerate() {
+            let expected = pcm[(start + i) % pcm.len()];
+            assert!(
+                (sample - expected).abs() < 1e-5,
+                "loop sample {}: got {sample}, expected {expected}",
+                start + i
+            );
+        }
+    }
+
+    #[test]
+    fn stopped_clip_fades_to_silence_within_fade_and_reports_idle() {
+        let mut e = new_engine(48000.0);
+        upload_mono(&mut e, 0, &[0.3; 1024]);
+        assert!(e.play_clip(0, 0, true, 1.0));
+        process_blocks(&mut e, 32);
+
+        e.stop_clip(0);
+        let mut stopped = [0.0; BLOCK_SIZE * 2];
+        for block in 0..2 {
+            e.process();
+            stopped[block * BLOCK_SIZE..(block + 1) * BLOCK_SIZE]
+                .copy_from_slice(clip_output(&e, 0));
+        }
+        assert!(stopped[0] > 0.25, "stop should begin at audible level");
+        assert!(
+            stopped[FADE_SAMPLES as usize - 1].abs() < 0.002,
+            "fade should approach silence at its final sample: {}",
+            stopped[FADE_SAMPLES as usize - 1]
+        );
+        assert!(
+            stopped[FADE_SAMPLES as usize..]
+                .iter()
+                .all(|sample| sample.abs() < 1e-7),
+            "clip should be silent after {FADE_SAMPLES} fade samples"
+        );
+        assert_eq!(e.voice_idle(0), 1, "stopped clip should report idle");
+    }
+
+    fn positional_clip_energy(azimuth: f32) -> (f32, f32) {
+        let mut e = new_engine(48000.0);
+        upload_mono(&mut e, 0, &[0.2; 1024]);
+        assert!(e.play_clip(0, 0, true, 1.0));
+        e.set_voice_spatial(0, 1);
+        e.set_spatial(0, azimuth, 0.0, 1.0, 1.0, 100.0, 1.0);
+
+        let (mut left, mut right) = (0.0f32, 0.0f32);
+        for block in 0..20 {
+            e.process();
+            if block >= 5 {
+                left += clip_output(&e, 0)
+                    .iter()
+                    .map(|sample| sample * sample)
+                    .sum::<f32>();
+                right += clip_output(&e, 1)
+                    .iter()
+                    .map(|sample| sample * sample)
+                    .sum::<f32>();
+            }
+        }
+        (left, right)
+    }
+
+    #[test]
+    fn positional_clip_pans_left_and_mirrors_right() {
+        let (left_at_left, right_at_left) = positional_clip_energy(-core::f32::consts::FRAC_PI_2);
+        let (left_at_right, right_at_right) = positional_clip_energy(core::f32::consts::FRAC_PI_2);
+        assert!(
+            left_at_left > right_at_left,
+            "left source should favor left ear: {left_at_left} vs {right_at_left}"
+        );
+        assert!(
+            right_at_right > left_at_right,
+            "right source should favor right ear: {right_at_right} vs {left_at_right}"
+        );
+    }
+
+    #[test]
+    fn beyond_24_audible_clip_voices_virtualize_quietest_and_return_with_fade() {
+        let mut e = new_engine(48000.0);
+        upload_mono(&mut e, 0, &[0.1; 4096]);
+        for voice_id in 0..25 {
+            assert!(e.play_clip(voice_id, 0, true, 1.0));
+            e.set_voice_spatial(voice_id, 1);
+            let distance = if voice_id == 24 { 100.0 } else { 1.0 };
+            e.set_spatial(voice_id, 0.0, 0.0, distance, 1.0, 100.0, 1.0);
+        }
+        process_blocks(&mut e, 3);
+        assert!(
+            e.voices[24].virtual_voice,
+            "the quietest clip should be virtual"
+        );
+        assert!(
+            (0..24).all(|voice_id| !e.voices[voice_id].virtual_voice),
+            "the 24 most audible clips should retain real voices"
+        );
+
+        e.set_spatial(0, 0.0, 0.0, 100.0, 1.0, 100.0, 1.0);
+        e.set_spatial(24, 0.0, 0.0, 1.0, 1.0, 100.0, 1.0);
+        for _ in 0..20 {
+            e.process();
+            if !e.voices[24].virtual_voice {
+                break;
+            }
+        }
+        assert!(
+            !e.voices[24].virtual_voice,
+            "near clip should regain a real voice"
+        );
+        assert!(
+            e.voices[24].fade_samples > 0,
+            "a clip returning from virtualization should fade in"
+        );
+    }
+
+    #[cfg(feature = "count-alloc")]
+    #[test]
+    fn playing_clip_process_and_commands_allocate_zero() {
+        let mut e = new_engine(48000.0);
+        upload_mono(&mut e, 0, &[0.2; 8192]);
+        assert!(e.play_clip(0, 0, true, 1.0));
+        process_blocks(&mut e, 32);
+
+        let allocations = counting_allocator::count_allocations(|| {
+            for _ in 0..8 {
+                e.set_clip_gain(0, 0.8);
+                e.set_clip_loop(0, true);
+                e.set_spatial(0, 0.3, 0.0, 3.0, 1.0, 100.0, 1.0);
+                e.set_voice_spatial(0, 1);
+                e.process();
+            }
+            e.stop_clip(0);
+            e.process();
+            assert!(e.play_clip(0, 0, true, 0.9));
+            e.process();
+            assert_eq!(e.voice_idle(0), 0);
+        });
+        assert_eq!(
+            allocations, 0,
+            "steady clip commands and blocks must not allocate"
+        );
+
+        let control_allocations = counting_allocator::count_allocations(|| {
+            let mut control = Vec::with_capacity(32);
+            control.push(7u8);
+            core::hint::black_box(control);
+        });
+        assert_eq!(
+            control_allocations, 1,
+            "the allocation control must be detected"
+        );
     }
 
     // Spectral identity: a non-spatial sample voice at rate 1.0 in a matched-rate context must reproduce the
