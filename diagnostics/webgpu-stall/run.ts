@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,10 +45,15 @@ const arms = [
 
 type Arm = (typeof arms)[number];
 const selfTest = process.argv.includes("--self-test");
-const selected = process.argv.slice(2).filter((argument) => argument !== "--self-test");
+const arguments_ = process.argv.slice(2);
+const attach = arguments_[0] === "--cdp";
+const endpoint = attach ? arguments_[1] : undefined;
+const label = attach ? arguments_[2] : undefined;
+const selected = arguments_.filter((argument) => argument !== "--self-test");
 const chosen = selected.length ? arms.filter((arm) => selected.includes(arm.name)) : [];
-if ((!selfTest && !chosen.length) || selected.some((name) => !arms.some((arm) => arm.name === name))) {
-    throw new Error(`Arm names: ${arms.map(({ name }) => name).join(", ")}`);
+if (attach ? (!endpoint || !label || arguments_.length !== 3) :
+    ((!selfTest && !chosen.length) || selected.some((name) => !arms.some((arm) => arm.name === name)))) {
+    throw new Error(`Use --cdp <endpoint> <arm-label> for the loading-screen CEF shell, or arm names: ${arms.map(({ name }) => name).join(", ")}`);
 }
 
 function html(arm: Arm): string {
@@ -585,7 +590,205 @@ async function run(arm: Arm) {
     }
 }
 
+function isLoadingScreenCommandLine(commandLine: string): boolean {
+    return /^(?:\S*\/)?loading-screen(?:\s|$)/.test(commandLine);
+}
+
+const shellAdapterScript = `(() => {
+    const state = globalThis.__cefStall = { errors: [], frames: [], interruptions: [], cleaned: false };
+    const gpu = navigator.gpu;
+    if (!gpu) { state.error = 'navigator.gpu missing'; return; }
+    const request = gpu.requestAdapter;
+    state.cleanup = () => { state.cleaned = true; gpu.requestAdapter = request; };
+    gpu.requestAdapter = async function(options) {
+        gpu.requestAdapter = request;
+        try {
+            const adapter = await request.call(this, options);
+            if (!adapter) { state.error = 'Game received no adapter'; return adapter; }
+            const info = adapter.info;
+            state.adapter = {vendor:info.vendor,architecture:info.architecture,device:info.device,description:info.description,isFallbackAdapter:info.isFallbackAdapter ?? adapter.isFallbackAdapter};
+            const requestDevice = adapter.requestDevice;
+            state.cleanup = () => { state.cleaned = true; adapter.requestDevice = requestDevice; };
+            adapter.requestDevice = async function(descriptor) {
+                adapter.requestDevice = requestDevice;
+                const device = await requestDevice.call(this, descriptor);
+                const onError = event => state.errors.push(String(event.error.message));
+                device.addEventListener('uncapturederror', onError);
+                device.lost.then(info => { if (!state.cleaned) state.errors.push('device lost: '+info.reason+' '+info.message); });
+                state.cleanup = () => { state.cleaned = true; device.removeEventListener('uncapturederror', onError); };
+                state.deviceReady = true;
+                return device;
+            };
+            return adapter;
+        } catch (error) { state.error = String(error); throw error; }
+    };
+})();`;
+
+// Attach only to the loading-screen shell; an occupied debug port must not instrument personal Chrome.
+async function runShell(endpoint: string, label: string): Promise<void> {
+    if (process.env.SHALLOT_DISPLAY_SEAT !== "DP-1")
+        throw new Error("Declare SHALLOT_DISPLAY_SEAT=DP-1 for this physical-display oracle");
+    const readingRule = {
+        durationMs: pageDurationMs,
+        gap: "rAF interval > 2.5 x this arm's median",
+        longSwap: "SwapBuffers > 10 ms",
+        removal: "zero gaps and zero long swaps over at least 12 s",
+        cadence: "hardware NVIDIA RTX 4090; median rAF cadence within 1% of 240.084 Hz",
+        scope: "rAF callbacks and GPU-process SwapBuffers wall time, not counted displayed frames",
+    };
+    console.log(JSON.stringify({ arm: label, status: "rule", readingRule }));
+    const browser = await chromium.connectOverCDP(endpoint, { timeout: 10_000, noDefaults: true });
+    let session: TraceSession | undefined;
+    let pageSession: TraceSession | undefined;
+    let scriptId: string | undefined;
+    let tracing = false;
+    let page: Page | undefined;
+    try {
+        session = await browser.newBrowserCDPSession();
+        const gpuInfo = await session.send("SystemInfo.getInfo");
+        const commandLine = String(gpuInfo.commandLine ?? "");
+        if (!isLoadingScreenCommandLine(commandLine))
+            throw new Error(`Refusing non-loading-screen CDP browser: ${commandLine}`);
+        const pages = browser.contexts().flatMap((context) => context.pages());
+        if (pages.length !== 1) throw new Error(`Expected one shell page, found ${pages.length}`);
+        page = pages[0]!;
+        pageSession = await page.context().newCDPSession(page);
+        // Capture the game's adapter request, not a second diagnostic adapter. Reload the same game.
+        const script = await pageSession.send("Page.addScriptToEvaluateOnNewDocument", {
+            source: shellAdapterScript,
+        });
+        scriptId = script.identifier;
+        await page.reload({ timeout: 15_000, waitUntil: "domcontentloaded" });
+        await page.waitForFunction(() => {
+            const state = (window as any).__cefStall;
+            return state?.deviceReady || state?.error;
+        }, undefined, { timeout: 15_000 });
+        await pageSession.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: scriptId });
+        scriptId = undefined;
+        await page.waitForTimeout(1_000);
+        const initial = await page.evaluate(() => ({
+            adapter: (window as any).__cefStall.adapter,
+            error: (window as any).__cefStall.error,
+            url: location.href,
+            userAgent: navigator.userAgent,
+            focused: document.hasFocus(),
+            visibility: document.visibilityState,
+            dpr: devicePixelRatio,
+            viewport: { width: innerWidth, height: innerHeight },
+            screen: { width: screen.width, height: screen.height },
+            canvas: [...document.querySelectorAll("canvas")].map(canvas => ({ width: canvas.width, height: canvas.height })),
+        }));
+        if (initial.error) throw new Error(initial.error);
+        if (initial.adapter?.vendor?.toLowerCase() !== "nvidia" || initial.adapter?.isFallbackAdapter !== false ||
+            !gpuInfo.gpu?.devices?.some((device: { deviceString?: string }) => /NVIDIA GeForce RTX 4090/.test(device.deviceString ?? "")))
+            throw new Error(`Rejected hardware identity: ${JSON.stringify({ initial, gpu: gpuInfo.gpu })}`);
+        if (!initial.focused || initial.visibility !== "visible" || initial.viewport.width !== initial.screen.width ||
+            initial.viewport.height !== initial.screen.height || initial.dpr < 1.2 || !initial.canvas.length)
+            throw new Error(`Shell must be focused, visible and fullscreen on DP-1: ${JSON.stringify(initial)}`);
+        const processes = await session.send("SystemInfo.getProcessInfo");
+        const gpuCommandLines = await Promise.all(processes.processInfo.filter(process => process.type === "GPU").map(async process => ({
+            pid: process.id,
+            commandLine: (await readFile(`/proc/${process.id}/cmdline`, "utf8")).replaceAll("\0", " ").trim(),
+        })));
+        if (!gpuCommandLines.length) throw new Error("No GPU process command line available");
+        const browserVersion = await session.send("Browser.getVersion");
+        await session.send("Tracing.start", { categories, transferMode: "ReturnAsStream", options: "record-as-much-as-possible" });
+        tracing = true;
+        const measurement = await page.evaluate((durationMs) => new Promise<{
+            frames: number[]; interruptions: unknown[]; errors: string[];
+        }>((resolve) => {
+            const state = (window as any).__cefStall;
+            const interrupt = (event: Event) => state.interruptions.push({ event: event.type, t: performance.now() });
+            const events = ["blur", "focus", "visibilitychange"];
+            for (const event of events) window.addEventListener(event, interrupt);
+            let frame = 0;
+            let timer: ReturnType<typeof setTimeout>;
+            state.stopSampling = () => {
+                cancelAnimationFrame(frame);
+                clearTimeout(timer);
+                for (const event of events) window.removeEventListener(event, interrupt);
+            };
+            function sample(t: number) {
+                state.frames.push(t);
+                if (!document.hasFocus() || document.visibilityState !== "visible")
+                    state.interruptions.push({ event: "rAF", t });
+                frame = requestAnimationFrame(sample);
+            }
+            performance.mark("cef-measurement-start");
+            const end = performance.now() + durationMs;
+            frame = requestAnimationFrame(sample);
+            function finish() {
+                if (performance.now() < end) { timer = setTimeout(finish, end - performance.now()); return; }
+                performance.mark("cef-measurement-end");
+                state.stopSampling();
+                resolve({ frames: state.frames, interruptions: state.interruptions, errors: state.errors });
+            }
+            timer = setTimeout(finish, durationMs);
+        }), pageDurationMs);
+        const trace = JSON.parse(await traceText(session, stopTrace(session))) as { traceEvents: TraceEvent[] };
+        tracing = false;
+        const start = traceMark(trace.traceEvents, "cef-measurement-start");
+        const end = traceMark(trace.traceEvents, "cef-measurement-end");
+        if (start === undefined || end === undefined || end - start < pageDurationMs * 1000)
+            throw new Error("Shell trace does not contain at least 12 s between measurement marks");
+        if (measurement.interruptions.length || measurement.errors.length)
+            throw new Error(`Interrupted or GPU-invalid shell run: ${JSON.stringify(measurement)}`);
+        const intervals = measurement.frames.slice(1).map((time, i) => time - measurement.frames[i]!);
+        if (!intervals.length) throw new Error("No shell rAF samples");
+        const intervalMedian = median(intervals);
+        const gaps = intervals.filter(gap => gap > 2.5 * intervalMedian);
+        const swaps = longSwapsInWindow(trace.traceEvents, start, end);
+        const cadenceHz = 1000 / intervalMedian;
+        console.log(JSON.stringify({
+            arm: label, readingRule, durationMs: (end - start) / 1000,
+            browserVersion, initial, commandLine, gpuCommandLines,
+            browserGpu: gpuInfo.gpu,
+            rafHz: intervals.length / ((end - start) / 1e6), medianCadenceHz: cadenceHz,
+            displayRateMatched: Math.abs(cadenceHz / 240.084 - 1) < 0.01,
+            intervalMs: { median: intervalMedian, max: Math.max(...intervals), gapsOver2_5x: gaps.length, gapDurationsMs: gaps },
+            swaps: { longOver10ms: swaps.length, durationsMs: swaps.map(event => event.dur! / 1000),
+                periodMs: swaps.slice(1).map((event, i) => (event.ts! - swaps[i]!.ts!) / 1000) },
+            traceEvents: trace.traceEvents.length,
+        }));
+    } finally {
+        if (scriptId && pageSession)
+            await pageSession.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: scriptId }).catch(() => {});
+        if (tracing && session) await traceText(session, stopTrace(session)).catch(() => {});
+        if (page && !page.isClosed()) await page.evaluate(() => {
+            const state = (window as any).__cefStall;
+            state?.stopSampling?.();
+            state?.cleanup?.();
+            delete (window as any).__cefStall;
+        }).catch(() => {});
+        if (pageSession) await pageSession.detach().catch(() => {});
+        if (session) await session.detach().catch(() => {});
+        // connectOverCDP's close disconnects its transport; the externally owned shell stays open.
+        await browser.close();
+    }
+}
+
 if (selfTest) {
+    const adapter = {
+        info: { vendor: "nvidia", isFallbackAdapter: false },
+        requestDevice: async () => ({
+            addEventListener() {}, removeEventListener() {},
+            lost: new Promise(() => {}),
+        }),
+    };
+    const requestAdapter = async () => adapter;
+    const gpu = { requestAdapter };
+    const globals: any = {};
+    new Function("navigator", "globalThis", shellAdapterScript)({ gpu }, globals);
+    if (await gpu.requestAdapter() !== adapter || gpu.requestAdapter !== requestAdapter ||
+        globals.__cefStall.adapter.vendor !== "nvidia" || globals.__cefStall.adapter.isFallbackAdapter !== false)
+        throw new Error("Synthetic game adapter capture failed");
+    await adapter.requestDevice();
+    if (!globals.__cefStall.deviceReady) throw new Error("Synthetic game device capture failed");
+    globals.__cefStall.cleanup();
+    if (!globals.__cefStall.cleaned) throw new Error("Synthetic adapter cleanup failed");
+    if (!isLoadingScreenCommandLine("/tmp/game/loading-screen --enable-unsafe-webgpu") ||
+        isLoadingScreenCommandLine("/usr/bin/chrome --app=http://localhost/loading-screen"))
+        throw new Error("Synthetic shell CDP identity check failed");
     for (const arm of arms) {
         const script = html(arm).match(/<script>([\s\S]*)<\/script>/)?.[1];
         if (!script) throw new Error(`${arm.name}: generated page script missing`);
@@ -593,7 +796,9 @@ if (selfTest) {
     }
     if (percentile([1,2,3,4],0.99) !== 4 || mean([1,3]) !== 2)
         throw new Error("Synthetic cost-statistics check failed");
-    console.log("Trace-window boundaries, cost statistics and generated page syntax checked; no browser run");
+    console.log("Trace-window boundaries, cost statistics, shell CDP identity, adapter capture and injected script syntax checked; no browser run");
+} else if (attach) {
+    await runShell(endpoint!, label!);
 } else {
     for (const arm of chosen) {
         try {

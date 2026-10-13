@@ -82,9 +82,18 @@ wrap_app! {
                     Some(&CefString::from("enable-dawn-features")),
                     Some(&CefString::from("allow_unsafe_apis")),
                 );
-                // Linux WebGPU runs on the Vulkan backend; Windows uses D3D12 and macOS Metal (no flag).
+                // The Linux stall workaround selects the compositor's ANGLE backend, not just WebGPU's.
                 #[cfg(target_os = "linux")]
-                cmd.append_switch(Some(&CefString::from("enable-features=Vulkan")));
+                {
+                    cmd.append_switch_with_value(
+                        Some(&CefString::from("use-angle")),
+                        Some(&CefString::from("vulkan")),
+                    );
+                    cmd.append_switch_with_value(
+                        Some(&CefString::from("enable-features")),
+                        Some(&CefString::from("Vulkan")),
+                    );
+                }
                 // Windows: run the GPU in-process. The re-exec'd GPU subprocess can't initialize GL in
                 // this single-exe CEF build — gl::init::InitializeStaticGLBindingsOneOff fails, the GPU
                 // process exits, Chromium falls back to use-gl=disabled, and requestAdapter() returns
