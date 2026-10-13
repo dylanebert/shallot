@@ -14,15 +14,6 @@ import {
 } from "../../index";
 
 setDefaultTimeout(CEILING.gpu);
-if (typeof ResizeObserver === "undefined") {
-    Object.assign(globalThis, {
-        ResizeObserver: class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        },
-    });
-}
 
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { deriveTransforms } from "../transform";

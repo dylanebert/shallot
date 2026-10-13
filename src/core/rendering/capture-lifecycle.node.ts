@@ -39,14 +39,9 @@ function installCanvasGlobals(canvas: HTMLCanvasElement): () => void {
             value,
         });
     };
-    class TestResizeObserver {
-        observe() {}
-        disconnect() {}
-    }
     replace("navigator", { gpu: { getPreferredCanvasFormat: () => "rgba8unorm" } });
     replace("document", { querySelectorAll: () => [canvas] });
     replace("window", { devicePixelRatio: 1 });
-    replace("ResizeObserver", TestResizeObserver);
     replace("GPUTextureUsage", { RENDER_ATTACHMENT: 1, COPY_SRC: 2 });
     replace("GPUBufferUsage", { COPY_DST: 1, MAP_READ: 2 });
     replace("GPUMapMode", { READ: 1 });

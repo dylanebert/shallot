@@ -39,15 +39,6 @@ setDefaultTimeout(CEILING.node);
 
 // CTS accepts f32 results within an interval; bracket each CPU range by this relative radius.
 const RANGE_EPSILON = 1e-5;
-if (typeof ResizeObserver === "undefined") {
-    Object.assign(globalThis, {
-        ResizeObserver: class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        },
-    });
-}
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [StandardRenderingPlugin] },

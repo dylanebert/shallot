@@ -8,14 +8,6 @@ import { GlobalTransform, globalTransformTable, probeBuffer, Time, Transform } f
 
 setDefaultTimeout(CEILING.node);
 await setupGlobals();
-if (typeof ResizeObserver === "undefined")
-    Object.assign(globalThis, {
-        ResizeObserver: class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        },
-    });
 
 test("built world recovery publishes restored fields and discards old interpolation without altering pacing or GPU frame", async () => {
     let transient = 0;

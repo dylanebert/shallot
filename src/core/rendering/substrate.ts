@@ -294,8 +294,8 @@ export const BeginFrameSystem: System = {
         const device = world.gpu.device;
         if (!device) return;
 
-        // auto-bind's inverse. A destroyed camera leaves a stale View whose ResizeObserver leaks
-        // and whose eid, once recycled, re-binds to the wrong canvas. Resolving the kept camera
+        // auto-bind's inverse. A destroyed camera leaves a stale View whose eid, once recycled,
+        // could re-bind to the wrong canvas. Resolving the kept camera
         // reference drops the old View even when the replacement also carries Camera.
         pruneViews(world);
 

@@ -7,15 +7,6 @@ import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { StandardRenderer, StandardRenderingPlugin } from "./index";
 
 await setupGlobals();
-if (typeof ResizeObserver === "undefined") {
-    Object.assign(globalThis, {
-        ResizeObserver: class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        },
-    });
-}
 
 const TIMED_PASSES = 10;
 const TRIALS = 5;

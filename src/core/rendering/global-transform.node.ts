@@ -39,15 +39,6 @@ import {
 import { BeginFrameSystem } from "./substrate";
 
 setDefaultTimeout(CEILING.node);
-if (typeof ResizeObserver === "undefined") {
-    Object.assign(globalThis, {
-        ResizeObserver: class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        },
-    });
-}
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

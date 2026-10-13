@@ -15,15 +15,6 @@ import { GlobalTransform } from "../transform";
 import { GlobalTransformHistory as TransformRuntime } from "./global-transform";
 
 await setupGlobals();
-if (typeof ResizeObserver === "undefined") {
-    Object.assign(globalThis, {
-        ResizeObserver: class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        },
-    });
-}
 
 function attachTestCamera(world: import("../../index").World): void {
     let context: CanvasContext;

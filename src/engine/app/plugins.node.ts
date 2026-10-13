@@ -120,13 +120,6 @@ const createCanvasContext = CanvasContext as unknown as new (
     width: number,
     height: number,
 ) => GPUCanvasContext;
-if (typeof ResizeObserver === "undefined") {
-    globalThis.ResizeObserver = class {
-        observe() {}
-        disconnect() {}
-    } as unknown as typeof ResizeObserver;
-}
-
 function watchDevice(device: GPUDevice) {
     let firstError: string | null = null;
     const waiters = new Set<(message: string) => void>();

@@ -809,6 +809,8 @@ test("a World-scoped viewport row supplies CSS size and DPR to sizeView through 
     const world = inputState();
     resizeViewport(world, 0, 100, 50, 2);
     const canvas = {
+        clientHeight: 0,
+        clientWidth: 0,
         height: 0,
         style: { imageRendering: "" },
         width: 0,
@@ -821,7 +823,8 @@ test("a World-scoped viewport row supplies CSS size and DPR to sizeView through 
         depth: null,
         framebuffer: null,
         height: 0,
-        observer: null,
+        sampledClientHeight: 0,
+        sampledClientWidth: 0,
         present: null,
         slot: 0,
         camera: world.ref(0),

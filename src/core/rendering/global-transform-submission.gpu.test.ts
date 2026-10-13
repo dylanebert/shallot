@@ -7,15 +7,6 @@ import { Transform, TransformPlugin } from "../transform";
 import { GlobalTransformHistory as TransformRuntime } from "./global-transform";
 
 setDefaultTimeout(CEILING.gpu);
-if (typeof ResizeObserver === "undefined") {
-    Object.assign(globalThis, {
-        ResizeObserver: class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        },
-    });
-}
 
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 

@@ -17,13 +17,6 @@ setDefaultTimeout(CEILING.node);
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
-if (typeof ResizeObserver === "undefined") {
-    globalThis.ResizeObserver = class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-    };
-}
 
 test("standard composition, vignette, after-tonemap and points present and capture without BGRA storage", async () => {
     const adapter = await navigator.gpu.requestAdapter();
