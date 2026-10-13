@@ -1,9 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "@babel/parser";
+import { CEILING } from "@dylanebert/shallot/testing";
 import { Glob } from "bun";
 import { normalizePath } from "../src/project/paths";
+
+setDefaultTimeout(CEILING.node);
 
 const ROOT = resolve(import.meta.dir, "..");
 type AstNode = Record<string, any>;
@@ -144,12 +147,66 @@ function isSeparator(node: AstNode | undefined): boolean {
     return node.type === "RegExpLiteral" && /^(?:\\\\|\[(?:\\\\|\\?\/)+\])\+?$/.test(node.pattern);
 }
 
-// What an OS path producer returns: a path relative to a root, in the host's separators.
-function producer(node: AstNode): string | undefined {
+type PathBindings = { relative: Set<string>; modules: Set<string> };
+
+function pathBindings(ast: AstNode): PathBindings {
+    const relative = new Set<string>();
+    const modules = new Set<string>();
+    for (const statement of ast.program.body as AstNode[]) {
+        if (
+            statement.type !== "ImportDeclaration" ||
+            !["node:path", "path"].includes(statement.source.value)
+        )
+            continue;
+        for (const specifier of statement.specifiers as AstNode[]) {
+            if (specifier.importKind === "type") continue;
+            if (specifier.type === "ImportSpecifier") {
+                if (propertyName(specifier.imported) === "relative")
+                    relative.add(specifier.local.name);
+            } else if (
+                specifier.type === "ImportNamespaceSpecifier" ||
+                specifier.type === "ImportDefaultSpecifier"
+            ) {
+                modules.add(specifier.local.name);
+            }
+        }
+    }
+    walk(ast.program, (node) => {
+        const left =
+            node.type === "AssignmentPattern"
+                ? node.left
+                : node.type === "VariableDeclarator"
+                  ? node.id
+                  : undefined;
+        const right =
+            node.type === "AssignmentPattern"
+                ? node.right
+                : node.type === "VariableDeclarator"
+                  ? node.init
+                  : undefined;
+        if (left?.type === "Identifier" && right?.type === "Identifier" && modules.has(right.name))
+            modules.add(left.name);
+    });
+    return { relative, modules };
+}
+
+function isPathRelative(node: AstNode, bindings: PathBindings): boolean {
+    const callee = node.callee;
+    return (
+        (callee.type === "Identifier" && bindings.relative.has(callee.name)) ||
+        (callee.type === "MemberExpression" &&
+            propertyName(callee.property) === "relative" &&
+            callee.object.type === "Identifier" &&
+            bindings.modules.has(callee.object.name))
+    );
+}
+
+// These are the producers and separator spellings used by hosted Windows reds that compared slash paths.
+function producer(node: AstNode, bindings: PathBindings): string | undefined {
     if (node.type !== "CallExpression") return;
     const callee = node.callee;
     const name = callee.type === "MemberExpression" ? propertyName(callee.property) : callee.name;
-    if (name === "relative") return "relative() path";
+    if (isPathRelative(node, bindings)) return "relative() path";
     if (callee.type === "MemberExpression" && (name === "scan" || name === "scanSync"))
         return "Glob entry";
     if (name !== "readdir" && name !== "readdirSync") return;
@@ -166,8 +223,7 @@ function producer(node: AstNode): string | undefined {
     if (recursive) return "recursive readdir entry";
 }
 
-// A producer's value enters as `normalizePath(relative(...))`, or `Array.from(entries, normalizePath)` for
-// a list of entries, so an entry is spelled with `/` before any comparison or output sees it.
+// A producer enters through `normalizePath(...)` or `Array.from(entries, normalizePath)`, so its result has `/` separators.
 function entersNormalized(node: AstNode, ancestors: AstNode[]): boolean {
     const { call, index } = receiver(node, ancestors);
     if (!call) return false;
@@ -183,9 +239,8 @@ function entersNormalized(node: AstNode, ancestors: AstNode[]): boolean {
 }
 
 function separatorErrors(file: string, source: string): string[] {
-    if (!/\brelative\(|\bscan(?:Sync)?\(|\brecursive\b|\bsep\b|\\\\/.test(source)) return [];
-
     const ast = parse(source, { sourceType: "unambiguous", plugins: ["typescript"] });
+    const bindings = pathBindings(ast);
     const errors: string[] = [];
     walk(ast.program, (node, ancestors) => {
         if (node.type !== "CallExpression") return;
@@ -200,7 +255,7 @@ function separatorErrors(file: string, source: string): string[] {
             isSeparator(node.arguments[0])
         )
             errors.push(`${at}: separators handled outside normalizePath (${HELPER})`);
-        const produced = producer(node);
+        const produced = producer(node, bindings);
         if (produced && !entersNormalized(node, ancestors))
             errors.push(`${at}: ${produced} enters without normalizePath (${HELPER})`);
     });
@@ -290,30 +345,41 @@ test("Node-side source has no file URL pathnames", () => {
     expect(violations).toEqual([]);
 });
 
-test("an OS path enters through normalizePath, and separators have no other spelling", () => {
+test("relative(), Glob scans, recursive readdir, and separator spellings normalize at entry", () => {
     expect(
         separatorErrors(
             "scripts/planted.ts",
             [
-                'const a = relative(root, file).split(sep).join("/");',
-                'const b = [...new Glob("**").scanSync(root)];',
-                "const c = readdirSync(dir, { recursive: true });",
-                'const d = path.replace(/\\\\/g, "/");',
-                "const e = normalizePath(path.relative(root, file));",
-                "const f = Array.from(glob.scanSync(root) as string[], normalizePath);",
-                "const g = await Array.fromAsync(glob.scan(root), normalizePath);",
+                'import { relative } from "node:path";',
+                'const a = relative (".", file);',
+                'const b = relative(root, file).split(sep).join("/");',
+                'import { relative as rel } from "path";',
+                'const c = rel(".", file);',
+                'import * as path from "node:path";',
+                'const d = path.relative(".", file);',
+                'const e = [...new Glob("**").scanSync(root)];',
+                "const f = readdirSync(dir, { recursive: true });",
+                'const g = path.replace(/\\\\/g, "/");',
+                "const h = normalizePath(path.relative(root, file));",
+                "const i = Array.from(glob.scanSync(root) as string[], normalizePath);",
+                "const j = await Array.fromAsync(glob.scan(root), normalizePath);",
+                'function relativeModule(pathModule = path) { return pathModule.relative(".", file); }',
             ].join("\n"),
         ),
     ).toEqual([
-        "scripts/planted.ts:1: separators handled outside normalizePath (src/project/paths.ts)",
-        "scripts/planted.ts:1: relative() path enters without normalizePath (src/project/paths.ts)",
-        "scripts/planted.ts:2: Glob entry enters without normalizePath (src/project/paths.ts)",
-        "scripts/planted.ts:3: recursive readdir entry enters without normalizePath (src/project/paths.ts)",
-        "scripts/planted.ts:4: separators handled outside normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:2: relative() path enters without normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:3: separators handled outside normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:3: relative() path enters without normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:5: relative() path enters without normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:7: relative() path enters without normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:8: Glob entry enters without normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:9: recursive readdir entry enters without normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:10: separators handled outside normalizePath (src/project/paths.ts)",
+        "scripts/planted.ts:14: relative() path enters without normalizePath (src/project/paths.ts)",
     ]);
 });
 
-test("Shallot's source normalizes every OS path where it enters", () => {
+test("tooling holds relative(), Glob scans, recursive readdir, and separator spellings used by hosted Windows reds", () => {
     const violations = toolingFiles().flatMap((file) =>
         separatorErrors(file, readFileSync(resolve(ROOT, file), "utf8")),
     );
