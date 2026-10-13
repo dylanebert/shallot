@@ -28,6 +28,7 @@ on:
           - browser
           - cargo
           - checked-kernel
+          - linux-native
 
 concurrency:
   group: test-${{ github.event.pull_request.number || github.sha }}
@@ -297,6 +298,58 @@ jobs:
         env:
           RUNNER_OS: ${{ runner.os }}
         run: bun scripts/report-slow-tests.ts checked-node-junit.xml checked-node-test.log
+
+  linux-native:
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'linux-native' && inputs.os == 'ubuntu-latest') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # named budget for CEF download and native compilation; launch waits use CEILING.startup
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: install checkout dependencies
+        run: bun install --frozen-lockfile
+      - name: native toolchain identity
+        id: native-toolchain
+        run: echo "rustc=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v5
+        id: native-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/shallot/native-runtime-pair/consumer/cargo-target
+          key: native-linux-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('crates/native/Cargo.lock') }}-${{ steps.native-toolchain.outputs.rustc }}
+      - name: install Linux native smoke prerequisites
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-runtime-pair/logs"
+          bash scripts/native-linux-setup.sh 2>&1 | tee "$RUNNER_TEMP/native-runtime-pair/logs/setup.log"
+      - name: exercise Linux smoke driver assertions
+        run: bun test ./scripts/native-linux-smoke.oracle.ts
+      - name: packed Linux native smoke
+        run: |
+          args=(--consumer "$HOME/.cache/shallot/native-runtime-pair/consumer" --logs "$RUNNER_TEMP/native-runtime-pair/logs")
+          if [[ "${{ steps.native-cache.outputs.cache-hit }}" == 'true' ]]; then
+            args+=(--plant-stale)
+            echo 'Warm Cargo/CEF cache: stale release runtimes and consumer bundles will be planted.'
+          else
+            echo 'Cold Cargo/CEF cache: no cached runtime is assumed.'
+          fi
+          /usr/bin/time -p bun scripts/native-linux-smoke.ts "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/native-runtime-pair/logs/driver.log"
+      - name: retain Linux native smoke logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-native-smoke-logs
+          path: ${{ runner.temp }}/native-runtime-pair/logs
+          if-no-files-found: warn
 
   browser:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'browser' }}

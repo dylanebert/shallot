@@ -274,7 +274,8 @@ bun run format                  # biome
 
 - [CI](.github/workflows/test.yml) owns host and tier commands, and judges operating-system compatibility on the hosts each tier runs on; a local run does not.
 - For a red only one hosted OS shows, run that OS and tier alone from [CI](.github/workflows/test.yml) before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`.
-- Hardware claims on a real adapter, display-bound allocation and native packaging stay outside CI.
+- The `linux-native` tier in [CI](.github/workflows/test.yml) launches a packed Linux consumer under Xvfb and Mesa software Vulkan and runs `bun test ./scripts/native-linux-smoke.oracle.ts` by path for its Linux-only process-group assertions; it does not qualify WebGPU capability.
+- Mac/Windows native launch, real-adapter claims, display-bound allocation and software WebGPU capability remain outside CI.
 - On Windows, Dawn loads only in a host named `node.exe` ([dawn-host.ts](src/engine/runtime/dawn-host.ts)), so CI runs Bun there from a copy with that name.
 
 ## Code
