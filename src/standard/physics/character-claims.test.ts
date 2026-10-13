@@ -204,7 +204,10 @@ async function walkInto(stepHeight: number, steepWalls: number): Promise<number>
     }
 }
 
-test("steep walls stop a capsule riding its rounding up a step edge it climbs without them", async () => {
+test("without steep walls a capsule rides its rounding up a step edge", async () => {
     expect(await walkInto(0.15, 0)).toBeLessThan(-4);
+});
+
+test("steep walls stop a capsule riding its rounding up that step edge", async () => {
     expect(await walkInto(0.15, 1)).toBeGreaterThan(-2);
 });
