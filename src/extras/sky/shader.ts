@@ -1,6 +1,5 @@
-// The procedural sky shader. The full view-ray recipe is one pure TGSL graph: production calls it from
-// the background with the Sky uniform + engine lighting, and unit tests call the same function on
-// the CPU. The background wrapper is the only resource-reading leaf.
+// The procedural sky shader. The full view-ray recipe is one pure TGSL graph, called from the background
+// with the Sky uniform + engine lighting. The background wrapper is the only resource-reading leaf.
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -136,8 +135,7 @@ const hash2Star = tgpu
 const STAR_PI = 3.14159;
 const STAR_HALF_PI = 1.5708;
 
-/** hash-grid stars: one candidate per neighboring azimuth/elevation cell. The nested 3x3 loop is the
- * production loop, including its early `continue`. */
+/** hash-grid stars: one candidate per neighboring azimuth/elevation cell. */
 export const sampleStars = tgpu
     .fn(
         [d.vec3f, d.f32, d.f32],
