@@ -11,7 +11,9 @@ import { basename, dirname, join, resolve } from "node:path";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const ENGINE = "@dylanebert/shallot";
-const PROJECT_GITIGNORE = "node_modules/\ndist/\nbuild/\n.artifacts/\ntest-results/\n";
+/** A project's install and build output: ignored by its Git, never copied from a template, never packed. */
+export const PROJECT_OUTPUT = ["node_modules", "dist", "build", ".artifacts", "test-results"];
+const PROJECT_GITIGNORE = PROJECT_OUTPUT.map((directory) => `${directory}/\n`).join("");
 const PROJECT_PRELOAD = `import { shallot } from "@dylanebert/shallot/bun";
 import { plugin } from "bun";
 
@@ -351,7 +353,7 @@ export function runCreate(args: string[], e: Env = env()): number {
     const templateDir = resolve(e.examplesDir, selected.name);
     cpSync(templateDir, destination, {
         recursive: true,
-        filter: (src) => basename(src) !== "node_modules",
+        filter: (src) => !PROJECT_OUTPUT.includes(basename(src)),
     });
     const write = (path: string, contents: string) => {
         const absolute = resolve(destination, path);

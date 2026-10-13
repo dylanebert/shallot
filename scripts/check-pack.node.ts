@@ -7,6 +7,7 @@ setDefaultTimeout(CEILING.node);
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { Glob } from "bun";
+import { PROJECT_OUTPUT } from "../src/cli/create";
 import { importsIn, resolveRelative } from "./example-imports";
 
 // The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
@@ -51,6 +52,7 @@ test("the npm package contains only declared files and required consumers", asyn
         "!**/*.oracle.ts",
         "!src/**/*.node.ts",
         "!src/**/*.e2e.ts",
+        ...PROJECT_OUTPUT.map((directory) => `!examples/*/${directory}`),
     ];
     const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
     const isNegated = (file: string): boolean => {
@@ -62,6 +64,12 @@ test("the npm package contains only declared files and required consumers", asyn
         ["files negation", isNegated],
         ["non-carrier script", (f) => f.startsWith("scripts/") && f.endsWith(".ts")],
         ["build output", (f) => f.includes("/node_modules/")],
+        [
+            "example project output",
+            (f) =>
+                f.startsWith("examples/") &&
+                f.split("/").some((part) => PROJECT_OUTPUT.includes(part)),
+        ],
         ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
         [
             "repo docs",
