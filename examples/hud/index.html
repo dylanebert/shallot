@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="description" content="A Svelte HUD over the canvas showing a turntable's live angle and turns." />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <title>Shallot — hud</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; }
+            html, body, canvas { width: 100%; height: 100%; }
+            body { overflow: hidden; background: #10131b; }
+            canvas { display: block; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <script type="module">
+            import { runApp } from "@dylanebert/shallot";
+            import { hud } from "./src/hud";
+            import { TurntablePlugin } from "./src/turntable";
+
+            await runApp({ plugins: [TurntablePlugin], ui: hud });
+        </script>
+    </body>
+</html>

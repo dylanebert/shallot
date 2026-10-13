@@ -233,7 +233,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort();
-    expect(recipes).toEqual(["first-person", "loading-screen", "minimal"]);
+    expect(recipes).toEqual(["first-person", "hud", "loading-screen", "minimal"]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
     // By file name from its directory: GNU tar, which Git Bash puts first on Windows, reads `C:` as a host.
@@ -253,7 +253,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).not.toContain("examples/loading-screen/package.json");
 });
 
-function installExample(name: "minimal" | "first-person" | "loading-screen"): void {
+function installExample(name: "minimal" | "first-person" | "loading-screen" | "hud"): void {
     const { scratch, cliProject, rootPackage, packageVersion, tarball, installedPackage } =
         packedInstall();
     const project = join(scratch, name);
@@ -273,6 +273,10 @@ function installExample(name: "minimal" | "first-person" | "loading-screen"): vo
             ? rootPackage.peerDependencies.webgpu
             : undefined,
     );
+    for (const svelte of ["svelte", "@sveltejs/vite-plugin-svelte"])
+        expect(manifest.devDependencies[svelte]).toBe(
+            name === "hud" ? rootPackage.devDependencies[svelte] : undefined,
+        );
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
     const packedRange = `file:${relative(project, tarball).replaceAll("\\", "/")}`;
@@ -338,4 +342,8 @@ test("first-person installs from the packed CLI and passes its project loop", ()
 
 test("loading-screen installs from the packed CLI and passes its project loop", () => {
     installExample("loading-screen");
+});
+
+test("hud installs from the packed CLI and passes its project loop", () => {
+    installExample("hud");
 });
