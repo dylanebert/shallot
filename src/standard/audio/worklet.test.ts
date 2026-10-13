@@ -7,7 +7,7 @@ const BATCH_LENGTH = 2 + 128 * 9 + 64;
 
 function makeProcessor() {
     const memory = new WebAssembly.Memory({ initial: 1 });
-    const posted: { message: { type: string; buffer?: ArrayBuffer }; transfer?: ArrayBuffer[] }[] =
+    const posted: { message: { type: string; buffer?: Float64Array }; transfer?: ArrayBuffer[] }[] =
         [];
     let Processor: any;
     const exports: Record<string, unknown> = { memory };
@@ -26,7 +26,10 @@ function makeProcessor() {
     class MockAudioWorkletProcessor {
         port = {
             onmessage: null as ((event: { data: unknown }) => void) | null,
-            postMessage(message: { type: string; buffer?: ArrayBuffer }, transfer?: ArrayBuffer[]) {
+            postMessage(
+                message: { type: string; buffer?: Float64Array },
+                transfer?: ArrayBuffer[],
+            ) {
                 posted.push({ message, transfer });
             },
         };

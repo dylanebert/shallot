@@ -8,7 +8,11 @@ import { AudioRuntime, installAudioRestore, reconcileAudio, returnAudioBuffer } 
 interface Message {
     type: string;
     id?: number;
-    buffer?: ArrayBuffer;
+    buffer?: Float64Array;
+}
+
+function voiceFor(world: World, eid: number) {
+    return world.resource(AudioRuntime).slots.find((voice) => voice?.eid === eid);
 }
 
 function setup(world: World): Message[] {
@@ -31,12 +35,12 @@ function setup(world: World): Message[] {
 function returnBatch(world: World, messages: Message[], finished: readonly number[] = []): void {
     const message = [...messages].reverse().find((entry) => entry.type === "batch");
     if (!message?.buffer) throw new Error("audio frame did not send a command buffer");
-    returnAudioBuffer(world, new Float64Array(message.buffer), finished);
+    returnAudioBuffer(world, message.buffer, finished);
 }
 
 function commands(message: Message): Float64Array {
     if (!message.buffer) throw new Error("message has no command buffer");
-    return new Float64Array(message.buffer);
+    return message.buffer;
 }
 
 function lastBatch(messages: Message[]): Message {
@@ -109,7 +113,7 @@ test("a suspended context drops a once Sound and leaves a loop pending", () => {
     reconcileAudio(world);
     expect(world.exists(once)).toBe(false);
     expect(world.exists(loop)).toBe(true);
-    expect(world.resource(AudioRuntime).owners.size).toBe(0);
+    expect(world.resource(AudioRuntime).slots.filter(Boolean)).toHaveLength(0);
     world.dispose();
 });
 
@@ -132,9 +136,8 @@ test("a restored loop reconciles to one voice while a finished once sound is dis
     reconcileAudio(world);
     expect(world.exists(loop)).toBe(true);
     expect(world.exists(once)).toBe(false);
-    expect(world.resource(AudioRuntime).owners.size).toBe(1);
-    expect(world.resource(AudioRuntime).owners.has(loop)).toBe(true);
     expect(world.resource(AudioRuntime).slots.filter(Boolean)).toHaveLength(1);
+    expect(voiceFor(world, loop)).toBeDefined();
     const restored = commands(lastBatch(messages));
     expect(restored[0]).toBe(1);
     expect(restored[2]).toBe(2);
@@ -163,7 +166,7 @@ test("a once Sound restored after many later completions is discarded without re
 
     world.restore(oldSnapshot);
     expect(world.exists(oldEid)).toBe(false);
-    expect(world.resource(AudioRuntime).owners.size).toBe(0);
+    expect(world.resource(AudioRuntime).slots.filter(Boolean)).toHaveLength(0);
     reconcileAudio(world);
     expect(commands(lastBatch(messages))[0]).toBe(0);
     world.dispose();
@@ -176,13 +179,13 @@ test("a once Sound with a live matching voice keeps that voice across restore", 
     const eid = play(world, clip);
     const snapshot = world.snapshot();
     reconcileAudio(world);
-    const voice = world.resource(AudioRuntime).owners.get(eid)!;
+    const voice = voiceFor(world, eid)!;
     returnBatch(world, messages);
 
     world.restore(snapshot);
     expect(world.exists(eid)).toBe(true);
     reconcileAudio(world);
-    expect(world.resource(AudioRuntime).owners.get(eid)).toBe(voice);
+    expect(voiceFor(world, eid)).toBe(voice);
     const update = commands(lastBatch(messages));
     expect(update[0]).toBe(1);
     expect(update[2]).toBe(2);
@@ -203,7 +206,7 @@ test("a once Sound played after restore starts normally", () => {
     expect(world.exists(eid)).toBe(true);
     expect(data[0]).toBe(1);
     expect(data[2]).toBe(1);
-    expect(world.resource(AudioRuntime).owners.has(eid)).toBe(true);
+    expect(voiceFor(world, eid)).toBeDefined();
     world.dispose();
 });
 
@@ -213,7 +216,7 @@ test("removing a loop fades and frees its voice", () => {
     registerClip(world, "removed-loop", new Float32Array([0.25]));
     const eid = play(world, "removed-loop", { loop: true });
     reconcileAudio(world);
-    const voice = world.resource(AudioRuntime).owners.get(eid)!;
+    const voice = voiceFor(world, eid)!;
     returnBatch(world, messages);
     world.remove(eid, Sound);
     reconcileAudio(world);
@@ -222,7 +225,7 @@ test("removing a loop fades and frees its voice", () => {
     expect(stopped[2]).toBe(3);
     expect(voice.stopping).toBe(true);
     returnBatch(world, messages, [voice.handle]);
-    expect(world.resource(AudioRuntime).owners.has(eid)).toBe(false);
+    expect(voiceFor(world, eid)).toBeUndefined();
     expect(world.resource(AudioRuntime).slots[voice.handle % 64]).toBeNull();
     expect(world.resource(AudioRuntime).free).toContain(voice.handle % 64);
     world.dispose();

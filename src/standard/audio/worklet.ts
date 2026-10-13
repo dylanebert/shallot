@@ -45,7 +45,8 @@ class ShallotAudioProcessor extends AudioWorkletProcessor {
                     }
                 }
             } else if (message.type === "batch") {
-                this.batch = new Float64Array(message.buffer);
+                this.batch = message.buffer;
+                this.recycleTransfer[0] = message.buffer.buffer;
                 this.batchApplied = false;
                 if (this.wasm) this.applyBatch();
             } else if (message.type === "reset" && this.wasm) {
@@ -142,9 +143,9 @@ class ShallotAudioProcessor extends AudioWorkletProcessor {
                     }
                 }
                 this.batch[1] = finished;
-                const buffer = this.batch.buffer;
+                const buffer = this.batch;
                 this.recycleMessage.buffer = buffer;
-                this.recycleTransfer[0] = buffer;
+                this.recycleTransfer[0] = buffer.buffer;
                 this.port.postMessage(this.recycleMessage, this.recycleTransfer);
                 this.batch = null;
                 this.batchApplied = false;

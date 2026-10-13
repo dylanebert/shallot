@@ -18,12 +18,14 @@ const PLAY = 1;
 const UPDATE = 2;
 const STOP = 3;
 const MATRIX = new Float32Array(16);
+const SOUND_QUERY = [Sound];
+const LISTENER_QUERY = [Listener, GlobalTransform];
 
 interface Voice {
-    readonly eid: number;
-    readonly ref: EntityRef;
-    readonly handle: number;
-    readonly started: number;
+    eid: number;
+    ref: EntityRef;
+    handle: number;
+    started: number;
     clip: number;
     loop: boolean;
     volume: number;
@@ -36,10 +38,12 @@ interface Runtime {
     keepalive: ConstantSourceNode | null;
     free: number[];
     generations: Uint32Array;
-    owners: Map<number, Voice>;
+    voicePool: Voice[];
     slots: (Voice | null)[];
     sentClips: Map<number, number>;
     buffer: Float64Array | null;
+    batchMessage: { type: "batch"; buffer: Float64Array | null };
+    batchTransfer: ArrayBuffer[];
     resume: (() => void) | null;
     onState: (() => void) | null;
     onVisibility: (() => void) | null;
@@ -57,10 +61,12 @@ export const AudioRuntime: Resource<Runtime> = {
         keepalive: null,
         free: freeSlots(),
         generations: new Uint32Array(MAX_VOICES),
-        owners: new Map(),
+        voicePool: createVoicePool(),
         slots: Array.from({ length: MAX_VOICES }, () => null),
         sentClips: new Map(),
         buffer: new Float64Array(BUFFER_LENGTH),
+        batchMessage: { type: "batch", buffer: null },
+        batchTransfer: [new ArrayBuffer(0)],
         resume: null,
         onState: null,
         onVisibility: null,
@@ -78,8 +84,33 @@ function freeSlots(): number[] {
     return free;
 }
 
+function createVoicePool(): Voice[] {
+    const voices: Voice[] = [];
+    for (let slot = 0; slot < MAX_VOICES; slot++) {
+        voices.push({
+            eid: 0,
+            ref: 0 as EntityRef,
+            handle: 0,
+            started: 0,
+            clip: -1,
+            loop: false,
+            volume: 1,
+            stopping: false,
+        });
+    }
+    return voices;
+}
+
+function ownedVoice(runtime: Runtime, eid: number): Voice | undefined {
+    for (let slot = 0; slot < MAX_VOICES; slot++) {
+        const voice = runtime.slots[slot];
+        if (voice?.eid === eid) return voice;
+    }
+    return undefined;
+}
+
 function restoredOnceHasVoice(world: World, runtime: Runtime, eid: number): boolean {
-    const voice = runtime.owners.get(eid);
+    const voice = ownedVoice(runtime, eid);
     return (
         world.resource(Devices).audio.context === "running" &&
         world.storage(Sound).loop.get(eid) === 0 &&
@@ -94,7 +125,7 @@ function restoredOnceHasVoice(world: World, runtime: Runtime, eid: number): bool
 }
 
 function discardRestoredOnceSounds(world: World, runtime: Runtime): void {
-    for (const eid of [...world.query([Sound])]) {
+    for (const eid of world.query(SOUND_QUERY)) {
         if (world.storage(Sound).loop.get(eid) === 0 && !restoredOnceHasVoice(world, runtime, eid))
             world.destroy(eid);
     }
@@ -130,7 +161,6 @@ function connectOutput(world: World, runtime: Runtime): void {
 }
 
 function resetVoices(runtime: Runtime): void {
-    runtime.owners.clear();
     runtime.slots.fill(null);
     runtime.free = freeSlots();
 }
@@ -227,7 +257,7 @@ export async function initializeAudio(world: World): Promise<void> {
         const next = stateOf(context.state);
         world.resource(Devices).audio.context = next;
         if (next === "suspended") {
-            for (const eid of [...world.query([Sound])]) {
+            for (const eid of world.query(SOUND_QUERY)) {
                 if (world.storage(Sound).loop.get(eid) === 0) world.destroy(eid);
             }
         }
@@ -307,16 +337,19 @@ function uploadClips(world: World, runtime: Runtime): void {
     const context = runtime.context;
     const node = runtime.node;
     if (!context || !node) return;
-    world.resource(Clips).registry.forEach((clip) => {
-        const id = world.resource(Clips).registry.id(clip.name)!;
-        if (runtime.sentClips.get(id) === clip.version) return;
+    const store = world.resource(Clips);
+    const registry = store.registry;
+    for (let id = 0; id < store.nextId; id++) {
+        const name = registry.name(id)!;
+        const clip = registry.get(name);
+        if (!clip || runtime.sentClips.get(id) === clip.version) continue;
         const channels = clip.channels.map((channel) =>
             resample(channel, clip.sampleRate, context.sampleRate),
         );
         const transfer = channels.map((channel) => channel.buffer as ArrayBuffer);
         node.port.postMessage({ type: "clip", id, channels }, transfer);
         runtime.sentClips.set(id, clip.version);
-    });
+    }
 }
 
 function resample(pcm: Float32Array, sourceRate: number, targetRate: number): Float32Array {
@@ -334,7 +367,13 @@ function resample(pcm: Float32Array, sourceRate: number, targetRate: number): Fl
     return output;
 }
 
-function polar(world: World, eid: number, listener: number): [number, number, number] {
+function polar(
+    world: World,
+    eid: number,
+    listener: number,
+    buffer: Float64Array,
+    offset: number,
+): void {
     const listenerMatrix = composeGlobalTransform(world, listener, MATRIX);
     const transform = world.storage(GlobalTransform);
     const dx = transform.translation.x.get(eid) - listenerMatrix[12];
@@ -344,11 +383,9 @@ function polar(world: World, eid: number, listener: number): [number, number, nu
     const y = dx * listenerMatrix[4] + dy * listenerMatrix[5] + dz * listenerMatrix[6];
     const z = dx * listenerMatrix[8] + dy * listenerMatrix[9] + dz * listenerMatrix[10];
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    return [
-        Math.atan2(x, z),
-        distance > 0.001 ? Math.asin(Math.max(-1, Math.min(1, y / distance))) : 0,
-        distance,
-    ];
+    buffer[offset] = Math.atan2(x, z);
+    buffer[offset + 1] = distance > 0.001 ? Math.asin(Math.max(-1, Math.min(1, y / distance))) : 0;
+    buffer[offset + 2] = distance;
 }
 
 function push(
@@ -374,6 +411,21 @@ function push(
     return count + 1;
 }
 
+function pushSpatial(
+    world: World,
+    buffer: Float64Array,
+    count: number,
+    op: number,
+    voice: Voice,
+    eid: number,
+    listener: number,
+): number {
+    const spatial = listener >= 0 && world.has(eid, GlobalTransform);
+    const next = push(buffer, count, op, voice, spatial);
+    if (spatial) polar(world, eid, listener, buffer, 2 + count * STRIDE + 6);
+    return next;
+}
+
 function soundVolume(world: World, eid: number): number {
     const value = world.storage(Sound).volume.get(eid);
     return Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -391,17 +443,15 @@ function allocate(
     if (slot === undefined) return undefined;
     const generation = (runtime.generations[slot] + 1) & 0x1ffffff;
     runtime.generations[slot] = generation;
-    const voice: Voice = {
-        eid,
-        ref,
-        handle: generation * MAX_VOICES + slot,
-        started: ++runtime.serial,
-        clip,
-        loop,
-        volume,
-        stopping: false,
-    };
-    runtime.owners.set(eid, voice);
+    const voice = runtime.voicePool[slot]!;
+    voice.eid = eid;
+    voice.ref = ref;
+    voice.handle = generation * MAX_VOICES + slot;
+    voice.started = ++runtime.serial;
+    voice.clip = clip;
+    voice.loop = loop;
+    voice.volume = volume;
+    voice.stopping = false;
     runtime.slots[slot] = voice;
     return voice;
 }
@@ -414,8 +464,9 @@ function stopVoice(voice: Voice, buffer: Float64Array, count: number): number {
 
 function stealOldest(world: World, runtime: Runtime, buffer: Float64Array, count: number): number {
     let victim: Voice | undefined;
-    for (const voice of runtime.owners.values()) {
-        if (voice.stopping || voice.loop) continue;
+    for (let slot = 0; slot < MAX_VOICES; slot++) {
+        const voice = runtime.slots[slot];
+        if (!voice || voice.stopping || voice.loop) continue;
         if (!victim || voice.started < victim.started) victim = voice;
     }
     if (!victim) return count;
@@ -430,7 +481,7 @@ export function reconcileAudio(world: World): void {
     const state = world.resource(Devices).audio.context;
     if (state !== "running") {
         if (state === "suspended") {
-            for (const eid of [...world.query([Sound])]) {
+            for (const eid of world.query(SOUND_QUERY)) {
                 if (world.storage(Sound).loop.get(eid) === 0) world.destroy(eid);
             }
         }
@@ -443,9 +494,11 @@ export function reconcileAudio(world: World): void {
     buffer[0] = 0;
     buffer[1] = 0;
     let count = 0;
-    const listener = world.only([Listener, GlobalTransform]);
+    const listener = world.only(LISTENER_QUERY);
 
-    for (const voice of runtime.owners.values()) {
+    for (let slot = 0; slot < MAX_VOICES; slot++) {
+        const voice = runtime.slots[slot];
+        if (!voice) continue;
         const eid = voice.eid;
         const ref = world.ref(eid);
         if (ref !== voice.ref || !world.has(eid, Sound)) {
@@ -464,16 +517,14 @@ export function reconcileAudio(world: World): void {
         voice.loop = loop;
         const volume = soundVolume(world, eid);
         voice.volume = volume;
-        const spatial = listener >= 0 && world.has(eid, GlobalTransform);
-        const [az, el, distance] = spatial ? polar(world, eid, listener) : [0, 0, 0];
-        count = push(buffer, count, UPDATE, voice, spatial, az, el, distance);
+        count = pushSpatial(world, buffer, count, UPDATE, voice, eid, listener);
     }
 
     const sounds = world.storage(Sound);
     let stoleOneShot = false;
-    for (const eid of [...world.query([Sound])]) {
+    for (const eid of world.query(SOUND_QUERY)) {
         const ref = world.ref(eid);
-        if (runtime.owners.has(eid)) continue;
+        if (ownedVoice(runtime, eid)) continue;
         const clip = sounds.clip.get(eid);
         const entry = world.resource(Clips).registry.name(clip);
         if (entry === undefined || !world.resource(Clips).registry.get(entry)) continue;
@@ -488,14 +539,14 @@ export function reconcileAudio(world: World): void {
             }
             continue;
         }
-        const spatial = listener >= 0 && world.has(eid, GlobalTransform);
-        const [az, el, distance] = spatial ? polar(world, eid, listener) : [0, 0, 0];
-        count = push(buffer, count, PLAY, voice, spatial, az, el, distance);
+        count = pushSpatial(world, buffer, count, PLAY, voice, eid, listener);
     }
 
     buffer[0] = count;
     runtime.buffer = null;
-    runtime.node.port.postMessage({ type: "batch", buffer: buffer.buffer }, [buffer.buffer]);
+    runtime.batchMessage.buffer = buffer;
+    runtime.batchTransfer[0] = buffer.buffer as ArrayBuffer;
+    runtime.node.port.postMessage(runtime.batchMessage, runtime.batchTransfer);
 }
 
 function releaseFinished(world: World, runtime: Runtime, handle: number): void {
@@ -504,7 +555,6 @@ function releaseFinished(world: World, runtime: Runtime, handle: number): void {
     if (!voice || voice.handle !== handle) return;
     runtime.slots[slot] = null;
     runtime.free.push(slot);
-    if (runtime.owners.get(voice.eid) === voice) runtime.owners.delete(voice.eid);
     const eid = world.resolve(voice.ref);
     if (
         eid > 0 &&
@@ -524,7 +574,7 @@ export function receiveAudioMessage(world: World, data: any, ownedRuntime?: Runt
     if (world.disposed) return;
     const runtime = ownedRuntime ?? world.resource(AudioRuntime);
     if (data?.type === "recycle") {
-        const buffer = new Float64Array(data.buffer as ArrayBuffer);
+        const buffer = data.buffer as Float64Array;
         const finished = buffer[1];
         for (let i = 0; i < finished; i++)
             releaseFinished(world, runtime, buffer[FINISHED_OFFSET + i]);
@@ -544,7 +594,7 @@ export function returnAudioBuffer(
 ): void {
     buffer[1] = Math.min(finished.length, MAX_VOICES);
     for (let i = 0; i < buffer[1]; i++) buffer[FINISHED_OFFSET + i] = finished[i];
-    receiveAudioMessage(world, { type: "recycle", buffer: buffer.buffer });
+    receiveAudioMessage(world, { type: "recycle", buffer });
 }
 
 const AudioFrameSystem: System = {
