@@ -253,7 +253,18 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).not.toContain("examples/loading-screen/package.json");
 });
 
-function installExample(name: "minimal" | "first-person" | "loading-screen" | "hud"): void {
+type Example = "minimal" | "first-person" | "loading-screen" | "hud";
+
+const created = new Set<Example>();
+
+/** The copy `create` made for `name`; each later step of its loop refuses when that step did not complete. */
+function example(name: Example): { project: string; manifest: Record<string, any> } {
+    if (!created.has(name)) throw new Error(`${name} was not created from the packed CLI`);
+    const project = join(packedInstall().scratch, name);
+    return { project, manifest: JSON.parse(readFileSync(join(project, "package.json"), "utf8")) };
+}
+
+function createExample(name: Example): void {
     const { scratch, cliProject, rootPackage, packageVersion, tarball, installedPackage } =
         packedInstall();
     const project = join(scratch, name);
@@ -301,55 +312,65 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
 
     const installOutput = run(["bun", "install"], project, `bun install ${name}`);
     expect(installOutput).not.toContain("build-tooling: generated dist/");
-    run(["bun", "check"], project, `bun check ${name}`);
-    // Bun's typecheck reads no Svelte component; the copy's own svelte-check does.
-    expect(manifest.scripts.typecheck).toBe(name === "hud" ? "svelte-check" : undefined);
-    if (manifest.scripts.typecheck)
-        expect(run(["bun", "run", "typecheck"], project, `bun run typecheck ${name}`)).toContain(
-            "svelte-check found 0 errors",
-        );
-    run(["bun", "run", "build"], project, `bun run build ${name}`);
-    const testOutput = run(["bun", "test"], project, `bun test ${name}`);
-    expect(testOutput).toContain(
-        "(pass) the Bun preload transforms engine TGSL and keeps it callable on the CPU",
-    );
-    expect(testOutput).toContain("0 fail");
-    const copiedFiles = projectFiles(project);
-    for (const file of copiedFiles.filter((path) => path.endsWith(".node.ts")).sort()) {
-        const subject = `./${relative(project, file).replaceAll("\\", "/")}`;
-        // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
-        // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
-        const output = run(
-            [process.execPath, "test", subject],
-            project,
-            `bun test ${name} ${subject}`,
-            "bun",
-        );
-        expect(output).toContain("0 fail");
-    }
-    const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
-        cwd: project,
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    const noPreloadOutput = `${noPreload.stdout.toString()}${noPreload.stderr.toString()}`;
-    expect(noPreload.exitCode).not.toBe(0);
-    expect(noPreloadOutput).toContain("TGSL metadata is missing");
-    expect(noPreloadOutput).toContain("unplugin-typegpu/bun");
+    created.add(name);
 }
 
-test("minimal installs from the packed CLI and passes its project loop", () => {
-    installExample("minimal");
-});
+// Each example's project loop runs as one test per step, so no step's cost is hidden in another's ceiling.
+for (const name of ["minimal", "first-person", "loading-screen", "hud"] as const) {
+    test(`${name} creates and installs from the packed CLI`, () => {
+        createExample(name);
+    });
 
-test("first-person installs from the packed CLI and passes its project loop", () => {
-    installExample("first-person");
-});
+    test(`${name} type-checks in its copy`, () => {
+        const { project, manifest } = example(name);
+        run(["bun", "check"], project, `bun check ${name}`);
+        // Bun's typecheck reads no Svelte component; the copy's own svelte-check does.
+        expect(manifest.scripts.typecheck).toBe(name === "hud" ? "svelte-check" : undefined);
+        if (manifest.scripts.typecheck)
+            expect(
+                run(["bun", "run", "typecheck"], project, `bun run typecheck ${name}`),
+            ).toContain("svelte-check found 0 errors");
+    });
 
-test("loading-screen installs from the packed CLI and passes its project loop", () => {
-    installExample("loading-screen");
-});
+    test(`${name} builds in its copy`, () => {
+        run(["bun", "run", "build"], example(name).project, `bun run build ${name}`);
+    });
 
-test("hud installs from the packed CLI and passes its project loop", () => {
-    installExample("hud");
-});
+    test(`${name} passes its cheap tests in its copy`, () => {
+        const testOutput = run(["bun", "test"], example(name).project, `bun test ${name}`);
+        expect(testOutput).toContain(
+            "(pass) the Bun preload transforms engine TGSL and keeps it callable on the CPU",
+        );
+        expect(testOutput).toContain("0 fail");
+    });
+
+    test(`${name} passes its Node files in its copy`, () => {
+        const { project } = example(name);
+        for (const file of projectFiles(project)
+            .filter((path) => path.endsWith(".node.ts"))
+            .sort()) {
+            const subject = `./${relative(project, file).replaceAll("\\", "/")}`;
+            // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
+            // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
+            const output = run(
+                [process.execPath, "test", subject],
+                project,
+                `bun test ${name} ${subject}`,
+                "bun",
+            );
+            expect(output).toContain("0 fail");
+        }
+    });
+
+    test(`${name} refuses its tests without the TGSL preload`, () => {
+        const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
+            cwd: example(name).project,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        const noPreloadOutput = `${noPreload.stdout.toString()}${noPreload.stderr.toString()}`;
+        expect(noPreload.exitCode).not.toBe(0);
+        expect(noPreloadOutput).toContain("TGSL metadata is missing");
+        expect(noPreloadOutput).toContain("unplugin-typegpu/bun");
+    });
+}
