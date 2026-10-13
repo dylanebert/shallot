@@ -27,6 +27,16 @@ For web, run the project's scripts with `bun run dev`, `bun run build` or `bun r
 
 Use `bun test` for checks. For browser checks, run `bunx playwright install chromium` once, then `bunx playwright test`. `bunx shallot --help` lists every command.
 
+## linux browser troubleshooting
+
+Chrome or Chromium can stutter periodically on NVIDIA/Wayland setups even when WebGPU is hardware accelerated. If affected, fully exit the browser and relaunch with:
+
+```text
+--ozone-platform=wayland --use-angle=vulkan
+```
+
+This removed the observed presentation stalls in Chromium 152 on an RTX 4090 with fractional scaling. It is a setup-specific workaround, not a requirement for every Linux system.
+
 ## more
 
 - demos: [dylanebert.com/shallot](https://dylanebert.com/shallot/)
