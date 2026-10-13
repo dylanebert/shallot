@@ -6,6 +6,7 @@ import {
     deviceLost,
     type GpuRequirements,
     now,
+    PLUGIN_HOOK_MEASURE_PREFIX,
     precompileAll,
     Runtime,
     requestFrame,
@@ -13,7 +14,6 @@ import {
     validateGpu,
     withPipelineOwner,
 } from "../runtime";
-import { PLUGIN_HOOK_MEASURE_PREFIX } from "../runtime/gpu";
 import { resolvePlugins } from "./compose";
 import { frameDelta } from "./frame-delta";
 

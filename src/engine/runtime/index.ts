@@ -31,6 +31,7 @@ export {
     type GpuRequirements,
     type NamedGpuRequirements,
     PIPELINE_COMPILE_MEASURE_PREFIX,
+    PLUGIN_HOOK_MEASURE_PREFIX,
     precompile,
     precompileAll,
     precompileScope,
