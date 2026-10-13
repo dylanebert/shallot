@@ -114,135 +114,23 @@ jobs:
         working-directory: crates/native
         run: |
           if [ "${{ matrix.mode }}" = "portable" ]; then
-            cargo build --release --target-dir target --target ${{ matrix.target }} --no-default-features --features portable
+            cargo build --release --target-dir target --target ${{ matrix.target }} --no-default-features --features portable --message-format=json-render-diagnostics > ../../cargo-messages.json
           else
-            cargo build --release --target-dir target --target ${{ matrix.target }}
+            cargo build --release --target-dir target --target ${{ matrix.target }} --message-format=json-render-diagnostics > ../../cargo-messages.json
           fi
 
       # Assemble the archive per the pinned contract:
       #   system       → shallot-native[.exe]
       #   linux/win portable → shallot-native[.exe] + cef/ (copyCefLibs/copyCefDlls file sets)
       #   mac portable → shallot-native + shallot-helper + Chromium Embedded Framework.framework/
-      # The CEF runtime is discovered via the same findCefDir search pattern native.ts uses
-      # (target/<triple>/release/build/cef-dll-sys-*/out/<subdir>/), NOT by re-deriving the CDN URL.
+      # The selected Cargo build-script result names the CEF runtime, including on cache hits.
       - name: Assemble archive
         env:
           TARGET: ${{ matrix.target }}
           MODE: ${{ matrix.mode }}
           BINARY: ${{ matrix.binary }}
           ARCHIVE: ${{ matrix.archive }}
-        run: |
-          set -e
-          CRATE="crates/native"
-          STAGE="stage"
-          mkdir -p "$STAGE"
-
-          # Copy the shell binary.
-          cp "$CRATE/target/$TARGET/release/$BINARY" "$STAGE/"
-
-          if [ "$MODE" = "portable" ]; then
-            if echo "$TARGET" | grep -q darwin; then
-              # macOS: CEF framework is a directory (mirrors findCefDir marker CEF_FRAMEWORK).
-              CEF_DIR=$(find "$CRATE/target/$TARGET/release/build" \
-                -path "*/cef-dll-sys-*/out/*" \
-                -name "Chromium Embedded Framework.framework" \
-                -print -quit 2>/dev/null | head -1)
-              if [ -z "$CEF_DIR" ]; then
-                echo "CEF framework not found under $CRATE/target/$TARGET/release/build" >&2
-                exit 1
-              fi
-
-              # Copy the helper binary (mac-portable only, per the archive contract).
-              cp "$CRATE/target/$TARGET/release/shallot-helper" "$STAGE/"
-
-              # ditto preserves symlinks/perms/xattrs — canonical for copying a macOS framework.
-              ditto "$CEF_DIR" "$STAGE/Chromium Embedded Framework.framework"
-
-              # Trim non-English locales (mirrors trimMacLocales in native.ts).
-              RES="$STAGE/Chromium Embedded Framework.framework/Resources"
-              if [ -d "$RES" ]; then
-                for lproj in "$RES"/*.lproj; do
-                  base="$(basename "$lproj")"
-                  if [ "$base" != "en.lproj" ] && [ "$base" != "en_US.lproj" ]; then
-                    rm -rf "$lproj"
-                  fi
-                done
-                if [ -d "$RES/locales" ]; then
-                  for pak in "$RES/locales"/*.pak; do
-                    base="$(basename "$pak")"
-                    if [ "$base" != "en-US.pak" ]; then
-                      rm -f "$pak"
-                    fi
-                  done
-                fi
-              fi
-
-              # Strip the framework binary (release only; -x -S keeps external symbols for dylib load).
-              strip -x -S "$STAGE/Chromium Embedded Framework.framework/Chromium Embedded Framework" 2>/dev/null || true
-
-            elif echo "$TARGET" | grep -q windows; then
-              # Windows: CEF files in cef/ subdir (consumer's buildPrebuiltResult expects cef/).
-              MARKER=$(find "$CRATE/target/$TARGET/release/build" \
-                -path "*/cef-dll-sys-*/out/*" \
-                -name "libcef.dll" \
-                -print -quit 2>/dev/null | head -1)
-              if [ -z "$MARKER" ]; then
-                echo "libcef.dll not found under $CRATE/target/$TARGET/release/build" >&2
-                exit 1
-              fi
-              CEF_DIR="$(dirname "$MARKER")"
-              mkdir -p "$STAGE/cef"
-
-              # copyCefDlls file set (native.ts).
-              for f in \
-                libcef.dll chrome_elf.dll d3dcompiler_47.dll dxcompiler.dll dxil.dll \
-                libEGL.dll libGLESv2.dll vulkan-1.dll icudtl.dat snapshot_blob.bin \
-                v8_context_snapshot.bin chrome_100_percent.pak chrome_200_percent.pak \
-                resources.pak vk_swiftshader.dll vk_swiftshader_icd.json; do
-                [ -f "$CEF_DIR/$f" ] && cp "$CEF_DIR/$f" "$STAGE/cef/"
-              done
-
-              # Active locale only (copyLocale: en-US.pak).
-              mkdir -p "$STAGE/cef/locales"
-              [ -f "$CEF_DIR/locales/en-US.pak" ] && cp "$CEF_DIR/locales/en-US.pak" "$STAGE/cef/locales/"
-
-            else
-              # Linux: CEF files in cef/ subdir (consumer's buildPrebuiltResult expects cef/).
-              MARKER=$(find "$CRATE/target/$TARGET/release/build" \
-                -path "*/cef-dll-sys-*/out/*" \
-                -name "libcef.so" \
-                -print -quit 2>/dev/null | head -1)
-              if [ -z "$MARKER" ]; then
-                echo "libcef.so not found under $CRATE/target/$TARGET/release/build" >&2
-                exit 1
-              fi
-              CEF_DIR="$(dirname "$MARKER")"
-              mkdir -p "$STAGE/cef"
-
-              # copyCefLibs file set (native.ts).
-              for f in \
-                libcef.so libEGL.so libGLESv2.so libvulkan.so.1 icudtl.dat \
-                v8_context_snapshot.bin chrome-sandbox chrome_100_percent.pak \
-                chrome_200_percent.pak resources.pak libvk_swiftshader.so; do
-                [ -f "$CEF_DIR/$f" ] && cp "$CEF_DIR/$f" "$STAGE/cef/"
-              done
-
-              # Active locale only (copyLocale: en-US.pak).
-              mkdir -p "$STAGE/cef/locales"
-              [ -f "$CEF_DIR/locales/en-US.pak" ] && cp "$CEF_DIR/locales/en-US.pak" "$STAGE/cef/locales/"
-
-              # SwiftShader dir (copyCefLibs copies it when not dropped).
-              if [ -d "$CEF_DIR/swiftshader" ]; then
-                cp -r "$CEF_DIR/swiftshader" "$STAGE/cef/"
-              fi
-
-              # Strip libcef.so (release only).
-              strip "$STAGE/cef/libcef.so" 2>/dev/null || true
-            fi
-          fi
-
-          # Pack the archive.
-          tar -czf "$ARCHIVE" -C "$STAGE" .
+        run: bash scripts/assemble-native-archive.sh
 
       # Always upload as a run artifact — both tag and dispatch runs do this.
       - name: Upload archive artifact

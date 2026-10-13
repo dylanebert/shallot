@@ -1,0 +1,676 @@
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { CEILING } from "@dylanebert/shallot/testing";
+import { normalizePath } from "../project/paths";
+import { cargoRuntimeDir } from "./provenance.js";
+
+setDefaultTimeout(CEILING.node);
+
+import { execFileSync } from "node:child_process";
+import {
+    chmodSync,
+    cpSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, resolve } from "node:path";
+
+const repo = resolve(import.meta.dir, "../..");
+let packedPackageDir: string;
+let packageArchive: string;
+beforeAll(async () => {
+    const started = performance.now();
+    packedPackageDir = mkdtempSync(resolve(tmpdir(), "shallot-native-package-"));
+    packageArchive = execFileSync(
+        "bun",
+        ["pm", "pack", "--ignore-scripts", "--quiet", "--destination", packedPackageDir],
+        { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+    ).trim();
+    await new Bun.Archive(readFileSync(packageArchive)).extract(
+        resolve(packedPackageDir, "unpacked"),
+    );
+    console.info(
+        JSON.stringify({
+            fixtureSetup: "native package pack/extract",
+            beforeAllMs: Number((performance.now() - started).toFixed(2)),
+        }),
+    );
+}, CEILING.startup);
+
+afterAll(() => {
+    rmSync(packedPackageDir, { recursive: true, force: true });
+});
+
+function fixture() {
+    const root = mkdtempSync(resolve(tmpdir(), "shallot-native-consumer-"));
+    const install = resolve(root, "node_modules/@dylanebert/shallot");
+    const pkg = resolve(install, "package");
+    const native = resolve(pkg, "src/native");
+    const crate = resolve(pkg, "crates/native");
+    const tools = resolve(root, "tools");
+    const project = resolve(root, "game");
+    const bashEnv = resolve(root, "bash-env.sh");
+    mkdirSync(install, { recursive: true });
+    cpSync(resolve(packedPackageDir, "unpacked/package"), pkg, { recursive: true });
+    symlinkSync(
+        resolve(repo, "node_modules"),
+        resolve(pkg, "node_modules"),
+        process.platform === "win32" ? "junction" : "dir",
+    );
+    mkdirSync(tools, { recursive: true });
+    mkdirSync(resolve(project, "dist"), { recursive: true });
+    writeFileSync(resolve(project, "dist/index.html"), "fixture page");
+
+    const cargo = `#!/usr/bin/env node
+const fs = require('node:fs'); const path = require('node:path');
+const args = process.argv.slice(2); const target = args[args.indexOf('--target') + 1];
+const release = args.includes('--release'); const profile = release ? 'release' : 'debug';
+const targetDir = process.env.CARGO_TARGET_DIR;
+const suffix = target.includes('windows') ? '.exe' : '';
+const output = path.join(targetDir, target, profile);
+fs.mkdirSync(output, { recursive: true });
+fs.writeFileSync(path.join(output, 'shallot-native' + suffix), 'shell');
+if (target.includes('darwin')) fs.writeFileSync(path.join(output, 'shallot-helper'), 'helper');
+if (process.env.CARGO_FIXTURE_LOG) fs.appendFileSync(process.env.CARGO_FIXTURE_LOG, 'cargo\\n');
+const runtime = process.env.CEF_PATH || process.env.FIXTURE_RUNTIME;
+const env = process.env.OMIT_CEF_PROVENANCE === '1' ? [] : [['SHALLOT_CEF_DIR', runtime]];
+console.log(JSON.stringify({ reason: 'build-script-executed', package_id: 'path+file:///fixture#shallot-native@0.10.0', env }));
+`;
+    writeTool(tools, "cargo", cargo);
+    writeTool(tools, "cargo-xwin", cargo);
+    writeTool(
+        tools,
+        "ditto",
+        `#!/usr/bin/env node
+const fs=require('node:fs');const cp=require('node:fs').cpSync; cp(process.argv[2],process.argv[3],{recursive:true});
+`,
+    );
+    writeTool(
+        tools,
+        "sips",
+        `#!/usr/bin/env node
+const a=process.argv.slice(2);const i=a.indexOf('--out');if(i>=0)require('node:fs').copyFileSync(a[i-1],a[i+1]);
+`,
+    );
+    writeTool(
+        tools,
+        "iconutil",
+        `#!/usr/bin/env node
+const a=process.argv.slice(2);require('node:fs').writeFileSync(a[a.indexOf('-o')+1],'icon');
+`,
+    );
+    for (const command of ["codesign", "strip"]) writeTool(tools, command, "process.exit(0);");
+    const wslpath = `#!/usr/bin/env node
+const a=process.argv.slice(2);const p=a[a.length-1];
+if(a[0]==='-w') console.log('\\\\wsl.localhost\\\\Ubuntu\\\\fixture');
+else if(p==='C:\\\\') console.log(process.env.FIXTURE_DRIVE_ROOT);
+else if(p.includes('\\\\shallot\\\\winbuild')) console.log(process.env.FIXTURE_TARGET_DIR);
+else if(p==='C:\\\\cef') console.log(process.env.FIXTURE_RUNTIME);
+else console.log(process.env.FIXTURE_TARGET_DIR);
+`;
+    writeTool(tools, "wslpath", wslpath);
+    const powershell = `
+const fs=require('node:fs');const path=require('node:path');const a=process.argv.slice(2).join(' ');
+if(a.includes('[Console]::Write($env:LOCALAPPDATA)')) { process.stdout.write('C:\\\\Users\\\\fixture\\\\AppData\\\\Local'); process.exit(0); }
+const target='x86_64-pc-windows-msvc', profile=a.includes('--release')?'release':'debug';
+const out=path.join(process.env.FIXTURE_TARGET_DIR,target,profile);fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'shallot-native.exe'),'shell');
+const cef=process.env.FIXTURE_WIN_CEF || 'C:\\\\cef';
+console.log(JSON.stringify({reason:'build-script-executed',package_id:'path+file:///fixture#shallot-native@0.10.0',env:[['SHALLOT_CEF_DIR',cef]]}));
+`;
+    if (process.platform !== "win32") writeTool(tools, "powershell.exe", powershell);
+    if (process.platform === "win32") {
+        writeFileSync(
+            bashEnv,
+            `ditto() { node "$(cygpath -w "$FIXTURE_TOOLS/ditto.js")" "$(cygpath -w "$1")" "$(cygpath -w "$2")"; }\nstrip() { node "$(cygpath -w "$FIXTURE_TOOLS/strip.js")"; }\n`,
+        );
+    }
+    const driver = resolve(root, "run.ts");
+    writeFileSync(
+        driver,
+        `import assert from 'node:assert/strict';
+import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows } from ${JSON.stringify(resolve(native, "index.ts"))};
+const [kind, project, output, optsJson] = Bun.argv.slice(2); const opts=JSON.parse(optsJson);
+try {
+ if(kind==='linux') await bundleNativeLinux(project,output,opts);
+ else if(kind==='windows') await bundleNativeWindows(project,output,opts);
+ else if(kind==='mac') await bundleNativeMac(project,output,opts);
+ else if(kind==='missing') await bundleNativeLinux(project,output,opts);
+ else if(kind==='prebuilt-platform') {
+   if(opts.target==='windows') await bundleNativeWindows(project,output,{release:true,portable:true});
+   else if(opts.target==='mac') await bundleNativeMac(project,output,{release:true,portable:true});
+   else await bundleNativeLinux(project,output,{release:true,portable:true});
+   assert.equal(process.env.CEF_PATH,process.env.CALLER_CEF_PATH);
+ }
+ else if(kind==='prebuilt-sequence') {
+   await bundleNativeLinux(project,output,{release:true,portable:true});
+   assert.equal(process.env.CEF_PATH,process.env.CALLER_CEF_PATH);
+   const cache=process.env.PREBUILT_CACHE; await import('node:fs').then(fs=>fs.rmSync(cache+'/.complete',{force:true}));
+   globalThis.fetch=async()=>new Response('',{status:404});
+   await bundleNativeLinux(project,output,{release:true,portable:true});
+   assert.equal(process.env.CEF_PATH,process.env.CALLER_CEF_PATH);
+ }
+} catch(error) {
+ if(kind==='missing') { assert.match(String(error),/no CEF runtime provenance/); assert.equal((await import('node:fs')).existsSync(output),false); }
+ else throw error;
+}
+`,
+    );
+    return { root, pkg, crate, tools, project, driver, bashEnv };
+}
+
+function writeTool(dir: string, name: string, source: string) {
+    if (process.platform === "win32") {
+        writeFileSync(resolve(dir, `${name}.js`), source);
+        writeFileSync(
+            resolve(dir, `${name}.cmd`),
+            `@echo off\r\n"${process.execPath}" "%~dp0${name}.js" %*\r\n`,
+        );
+        return;
+    }
+    const path = resolve(dir, name);
+    const script = source.replace(/^#![^\n]*\n/, "");
+    writeFileSync(path, `#!/usr/bin/env node\n${script}\n`);
+    chmodSync(path, 0o755);
+}
+
+function bashPath(path: string) {
+    if (process.platform !== "win32") return path;
+    return normalizePath(path).replace(
+        /^([A-Za-z]):/,
+        (_, drive: string) => `/${drive.toLowerCase()}`,
+    );
+}
+
+function shellToolEnvironment(f: ReturnType<typeof fixture>) {
+    return process.platform === "win32"
+        ? { BASH_ENV: bashPath(f.bashEnv), FIXTURE_TOOLS: bashPath(f.tools) }
+        : {};
+}
+
+function runtimeDir(f: ReturnType<typeof fixture>, name: string, marker: string, content = name) {
+    const path = resolve(f.root, "runtimes", name);
+    mkdirSync(path, { recursive: true });
+    if (marker.endsWith(".framework")) {
+        const framework = resolve(path, marker);
+        mkdirSync(framework, { recursive: true });
+        writeFileSync(resolve(framework, "Chromium Embedded Framework"), content);
+    } else writeFileSync(resolve(path, marker), content);
+    return path;
+}
+
+function run(
+    f: ReturnType<typeof fixture>,
+    kind: string,
+    output: string,
+    opts: Record<string, unknown>,
+    extraEnv: Record<string, string | undefined> = {},
+) {
+    const result = Bun.spawnSync(["bun", f.driver, kind, f.project, output, JSON.stringify(opts)], {
+        cwd: repo,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+            ...process.env,
+            PATH: [f.tools, process.env.PATH].filter(Boolean).join(delimiter),
+            CEF_PATH: undefined,
+            WSL_INTEROP: undefined,
+            ...extraEnv,
+        },
+    });
+    return {
+        code: result.exitCode,
+        stdout: new TextDecoder().decode(result.stdout),
+        stderr: new TextDecoder().decode(result.stderr),
+    };
+}
+
+function staleLinuxBundle(includeRelease: boolean) {
+    const f = fixture();
+    try {
+        const target = "x86_64-unknown-linux-gnu";
+        const selected = runtimeDir(f, "selected", "libcef.so");
+        const old = runtimeDir(
+            f,
+            "old",
+            "libcef.so",
+            includeRelease ? "old release" : "old dependency",
+        );
+        const buildRoot = resolve(f.crate, "target", target);
+        const staleBuild = includeRelease
+            ? resolve(buildRoot, "release/build/cef-dll-sys-old/out/cef")
+            : resolve(buildRoot, "debug/build/cef-dll-sys-dependency/out/cef");
+        mkdirSync(staleBuild, { recursive: true });
+        cpSync(resolve(old, "libcef.so"), resolve(staleBuild, "libcef.so"));
+        const output = resolve(f.root, "linux-output");
+        const result = run(f, "linux", output, { portable: true }, { FIXTURE_RUNTIME: selected });
+        return {
+            code: result.code,
+            stderr: result.stderr,
+            copied: existsSync(resolve(output, "cef/libcef.so"))
+                ? readFileSync(resolve(output, "cef/libcef.so"), "utf8")
+                : null,
+        };
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+}
+
+test("Linux bundler rejects an older release runtime beside the selected source build", () => {
+    const result = staleLinuxBundle(true);
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.copied).toBe("selected");
+});
+
+test("Linux bundler rejects an older dependency runtime in the selected profile", () => {
+    const result = staleLinuxBundle(false);
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.copied).toBe("selected");
+});
+
+test("Windows and Mac source bundle consumers copy their selected native markers", () => {
+    const f = fixture();
+    try {
+        const windowsRuntime = runtimeDir(f, "windows", "libcef.dll");
+        const windowsOut = resolve(f.root, "windows-output");
+        const windows = run(
+            f,
+            "windows",
+            windowsOut,
+            { portable: true },
+            { FIXTURE_RUNTIME: windowsRuntime },
+        );
+        expect(windows.code, windows.stderr).toBe(0);
+        expect(readFileSync(resolve(windowsOut, "libcef.dll"), "utf8")).toBe("windows");
+
+        const macRuntime = runtimeDir(f, "mac", "Chromium Embedded Framework.framework");
+        const macOut = resolve(f.root, "mac-output");
+        const mac = run(f, "mac", macOut, { portable: true }, { FIXTURE_RUNTIME: macRuntime });
+        expect(mac.code, mac.stderr).toBe(0);
+        expect(
+            readFileSync(
+                resolve(
+                    macOut,
+                    "game.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework",
+                ),
+                "utf8",
+            ),
+        ).toBe("mac");
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});
+
+test("explicit CEF_PATH is a Cargo build input; system mode needs no CEF; missing provenance refuses output", () => {
+    const f = fixture();
+    try {
+        const configured = runtimeDir(f, "configured", "libcef.so");
+        const output = resolve(f.root, "explicit-output");
+        const explicit = run(f, "linux", output, { portable: true }, { CEF_PATH: configured });
+        expect(explicit.code, explicit.stderr).toBe(0);
+        expect(readFileSync(resolve(output, "cef/libcef.so"), "utf8")).toBe("configured");
+
+        const systemOut = resolve(f.root, "system-output");
+        const system = run(
+            f,
+            "linux",
+            systemOut,
+            { portable: false },
+            { OMIT_CEF_PROVENANCE: "1" },
+        );
+        expect(system.code, system.stderr).toBe(0);
+        expect(existsSync(resolve(systemOut, "cef"))).toBe(false);
+
+        const missingOut = resolve(f.root, "missing-output");
+        const missing = run(
+            f,
+            "missing",
+            missingOut,
+            { portable: true },
+            { OMIT_CEF_PROVENANCE: "1" },
+        );
+        expect(missing.code, missing.stderr).toBe(0);
+        expect(existsSync(missingOut)).toBe(false);
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});
+
+test("prebuilt hit and subsequent Cargo fallback preserve the caller's CEF_PATH", () => {
+    const f = fixture();
+    try {
+        const target = "x86_64-unknown-linux-gnu";
+        const cacheRoot = resolve(f.root, "cache");
+        const version = JSON.parse(readFileSync(resolve(f.pkg, "package.json"), "utf8")).version;
+        const cache = resolve(cacheRoot, "shallot/prebuilt", version, `${target}-portable`);
+        const cachedRuntime = runtimeDir(f, "cached", "libcef.so");
+        const callerRuntime = runtimeDir(f, "caller", "libcef.so");
+        mkdirSync(resolve(cache, "cef"), { recursive: true });
+        writeFileSync(resolve(cache, "shallot-native"), "prebuilt shell");
+        cpSync(resolve(cachedRuntime, "libcef.so"), resolve(cache, "cef/libcef.so"));
+        writeFileSync(resolve(cache, ".complete"), "");
+        const output = resolve(f.root, "prebuilt-output");
+        const result = run(
+            f,
+            "prebuilt-sequence",
+            output,
+            {},
+            {
+                XDG_CACHE_HOME: cacheRoot,
+                LOCALAPPDATA: cacheRoot,
+                CALLER_CEF_PATH: callerRuntime,
+                CEF_PATH: callerRuntime,
+                PREBUILT_CACHE: cache,
+                CARGO_FIXTURE_LOG: resolve(f.root, "cargo.log"),
+                FIXTURE_RUNTIME: callerRuntime,
+            },
+        );
+        expect(result.code, result.stderr).toBe(0);
+        expect(readFileSync(resolve(output, "cef/libcef.so"), "utf8")).toBe("caller");
+        expect(readFileSync(resolve(f.root, "cargo.log"), "utf8")).toBe("cargo\n");
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});
+
+test("prebuilt Linux, Mac, and Windows shells bundle their archived runtime without environment leakage", () => {
+    const f = fixture();
+    try {
+        const cacheRoot = resolve(f.root, "cache");
+        const caller = runtimeDir(f, "caller-runtime", "libcef.so");
+        const cases = [
+            { kind: "linux", target: "x86_64-unknown-linux-gnu", marker: "libcef.so" },
+            {
+                kind: "mac",
+                target: "aarch64-apple-darwin",
+                marker: "Chromium Embedded Framework.framework",
+            },
+            { kind: "windows", target: "x86_64-pc-windows-msvc", marker: "libcef.dll" },
+        ];
+        for (const item of cases) {
+            const version = JSON.parse(
+                readFileSync(resolve(f.pkg, "package.json"), "utf8"),
+            ).version;
+            const cache = resolve(
+                cacheRoot,
+                "shallot/prebuilt",
+                version,
+                `${item.target}-portable`,
+            );
+            mkdirSync(cache, { recursive: true });
+            const binary = item.target.includes("windows")
+                ? "shallot-native.exe"
+                : "shallot-native";
+            writeFileSync(resolve(cache, binary), `prebuilt ${item.kind}`);
+            if (item.kind === "mac") {
+                const source = runtimeDir(f, "prebuilt-mac", item.marker, "prebuilt mac framework");
+                cpSync(resolve(source, item.marker), resolve(cache, item.marker), {
+                    recursive: true,
+                });
+                writeFileSync(resolve(cache, "shallot-helper"), "prebuilt helper");
+            } else {
+                const source = runtimeDir(
+                    f,
+                    `prebuilt-${item.kind}`,
+                    item.marker,
+                    `prebuilt ${item.kind} runtime`,
+                );
+                mkdirSync(resolve(cache, "cef"), { recursive: true });
+                cpSync(resolve(source, item.marker), resolve(cache, "cef", item.marker));
+            }
+            writeFileSync(resolve(cache, ".complete"), "");
+            const output = resolve(f.root, `${item.kind}-prebuilt-output`);
+            const result = run(
+                f,
+                "prebuilt-platform",
+                output,
+                { target: item.kind },
+                {
+                    XDG_CACHE_HOME: cacheRoot,
+                    LOCALAPPDATA: cacheRoot,
+                    CEF_PATH: caller,
+                    CALLER_CEF_PATH: caller,
+                },
+            );
+            expect(result.code, result.stderr).toBe(0);
+            if (item.kind === "mac") {
+                expect(
+                    readFileSync(
+                        resolve(
+                            output,
+                            "game.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework",
+                        ),
+                        "utf8",
+                    ),
+                ).toBe("prebuilt mac framework");
+            } else {
+                const bundledMarker =
+                    item.kind === "linux"
+                        ? resolve(output, "cef", item.marker)
+                        : resolve(output, item.marker);
+                expect(readFileSync(bundledMarker, "utf8")).toBe(`prebuilt ${item.kind} runtime`);
+            }
+        }
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});
+
+test("WSL Windows bundler translates Cargo's runtime path before copying", () => {
+    const f = fixture();
+    try {
+        const runtime = runtimeDir(f, "wsl", "libcef.dll", "translated runtime");
+        if (process.platform === "win32") {
+            // Native Windows CI has no WSL distro; it tests path translation while POSIX runs the consumer.
+            const messages = JSON.stringify({
+                reason: "build-script-executed",
+                ["package_id"]: "path+file:///fixture#shallot-native@0.10.0",
+                env: [["SHALLOT_CEF_DIR", "C:\\cef"]],
+            });
+            expect(
+                cargoRuntimeDir(messages, "libcef.dll", (path) =>
+                    path === "C:\\cef" ? runtime : path,
+                ),
+            ).toBe(runtime);
+            return;
+        }
+        const output = resolve(f.root, "wsl-output");
+        const result = run(
+            f,
+            "windows",
+            output,
+            { portable: true },
+            {
+                WSL_INTEROP: "fixture",
+                FIXTURE_TARGET_DIR: resolve(f.root, "win-target"),
+                FIXTURE_DRIVE_ROOT: f.root,
+                FIXTURE_RUNTIME: runtime,
+                FIXTURE_WIN_CEF: "C:\\cef",
+            },
+        );
+        expect(result.code, result.stderr).toBe(0);
+        expect(readFileSync(resolve(output, "libcef.dll"), "utf8")).toBe("translated runtime");
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});
+
+test("release archive assembly writes the selected Mac framework at the required archive path", async () => {
+    const f = fixture();
+    try {
+        const target = "aarch64-apple-darwin";
+        const crate = resolve(f.root, "release-crate");
+        const build = resolve(crate, "target", target, "release");
+        mkdirSync(build, { recursive: true });
+        writeFileSync(resolve(build, "shallot-native"), "shell");
+        writeFileSync(resolve(build, "shallot-helper"), "helper");
+        const selected = runtimeDir(
+            f,
+            "release-selected",
+            "Chromium Embedded Framework.framework",
+            "selected framework",
+        );
+        const stale = resolve(crate, "target", target, "release/build/cef-dll-sys-stale/out/cef");
+        const sameProfile = resolve(
+            crate,
+            "target",
+            target,
+            "release/build/cef-dll-sys-dependency/out/cef",
+        );
+        for (const path of [stale, sameProfile]) {
+            const framework = resolve(path, "Chromium Embedded Framework.framework");
+            mkdirSync(framework, { recursive: true });
+            writeFileSync(
+                resolve(framework, "Chromium Embedded Framework"),
+                path === stale ? "stale release" : "stale dependency",
+            );
+        }
+        const cargoJson = resolve(f.root, "cargo-messages.json");
+        writeFileSync(
+            cargoJson,
+            JSON.stringify({
+                reason: "build-script-executed",
+                ["package_id"]: "path+file:///fixture#shallot-native@0.10.0",
+                env: [["SHALLOT_CEF_DIR", normalizePath(selected)]],
+            }),
+        );
+        const output = resolve(f.root, "release.tar.gz");
+        const result = Bun.spawnSync(
+            ["bash", bashPath(resolve(repo, "scripts/assemble-native-archive.sh"))],
+            {
+                cwd: repo,
+                stdout: "pipe",
+                stderr: "pipe",
+                env: {
+                    ...process.env,
+                    ...shellToolEnvironment(f),
+                    PATH: [f.tools, process.env.PATH].filter(Boolean).join(delimiter),
+                    CRATE: bashPath(crate),
+                    STAGE: bashPath(resolve(f.root, "stage")),
+                    CARGO_MESSAGES: normalizePath(cargoJson),
+                    TARGET: target,
+                    MODE: "portable",
+                    BINARY: "shallot-native",
+                    ARCHIVE: bashPath(output),
+                },
+            },
+        );
+        expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0);
+        const extracted = resolve(f.root, "archive");
+        mkdirSync(extracted);
+        await new Bun.Archive(readFileSync(output)).extract(extracted);
+        expect(
+            readFileSync(
+                resolve(
+                    extracted,
+                    "Chromium Embedded Framework.framework/Chromium Embedded Framework",
+                ),
+                "utf8",
+            ),
+        ).toBe("selected framework");
+        expect(
+            existsSync(
+                resolve(
+                    extracted,
+                    "Chromium Embedded Framework.framework/Chromium Embedded Framework.framework",
+                ),
+            ),
+        ).toBe(false);
+        expect(readFileSync(resolve(extracted, "shallot-native"), "utf8")).toBe("shell");
+
+        for (const item of [
+            { target: "x86_64-unknown-linux-gnu", binary: "shallot-native", marker: "libcef.so" },
+            {
+                target: "x86_64-pc-windows-msvc",
+                binary: "shallot-native.exe",
+                marker: "libcef.dll",
+            },
+        ]) {
+            const platformCrate = resolve(f.root, item.target);
+            const platformBuild = resolve(platformCrate, "target", item.target, "release");
+            mkdirSync(platformBuild, { recursive: true });
+            writeFileSync(resolve(platformBuild, item.binary), `shell ${item.target}`);
+            const selectedRuntime = runtimeDir(
+                f,
+                `archive-${item.target}`,
+                item.marker,
+                `selected ${item.target}`,
+            );
+            const oldRuntime = resolve(
+                platformCrate,
+                "target",
+                item.target,
+                "release/build/cef-dll-sys-old/out/cef",
+            );
+            mkdirSync(oldRuntime, { recursive: true });
+            writeFileSync(resolve(oldRuntime, item.marker), `stale ${item.target}`);
+            writeFileSync(
+                cargoJson,
+                JSON.stringify({
+                    reason: "build-script-executed",
+                    ["package_id"]: "path+file:///fixture#shallot-native@0.10.0",
+                    env: [["SHALLOT_CEF_DIR", normalizePath(selectedRuntime)]],
+                }),
+            );
+            const platformArchive = resolve(f.root, `${item.target}.tar.gz`);
+            const assembled = Bun.spawnSync(
+                ["bash", bashPath(resolve(repo, "scripts/assemble-native-archive.sh"))],
+                {
+                    cwd: repo,
+                    stdout: "pipe",
+                    stderr: "pipe",
+                    env: {
+                        ...process.env,
+                        ...shellToolEnvironment(f),
+                        PATH: [f.tools, process.env.PATH].filter(Boolean).join(delimiter),
+                        CRATE: bashPath(platformCrate),
+                        STAGE: bashPath(resolve(f.root, `stage-${item.target}`)),
+                        CARGO_MESSAGES: normalizePath(cargoJson),
+                        TARGET: item.target,
+                        MODE: "portable",
+                        BINARY: item.binary,
+                        ARCHIVE: bashPath(platformArchive),
+                    },
+                },
+            );
+            expect(assembled.exitCode, new TextDecoder().decode(assembled.stderr)).toBe(0);
+            const platformExtracted = resolve(f.root, `archive-${item.target}`);
+            mkdirSync(platformExtracted);
+            await new Bun.Archive(readFileSync(platformArchive)).extract(platformExtracted);
+            expect(readFileSync(resolve(platformExtracted, "cef", item.marker), "utf8")).toBe(
+                `selected ${item.target}`,
+            );
+        }
+
+        writeFileSync(output, "old archive");
+        writeFileSync(cargoJson, "");
+        const refused = Bun.spawnSync(
+            ["bash", bashPath(resolve(repo, "scripts/assemble-native-archive.sh"))],
+            {
+                cwd: repo,
+                stdout: "pipe",
+                stderr: "pipe",
+                env: {
+                    ...process.env,
+                    ...shellToolEnvironment(f),
+                    PATH: [f.tools, process.env.PATH].filter(Boolean).join(delimiter),
+                    CRATE: bashPath(crate),
+                    STAGE: bashPath(resolve(f.root, "stage")),
+                    CARGO_MESSAGES: normalizePath(cargoJson),
+                    TARGET: target,
+                    MODE: "portable",
+                    BINARY: "shallot-native",
+                    ARCHIVE: bashPath(output),
+                },
+            },
+        );
+        expect(refused.exitCode).not.toBe(0);
+        expect(existsSync(output)).toBe(false);
+    } finally {
+        rmSync(f.root, { recursive: true, force: true });
+    }
+});

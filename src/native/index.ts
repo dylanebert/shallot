@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { basename, resolve } from "node:path";
 import { tryPrebuilt } from "./prebuilt";
+import { cargoRuntimeDir, requireRuntimeDir } from "./provenance.js";
 
 const RUST_CRATE = resolve(import.meta.dir, "../../crates/native");
 const DEFAULT_ICON = resolve(import.meta.dir, "../../assets/icon-1024.png");
@@ -72,7 +73,7 @@ export function cargoTarget(target: string, release: boolean, targetDir = CRATE_
 // this repo is developed on: `shallot native` ships, and a user developing under the Windows Subsystem
 // for Linux who builds a Windows portable target reaches the host toolchain through exactly this
 // branch, so it stays.
-const isWSL = existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
+const isWSL = process.env.WSL_INTEROP != null || existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
 
 // translate a WSL path to its Windows form (\\wsl.localhost\… UNC) so PowerShell can `cd` into it.
 function winPath(p: string): string {
@@ -171,7 +172,7 @@ function cargoBuild(
     portable: boolean,
     distDir?: string,
     winTargetDir?: string,
-): void {
+): string | null {
     requireRustCrate();
     const invocation = resolveCargoInvocation(target, release, portable, isWSL);
 
@@ -189,9 +190,13 @@ function cargoBuild(
                 "powershell.exe",
                 "-NoProfile",
                 "-Command",
-                devShellBuild(invocation.flags, distDir, winTargetDir),
+                devShellBuild(
+                    [...invocation.flags, "--message-format=json-render-diagnostics"],
+                    distDir,
+                    winTargetDir,
+                ),
             ],
-            { cwd: winCwd, stdout: "inherit", stderr: "inherit" },
+            { cwd: winCwd, stdout: "pipe", stderr: "inherit" },
         );
         if (r.exitCode !== 0) {
             console.error(
@@ -199,7 +204,17 @@ function cargoBuild(
             );
             process.exit(1);
         }
-        return;
+        const output = new TextDecoder().decode(r.stdout);
+        const marker = target.includes("windows")
+            ? "libcef.dll"
+            : target.includes("darwin")
+              ? CEF_FRAMEWORK
+              : "libcef.so";
+        const translate =
+            invocation.kind === "devshell"
+                ? (path: string) => execSync(`wslpath -u "${path}"`, { encoding: "utf-8" }).trim()
+                : undefined;
+        return cargoRuntimeDir(output, marker, translate);
     }
 
     // cross-compile a Windows target from a non-WSL host (cargo-xwin), or build a native target.
@@ -209,7 +224,21 @@ function cargoBuild(
         CARGO_TARGET_DIR: CRATE_TARGET,
         ...(distDir ? { SHALLOT_DIST: distDir } : {}),
     };
-    execSync([cmd, ...invocation.flags].join(" "), { cwd: RUST_CRATE, stdio: "inherit", env });
+    const output = execSync(
+        [cmd, ...invocation.flags, "--message-format=json-render-diagnostics"].join(" "),
+        {
+            cwd: RUST_CRATE,
+            encoding: "utf8",
+            env,
+            stdio: ["inherit", "pipe", "inherit"],
+        },
+    );
+    const marker = target.includes("windows")
+        ? "libcef.dll"
+        : target.includes("darwin")
+          ? CEF_FRAMEWORK
+          : "libcef.so";
+    return cargoRuntimeDir(output, marker);
 }
 
 function ensureIcon(distDir: string): void {
@@ -219,31 +248,7 @@ function ensureIcon(distDir: string): void {
     }
 }
 
-// the downloaded CEF runtime lives in cef-dll-sys's build OUT_DIR (or CEF_PATH when set). Return the
-// subdir under it holding `marker` (libcef.so / libcef.dll / the framework) for a target's build.
-export function findCefDir(
-    target: string,
-    marker: string,
-    targetDir = CRATE_TARGET,
-): string | null {
-    const cefPath = process.env.CEF_PATH;
-    if (cefPath && existsSync(resolve(cefPath, marker))) return cefPath;
-
-    const profile = resolve(targetDir, target);
-    for (const dir of ["release", "debug"]) {
-        const buildDir = resolve(profile, dir, "build");
-        if (!existsSync(buildDir)) continue;
-        for (const entry of readdirSync(buildDir)) {
-            if (!entry.startsWith("cef-dll-sys-")) continue;
-            const out = resolve(buildDir, entry, "out");
-            if (!existsSync(out)) continue;
-            for (const sub of readdirSync(out)) {
-                if (existsSync(resolve(out, sub, marker))) return resolve(out, sub);
-            }
-        }
-    }
-    return null;
-}
+// The runtime path comes from this invocation's Cargo build-script message, not the target cache.
 
 // strip is the single biggest CEF size win — the Spotify builds ship libcef unstripped. Skips when the
 // tool is absent (a non-stripped build still works, just larger). Mac framework binaries pass "-x -S"
@@ -289,22 +294,30 @@ export async function bundleNativeWindows(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
     );
 
-    // Prebuilt hit skips cargo entirely; portable sets CEF_PATH at the existing findCefDir seam so
-    // copyCefDlls below finds the runtime in the cache. Every miss falls through to cargoBuild.
+    // The prebuilt returns its runtime directory as plain data; a miss captures Cargo's selected result.
     const prebuilt = await tryPrebuilt(WIN_TARGET, release, portable);
     let exe: string;
+    let cefDir: string | undefined;
     let targetDir = CRATE_TARGET;
     if (prebuilt) {
         exe = prebuilt.binaryPath;
-        if (prebuilt.cefDir) process.env.CEF_PATH = prebuilt.cefDir;
+        cefDir = prebuilt.cefDir;
     } else {
         // portable on WSL builds into a local Windows dir (off the 9p share); read its artifacts back
         // through the /mnt view. Every other case uses the in-tree target/.
         const winBuild = portable && isWSL ? winBuildDir() : null;
         targetDir = winBuild ? winBuild.wsl : CRATE_TARGET;
-        cargoBuild(WIN_TARGET, release, portable, release ? distDir : undefined, winBuild?.win);
+        cefDir =
+            cargoBuild(
+                WIN_TARGET,
+                release,
+                portable,
+                release ? distDir : undefined,
+                winBuild?.win,
+            ) ?? undefined;
         exe = cargoTarget(WIN_TARGET, release, targetDir);
     }
+    if (portable) cefDir = requireRuntimeDir(cefDir, "libcef.dll");
     if (!existsSync(exe)) {
         console.error(`  cargo build produced no exe at ${exe}`);
         process.exit(1);
@@ -317,7 +330,7 @@ export async function bundleNativeWindows(
     cpSync(exe, outExe);
 
     // portable ships the Chromium runtime beside the exe (Windows resolves DLLs from the exe dir).
-    if (portable) copyCefDlls(outputDir, targetDir);
+    if (portable) copyCefDlls(outputDir, cefDir!);
 
     if (!release && !dev) {
         cpSync(distDir, resolve(outputDir, "dist"), { recursive: true });
@@ -461,17 +474,18 @@ export async function bundleNativeMac(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
     );
 
-    // Prebuilt hit skips cargo entirely; portable sets CEF_PATH at the existing findCefDir seam so
-    // the framework + helper are found in the cache. Every miss falls through to cargoBuild.
+    // The prebuilt returns its runtime directory as plain data; a miss captures Cargo's selected result.
     const prebuilt = await tryPrebuilt(MAC_TARGET, release, portable);
     let bin: string;
+    let cefDir = prebuilt?.cefDir;
     if (prebuilt) {
         bin = prebuilt.binaryPath;
-        if (prebuilt.cefDir) process.env.CEF_PATH = prebuilt.cefDir;
     } else {
-        cargoBuild(MAC_TARGET, release, portable, release ? distDir : undefined);
+        cefDir =
+            cargoBuild(MAC_TARGET, release, portable, release ? distDir : undefined) ?? undefined;
         bin = cargoTarget(MAC_TARGET, release);
     }
+    const runtimeDir = portable ? requireRuntimeDir(cefDir, CEF_FRAMEWORK) : undefined;
     if (!existsSync(bin)) {
         console.error(`  cargo build produced no binary at ${bin}`);
         process.exit(1);
@@ -508,18 +522,12 @@ export async function bundleNativeMac(
             console.error(`  cargo build produced no helper binary at ${helperBin}`);
             process.exit(1);
         }
-        const cefDir = findCefDir(MAC_TARGET, CEF_FRAMEWORK);
-        if (!cefDir) {
-            console.error("  CEF framework not found. Set CEF_PATH or build first.");
-            process.exit(1);
-        }
-
         const frameworksDir = resolve(contentsDir, "Frameworks");
         mkdirSync(frameworksDir, { recursive: true });
 
         const fwOut = resolve(frameworksDir, CEF_FRAMEWORK);
         // ditto is the canonical tool for copying a macOS framework (preserves symlinks, perms, xattrs).
-        execSync(`ditto "${resolve(cefDir, CEF_FRAMEWORK)}" "${fwOut}"`, { stdio: "pipe" });
+        execSync(`ditto "${resolve(runtimeDir!, CEF_FRAMEWORK)}" "${fwOut}"`, { stdio: "pipe" });
 
         for (const suffix of MAC_HELPER_SUFFIXES) {
             const helperName = `${name} ${suffix}`;
@@ -562,13 +570,7 @@ export async function bundleNativeMac(
     console.log(`  ${name}.app (${appSize} MB binary)`);
 }
 
-function copyCefLibs(outputDir: string, release: boolean): void {
-    const cefSrc = findCefDir(LINUX_TARGET, "libcef.so");
-    if (!cefSrc) {
-        console.error("  CEF libs not found. Set CEF_PATH or build first.");
-        process.exit(1);
-    }
-
+function copyCefLibs(outputDir: string, cefSrc: string, release: boolean): void {
     const cefOut = resolve(outputDir, "cef");
     mkdirSync(cefOut, { recursive: true });
 
@@ -605,13 +607,7 @@ function copyCefLibs(outputDir: string, release: boolean): void {
     console.log(`  copied CEF libs from ${cefSrc}`);
 }
 
-function copyCefDlls(outputDir: string, targetDir = CRATE_TARGET): void {
-    const cefSrc = findCefDir(WIN_TARGET, "libcef.dll", targetDir);
-    if (!cefSrc) {
-        console.error("  CEF libs not found. Set CEF_PATH or build first.");
-        process.exit(1);
-    }
-
+function copyCefDlls(outputDir: string, cefSrc: string): void {
     // Windows resolves DLLs beside the exe, so the runtime sits in the output dir directly (the window
     // binary's find_cef_dir checks the exe dir first). No strip step — libcef.dll ships without its PDB.
     const files = [
@@ -663,17 +659,18 @@ export async function bundleNativeLinux(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
     );
 
-    // Prebuilt hit skips cargo entirely; portable sets CEF_PATH at the existing findCefDir seam so
-    // copyCefLibs below finds the runtime in the cache. Every miss falls through to cargoBuild.
+    // The prebuilt returns its runtime directory as plain data; a miss captures Cargo's selected result.
     const prebuilt = await tryPrebuilt(LINUX_TARGET, release, portable);
     let bin: string;
+    let cefDir = prebuilt?.cefDir;
     if (prebuilt) {
         bin = prebuilt.binaryPath;
-        if (prebuilt.cefDir) process.env.CEF_PATH = prebuilt.cefDir;
     } else {
-        cargoBuild(LINUX_TARGET, release, portable, release ? distDir : undefined);
+        cefDir =
+            cargoBuild(LINUX_TARGET, release, portable, release ? distDir : undefined) ?? undefined;
         bin = cargoTarget(LINUX_TARGET, release);
     }
+    if (portable) cefDir = requireRuntimeDir(cefDir, "libcef.so");
     if (!existsSync(bin)) {
         console.error(`  cargo build produced no binary at ${bin}`);
         process.exit(1);
@@ -687,7 +684,7 @@ export async function bundleNativeLinux(
     chmodSync(outBin, 0o755);
 
     // portable ships the Chromium runtime; the default depends on the host's WebKitGTK (no copy).
-    if (portable) copyCefLibs(outputDir, release);
+    if (portable) copyCefLibs(outputDir, cefDir!, release);
 
     if (!release && !dev) {
         cpSync(distDir, resolve(outputDir, "dist"), { recursive: true });

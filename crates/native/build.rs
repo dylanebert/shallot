@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    if let Ok(cef_dir) = std::env::var("DEP_CEF_DLL_WRAPPER_CEF_DIR") {
+        println!("cargo:rustc-env=SHALLOT_CEF_DIR={cef_dir}");
+    }
     gen_assets();
 
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
