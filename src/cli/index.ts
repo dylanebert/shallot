@@ -17,7 +17,7 @@ const usage = `
     shallot dev --target <platform> (desktop)
 
   Commands
-    add [example]             copy an example into your project; with no name, list them
+    create <name>             create a project from minimal or an example
 
   Targets
     --target <platform>       windows, mac, linux
@@ -96,7 +96,7 @@ const commandUsage = {
 } as const;
 
 export type CliArgs =
-    | { kind: "add"; rest: string[] }
+    | { kind: "create"; rest: string[] }
     | { kind: "skill" }
     | { kind: "command-help"; command: keyof typeof commandUsage }
     | { kind: "unknown"; verb: string }
@@ -122,7 +122,7 @@ function isNativeTarget(target: string): target is NativeTarget {
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (raw.length === 1 && verb === "--skill") return { kind: "skill" };
-    if (verb === "add") return { kind: "add", rest: raw.slice(1) };
+    if (verb === "create") return { kind: "create", rest: raw.slice(1) };
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.some((command) => command === verb))
         return { kind: "unknown", verb };
 
@@ -194,9 +194,9 @@ export async function main(
         console.log(readFileSync(new URL("./skill.md", import.meta.url), "utf8").trimEnd());
         exit(0);
     }
-    if (parsed.kind === "add") {
-        const { runAdd } = await import("./add");
-        exit(await runAdd(parsed.rest));
+    if (parsed.kind === "create") {
+        const { runCreate } = await import("./create");
+        exit(runCreate(parsed.rest));
     }
     if (parsed.kind === "unknown") {
         console.error(`unknown command: ${parsed.verb}`);

@@ -57,7 +57,7 @@ test("bare shallot presents the project map, loop, commands, targets and help co
     shallot dev --target <platform> (desktop)
 
   Commands
-    add [example]             copy an example into your project; with no name, list them
+    create <name>             create a project from minimal or an example
 
   Targets
     --target <platform>       windows, mac, linux
@@ -183,25 +183,24 @@ test("web commands refuse to shadow project scripts and name the desktop target 
     expect(webTarget.stderr).toBe(commands[0][1]);
 });
 
-test("shallot add --help presents add usage without writing a destination", async () => {
-    const result = await cli("add", "--help");
+test("shallot create --help presents the outer-folder project command", async () => {
+    const result = await cli("create", "--help");
     expect(result.code).toBe(0);
     expect(result.stdout.trim()).toBe(
         `
-  shallot add [name] [dir]
+  shallot create <name> [--template <example>]
 
-  Without a name, lists available examples.
-  With a name, copies one example into a project.
-  The destination defaults to the example name relative to the current directory.
-  An occupied destination is refused.
+  Create a project in the outer folder. The default template is minimal.
 
-  Common examples
-    shallot add
-    shallot add first-person
-    shallot add first-person my-game
+  Outer folder, without Shallot installed
+    bun create shallot <name> [--template <example>]
+
+  Inside a project where Shallot is installed
+    bunx shallot create <name> [--template <example>]
 
   Options
-    -h, --help  Show this help`.trim(),
+    --template <example>  Copy an installed example
+    -h, --help            Show this help`.trim(),
     );
     expect(result.stderr).toBe("");
 });

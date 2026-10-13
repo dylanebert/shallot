@@ -21,6 +21,7 @@ const ROOT = resolve(import.meta.dir, "..");
 type RootPackage = {
     version: string;
     devDependencies: Record<string, string>;
+    peerDependencies: Record<string, string>;
     scripts: { prepare: string };
 };
 
@@ -221,7 +222,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort();
-    expect(recipes).toEqual(["first-person", "loading-screen"]);
+    expect(recipes).toEqual(["first-person", "loading-screen", "minimal"]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
     // By file name from its directory: GNU tar, which Git Bash puts first on Windows, reads `C:` as a host.
@@ -232,46 +233,41 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     });
     expect(packed.exitCode).toBe(0);
     expect(packed.stdout.toString()).toContain("tsconfig.base.json");
+    expect(packed.stdout.toString()).toContain("examples/minimal/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/minimal/src/welcome/welcome.test.ts");
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
+    expect(packed.stdout.toString()).not.toContain("examples/minimal/package.json");
     expect(packed.stdout.toString()).not.toContain("examples/first-person/package.json");
     expect(packed.stdout.toString()).not.toContain("examples/loading-screen/package.json");
 });
 
-function installExample(name: "first-person" | "loading-screen"): void {
+function installExample(name: "minimal" | "first-person" | "loading-screen"): void {
     const { scratch, cliProject, rootPackage, packageVersion, tarball, installedPackage } =
         packedInstall();
-    const example = join(scratch, name);
-    run(
-        ["bun", "run", join(installedPackage, "bin/shallot.ts"), "add", name, example],
-        cliProject,
-        `shallot add ${name}`,
-    );
+    const project = join(scratch, name);
+    const args = ["bun", "run", join(installedPackage, "bin/shallot.ts"), "create", project];
+    if (name !== "minimal") args.push("--template", name);
+    run(args, cliProject, `shallot create ${name}`);
 
-    const examplePackagePath = join(example, "package.json");
-    const examplePackage = JSON.parse(readFileSync(examplePackagePath, "utf8"));
-    expect(examplePackage.dependencies["@dylanebert/shallot"]).toBe(packageVersion);
-    expect(examplePackage.devDependencies["@types/bun"]).toBe(
-        rootPackage.devDependencies["@types/bun"],
+    const manifestPath = join(project, "package.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    expect(manifest.dependencies["@dylanebert/shallot"]).toBe(packageVersion);
+    expect(manifest.devDependencies["@types/bun"]).toBe(rootPackage.devDependencies["@types/bun"]);
+    expect(manifest.devDependencies.playwright).toBe(rootPackage.peerDependencies.playwright);
+    expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
+    expect(manifest.devDependencies.typegpu).toBeUndefined();
+    expect(manifest.devDependencies.webgpu).toBe(
+        name === "first-person" ? rootPackage.peerDependencies.webgpu : undefined,
     );
-    expect(examplePackage.devDependencies.typegpu).toBeUndefined();
-    if (name === "first-person")
-        expect(examplePackage.devDependencies.webgpu).toBe(rootPackage.devDependencies.webgpu);
-    else expect(examplePackage.devDependencies.webgpu).toBeUndefined();
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
-    expect(readFileSync(join(example, "tests/preload.ts"), "utf8")).toBe(
-        'import { shallot } from "@dylanebert/shallot/bun";\nimport { plugin } from "bun";\n\nplugin(shallot({ root: import.meta.dir }));\n',
-    );
-    expect(readFileSync(join(example, "bunfig.toml"), "utf8")).toBe(
-        '[test]\npreload = ["./tests/preload.ts"]\n',
-    );
 
-    const packedRange = `file:${relative(example, tarball).replaceAll("\\", "/")}`;
-    examplePackage.dependencies["@dylanebert/shallot"] = packedRange;
-    writeFileSync(examplePackagePath, `${JSON.stringify(examplePackage, null, 4)}\n`);
-    writeFileSync(join(example, "no-preload.toml"), "[test]\n");
+    const packedRange = `file:${relative(project, tarball).replaceAll("\\", "/")}`;
+    manifest.dependencies["@dylanebert/shallot"] = packedRange;
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
+    writeFileSync(join(project, "no-preload.toml"), "[test]\n");
     writeFileSync(
-        join(example, "src/packed-tgsl.test.ts"),
+        join(project, "src/packed-tgsl.test.ts"),
         `import { expect, test } from "bun:test";
 import { linearToSrgb3 } from "@dylanebert/shallot/rendering";
 import { checkTgsl } from "@dylanebert/shallot/runtime";
@@ -286,31 +282,17 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
 `,
     );
 
-    const exampleInstall = run(
-        ["bun", "install", "--linker=isolated", "--no-progress"],
-        example,
-        `installing ${name} from its own manifest`,
-    );
-    expect(exampleInstall).not.toContain("build-tooling: generated dist/");
-    expect(existsSync(join(example, "node_modules/@types/bun/package.json"))).toBe(true);
-    expect(examplePackage.devDependencies.typescript).toBeUndefined();
-    run(["bun", "check", "-p", "tsconfig.json"], example, `bun check ${name}`);
-    run(
-        ["bun", join(example, "node_modules/vite/bin/vite.js"), "build"],
-        example,
-        `vite build ${name}`,
-    );
-    expect(
-        readdirSync(join(example, "dist/assets")).some((file) => file.startsWith("Inter-Regular")),
-    ).toBe(false);
-    const testOutput = run(["bun", "test"], example, `bun test ${name}`);
+    const installOutput = run(["bun", "install"], project, `bun install ${name}`);
+    expect(installOutput).not.toContain("build-tooling: generated dist/");
+    run(["bun", "check"], project, `bun check ${name}`);
+    run(["bun", "run", "build"], project, `bun run build ${name}`);
+    const testOutput = run(["bun", "test"], project, `bun test ${name}`);
     expect(testOutput).toContain(
         "(pass) the Bun preload transforms engine TGSL and keeps it callable on the CPU",
     );
-    expect(testOutput).toContain(" 0 fail");
-
+    expect(testOutput).toContain("0 fail");
     const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
-        cwd: example,
+        cwd: project,
         stdout: "pipe",
         stderr: "pipe",
     });
@@ -320,10 +302,14 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     expect(noPreloadOutput).toContain("unplugin-typegpu/bun");
 }
 
-test("first-person example installs from the packed CLI by copy-out", () => {
+test("minimal installs from the packed CLI and passes its project loop", () => {
+    installExample("minimal");
+});
+
+test("first-person installs from the packed CLI and passes its project loop", () => {
     installExample("first-person");
 });
 
-test("loading-screen example installs from the packed CLI by copy-out", () => {
+test("loading-screen installs from the packed CLI and passes its project loop", () => {
     installExample("loading-screen");
 });

@@ -600,14 +600,17 @@ Existing `probeBuffer(device, source, options)` and `probeTexture(device, source
 
 Requests accept only buffers and textures owned by their World. Allocate through `world.gpu.device` or `world.gpu.root`; register an external allocation intended solely for this world with `world.own(resource)` before probing it. Do not request another world's resource, even on a shared device. Keep counts that only size GPU work on the GPU instead of replacing the old Mirror with per-frame requests.
 
-## `shallot recipe` is now `shallot add`
+## `shallot recipe` is now `shallot create`
 
 ```sh
 # 0.9.5
 bunx shallot recipe first-person
 
-# 0.10
-bunx shallot add first-person
+# 0.10, from the outer folder without an engine install
+bun create shallot my-game --template first-person
+
+# 0.10, inside a project where Shallot is installed
+bunx shallot create my-game --template first-person
 ```
 
 ## `shallot run` and `shallot verify` are removed

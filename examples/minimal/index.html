@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="description" content="A turning cube and ground under an orbit camera, built with Shallot." />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <title>Shallot — minimal</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; }
+            html, body, canvas { width: 100%; height: 100%; }
+            body { overflow: hidden; background: #10131b; }
+            canvas { display: block; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <script type="module">
+            import { runApp } from "@dylanebert/shallot";
+            import { Welcome } from "./src/welcome";
+
+            await runApp({ plugins: [Welcome] });
+        </script>
+    </body>
+</html>

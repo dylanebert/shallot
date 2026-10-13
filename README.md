@@ -12,6 +12,7 @@ curl -fsSL https://bun.sh/install | bash
 
 # new project
 bun create shallot my-game
+# or use an installed example: bun create shallot my-game --template first-person
 cd my-game
 bun install
 
@@ -40,7 +41,7 @@ This removed the observed presentation stalls in Chromium 152 on an RTX 4090 wit
 ## more
 
 - demos: [dylanebert.com/shallot](https://dylanebert.com/shallot/)
-- examples: `bunx shallot add`
+- examples: `bun create shallot my-game --template first-person`
 - questions: [discord](https://discord.gg/eEY75Nqk3C). bugs: [issues](https://github.com/dylanebert/shallot/issues). releases: [npm](https://www.npmjs.com/package/@dylanebert/shallot)
 - changing the engine: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 

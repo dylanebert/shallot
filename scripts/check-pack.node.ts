@@ -51,7 +51,6 @@ test("the npm package contains only declared files and required consumers", asyn
         "!**/*.oracle.ts",
         "!src/**/*.node.ts",
         "!src/**/*.e2e.ts",
-        "!examples/loading-screen/**/*.test.ts",
         "!examples/loading-screen/**/*.node.ts",
         "!examples/loading-screen/**/*.e2e.ts",
     ];
@@ -61,7 +60,9 @@ test("the npm package contains only declared files and required consumers", asyn
         const ancestors = parts.map((_, index) => parts.slice(0, index + 1).join("/"));
         return negated.some((glob) => ancestors.some((path) => glob.match(path)));
     };
-    const firstPersonChecks = new Set([
+    const shippedExampleChecks = new Set([
+        "examples/minimal/src/welcome/welcome.test.ts",
+        "examples/loading-screen/src/reveal.test.ts",
         "examples/first-person/browser.e2e.ts",
         "examples/first-person/src/demo.node.ts",
         "examples/first-person/src/plugins.test.ts",
@@ -71,8 +72,8 @@ test("the npm package contains only declared files and required consumers", asyn
     const forbidden: [string, (f: string) => boolean][] = [
         ["files negation", isNegated],
         [
-            "non-first-person check",
-            (file) => /\.(?:test|node|e2e)\.ts$/.test(file) && !firstPersonChecks.has(file),
+            "unapproved example check",
+            (file) => /\.(?:test|node|e2e)\.ts$/.test(file) && !shippedExampleChecks.has(file),
         ],
 
         ["non-carrier script", (f) => f.startsWith("scripts/") && f.endsWith(".ts")],
@@ -192,6 +193,13 @@ test("the npm package contains only declared files and required consumers", asyn
         "src/project/assets.js",
         "src/project/testing.js",
         "src/project/vite.js",
+        "examples/minimal/index.html",
+        "examples/minimal/playwright.config.ts",
+        "examples/minimal/public/icon.svg",
+        "examples/minimal/src/welcome/index.ts",
+        "examples/minimal/src/welcome/welcome.test.ts",
+        "examples/minimal/tsconfig.json",
+        "examples/minimal/vite.config.ts",
         "examples/first-person/playwright.config.ts",
         "examples/first-person/browser.e2e.ts",
         "examples/first-person/tests/ascent.node.ts",
@@ -199,6 +207,7 @@ test("the npm package contains only declared files and required consumers", asyn
         "examples/first-person/tests/browser-setup.test.ts",
         "examples/first-person/tests/browser-install.ts",
         "examples/first-person/tests/capture-page.ts",
+        "examples/loading-screen/src/reveal.test.ts",
         "examples/first-person/src/plugins.ts",
         "examples/first-person/src/plugins.test.ts",
         "examples/first-person/src/demo.node.ts",
@@ -211,11 +220,11 @@ test("the npm package contains only declared files and required consumers", asyn
         "crates/audio/pkg/shallot_audio.d.ts",
         "crates/audio/pkg/shallot_audio.wasm",
     ];
-    // An example manifest would shadow the root package self-reference; `shallot add` writes the copied project's manifest.
+    // An example manifest would shadow the root package self-reference; `shallot create` writes the copied project's manifest.
     for (const name of recipes)
         if (existsSync(resolve(examplesDir, name, "package.json")))
             violations.push(
-                `examples/${name}/package.json (example manifest; shallot add writes it)`,
+                `examples/${name}/package.json (example manifest; shallot create writes it)`,
             );
 
     const removedTestSupport = Object.keys(packageManifest.exports ?? {}).filter(
