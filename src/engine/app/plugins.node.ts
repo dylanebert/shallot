@@ -5,6 +5,7 @@ import { expectError } from "../../../scripts/test-console";
 
 setDefaultTimeout(CEILING.node);
 
+import { AudioPlugin, Listener, Sound } from "../../core/audio";
 import { MeshInstance } from "../../core/mesh";
 import {
     Body,
@@ -59,6 +60,7 @@ import {
     DEFAULT_PLUGINS,
     Materials,
     MeshMaterial,
+    StandardAudioPlugin,
     StandardMaterial,
     Transform,
 } from "../../standard";
@@ -79,14 +81,13 @@ import {
     StandardRenderer,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
-import { type Plugin, probeTexture, Time, type World } from "../index";
+import { createApp, type Plugin, probeTexture, Time, type World } from "../index";
 import { CanvasContext } from "./canvas.fixture";
-import type { createApp } from "./index";
 
 const everyPlugin: readonly Plugin[] = [
     ...DEFAULT_PLUGINS,
     AudioPlugin,
+    StandardAudioPlugin,
     CharacterPlugin,
     FogPlugin,
     LinesPlugin,
@@ -105,6 +106,15 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 // No wall clock on GPU waits: a hang is the Node tier ceiling's and device loss's (77c2e222).
 await setupGlobals();
+
+test("AudioPlugin and StandardAudioPlugin compose without a GPU", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardAudioPlugin] });
+    const sound = app.world.create();
+    app.world.add(sound, Sound);
+    expect(app.world.has(sound, Sound)).toBe(true);
+    app.world.step(Time.FIXED_DT);
+    app.dispose();
+});
 const createCanvasContext = CanvasContext as unknown as new (
     canvas: HTMLCanvasElement,
     width: number,

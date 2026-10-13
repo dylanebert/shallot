@@ -35,6 +35,18 @@ requestGPU(device, [
 ]);
 ```
 
+## Audio clips belong to the World
+
+Import `AudioPlugin`, `Sound`, `Listener`, `registerClip`, and `play` from `/audio` (or the root). `AudioPlugin` owns the stable data and clip registry; add the opt-in `StandardAudioPlugin` from `/standard/audio` to run playback. `loadClip` in `/standard/audio` decodes a URL or `Blob` into the World's registry. The running implementation publishes its `AudioContext` and connection bus through the World's `AudioOutput` resource.
+
+- Replace `sample(pcm, name)` with `registerClip(world, name, pcm, sampleRate)`, or replace URL/`Blob` loading with `await loadClip(world, name, source)`. Clip IDs and decoded PCM now belong to each World.
+- `play(world, name, { pos })` becomes `play(world, clip, { position })`; `clip` may be the registered name or its ID. `play` no longer resolves instrument names; register a clip for stable playback.
+- `Sound.instrument` becomes `Sound.clip`; `Sound.pitch` and the runtime-owned `Sound.voice` are gone. `Sound.loop` remains, and `Sound.paused` is added.
+- `Sound.volume` is now linear gain rather than quadratic. For former sample playback, preserve an old value `v` in `[0, 1]` by setting the new volume to `v * v`.
+- `AudioPlugin`, `Sound`, and `Listener` move from `/standard` to `/audio`; `play` moves to `/audio` with `position` in place of `pos`.
+- The experimental `InstrumentDef`, `Instruments`, `instrument`, `ModulationDef`, `NodeDef`, and `NodeType` exports move to `/transitional/audio`.
+- `sfx` and `SfxPolicy` are deleted; per-name caps and cooldowns are not part of clip playback.
+
 ## Fixed systems read tick time
 
 Inside `fixed`, `world.time.elapsed` is now `fixedTick * Time.FIXED_DT`, not the

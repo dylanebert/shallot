@@ -1,3 +1,4 @@
+export * from "./audio";
 export {
     type AudioContextState,
     type AudioDevice,

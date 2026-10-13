@@ -14,21 +14,7 @@ export {
     WheelJoint,
 } from "../core/physics";
 export { composeGlobalTransform, GlobalTransform, Transform } from "../core/transform";
-export {
-    AudioPlugin,
-    type InstrumentDef,
-    Instruments,
-    instrument,
-    Listener,
-    type ModulationDef,
-    type NodeDef,
-    type NodeType,
-    play,
-    type SfxPolicy,
-    Sound,
-    sample,
-    sfx,
-} from "../transitional/audio";
+export { loadClip, StandardAudioPlugin } from "./audio";
 export {
     type LoadingOptions,
     minimalDark,

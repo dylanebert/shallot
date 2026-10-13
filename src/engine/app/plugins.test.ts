@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { AudioPlugin } from "../../core/audio";
 import { BrowserInputPlugin, createBrowserInputPlugin, InputPlugin } from "../../core/input";
 import { MeshPlugin } from "../../core/mesh";
 import { PhysicsPlugin } from "../../core/physics";
@@ -17,10 +18,10 @@ import {
     VignettePlugin,
 } from "../../extras";
 import {
-    AudioPlugin,
     CharacterPlugin,
     DEFAULT_PLUGINS,
     MeshRenderPlugin,
+    StandardAudioPlugin,
     StandardPhysicsPlugin,
     StandardRenderingPlugin,
 } from "../../standard";
@@ -53,6 +54,7 @@ const publicPlugins = [
     CorePipelinePlugin,
     TransformPlugin,
     AudioPlugin,
+    StandardAudioPlugin,
     CharacterPlugin,
     FogPlugin,
     LinesPlugin,

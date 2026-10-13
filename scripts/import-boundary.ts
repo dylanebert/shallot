@@ -11,6 +11,7 @@ const TOOLING = new Set(["project", "cli", "native", "types"]);
 const MODULE_TIERS = new Set(["core", "standard", "extras"]);
 type SiblingEdge = readonly [from: string, to: string];
 const SIBLING_EDGES: readonly SiblingEdge[] = [
+    ["core/audio", "core/transform"],
     ["core/physics", "core/transform"],
     ["core/rendering", "core/transform"],
 ];
