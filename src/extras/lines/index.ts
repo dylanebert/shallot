@@ -230,7 +230,7 @@ const LinesSystem: System = {
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     update(world) {
-        if (!world.gpu.device || !ready(world)) return;
+        if (!ready(world)) return;
         expandRetained(world);
         flushSegments(world, world.gpu.device);
     },
@@ -260,7 +260,6 @@ export const LinesPlugin: Plugin = {
     },
 
     warm(world: World) {
-        if (!world.gpu.device) return;
         warmSegments(world);
         const format = world.resource(RenderContext).format;
         const state = world.resource(lineRendererKey);

@@ -721,7 +721,6 @@ export const OutlinePlugin: Plugin = {
     },
 
     async warm(world: World) {
-        if (!world.gpu.device) return;
         prepareOutline(world);
     },
 

@@ -281,7 +281,6 @@ export const SpritePlugin: Plugin = {
     async warm(world) {
         const images = world.resource(Images);
         const state = world.resource(spriteGpuKey);
-        if (!world.gpu.device) return;
         const device = world.gpu.device;
         if (images.size > 0 && typeof createImageBitmap !== "undefined") {
             const blobs = await Promise.all(

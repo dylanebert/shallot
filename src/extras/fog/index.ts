@@ -208,12 +208,7 @@ const FogSystem: System = {
         const _render = world.resource(RenderContext);
         const _fogState = world.resource(fogStateKey);
 
-        if (
-            !world.gpu.device ||
-            !_fogState.fog.pipeline ||
-            !_fogState.fog.multisampledPipeline ||
-            !_fogState.fog.buffer
-        )
+        if (!_fogState.fog.pipeline || !_fogState.fog.multisampledPipeline || !_fogState.fog.buffer)
             return;
         const fogEid = world.only(FOG_SINGLETON_QUERY);
         if (fogEid < 0) return;
@@ -310,7 +305,6 @@ export const FogPlugin: Plugin = {
     async warm(world: World) {
         const _fogState = world.resource(fogStateKey);
 
-        if (!world.gpu.device) return;
         _fogState.fog.buffer?.destroy();
         _fogState.fog.buffer = world.gpu.root
             .createBuffer(FogGpu)

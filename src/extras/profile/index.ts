@@ -766,7 +766,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
     const fenceRow = makeRow(frameGroup);
     // GPU-bound signal, EMA-smoothed. Per-frame fence is a pipelined residual (GPU frame time minus the
     // CPU/GPU overlap, beating against vsync/rAF pacing), so the raw value swings 0→budget frame to frame —
-    // the trend is what reads, not the instantaneous sample. p95 (the worst-frame stall) lives in the bench
+    // the trend is what reads, not the instantaneous sample
     fenceRow.label.textContent = "fence wait";
     const gapRow = makeRow(frameGroup);
     gapRow.label.textContent = "gap (vsync/throttle)";
@@ -1049,8 +1049,6 @@ export const ProfilePlugin: Plugin = {
 
     initialize(world: World) {
         const compute = world.gpu;
-        if (!compute) return;
-
         const profiler = world.resource(Profile) as ProfileImpl;
         const ui = world.resource(profileUi);
         profiler.attach(compute.device);
@@ -1089,11 +1087,9 @@ export const ProfilePlugin: Plugin = {
     dispose(world: World) {
         const profiler = world.resource(Profile) as ProfileImpl;
         const compute = world.gpu;
-        if (compute) {
-            compute.span = undefined;
-            compute.indirect = undefined;
-            compute.precompiled = undefined;
-        }
+        compute.span = undefined;
+        compute.indirect = undefined;
+        compute.precompiled = undefined;
         world.recordSink = undefined;
         world.fenceWaitSink = undefined;
         profiler.dispose();

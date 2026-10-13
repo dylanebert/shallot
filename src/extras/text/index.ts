@@ -349,7 +349,7 @@ const TextSystem: System = {
     update(world) {
         const _textState = world.resource(textStateKey);
 
-        if (!world.gpu.device || !_textState.glyphBuf || _textState.atlases.length === 0) return;
+        if (!_textState.glyphBuf || _textState.atlases.length === 0) return;
         const sig = signature(world);
         if (sig === _textState.sig) return;
         _textState.sig = sig;
@@ -540,7 +540,6 @@ export const TextPlugin: Plugin = {
         _textState.sampler = null;
         _textState.sig = -1;
 
-        if (!world.gpu.device) return;
         const device = world.gpu.device;
 
         if (_fonts.size === 0) registerFont(world, DEFAULT_FONT);
@@ -581,7 +580,6 @@ export const TextPlugin: Plugin = {
     warm(world: World) {
         const _textState = world.resource(textStateKey);
 
-        if (!world.gpu.device) return;
         _textState.cap = INITIAL;
         _textState.staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
         _textState.f32 = new Float32Array(_textState.staging);

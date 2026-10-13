@@ -83,7 +83,7 @@ const SkySystem: System = {
     update(world) {
         const device = world.gpu.device;
         const sky = skyState(world);
-        if (!device || !sky.buffer) return;
+        if (!sky.buffer) return;
         const eid = world.only([Sky]);
         if (eid < 0) return;
         packSky(world, eid, sky.staging);
@@ -115,7 +115,6 @@ export const SkyPlugin: Plugin = {
 
     warm(world: World) {
         const { device } = world.gpu;
-        if (!device) return;
         const sky = skyState(world);
         sky.buffer?.destroy();
         sky.buffer = device.createBuffer({
