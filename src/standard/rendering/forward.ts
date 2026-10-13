@@ -889,10 +889,19 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
         const pair = (type * ALPHA_PIPELINE_KEY_COUNT + key) * meshCount + meshId;
         if (!state.frameDrawPairs[pair]) continue;
 
-        let bx = mesh.bounds?.[0] ?? 0;
-        let by = mesh.bounds?.[1] ?? 0;
-        let bz = mesh.bounds?.[2] ?? 0;
-        let radius = mesh.bounds?.[3] ?? 1e30;
+        // Typed locals: an optional-chained default leaves each one untyped, so the override
+        // branch's floats would box on every item.
+        const bounds = mesh.bounds;
+        let bx = 0;
+        let by = 0;
+        let bz = 0;
+        let radius = 1e30;
+        if (bounds) {
+            bx = bounds[0];
+            by = bounds[1];
+            bz = bounds[2];
+            radius = bounds[3];
+        }
         const override = instances.cullBounds;
         const overrideRadius = override.w.get(instanceEid);
         if (overrideRadius >= 0) {
