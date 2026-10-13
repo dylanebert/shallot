@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import { parse } from "@babel/parser";
+import { parse as parseComponent } from "svelte/compiler";
 
 const SOURCE_EXTENSIONS = [
     ".d.ts",
@@ -18,31 +19,42 @@ const SOURCE_EXTENSIONS = [
     ".wgsl",
 ];
 
-/** Collect static module specifiers and module loads whose targets cannot be proved statically. */
-export function importsIn(
-    source: string,
-    file: string,
-): { specifiers: string[]; unresolved: string[] } {
-    const ast = parse(source, { sourceType: "unambiguous", plugins: ["typescript", "jsx"] });
+type ModuleLoads = { specifiers: string[]; unresolved: string[] };
+
+/** The string value of a Babel `StringLiteral` or an ESTree `Literal`. */
+function literal(node: any): string | undefined {
+    return (node?.type === "StringLiteral" || node?.type === "Literal") &&
+        typeof node.value === "string"
+        ? node.value
+        : undefined;
+}
+
+/** Walk a Babel or ESTree tree for static module specifiers and loads whose targets it cannot prove. */
+function moduleLoads(root: unknown): ModuleLoads {
     const imports = new Set<string>();
     const unresolved = new Set<string>();
+    const visited = new WeakSet<object>();
     function visit(node: any): void {
-        if (!node || typeof node !== "object") return;
+        if (!node || typeof node !== "object" || visited.has(node)) return;
+        visited.add(node);
         if (Array.isArray(node)) {
             for (const child of node) visit(child);
             return;
         }
+        const source = literal(node.source);
         if (
             ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(
                 node.type,
             ) &&
-            typeof node.source?.value === "string"
+            source !== undefined
         )
-            imports.add(node.source.value);
-        if (node.type === "TSImportType" && typeof node.source?.value === "string")
-            imports.add(node.source.value);
+            imports.add(source);
+        if (node.type === "TSImportType") {
+            const argument = literal(node.source) ?? literal(node.argument?.literal);
+            if (argument !== undefined) imports.add(argument);
+        }
         if (node.type === "ImportExpression") {
-            if (typeof node.source?.value === "string") imports.add(node.source.value);
+            if (source !== undefined) imports.add(source);
             else unresolved.add("non-literal dynamic import");
         }
         if (
@@ -50,20 +62,36 @@ export function importsIn(
             (node.callee.type === "Import" ||
                 (node.callee.type === "Identifier" && node.callee.name === "require"))
         ) {
-            if (node.arguments[0]?.type === "StringLiteral") imports.add(node.arguments[0].value);
+            const argument = literal(node.arguments[0]);
+            if (argument !== undefined) imports.add(argument);
             else unresolved.add("non-literal dynamic import or require");
         }
-        if (node.type === "TSExternalModuleReference" && typeof node.expression?.value === "string")
-            imports.add(node.expression.value);
+        if (node.type === "TSExternalModuleReference" && literal(node.expression) !== undefined)
+            imports.add(literal(node.expression)!);
         for (const [key, child] of Object.entries(node))
             if (!["loc", "start", "end", "tokens", "comments"].includes(key)) visit(child);
     }
+    visit(root);
+    return { specifiers: [...imports], unresolved: [...unresolved] };
+}
+
+/** Collect static module specifiers and module loads whose targets cannot be proved statically. */
+export function importsIn(source: string, file: string): ModuleLoads {
     try {
-        visit(ast.program);
+        const ast = parse(source, { sourceType: "unambiguous", plugins: ["typescript", "jsx"] });
+        return moduleLoads(ast.program);
     } catch (error) {
         throw new Error(`could not scan imports in ${file}`, { cause: error });
     }
-    return { specifiers: [...imports], unresolved: [...unresolved] };
+}
+
+/** The same, over a whole Svelte component: its scripts and every expression in its markup. */
+export function componentImportsIn(source: string, file: string): ModuleLoads {
+    try {
+        return moduleLoads(parseComponent(source, { modern: true }));
+    } catch (error) {
+        throw new Error(`could not scan imports in ${file}`, { cause: error });
+    }
 }
 
 /** Resolve a relative TypeScript or asset import to its source file. */

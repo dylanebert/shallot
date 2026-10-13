@@ -2,7 +2,11 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { packageManifest } from "../src/cli/create";
-import { importsIn as collectImports, resolveRelative } from "./example-imports";
+import {
+    importsIn as collectImports,
+    componentImportsIn,
+    resolveRelative,
+} from "./example-imports";
 
 const ROOT = resolve(import.meta.dir, "..");
 const EXAMPLES = resolve(ROOT, "examples");
@@ -22,21 +26,19 @@ function sourceFiles(directory: string): string[] {
     });
 }
 
-/** A page's module scripts, or every script of a Svelte component, whose scripts are all modules. */
-function moduleScripts(source: string, component: boolean): string[] {
+function moduleScripts(source: string): string[] {
     const scripts = source.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
     return [...scripts]
-        .filter(
-            ([, attributes]) =>
-                component || /\btype\s*=\s*(?:"module"|'module'|module\b)/i.test(attributes!),
+        .filter(([, attributes]) =>
+            /\btype\s*=\s*(?:"module"|'module'|module\b)/i.test(attributes!),
         )
         .map(([, , script]) => script!);
 }
 
 function fileImports(file: string): { specifiers: string[]; unresolved: string[] } {
     const source = readFileSync(file, "utf8");
-    const markup = file.endsWith(".html") || file.endsWith(".svelte");
-    const sources = markup ? moduleScripts(source, file.endsWith(".svelte")) : [source];
+    if (file.endsWith(".svelte")) return componentImportsIn(source, file);
+    const sources = file.endsWith(".html") ? moduleScripts(source) : [source];
     const scans = sources.map((code) => collectImports(code, file));
     return {
         specifiers: [...new Set(scans.flatMap((scan) => scan.specifiers))],
