@@ -216,7 +216,12 @@ function createFogKernel(
                             j = j + 1;
                             continue;
                         }
-                        const shadow = pointShadowOf(light, d.vec3f(0), p);
+                        const shadow = pointShadowOf(
+                            light,
+                            d.vec3f(0),
+                            p,
+                            d.u32(layout.$.view.shadowFilteringMethod),
+                        );
                         lstep = d.vec3f(
                             std.add(
                                 lstep,
@@ -235,7 +240,13 @@ function createFogKernel(
                         const light = fogLayout1.$.lighting.directionalLights[k];
                         if (light.params.z > 0) {
                             let visibility = d.f32(1);
-                            if (light.params.y > 0) visibility = sampleSunShadow(p, d.vec3f(0));
+                            if (light.params.y > 0) {
+                                visibility = sampleSunShadow(
+                                    p,
+                                    d.vec3f(0),
+                                    d.u32(layout.$.view.shadowFilteringMethod),
+                                );
+                            }
                             lstep = d.vec3f(
                                 std.add(
                                     lstep,

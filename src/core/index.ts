@@ -52,6 +52,8 @@ export {
     PointLight,
     RenderingPlugin,
     Resolution,
+    ShadowFilteringMethod,
+    ShadowFilteringMethodMode,
     SpotLight,
     SUN_DISK_EARTH_ANGULAR_SIZE,
     SunDisk,

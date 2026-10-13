@@ -53,6 +53,7 @@ import {
     VolumetricLight,
 } from "./lighting";
 import { initializeRenderState, RenderContext } from "./render";
+import { ShadowFilteringMethod, ShadowFilteringMethodMode } from "./shadow-filtering";
 
 import {
     bindCamera,
@@ -77,6 +78,8 @@ import {
 export const CullVolumes = d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4));
 const AMBIENT_COLOR_F32 = d.memoryLayoutOf(ViewUniforms, (view) => view.ambientColor).offset / 4;
 const EXPOSURE_F32 = d.memoryLayoutOf(ViewUniforms, (view) => view.exposure).offset / 4;
+const SHADOW_FILTERING_U32 =
+    d.memoryLayoutOf(ViewUniforms, (view) => view.shadowFilteringMethod).offset / 4;
 
 // the public happy path: the component contract (camera + lights).
 // Everything else a renderer or producer touches — the RenderContext singleton, the
@@ -95,6 +98,7 @@ export {
     SunDisk,
     VolumetricLight,
 } from "./lighting";
+export { ShadowFilteringMethod, ShadowFilteringMethodMode } from "./shadow-filtering";
 export {
     DEPTH_FORMAT,
     DepthPrepass,
@@ -149,6 +153,12 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
         ? world.storage(Exposure).ev100.get(eid)
         : EXPOSURE_EV100_BLENDER;
     _render.viewStaging[offset + EXPOSURE_F32] = 2 ** -ev100 / 1.2;
+    new Uint32Array(_render.viewStaging.buffer)[offset + SHADOW_FILTERING_U32] = world.has(
+        eid,
+        ShadowFilteringMethod,
+    )
+        ? world.storage(ShadowFilteringMethod).method.get(eid)
+        : ShadowFilteringMethodMode.Gaussian;
     computeViewProj(world, eid, view.width / view.height, viewProj, view.viewFromWorld);
     // resolution (pixels) follows viewProj in the ViewUniforms struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
@@ -229,6 +239,9 @@ function slotInputsChanged(
     _renderFrame.viewKeyNext[25] = ev100;
     _renderFrame.viewKeyNext[26] = ambientColor;
     _renderFrame.viewKeyNext[27] = ambientBrightness;
+    _renderFrame.viewKeyNext[28] = world.has(eid, ShadowFilteringMethod)
+        ? world.storage(ShadowFilteringMethod).method.get(eid)
+        : ShadowFilteringMethodMode.Gaussian;
     const at = slot * VIEW_KEY_FLOATS;
     let changed = _renderFrame.slotViews[slot] !== view;
     for (let i = 0; i < VIEW_KEY_FLOATS; i++) {
@@ -525,6 +538,7 @@ export const RenderingPlugin: Plugin = {
         SunDisk,
         VolumetricLight,
         NotShadowCaster,
+        ShadowFilteringMethod,
     ],
 
     async initialize(world) {

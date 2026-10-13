@@ -66,9 +66,9 @@ const pointShadowOf = pointShadowRef();
  */
 export const pointShadowStub = tgpu
     .fn(
-        [PointLightGpu, d.vec3f, d.vec3f],
+        [PointLightGpu, d.vec3f, d.vec3f, d.u32],
         d.f32,
-    )((_light, _normal, _fragWorld) => {
+    )((_light, _normal, _fragWorld, _method) => {
         "use gpu";
         return 1;
     })
@@ -134,7 +134,12 @@ export const pointFactor = tgpu.fn(
                     (distanceAttenuation(distSq, light.posRange.w, radiusSq) *
                         diff *
                         spotFactor(light, L) *
-                        pointShadowSlot.$(light, normal, fragWorld.$) *
+                        pointShadowSlot.$(
+                            light,
+                            normal,
+                            fragWorld.$,
+                            d.u32(engineLayout.$.view.shadowFilteringMethod),
+                        ) *
                         engineLayout.$.view.exposure) /
                         PI,
                 ),
@@ -241,7 +246,12 @@ export const litPbr = tgpu.fn(
             const f =
                 distanceAttenuation(distSq, light.posRange.w, radiusSq) *
                 spotFactor(light, L) *
-                pointShadowSlot.$(light, normal, fragWorld.$);
+                pointShadowSlot.$(
+                    light,
+                    normal,
+                    fragWorld.$,
+                    d.u32(engineLayout.$.view.shadowFilteringMethod),
+                );
             // (light.color.rgb * f) * brdfSphere(...), left-to-right like the shipped shader
             radiance = d.vec3f(
                 std.add(

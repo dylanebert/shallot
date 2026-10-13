@@ -286,88 +286,195 @@ export const casterWgsl = chunk(
     spliceNs,
 );
 
+// Bevy's fixed 2×2 and Castaño 13-tap map filters, expressed over one atlas tile. `rect` keeps
+// comparison taps inside the selected tile; map-space offsets are measured in that tile's pixels.
+function mapHardwareWgsl(texture: "shadowMap" | "pointAtlas") {
+    return /* wgsl */ `(uv: vec2f, depth: f32, rect: vec4f) -> f32 {
+    let atlasSize = vec2<f32>(textureDimensions(${texture}));
+    let lo = rect.xy + vec2<f32>(0.5) / atlasSize;
+    let hi = rect.xy + rect.zw - vec2<f32>(0.5) / atlasSize;
+    return textureSampleCompareLevel(${texture}, shadowSamp, clamp(uv, lo, hi), depth);
+}`;
+}
+
+const sampleShadowMapHardware = tgpu
+    .fn(
+        [d.vec2f, d.f32, d.vec4f],
+        d.f32,
+    )(mapHardwareWgsl("shadowMap"))
+    .$name("sample_shadow_map_hardware");
+const sampleShadowPointMapHardware = tgpu
+    .fn(
+        [d.vec2f, d.f32, d.vec4f],
+        d.f32,
+    )(mapHardwareWgsl("pointAtlas"))
+    .$name("sample_shadow_point_map_hardware");
+
+const castanoMapWgsl = /* wgsl */ `(uv: vec2f, depth: f32, rect: vec4f) -> f32 {
+    let atlasSize = vec2<f32>(textureDimensions(shadowMap));
+    let tileSize = rect.zw * atlasSize;
+    let invTileSize = 1.0 / tileSize;
+    let tileUv = (uv - rect.xy) / rect.zw;
+    let pixelUv = tileUv * tileSize;
+    let basePixel = floor(pixelUv + 0.5);
+    let s = pixelUv.x + 0.5 - basePixel.x;
+    let t = pixelUv.y + 0.5 - basePixel.y;
+    let baseUv = (basePixel - 0.5) * invTileSize;
+
+    let uw0 = 4.0 - 3.0 * s;
+    let uw1 = 7.0;
+    let uw2 = 1.0 + 3.0 * s;
+    let u0 = (3.0 - 2.0 * s) / uw0 - 2.0;
+    let u1 = (3.0 + s) / uw1;
+    let u2 = s / uw2 + 2.0;
+    let vw0 = 4.0 - 3.0 * t;
+    let vw1 = 7.0;
+    let vw2 = 1.0 + 3.0 * t;
+    let v0 = (3.0 - 2.0 * t) / vw0 - 2.0;
+    let v1 = (3.0 + t) / vw1;
+    let v2 = t / vw2 + 2.0;
+
+    var sum = 0.0;
+    sum += uw0 * vw0 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u0, v0) * invTileSize) * rect.zw, depth, rect);
+    sum += uw1 * vw0 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u1, v0) * invTileSize) * rect.zw, depth, rect);
+    sum += uw2 * vw0 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u2, v0) * invTileSize) * rect.zw, depth, rect);
+    sum += uw0 * vw1 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u0, v1) * invTileSize) * rect.zw, depth, rect);
+    sum += uw1 * vw1 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u1, v1) * invTileSize) * rect.zw, depth, rect);
+    sum += uw2 * vw1 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u2, v1) * invTileSize) * rect.zw, depth, rect);
+    sum += uw0 * vw2 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u0, v2) * invTileSize) * rect.zw, depth, rect);
+    sum += uw1 * vw2 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u1, v2) * invTileSize) * rect.zw, depth, rect);
+    sum += uw2 * vw2 * sample_shadow_map_hardware(rect.xy + (baseUv + vec2<f32>(u2, v2) * invTileSize) * rect.zw, depth, rect);
+    return sum / 144.0;
+}`;
+
+const sampleShadowMapCastanoThirteen = tgpu
+    .fn(
+        [d.vec2f, d.f32, d.vec4f],
+        d.f32,
+    )(castanoMapWgsl)
+    .$uses({ ["sample_shadow_map_hardware"]: sampleShadowMapHardware })
+    .$name("sample_shadow_map_castano_thirteen");
+const sampleShadowPointMapCastanoThirteen = tgpu
+    .fn(
+        [d.vec2f, d.f32, d.vec4f],
+        d.f32,
+    )(
+        castanoMapWgsl
+            .replaceAll("shadowMap", "pointAtlas")
+            .replaceAll("sample_shadow_map_hardware", "sample_shadow_point_map_hardware"),
+    )
+    .$uses({ ["sample_shadow_point_map_hardware"]: sampleShadowPointMapHardware })
+    .$name("sample_shadow_point_map_castano_thirteen");
+
+// Bevy's cubemap Gaussian pattern projected onto Shallot's face atlas. Each offset resolves its own cube
+// face before looking up that face's tile, so samples crossing a face edge stay continuous.
+const sampleShadowCubemapHardware = tgpu
+    .fn(
+        [d.vec3f, d.f32, d.u32, d.f32],
+        d.f32,
+    )(/* wgsl */ `(lightLocal: vec3f, near: f32, caster: u32, tanHalf: f32) -> f32 {
+    let face = pointFaceOf(lightLocal);
+    let rect = tileRects.rects[caster * 6u + face.face];
+    let ndc = face.stz.xy / (max(face.stz.z, near) * tanHalf);
+    let uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
+    let lo = rect.xy + vec2<f32>(0.5 / f32(textureDimensions(pointAtlas).x));
+    let hi = rect.xy + rect.zw - vec2<f32>(0.5 / f32(textureDimensions(pointAtlas).x));
+    let receiver = near / max(face.stz.z, near);
+    return textureSampleCompareLevel(pointAtlas, shadowSamp, clamp(uv, lo, hi), receiver);
+}`)
+    .$uses({ pointFaceOf })
+    .$name("sample_shadow_cubemap_hardware");
+
+const sampleShadowCubemapGaussian = tgpu
+    .fn(
+        [d.vec3f, d.f32, d.u32, d.f32, d.f32],
+        d.f32,
+    )(/* wgsl */ `(lightLocal: vec3f, near: f32, caster: u32, tanHalf: f32, distanceToLight: f32) -> f32 {
+    let direction = normalize(lightLocal);
+    let signZ = select(-1.0, 1.0, direction.z >= 0.0);
+    let a = -1.0 / (signZ + direction.z);
+    let b = direction.x * direction.y * a;
+    let xBasis = vec3<f32>(1.0 + signZ * direction.x * direction.x * a, signZ * b, -signZ * direction.x);
+    let yBasis = vec3<f32>(b, signZ + direction.y * direction.y * a, -direction.y);
+    let scale = 0.003 * distanceToLight;
+    let bx = xBasis * scale;
+    let by = yBasis * scale;
+    var sum = 0.0;
+    sum += 0.157112 * sample_shadow_cubemap_hardware(lightLocal + vec2<f32>(0.125, -0.375).x * bx + vec2<f32>(0.125, -0.375).y * by, near, caster, tanHalf);
+    sum += 0.157112 * sample_shadow_cubemap_hardware(lightLocal + vec2<f32>(-0.125, 0.375).x * bx + vec2<f32>(-0.125, 0.375).y * by, near, caster, tanHalf);
+    sum += 0.138651 * sample_shadow_cubemap_hardware(lightLocal + vec2<f32>(0.625, 0.125).x * bx + vec2<f32>(0.625, 0.125).y * by, near, caster, tanHalf);
+    sum += 0.130251 * sample_shadow_cubemap_hardware(lightLocal + vec2<f32>(-0.375, -0.625).x * bx + vec2<f32>(-0.375, -0.625).y * by, near, caster, tanHalf);
+    sum += 0.114946 * sample_shadow_cubemap_hardware(lightLocal + vec2<f32>(-0.625, 0.625).x * bx + vec2<f32>(-0.625, 0.625).y * by, near, caster, tanHalf);
+    sum += 0.114946 * sample_shadow_cubemap_hardware(lightLocal + vec2<f32>(-0.875, -0.125).x * bx + vec2<f32>(-0.875, -0.125).y * by, near, caster, tanHalf);
+    sum += 0.107982 * sample_shadow_cubemap_hardware(lightLocal + vec2<f32>(0.375, 0.875).x * bx + vec2<f32>(0.375, 0.875).y * by, near, caster, tanHalf);
+    sum += 0.079001 * sample_shadow_cubemap_hardware(lightLocal + vec2<f32>(0.875, -0.875).x * bx + vec2<f32>(0.875, -0.875).y * by, near, caster, tanHalf);
+    return sum;
+}`)
+    .$uses({ ["sample_shadow_cubemap_hardware"]: sampleShadowCubemapHardware })
+    .$name("sample_shadow_cubemap_gaussian");
+
 // the receiver — relocatable, so it takes the world position as a parameter and reads `pointAtlas` /
 // `shadowSamp` / `pointShadows` / `tileRects` as globals the consumer declares (standard's color group 1, the
 // fog march's). Match the light to a caster slot by source entity id (`color.a`, baked by the light
 // compact pass; `pos.w` is -1 for an empty slot, so a non-caster never matches), pick the cube face (or
-// spot tile) from the light→fragment direction, project into the atlas tile, and 3×3 PCF-compare.
-// It reads the atlas size from the bound texture and loops every slot, so no `PointShadows` setting
-// enters the WGSL.
+// spot tile) from the light→fragment direction, project into the atlas tile, and filter by camera method.
+// It reads the atlas size from the bound texture and loops every slot, so no `PointShadows` setting enters WGSL.
 function pointShadowFn() {
-    return (
-        tgpu
-            .fn(
-                [PointLightGpu, d.vec3f, d.vec3f],
-                d.f32,
-            )(/* wgsl */ `(light: PointLightGpu, normal: vec3f, fragWorld: vec3f) -> f32 {
+    return tgpu
+        .fn(
+            [PointLightGpu, d.vec3f, d.vec3f, d.u32],
+            d.f32,
+        )(/* wgsl */ `(light: PointLightGpu, normal: vec3f, fragWorld: vec3f, method: u32) -> f32 {
     let atlas = f32(textureDimensions(pointAtlas).x);
-    let texel = 1.0 / atlas; // one atlas pixel in uv — tile-size-independent
     for (var k = 0u; k < ${MAX_POINT_CASTERS}u; k = k + 1u) {
         let c = pointShadows.casters[k];
         if (c.pos.w != light.color.a) { continue; }
         let toFrag = fragWorld - c.pos.xyz;
         let coneTanHalf = c.spotA.w;
-        var uv: vec2<f32>;
-        var receiver: f32;
-        var rect: vec4<f32>;
         if (coneTanHalf > 0.0) {
-            // spot caster: its single tile (face 0 of the slot). Project the normal-offset fragment onto the
-            // cone's lookAt basis (right/up/fwd, c.spotA/B/C.xyz) — the texel world size (from the tile's own
-            // pixel count), receiver depth, and ndc are the same forms as a cube face, just with the cone basis
-            rect = tileRects.rects[k * 6u];
+            let rect = tileRects.rects[k * 6u];
             let tilePx = rect.z * atlas;
             let texelWorld = max(length(toFrag), 1e-4) * (2.0 * coneTanHalf / tilePx);
             let biased = offsetTowardLight(toFrag, -toFrag, c.nf.z);
             let dOff = biased + normal * (c.nf.w * 1.4142136 * texelWorld);
             let z = max(dot(dOff, c.spotC.xyz), c.nf.x);
-            receiver = pointReceiver(z, c.nf.x);
+            let receiver = pointReceiver(z, c.nf.x);
             let ndc = vec2<f32>(dot(dOff, c.spotA.xyz), dot(dOff, c.spotB.xyz)) / (z * coneTanHalf);
-            uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
-        } else {
-            // point caster: all six faces share a tile size, so the widened tangent + texel come from face 0
-            // (no need to know the fragment's face yet); the offset then picks the actual face
-            let tilePx = tileRects.rects[k * 6u].z * atlas;
-            let tanHalf = 1.0 + ${2 * EDGE_TEXELS}.0 / tilePx;
-            let texelWorld = max(length(toFrag), 1e-4) * (2.0 * tanHalf / tilePx);
-            let biased = offsetTowardLight(toFrag, -toFrag, c.nf.z);
-            let dOff = biased + normal * (c.nf.w * 1.4142136 * texelWorld);
-            let f = pointFaceOf(dOff);
-            rect = tileRects.rects[k * 6u + f.face];
-            let z = max(f.stz.z, c.nf.x);
-            receiver = pointReceiver(z, c.nf.x);
-            let ndc = f.stz.xy / (z * tanHalf);
-            uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
+            let uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
+            if (method == 0u) { return sample_shadow_point_map_hardware(uv, receiver, rect); }
+            return sample_shadow_point_map_castano_thirteen(uv, receiver, rect);
         }
-        // clamp the 3×3 PCF taps to the tile interior (half a texel in from each edge) so a grazing/wide
-        // sample never bleeds into a neighbour tile — the leak fix the scissor margin alone can't give
-        let lo = rect.xy + vec2<f32>(0.5 * texel);
-        let hi = rect.xy + rect.zw - vec2<f32>(0.5 * texel);
-        var sum = 0.0;
-        for (var oy = -1; oy <= 1; oy = oy + 1) {
-            for (var ox = -1; ox <= 1; ox = ox + 1) {
-                let o = vec2<f32>(f32(ox), f32(oy)) * texel;
-                sum = sum + textureSampleCompareLevel(pointAtlas, shadowSamp, clamp(uv + o, lo, hi), receiver);
-            }
+        let tilePx = tileRects.rects[k * 6u].z * atlas;
+        let tanHalf = 1.0 + ${2 * EDGE_TEXELS}.0 / tilePx;
+        let texelWorld = max(length(toFrag), 1e-4) * (2.0 * tanHalf / tilePx);
+        let biased = offsetTowardLight(toFrag, -toFrag, c.nf.z);
+        let dOff = biased + normal * (c.nf.w * 1.4142136 * texelWorld);
+        if (method == 0u) {
+            return sample_shadow_cubemap_hardware(dOff, c.nf.x, k, tanHalf);
         }
-        return sum / 9.0;
+        // Bevy measures kernel scale before receiver bias, by the dominant axis rather than Euclidean distance.
+        let distanceToLight = max(abs(toFrag.x), max(abs(toFrag.y), abs(toFrag.z)));
+        return sample_shadow_cubemap_gaussian(dOff, c.nf.x, k, tanHalf, distanceToLight);
     }
     return 1.0;
 }`)
-            // `pointFaceOf`/`pointReceiver` are its only *function* dependencies (portable across any consumer,
-            // unlike the atlas/sampler/caster/rect bindings below, which differ by consumer layout and stay
-            // free names for the caller to declare) — naming them here is what lets a real-reference caller
-            // (a pipeline) pull them in via `tgpu.resolve`'s call
-            // graph without also re-listing them by hand
-            .$uses({ pointFaceOf, pointReceiver, offsetTowardLight })
-            .$name("pointShadowOf")
-    );
+        .$uses({
+            pointFaceOf,
+            pointReceiver,
+            offsetTowardLight,
+            ["sample_shadow_point_map_hardware"]: sampleShadowPointMapHardware,
+            ["sample_shadow_point_map_castano_thirteen"]: sampleShadowPointMapCastanoThirteen,
+            ["sample_shadow_cubemap_hardware"]: sampleShadowCubemapHardware,
+            ["sample_shadow_cubemap_gaussian"]: sampleShadowCubemapGaussian,
+        })
+        .$name("pointShadowOf");
 }
 
 // the real reference, memoized so every pipeline calling it (standard's color FS, the fog march)
 // shares the exact same object.
 let _pointShadowOf: ReturnType<typeof pointShadowFn> | undefined;
 
-/** the point/spot shadow receiver as a real callable reference: `pointShadowOf(light, normal, fragWorld)`.
+/** the point/spot shadow receiver as a real callable reference: `pointShadowOf(light, normal, fragWorld, method)`.
  * Its body still reads `pointAtlas` / `shadowSamp` / `pointShadows` / `tileRects` as free names (the
  * relocatable-global law) — a real-reference caller must force those bindings into scope itself (its own
  * layout's binding declarations are invisible to `tgpu.resolve`'s call-graph walk, same as the `hullData`
@@ -395,7 +502,7 @@ export const Cascade = d.struct({
 /**
  * the sun-shadow params uniform: the per-cascade array plus a globals tail (`count` active cascades,
  * `overlap` the inter-cascade blend-band fraction — Bevy's cascades_overlap_proportion —, the two bias
- * knobs, `enabled` (0 = no caster, the fully-lit fallback), and `texel`, one atlas pixel in uv).
+ * knobs, and `enabled` (0 = no caster, the fully-lit fallback).
  */
 export const SunShadow = d.struct({
     cascades: d.arrayOf(Cascade, MAX_CASCADES),
@@ -405,7 +512,6 @@ export const SunShadow = d.struct({
     depthBias: d.f32,
     enabled: d.f32,
     normalBias: d.f32,
-    texel: d.f32,
 });
 
 /** byte size of the sun-shadow params uniform, from {@link SunShadow}: a relocatable consumer (the fog
@@ -441,16 +547,15 @@ export const SUN_PARAMS = {
         depthBias: at(SunShadow, (s) => s.depthBias),
         enabled: at(SunShadow, (s) => s.enabled),
         normalBias: at(SunShadow, (s) => s.normalBias),
-        texel: at(SunShadow, (s) => s.texel),
         lightDirection: at(SunShadow, (s) => s.lightDirection),
     },
 } as const;
 
 const sampleCascade = tgpu
     .fn(
-        [d.u32, d.vec3f, d.vec3f],
+        [d.u32, d.vec3f, d.vec3f, d.u32],
         d.f32,
-    )(/* wgsl */ `(ci: u32, worldPos: vec3f, normal: vec3f) -> f32 {
+    )(/* wgsl */ `(ci: u32, worldPos: vec3f, normal: vec3f, method: u32) -> f32 {
     let c = sunShadow.cascades[ci];
     // Offset toward the light in world space before projection; normal bias remains texel-scaled.
     let biased = offsetTowardLight(worldPos, sunShadow.lightDirection.xyz, sunShadow.depthBias);
@@ -460,22 +565,16 @@ const sampleCascade = tgpu
     if (l.x < -1.0 || l.x > 1.0 || l.y < -1.0 || l.y > 1.0 || l.z < 0.0 || l.z > 1.0) {
         return 1.0; // outside this cascade box — lit
     }
-    // remap the cascade-NDC into its atlas tile, then clamp the 3×3 PCF taps to the tile interior so a
-    // grazing sample never bleeds into a neighbour cascade's tile (the point atlas's seam-clamp)
+    // Remap the cascade-NDC into its tile. Both filters clamp their comparison samples to this tile.
     let uv = c.rect.xy + vec2<f32>(l.x * 0.5 + 0.5, 0.5 - l.y * 0.5) * c.rect.zw;
-    let receiver = l.z;
-    let lo = c.rect.xy + vec2<f32>(0.5 * sunShadow.texel);
-    let hi = c.rect.xy + c.rect.zw - vec2<f32>(0.5 * sunShadow.texel);
-    var sum = 0.0;
-    for (var oy = -1; oy <= 1; oy = oy + 1) {
-        for (var ox = -1; ox <= 1; ox = ox + 1) {
-            let o = vec2<f32>(f32(ox), f32(oy)) * sunShadow.texel;
-            sum = sum + textureSampleCompareLevel(shadowMap, shadowSamp, clamp(uv + o, lo, hi), receiver);
-        }
-    }
-    return sum / 9.0;
+    if (method == 0u) { return sample_shadow_map_hardware(uv, l.z, c.rect); }
+    return sample_shadow_map_castano_thirteen(uv, l.z, c.rect);
 }`)
-    .$uses({ offsetTowardLight })
+    .$uses({
+        offsetTowardLight,
+        ["sample_shadow_map_hardware"]: sampleShadowMapHardware,
+        ["sample_shadow_map_castano_thirteen"]: sampleShadowMapCastanoThirteen,
+    })
     .$name("sampleCascade");
 
 /**
@@ -501,9 +600,9 @@ export const viewDepth = tgpu.fn(
  */
 export const sampleSunShadow = tgpu
     .fn(
-        [d.vec3f, d.vec3f],
+        [d.vec3f, d.vec3f, d.u32],
         d.f32,
-    )(/* wgsl */ `(worldPos: vec3f, normal: vec3f) -> f32 {
+    )(/* wgsl */ `(worldPos: vec3f, normal: vec3f, method: u32) -> f32 {
     if (sunShadow.enabled == 0.0) { return 1.0; }
     let count = u32(sunShadow.count);
     let viewZ = viewDepth(view.right.xyz, view.up.xyz, view.eye.xyz, worldPos);
@@ -513,7 +612,7 @@ export const sampleSunShadow = tgpu
         if (viewZ < sunShadow.cascades[i].far) { ci = i; break; }
     }
     if (ci >= count) { return 1.0; } // beyond the last cascade — lit
-    var shadow = sampleCascade(ci, worldPos, normal);
+    var shadow = sampleCascade(ci, worldPos, normal, method);
     // blend into the next cascade across the overlap band ((1−overlap)·far … far) so the boundary has no seam
     let next = ci + 1u;
     if (next < count) {
@@ -521,7 +620,7 @@ export const sampleSunShadow = tgpu
         let nextNear = (1.0 - sunShadow.overlap) * thisFar;
         if (viewZ >= nextNear) {
             let t = clamp((viewZ - nextNear) / max(thisFar - nextNear, 1e-5), 0.0, 1.0);
-            shadow = mix(shadow, sampleCascade(next, worldPos, normal), t);
+            shadow = mix(shadow, sampleCascade(next, worldPos, normal, method), t);
         }
     }
     return shadow;

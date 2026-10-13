@@ -599,7 +599,11 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
         })((input: any) => {
             "use gpu";
             const worldNormal = std.normalize(input.worldNormal);
-            sunVisibility.$ = sampleSunShadow(input.world, worldNormal);
+            sunVisibility.$ = sampleSunShadow(
+                input.world,
+                worldNormal,
+                d.u32(engineLayout.$.view.shadowFilteringMethod),
+            );
             fragWorld.$ = d.vec3f(input.world);
             fragCoord.$ = d.vec4f(input.pos);
             pointScale.$ = 1;

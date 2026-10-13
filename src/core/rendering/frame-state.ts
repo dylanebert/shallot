@@ -2,7 +2,7 @@ import type { System, World } from "../../engine";
 import { encodeFrameCapture } from "./capture";
 import { INITIAL_VIEW_CAPACITY, type View, Views } from "./view";
 
-export const VIEW_KEY_FLOATS = 28;
+export const VIEW_KEY_FLOATS = 29;
 
 export const renderFrameKey = {
     create: () => ({

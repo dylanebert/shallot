@@ -390,6 +390,8 @@ world.add(lamp, VolumetricLight);
 
 `Camera` remains one component: `mode`, `fov`, `near`, `far`, `size`, `clearColor` and `antialias` are unchanged, including `fov` in degrees and `antialias: 1` for 4× MSAA. `CameraMode` and `Resolution.width`/`.height` are unchanged.
 
+Standard shadows now use Gaussian filtering by default. Add `ShadowFilteringMethod` to a camera with `method: ShadowFilteringMethodMode.Hardware2x2` to use one hardware comparison sample, or `method: ShadowFilteringMethodMode.Gaussian` for filtered shadows. A camera without the component uses Gaussian.
+
 ## Indirect light sources use one shared input
 
 The v0.9.5 package had no indirect-light source registration API, so there is no old call to replace. In 0.10, `IndirectLightInput`, `IndirectLightSource`, `indirectLight`, `indirectLightSlot`, `indirectLightSources` and `registerIndirectLightSource` are new `/standard/rendering` exports. Register a TGSL `IndirectLightSource` during plugin initialization with `registerIndirectLightSource(world, name, source)`, before `StandardRenderingPlugin` warms its pipelines. The source receives `IndirectLightInput` (`worldPosition`, `normal`, `view`, `materialOcclusion` and effective `ambientRadiance`) and returns indirect radiance. Standard composes it after ambient light, scales each source by material occlusion, then applies material albedo and camera exposure. The same input is used by standard materials and fog; registration closes at warm.

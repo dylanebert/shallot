@@ -27,6 +27,8 @@ export const ViewUniforms = d
         ambientColor: d.vec4f,
         /** EV100 exposure factor, `2^-EV100 / 1.2`. */
         exposure: d.f32,
+        /** Per-camera shadow filter enum; absent ShadowFilteringMethod packs Gaussian. */
+        shadowFilteringMethod: d.u32,
     })
     .$name("ViewUniforms");
 

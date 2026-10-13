@@ -652,7 +652,7 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
         0,
         new Float32Array(SHADOW_PARAMS_BYTES / 4),
     );
-    // the real params buffer standard writes each shadowed frame (viewProj + texel + depth/normal bias)
+    // the real params buffer standard writes each shadowed frame (cascade viewProj + depth/normal bias)
     _atlasState.sunParams?.destroy();
     _atlasState.sunParams = device.createBuffer({
         label: "standard-shadow-params",
@@ -1266,8 +1266,8 @@ export function renderCascades(
     world.gpu.indirect?.("standard:cascadeshadow", totalDraws);
 
     // write the per-cascade SunShadow params + publish the seam: the receiver selects a cascade by view-z and
-    // samples the cascade atlas (`sampleSunShadow`). One atlas pixel in uv (`texel`) is the PCF tap step; each
-    // cascade carries its own world texel size (2·cover/resolution) for the normal-offset bias. The params
+    // samples the cascade atlas (`sampleSunShadow`). Each cascade carries its own world texel size
+    // (2·cover/resolution) for the normal-offset bias. The params
     // are compacted to the survivors' dense index space (the receiver's cascade index matches the compacted
     // faceVP/comboMeta), reading the original arrays via `_atlas.comboIndices`
     const recv = cascadeRecvVP(world);
@@ -1292,9 +1292,6 @@ export function renderCascades(
     _atlasState.paramsF32[SUN_PARAMS.globals.depthBias] = bias[0];
     _atlasState.paramsF32[SUN_PARAMS.globals.enabled] = 1;
     _atlasState.paramsF32[SUN_PARAMS.globals.normalBias] = bias[1];
-    // one atlas pixel in uv — the actual texture side (allocated for the light's count), not the active
-    // count: an ortho main camera runs C = 1 into the whole atlas, so its PCF tap step is still 1 physical pixel
-    _atlasState.paramsF32[SUN_PARAMS.globals.texel] = 1 / _atlasState.cascadeAtlas!.width;
     const towardLight = sunTowardLight(world);
     const direction = SUN_PARAMS.globals.lightDirection;
     _atlasState.paramsF32[direction] = towardLight[0];
