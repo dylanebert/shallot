@@ -178,9 +178,7 @@ bun run lint
 bun run test --path-ignore-patterns '**/*.gpu.test.ts' # cheap, no-device tier
 bun test src/core/input/devices.test.ts # selected cheap subject
 bun test src/core/mesh/attributes.gpu.test.ts # selected GPU subject
-bun test scripts/check-imports.node.ts # selected Node subject
-bun test ./scripts/check-pins.node.ts # dependency and Bun pin consistency
-bun test ./scripts/check-tooling.node.ts # generated tooling freshness
+bun test --todo ./scripts/check-*.node.ts # every repository policy
 cargo fmt --check
 cargo clippy -p shallot-physics --all-targets -- -D warnings
 cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings
@@ -192,6 +190,7 @@ bun run format                  # biome
 ```
 
 - Iterate on selected files or subjects.
+- Before it lands, a change runs every repository policy.
 - Wide runs are CI's, on every push; their reds are settled before a release, and they gate no landing. The wide Node command is in [CI](.github/workflows/test.yml), and `sh scripts/browser.sh` runs every browser subject.
 - Manual oracles run by path.
 - The import gate runs `bun test --todo ./scripts/check-imports.node.ts`: only the debts named in those assertions are todos, every other finding fails, and a passing todo fails until its scope is retired.
