@@ -291,7 +291,7 @@ test("an unknown template names installed examples and their descriptions", () =
     expect(output.join("\n")).toContain("minimal");
     expect(output.join("\n")).toContain("first-person");
     expect(output.join("\n")).toContain(
-        "custom-loading-screen — Override the default loading screen: the pre-import bootstrap and the runtime screen.",
+        "loading-screen — A game's own title card, held until its intro and minimum dwell end.",
     );
     expect(output.join("\n")).toContain(
         "embedded-scene — Show a Shallot scene inside a host page, its loading contained to the frame.",

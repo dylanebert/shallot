@@ -10,9 +10,9 @@ declare global {
 
 const entry = "**/assets/index-*.js";
 const bootstrapSelector = "[data-shallot-bootstrap]";
-const loadingOverlay = "body > div[style*='z-index: 10000']";
-const lightBackground = [247, 243, 236];
-const lightTrack = [239, 233, 223];
+const loadingOverlay = "[data-title-card]";
+const lightBackground = [28, 25, 23];
+const lightTrack = [55, 54, 53];
 
 async function holdEntry(page: Page): Promise<() => void> {
     let release!: () => void;
@@ -37,7 +37,7 @@ async function inspectBootstrap(page: Page): Promise<{ ink: number; background: 
     const screenshot = await page.screenshot();
     return page.evaluate(
         async ({ base64, background }) => {
-            const label = document.querySelector("[data-shallot-bootstrap]")?.firstChild;
+            const label = document.querySelector("[data-shallot-bootstrap] h1")?.firstChild;
             if (!label || label.nodeType !== Node.TEXT_NODE)
                 return { ink: 0, background: [] as number[] };
             const range = document.createRange();
@@ -93,12 +93,7 @@ async function loadingTrackPixels(page: Page): Promise<{
     return page.evaluate(
         async ({ base64, selector, backgroundColor, trackColor }) => {
             const overlay = document.querySelector<HTMLElement>(selector);
-            const track = [...(overlay?.querySelectorAll<HTMLElement>("div") ?? [])].find(
-                (element) =>
-                    element.style.width === "228px" &&
-                    element.style.height === "4px" &&
-                    element.style.overflow === "hidden",
-            );
+            const track = overlay?.querySelector<HTMLElement>(".track");
             if (!overlay || !track)
                 return { pixels: 0, width: 0, height: 0, background: "", track: "" };
 
@@ -183,7 +178,9 @@ async function renderedCanvasPixels(page: Page): Promise<number> {
     }, screenshot.toString("base64"));
 }
 
-test("the light bootstrap hands off to the minimalLight progress track", async ({ page }) => {
+test("the game title bootstrap hands off without a jump to its own progress track", async ({
+    page,
+}) => {
     await page.addInitScript(() => {
         const original = GPUAdapter.prototype.requestDevice;
         let release!: () => void;
@@ -203,19 +200,27 @@ test("the light bootstrap hands off to the minimalLight progress track", async (
         bootstrap.ink,
         "screenshot has contrasting ink in the custom bootstrap text bounds",
     ).toBeGreaterThan(20);
-    await expect(page.locator(bootstrapSelector)).toHaveText("Starting…");
+    await expect(page.locator(`${bootstrapSelector} h1`)).toHaveText("Ember Atlas");
     releaseEntry();
     await expect(page.locator(bootstrapSelector)).toHaveCount(0);
     await expect(page.locator(loadingOverlay)).toBeVisible();
 
+    await page.evaluate(() => {
+        document.querySelector<HTMLElement>(".progress")!.style.width = "38%";
+    });
+    if (process.env.SHALLOT_CAPTURE_DIR)
+        await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/card-mid-load.png` });
+    await page.evaluate(() => {
+        document.querySelector<HTMLElement>(".progress")!.style.width = "0";
+    });
     const runtimeTrack = await loadingTrackPixels(page);
-    expect(runtimeTrack.background).toBe("rgb(247, 243, 236)");
-    expect(runtimeTrack.track).toBe("rgb(239, 233, 223)");
-    expect(runtimeTrack.width).toBe(228);
-    expect(runtimeTrack.height).toBe(4);
+    expect(runtimeTrack.background).toBe("rgb(28, 25, 23)");
+    expect(runtimeTrack.track).toBe("rgb(55, 54, 53)");
+    expect(runtimeTrack.width).toBe(420);
+    expect(runtimeTrack.height).toBe(3);
     expect(
         runtimeTrack.pixels,
-        "the held runtime screenshot contains contrasting LIGHT track pixels inside its bounds",
+        "the held runtime screenshot contains contrasting title-card track pixels inside its bounds",
     ).toBeGreaterThan(700);
 
     const hiddenOverlay = await page.addStyleTag({
@@ -228,6 +233,28 @@ test("the light bootstrap hands off to the minimalLight progress track", async (
     await hiddenOverlay.evaluate((element) => element.parentNode?.removeChild(element));
     await page.evaluate(() => window.__releaseDeviceRequest?.());
     await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: CEILING.browser });
+});
+
+test("the complete card stays after progress reaches one and leaves after its dwell", async ({
+    page,
+}) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => {
+        const observer = new MutationObserver(() => {
+            const card = document.querySelector<HTMLElement>("[data-title-card]");
+            if (card && !card.dataset.observedAt)
+                card.dataset.observedAt = String(performance.now());
+        });
+        observer.observe(document, { subtree: true, attributes: true, childList: true });
+    });
+    await page.goto("/", { waitUntil: "commit" });
+    const card = page.locator(loadingOverlay);
+    await expect(card).toHaveAttribute("data-progress", "1");
+    await expect(card).toBeVisible();
+    const shownAt = Number(await card.getAttribute("data-observed-at"));
+    expect((await page.evaluate(() => performance.now())) - shownAt).toBeLessThan(1500);
+    await expect(card).toHaveCount(0, { timeout: CEILING.browser });
+    expect((await page.evaluate(() => performance.now())) - shownAt).toBeGreaterThanOrEqual(1500);
 });
 
 test("the screenshot witness rejects a blank bootstrap text control", async ({ page }) => {
@@ -287,6 +314,8 @@ test("a real GPU process crash after presentation reaches the failure screen", a
     await expect
         .poll(() => renderedCanvasPixels(page), { timeout: CEILING.browser })
         .toBeGreaterThan(100);
+    if (process.env.SHALLOT_CAPTURE_DIR)
+        await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/scene.png` });
 
     const cdp = await browser.newBrowserCDPSession();
     try {

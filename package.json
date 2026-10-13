@@ -68,7 +68,7 @@
         "dist",
         "examples/minimal",
         "examples/first-person",
-        "examples/custom-loading-screen",
+        "examples/loading-screen",
         "examples/embedded-scene",
         "examples/hud",
         "!examples/*/node_modules",
