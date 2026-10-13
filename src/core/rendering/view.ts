@@ -134,9 +134,10 @@ export interface View {
     // waiting on a resize event.
     clientWidth: number;
     clientHeight: number;
-    /** canvas.clientWidth / clientHeight at the last display-size sample */
+    /** canvas.clientWidth / clientHeight and window.devicePixelRatio at the last display-size sample */
     sampledClientWidth: number;
     sampledClientHeight: number;
+    sampledDpr: number;
     /** index of this canvas's World-scoped viewport row */
     viewportIndex: number;
     framebuffer: GPUTextureView | null;
@@ -313,6 +314,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
         clientHeight: rect.height,
         sampledClientWidth: canvas.clientWidth,
         sampledClientHeight: canvas.clientHeight,
+        sampledDpr: dpr,
         viewportIndex,
         framebuffer: null,
         present: null,
@@ -366,10 +368,10 @@ const _sizeInputs = new WeakMap<View, Float64Array>();
 /**
  * size a canvas-bound view's backing store from its World-scoped viewport row + its {@link Resolution} pin
  * (the world's pixelRatio when absent), and set the nearest-neighbor upscale. {@link BeginFrameSystem} calls
- * it per camera each frame after binding. Sampling `clientWidth` here forces current layout; only a changed
- * display box refreshes the viewport row from its rect and
- * current DPR. A no-op for a canvas-less (off-screen) view, which sizes its own target. The Resolution read is
- * membership-gated: a recycled eid's stale field value never leaks into a camera that carries no pin.
+ * it per camera each frame after binding. Sampling `clientWidth` here forces current layout; a changed display
+ * box or DPR refreshes the viewport row from its rect and current DPR. A no-op for a canvas-less (off-screen)
+ * view, which sizes its own target. The Resolution read is membership-gated: a recycled eid's stale field value
+ * never leaks into a camera that carries no pin.
  */
 export function sizeView(world: World, eid: number, view: View): void {
     const canvas = view.canvas;
@@ -377,11 +379,16 @@ export function sizeView(world: World, eid: number, view: View): void {
     // This read forces current layout before swapchain acquisition can use a stale display size.
     const clientWidth = canvas.clientWidth;
     const clientHeight = canvas.clientHeight;
-    if (clientWidth !== view.sampledClientWidth || clientHeight !== view.sampledClientHeight) {
+    const dpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
+    if (
+        clientWidth !== view.sampledClientWidth ||
+        clientHeight !== view.sampledClientHeight ||
+        dpr !== view.sampledDpr
+    ) {
         const rect = canvas.getBoundingClientRect();
         view.sampledClientWidth = clientWidth;
         view.sampledClientHeight = clientHeight;
-        const dpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
+        view.sampledDpr = dpr;
         resizeViewport(world, view.viewportIndex, rect.width, rect.height, dpr);
     }
     const viewport = world.resource(Viewports).get(view.viewportIndex);
@@ -476,6 +483,7 @@ export function attachView(world: World, eid: number): void {
         clientHeight: 0,
         sampledClientWidth: 0,
         sampledClientHeight: 0,
+        sampledDpr: 0,
         viewportIndex: -1,
         framebuffer: null,
         present: null,

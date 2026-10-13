@@ -12,6 +12,56 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 
+test("a canvas DPR change is sampled by the next frame when its CSS size is unchanged", async () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const hostWindow = { devicePixelRatio: 1 };
+    Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        writable: true,
+        value: hostWindow,
+    });
+    const app = await createTestGpuApp({
+        defaults: false,
+        plugins: [RenderingPlugin],
+        pixelRatio: "auto",
+    });
+    const { world } = app;
+    const width = 32;
+    const height = 24;
+    let context: CanvasContext;
+    const canvas = {
+        width,
+        height,
+        clientWidth: width,
+        clientHeight: height,
+        style: { imageRendering: "auto" },
+        getContext: () => context,
+        getBoundingClientRect: () => ({ width, height }),
+    } as unknown as HTMLCanvasElement;
+    context = new CanvasContext(canvas, width, height);
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera);
+    attachCanvas(camera, canvas, world);
+
+    try {
+        world.step(0);
+        const view = world.resource(Views).get(camera)!;
+        expect([view.width, view.height]).toEqual([32, 24]);
+
+        hostWindow.devicePixelRatio = 2;
+        context.setSize(64, 48);
+        world.step(0);
+
+        expect([view.width, view.height]).toEqual([64, 48]);
+        expect(world.resource(Viewports).get(view.viewportIndex)?.dpr).toBe(2);
+    } finally {
+        app.dispose();
+        if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+        else Reflect.deleteProperty(globalThis, "window");
+    }
+});
+
 test("a canvas display resize is sampled by the next frame without a resize callback", async () => {
     const app = await createTestGpuApp({ defaults: false, plugins: [RenderingPlugin] });
     const { world } = app;

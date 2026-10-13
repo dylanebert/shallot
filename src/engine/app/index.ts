@@ -109,7 +109,8 @@ export interface AppConfig {
      * render device-pixel ratio for canvas views; fixed at app construction. `"auto"` (default)
      * clamps `devicePixelRatio` to `[1, 2]`. A number forces a fixed ratio (`1` = CSS resolution /
      * cheapest; `2` = twice CSS resolution; below 1 = pixel-art downscale with nearest-neighbor
-     * upscaling). Canvas resize reads the ratio again, including after moving between monitors.
+     * upscaling). Canvas display size and DPR are sampled each frame; `"auto"` follows DPR changes,
+     * including after moving between monitors, while a numeric ratio stays fixed.
      */
     pixelRatio?: number | "auto";
 }

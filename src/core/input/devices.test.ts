@@ -825,6 +825,7 @@ test("a World-scoped viewport row supplies CSS size and DPR to sizeView through 
         height: 0,
         sampledClientHeight: 0,
         sampledClientWidth: 0,
+        sampledDpr: (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1,
         present: null,
         slot: 0,
         camera: world.ref(0),
