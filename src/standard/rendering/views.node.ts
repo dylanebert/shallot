@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { Camera, PointLight, StandardRenderingPlugin, Transform } from "@dylanebert/shallot";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { MeshInstance } from "../../core/mesh";
+import { cube, MeshInstance, registerMesh } from "../../core/mesh";
 import {
     attachTexture,
     attachView,
@@ -25,6 +25,7 @@ import {
 import { Fog, FogPlugin } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";
 import { CLUSTER_COUNT, CLUSTER_Z, Clusters, clusterGpuKey, LightCull } from "./cluster";
+import { engineLayout } from "./engine";
 import { StandardRenderer } from "./forward";
 import { MAX_POINT_LIGHTS } from "./lighting";
 import { Materials, MeshMaterial, StandardMaterial } from "./material";
@@ -401,6 +402,45 @@ test("adding a camera grows once; steady frames allocate and compile nothing", a
                 if (originals[index]) Reflect.set(device, name, originals[index]);
             }
         }
+        app.dispose();
+    }
+});
+
+test("adding a camera builds engine bind groups per mesh family and view slot, not per draw", async () => {
+    const app = await withStandard();
+    const world = app.world;
+    const device = world.gpu.device!;
+    const createBindGroup = device.createBindGroup;
+    try {
+        const material = world.resource(Materials).add(StandardMaterial());
+        // registered in one frame, so they pack into one family and share its quant buffer
+        for (let i = 0; i < 20; i++) {
+            const eid = world.create();
+            world.add(eid, Transform, { translation: [i - 10, 0, 0, 0] });
+            world.add(eid, MeshInstance, {
+                mesh: registerMesh(world, { name: `family-${i}`, ...cube([0.4, 0.4, 0.4]) }),
+            });
+            world.add(eid, MeshMaterial, material);
+        }
+        renderedCamera(world, 1);
+        renderedCamera(world, 1);
+        world.step(0);
+        world.step(0);
+
+        const layout = world.gpu.root.unwrap(engineLayout);
+        let engineGroups = 0;
+        device.createBindGroup = (descriptor) => {
+            if (descriptor.layout === layout) engineGroups++;
+            return createBindGroup.call(device, descriptor);
+        };
+        renderedCamera(world, 1);
+        world.step(0);
+        world.step(0);
+        expect(world.resource(RenderContext).shadeCount).toBe(3);
+        // the built-in default mesh's family and these meshes' family, each once per view slot
+        expect(engineGroups).toBeLessThanOrEqual(2 * 3);
+    } finally {
+        device.createBindGroup = createBindGroup;
         app.dispose();
     }
 });
