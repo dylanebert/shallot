@@ -57,7 +57,7 @@ function builder(world: World, palette: LookPalette): SceneBuilder {
         if (handle === undefined) {
             handle = materials.add(
                 StandardMaterial({
-                    baseColor: palette.materials[role],
+                    baseColor: palette.materials[role] ?? palette.materials.greyboxTower,
                     perceptualRoughness: roughness,
                 }),
             );
@@ -155,7 +155,7 @@ function primitivesAndGreybox(world: World, palette: LookPalette): void {
         scene.box(index === 3 ? "greyboxLift" : "greyboxStep", [x, height, -2.5], [0.8, 0.25, 0.8]);
     }
     scene.box("greyboxTower", [2.5, 0.65, -2.2], [0.75, 0.9, 0.8]);
-    scene.box("greyboxTower", [2.5, 1.65, -2.2], [0.75, 0.1, 0.8]);
+    scene.box("trim", [2.5, 1.65, -2.2], [0.75, 0.1, 0.8]);
     scene.box("greyboxPerch", [2.5, 2.25, -2.2], [0.55, 0.5, 0.55]);
 
     scene.box("greyboxStep", [-3, 0.12, 2.6], [0.95, 0.18, 0.95]);
@@ -184,9 +184,9 @@ function sunlitExterior(world: World, palette: LookPalette): void {
     scene.box("blueGround", [0, -0.35, 0], [8, 0.3, 8]);
     scene.primitive("greyboxPerch", sphereMesh, [-4, 0.15, -3], [3, 1.8, 2.4]);
     scene.primitive("greyboxTower", sphereMesh, [3.8, 0.1, -3.2], [3.4, 2.2, 2.5]);
-    scene.box("greyboxTower", [-2.8, 0.65, 1.2], [0.35, 1.1, 0.35]);
+    scene.box("trim", [-2.8, 0.65, 1.2], [0.35, 1.1, 0.35]);
     scene.primitive("orange", sphereMesh, [-2.8, 2.1, 1.2], [1.4, 1.4, 1.4]);
-    scene.box("greyboxTower", [2.6, 0.65, -0.7], [0.35, 1.1, 0.35]);
+    scene.box("trim", [2.6, 0.65, -0.7], [0.35, 1.1, 0.35]);
     scene.primitive("blue", sphereMesh, [2.6, 2.1, -0.7], [1.5, 1.5, 1.5]);
     scene.box("greyboxLift", [0, 0.3, 2.3], [1.2, 0.28, 0.8]);
     scene.box("orange", [0, 0.84, 2.3], [0.42, 0.28, 0.42]);

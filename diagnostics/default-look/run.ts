@@ -9,12 +9,12 @@ Run the capture tool from the repository root:
 bun diagnostics/default-look/run.ts
 ```
 
-The tool serves the scene page, drives headless Chromium at a 1280×720 viewport and device scale 1, and writes one PNG per scene and palette under the ignored `test-results/` directory. `test-results/default-look/index.html` compares the captures and lists colour values with range statuses. Candidate range violations fail the report; the unchanged baseline's violations are shown. It requires a hardware WebGPU adapter and refuses software adapters. To verify repeatability on the same machine, save the image and page hashes, rerun the tool, and compare:
+The tool serves the scene page, drives headless Chromium at a 1280×720 viewport and device scale 1, and writes one PNG per scene and palette under the ignored `test-results/` directory. `test-results/default-look/index.html` compares the captures and lists colour values with range statuses. Candidate hard-bound violations fail the report; theme role ranges are reported as a reference, and the unchanged baseline's violations are shown. It requires a hardware WebGPU adapter and refuses software adapters. To verify repeatability on the same machine, save the image and page hashes, rerun the tool, and compare:
 
 ```sh
-shasum -a 256 test-results/default-look/{current,dev-orange,tidal-teal,orchid-garden}/*.png test-results/default-look/index.html > /tmp/default-look.sha256
+shasum -a 256 test-results/default-look/{current,dev-orange,tidal-teal,orchid-garden,current-in-range,dev-orange-neutral}/*.png test-results/default-look/index.html > /tmp/default-look.sha256
 bun diagnostics/default-look/run.ts
-shasum -a 256 test-results/default-look/{current,dev-orange,tidal-teal,orchid-garden}/*.png test-results/default-look/index.html | diff -u /tmp/default-look.sha256 -
+shasum -a 256 test-results/default-look/{current,dev-orange,tidal-teal,orchid-garden,current-in-range,dev-orange-neutral}/*.png test-results/default-look/index.html | diff -u /tmp/default-look.sha256 -
 ```
 */
 

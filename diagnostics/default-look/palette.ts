@@ -12,6 +12,7 @@ export interface LookPalette {
         greyboxTower: Rgba;
         greyboxPerch: Rgba;
         embedded: Rgba;
+        trim?: Rgba;
     };
     textColor: number;
     ui: {
@@ -97,9 +98,10 @@ export const MATERIAL_ROLES = {
     greyboxTower: "background",
     greyboxPerch: "foreground",
     embedded: "accent",
+    trim: "background",
 } satisfies Record<keyof LookPalette["materials"], ColorRole>;
 
-// All candidates share lightness and chroma; only the hues change.
+// The original three candidates share lightness and chroma; only their hues change.
 export const CANDIDATES = {
     "dev-orange": { neutral: 80, accents: [250, 55, 100, 25] },
     "tidal-teal": { neutral: 220, accents: [290, 185, 225, 145] },
@@ -142,11 +144,75 @@ function candidate(hues: (typeof CANDIDATES)[keyof typeof CANDIDATES]): LookPale
     };
 }
 
+function inAlbedoBounds(value: Rgba): boolean {
+    return value
+        .slice(0, 3)
+        .every((channel) => srgbChannel(channel) >= 50 && srgbChannel(channel) <= 240);
+}
+
+function repairAlbedo(value: Rgba): Rgba {
+    if (inAlbedoBounds(value)) return value;
+    const [l, c, h] = oklchFromLinear(value);
+    // These baseline violations are upper bounds, so lightness alone reaches the interval.
+    let low = 0;
+    let high = l;
+    for (let i = 0; i < 60; i++) {
+        const mid = (low + high) / 2;
+        const converted = linearFromOklch([mid, c, h]);
+        if (converted.slice(0, 3).every((channel) => srgbChannel(channel) <= 240)) low = mid;
+        else high = mid;
+    }
+    const [r, g, b] = linearFromOklch([low, c, h]);
+    const repaired: Rgba = [r, g, b, value[3]];
+    if (!inAlbedoBounds(repaired)) throw new Error("Baseline repair needs chroma reduction");
+    return repaired;
+}
+
+function currentInRange(): LookPalette {
+    const baseline = current.current;
+    // Floor rather than round keeps encoded ink below the lightness ceiling.
+    const channel = Math.floor(srgbChannel(0.96 ** 3));
+    const ink = `#${channel.toString(16).repeat(3)}`;
+    return {
+        ...baseline,
+        materials: {
+            ...baseline.materials,
+            blue: repairAlbedo(baseline.materials.blue),
+            orange: repairAlbedo(baseline.materials.orange),
+        },
+        textColor: Number.parseInt(ink.slice(1), 16),
+        ui: { ...baseline.ui, ink },
+    };
+}
+
+function devOrangeNeutral(): LookPalette {
+    const orange = candidate(CANDIDATES["dev-orange"]);
+    const baseline = current.current;
+    const neutral = (value: Rgba) => {
+        const [l, c, h] = oklchFromLinear(value);
+        return linearFromOklch([l, Math.min(c, 0.012), h]);
+    };
+    return {
+        ...orange,
+        materials: {
+            ...orange.materials,
+            blueGround: neutral(baseline.materials.blueGround),
+            greyboxGround: neutral(baseline.materials.greyboxGround),
+            greyboxStep: neutral(baseline.materials.greyboxStep),
+            greyboxTower: neutral(baseline.materials.greyboxTower),
+            greyboxPerch: neutral(baseline.materials.greyboxPerch),
+            trim: orange.materials.greyboxTower,
+        },
+    };
+}
+
 export const PALETTES = {
     ...current,
     "dev-orange": candidate(CANDIDATES["dev-orange"]),
     "tidal-teal": candidate(CANDIDATES["tidal-teal"]),
     "orchid-garden": candidate(CANDIDATES["orchid-garden"]),
+    "current-in-range": currentInRange(),
+    "dev-orange-neutral": devOrangeNeutral(),
 };
 
 export type PaletteName = keyof typeof PALETTES;
