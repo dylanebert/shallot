@@ -4,9 +4,15 @@
 
 import * as d from "typegpu/data";
 import { type MeshHandle, MeshInstance, MeshPlugin, registerMesh } from "../../core/mesh";
-import { imageArray, RenderingPlugin } from "../../core/rendering";
+import { BeginFrameSystem, imageArray, RenderingPlugin } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
-import { type Plugin, Registry, type System, type World } from "../../engine";
+import {
+    ClearChangeMarksSystem,
+    type Plugin,
+    Registry,
+    type System,
+    type World,
+} from "../../engine";
 import { packColor } from "../../engine/utils";
 import {
     AlphaMode,
@@ -112,11 +118,14 @@ function releaseInstance(world: World, eid: number): void {
     if (world.has(eid, MeshInstance)) world.remove(eid, MeshInstance);
 }
 
-// Last in simulation, after gameplay writes Sprite, so the draw group's head-of-frame upload carries them.
+// After every simulation system, terminal included, and before ClearChangeMarksSystem's upload, so the
+// frame carries this frame's Sprite writes.
 const SpriteSystem: System = {
     name: "sprite",
-    group: "simulation",
-    last: true,
+    group: "draw",
+    first: true,
+    after: [BeginFrameSystem],
+    before: [ClearChangeMarksSystem],
     update(world) {
         const state = world.resource(spriteGpuKey);
         if (state.quad === null) return;
