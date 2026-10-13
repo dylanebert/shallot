@@ -1090,6 +1090,9 @@ async function compileBody(
  */
 export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
 
+/** User Timing mark and measure prefix for a plugin lifecycle hook. */
+export const PLUGIN_HOOK_MEASURE_PREFIX = "shallot:plugin:";
+
 /**
  * Reports one forcer's compile span through `world.gpu.precompiled` and a paired
  * `performance.measure` entry. A forcer that awaited no `initAsync` compiled nothing here, so it

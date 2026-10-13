@@ -13,6 +13,7 @@ import {
     validateGpu,
     withPipelineOwner,
 } from "../runtime";
+import { PLUGIN_HOOK_MEASURE_PREFIX } from "../runtime/gpu";
 import { resolvePlugins } from "./compose";
 import { frameDelta } from "./frame-delta";
 
@@ -42,14 +43,14 @@ export interface Plugin {
     readonly dependencies?: readonly Plugin[];
     /** Required and preferred features and required limits for this plugin's GPU use. Presence, including `{}`, declares a device need; an unmet requirement refuses before initialization with this plugin and the cause named. */
     readonly gpu?: GpuRequirements;
-    /** initial setup, run before warm-up; idempotent, may report progress */
+    /** Initial setup, run before warm-up; idempotent. Nothing paints while this hook runs synchronously, until it awaits. Split long setup into awaited slices and report each through `onProgress`. */
     readonly initialize?: (
         world: World,
         onProgress?: (progress: number) => void,
     ) => void | Promise<void>;
     /**
-     * GPU setup and derived spawns after initialization; may report progress.
-     * idempotent: entity spawns need nothing (they live in the `World`). Tie any external effect
+     * GPU setup and derived spawns after initialization. Nothing paints while this hook runs synchronously, until it awaits. Split long setup into awaited slices and report each through `onProgress`.
+     * Idempotent: entity spawns need nothing (they live in the `World`). Tie any external effect
      * (a DOM mount, listener, or rAF loop) to the World via `world.onDispose` / `world.signal` so it
      * unwinds at dispose.
      */
@@ -135,10 +136,12 @@ export async function warmPlugins(
             plugins.map(async (plugin, i) => {
                 try {
                     await withPipelineOwner(device, plugin.name, () =>
-                        plugin.warm!(world, (p) => {
-                            perPlugin[i] = Math.max(perPlugin[i], p);
-                            report();
-                        }),
+                        withPluginHookTiming(plugin, "warm", () =>
+                            plugin.warm!(world, (p) => {
+                                perPlugin[i] = Math.max(perPlugin[i], p);
+                                report();
+                            }),
+                        ),
                     );
                 } catch (error) {
                     throw pluginHookError(plugin, "warm", error);
@@ -173,6 +176,28 @@ export async function warmPlugins(
 function pluginHookError(plugin: Plugin, hook: "initialize" | "warm", error: unknown): Error {
     const detail = error instanceof Error ? error.message : String(error);
     return new Error(`Plugin "${plugin.name}" ${hook} threw: ${detail}`);
+}
+
+async function withPluginHookTiming<T>(
+    plugin: Plugin,
+    hook: "initialize" | "warm",
+    run: () => T | Promise<T>,
+): Promise<T> {
+    const name = `${PLUGIN_HOOK_MEASURE_PREFIX}${plugin.name}:${hook}`;
+    try {
+        if (typeof performance?.mark === "function") performance.mark(name);
+    } catch {
+        // User Timing is optional and must never change a build's result.
+    }
+    try {
+        return await run();
+    } finally {
+        try {
+            if (typeof performance?.measure === "function") performance.measure(name, name);
+        } catch {
+            // User Timing is optional and must never change a build's result.
+        }
+    }
 }
 
 // Caps the queue at the onset of GPU-bound work, where Chrome's rAF throttle engages late: Omarchy queued 24
@@ -320,7 +345,11 @@ async function buildNow(config: AppConfig): Promise<App> {
             initialized.push(sorted[i]);
             try {
                 await withPipelineOwner(world.gpuIfAvailable?.device, sorted[i].name, () =>
-                    sorted[i].initialize?.(world, onProgress),
+                    sorted[i].initialize
+                        ? withPluginHookTiming(sorted[i], "initialize", () =>
+                              sorted[i].initialize!(world, onProgress),
+                          )
+                        : undefined,
                 );
             } catch (error) {
                 throw pluginHookError(sorted[i], "initialize", error);
