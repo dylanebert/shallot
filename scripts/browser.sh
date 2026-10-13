@@ -2,7 +2,7 @@
 set -eu
 
 subjects=$(
-    find examples scripts -type f \( -name 'vite.config.ts' -o -name 'playwright.config.ts' \) \
+    find examples scripts src -type f \( -name 'vite.config.ts' -o -name 'playwright.config.ts' \) \
         -exec dirname {} \; | sort -u
 )
 e2e_files=$(
