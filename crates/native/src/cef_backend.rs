@@ -120,25 +120,212 @@ wrap_browser_process_handler! {
             let launch_url = crate::launch_url(std::env::var("SHALLOT_DEV_URL").ok(), fallback);
             let url = CefString::from(launch_url.as_str());
             let settings = BrowserSettings::default();
-            let window_info = WindowInfo::default();
             let mut client = ShallotClient::new();
-
-            browser_host_create_browser(
-                Some(&window_info),
-                Some(&mut client),
-                Some(&url),
-                Some(&settings),
-                None,
-                None,
-            );
+            let mut delegate = ShallotBrowserViewDelegate::new();
+            let view = browser_view_create(
+                Some(&mut client), Some(&url), Some(&settings), None, None,
+                Some(&mut delegate),
+            ).expect("failed to create app browser view");
+            let mut window_delegate = ShallotWindowDelegate::new(std::cell::RefCell::new(Some(view)));
+            window_create_top_level(Some(&mut window_delegate)).expect("failed to create app window");
         }
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+wrap_browser_view_delegate! {
+    struct ShallotBrowserViewDelegate {}
+    impl ViewDelegate {}
+    impl BrowserViewDelegate {
+        fn browser_runtime_style(&self) -> RuntimeStyle { RuntimeStyle::CHROME }
+        fn chrome_toolbar_type(&self, _view: Option<&mut BrowserView>) -> ChromeToolbarType {
+            ChromeToolbarType::NONE
+        }
+    }
+}
+
+wrap_window_delegate! {
+    struct ShallotWindowDelegate {
+        view: std::cell::RefCell<Option<BrowserView>>,
+    }
+    impl ViewDelegate {
+        fn preferred_size(&self, _view: Option<&mut View>) -> Size {
+            Size { width: 800, height: 600 }
+        }
+    }
+    impl PanelDelegate {}
+    impl WindowDelegate {
+        fn window_runtime_style(&self) -> RuntimeStyle { RuntimeStyle::CHROME }
+        // Rust delegates default boolean callbacks to false, unlike CEF's C++ delegates.
+        fn with_standard_window_buttons(&self, _window: Option<&mut Window>) -> i32 { 1 }
+        fn can_resize(&self, _window: Option<&mut Window>) -> i32 { 1 }
+        fn can_maximize(&self, _window: Option<&mut Window>) -> i32 { 1 }
+        fn can_minimize(&self, _window: Option<&mut Window>) -> i32 { 1 }
+        fn on_window_created(&self, window: Option<&mut Window>) {
+            if let (Some(window), Some(view)) = (window, self.view.borrow().as_ref()) {
+                window.set_title(Some(&CefString::from(app_name().as_str())));
+                window.set_to_fill_layout();
+                window.add_child_view(Some(&mut view.into()));
+                window.show();
+                view.request_focus();
+            }
+        }
+        fn can_close(&self, _window: Option<&mut Window>) -> i32 {
+            self.view.borrow().as_ref().and_then(|view| view.browser())
+                .and_then(|browser| browser.host()).map_or(1, |host| host.try_close_browser())
+        }
+        fn on_window_destroyed(&self, _window: Option<&mut Window>) {
+            self.view.borrow_mut().take();
+        }
+    }
+}
+
+wrap_display_handler! {
+    struct ShallotDisplayHandler;
+    impl DisplayHandler {
+        fn on_title_change(&self, browser: Option<&mut Browser>, title: Option<&CefString>) {
+            if let Some(window) = browser_view_get_for_browser(browser).and_then(|view| view.window()) {
+                let fallback = CefString::from(app_name().as_str());
+                window.set_title(Some(title.filter(|title| !title.to_string().is_empty()).unwrap_or(&fallback)));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn app_window_uses_chrome_without_browser_controls() {
+        let delegate = ShallotBrowserViewDelegate::new();
+        assert_eq!(delegate.browser_runtime_style(), RuntimeStyle::CHROME);
+        assert_eq!(delegate.chrome_toolbar_type(None), ChromeToolbarType::NONE);
+        let window = ShallotWindowDelegate::new(std::cell::RefCell::new(None));
+        assert_eq!(window.window_runtime_style(), RuntimeStyle::CHROME);
+        assert_eq!(window.is_frameless(None), 0);
+        assert_eq!(window.with_standard_window_buttons(None), 1);
+        let size = window.preferred_size(None);
+        assert_eq!((size.width, size.height), (800, 600));
+        assert_eq!(window.can_resize(None), 1);
+        assert_eq!(window.can_maximize(None), 1);
+        assert_eq!(window.can_minimize(None), 1);
+        assert_eq!(window.can_close(None), 1);
+        window.on_window_destroyed(None);
+        assert_eq!(window.can_close(None), 1);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn window_attaches_only_the_browser_shows_focuses_and_releases_it() {
+        use cef::rc::ConvertReturnValue;
+        use std::cell::RefCell;
+        thread_local! { static EVENTS: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) }; }
+        unsafe extern "C" fn fill(_panel: *mut sys::cef_panel_t) -> *mut sys::cef_fill_layout_t {
+            EVENTS.with(|events| events.borrow_mut().push("fill"));
+            std::ptr::null_mut()
+        }
+        unsafe extern "C" fn attach(_panel: *mut sys::cef_panel_t, view: *mut sys::cef_view_t) {
+            assert!(!view.is_null());
+            EVENTS.with(|events| events.borrow_mut().push("browser"));
+        }
+        unsafe extern "C" fn show(_window: *mut sys::cef_window_t) {
+            EVENTS.with(|events| events.borrow_mut().push("show"));
+        }
+        unsafe extern "C" fn focus(_view: *mut sys::cef_view_t) {
+            EVENTS.with(|events| events.borrow_mut().push("focus"));
+        }
+        unsafe extern "C" fn release(_base: *mut sys::cef_base_ref_counted_t) -> i32 {
+            EVENTS.with(|events| events.borrow_mut().push("release"));
+            0
+        }
+        // CEF interface stubs stay alive until every wrapper has released its reference.
+        let mut view: sys::cef_browser_view_t = unsafe { std::mem::zeroed() };
+        view.base.request_focus = Some(focus);
+        view.base.base.release = Some(release);
+        let mut native_window: sys::cef_window_t = unsafe { std::mem::zeroed() };
+        native_window.base.set_to_fill_layout = Some(fill);
+        native_window.base.add_child_view = Some(attach);
+        native_window.show = Some(show);
+        let view = (&mut view as *mut sys::cef_browser_view_t).wrap_result();
+        let mut window = (&mut native_window as *mut sys::cef_window_t).wrap_result();
+        let delegate = ShallotWindowDelegate::new(RefCell::new(Some(view)));
+        delegate.on_window_created(Some(&mut window));
+        EVENTS.with(|events| {
+            assert_eq!(
+                *events.borrow(),
+                ["fill", "browser", "release", "show", "focus", "release"]
+            )
+        });
+        delegate.on_window_destroyed(Some(&mut window));
+        EVENTS.with(|events| assert_eq!(events.borrow().last(), Some(&"release")));
+        assert_eq!(delegate.can_close(Some(&mut window)), 1);
+        delegate.on_window_created(Some(&mut window));
+        EVENTS.with(|events| assert_eq!(events.borrow().len(), 7));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn window_close_waits_for_the_browser() {
+        use cef::rc::ConvertReturnValue;
+        use std::cell::Cell;
+        thread_local! {
+            static HOST: Cell<*mut sys::cef_browser_host_t> = const { Cell::new(std::ptr::null_mut()) };
+            static BROWSER: Cell<*mut sys::cef_browser_t> = const { Cell::new(std::ptr::null_mut()) };
+            static READY: Cell<i32> = const { Cell::new(0) };
+        }
+        unsafe extern "C" fn browser(
+            _view: *mut sys::cef_browser_view_t,
+        ) -> *mut sys::cef_browser_t {
+            BROWSER.with(Cell::get)
+        }
+        unsafe extern "C" fn host(
+            _browser: *mut sys::cef_browser_t,
+        ) -> *mut sys::cef_browser_host_t {
+            HOST.with(Cell::get)
+        }
+        unsafe extern "C" fn close(_host: *mut sys::cef_browser_host_t) -> i32 {
+            READY.with(Cell::get)
+        }
+        let mut native_host: sys::cef_browser_host_t = unsafe { std::mem::zeroed() };
+        native_host.try_close_browser = Some(close);
+        let mut native_browser: sys::cef_browser_t = unsafe { std::mem::zeroed() };
+        native_browser.get_host = Some(host);
+        let mut native_view: sys::cef_browser_view_t = unsafe { std::mem::zeroed() };
+        native_view.get_browser = Some(browser);
+        HOST.with(|value| value.set(&mut native_host));
+        BROWSER.with(|value| value.set(&mut native_browser));
+        let view = (&mut native_view as *mut sys::cef_browser_view_t).wrap_result();
+        let delegate = ShallotWindowDelegate::new(std::cell::RefCell::new(Some(view)));
+        assert_eq!(delegate.can_close(None), 0);
+        READY.with(|value| value.set(1));
+        assert_eq!(delegate.can_close(None), 1);
+        delegate.on_window_destroyed(None);
+        READY.with(|value| value.set(0));
+        assert_eq!(delegate.can_close(None), 1);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn fullscreen_shortcuts_consume_toggles_but_leave_escape_to_the_page() {
+        let handler = ShallotKeyboardHandler::new();
+        let mut event = KeyEvent {
+            type_: KeyEventType::RAWKEYDOWN,
+            windows_key_code: VK_F11,
+            ..Default::default()
+        };
+        assert_eq!(handler.on_pre_key_event(None, Some(&event), None, None), 1);
+        event.windows_key_code = VK_RETURN;
+        assert_eq!(handler.on_pre_key_event(None, Some(&event), None, None), 0);
+        event.modifiers = EVENTFLAG_ALT;
+        assert_eq!(handler.on_pre_key_event(None, Some(&event), None, None), 1);
+        event.windows_key_code = VK_ESCAPE;
+        assert_eq!(handler.on_pre_key_event(None, Some(&event), None, None), 0);
+        event.windows_key_code = VK_F11;
+        event.type_ = KeyEventType::KEYUP;
+        assert_eq!(handler.on_pre_key_event(None, Some(&event), None, None), 0);
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn linux_keeps_angle_vulkan_without_forcing_the_vulkan_compositor() {
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
@@ -162,75 +349,6 @@ mod tests {
     }
 }
 
-#[cfg(target_os = "linux")]
-fn set_x11_fullscreen(xid: std::os::raw::c_ulong, action: std::os::raw::c_long) {
-    #[link(name = "X11")]
-    extern "C" {
-        fn XOpenDisplay(name: *const i8) -> *mut u8;
-        fn XDefaultRootWindow(display: *mut u8) -> std::os::raw::c_ulong;
-        fn XInternAtom(
-            display: *mut u8,
-            name: *const i8,
-            only_if_exists: i32,
-        ) -> std::os::raw::c_ulong;
-        fn XSendEvent(
-            display: *mut u8,
-            window: std::os::raw::c_ulong,
-            propagate: i32,
-            mask: i64,
-            event: *mut XClientMessageEvent,
-        ) -> i32;
-        fn XFlush(display: *mut u8) -> i32;
-        fn XCloseDisplay(display: *mut u8) -> i32;
-    }
-
-    #[repr(C)]
-    struct XClientMessageEvent {
-        type_: i32,
-        serial: std::os::raw::c_ulong,
-        send_event: i32,
-        display: *mut u8,
-        window: std::os::raw::c_ulong,
-        message_type: std::os::raw::c_ulong,
-        format: i32,
-        data: [std::os::raw::c_long; 5],
-    }
-
-    unsafe {
-        let display = XOpenDisplay(std::ptr::null());
-        if display.is_null() {
-            return;
-        }
-        let root = XDefaultRootWindow(display);
-        let wm_state = XInternAtom(display, b"_NET_WM_STATE\0".as_ptr() as _, 0);
-        let wm_fullscreen = XInternAtom(display, b"_NET_WM_STATE_FULLSCREEN\0".as_ptr() as _, 0);
-
-        let mut event = XClientMessageEvent {
-            type_: 33, // ClientMessage
-            serial: 0,
-            send_event: 1,
-            display,
-            window: xid,
-            message_type: wm_state,
-            format: 32,
-            data: [
-                action,
-                wm_fullscreen as _,
-                0,
-                1, // source: application
-                0,
-            ],
-        };
-
-        // SubstructureRedirectMask | SubstructureNotifyMask
-        XSendEvent(display, root, 0, 1 << 20 | 1 << 19, &mut event);
-        XFlush(display);
-        XCloseDisplay(display);
-    }
-}
-
-// X11 fullscreen toggle on key. macOS gets native fullscreen for free (Cmd+Ctrl+F / the green button
-// on the CEF-created NSWindow), so no keyboard handler is installed there.
 #[cfg(target_os = "linux")]
 wrap_keyboard_handler! {
     struct ShallotKeyboardHandler;
@@ -256,12 +374,8 @@ wrap_keyboard_handler! {
 
             if toggle || escape {
                 if let Some(browser) = browser {
-                    if let Some(host) = browser.host() {
-                        let xid = host.window_handle();
-                        if xid != 0 {
-                            let action = if escape { 0 } else { 2 }; // remove vs toggle
-                            set_x11_fullscreen(xid, action);
-                        }
+                    if let Some(window) = browser_view_get_for_browser(Some(browser)).and_then(|view| view.window()) {
+                        window.set_fullscreen(if escape { 0 } else { 1 - window.is_fullscreen() });
                     }
                 }
                 if toggle {
@@ -278,6 +392,10 @@ wrap_client! {
     struct ShallotClient;
 
     impl Client {
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(ShallotDisplayHandler::new())
+        }
+
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
             Some(ShallotLifeSpanHandler::new())
         }
