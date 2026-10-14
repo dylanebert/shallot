@@ -23,7 +23,7 @@ path = "src/helper.rs"
 [features]
 default = ["system"]
 system = ["dep:wry", "dep:winit", "dep:image"]
-portable = ["dep:cef", "dep:cef-dll-sys", "dep:objc2", "dep:objc2-app-kit"]
+portable = ["dep:cef", "dep:cef-dll-sys", "dep:objc2", "dep:objc2-app-kit", "dep:image"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winit = { version = "0.30", optional = true }

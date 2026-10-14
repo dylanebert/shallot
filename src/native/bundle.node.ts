@@ -79,6 +79,7 @@ fs.writeFileSync(shell, "#!/usr/bin/env node\\nif(process.env.FIXTURE_LAUNCH_LOG
 fs.chmodSync(shell, 0o755);
 if (target.includes('darwin')) fs.writeFileSync(path.join(output, 'shallot-helper'), 'helper');
 if (process.env.CARGO_FIXTURE_LOG) fs.appendFileSync(process.env.CARGO_FIXTURE_LOG, 'cargo\\n');
+if (process.env.ICON_FIXTURE_LOG) fs.appendFileSync(process.env.ICON_FIXTURE_LOG, JSON.stringify({ico: process.env.SHALLOT_ICON_ICO, icoBytes: process.env.SHALLOT_ICON_ICO ? fs.readFileSync(process.env.SHALLOT_ICON_ICO).toString('base64') : null, png: process.env.SHALLOT_DIST ? fs.readFileSync(path.join(process.env.SHALLOT_DIST, 'icon.png')).toString('base64') : null}) + '\\n');
 if (process.env.ASSET_FIXTURE_LOG) fs.appendFileSync(process.env.ASSET_FIXTURE_LOG, JSON.stringify({ dist: process.env.SHALLOT_DIST, hasIndex: process.env.SHALLOT_DIST ? fs.existsSync(path.join(process.env.SHALLOT_DIST, 'index.html')) : false }) + '\\n');
 const runtime = process.env.CEF_PATH || process.env.FIXTURE_RUNTIME;
 const env = process.env.OMIT_CEF_PROVENANCE === '1' || !runtime ? [] : [['SHALLOT_CEF_DIR', runtime]];
@@ -97,7 +98,8 @@ const fs=require('node:fs');const cp=require('node:fs').cpSync; cp(process.argv[
         tools,
         "sips",
         `#!/usr/bin/env node
-const a=process.argv.slice(2);const i=a.indexOf('--out');if(i>=0)require('node:fs').copyFileSync(a[i-1],a[i+1]);
+const fs=require('node:fs');const a=process.argv.slice(2);const i=a.indexOf('--out');if(i>=0)fs.copyFileSync(a[i-1],a[i+1]);
+if(process.env.MAC_ICON_LOG && a[0]==='-z') fs.writeFileSync(process.env.MAC_ICON_LOG,fs.readFileSync(a[3]));
 `,
     );
     writeTool(
@@ -267,9 +269,10 @@ function stagedAssetPath(output: string, platform: string): string {
         : resolve(output, "dist/index.html");
 }
 
-function seedSystemPrebuilt(
+function seedAssetPrebuilt(
     f: ReturnType<typeof fixture>,
     platform: string,
+    portable = false,
 ): Record<string, string> {
     const target = {
         linux: "x86_64-unknown-linux-gnu",
@@ -278,24 +281,48 @@ function seedSystemPrebuilt(
     }[platform]!;
     const cacheRoot = resolve(f.root, "asset-cache");
     const version = JSON.parse(readFileSync(resolve(f.pkg, "package.json"), "utf8")).version;
-    const cache = resolve(cacheRoot, "shallot/prebuilt", version, `${target}-system`);
+    const cache = resolve(
+        cacheRoot,
+        "shallot/prebuilt",
+        version,
+        `${target}-${portable ? "portable" : "system"}`,
+    );
     mkdirSync(cache, { recursive: true });
     writeFileSync(
         resolve(cache, platform === "windows" ? "shallot-native.exe" : "shallot-native"),
         "shell",
     );
     writeFileSync(resolve(cache, ".complete"), "");
+    if (portable) {
+        const cef = resolve(cache, "cef");
+        mkdirSync(cef);
+        writeFileSync(resolve(cef, "libcef.dll"), "cached runtime");
+        return { XDG_CACHE_HOME: cacheRoot, LOCALAPPDATA: cacheRoot, FIXTURE_RUNTIME: cef };
+    }
     return { XDG_CACHE_HOME: cacheRoot, LOCALAPPDATA: cacheRoot };
 }
 
 function assetBundle(
     platform: string,
     mode: "debug" | "source-release" | "prebuilt-release" | "dev",
+    custom = false,
+    staleDist = false,
 ) {
     const f = fixture();
     try {
         const output = resolve(f.root, `${platform}-${mode}`);
-        if (mode === "dev") rmSync(resolve(f.project, "dist"), { recursive: true, force: true });
+        const standard = readFileSync(resolve(repo, "assets/icon-1024.png"));
+        const expected = custom ? Buffer.concat([standard, Buffer.from("consumer PNG")]) : standard;
+        if (custom) {
+            mkdirSync(resolve(f.project, "public"), { recursive: true });
+            writeFileSync(resolve(f.project, "public/icon.png"), expected);
+            writeFileSync(
+                resolve(f.project, "dist/icon.png"),
+                mode === "dev" ? "stale dist bytes" : expected,
+            );
+        }
+        if (mode === "dev" && !staleDist)
+            rmSync(resolve(f.project, "dist"), { recursive: true, force: true });
         if (mode === "source-release") {
             const pkg = JSON.parse(readFileSync(resolve(f.pkg, "package.json"), "utf8"));
             pkg.version = null;
@@ -305,14 +332,18 @@ function assetBundle(
             mode === "source-release"
                 ? { ASSET_FIXTURE_LOG: resolve(f.root, "asset.log") }
                 : mode === "prebuilt-release"
-                  ? seedSystemPrebuilt(f, platform)
+                  ? seedAssetPrebuilt(f, platform)
                   : {};
         const result = run(
             f,
             platform,
             output,
             { release: mode.endsWith("release"), portable: false, dev: mode === "dev" },
-            extraEnv,
+            {
+                ...extraEnv,
+                ICON_FIXTURE_LOG: resolve(f.root, "icons.log"),
+                MAC_ICON_LOG: resolve(f.root, "mac-icon.png"),
+            },
         );
         expect(result.code, result.stderr).toBe(0);
         const staged = mode === "debug" || mode === "prebuilt-release";
@@ -324,15 +355,96 @@ function assetBundle(
                 hasIndex: true,
             });
         }
-        if (mode === "dev") expect(existsSync(resolve(f.project, "dist"))).toBe(false);
+        if (mode === "dev") expect(existsSync(resolve(f.project, "dist"))).toBe(staleDist);
+        if (mode !== "source-release") {
+            const icon =
+                platform === "mac"
+                    ? resolve(output, "game.app/Contents/Resources/dist/icon.png")
+                    : resolve(output, "dist/icon.png");
+            expect(readFileSync(icon)).toEqual(expected);
+        } else {
+            const record = JSON.parse(readFileSync(resolve(f.root, "icons.log"), "utf8").trim());
+            expect(Buffer.from(record.png, "base64")).toEqual(expected);
+        }
+        if (platform === "mac")
+            expect(readFileSync(resolve(f.root, "mac-icon.png"))).toEqual(expected);
     } finally {
         rmSync(f.root, { recursive: true, force: true });
     }
 }
 
 for (const platform of ["linux", "mac", "windows"]) {
+    test(`native dev ${platform} ignores stale dist PNG`, () =>
+        assetBundle(platform, "dev", true, true));
     for (const mode of ["debug", "source-release", "prebuilt-release", "dev"] as const) {
         test(`native asset delivery: ${platform} ${mode}`, () => assetBundle(platform, mode));
+        test(`native custom PNG delivery: ${platform} ${mode}`, () =>
+            assetBundle(platform, mode, true));
+    }
+}
+
+for (const portable of [false, true]) {
+    for (const selection of ["absent", "standard", "custom", "invalid"] as const) {
+        test(`Windows ${portable ? "CEF" : "system"} executable resource ${selection} selects compatible prebuilt or owned source input`, () => {
+            const f = fixture();
+            try {
+                const packaged = readFileSync(resolve(f.crate, "icon.ico"));
+                const custom = Buffer.concat([packaged, Buffer.from("distinct consumer ICO")]);
+                mkdirSync(resolve(f.project, "public"));
+                const path = resolve(f.project, "public/icon.ico");
+                if (selection !== "absent")
+                    writeFileSync(
+                        path,
+                        selection === "custom"
+                            ? custom
+                            : selection === "invalid"
+                              ? Buffer.from("bad ICO")
+                              : packaged,
+                    );
+                const cacheEnv = seedAssetPrebuilt(f, "windows", portable);
+                const env = {
+                    ...cacheEnv,
+                    CARGO_FIXTURE_LOG: resolve(f.root, "cargo.log"),
+                    ICON_FIXTURE_LOG: resolve(f.root, "icons.log"),
+                };
+                const result = run(
+                    f,
+                    "windows",
+                    resolve(f.root, "resource-output"),
+                    { release: true, portable },
+                    env,
+                );
+                if (selection === "invalid") {
+                    expect(result.code).not.toBe(0);
+                    expect(result.stderr).toContain("invalid Windows icon");
+                } else {
+                    expect(result.code, result.stderr).toBe(0);
+                    if (selection === "custom") {
+                        expect(result.stdout).toContain("public/icon.ico requires a source build");
+                        const record = JSON.parse(
+                            readFileSync(env.ICON_FIXTURE_LOG, "utf8").trim(),
+                        );
+                        expect(record.ico).toBe(path);
+                        expect(Buffer.from(record.icoBytes, "base64")).toEqual(custom);
+                        expect(readFileSync(path)).toEqual(custom);
+                    } else expect(existsSync(env.CARGO_FIXTURE_LOG)).toBe(false);
+                }
+                expect(readFileSync(resolve(f.crate, "icon.ico"))).toEqual(packaged);
+                const version = JSON.parse(
+                    readFileSync(resolve(f.pkg, "package.json"), "utf8"),
+                ).version;
+                const cached = resolve(
+                    cacheEnv.XDG_CACHE_HOME,
+                    "shallot/prebuilt",
+                    version,
+                    `x86_64-pc-windows-msvc-${portable ? "portable" : "system"}`,
+                    "shallot-native.exe",
+                );
+                expect(readFileSync(cached, "utf8")).toBe("shell");
+            } finally {
+                rmSync(f.root, { recursive: true, force: true });
+            }
+        });
     }
 }
 

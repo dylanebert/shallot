@@ -15,16 +15,36 @@ fn main() {
 
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let out = std::env::var("OUT_DIR").unwrap();
-    let rc = format!("{manifest}/icon.rc");
-
-    println!("cargo:rerun-if-changed=icon.rc");
-    println!("cargo:rerun-if-changed=icon.ico");
+    println!("cargo:rerun-if-env-changed=SHALLOT_ICON_ICO");
+    let custom = std::env::var("SHALLOT_ICON_ICO")
+        .ok()
+        .filter(|path| !path.is_empty());
+    let icon = custom
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(&manifest).join("icon.ico"));
+    assert!(
+        icon.is_absolute(),
+        "SHALLOT_ICON_ICO must be an absolute invocation-owned path"
+    );
+    let bytes = std::fs::read(&icon).expect("cannot read Windows ICO resource");
+    assert!(
+        bytes.len() >= 22 && bytes[..4] == [0, 0, 1, 0] && bytes[4..6] != [0, 0],
+        "invalid Windows ICO resource: {}",
+        icon.display()
+    );
+    println!("cargo:rerun-if-changed={}", icon.display());
+    let rc = format!("{out}/icon.rc");
+    std::fs::write(
+        &rc,
+        format!("1 ICON \"{}\"\n", escape(&icon.to_string_lossy())),
+    )
+    .unwrap();
 
     // The icon is compiled by rc.exe on a native MSVC build (→ .res) and by mingw windres on a
     // cargo-xwin cross build (→ .o); link.exe and lld-link each take their own resource format. Try
-    // the MSVC tool first, fall back to windres, and warn rather than fail if neither is present —
-    // the icon is cosmetic, so a missing resource compiler shouldn't break the build. `/I` points rc
-    // at the manifest dir so it finds icon.ico when the build runs from a different cwd.
+    // the MSVC tool first, fall back to windres. An explicit replacement must never silently
+    // compile as the default; the RC stays in OUT_DIR and names the invocation-owned ICO.
     let res = format!("{out}/icon.res");
     if try_run("rc.exe", &["/nologo", "/I", &manifest, "/fo", &res, &rc]) {
         println!("cargo:rustc-link-arg={res}");
@@ -35,6 +55,7 @@ fn main() {
         println!("cargo:rustc-link-arg={obj}");
         return;
     }
+    assert!(custom.is_none(), "cannot compile requested Windows ICO resource {}: rc.exe and windres failed or are unavailable; install the Windows resource toolchain", icon.display());
     println!("cargo:warning=no resource compiler (rc.exe / windres) found — building without an exe icon");
 }
 

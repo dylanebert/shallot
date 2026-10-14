@@ -44,6 +44,7 @@ function runBuild(label: string, vars: Record<string, string | undefined> = {}) 
     };
     delete env.SHALLOT_ASSETS;
     delete env.SHALLOT_DIST;
+    delete env.SHALLOT_ICON_ICO;
     Object.assign(env, vars);
     const result = spawnSync(script, [], { cwd: crate, env, encoding: "utf8" });
     return {
@@ -99,6 +100,56 @@ test("debug with no assets does not warn", () => {
     const result = spawnSync(script, [], { cwd: crate, env, encoding: "utf8" });
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain("cargo:warning=");
+});
+
+test("Windows resource selection uses an absolute owner path and refuses failed overrides", () => {
+    const tools = resolve(temp, "resource-tools");
+    mkdirSync(tools);
+    const source = resolve(tools, "rc.rs");
+    writeFileSync(
+        source,
+        `fn main() {
+        let args: Vec<String> = std::env::args().collect();
+        let rc = std::fs::read_to_string(args.last().unwrap()).unwrap();
+        std::fs::write(std::env::var("RC_FIXTURE_LOG").unwrap(), rc).unwrap();
+        std::process::exit(std::env::var("RC_FIXTURE_STATUS").unwrap_or_else(|_| "0".into()).parse().unwrap());
+    }`,
+    );
+    execFileSync("rustc", [source, "-o", resolve(tools, "rc.exe")], { stdio: "pipe" });
+    const custom = resolve(temp, "consumer icon.ico");
+    const bytes = Buffer.concat([
+        readFileSync(resolve(crate, "icon.ico")),
+        Buffer.from("consumer resource"),
+    ]);
+    writeFileSync(custom, bytes);
+    const vars = {
+        CARGO_CFG_TARGET_OS: "windows",
+        PATH: tools,
+        RC_FIXTURE_LOG: resolve(temp, "resource.log"),
+        SHALLOT_ASSETS: "disk",
+    };
+    const defaultResult = runBuild("default-resource", { ...vars, SHALLOT_ICON_ICO: "" });
+    expect(defaultResult.status).toBe(0);
+    expect(JSON.parse(readFileSync(vars.RC_FIXTURE_LOG, "utf8").slice(7))).toBe(
+        resolve(crate, "icon.ico"),
+    );
+    const replacement = runBuild("custom-resource", { ...vars, SHALLOT_ICON_ICO: custom });
+    expect(replacement.status).toBe(0);
+    expect(replacement.stdout).toContain(`cargo:rerun-if-changed=${custom}`);
+    expect(JSON.parse(readFileSync(vars.RC_FIXTURE_LOG, "utf8").slice(7))).toBe(custom);
+    expect(readFileSync(custom)).toEqual(bytes);
+    const failed = runBuild("failed-resource", {
+        ...vars,
+        SHALLOT_ICON_ICO: custom,
+        RC_FIXTURE_STATUS: "2",
+    });
+    expect(failed.status).not.toBe(0);
+    expect(failed.stderr).toContain("cannot compile requested Windows ICO resource");
+    expect(failed.stdout).not.toContain("cargo:rustc-link-arg=");
+    writeFileSync(custom, "invalid ICO");
+    const invalid = runBuild("invalid-resource", { ...vars, SHALLOT_ICON_ICO: custom });
+    expect(invalid.status).not.toBe(0);
+    expect(invalid.stderr).toContain("invalid Windows ICO resource");
 });
 
 test("disk release mode refuses embedded source assets", () => {

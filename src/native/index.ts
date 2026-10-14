@@ -5,6 +5,7 @@ import {
     existsSync,
     mkdirSync,
     readdirSync,
+    readFileSync,
     rmSync,
     statSync,
     writeFileSync,
@@ -102,7 +103,12 @@ const VSWHERE = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vs
 // ATL) before running `cmd`, then cd's to the crate's UNC path to build. The dev-shell setup spawns
 // cmd.exe internally, which can't run from a UNC working directory — so the powershell process is
 // launched with a real Windows cwd (see the spawn `cwd` below) and only switches to the UNC path after.
-function devShellBuild(flags: string[], distDir?: string, winTargetDir?: string): string {
+function devShellBuild(
+    flags: string[],
+    distDir?: string,
+    winTargetDir?: string,
+    iconPath?: string,
+): string {
     const setDist = distDir ? `$env:SHALLOT_DIST='${winPath(distDir)}'; ` : "";
     // build into a local Windows dir, not the crate's target/ on the 9p share (see winBuildDir).
     const setTarget = winTargetDir ? `$env:CARGO_TARGET_DIR='${winTargetDir}'; ` : "";
@@ -115,7 +121,7 @@ function devShellBuild(flags: string[], distDir?: string, winTargetDir?: string)
         `Import-Module (Join-Path $p 'Common7\\Tools\\Microsoft.VisualStudio.DevShell.dll');`,
         `Enter-VsDevShell -VsInstallPath $p -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null;`,
         `Set-Location '${winPath(RUST_CRATE)}';`,
-        `${linker}${setTarget}${setDist}cargo build ${flags.join(" ")}`,
+        `${linker}${setTarget}${setDist}$env:SHALLOT_ICON_ICO='${iconPath ? winPath(iconPath).replaceAll("'", "''") : ""}'; cargo build ${flags.join(" ")}`,
     ].join(" ");
 }
 
@@ -172,6 +178,7 @@ function cargoBuild(
     portable: boolean,
     distDir?: string,
     winTargetDir?: string,
+    iconPath?: string,
 ): string | null {
     requireRustCrate();
     const invocation = resolveCargoInvocation(target, release, portable, isWSL);
@@ -194,6 +201,7 @@ function cargoBuild(
                     [...invocation.flags, "--message-format=json-render-diagnostics"],
                     distDir,
                     winTargetDir,
+                    iconPath,
                 ),
             ],
             { cwd: winCwd, stdout: "pipe", stderr: "inherit" },
@@ -222,6 +230,7 @@ function cargoBuild(
     const env = {
         ...process.env,
         CARGO_TARGET_DIR: CRATE_TARGET,
+        SHALLOT_ICON_ICO: iconPath ?? "",
         ...(distDir ? { SHALLOT_DIST: distDir } : {}),
     };
     const output = execSync(
@@ -239,6 +248,18 @@ function cargoBuild(
           ? CEF_FRAMEWORK
           : "libcef.so";
     return cargoRuntimeDir(output, marker);
+}
+
+function nativeIcon(projectDir: string, dev: boolean): string {
+    const custom = resolve(projectDir, dev ? "public/icon.png" : "dist/icon.png");
+    return existsSync(custom) ? custom : DEFAULT_ICON;
+}
+
+function stageDevIcon(projectDir: string, outputDir: string, dev: boolean): void {
+    if (!dev) return;
+    const dir = resolve(outputDir, "dist");
+    mkdirSync(dir, { recursive: true });
+    cpSync(nativeIcon(projectDir, true), resolve(dir, "icon.png"));
 }
 
 function ensureIcon(distDir: string): void {
@@ -304,7 +325,25 @@ export async function bundleNativeWindows(
     );
 
     // The prebuilt returns its runtime directory as plain data; a miss captures Cargo's selected result.
-    const prebuilt = await tryPrebuilt(WIN_TARGET, release, portable);
+    const customIco = resolve(projectDir, "public/icon.ico");
+    let iconPath = existsSync(customIco) ? customIco : undefined;
+    if (iconPath) {
+        const bytes = readFileSync(iconPath);
+        if (
+            bytes.length < 22 ||
+            bytes.readUInt16LE(0) !== 0 ||
+            bytes.readUInt16LE(2) !== 1 ||
+            bytes.readUInt16LE(4) === 0
+        ) {
+            throw new Error(`invalid Windows icon: ${iconPath}; supply an ICO file`);
+        }
+        if (bytes.equals(readFileSync(resolve(RUST_CRATE, "icon.ico")))) iconPath = undefined;
+        else
+            console.log(
+                "  public/icon.ico requires a source build (Rust + rc.exe or windres; target tools: shallot build --help)",
+            );
+    }
+    const prebuilt = iconPath ? null : await tryPrebuilt(WIN_TARGET, release, portable);
     let exe: string;
     let cefDir: string | undefined;
     let targetDir = CRATE_TARGET;
@@ -323,6 +362,7 @@ export async function bundleNativeWindows(
                 portable,
                 release ? distDir : undefined,
                 winBuild?.win,
+                iconPath,
             ) ?? undefined;
         exe = cargoTarget(WIN_TARGET, release, targetDir);
     }
@@ -337,6 +377,7 @@ export async function bundleNativeWindows(
 
     const outExe = resolve(outputDir, `${name}.exe`);
     cpSync(exe, outExe);
+    stageDevIcon(projectDir, outputDir, dev);
 
     // portable ships the Chromium runtime beside the exe (Windows resolves DLLs from the exe dir).
     if (portable) copyCefDlls(outputDir, cefDir!);
@@ -515,10 +556,8 @@ export async function bundleNativeMac(
     cpSync(bin, outBin);
     chmodSync(outBin, 0o755);
 
-    const distIcon = resolve(distDir, "icon.png");
-    if (existsSync(distIcon)) {
-        convertIconToIcns(distIcon, resolve(resourcesDir, "app.icns"));
-    }
+    convertIconToIcns(nativeIcon(projectDir, dev), resolve(resourcesDir, "app.icns"));
+    stageDevIcon(projectDir, resourcesDir, dev);
 
     if (portable) {
         const helperBin = prebuilt?.helperPath ?? macHelperBin(release);
@@ -680,6 +719,7 @@ export async function bundleNativeLinux(
     const outBin = resolve(outputDir, name);
     cpSync(bin, outBin);
     chmodSync(outBin, 0o755);
+    stageDevIcon(projectDir, outputDir, dev);
 
     // portable ships the Chromium runtime; the default depends on the host's WebKitGTK (no copy).
     if (portable) copyCefLibs(outputDir, cefDir!, release);

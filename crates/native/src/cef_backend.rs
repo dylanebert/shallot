@@ -126,7 +126,8 @@ wrap_browser_process_handler! {
                 Some(&mut client), Some(&url), Some(&settings), None, None,
                 Some(&mut delegate),
             ).expect("failed to create app browser view");
-            let mut window_delegate = ShallotWindowDelegate::new(std::cell::RefCell::new(Some(view)));
+            let icons = window_icons(&crate::window_icon(), || image_create().expect("CEF could not create native icon image"));
+            let mut window_delegate = ShallotWindowDelegate::new(std::cell::RefCell::new(Some(view)), Some(icons));
             window_create_top_level(Some(&mut window_delegate)).expect("failed to create app window");
         }
     }
@@ -143,9 +144,47 @@ wrap_browser_view_delegate! {
     }
 }
 
+fn window_icons(png: &image::RgbaImage, mut create: impl FnMut() -> Image) -> (Image, Image) {
+    let mut make = |size: u32| {
+        let image = create();
+        fill_icon(&image, png, size);
+        image
+    };
+    (make(16), make(32))
+}
+
+fn fill_icon(image: &Image, png: &image::RgbaImage, size: u32) {
+    for scale in [1_u32, 2] {
+        let pixels = image::imageops::resize(
+            png,
+            size * scale,
+            size * scale,
+            image::imageops::FilterType::Lanczos3,
+        );
+        assert_ne!(
+            image.add_bitmap(
+                scale as f32,
+                (size * scale) as i32,
+                (size * scale) as i32,
+                ColorType::RGBA_8888,
+                AlphaType::POSTMULTIPLIED,
+                Some(pixels.as_raw())
+            ),
+            0,
+            "CEF refused native icon bitmap"
+        );
+    }
+}
+
+fn set_window_icons(window: &Window, mut small: Image, mut app: Image) {
+    window.set_window_icon(Some(&mut small));
+    window.set_window_app_icon(Some(&mut app));
+}
+
 wrap_window_delegate! {
     struct ShallotWindowDelegate {
         view: std::cell::RefCell<Option<BrowserView>>,
+        icons: Option<(Image, Image)>,
     }
     impl ViewDelegate {
         fn preferred_size(&self, _view: Option<&mut View>) -> Size {
@@ -163,6 +202,9 @@ wrap_window_delegate! {
         fn on_window_created(&self, window: Option<&mut Window>) {
             if let (Some(window), Some(view)) = (window, self.view.borrow().as_ref()) {
                 window.set_title(Some(&CefString::from(app_name().as_str())));
+                if let Some((small, app)) = &self.icons {
+                    set_window_icons(window, small.clone(), app.clone());
+                }
                 window.set_to_fill_layout();
                 window.add_child_view(Some(&mut view.into()));
                 window.show();
@@ -195,12 +237,89 @@ wrap_display_handler! {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cef_sets_separate_title_bar_and_app_icons_with_decoded_scaled_rgba() {
+        use cef::rc::ConvertReturnValue;
+        use std::cell::RefCell;
+        thread_local! { static EVENTS: RefCell<Vec<(f32, i32, i32)>> = const { RefCell::new(Vec::new()) }; }
+        unsafe extern "C" fn bitmap(
+            _image: *mut sys::cef_image_t,
+            scale: f32,
+            width: i32,
+            height: i32,
+            color: sys::cef_color_type_t,
+            alpha: sys::cef_alpha_type_t,
+            pixels: *const std::ffi::c_void,
+            len: usize,
+        ) -> i32 {
+            assert_eq!(color, sys::cef_color_type_t::CEF_COLOR_TYPE_RGBA_8888);
+            assert_eq!(alpha, sys::cef_alpha_type_t::CEF_ALPHA_TYPE_POSTMULTIPLIED);
+            assert_eq!(len, (width * height * 4) as usize);
+            assert_eq!(
+                std::slice::from_raw_parts(pixels.cast::<u8>(), 4),
+                [255, 0, 42, 128]
+            );
+            EVENTS.with(|events| events.borrow_mut().push((scale, width, height)));
+            1
+        }
+        unsafe extern "C" fn small(_window: *mut sys::cef_window_t, image: *mut sys::cef_image_t) {
+            assert!(!image.is_null());
+            assert_eq!((*image).get_width.unwrap()(image), 16);
+            EVENTS.with(|events| events.borrow_mut().push((0.0, 16, 16)));
+        }
+        unsafe extern "C" fn app(_window: *mut sys::cef_window_t, image: *mut sys::cef_image_t) {
+            assert!(!image.is_null());
+            assert_eq!((*image).get_width.unwrap()(image), 32);
+            EVENTS.with(|events| events.borrow_mut().push((0.0, 32, 32)));
+        }
+        let png = image::RgbaImage::from_pixel(7, 7, image::Rgba([255, 0, 42, 128]));
+        let mut raw_small: sys::cef_image_t = unsafe { std::mem::zeroed() };
+        let mut raw_app: sys::cef_image_t = unsafe { std::mem::zeroed() };
+        unsafe extern "C" fn small_width(_image: *mut sys::cef_image_t) -> usize {
+            16
+        }
+        unsafe extern "C" fn app_width(_image: *mut sys::cef_image_t) -> usize {
+            32
+        }
+        raw_small.add_bitmap = Some(bitmap);
+        raw_app.add_bitmap = Some(bitmap);
+        raw_small.get_width = Some(small_width);
+        raw_app.get_width = Some(app_width);
+        let small_image = (&mut raw_small as *mut sys::cef_image_t).wrap_result();
+        let app_image = (&mut raw_app as *mut sys::cef_image_t).wrap_result();
+        let mut images = [small_image, app_image].into_iter();
+        let (small_image, app_image) = window_icons(&png, || images.next().unwrap());
+        let mut raw_window: sys::cef_window_t = unsafe { std::mem::zeroed() };
+        raw_window.set_window_icon = Some(small);
+        raw_window.set_window_app_icon = Some(app);
+        let mut window = (&mut raw_window as *mut sys::cef_window_t).wrap_result();
+        let mut raw_view: sys::cef_browser_view_t = unsafe { std::mem::zeroed() };
+        let view = (&mut raw_view as *mut sys::cef_browser_view_t).wrap_result();
+        let delegate =
+            ShallotWindowDelegate::new(RefCell::new(Some(view)), Some((small_image, app_image)));
+        delegate.on_window_created(Some(&mut window));
+        EVENTS.with(|events| {
+            assert_eq!(
+                *events.borrow(),
+                [
+                    (1.0, 16, 16),
+                    (2.0, 32, 32),
+                    (1.0, 32, 32),
+                    (2.0, 64, 64),
+                    (0.0, 16, 16),
+                    (0.0, 32, 32)
+                ]
+            )
+        });
+    }
+
     #[test]
     fn app_window_uses_chrome_without_browser_controls() {
         let delegate = ShallotBrowserViewDelegate::new();
         assert_eq!(delegate.browser_runtime_style(), RuntimeStyle::CHROME);
         assert_eq!(delegate.chrome_toolbar_type(None), ChromeToolbarType::NONE);
-        let window = ShallotWindowDelegate::new(std::cell::RefCell::new(None));
+        let window = ShallotWindowDelegate::new(std::cell::RefCell::new(None), None);
         assert_eq!(window.window_runtime_style(), RuntimeStyle::CHROME);
         assert_eq!(window.is_frameless(None), 0);
         assert_eq!(window.with_standard_window_buttons(None), 1);
@@ -248,7 +367,7 @@ mod tests {
         native_window.show = Some(show);
         let view = (&mut view as *mut sys::cef_browser_view_t).wrap_result();
         let mut window = (&mut native_window as *mut sys::cef_window_t).wrap_result();
-        let delegate = ShallotWindowDelegate::new(RefCell::new(Some(view)));
+        let delegate = ShallotWindowDelegate::new(RefCell::new(Some(view)), None);
         delegate.on_window_created(Some(&mut window));
         EVENTS.with(|events| {
             assert_eq!(
@@ -295,7 +414,7 @@ mod tests {
         HOST.with(|value| value.set(&mut native_host));
         BROWSER.with(|value| value.set(&mut native_browser));
         let view = (&mut native_view as *mut sys::cef_browser_view_t).wrap_result();
-        let delegate = ShallotWindowDelegate::new(std::cell::RefCell::new(Some(view)));
+        let delegate = ShallotWindowDelegate::new(std::cell::RefCell::new(Some(view)), None);
         assert_eq!(delegate.can_close(None), 0);
         READY.with(|value| value.set(1));
         assert_eq!(delegate.can_close(None), 1);

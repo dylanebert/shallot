@@ -97,8 +97,7 @@ fn style_window(hwnd: isize, r: u8, g: u8, b: u8) {
 }
 
 fn load_icon() -> Option<Icon> {
-    let data = asset("icon.png")?;
-    let img = image::load_from_memory(&data).ok()?.into_rgba8();
+    let img = crate::window_icon();
     let (w, h) = img.dimensions();
     Icon::from_rgba(img.into_raw(), w, h).ok()
 }

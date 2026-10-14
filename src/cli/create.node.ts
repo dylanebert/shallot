@@ -157,6 +157,18 @@ function assertProject(destination: string, templateFiles: string[]): void {
     );
 }
 
+test("every shipped scaffold owns the replaceable standard favicon and HTML link", () => {
+    const standard = readFileSync(join(ROOT, "examples/minimal/public/icon.svg"));
+    for (const template of readdirSync(join(ROOT, "examples"))) {
+        const destination = join(SCRATCH, `icon-${template}`);
+        expect(runCreate([destination, "--template", template])).toBe(0);
+        expect(readFileSync(join(destination, "public/icon.svg"))).toEqual(standard);
+        expect(readFileSync(join(destination, "index.html"), "utf8")).toContain(
+            'rel="icon" type="image/svg+xml" href="/icon.svg"',
+        );
+    }
+});
+
 test("create writes exactly the 16-file minimal project", () => {
     const destination = join(SCRATCH, "minimal");
     expect(runCreate([destination])).toBe(0);

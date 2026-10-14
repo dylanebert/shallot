@@ -125,9 +125,48 @@ pub(crate) fn asset(path: &str) -> Option<Cow<'static, [u8]>> {
     }
 }
 
+fn decode_icon(data: Option<&[u8]>) -> image::RgbaImage {
+    let bytes = data.unwrap_or(include_bytes!("../../../assets/icon-1024.png"));
+    image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+        .unwrap_or_else(|error| panic!("invalid native icon.png: {error}; replace public/icon.png and rebuild the native shell"))
+        .into_rgba8()
+}
+
+pub(crate) fn window_icon() -> image::RgbaImage {
+    let data = asset("icon.png");
+    decode_icon(data.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_icon_default_and_explicit_replacement_are_distinct() {
+        let default = decode_icon(None);
+        assert_eq!(default.dimensions(), (1024, 1024));
+        let custom = image::RgbaImage::from_pixel(32, 32, image::Rgba([255, 0, 42, 255]));
+        let mut png = std::io::Cursor::new(Vec::new());
+        custom.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let assets: &[(&str, &[u8])] = &[("icon.png", png.get_ref())];
+        let Some(AssetResolution::Embedded(bytes)) = resolve_asset(assets, "icon.png") else {
+            panic!("embedded icon did not resolve");
+        };
+        assert_eq!(decode_icon(Some(bytes)), custom);
+        assert!(matches!(
+            resolve_asset(&[], "icon.png"),
+            Some(AssetResolution::Disk)
+        ));
+        let missing: &[(&str, &[u8])] = &[("index.html", b"page")];
+        assert!(resolve_asset(missing, "icon.png").is_none());
+        assert_ne!(default.get_pixel(0, 0), custom.get_pixel(0, 0));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid native icon.png")]
+    fn invalid_native_icon_is_not_silently_replaced() {
+        decode_icon(Some(b"not a PNG"));
+    }
 
     #[test]
     fn empty_embedded_list_falls_back_to_disk() {

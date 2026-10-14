@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { compose, fromBlocks, toSvg } from "../src/standard/loading/brand";
 import { readBranding } from "./branding";
@@ -18,14 +18,14 @@ function icons(): number {
     const branding = readBranding();
     const mark = fromBlocks(branding.marks.m);
     const svg = `${toSvg(mark, branding.palettes.dark, 1)}\n`;
-    const tracked = Bun.spawnSync(["git", "ls-files", "-z", "examples"], { cwd: ROOT });
-    if (!tracked.success) throw new Error("`git ls-files` failed");
-    const targets = tracked.stdout
-        .toString()
-        .split("\0")
-        .filter((file) => file.endsWith("/public/icon.svg"));
+    const targets = readdirSync(resolve(ROOT, "examples")).map(
+        (name) => `examples/${name}/public/icon.svg`,
+    );
     if (targets.length === 0) throw new Error("no example icons; the write is empty");
-    for (const file of targets) writeFileSync(resolve(ROOT, file), svg);
+    for (const file of targets) {
+        mkdirSync(resolve(ROOT, file, ".."), { recursive: true });
+        writeFileSync(resolve(ROOT, file), svg);
+    }
     const width = mark[0]?.length ?? 0;
     const framed = compose(FRAME, FRAME, [
         {
@@ -38,6 +38,16 @@ function icons(): number {
         resolve(ROOT, NATIVE_ICON),
         toPng(framed, branding.palettes.dark, NATIVE_SCALE, branding.palettes.dark.bg),
     );
+    const png = toPng(framed, branding.palettes.dark, 16, branding.palettes.dark.bg);
+    // ICO permits PNG entries; zero dimensions in its directory denote 256 pixels.
+    const header = Buffer.alloc(22);
+    header.writeUInt16LE(1, 2);
+    header.writeUInt16LE(1, 4);
+    header.writeUInt16LE(1, 10);
+    header.writeUInt16LE(32, 12);
+    header.writeUInt32LE(png.length, 14);
+    header.writeUInt32LE(22, 18);
+    writeFileSync(resolve(ROOT, "crates/native/icon.ico"), Buffer.concat([header, png]));
     return targets.length;
 }
 
