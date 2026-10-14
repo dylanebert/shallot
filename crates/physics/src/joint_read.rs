@@ -31,6 +31,18 @@ pub fn read(c: Col<f32>, a: Transform, b: Transform, operation: u32) -> f32 {
         }
         4 => angular_separation(c, a, b),
         5 => linear_separation(c, a, b),
+        6 => {
+            let axis =
+                a.q.rotate(get_quat(c, 0, J_LOCAL_FRAME_A + 3).rotate(Vec3::new(1.0, 0.0, 0.0)));
+            let anchor_a = a.q.rotate(get_vec3(c, 0, J_LOCAL_FRAME_A));
+            let anchor_b = b.q.rotate(get_vec3(c, 0, J_LOCAL_FRAME_B));
+            b.p.sub(a.p).add(anchor_b.sub(anchor_a)).dot(axis)
+        }
+        7 => {
+            let pa = a.q.rotate(get_vec3(c, 0, J_LOCAL_FRAME_A)).add(a.p);
+            let pb = b.q.rotate(get_vec3(c, 0, J_LOCAL_FRAME_B)).add(b.p);
+            pb.sub(pa).length()
+        }
         _ => unreachable!(),
     }
 }
@@ -142,6 +154,65 @@ fn axis_separation(a: Transform, dp: Vec3, enabled: bool, lower: f32, upper: f32
     (perpendicular * perpendicular + limit * limit).sqrt()
 }
 
+#[derive(Clone, Copy)]
+pub struct Motion {
+    pub pose: Transform,
+    pub center: Vec3,
+    pub local_center: Vec3,
+    pub linear: Vec3,
+    pub angular: Vec3,
+}
+
+pub fn speed(c: Col<f32>, a: Motion, b: Motion, operation: u32) -> f32 {
+    if operation == 9 {
+        let qb = b.pose.q.mul(get_quat(c, 0, J_LOCAL_FRAME_B + 3));
+        let axis = qb.rotate(Vec3::new(0.0, 0.0, 1.0));
+        return b.angular.sub(a.angular).dot(axis);
+    }
+    let axis = a
+        .pose
+        .q
+        .rotate(get_quat(c, 0, J_LOCAL_FRAME_A + 3).rotate(Vec3::new(1.0, 0.0, 0.0)));
+    let ra = a
+        .pose
+        .q
+        .rotate(get_vec3(c, 0, J_LOCAL_FRAME_A).sub(a.local_center));
+    let rb = b
+        .pose
+        .q
+        .rotate(get_vec3(c, 0, J_LOCAL_FRAME_B).sub(b.local_center));
+    let d = b.center.sub(a.center).add(rb.sub(ra));
+    let relative = b
+        .linear
+        .add(b.angular.cross(rb))
+        .sub(a.linear.add(a.angular.cross(ra)));
+    d.dot(a.angular.cross(axis)) + axis.dot(relative)
+}
+
+#[cfg(target_arch = "wasm32")]
+unsafe fn motion(world: usize, id: usize, pose: Transform) -> Motion {
+    let fin = crate::body::read_fin(
+        crate::bodies::column(world, id, 2, crate::body::FIN_STRIDE),
+        0,
+    );
+    let (linear, angular) = if crate::bodies::record(world, id).set_index == 2 {
+        let state = crate::body::read_state(
+            crate::bodies::column(world, id, 0, crate::body::STATE_STRIDE),
+            0,
+        );
+        (state.linear_velocity, state.angular_velocity)
+    } else {
+        (Vec3::ZERO, Vec3::ZERO)
+    };
+    Motion {
+        pose,
+        center: fin.center,
+        local_center: fin.local_center,
+        linear,
+        angular,
+    }
+}
+
 /// # Safety
 /// The world and joint must be live, with both attached body records resident.
 #[cfg(target_arch = "wasm32")]
@@ -154,5 +225,14 @@ pub unsafe extern "C" fn run(world: usize, id: usize, operation: u32) -> f32 {
     );
     let a = crate::draw::pose(world, get(c, 0, J_BODY_ID_A).to_bits() as usize);
     let b = crate::draw::pose(world, get(c, 0, J_BODY_ID_B).to_bits() as usize);
-    read(c, a, b, operation)
+    if operation >= 8 {
+        speed(
+            c,
+            motion(world, get(c, 0, J_BODY_ID_A).to_bits() as usize, a),
+            motion(world, get(c, 0, J_BODY_ID_B).to_bits() as usize, b),
+            operation,
+        )
+    } else {
+        read(c, a, b, operation)
+    }
 }

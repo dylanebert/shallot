@@ -1,11 +1,6 @@
-import { f32, quat, type Vec3, vec3 } from "../common/math";
-import { bodySimSlot, readSimTransform, readStateAngularVelocity } from "../kernel/bodycolumns";
-import { BodyField, bodyField } from "../kernel/bodyrecords";
-import { J_LOCAL_FRAME_B } from "../kernel/columns";
-import { readJointQuat, readJointReaction } from "../kernel/jointcolumns";
-import { JointField, jointField } from "../kernel/jointrecords";
+import { f32, type Vec3 } from "../common/math";
+import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
-import { getBodyState } from "../world/body";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
@@ -98,34 +93,7 @@ export function getWheelJointTorque(world: WorldState, sim: Joint): Vec3 {
 
 /** The spin speed of the wheel about its spin axis (b3WheelJoint_GetSpinSpeed). */
 export function wheelJointSpinSpeed(world: WorldState, sim: Joint): number {
-    const transformScratch1 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-    const angularVelocityScratch2 = { x: 0, y: 0, z: 0 };
-    const angularVelocityScratch3 = { x: 0, y: 0, z: 0 };
-
-    const bodyA = jointField(world, sim, JointField.bodyIdA + 3 * 0);
-    const bodyB = jointField(world, sim, JointField.bodyIdA + 3 * 1);
-    const setB = bodyField(world, bodyB, BodyField.setIndex);
-    const bodySimB = bodySimSlot(setB, bodyField(world, bodyB, BodyField.localIndex));
-    const quatB = quat.mul(
-        readSimTransform(world, bodySimB, transformScratch1).q,
-        readJointQuat(world, sim, J_LOCAL_FRAME_B + 3),
-    );
-    const spinAxis = quat.rotate(quatB, vec3.axisZ());
-    const zero: Vec3 = {
-        x: 0,
-        y: 0,
-        z: 0,
-    };
-    const stateA = getBodyState(world, bodyA);
-    const stateB = getBodyState(world, bodyB);
-    const wA =
-        stateA !== null ? readStateAngularVelocity(world, stateA, angularVelocityScratch2) : zero;
-    const wB =
-        stateB !== null ? readStateAngularVelocity(world, stateB, angularVelocityScratch3) : zero;
-    return vec3.dot(vec3.sub(wB, wA), spinAxis);
+    return kernel(world.ecsState).jointRead(world.worldId, sim, 9);
 }
 
 /** The current steering angle about body A's x-axis (b3WheelJoint_GetSteeringAngle). */

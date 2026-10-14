@@ -1,10 +1,7 @@
 import { HUGE } from "../common/constants";
-import { FLT_MAX, quat, type Vec3, vec3 } from "../common/math";
-import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
-import { readJointReaction, readJointVec3 } from "../kernel/jointcolumns";
-import { JointField, jointField } from "../kernel/jointrecords";
+import { FLT_MAX, type Vec3 } from "../common/math";
+import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
-import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
@@ -77,27 +74,5 @@ export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
 
 /** The current distance between the two anchor points (b3DistanceJoint_GetCurrentLength). */
 export function distanceJointCurrentLength(world: WorldState, sim: Joint): number {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    const transformA = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 0),
-        bodyPoseScratch1,
-    );
-    const transformB = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 1),
-        bodyPoseScratch2,
-    );
-    const pA = vec3.add(
-        quat.rotate(transformA.q, readJointVec3(world, sim, J_LOCAL_FRAME_A)),
-        transformA.p,
-    );
-    const pB = vec3.add(
-        quat.rotate(transformB.q, readJointVec3(world, sim, J_LOCAL_FRAME_B)),
-        transformB.p,
-    );
-    const d = vec3.sub(pB, pA);
-    return vec3.length(d);
+    return kernel(world.ecsState).jointRead(world.worldId, sim, 7);
 }
