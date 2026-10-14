@@ -47,7 +47,7 @@ defaults:
 
 jobs:
   build:
-    timeout-minutes: 13
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -144,7 +144,7 @@ jobs:
 
   # Final job: collect all six archives, generate SHA256SUMS, and (tag only) attach to the release.
   checksums:
-    timeout-minutes: 5
+    timeout-minutes: 10
     needs: build
     runs-on: ubuntu-latest
     permissions:
