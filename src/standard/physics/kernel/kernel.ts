@@ -24,6 +24,8 @@ export type Kernel = {
     memory: WebAssembly.Memory;
     hullBuildInputPtr(count: number): number;
     hullBuild(operation: number, count: number, budget: number): number;
+    nonconvexBuildInputPtr(words: number): number;
+    nonconvexBuild(operation: number): number;
     worldSetCustomFilterCallback(world: number, enabled: boolean): void;
     worldSetPreSolveCallback(world: number, enabled: boolean): void;
     /** Present only in a checked build (`build-kernel.ts --checked`); routes panics to `kernelPanic`. */

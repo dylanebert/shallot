@@ -41,6 +41,7 @@ pub mod distance;
 pub mod finalize;
 #[cfg(target_arch = "wasm32")]
 mod geometry_database;
+pub mod height_build;
 pub mod height_query;
 pub mod hull;
 mod hull_abi;
@@ -57,9 +58,12 @@ mod joints;
 pub mod manifold;
 pub mod manifold_abi;
 pub mod math;
+pub mod mesh_build;
 pub mod mesh_contact;
 pub mod mesh_query;
 pub mod narrowphase;
+mod nonconvex_abi;
+pub mod nonconvex_build;
 pub mod parfor;
 #[cfg(target_arch = "wasm32")]
 mod physics_world;

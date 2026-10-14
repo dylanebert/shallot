@@ -5,6 +5,7 @@ import { BodyType, defaultShapeDef } from "./common/types";
 import { init, kernel, kernelState, shutdown } from "./kernel/kernel";
 import { queryColumns } from "./kernel/querycolumns";
 import { createRock, makeBoxHull } from "./shapes/build-hull";
+import { createGridMesh, createWave, createWaveMesh } from "./shapes/build-nonconvex";
 import { createHeightField } from "./shapes/heightfield";
 import { createMesh } from "./shapes/mesh";
 import {
@@ -144,6 +145,39 @@ test("hull authoring uses its owning World's kernel and survives sibling builds 
         expect(kernelState(undefined).instance).toBe(standalone);
         await shutdown(a);
         expect(makeBoxHull(1, 2, 3, b)).toEqual(snapshot);
+    } finally {
+        await shutdown(a);
+        await shutdown(b);
+        a.dispose();
+        b.dispose();
+    }
+});
+
+test("mesh and height-field authoring use their owning kernel and preserve independent outputs across scratch growth", async () => {
+    const a = new World(),
+        b = new World();
+    const standalone = kernelState(undefined).instance;
+    try {
+        await init(a, { threads: 0 });
+        await init(b, { threads: 0 });
+        const mesh = createWaveMesh(6, 5, 1, 0.4, 0.05, 0.1, a);
+        const field = createWave(32, 32, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false, a);
+        const expectedMesh = structuredClone(mesh),
+            expectedField = structuredClone(field);
+        createGridMesh(4, 5, 0.3, 3, true, b);
+        kernel(a).nonconvexBuildInputPtr(1_000_000);
+        expect(createWaveMesh(6, 5, 1, 0.4, 0.05, 0.1, a)).toEqual(expectedMesh);
+        expect(createWave(32, 32, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false, a)).toEqual(
+            expectedField,
+        );
+        expect(mesh).toEqual(expectedMesh);
+        expect(field).toEqual(expectedField);
+        expect(kernelState(undefined).instance).toBe(standalone);
+        await shutdown(a);
+        expect(createWaveMesh(6, 5, 1, 0.4, 0.05, 0.1, b)).toEqual(expectedMesh);
+        expect(createWave(32, 32, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false, b)).toEqual(
+            expectedField,
+        );
     } finally {
         await shutdown(a);
         await shutdown(b);

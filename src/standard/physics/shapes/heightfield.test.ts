@@ -140,8 +140,6 @@ test("a height field built by createGrid or createHeightField would drift from t
 });
 
 test("createWave would author a height field with the wrong row, column, material or flag counts, or a triangle decoding to a non-finite vertex or an invalid field AABB", () => {
-    // createWave uses Math.sin (not the portable b3 trig or C's sinf), so it is authoring-only and
-    // can't be gold-tested; this guards its dimensions + that every triangle decodes validly.
     const hf = createWave(6, 8, { x: 1, y: 1, z: 1 }, 0.25, 0.5, false);
     expect(hf.rowCount, "wave rowCount").toBe(6);
     expect(hf.columnCount, "wave columnCount").toBe(8);

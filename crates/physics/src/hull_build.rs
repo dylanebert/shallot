@@ -1207,7 +1207,7 @@ pub fn make_transformed_box(hx: f32, hy: f32, hz: f32, xf: Transform) -> HullIma
     out.finish();
     out
 }
-fn hash(bytes: &[u8]) -> u64 {
+pub(crate) fn hash(bytes: &[u8]) -> u64 {
     const S: [u64; 8] = [
         0x2d358dccaa6c78a5,
         0x8bb84b93962eacc9,
@@ -1226,7 +1226,7 @@ fn hash(bytes: &[u8]) -> u64 {
     let mut seed = mix(S[2], S[1]);
     let mut p = 0;
     let mut i = bytes.len();
-    // Every b3HullData image is larger than 112 bytes.
+    // Authoring images are at least 16 bytes and aligned to eight bytes.
     if i > 112 {
         let mut seeds = [seed; 7];
         loop {

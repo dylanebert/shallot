@@ -120,7 +120,7 @@ function exerciseMeshShape(mesh: MeshData): void {
     destroyTestWorld(world);
 }
 
-test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the TypeScript port builds", () => {
+test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the kernel builds", () => {
     const cases: [string, () => MeshData, string][] = [
         [
             "box (SAH split, edge identification)",
@@ -146,8 +146,6 @@ test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes
     }
 });
 
-// The wave mesh is Box3D's one geometry helper using libm sinf rather than the portable trig, so
-// its heights have no cross-platform-deterministic reference — assert structure, not bit-exactness.
 test("createWaveMesh emits the wrong triangle count for its cell grid, lifts the zero-sine boundary row or column off the plane, or rides its sine product past the requested amplitude", () => {
     const xCount = 6;
     const zCount = 5;

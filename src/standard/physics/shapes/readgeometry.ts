@@ -72,7 +72,7 @@ export function drawHull(v: DataView, p: number): HullData {
         hash: v.getBigUint64(p + 8, true),
     };
 }
-function meshData(v: DataView, p: number): MeshData {
+export function drawMeshData(v: DataView, p: number): MeshData {
     const nodeOffset = v.getUint32(p + 56, true),
         nodeCount = v.getUint32(p + 60, true),
         vertexOffset = v.getUint32(p + 64, true),
@@ -128,7 +128,7 @@ function meshData(v: DataView, p: number): MeshData {
     };
 }
 export function drawMesh(v: DataView, o: number): Mesh {
-    return { scale: drawVector(v, o), data: meshData(v, o + 12) };
+    return { scale: drawVector(v, o), data: drawMeshData(v, o + 12) };
 }
 export function drawHeightField(v: DataView, p: number): HeightFieldData {
     const columnCount = v.getUint32(p + 68, true),
