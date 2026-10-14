@@ -7,8 +7,9 @@ setDefaultTimeout(TIMEOUT.gpu);
 import {
     Devices,
     focusCanvas,
-    pointerButton,
     pointerMove,
+    pressButton,
+    releaseButton,
     Time,
     Transform,
 } from "@dylanebert/shallot";
@@ -34,7 +35,7 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
         const initialX = world.storage(Transform).translation.x.get(camera);
         const initialZ = world.storage(Transform).translation.z.get(camera);
 
-        pointerButton(world, "left", true);
+        pressButton(world, "left");
         pointerMove(world, {
             x: 160,
             y: 90,
@@ -52,7 +53,7 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
             throw new Error("Orbit did not produce a camera pose from the supplied drag");
         if (!_devices.pointer.left) throw new Error("Orbit lost the held button fact");
 
-        pointerButton(world, "left", false);
+        releaseButton(world, "left");
         world.step(Time.FIXED_DT);
         const releasedYaw = world.storage(Orbit).yaw.get(camera);
         if (_devices.pointer.left) throw new Error("Orbit retained a released button");

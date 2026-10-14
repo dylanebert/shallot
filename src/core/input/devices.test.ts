@@ -8,12 +8,13 @@ import {
     focusCanvas,
     type InputHost,
     InputPlugin,
-    pointerButton,
     pointerLockChanged,
     pointerLockStatus,
     pointerMove,
     pointerWheel,
+    pressButton,
     pressKey,
+    releaseButton,
     releaseKey,
     releasePointerLock,
     requestPointerLock,
@@ -489,11 +490,11 @@ test("non-Player browser input requires lock, or Player lock behavior depends on
     for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
     world.addSystem(UpdatePlayerControlSystem, "Player");
     world.step(0);
-    pointerButton(world, "left", true);
+    pressButton(world, "left");
     if (_devices.pointer.left) throw new Error("Player lock gate did not hold before engagement");
     requestPointerLock(world);
     fixture.emitLockChange();
-    pointerButton(world, "left", true);
+    pressButton(world, "left");
     if (!_devices.pointer.left) throw new Error("Player lock gate did not open after engagement");
     world.dispose();
     if (fixture.releaseCount !== 1)
@@ -587,7 +588,7 @@ test("the browser input producer fails to bind listeners or request pointer lock
     const _devices = world.resource(Devices);
     try {
         world.step(0);
-        pointerButton(world, "left", true);
+        pressButton(world, "left");
         if (_devices.requireLock || !_devices.pointer.left)
             throw new Error("non-Player browser input unexpectedly required pointer lock");
         requestPointerLock(world);
@@ -646,7 +647,7 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     world.addSystem(reader);
     pressKey(world, "KeyW");
     pointerMove(world, 12, 24, 3, -2);
-    pointerButton(world, "left", true);
+    pressButton(world, "left");
     pointerWheel(world, 7);
     touchPoint(world, 1, 10, 20);
     world.step(Time.FIXED_DT);
@@ -700,7 +701,7 @@ test("a press and release between frames loses an edge or leaves the key held", 
 test("window blur leaves keys or pointer buttons held, or releases them without an edge", () => {
     const world = inputState();
     pressKey(world, "KeyW");
-    pointerButton(world, "left", true);
+    pressButton(world, "left");
     blurCanvas(world);
     const input = world.resource(Devices);
     if (input.keys.held.has("KeyW") || !input.keys.released.has("KeyW"))
@@ -713,7 +714,7 @@ test("hiding the page leaves keys or pointer buttons held, or releases them with
     const world = inputState();
     focusCanvas(world, 0);
     pressKey(world, "KeyA");
-    pointerButton(world, "right", true);
+    pressButton(world, "right");
     visibilityChanged(world, true);
     const input = world.resource(Devices);
     if (input.keys.held.has("KeyA") || !input.keys.released.has("KeyA"))
@@ -727,7 +728,7 @@ test("pointer-lock exit leaves keys or pointer buttons held, or loses the lock r
     const _devices = world.resource(Devices);
     pointerLockChanged(world, true);
     pressKey(world, "KeyD");
-    pointerButton(world, "middle", true);
+    pressButton(world, "middle");
     pointerLockChanged(world, false);
     const input = _devices;
     if (pointerLockStatus(world) !== "unlocked") throw new Error("lock status did not exit");
@@ -748,18 +749,44 @@ test("a pointer button reads down before a required pointer lock engages", () =>
     const world = inputState();
     const _devices = world.resource(Devices);
     requirePointerLock(world, true);
-    pointerButton(world, "left", true);
+    pressButton(world, "left");
     if (_devices.pointer.left) throw new Error("button crossed the lock gate");
     pointerLockChanged(world, true);
-    pointerButton(world, "left", true);
+    pressButton(world, "left");
     if (!_devices.pointer.left) throw new Error("locked button did not engage");
+    world.dispose();
+});
+
+test("a pointer button press or release crosses suspension, or a release is held by the lock gate", () => {
+    const world = inputState();
+    const pointer = world.resource(Devices).pointer;
+    setInputEnabled(world, false);
+    pressButton(world, "left");
+    if (pointer.left) throw new Error("suspended press changed the record");
+    pointer.left = true;
+    releaseButton(world, "left");
+    if (!pointer.left) throw new Error("suspended release changed the record");
+    pointer.left = false;
+    setInputEnabled(world, true);
+    pressButton(world, "left");
+    requirePointerLock(world, true);
+    releaseButton(world, "left");
+    if (pointer.left) throw new Error("release did not clear an ungated button");
+    pressButton(world, "right");
+    releaseButton(world, "right");
+    if (pointer.right) throw new Error("gated release left a button held");
+    pointerLockChanged(world, true);
+    pressButton(world, "right");
+    if (!pointer.right) throw new Error("locked press did not engage");
+    releaseButton(world, "right");
+    if (pointer.right) throw new Error("locked release did not clear");
     world.dispose();
 });
 
 test("a suspended World still reads held keys, pointer or touch data, or accepts new presses", () => {
     const world = inputState();
     pressKey(world, "KeyS");
-    pointerButton(world, "left", true);
+    pressButton(world, "left");
     setInputEnabled(world, false);
     const input = world.resource(Devices);
     if (!input.suspended || input.keys.held.has("KeyS") || !input.keys.released.has("KeyS"))

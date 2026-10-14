@@ -328,8 +328,7 @@ export function pointerMove(
 
 export type PointerButton = "left" | "right" | "middle" | 0 | 1 | 2;
 
-/** Produce one pointer-button state. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
-export function pointerButton(world: World, button: PointerButton, pressed: boolean): void {
+function setButton(world: World, button: PointerButton, pressed: boolean): void {
     const d = record(world);
     if (d.suspended) return;
     const name =
@@ -341,11 +340,22 @@ export function pointerButton(world: World, button: PointerButton, pressed: bool
     d.pointer[name] = d.requireLock && d.pointer.lock.status !== "locked" ? false : pressed;
 }
 
+/** Produce a pointer-button press. While `requireLock` holds and the pointer is not locked, the button stays
+ * up. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
+export function pressButton(world: World, button: PointerButton): void {
+    setButton(world, button, true);
+}
+
+/** Produce a pointer-button release. */
+export function releaseButton(world: World, button: PointerButton): void {
+    setButton(world, button, false);
+}
+
 /** Produce the DOM `buttons` bitmask. */
 export function pointerButtons(world: World, buttons: number): void {
-    pointerButton(world, "left", (buttons & 1) !== 0);
-    pointerButton(world, "right", (buttons & 2) !== 0);
-    pointerButton(world, "middle", (buttons & 4) !== 0);
+    setButton(world, "left", (buttons & 1) !== 0);
+    setButton(world, "right", (buttons & 2) !== 0);
+    setButton(world, "middle", (buttons & 4) !== 0);
 }
 
 /** Produce wheel movement. */
