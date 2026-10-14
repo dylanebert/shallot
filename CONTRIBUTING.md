@@ -216,6 +216,7 @@ bun run format                  # biome
 - A missing tier premise fails, never skips.
 - Quarantine uses `test.todo`, runnable with `--todo`; a known failure stays failing until fixed.
 - Every browser subject keeps its Playwright and Vite configs together and spreads `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `scripts/browser.sh` applies the engine's browser ceiling and one worker; a copy runs under Playwright's defaults. Browser tests hold the browser tier's page-only claims; Playwright's per-test default stays unchanged.
+- A test requests the fewest solver threads its claim needs. The solver spins at its stage barriers, so threads beyond the host's free cores multiply its time; a CI runner has three or four vCPUs, shared with the test runner and any child.
 - GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work.
 - Compiled pipelines are never shared across worlds; a device a loss claim destroys is prepared during that compile step.
 - Full default-renderer or physics-kernel compositions, especially multi-world isolation claims, belong in Node.

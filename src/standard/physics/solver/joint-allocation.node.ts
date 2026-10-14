@@ -9,7 +9,10 @@ import {
 
 setDefaultTimeout(CEILING.node);
 
-for (const count of [0, 4]) {
+// Two threads hold the threaded claim: the sampler measures only the main isolate, whose code is the
+// same for any pool of two or more. Four oversubscribed a four-vCPU Windows runner beside the sampled
+// child's own threads, and the spinning stage barriers stretched the run past its ceiling.
+for (const count of [0, 2]) {
     test(`a warm GPU-backed scene with every joint type allocates no JavaScript heap at ${count} requested threads`, async () => {
         const sample = await sampleAllocation(
             resolve(import.meta.dir, "joint-allocation.entry.ts"),
