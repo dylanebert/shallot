@@ -649,20 +649,6 @@ export function materialTypeId(world: World, type: ErasedMaterialType): number {
     return id;
 }
 
-/** The material types in type-id order, excluding the reserved but not-yet-filled standard slot. */
-export function materialTypes(world: World): readonly (ErasedMaterialType | undefined)[] {
-    return world.resource(MaterialTypes).types;
-}
-
-/** The CPU-authored store owned by one material type. */
-export function materialAssets<
-    P extends AnyWgslStruct,
-    B extends Record<string, MaterialBinding>,
-    V extends Record<string, AnyWgslData>,
->(world: World, type: MaterialType<P, B, V>) {
-    return world.resource(type);
-}
-
 /** Create the CPU-authored store and register the material type in this World. */
 export function MaterialPlugin<
     P extends AnyWgslStruct,

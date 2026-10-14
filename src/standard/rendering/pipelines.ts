@@ -41,8 +41,8 @@ import {
     ALPHA_PIPELINE_KEY_COUNT,
     AlphaModeCode,
     AlphaPipelineKey,
+    MaterialTypes,
     MaterialVertexInput,
-    materialTypes,
 } from "./material-type";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
@@ -2225,7 +2225,7 @@ export async function preparePipelines(world: World, capacity: number): Promise<
     // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
     // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm
     // lock).
-    for (const type of materialTypes(world)) {
+    for (const type of world.resource(MaterialTypes).types) {
         if (!type) continue;
         world.resource(type).table;
         const alphaKeys = world.resource(type).alphaKeys;

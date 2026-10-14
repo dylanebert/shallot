@@ -18,13 +18,7 @@ import { lookAtRotation } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import { DEFAULT_PLUGINS, MeshRenderPlugin, StandardRenderingPlugin } from "../index";
 import { StandardRenderer } from "./forward";
-import {
-    Materials,
-    MeshMaterial,
-    materialTable,
-    StandardMaterial,
-    StandardMaterialInput,
-} from "./material";
+import { Materials, MeshMaterial, StandardMaterial, StandardMaterialInput } from "./material";
 
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
@@ -156,7 +150,7 @@ test("type-owned adds return distinct rows and partial updates preserve the othe
     world.gpu.device.pushErrorScope("validation");
     world.step(0);
     async function read(handle: typeof a) {
-        const snapshot = await probeBuffer(world, materialTable(world).buffer, {
+        const snapshot = await probeBuffer(world, world.resource(Materials).table.buffer, {
             offset: handle.material * d.sizeOf(StandardMaterialInput),
             size: d.sizeOf(StandardMaterialInput),
         });

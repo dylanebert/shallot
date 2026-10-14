@@ -25,7 +25,7 @@ import {
     setComputeBindGroup,
     setComputePipeline,
 } from "../../engine/runtime";
-import { type MaterialType, MaterialTypes, materialTypes } from "./material";
+import { type MaterialType, MaterialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 import { ALPHA_PIPELINE_KEY_COUNT } from "./material-type";
 import {
@@ -674,7 +674,7 @@ export function warmMeshPreprocess(world: World): void {
 
     if (!world.gpu.device) return;
     const root = world.gpu.root;
-    _meshPreprocess.materialTypeCount = materialTypes(world).length;
+    _meshPreprocess.materialTypeCount = world.resource(MaterialTypes).types.length;
     _meshPreprocess.alphaKeys = new Int32Array(_meshPreprocess.materialTypeCount);
     _meshPreprocess.meshCount = 0;
     _meshPreprocess.pairCount = 0;

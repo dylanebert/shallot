@@ -31,12 +31,9 @@ export {
     Materials,
     MaterialTypes,
     MeshMaterial,
-    materialAssets,
     materialType,
     materialTypeId,
-    materialTypes,
     StandardMaterial,
-    StandardMaterialType,
     VertexMaterialType,
 } from "./material";
 export { MeshInstanceInput, StandardMaterialInput } from "./material-data";

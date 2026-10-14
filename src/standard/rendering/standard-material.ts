@@ -38,7 +38,7 @@ const standardFragment = tgpu.fn(
 });
 
 /** The built-in mesh material type. Its type-local table is the sole source of its PBR parameters. */
-export const StandardMaterialType = materialType({
+export const Materials = materialType({
     name: "StandardMaterial",
     parameters: StandardMaterialInput,
     layout: standardLayout,

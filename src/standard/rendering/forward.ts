@@ -92,7 +92,7 @@ import {
     AlphaPipelineKey,
     alphaPipelineKey,
     type MaterialType,
-    materialTypes,
+    MaterialTypes,
     registerMaterialType,
 } from "./material-type";
 import {
@@ -130,7 +130,7 @@ import {
     updateCascades,
     updatePointShadows,
 } from "./shadows";
-import { StandardMaterialType, VertexMaterialType } from "./standard-material";
+import { Materials, VertexMaterialType } from "./standard-material";
 
 interface StandardRendererState {
     warned: Set<string>;
@@ -309,7 +309,7 @@ type FrameDraw = { draw: Draw; r: Recorded };
  * are stable, so untracked
  */
 function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
-    const type = materialTypes(world)[draw.materialType];
+    const type = world.resource(MaterialTypes).types[draw.materialType];
     if (!type)
         return warnSkip(world, draw.name, `material type ${draw.materialType} is not registered`);
     return recordMaterial(world, draw, type, capacity);
@@ -570,7 +570,8 @@ function recordMaterial(
 function resolveDraws(world: World, capacity: number): void {
     const state = world.resource(standardRendererStateKey);
     const meshCount = world.resource(Meshes).size;
-    const pairCount = materialTypes(world).length * ALPHA_PIPELINE_KEY_COUNT * meshCount;
+    const pairCount =
+        world.resource(MaterialTypes).types.length * ALPHA_PIPELINE_KEY_COUNT * meshCount;
     state.frameCount = 0;
     // null, not undefined: V8 can hold undefined in a double array, so each refill would reallocate it twice
     state.frameDrawPairs.fill(null, 0, state.framePairCount);
@@ -1326,8 +1327,8 @@ export const StandardRenderingPlugin: Plugin = {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         initializeBackgroundState(world);
-        registerMaterialType(world, StandardMaterialType as never, true);
-        world.resource(StandardMaterialType);
+        registerMaterialType(world, Materials as never, true);
+        world.resource(Materials);
         registerMaterialType(world, VertexMaterialType as never);
         world.resource(VertexMaterialType);
         initializeDrawState(world);
