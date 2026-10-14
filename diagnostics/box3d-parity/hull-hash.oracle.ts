@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createHull, makeBoxHull, makeOffsetBoxHull } from "../../src/standard/physics/shapes/hull";
+import { createHull, makeBoxHull, makeOffsetBoxHull } from "../../src/standard/physics/shapes/build-hull";
 import { hash64NonZero, hullImage } from "../../src/standard/physics/shapes/hullbytes";
 import { nativeBinary } from "./native";
 

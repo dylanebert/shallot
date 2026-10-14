@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
+import { makeBoxHull } from "./build-hull";
 import { createCompound } from "./compound";
 import { createGrid } from "./heightfield";
-import { makeBoxHull } from "./hull";
 import { createGridMesh } from "./mesh";
 import { readCompoundChildren, readShapeHeightField, readShapeMesh } from "./readgeometry";
 import { createCompoundShape, createHeightFieldShape, createMeshShape } from "./shape";

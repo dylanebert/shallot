@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
-import { makeBoxHull } from "../shapes/hull";
 import { createMesh } from "../shapes/mesh";
 import {
     createCompoundShape,

@@ -12,10 +12,10 @@ import {
     stepTestWorld,
     testShapeDef,
 } from "../testing";
+import { makeBoxHull } from "./build-hull";
 import { createCompound } from "./compound";
 import gold from "./geometry.gold.json";
 import { createGrid } from "./heightfield";
-import { makeBoxHull } from "./hull";
 import { createGridMesh } from "./mesh";
 import {
     computeFatShapeAABBOut,

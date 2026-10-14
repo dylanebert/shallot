@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { ContactField, ContactFlags, contactField, contactIds } from "../collision/contact";
 import { BodyType, defaultBodyDef, defaultShapeDef, defaultWorldDef } from "../common/types";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape, createSphereShape } from "../shapes/shape";
 import { step } from "../solver/step";
 import { createBody } from "../world/body";

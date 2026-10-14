@@ -20,7 +20,7 @@ import { step as stepWorld } from "../../src/standard/physics/solver/step";
 import { createBody, bodySetTargetTransform, destroyBody } from "../../src/standard/physics/world/body";
 import { worldCounters, worldProfile, type WorldState } from "../../src/standard/physics/world/world";
 import { createCapsuleShape, createHullShape, createMeshShape, createSphereShape } from "../../src/standard/physics/shapes/shape";
-import { createCylinder, createRock, makeBoxHull, makeOffsetBoxHull } from "../../src/standard/physics/shapes/hull";
+import { createCylinder, createRock, makeBoxHull, makeOffsetBoxHull } from "../../src/standard/physics/shapes/build-hull";
 import { createGridMesh, createTorusMesh } from "../../src/standard/physics/shapes/mesh";
 import { createFilterJoint, defaultJointDef, destroyJointInternal } from "../../src/standard/physics/solver/joint";
 import { createRevoluteJoint, defaultRevoluteJointDef } from "../../src/standard/physics/solver/revoluteJoint";

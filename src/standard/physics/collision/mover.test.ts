@@ -7,8 +7,8 @@ import { kernelMover } from "./shape_query_gold";
 
 import { expect, test } from "bun:test";
 import { absf, type Vec3, vec3 } from "../common/math";
+import { makeBoxHull } from "../shapes/build-hull";
 import type { Capsule, Sphere } from "../shapes/geometry";
-import { makeBoxHull } from "../shapes/hull";
 import { type CollisionPlane, solvePlanes } from "./mover";
 
 const FLT_MAX = 3.4028234663852886e38;

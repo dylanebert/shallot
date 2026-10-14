@@ -10,7 +10,7 @@ import { quat } from "../common/math";
 import { BodyType } from "../common/types";
 import { init, shutdown } from "../kernel/kernel";
 import { physicsBodyIndex, physicsState } from "../runtime";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import {
     createTestBody,

@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { xf } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "../common/types";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
-import { makeBoxHull } from "../shapes/hull";
 import { hash64NonZero } from "../shapes/hullbytes";
 import { createBoxMesh, createGridMesh } from "../shapes/mesh";
 import { createCompoundShape, createHeightFieldShape, createMeshShape } from "../shapes/shape";

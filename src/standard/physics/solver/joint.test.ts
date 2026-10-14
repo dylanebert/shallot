@@ -5,7 +5,7 @@ import { f32, froundConfig, quat, type Vec3, vec3 } from "../common/math";
 import { BodyType, type WorldDef } from "../common/types";
 import { readSimCenter, readStateAngularVelocity } from "../kernel/bodycolumns";
 import { JointField, jointField, setJointField } from "../kernel/jointrecords";
-import { makeBoxHull, makeCubeHull } from "../shapes/hull";
+import { makeBoxHull, makeCubeHull } from "../shapes/build-hull";
 import { createHullShape, createSphereShape } from "../shapes/shape";
 import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
 import {

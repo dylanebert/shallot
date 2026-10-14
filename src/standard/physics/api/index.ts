@@ -32,6 +32,16 @@ export {
 export { type InitOptions, init, shutdown, threads } from "../kernel/kernel";
 export type { TreeStats } from "../kernel/treecolumns";
 export {
+    createCone,
+    createCylinder,
+    createHull,
+    createRock,
+    makeBoxHull,
+    makeCubeHull,
+    makeOffsetBoxHull,
+    makeTransformedBoxHull,
+} from "../shapes/build-hull";
+export {
     type CompoundCapsuleDef,
     type CompoundData,
     type CompoundDef,
@@ -49,17 +59,7 @@ export {
     type HeightFieldData,
     type HeightFieldDef,
 } from "../shapes/heightfield";
-export {
-    createCone,
-    createCylinder,
-    createHull,
-    createRock,
-    type HullData,
-    makeBoxHull,
-    makeCubeHull,
-    makeOffsetBoxHull,
-    makeTransformedBoxHull,
-} from "../shapes/hull";
+export type { HullData } from "../shapes/hull";
 export {
     createBoxMesh,
     createGridMesh,

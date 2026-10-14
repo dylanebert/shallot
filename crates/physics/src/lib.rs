@@ -43,6 +43,8 @@ pub mod finalize;
 mod geometry_database;
 pub mod height_query;
 pub mod hull;
+mod hull_abi;
+pub mod hull_build;
 pub mod integrate;
 #[cfg(target_arch = "wasm32")]
 mod island;

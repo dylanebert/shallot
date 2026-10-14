@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { BodyType, defaultSurfaceMaterial } from "../../src/standard/physics/common/types";
 import { createCompound } from "../../src/standard/physics/shapes/compound";
 import { createHeightField } from "../../src/standard/physics/shapes/heightfield";
-import { makeBoxHull } from "../../src/standard/physics/shapes/hull";
+import { makeBoxHull } from "../../src/standard/physics/shapes/build-hull";
 import { createMesh } from "../../src/standard/physics/shapes/mesh";
 import {
     createCompoundShape,

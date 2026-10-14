@@ -1,9 +1,6 @@
 //! Convex-hull data + support queries, ported from box3d's `hull.c`/`collision.h` (Erin Catto, MIT)
-//! via the upstream TS port (`src/hull.ts`). Only the read-side the narrowphase touches lives here:
-//! the half-edge topology (points/vertices/edges/faces/planes/center) and the two support queries.
-//! Hull *construction* (quickhull) stays TS-side and runs once at shape creation. `HullData` is a
-//! borrowed view over the geometry pools: native `cargo test` borrows owned `Vec`s, the wasm kernel
-//! borrows slices reinterpreted over the static geometry columns (3c.2b).
+//! via the upstream TS port (`src/hull.ts`). The narrowphase borrows topology here; hull_build owns
+//! construction. Native tests borrow owned vectors; the kernel borrows the native geometry image.
 
 use crate::math::{Plane, Vec3, FLT_MAX, HUGE};
 use crate::simd::FloatW;

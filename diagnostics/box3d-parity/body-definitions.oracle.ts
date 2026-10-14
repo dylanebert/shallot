@@ -22,7 +22,7 @@ import {
 import { hashWorldState } from "../../src/standard/physics/world/hash";
 import { worldCounters } from "../../src/standard/physics/world/world";
 import { createHullShape, createSphereShape } from "../../src/standard/physics/shapes/shape";
-import { makeBoxHull } from "../../src/standard/physics/shapes/hull";
+import { makeBoxHull } from "../../src/standard/physics/shapes/build-hull";
 import {
     createTestBody,
     createTestWorld,

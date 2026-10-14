@@ -3,7 +3,7 @@ import { BodyType } from "../common/types";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
 import { kernel, rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape, createSphereShape, getSensorData, shapeIsValid } from "../shapes/shape";
 import {
     createTestBody,

@@ -6,10 +6,11 @@ import { test } from "bun:test";
 
 import { type Transform, type Vec3, xf } from "../common/math";
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
+import { createHull, makeBoxHull } from "../shapes/build-hull";
 import { type CompoundData, createCompound } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import { createGrid } from "../shapes/heightfield";
-import { createHull, type HullData, makeBoxHull } from "../shapes/hull";
+import type { HullData } from "../shapes/hull";
 import { createGridMesh, type Mesh } from "../shapes/mesh";
 import type { CastOutput, ShapeProxy } from "./distance";
 import gold from "./query.gold.json";

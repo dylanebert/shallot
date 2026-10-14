@@ -7,7 +7,7 @@ import { BodyType } from "./common/types";
 import { kernel, rethrowQueryError, setQueryCallback } from "./kernel/kernel";
 import { queryColumns } from "./kernel/querycolumns";
 import { readShapeAabb } from "./kernel/shapecolumns";
-import { makeBoxHull } from "./shapes/hull";
+import { makeBoxHull } from "./shapes/build-hull";
 import { computeShapeMass, createHullShape, createSphereShape } from "./shapes/shape";
 import {
     createTestBody,

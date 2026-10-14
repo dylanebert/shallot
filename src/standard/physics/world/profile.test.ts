@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { BodyType } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { kernel } from "../kernel/kernel";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
 import { defaultJointDef, destroyJointInternal } from "../solver/joint";

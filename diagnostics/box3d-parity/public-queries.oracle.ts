@@ -18,7 +18,7 @@ import { BodyType, defaultSurfaceMaterial } from "../../src/standard/physics/com
 import { createBoxMesh } from "../../src/standard/physics/shapes/mesh";
 import { createCompound } from "../../src/standard/physics/shapes/compound";
 import { createGrid } from "../../src/standard/physics/shapes/heightfield";
-import { makeBoxHull } from "../../src/standard/physics/shapes/hull";
+import { makeBoxHull } from "../../src/standard/physics/shapes/build-hull";
 import {
     createCapsuleShape,
     createCompoundShape,

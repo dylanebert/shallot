@@ -2,7 +2,8 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { nativeSseOutput } from "./native-evidence";
 import { BodyType } from "../../src/standard/physics/common/types";
 import { defaultSurfaceMaterial, type SurfaceMaterial } from "../../src/standard/physics/common/types";
-import { createHull, readShapeHull } from "../../src/standard/physics/shapes/hull";
+import { createHull } from "../../src/standard/physics/shapes/build-hull";
+import { readShapeHull } from "../../src/standard/physics/shapes/hull";
 import { createMesh } from "../../src/standard/physics/shapes/mesh";
 import {
     createCapsuleShape,

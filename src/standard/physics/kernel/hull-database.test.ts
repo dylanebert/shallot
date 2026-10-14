@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { restore, snapshot } from "../api/snapshot";
 import { f32, xf } from "../common/math";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
-import { cloneHull, makeBoxHull, readShapeHull } from "../shapes/hull";
+import { cloneHull, readShapeHull } from "../shapes/hull";
 import {
     computeShapeMass,
     createCompoundShape,

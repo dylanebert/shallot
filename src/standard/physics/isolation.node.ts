@@ -2,9 +2,10 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { World } from "../../engine";
 import { BodyType, defaultShapeDef } from "./common/types";
+import { init, kernel, kernelState, shutdown } from "./kernel/kernel";
 import { queryColumns } from "./kernel/querycolumns";
+import { createRock, makeBoxHull } from "./shapes/build-hull";
 import { createHeightField } from "./shapes/heightfield";
-import { makeBoxHull } from "./shapes/hull";
 import { createMesh } from "./shapes/mesh";
 import {
     createHeightFieldShape,
@@ -125,6 +126,31 @@ function tick(subject: ReturnType<typeof scene>, index: number, ray = true): big
     stepTestWorld(subject.world, 1 / 60);
     return hashWorldState(subject.world);
 }
+
+test("hull authoring uses its owning World's kernel and survives sibling builds and scratch growth", async () => {
+    const a = new World();
+    const b = new World();
+    const standalone = kernelState(undefined).instance;
+    try {
+        await init(a, { threads: 0 });
+        await init(b, { threads: 0 });
+        expect(kernel(a)).not.toBe(kernel(b));
+        const first = makeBoxHull(1, 2, 3, a);
+        const snapshot = structuredClone(first);
+        createRock(2, b);
+        kernel(a).hullBuildInputPtr(100_000);
+        expect(makeBoxHull(1, 2, 3, a)).toEqual(snapshot);
+        expect(first).toEqual(snapshot);
+        expect(kernelState(undefined).instance).toBe(standalone);
+        await shutdown(a);
+        expect(makeBoxHull(1, 2, 3, b)).toEqual(snapshot);
+    } finally {
+        await shutdown(a);
+        await shutdown(b);
+        a.dispose();
+        b.dispose();
+    }
+});
 
 function solo(variant: number): bigint[] {
     const owner = new World();

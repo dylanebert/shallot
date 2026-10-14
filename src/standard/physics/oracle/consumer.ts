@@ -30,8 +30,8 @@ import { readJointFloat, readJointVec3 } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
 import { createProxy, createTree, query } from "../kernel/treecolumns";
+import { makeBoxHull } from "../shapes/build-hull";
 import { type Capsule, computeSphereAABB, type Sphere } from "../shapes/geometry";
-import { makeBoxHull } from "../shapes/hull";
 import { createBoxMesh } from "../shapes/mesh";
 import {
     createCapsuleShape,

@@ -1,8 +1,8 @@
 import { quat, xf } from "../common/math";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
-import { makeBoxHull } from "../shapes/hull";
 import { createGridMesh } from "../shapes/mesh";
 import {
     createCapsuleShape,

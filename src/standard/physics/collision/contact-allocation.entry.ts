@@ -4,7 +4,7 @@ import { SetType } from "../common/constants";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { physicsBodyIndex, physicsState } from "../runtime";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import { createTestBody, testShapeDef } from "../testing";
 import { bodySetLinearVelocity } from "../world/body";

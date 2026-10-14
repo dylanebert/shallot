@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mat3 } from "../common/math";
 import { BodyType } from "../common/types";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import {
     createTestBody,

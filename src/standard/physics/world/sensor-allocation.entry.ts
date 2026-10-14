@@ -5,7 +5,7 @@ import { EventKind } from "../kernel/eventbuffers";
 import { kernel } from "../kernel/kernel";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { physicsBodyIndex, physicsState } from "../runtime";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import { createTestBody, testShapeDef } from "../testing";
 import { bodySetLinearVelocity } from "./body";

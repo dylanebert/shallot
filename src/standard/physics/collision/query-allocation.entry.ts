@@ -19,9 +19,9 @@ import { xf } from "../common/math";
 import { defaultQueryFilter, defaultSurfaceMaterial } from "../common/types";
 import { queryColumns } from "../kernel/querycolumns";
 import { physicsState } from "../runtime";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
-import { makeBoxHull } from "../shapes/hull";
 import { createGridMesh } from "../shapes/mesh";
 import {
     createCapsuleShape,

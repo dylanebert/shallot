@@ -3,18 +3,16 @@ import { f32, quat, type Vec3, vec3, xf } from "../common/math";
 import { BodyType } from "../common/types";
 import { kernel } from "../kernel/kernel";
 import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
-import gold from "./geometry.gold.json";
 import {
-    cloneHull,
-    computeHullAABB,
     createCone,
     createCylinder,
     createHull,
     createRock,
-    type HullData,
     makeBoxHull,
     makeTransformedBoxHull,
-} from "./hull";
+} from "./build-hull";
+import gold from "./geometry.gold.json";
+import { cloneHull, computeHullAABB, type HullData } from "./hull";
 import { computeShapeMass, createHullShape } from "./shape";
 
 // Reconstruct an exact f32 from the raw hex bits the C generator emitted.

@@ -22,6 +22,8 @@ import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
 /** The kernel's exported surface — grows as each solver phase ports to wasm. */
 export type Kernel = {
     memory: WebAssembly.Memory;
+    hullBuildInputPtr(count: number): number;
+    hullBuild(operation: number, count: number, budget: number): number;
     worldSetCustomFilterCallback(world: number, enabled: boolean): void;
     worldSetPreSolveCallback(world: number, enabled: boolean): void;
     /** Present only in a checked build (`build-kernel.ts --checked`); routes panics to `kernelPanic`. */

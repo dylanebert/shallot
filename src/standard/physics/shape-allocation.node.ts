@@ -13,9 +13,9 @@ import { hullDatabaseIndex } from "./kernel/geocolumns";
 import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./kernel/shapecolumns";
 import { shapeAllocationSubject } from "./shape-allocation.fixture";
+import { makeBoxHull } from "./shapes/build-hull";
 import { createCompound } from "./shapes/compound";
 import { createGrid } from "./shapes/heightfield";
-import { makeBoxHull } from "./shapes/hull";
 import { createGridMesh } from "./shapes/mesh";
 import {
     createCompoundShape,

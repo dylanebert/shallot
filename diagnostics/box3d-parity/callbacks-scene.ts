@@ -10,7 +10,7 @@ import { defaultJointDef } from "../../src/standard/physics/solver/joint";
 import { worldSetCustomFilterCallback, worldSetPreSolveCallback, worldCounters } from "../../src/standard/physics/world/world";
 import { getSensorData } from "../../src/standard/physics/shapes/shape";
 import { hashWorldState } from "../../src/standard/physics/world/hash";
-import { makeBoxHull } from "../../src/standard/physics/shapes/hull";
+import { makeBoxHull } from "../../src/standard/physics/shapes/build-hull";
 import type { WorldState } from "../../src/standard/physics/world/world";
 
 const owner = new World();

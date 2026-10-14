@@ -4,7 +4,7 @@ import { BodyType } from "../common/types";
 import { DIR_BLOCK, M_POINTS, POINT_STRIDE } from "../kernel/contact-layout";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
 import { kernel } from "../kernel/kernel";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createMesh } from "../shapes/mesh";
 import { createHullShape, createMeshShape, createSphereShape } from "../shapes/shape";
 import {

@@ -4,7 +4,7 @@
 // cost outweighs its split.
 import { BodyType } from "../../src/standard/physics/common/types";
 import { init } from "../../src/standard/physics/kernel/kernel";
-import { makeBoxHull } from "../../src/standard/physics/shapes/hull";
+import { makeBoxHull } from "../../src/standard/physics/shapes/build-hull";
 import { createHullShape } from "../../src/standard/physics/shapes/shape";
 import { createTestBody, createTestWorld, stepTestWorld, testShapeDef } from "../../src/standard/physics/testing";
 import { worldProfile } from "../../src/standard/physics/world/world";

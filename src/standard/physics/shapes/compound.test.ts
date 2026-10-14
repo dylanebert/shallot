@@ -17,6 +17,7 @@ import { assertQueryWorld, kernel, rethrowQueryError, setQueryCallback } from ".
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { readNode } from "../kernel/treecolumns";
 import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
+import { makeBoxHull } from "./build-hull";
 import {
     type CompoundData,
     type CompoundDef,
@@ -26,7 +27,7 @@ import {
 } from "./compound";
 import { type Capsule, computeCapsuleAABB, computeSphereAABB, type Sphere } from "./geometry";
 import gold from "./geometry.gold.json";
-import { computeHullAABB, type HullData, makeBoxHull } from "./hull";
+import { computeHullAABB, type HullData } from "./hull";
 import { computeMeshAABB, createBoxMesh, type MeshData } from "./mesh";
 import { computeShapeAABB, createCompoundShape, destroyShape, shapeIsValid } from "./shape";
 

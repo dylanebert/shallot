@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { restore, snapshot } from "../api/snapshot";
 import { SetType } from "../common/constants";
 import { BodyType } from "../common/types";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
 import { defaultJointDef } from "../solver/joint";

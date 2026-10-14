@@ -4,7 +4,7 @@ import { updateBroadPhasePairs } from "../collision/pairs";
 import { BodyType } from "../common/types";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
 import { kernel } from "../kernel/kernel";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import {
     createTestBody,

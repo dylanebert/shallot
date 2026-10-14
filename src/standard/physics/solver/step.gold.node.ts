@@ -37,7 +37,7 @@ import { BodyType } from "../common/types";
 import { loadConsumerCorpus, runCommonInput } from "../oracle/consumer";
 import { loadScenarioCorpus, runScenario } from "../oracle/scenario";
 import { compareCase } from "../oracle/strict";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 
 test("a split candidate completes before finalize on the serial and live-pool step", () => {
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });

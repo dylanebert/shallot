@@ -15,7 +15,7 @@ import {
     removeIslandBody,
 } from "../kernel/islandcolumns";
 import { physicsState } from "../runtime";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
 import { defaultJointDef } from "../solver/joint";

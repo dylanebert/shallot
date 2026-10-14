@@ -1,7 +1,7 @@
 import { createApp } from "@dylanebert/shallot";
 import { BodyType } from "../common/types";
 import { init, shutdown, threads } from "../kernel/kernel";
-import { makeBoxHull } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
 import {
     createTestBody,

@@ -11,10 +11,10 @@ import type { World } from "../../engine";
 import { makeShapeId } from "./api/config";
 import type { EntityId } from "./common/ids";
 import { defaultShapeDef, type Filter, type ShapeDef, type SurfaceMaterial } from "./common/types";
+import { createHull } from "./shapes/build-hull";
 import type { CompoundData } from "./shapes/compound";
 import type { HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
-import { createHull } from "./shapes/hull";
 import type { MeshData } from "./shapes/mesh";
 import {
     createCapsuleShape,
@@ -116,7 +116,7 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
         y: y * scale.y.get(eid),
         z: z * scale.z.get(eid),
     }));
-    const built = createHull(points, points.length);
+    const built = createHull(points, points.length, world);
     if (!built) throw new Error(`physics: hull for Shape ${eid} could not be built`);
     return built;
 }

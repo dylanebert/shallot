@@ -6,7 +6,7 @@ import { contactIds } from "./collision/contact";
 import { readContactManifolds } from "./collision/manifoldstore";
 import { BodyType, defaultQueryFilter, defaultShapeDef } from "./common/types";
 import { queryColumns } from "./kernel/querycolumns";
-import { makeBoxHull } from "./shapes/hull";
+import { makeBoxHull } from "./shapes/build-hull";
 import { createHullShape, createSphereShape } from "./shapes/shape";
 import { defaultJointDef } from "./solver/joint";
 import { createRevoluteJoint, defaultRevoluteJointDef } from "./solver/revoluteJoint";

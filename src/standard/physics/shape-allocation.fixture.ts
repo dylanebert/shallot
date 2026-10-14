@@ -3,9 +3,9 @@ import { mat3, vec3, xf } from "./common/math";
 import { BodyType, defaultShapeDef } from "./common/types";
 import { hullDatabaseIndex } from "./kernel/geocolumns";
 import { queryColumns } from "./kernel/querycolumns";
+import { makeBoxHull } from "./shapes/build-hull";
 import { createCompound } from "./shapes/compound";
 import { createGrid } from "./shapes/heightfield";
-import { makeBoxHull } from "./shapes/hull";
 import { createGridMesh } from "./shapes/mesh";
 import {
     computeShapeAABBOut,
