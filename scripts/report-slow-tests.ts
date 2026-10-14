@@ -149,13 +149,18 @@ function escapeProperty(value: string): string {
     return escapeData(value).replace(/:/g, "%3A").replace(/,/g, "%2C");
 }
 
+/** CONTRIBUTING, Verification: what a warning asks of whoever reads it. */
+const REMEDY =
+    "if it recurs on other runs, make it cheaper, split it or move it to a heavier tier; one slow runner needs nothing";
+
 export function warningAnnotation(test: SlowTest, host: string): string {
     const duration = `${test.timeMs.toFixed(2)} ms`;
     const message = [
         `${test.tier === "browser" ? "subject" : "test"} ${JSON.stringify(test.name)} took ${duration}`,
-        `${test.tier} speed budget ${test.budget} ms`,
+        `over half its ${test.tier} speed budget ${test.budget} ms`,
         `host ${host}`,
         ...(test.adapter ? [`adapter ${test.adapter}`] : []),
+        REMEDY,
     ].join("; ");
     return `::warning title=${escapeProperty(`Slow test: ${test.name}`)}::${escapeData(message)}`;
 }

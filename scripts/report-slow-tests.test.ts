@@ -42,11 +42,11 @@ test("Playwright reports the whole browser subject, including work outside testc
         },
     ]);
     expect(warningAnnotation(slow[0]!, "Linux")).toContain(
-        'subject "examples/embedded-scene" took 30001.00 ms; browser speed budget 60000 ms',
+        'subject "examples/embedded-scene" took 30001.00 ms; over half its browser speed budget 60000 ms',
     );
 });
 
-test("the warning names the test, host, speed budget and adapter printed for its file", () => {
+test("the warning names the test, host, speed budget, adapter printed for its file and the remedy", () => {
     const log = `./src/render.gpu.test.ts:
 frame-encoder adapter: {
   class: "fallback",
@@ -56,6 +56,6 @@ frame-encoder adapter: {
     const [slow] = slowTests(report, log).filter(({ name }) => name === "GPU slow");
     expect(slow).toBeDefined();
     expect(warningAnnotation(slow!, "Linux")).toBe(
-        '::warning title=Slow test%3A GPU slow::test "GPU slow" took 501.00 ms; gpu speed budget 1000 ms; host Linux; adapter frame-encoder adapter: { class: "fallback", identity: "llvmpipe", }',
+        '::warning title=Slow test%3A GPU slow::test "GPU slow" took 501.00 ms; over half its gpu speed budget 1000 ms; host Linux; adapter frame-encoder adapter: { class: "fallback", identity: "llvmpipe", }; if it recurs on other runs, make it cheaper, split it or move it to a heavier tier; one slow runner needs nothing',
     );
 });
