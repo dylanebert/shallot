@@ -991,7 +991,7 @@ const profileUi = {
 
 /**
  * show or hide the profiler overlay — the same HUD F3 toggles, driven from code. Off by default; call
- * `showProfiler(state)` in a plugin `warm` to surface the numbers on open without a keypress. F3 still toggles
+ * `showProfiler(world)` in a plugin `warm` to surface the numbers on open without a keypress. F3 still toggles
  * it alongside. No-op without {@link ProfilePlugin} (nothing populates the overlay).
  */
 export function showProfiler(world: World, show = true): void {
