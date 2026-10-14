@@ -1,15 +1,25 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    realpathSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, resolve } from "node:path";
+import { basename, delimiter, resolve } from "node:path";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { BUN_CHILD, bunCommand } from "./bun-child";
+import { packedInstall } from "./packed-install-spawn";
 
 setDefaultTimeout(CEILING.node);
 const repo = resolve(import.meta.dir, "..");
 
 test("installed packed CLI preserves editable favicon and native PNG at a nested web base", () => {
-    const root = mkdtempSync(resolve(tmpdir(), "shallot-icons-packed-"));
+    const root = realpathSync.native(mkdtempSync(resolve(tmpdir(), "shallot-icons-packed-")));
+    const installer = resolve(root, "cli");
     const project = resolve(root, "game");
     const env = { ...process.env };
     const run = (args: string[], cwd = project) => {
@@ -28,17 +38,34 @@ test("installed packed CLI preserves editable favicon and native PNG at a nested
             ["pm", "pack", "--ignore-scripts", "--quiet", "--destination", root],
             repo,
         ).trim();
-        writeFileSync(resolve(root, "package.json"), '{"private":true}');
-        run(["add", "--no-save", archive], root);
-        const installed = resolve(root, "node_modules/@dylanebert/shallot");
+        const spec = `file:../${basename(archive)}`;
+        mkdirSync(installer);
+        writeFileSync(
+            resolve(installer, "package.json"),
+            JSON.stringify({
+                name: "packed-icon-cli",
+                private: true,
+                dependencies: { "@dylanebert/shallot": spec },
+            }),
+        );
+        packedInstall(
+            ["install", "--linker=isolated", "--no-progress"],
+            installer,
+            "icon CLI install",
+        );
+        const installed = resolve(installer, "node_modules/@dylanebert/shallot");
         const manifest = JSON.parse(readFileSync(resolve(installed, "package.json"), "utf8"));
         const cli = resolve(installed, manifest.bin.shallot);
-        run([cli, "create", "game"], root);
+        run([cli, "create", project], installer);
         const pkgPath = resolve(project, "package.json");
         const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-        pkg.dependencies["@dylanebert/shallot"] = "^0.9.5";
+        pkg.dependencies["@dylanebert/shallot"] = spec;
         writeFileSync(pkgPath, JSON.stringify(pkg));
-        run(["add", "--no-save", archive]);
+        packedInstall(
+            ["install", "--linker=isolated", "--no-progress"],
+            project,
+            "icon consumer install",
+        );
         const projectCli = resolve(
             project,
             "node_modules/@dylanebert/shallot",
