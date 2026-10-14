@@ -1,6 +1,6 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { BUN_CHILD, bunCommand } from "../../../../scripts/bun-child";
+import { bunChild } from "../../../../scripts/bun-child";
 import { contactCount } from "../collision/contact";
 import type { WorldTransform } from "../common/math";
 import { type BodyDef, BodyType } from "../common/types";
@@ -101,8 +101,8 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
     });
 } else if (process.env.PHYSICS_REBUILD_POOL !== "1") {
     test("four-thread rebuild paths finish in an independent kernel runtime", async () => {
-        const child = Bun.spawn(bunCommand(["test", import.meta.filename]), {
-            ...BUN_CHILD,
+        const child = Bun.spawn({
+            ...bunChild(["test", import.meta.filename]),
             env: { ...process.env, PHYSICS_REBUILD_POOL: "1" },
             stdout: "inherit",
             stderr: "inherit",
@@ -112,8 +112,8 @@ if (process.env.PHYSICS_REBUILD_BULLET) {
     test("an unforked four-thread bullet sweep uses the rebuilt dynamic root and equals one thread", async () => {
         const results = [];
         for (const count of [1, 4]) {
-            const child = Bun.spawn(bunCommand(["test", import.meta.filename]), {
-                ...BUN_CHILD,
+            const child = Bun.spawn({
+                ...bunChild(["test", import.meta.filename]),
                 env: { ...process.env, PHYSICS_REBUILD_BULLET: String(count) },
                 stdout: "pipe",
                 stderr: "inherit",

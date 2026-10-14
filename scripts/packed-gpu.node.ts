@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { BUN_CHILD, bunCommand } from "./bun-child";
+import { bunChild } from "./bun-child";
 import { packedInstall } from "./packed-install-spawn";
 
 setDefaultTimeout(CEILING.node);
@@ -24,8 +24,8 @@ function run(command: string[], cwd: string, label: string): string {
     if (program === "bun" && args[0] === "install") {
         return packedInstall(args, cwd, label);
     }
-    const result = Bun.spawnSync(program === "bun" ? bunCommand(args) : command, {
-        ...(program === "bun" ? BUN_CHILD : {}),
+    const result = Bun.spawnSync({
+        ...(program === "bun" ? bunChild(args) : { cmd: command }),
         cwd,
         stdout: "pipe",
         stderr: "pipe",

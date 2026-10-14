@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, delimiter, resolve } from "node:path";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { BUN_CHILD, bunCommand } from "./bun-child";
+import { bunChild } from "./bun-child";
 import { packedInstall } from "./packed-install-spawn";
 
 setDefaultTimeout(CEILING.node);
@@ -23,8 +23,8 @@ test("installed packed CLI preserves editable favicon and native PNG at a nested
     const project = resolve(root, "game");
     const env = { ...process.env };
     const run = (args: string[], cwd = project) => {
-        const result = Bun.spawnSync(bunCommand(args), {
-            ...BUN_CHILD,
+        const result = Bun.spawnSync({
+            ...bunChild(args),
             cwd,
             env,
             stdout: "pipe",

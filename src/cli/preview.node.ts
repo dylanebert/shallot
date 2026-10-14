@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { BUN_CHILD, bunCommand } from "../../scripts/bun-child";
+import { bunChild } from "../../scripts/bun-child";
 
 setDefaultTimeout(CEILING.node);
 
@@ -44,10 +44,11 @@ test("a native debug process receives the Vite URL instead of its packaged asset
             source,
             `require("node:fs").writeFileSync(${JSON.stringify(observed)}, process.env.SHALLOT_DEV_URL ?? "");\n`,
         );
-        const compiled = Bun.spawnSync(
-            bunCommand(["build", "--compile", source, "--outfile", join(output, `${name}.exe`)]),
-            { ...BUN_CHILD, stdout: "pipe", stderr: "pipe" },
-        );
+        const compiled = Bun.spawnSync({
+            ...bunChild(["build", "--compile", source, "--outfile", join(output, `${name}.exe`)]),
+            stdout: "pipe",
+            stderr: "pipe",
+        });
         expect(compiled.exitCode, compiled.stderr.toString()).toBe(0);
     } else {
         const app = join(output, name);
@@ -91,25 +92,27 @@ test("native preview streams the shell's output while the shell runs", async () 
         source,
         `console.error("[shallot] asset server on http://127.0.0.1:1");\nwhile (!require("node:fs").existsSync(${JSON.stringify(release)})) await Bun.sleep(20);\n`,
     );
-    const compiled = Bun.spawnSync(
-        bunCommand([
+    const compiled = Bun.spawnSync({
+        ...bunChild([
             "build",
             "--compile",
             source,
             "--outfile",
             join(output, windows ? `${name}.exe` : name),
         ]),
-        { ...BUN_CHILD, stdout: "pipe", stderr: "pipe" },
-    );
+        stdout: "pipe",
+        stderr: "pipe",
+    });
     expect(compiled.exitCode, compiled.stderr.toString()).toBe(0);
     const preview = resolve(import.meta.dir, "preview.ts");
-    const cli = Bun.spawn(
-        bunCommand([
+    const cli = Bun.spawn({
+        ...bunChild([
             "-e",
             `const { previewProject } = await import(${JSON.stringify(preview)}); process.exit(await previewProject(${JSON.stringify(project)}, { target: ${JSON.stringify(windows ? "windows" : "linux")} }));`,
         ]),
-        { ...BUN_CHILD, stdout: "pipe", stderr: "pipe" },
-    );
+        stdout: "pipe",
+        stderr: "pipe",
+    });
     try {
         let seen = "";
         const reader = cli.stderr.getReader();

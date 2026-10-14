@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import {
+    copyFileSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -12,21 +13,62 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { bunCommand } from "./bun-child";
+import { bunChild } from "./bun-child";
 import { packedInstall, spawnPackedInstall } from "./packed-install-spawn";
 
 setDefaultTimeout(CEILING.node);
 
 const BOUND = 2000;
 
+test("Bun children keep their host identity under a copy named node", () => {
+    const scratch = mkdtempSync(join(tmpdir(), "shallot-bun-host-"));
+    try {
+        const host = join(scratch, process.platform === "win32" ? "node.exe" : "node");
+        copyFileSync(process.execPath, host);
+        const result = Bun.spawnSync({
+            cmd: [
+                host,
+                "test",
+                import.meta.filename,
+                "-t",
+                "async Bun child|sync Bun child|packed registry dependencies",
+            ],
+            argv0: "bun",
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(result.exitCode, `${result.stdout}${result.stderr}`).toBe(0);
+    } finally {
+        rmSync(scratch, { recursive: true, force: true });
+    }
+});
+
+test("a sync Bun child runs a Bun command", () => {
+    const result = Bun.spawnSync({
+        ...bunChild(["pm", "cache"]),
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(existsSync(result.stdout.toString().trim())).toBe(true);
+});
+
+test("an async Bun child runs a Bun command", async () => {
+    const child = Bun.spawn({
+        ...bunChild(["pm", "cache"]),
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const output = await new Response(child.stdout).text();
+    expect(await child.exited).toBe(0);
+    expect(existsSync(output.trim())).toBe(true);
+});
+
 test("a stalled install is killed inside its bound and retains the last step", () => {
     const start = performance.now();
     expect(() =>
         spawnPackedInstall(
-            bunCommand([
-                "-e",
-                'console.log("Resolving dependencies"); setInterval(() => {}, 1000)',
-            ]),
+            bunChild(["-e", 'console.log("Resolving dependencies"); setInterval(() => {}, 1000)']),
             process.cwd(),
             "fake install",
             BOUND,
@@ -41,7 +83,7 @@ test("early stderr cannot displace the last stdout step in a timeout tail", () =
     let failure = "";
     try {
         spawnPackedInstall(
-            bunCommand([
+            bunChild([
                 "-e",
                 'process.stderr.write("early stderr:" + "x".repeat(17000)); console.log("LAST STEP package-last"); setInterval(() => {}, 1000)',
             ]),
@@ -60,7 +102,7 @@ test("early stderr cannot displace the last stdout step in a timeout tail", () =
 test("a normal install returns captured stdout and stderr untouched", () => {
     expect(
         spawnPackedInstall(
-            bunCommand(["-e", 'console.log("installed"); console.error("done")']),
+            bunChild(["-e", 'console.log("installed"); console.error("done")']),
             process.cwd(),
             "fake install",
             BOUND,
@@ -89,7 +131,7 @@ function offlineFixture(
         mkdirSync(source);
         mkdirSync(project);
         const realCache = spawnPackedInstall(
-            bunCommand(["pm", "cache"]),
+            bunChild(["pm", "cache"]),
             process.cwd(),
             "locating cache",
         ).trim();
@@ -125,7 +167,7 @@ function offlineFixture(
             pack: (manifest) => {
                 writeFileSync(join(source, "package.json"), JSON.stringify(manifest));
                 spawnPackedInstall(
-                    bunCommand([
+                    bunChild([
                         "pm",
                         "pack",
                         "--ignore-scripts",
@@ -150,6 +192,17 @@ test("packed registry dependencies install from a manifest-free cache with an un
         pack({ ...engine, dependencies: { typegpu: "~0.12.6" } });
         packedInstall(["install"], project, "offline fixture");
         expect(existsSync(join(project, "node_modules/typegpu/package.json"))).toBe(true);
+        writeFileSync(
+            join(project, "consumer.test.ts"),
+            'import { expect, test } from "bun:test";\nimport pkg from "@dylanebert/shallot/package.json";\ntest("installed consumer", () => expect(pkg.version).toBe("0.0.0"));\n',
+        );
+        expect(
+            spawnPackedInstall(
+                bunChild(["test", "./consumer.test.ts"]),
+                project,
+                "installed consumer",
+            ),
+        ).toContain("1 pass");
     });
 });
 

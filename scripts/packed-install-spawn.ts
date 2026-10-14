@@ -4,18 +4,18 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import semver from "semver";
-import { BUN_CHILD, bunCommand } from "./bun-child";
+import { bunChild } from "./bun-child";
 
 const INSTALL_TIMEOUT = 60_000;
 
 export function spawnPackedInstall(
-    command: string[],
+    command: { cmd: string[]; argv0?: string },
     cwd: string,
     label: string,
     timeout = INSTALL_TIMEOUT,
 ): string {
-    const result = Bun.spawnSync(command, {
-        ...BUN_CHILD,
+    const result = Bun.spawnSync({
+        ...command,
         env: { ...process.env },
         cwd,
         stdout: "pipe",
@@ -96,7 +96,7 @@ export function packedInstall(args: string[], cwd: string, label: string): strin
     ];
     writeFileSync(join(cwd, "bun.lock"), `${JSON.stringify(lock, null, 2)}\n`);
     const output = spawnPackedInstall(
-        bunCommand([args[0]!, "--offline", "--frozen-lockfile", "--verbose", ...args.slice(1)]),
+        bunChild([args[0]!, "--offline", "--frozen-lockfile", "--verbose", ...args.slice(1)]),
         cwd,
         label,
     );

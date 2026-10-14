@@ -179,6 +179,7 @@ bun run test --todo             # quarantined claims
 bun run format                  # biome
 ```
 
+- Bun child processes spread [the executable and host identity](scripts/bun-child.ts) into object-form spawn options.
 - Iterate on selected files or subjects.
 - Before it lands, a change runs every repository policy.
 - [CI](.github/workflows/test.yml) owns the wide push runs and their commands.
@@ -328,6 +329,7 @@ bun run format                  # biome
 - Source and examples self-reference the package name without a dependency entry.
 - `@types/node` and `@webgpu/types` stay runtime dependencies because public types point at source.
 - A link cannot prove what ships: CLI, manifest, dependency, runtime or native-shell changes require a packed tarball installed in a scratch project.
+- Package-test fixtures declare the tarball as a `file:` dependency and use [the frozen, offline installer](scripts/packed-install-spawn.ts) in independent scratch roots; this fixture setup does not restrict consumer staging with `bun add --no-save`.
 - A breaking change updates every affected dependent in the same landing.
 - Removals and reshapes strip unusable code; rebuilding and additive or hardening work follow the settled engine, not each intermediate state.
 - `main` carries the next unpublished version; the commit after publishing advances it, and a commit is not a release.

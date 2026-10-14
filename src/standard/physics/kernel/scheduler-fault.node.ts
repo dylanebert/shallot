@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
-import { BUN_CHILD, bunCommand } from "../../../../scripts/bun-child";
+import { bunChild } from "../../../../scripts/bun-child";
 import { BodyType } from "../common/types";
 import { createSphereShape } from "../shapes/shape";
 import { createTestBody, createTestWorld, stepTestWorld, testShapeDef } from "../testing";
@@ -46,8 +46,8 @@ if (process.env.PHYSICS_SCHEDULER_FAULT === "1") {
     });
 } else {
     test("worker traps release the stepped kernel in an isolated process", async () => {
-        const child = Bun.spawn(bunCommand(["test", import.meta.filename]), {
-            ...BUN_CHILD,
+        const child = Bun.spawn({
+            ...bunChild(["test", import.meta.filename]),
             env: { ...process.env, PHYSICS_SCHEDULER_FAULT: "1" },
             stdout: "inherit",
             stderr: "inherit",

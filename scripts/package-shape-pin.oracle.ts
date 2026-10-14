@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { normalizePath } from "../src/project/paths";
-import { bunCommand } from "./bun-child";
+import { bunChild } from "./bun-child";
 import { spawnPackedInstall } from "./packed-install-spawn";
 
 setDefaultTimeout(CEILING.node);
@@ -13,7 +13,7 @@ const TYPEGPU_RANGE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"
     .typegpu;
 function run(command: string[], cwd: string, label: string): string {
     return spawnPackedInstall(
-        command[0] === "bun" ? bunCommand(command.slice(1)) : command,
+        command[0] === "bun" ? bunChild(command.slice(1)) : { cmd: command },
         cwd,
         label,
     );
