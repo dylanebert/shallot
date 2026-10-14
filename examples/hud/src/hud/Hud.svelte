@@ -8,11 +8,15 @@
     let speed = $state(untrack(() => world.resource(Turn).speed));
     let selected = $state(0);
     const swatches = [
-        { name: "Orange", color: [0.621407, 0.26791815, 0.11756791, 1], hue: 55 },
-        { name: "Blue", color: [0.15270135, 0.36628627, 0.70424525, 1], hue: 250 },
-        { name: "Yellow", color: [0.41696574, 0.35106622, 0.08533862, 1], hue: 100 },
-        { name: "Red", color: [0.66982564, 0.23598303, 0.21147319, 1], hue: 25 },
+        { name: "Orange", color: [0.621407, 0.26791815, 0.11756791, 1] },
+        { name: "Blue", color: [0.15270135, 0.36628627, 0.70424525, 1] },
     ];
+
+    function srgb(color: number[]) {
+        return `rgb(${color.slice(0, 3).map(value =>
+            255 * (value <= 0.0031308 ? 12.92 * value : 1.055 * value ** (1 / 2.4) - 0.055)
+        ).join(" ")})`;
+    }
 
     $effect(() => { world.resource(Turn).speed = speed; });
 
@@ -41,7 +45,7 @@
     <div class="swatches" aria-label="Cube colour">
         {#each swatches as swatch, index}
             <button aria-label={swatch.name} aria-pressed={selected === index}
-                style:background="oklch(70% 0.1 {swatch.hue})" onclick={() => recolor(index)}></button>
+                style:background={srgb(swatch.color)} onclick={() => recolor(index)}></button>
         {/each}
     </div>
     <label for="speed">Speed <span>{speed.toFixed(1)} rad/s</span></label>
