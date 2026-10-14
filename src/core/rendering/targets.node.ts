@@ -93,10 +93,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
     world.add(edgeMesh, MeshInstance);
     world.add(edgeMesh, MeshMaterial, material);
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
     world.add(sun, DirectionalLight, { illuminance: 4703.4155 });
     world.add(sun, VolumetricLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);

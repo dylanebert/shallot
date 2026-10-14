@@ -581,7 +581,7 @@ function poseCascade(world: World, eid: number, fit: LightFit): void {
         up[2],
     );
     world.storage(Transform).translation.set(eid, eye[0], eye[1], eye[2], 1);
-    world.storage(Transform).rotation.set(eid, q.x, q.y, q.z, q.w);
+    world.storage(Transform).rotation.set(eid, ...q);
     world.storage(Camera).mode.set(eid, CameraMode.Orthographic);
     world.storage(Camera).near.set(eid, 0);
     // size = the cover, far = the near-extended box depth (2·cover + margin), so the cull frustum matches the
@@ -1196,7 +1196,7 @@ const POINT_FACE_ROTATIONS = new Float64Array(6 * 4);
 for (let face = 0; face < 6; face++) {
     const { fwd, up } = POINT_FACES[face];
     const q = lookAtRotation(0, 0, 0, fwd[0], fwd[1], fwd[2], up[0], up[1], up[2]);
-    POINT_FACE_ROTATIONS.set([q.x, q.y, q.z, q.w], face * 4);
+    POINT_FACE_ROTATIONS.set(q, face * 4);
 }
 
 // write a spot combo camera's rotation from its frame's orthonormal cone basis: the camera's x, y and z axes

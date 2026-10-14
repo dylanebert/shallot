@@ -44,16 +44,7 @@ function addScene(
 ): { camera: number; light: number } {
     const camera = world.create();
     world.add(camera, Transform, { translation: [cameraX, 6, 8, 0] });
-    const cameraRotation = lookAtRotation(cameraX, 6, 8, 0, 0, 0);
-    world
-        .storage(Transform)
-        .rotation.set(
-            camera,
-            cameraRotation.x,
-            cameraRotation.y,
-            cameraRotation.z,
-            cameraRotation.w,
-        );
+    world.storage(Transform).rotation.set(camera, ...lookAtRotation(cameraX, 6, 8, 0, 0, 0));
     world.add(camera, Camera);
     world.storage(Camera).antialias.set(camera, 0);
     world.add(camera, AmbientLight, { brightness: 0 });
@@ -74,17 +65,13 @@ function addScene(
 
     const light = world.create();
     if (kind === "directional") {
-        const rotation = lookAtRotation(0, 0, 0, -0.65, -1, -0.35);
-        world.add(light, Transform, { rotation: [rotation.x, rotation.y, rotation.z, rotation.w] });
+        world.add(light, Transform, { rotation: lookAtRotation(0, 0, 0, -0.65, -1, -0.35) });
         world.add(light, DirectionalLight, { illuminance: 15000 });
         world.storage(DirectionalLight).shadowMapsEnabled.set(light, 1);
     } else {
         world.add(light, Transform, { translation: [-3, 5, 2, 0] });
         if (kind === "spot") {
-            const rotation = lookAtRotation(-3, 5, 2, 0, 0, 0);
-            world
-                .storage(Transform)
-                .rotation.set(light, rotation.x, rotation.y, rotation.z, rotation.w);
+            world.storage(Transform).rotation.set(light, ...lookAtRotation(-3, 5, 2, 0, 0, 0));
             world.add(light, SpotLight, { intensity: 900000, range: 20, outerAngle: 55 });
             world.storage(SpotLight).shadowMapsEnabled.set(light, 1);
         } else {

@@ -72,10 +72,7 @@ async function sunScene() {
     world.storage(Camera).near.set(main, 0.1);
     world.storage(Camera).far.set(main, 500);
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.3, -0.8, -0.55);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.3, -0.8, -0.55) });
     world.add(sun, DirectionalLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     world.storage(DirectionalLight).maximumDistance.set(sun, 80);
@@ -179,10 +176,7 @@ function renderedScene(world: World): { camera: number; sun: number } {
     world.add(cube, MeshInstance);
     world.add(cube, MeshMaterial, material);
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -1, -0.55);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -1, -0.55) });
     world.add(sun, DirectionalLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     return { camera, sun };

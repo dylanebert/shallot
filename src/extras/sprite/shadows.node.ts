@@ -60,10 +60,7 @@ test("clip Sprite leaves its alpha hole out of the directional shadow map", asyn
     });
     world.add(receiver, MeshInstance);
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
     world.add(sun, DirectionalLight, { shadowMapsEnabled: 1, numCascades: 1 });
 
     const depthBuffer = device.createBuffer({

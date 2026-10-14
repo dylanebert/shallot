@@ -25,14 +25,9 @@ async function center(world: World, camera: number): Promise<number[]> {
     return Array.from(rgba.subarray((8 * 17 + 8) * 4, (8 * 17 + 8) * 4 + 4));
 }
 
-function rotationToward(x: number, y: number, z: number): [number, number, number, number] {
-    const q = lookAtRotation(0, 0, 0, x, y, z);
-    return [q.x, q.y, q.z, q.w];
-}
-
 function addDisk(world: World, color: number, travel: readonly [number, number, number]): number {
     const light = world.create();
-    world.add(light, Transform, { rotation: rotationToward(...travel) });
+    world.add(light, Transform, { rotation: lookAtRotation(0, 0, 0, ...travel) });
     world.add(light, DirectionalLight, { color, illuminance: 0 });
     world.add(light, SunDisk);
     return light;

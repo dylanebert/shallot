@@ -92,10 +92,7 @@ test("NotShadowCaster preserves visibility and peers' shadows; shadow materials 
     const initial = materials.add(values, { alphaMode: AlphaMode.Mask(0.5) });
     world.add(caster, MeshMaterial, initial);
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
     world.add(sun, DirectionalLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const point = world.create();

@@ -48,7 +48,7 @@ export function slerp(
     toZ: number,
     toW: number,
     t: number,
-): { x: number; y: number; z: number; w: number } {
+): [number, number, number, number] {
     if (
         !Number.isFinite(fromX) ||
         !Number.isFinite(fromY) ||
@@ -88,20 +88,16 @@ export function slerp(
         s1 = sinTheta / sinTheta0;
     }
 
-    return {
-        x: s0 * fromX + s1 * toX,
-        y: s0 * fromY + s1 * toY,
-        z: s0 * fromZ + s1 * toZ,
-        w: s0 * fromW + s1 * toW,
-    };
+    return [
+        s0 * fromX + s1 * toX,
+        s0 * fromY + s1 * toY,
+        s0 * fromZ + s1 * toZ,
+        s0 * fromW + s1 * toW,
+    ];
 }
 
 /** quaternion from euler angles in degrees (XYZ order) */
-export function eulerToQuat(
-    x: number,
-    y: number,
-    z: number,
-): { x: number; y: number; z: number; w: number } {
+export function eulerToQuat(x: number, y: number, z: number): [number, number, number, number] {
     const hx = x * DEG_TO_RAD * 0.5;
     const hy = y * DEG_TO_RAD * 0.5;
     const hz = z * DEG_TO_RAD * 0.5;
@@ -112,21 +108,16 @@ export function eulerToQuat(
     const cz = Math.cos(hz),
         sz = Math.sin(hz);
 
-    return {
-        x: sx * cy * cz + cx * sy * sz,
-        y: cx * sy * cz - sx * cy * sz,
-        z: cx * cy * sz + sx * sy * cz,
-        w: cx * cy * cz - sx * sy * sz,
-    };
+    return [
+        sx * cy * cz + cx * sy * sz,
+        cx * sy * cz - sx * cy * sz,
+        cx * cy * sz + sx * sy * cz,
+        cx * cy * cz - sx * sy * sz,
+    ];
 }
 
 /** euler angles in degrees (XYZ order) from a quaternion */
-export function quatToEuler(
-    x: number,
-    y: number,
-    z: number,
-    w: number,
-): { x: number; y: number; z: number } {
+export function quatToEuler(x: number, y: number, z: number, w: number): [number, number, number] {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(w)) {
         throw new Error(`quatToEuler received non-finite: q=[${x},${y},${z},${w}]`);
     }
@@ -147,17 +138,13 @@ export function quatToEuler(
     const ey = Math.asin(m13 < -1 ? -1 : m13 > 1 ? 1 : m13);
 
     if (m13 > -0.9999999 && m13 < 0.9999999) {
-        return {
-            x: Math.atan2(wx - yz, 1 - (xx + yy)) * RAD_TO_DEG,
-            y: ey * RAD_TO_DEG,
-            z: Math.atan2(wz - xy, 1 - (yy + zz)) * RAD_TO_DEG,
-        };
+        return [
+            Math.atan2(wx - yz, 1 - (xx + yy)) * RAD_TO_DEG,
+            ey * RAD_TO_DEG,
+            Math.atan2(wz - xy, 1 - (yy + zz)) * RAD_TO_DEG,
+        ];
     } else {
-        return {
-            x: Math.atan2(yz + wx, 1 - (xx + zz)) * RAD_TO_DEG,
-            y: ey * RAD_TO_DEG,
-            z: 0,
-        };
+        return [Math.atan2(yz + wx, 1 - (xx + zz)) * RAD_TO_DEG, ey * RAD_TO_DEG, 0];
     }
 }
 
@@ -170,7 +157,7 @@ export function rotateQuatByEuler(
     dx: number,
     dy: number,
     dz: number,
-): { x: number; y: number; z: number; w: number } {
+): [number, number, number, number] {
     const hx = dx * DEG_TO_RAD * 0.5;
     const hy = dy * DEG_TO_RAD * 0.5;
     const hz = dz * DEG_TO_RAD * 0.5;
@@ -186,12 +173,12 @@ export function rotateQuatByEuler(
     const bz = cx * cy * sz + sx * sy * cz;
     const bw = cx * cy * cz - sx * sy * sz;
 
-    return {
-        x: qw * bx + qx * bw + qy * bz - qz * by,
-        y: qw * by - qx * bz + qy * bw + qz * bx,
-        z: qw * bz + qx * by - qy * bx + qz * bw,
-        w: qw * bw - qx * bx - qy * by - qz * bz,
-    };
+    return [
+        qw * bx + qx * bw + qy * bz - qz * by,
+        qw * by - qx * bz + qy * bw + qz * bx,
+        qw * bz + qx * by - qy * bx + qz * bw,
+        qw * bw - qx * bx - qy * by - qz * bz,
+    ];
 }
 
 /** Infinite perspective projection mat4 (column-major), reverse-Z (near→1, infinity→0); fov in degrees */
@@ -619,7 +606,7 @@ export function lookAtRotation(
     upX = 0,
     upY = 1,
     upZ = 0,
-): { x: number; y: number; z: number; w: number } {
+): [number, number, number, number] {
     assertFiniteAimLookAtParams(
         "lookAtRotation",
         eyeX,
@@ -720,5 +707,5 @@ export function lookAtRotation(
         qz = 0.25 * s;
     }
 
-    return { x: qx, y: qy, z: qz, w: qw };
+    return [qx, qy, qz, qw];
 }

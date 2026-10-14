@@ -19,10 +19,7 @@ export function authorWorld(world: World): void {
     ambient.color = 0xd8e4ff;
     ambient.brightness = 499.04787;
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -1.2, -1, -0.1);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -1.2, -1, -0.1) });
     world.add(sun, DirectionalLight, {
         color: 0xffe8cc,
         illuminance: 3449.1713,

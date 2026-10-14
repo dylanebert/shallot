@@ -20,9 +20,9 @@ const CASES: { eye: [number, number, number]; target: [number, number, number] }
 // the view matrix `lookAtRotation`'s quaternion implies: pose an entity at `eye` with it, then invert its world matrix
 function viewFromAim(
     eye: [number, number, number],
-    q: { x: number; y: number; z: number; w: number },
+    q: [number, number, number, number],
 ): Float32Array {
-    const world = composeMat4(eye[0], eye[1], eye[2], q.x, q.y, q.z, q.w, 1, 1, 1);
+    const world = composeMat4(eye[0], eye[1], eye[2], ...q, 1, 1, 1);
     return invertMat4(world);
 }
 

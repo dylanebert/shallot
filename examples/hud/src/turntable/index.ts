@@ -34,10 +34,7 @@ function makeScene(world: World): void {
     ambient.brightness = 520;
 
     const sun = world.create();
-    const direction = lookAtRotation(0, 0, 0, -0.5, -1, -0.6);
-    world.add(sun, Transform, {
-        rotation: [direction.x, direction.y, direction.z, direction.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.5, -1, -0.6) });
     world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 3200 });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
 

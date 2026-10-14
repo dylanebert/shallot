@@ -54,10 +54,7 @@ function scene(world: World): number {
     world.add(light, PointLight, { intensity: 788064.8, range: 20 });
     world.storage(PointLight).shadowMapsEnabled.set(light, 1);
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.3, -0.3, -1);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.3, -0.3, -1) });
     world.add(sun, DirectionalLight, { illuminance: 9406.831 });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     return camera;

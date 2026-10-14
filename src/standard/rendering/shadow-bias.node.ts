@@ -76,8 +76,7 @@ function makeScene(world: World, kind: Kind): { camera: number; light: number } 
 
     const light = world.create();
     if (kind === "directional") {
-        const q = lookAtRotation(0, 0, 0, 0.5, -1, 0.5);
-        world.add(light, Transform, { rotation: [q.x, q.y, q.z, q.w] });
+        world.add(light, Transform, { rotation: lookAtRotation(0, 0, 0, 0.5, -1, 0.5) });
         world.add(light, DirectionalLight, {
             illuminance: 10_000,
             shadowMapsEnabled: 1,

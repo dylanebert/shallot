@@ -59,10 +59,7 @@ function scene(world: World, cascades: number, prepass = false): { camera: numbe
     world.add(cube, MeshInstance);
     world.add(cube, MeshMaterial, material);
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -1, -0.55);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -1, -0.55) });
     world.add(sun, DirectionalLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     world.storage(DirectionalLight).numCascades.set(sun, cascades);

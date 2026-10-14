@@ -114,7 +114,7 @@ function camera(
     }
     world.add(eid, Transform, {
         translation: [position[0], position[1], position[2], 0],
-        rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
+        rotation,
     });
 }
 
@@ -129,10 +129,7 @@ function exampleLighting(
     ambient.brightness = 520;
 
     const sun = world.create();
-    const rotation = lookAtRotation(0, 0, 0, ...travel);
-    world.add(sun, Transform, {
-        rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, ...travel) });
     world.add(sun, DirectionalLight, {
         color: 0xffe8cc,
         illuminance: 3200,
@@ -230,11 +227,10 @@ function pointLitInterior(world: World, palette: LookPalette): void {
 
     const spotPosition = [2.5, 1.2, 1.6] as const;
     const spotTarget = [1.25, -0.55, -0.9] as const;
-    const spotRotation = lookAtRotation(...spotPosition, ...spotTarget);
     const spot = world.create();
     world.add(spot, Transform, {
         translation: [...spotPosition, 0],
-        rotation: [spotRotation.x, spotRotation.y, spotRotation.z, spotRotation.w],
+        rotation: lookAtRotation(...spotPosition, ...spotTarget),
     });
     world.add(spot, SpotLight, {
         color: 0xffe8cc,

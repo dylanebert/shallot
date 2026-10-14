@@ -312,7 +312,7 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `build`, `run`, `Config` | `createApp`, `runApp`, `AppConfig` |
 | `swap`, `SwapResult` | Removed; use `bun run dev`, which reloads the page. |
 | `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
-| `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
+| `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation`. These and `slerp` return tuples, `[x, y, z, w]` (or `[x, y, z]` from `quatToEuler`), not `{ x, y, z, w }`: pass a quaternion straight to `Transform.rotation` and read `q[0]` where 0.9.5 read `q.x`. |
 | `composeTransform` | `composeGlobalTransform` |
 | `state.stamp`, `state.timescale` | `world.ref` and `world.resolve`, `world.setTimeScale` |
 | `state.swap` | Removed; use `bun run dev`, which reloads the page. |
@@ -359,8 +359,7 @@ In v0.10, authored light values use photometric units and a directional light sh
 At EV100 9.7, `exposure = 2 ** -9.7 / 1.2`. To preserve a former linear multiplier `m`, re-author ambient brightness as `m / exposure` cd/m², directional illuminance as `Math.PI * m / exposure` lux, and point/spot luminous flux as `4 * Math.PI ** 2 * m / exposure` lumens. Keep `Exposure` at its EV100 value (the default is 9.7) or re-evaluate those authored values for another exposure. Example directional aim:
 
 ```ts
-const q = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
-world.add(sun, Transform, { rotation: [q.x, q.y, q.z, q.w] });
+world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
 world.add(sun, DirectionalLight, { color: 0xfff4e0, illuminance: 3449.1713 });
 world.add(sun, SunDisk, { angularSize: 0.0529, intensity: 1, glow: 0.5 });
 ```

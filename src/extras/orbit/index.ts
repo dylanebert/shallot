@@ -463,7 +463,7 @@ const OrbitSystem: System = {
 
                 world.storage(Transform).translation.set(eid, camX, camY, camZ, 0);
                 const r = lookAtRotation(camX, camY, camZ, targetX, targetY, targetZ);
-                world.storage(Transform).rotation.set(eid, r.x, r.y, r.z, r.w);
+                world.storage(Transform).rotation.set(eid, ...r);
             }
 
             world.storage(Orbit).yaw.set(eid, yawO);

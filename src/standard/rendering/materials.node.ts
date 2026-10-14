@@ -41,10 +41,7 @@ test("StandardMaterial keeps its frame while material types own independent para
     world.add(camera, StandardRenderer);
     attachTexture(world, camera, { width: 64, height: 64 });
     const sun = world.create();
-    const sunRotation = lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5);
-    world.add(sun, Transform, {
-        rotation: [sunRotation.x, sunRotation.y, sunRotation.z, sunRotation.w],
-    });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
     world.add(sun, DirectionalLight, { illuminance: 4703.4155 });
     const point = world.create();
     world.add(point, Transform, { translation: [1, 1, 2, 0] });
