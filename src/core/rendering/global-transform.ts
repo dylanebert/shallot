@@ -8,8 +8,8 @@ import {
     GlobalTransformTickEndSystem,
     GlobalTransformTickStartSystem,
     PrepareGlobalTransformSystem,
+    resetInterpolation,
     TransformRuntime,
-    teleport,
 } from "../transform";
 
 const terms = [GlobalTransform];
@@ -88,7 +88,7 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             },
         };
         world.observeMembership(GlobalTransform, (eid, present) => {
-            if (present && runtime.enabled) teleport(world, eid);
+            if (present && runtime.enabled) resetInterpolation(world, eid);
         });
         return runtime;
     },
@@ -206,7 +206,7 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         runtime.pipeline = world.gpu.root.unwrap(
             world.gpu.root.createComputePipeline({ compute: kernel }),
         );
-        for (const eid of world.query(terms)) teleport(world, eid);
+        for (const eid of world.query(terms)) resetInterpolation(world, eid);
     }
     return runtime.render!;
 }

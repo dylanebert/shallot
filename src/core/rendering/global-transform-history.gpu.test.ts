@@ -7,9 +7,9 @@ import {
     GlobalTransform,
     globalTransformTable,
     probeBuffer,
+    resetInterpolation,
     Time,
     Transform,
-    teleport,
     type World,
 } from "../../index";
 
@@ -201,7 +201,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
                         update(world) {
                             if (world.time.fixedTick === 1) {
                                 world.storage(Transform).translation.x.set(eid, 100);
-                                teleport(world, eid);
+                                resetInterpolation(world, eid);
                             } else {
                                 world
                                     .storage(Transform)
@@ -394,7 +394,7 @@ test("public exact ticks submit growth copies and retain interpolation, teleport
                 }
                 if (tick === 8) {
                     source.x.set(jumping, 800);
-                    teleport(world, jumping);
+                    resetInterpolation(world, jumping);
                     spawned = world.create();
                     world.add(spawned, Transform, { translation: [900, 0, 0, 0] });
                 }

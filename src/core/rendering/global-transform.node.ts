@@ -27,9 +27,9 @@ import {
     GlobalTransformTickEndSystem,
     GlobalTransformTickStartSystem,
     PrepareGlobalTransformSystem,
+    resetInterpolation,
     Transform,
     TransformPlugin,
-    teleport as teleportPlacement,
 } from "../transform";
 import {
     globalTransformTable,
@@ -300,16 +300,16 @@ async function placementHistoryApp(): Promise<{
     return { app, world, eid, writeOnTick: (x) => (tickWrite = x) };
 }
 
-test("aborted GlobalTransform history matches across fixed, restore, and teleport sequences", async () => {
+test("aborted GlobalTransform history matches across fixed, restore, and interpolation-reset sequences", async () => {
     type Action =
-        | { kind: "tick"; x?: number; teleport?: boolean; abort?: boolean }
-        | { kind: "draw"; teleport?: boolean; abort?: boolean }
+        | { kind: "tick"; x?: number; resetInterpolation?: boolean; abort?: boolean }
+        | { kind: "draw"; resetInterpolation?: boolean; abort?: boolean }
         | { kind: "restore" };
     const sequences: { id: number; actions: Action[] }[] = [
         {
             id: 1,
             actions: [
-                { kind: "tick", x: 20, teleport: true, abort: true },
+                { kind: "tick", x: 20, resetInterpolation: true, abort: true },
                 { kind: "tick", x: 30 },
             ],
         },
@@ -325,14 +325,14 @@ test("aborted GlobalTransform history matches across fixed, restore, and telepor
         {
             id: 4,
             actions: [
-                { kind: "tick", x: 20, teleport: true, abort: true },
-                { kind: "draw", teleport: true },
+                { kind: "tick", x: 20, resetInterpolation: true, abort: true },
+                { kind: "draw", resetInterpolation: true },
             ],
         },
         {
             id: 5,
             actions: [
-                { kind: "tick", x: 20, teleport: true, abort: true },
+                { kind: "tick", x: 20, resetInterpolation: true, abort: true },
                 { kind: "restore" },
                 { kind: "draw" },
                 { kind: "tick", x: 30 },
@@ -348,14 +348,14 @@ test("aborted GlobalTransform history matches across fixed, restore, and telepor
                 { kind: "tick", x: 20, abort: true },
                 { kind: "restore" },
                 { kind: "draw", abort: true },
-                { kind: "draw", teleport: true },
+                { kind: "draw", resetInterpolation: true },
             ],
         },
         {
             id: 8,
             actions: [
                 { kind: "tick", x: 20, abort: true },
-                { kind: "tick", x: 30, teleport: true },
+                { kind: "tick", x: 30, resetInterpolation: true },
             ],
         },
     ];
@@ -378,19 +378,19 @@ test("aborted GlobalTransform history matches across fixed, restore, and telepor
         };
     }> {
         const { app, world, eid, writeOnTick } = await placementHistoryApp();
-        let teleportNextTick = false;
+        let resetInterpolationNextTick = false;
         let abortNextDraw = false;
         try {
             attachTestCamera(world);
             world.addSystem(
                 {
-                    name: "DifferentialPlacementTeleport",
+                    name: "DifferentialPlacementReset",
                     group: "fixed",
                     terminal: true,
                     update(world) {
-                        if (!teleportNextTick) return;
-                        teleportNextTick = false;
-                        teleportPlacement(world, eid);
+                        if (!resetInterpolationNextTick) return;
+                        resetInterpolationNextTick = false;
+                        resetInterpolation(world, eid);
                     },
                 },
                 "PlacementHistoryWriter",
@@ -428,10 +428,10 @@ test("aborted GlobalTransform history matches across fixed, restore, and telepor
                     world.restore(snapshot);
                 } else if (action.kind === "tick") {
                     if (action.x !== undefined) writeOnTick(action.x);
-                    teleportNextTick = action.teleport ?? false;
+                    resetInterpolationNextTick = action.resetInterpolation ?? false;
                     draw(Time.FIXED_DT, action.abort ?? false);
                 } else {
-                    if (action.teleport) teleportPlacement(world, eid);
+                    if (action.resetInterpolation) resetInterpolation(world, eid);
                     draw(0, action.abort ?? false);
                 }
             }
@@ -743,7 +743,7 @@ test("an author-marked Transform jump of any size snaps instead of interpolating
         const table = globalTransformTable(world);
         world.step(Time.FIXED_DT);
         world.storage(Transform).translation.set(eid, 0.25, 0, 0, 0);
-        teleportPlacement(world, eid);
+        resetInterpolation(world, eid);
         world.step(Time.FIXED_DT / 2);
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         expect(await renderedX(world, table, eid)).toBeCloseTo(0.25, 5);

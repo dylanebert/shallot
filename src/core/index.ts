@@ -68,7 +68,7 @@ export {
     GlobalTransformTickEndSystem,
     GlobalTransformTickStartSystem,
     PrepareGlobalTransformSystem,
+    resetInterpolation,
     Transform,
     TransformPlugin,
-    teleport,
 } from "./transform";

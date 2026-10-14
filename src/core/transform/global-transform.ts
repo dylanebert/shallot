@@ -56,9 +56,9 @@ export const TransformRuntime: Resource<{
         };
     },
 };
-/** Marks derived placement so a presentation reader discards interpolation across the change.
+/** Marks a placement discontinuity, so a presentation reader discards interpolation across the change.
  * Requires TransformPlugin; an entity without derived placement has nothing to mark. */
-export function teleport(world: World, eid: number): void {
+export function resetInterpolation(world: World, eid: number): void {
     if (!world.has(eid, GlobalTransform)) return;
     const runtime = world.resource(TransformRuntime);
     const word = eid >>> 5;

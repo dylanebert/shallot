@@ -1,7 +1,7 @@
 /// <reference types="@webgpu/types" />
 
 import { Body, BodyType, Hulls, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
-import { GlobalTransform, Transform, teleport as teleportPlacement } from "../../core/transform";
+import { GlobalTransform, resetInterpolation, Transform } from "../../core/transform";
 import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
 import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
 import { init, type PhysicsSnapshot, shutdown } from "./api";
@@ -861,7 +861,7 @@ export function setTransform(
     stateVelocityTuple[1] = stateVelocity.y;
     stateVelocityTuple[2] = stateVelocity.z;
     writeGlobalTransform(world, eid, position, rotation, stateVelocityTuple);
-    teleportPlacement(world, eid);
+    resetInterpolation(world, eid);
 }
 
 /** Sets center-of-mass velocity in meters per second; nonzero values wake the body. Box3D ignores static bodies. */
@@ -1590,7 +1590,7 @@ function visitBody(
     runtime.bodies.set(eid, { ...tb, stamp });
     clearFieldCandidate(runtime.bodyCandidates, eid);
     seedGlobalTransform(world, eid, physicsWorld, tb);
-    teleportPlacement(world, eid);
+    resetInterpolation(world, eid);
     return true;
 }
 
