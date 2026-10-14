@@ -6,7 +6,7 @@ import { gunzipSync } from "node:zlib";
 import semver from "semver";
 import { BUN_CHILD, bunCommand } from "./bun-child";
 
-const INSTALL_TIMEOUT = 15_000;
+const INSTALL_TIMEOUT = 60_000;
 
 export function spawnPackedInstall(
     command: string[],

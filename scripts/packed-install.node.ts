@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 
 import { CEILING } from "@dylanebert/shallot/testing";
 
@@ -263,7 +263,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
 
 type Example = "minimal" | "first-person" | "loading-screen" | "embedded-scene" | "hud";
 
-const created = new Set<Example>();
+const created = new Map<Example, { manifest: Record<string, any>; installOutput: string }>();
 
 /** The copy `create` made for `name`; each later step of its loop refuses when that step did not complete. */
 function example(name: Example): { project: string; manifest: Record<string, any> } {
@@ -273,8 +273,7 @@ function example(name: Example): { project: string; manifest: Record<string, any
 }
 
 function createExample(name: Example): void {
-    const { scratch, cliProject, rootPackage, packageVersion, tarball, installedPackage } =
-        packedInstall();
+    const { scratch, cliProject, tarball, installedPackage } = packedInstall();
     const project = join(scratch, name);
     const args = ["bun", "run", join(installedPackage, "bin/shallot.ts"), "create", project];
     if (name !== "minimal") args.push("--template", name);
@@ -282,22 +281,7 @@ function createExample(name: Example): void {
 
     const manifestPath = join(project, "package.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    expect(manifest.dependencies["@dylanebert/shallot"]).toBe(packageVersion);
-    expect(manifest.devDependencies["@types/bun"]).toBe(rootPackage.devDependencies["@types/bun"]);
-    expect(manifest.devDependencies.playwright).toBe(rootPackage.peerDependencies.playwright);
-    expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
-    expect(manifest.devDependencies.typegpu).toBeUndefined();
-    expect(manifest.devDependencies.webgpu).toBe(
-        name === "first-person" || name === "embedded-scene"
-            ? rootPackage.peerDependencies.webgpu
-            : undefined,
-    );
-    for (const svelte of ["svelte", "@sveltejs/vite-plugin-svelte"])
-        expect(manifest.devDependencies[svelte]).toBe(
-            name === "hud" ? rootPackage.devDependencies[svelte] : undefined,
-        );
-    expect(existsSync(join(scratch, "package.json"))).toBe(false);
-
+    const createdManifest = structuredClone(manifest);
     const packedRange = `file:${normalizePath(relative(project, tarball))}`;
     manifest.dependencies["@dylanebert/shallot"] = packedRange;
     // Svelte checking resolves its supported TypeScript online in the manual oracle.
@@ -321,11 +305,32 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     );
 
     const installOutput = run(["bun", "install"], project, `bun install ${name}`);
-    expect(installOutput).not.toContain("build-tooling: generated dist/");
-    created.add(name);
+    created.set(name, { manifest: createdManifest, installOutput });
 }
 
-// Each example's project loop runs as one test per step, so no step's cost is hidden in another's ceiling.
+function assertCreatedExample(name: Example): void {
+    example(name);
+    const { manifest, installOutput } = created.get(name)!;
+    const { scratch, rootPackage, packageVersion } = packedInstall();
+    expect(manifest.dependencies["@dylanebert/shallot"]).toBe(packageVersion);
+    expect(manifest.devDependencies["@types/bun"]).toBe(rootPackage.devDependencies["@types/bun"]);
+    expect(manifest.devDependencies.playwright).toBe(rootPackage.peerDependencies.playwright);
+    expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
+    expect(manifest.devDependencies.typegpu).toBeUndefined();
+    expect(manifest.devDependencies.webgpu).toBe(
+        name === "first-person" || name === "embedded-scene"
+            ? rootPackage.peerDependencies.webgpu
+            : undefined,
+    );
+    for (const svelte of ["svelte", "@sveltejs/vite-plugin-svelte"])
+        expect(manifest.devDependencies[svelte]).toBe(
+            name === "hud" ? rootPackage.devDependencies[svelte] : undefined,
+        );
+    expect(existsSync(join(scratch, "package.json"))).toBe(false);
+    expect(installOutput).not.toContain("build-tooling: generated dist/");
+}
+
+// Each example owns its setup so a selected subject never depends on an earlier test.
 for (const name of [
     "minimal",
     "first-person",
@@ -333,55 +338,59 @@ for (const name of [
     "embedded-scene",
     "hud",
 ] as const) {
-    test(`${name} creates and installs from the packed CLI`, () => {
-        createExample(name);
-    });
+    describe(name, () => {
+        beforeAll(() => createExample(name), CEILING.startup);
 
-    test(`${name} type-checks in its copy`, () => {
-        const { project, manifest } = example(name);
-        run(["bun", "check"], project, `bun check ${name}`);
-        expect(manifest.scripts.typecheck).toBe(name === "hud" ? "svelte-check" : undefined);
-    });
-
-    test(`${name} builds in its copy`, () => {
-        run(["bun", "run", "build"], example(name).project, `bun run build ${name}`);
-    });
-
-    test(`${name} passes its cheap tests in its copy`, () => {
-        const testOutput = run(["bun", "test"], example(name).project, `bun test ${name}`);
-        expect(testOutput).toContain(
-            "(pass) the Bun preload transforms engine TGSL and keeps it callable on the CPU",
-        );
-        expect(testOutput).toContain("0 fail");
-    });
-
-    test(`${name} passes its Node files in its copy`, () => {
-        const { project } = example(name);
-        for (const file of projectFiles(project)
-            .filter((path) => path.endsWith(".node.ts"))
-            .sort()) {
-            const subject = `./${normalizePath(relative(project, file))}`;
-            // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
-            // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
-            const output = run(
-                [process.execPath, "test", subject],
-                project,
-                `bun test ${name} ${subject}`,
-                "bun",
-            );
-            expect(output).toContain("0 fail");
-        }
-    });
-
-    test(`${name} refuses its tests without the TGSL preload`, () => {
-        const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
-            cwd: example(name).project,
-            stdout: "pipe",
-            stderr: "pipe",
+        test(`${name} creates and installs from the packed CLI`, () => {
+            assertCreatedExample(name);
         });
-        const noPreloadOutput = `${noPreload.stdout.toString()}${noPreload.stderr.toString()}`;
-        expect(noPreload.exitCode).not.toBe(0);
-        expect(noPreloadOutput).toContain("TGSL metadata is missing");
-        expect(noPreloadOutput).toContain("unplugin-typegpu/bun");
+
+        test(`${name} type-checks in its copy`, () => {
+            const { project, manifest } = example(name);
+            run(["bun", "check"], project, `bun check ${name}`);
+            expect(manifest.scripts.typecheck).toBe(name === "hud" ? "svelte-check" : undefined);
+        });
+
+        test(`${name} builds in its copy`, () => {
+            run(["bun", "run", "build"], example(name).project, `bun run build ${name}`);
+        });
+
+        test(`${name} passes its cheap tests in its copy`, () => {
+            const testOutput = run(["bun", "test"], example(name).project, `bun test ${name}`);
+            expect(testOutput).toContain(
+                "(pass) the Bun preload transforms engine TGSL and keeps it callable on the CPU",
+            );
+            expect(testOutput).toContain("0 fail");
+        });
+
+        test(`${name} passes its Node files in its copy`, () => {
+            const { project } = example(name);
+            for (const file of projectFiles(project)
+                .filter((path) => path.endsWith(".node.ts"))
+                .sort()) {
+                const subject = `./${normalizePath(relative(project, file))}`;
+                // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
+                // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
+                const output = run(
+                    [process.execPath, "test", subject],
+                    project,
+                    `bun test ${name} ${subject}`,
+                    "bun",
+                );
+                expect(output).toContain("0 fail");
+            }
+        });
+
+        test(`${name} refuses its tests without the TGSL preload`, () => {
+            const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {
+                cwd: example(name).project,
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            const noPreloadOutput = `${noPreload.stdout.toString()}${noPreload.stderr.toString()}`;
+            expect(noPreload.exitCode).not.toBe(0);
+            expect(noPreloadOutput).toContain("TGSL metadata is missing");
+            expect(noPreloadOutput).toContain("unplugin-typegpu/bun");
+        });
     });
 }
