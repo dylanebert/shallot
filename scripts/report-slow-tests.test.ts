@@ -1,5 +1,17 @@
 import { expect, test } from "bun:test";
-import { slowTests, warningAnnotation } from "./report-slow-tests";
+import { flakyTests, flakyWarning, slowTests, warningAnnotation } from "./report-slow-tests";
+
+test("recorded Playwright JSON warns for a flake with trace off and XML-like stdout", async () => {
+    const json = await Bun.file(new URL("./browser-flaky.json", import.meta.url)).text();
+    expect(json).toContain("<error>diagnostic text</error>");
+    expect(json).toContain('"attachments": []');
+    expect(flakyTests(json)).toEqual(["retry-spike.e2e.ts › nested › retry spike"]);
+    expect(flakyWarning(flakyTests(json)[0]!, "examples/minimal", "Windows")).toBe(
+        '::warning title=Flaky test%3A retry-spike.e2e.ts › nested › retry spike::subject "examples/minimal"; test "retry-spike.e2e.ts › nested › retry spike" failed then passed on retry; host Windows',
+    );
+    for (const status of ["expected", "unexpected", "skipped"])
+        expect(flakyTests(json.replace('"status": "flaky"', `"status": "${status}"`))).toEqual([]);
+});
 
 const report = `<?xml version="1.0"?>
 <testsuites>

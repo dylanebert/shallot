@@ -49,7 +49,9 @@ const launchOptions =
 /** @satisfies {import("playwright/test").PlaywrightTestConfig} */
 export const BROWSER_CONFIG = {
     testMatch: "**/*.e2e.ts",
+    retries: process.env.CI ? 1 : 0,
     use: {
+        trace: "on-first-retry",
         browserName: "chromium",
         channel: "chromium",
         launchOptions,

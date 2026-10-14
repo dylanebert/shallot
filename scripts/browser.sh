@@ -62,9 +62,10 @@ printf '%s\n' "$subjects" | while IFS= read -r subject; do
     timeout=$(bun -e 'import { TIMEOUT } from "./src/project/testing.js"; console.log(TIMEOUT.browser)')
     echo "Browser subject: $subject"
     report=$(mktemp)
+    json_report=$(mktemp)
     status=0
-    PLAYWRIGHT_JUNIT_OUTPUT_FILE="$report" bunx playwright test -c "$subject" --global-timeout="$timeout" --workers=1 --reporter=list,junit || status=$?
-    bun scripts/report-slow-tests.ts "$report" "" "$subject"
-    rm -f "$report"
+    PLAYWRIGHT_JUNIT_OUTPUT_FILE="$report" PLAYWRIGHT_JSON_OUTPUT_FILE="$json_report" bunx playwright test -c "$subject" --global-timeout="$timeout" --workers=1 --output="$subject/test-results" --reporter=list,junit,json || status=$?
+    bun scripts/report-slow-tests.ts "$report" "" "$subject" "$json_report"
+    rm -f "$report" "$json_report"
     [ "$status" -eq 0 ] || exit "$status"
 done

@@ -1,0 +1,188 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node/26.10.0_1/bin/node",
+      "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/node_modules/.bin/playwright",
+      "test",
+      "-c",
+      "examples/minimal",
+      "retry-spike",
+      "--workers=1",
+      "--reporter=list,junit,json"
+    ],
+    "configFile": "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/examples/minimal/playwright.config.ts",
+    "rootDir": "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/examples/minimal",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/examples/minimal",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.e2e.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "junit"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": {
+      "command": "bunx vite build && bunx vite preview --host 127.0.0.1 --port 4175 --strictPort",
+      "url": "http://127.0.0.1:4175",
+      "reuseExistingServer": false,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "retry-spike.e2e.ts",
+      "file": "retry-spike.e2e.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "nested",
+          "file": "retry-spike.e2e.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "retry spike",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 229,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n    at /Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/examples/minimal/retry-spike.e2e.ts:9:28",
+                        "location": {
+                          "file": "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/examples/minimal/retry-spike.e2e.ts",
+                          "column": 28,
+                          "line": 9
+                        },
+                        "snippet": "\u001b[0m \u001b[90m  7 |\u001b[39m         console\u001b[33m.\u001b[39mlog(\u001b[32m\"<error>diagnostic text</error><failure>stdout</failure><skipped />\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m  8 |\u001b[39m         \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m\"/\"\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m  9 |\u001b[39m         expect(info\u001b[33m.\u001b[39mretry)\u001b[33m.\u001b[39mtoBe(process\u001b[33m.\u001b[39menv\u001b[33m.\u001b[39m\u001b[33mFAIL_BOTH\u001b[39m \u001b[33m?\u001b[39m \u001b[33m-\u001b[39m\u001b[35m1\u001b[39m \u001b[33m:\u001b[39m \u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 10 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 11 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 12 |\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/examples/minimal/retry-spike.e2e.ts",
+                            "column": 28,
+                            "line": 9
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\n   7 |         console.log(\"<error>diagnostic text</error><failure>stdout</failure><skipped />\");\n   8 |         await page.goto(\"/\");\n>  9 |         expect(info.retry).toBe(process.env.FAIL_BOTH ? -1 : 1);\n     |                            ^\n  10 |     });\n  11 | });\n  12 |\n    at /Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/examples/minimal/retry-spike.e2e.ts:9:28"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "<error>diagnostic text</error><failure>stdout</failure><skipped />\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T20:08:06.821Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/test-results/retry-spike.e2e.ts-nested-retry-spike/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/dylan.ebert/.worktrees/kex/shallot/browser-flaky/examples/minimal/retry-spike.e2e.ts",
+                        "column": 28,
+                        "line": 9
+                      }
+                    },
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 215,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "<error>diagnostic text</error><failure>stdout</failure><skipped />\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 1,
+                      "startTime": "2026-10-14T20:08:07.961Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "flaky"
+                }
+              ],
+              "id": "8a535b8874517234468a-02e3e2624e376df2bffe",
+              "file": "retry-spike.e2e.ts",
+              "line": 6,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-14T20:08:05.734Z",
+    "duration": 2694.5339999999997,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 1
+  }
+}

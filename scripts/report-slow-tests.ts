@@ -1,4 +1,6 @@
+import { appendFileSync } from "node:fs";
 import { BUDGET } from "@dylanebert/shallot/testing";
+import type { JSONReport, JSONReportSuite } from "playwright/types/testReporter";
 import { normalizePath } from "../src/project/paths";
 
 export type Tier = "cheap" | "gpu" | "node" | "browser";
@@ -141,6 +143,31 @@ export function slowTests(report: string, log = "", subject?: string): SlowTest[
     return slow;
 }
 
+export function flakyTests(report: string): string[] {
+    const json: JSONReport = JSON.parse(report);
+    const flaky: string[] = [];
+    const visit = (suite: JSONReportSuite, parents: string[]): void => {
+        const titles = [...parents, suite.title];
+        for (const spec of suite.specs) {
+            for (const test of spec.tests) {
+                if (test.status !== "flaky") continue;
+                flaky.push(
+                    [...titles, spec.title, ...(test.projectName ? [test.projectName] : [])].join(
+                        " › ",
+                    ),
+                );
+            }
+        }
+        for (const child of suite.suites ?? []) visit(child, titles);
+    };
+    for (const suite of json.suites) visit(suite, []);
+    return flaky;
+}
+
+export function flakyWarning(test: string, subject: string, host: string): string {
+    return `::warning title=${escapeProperty(`Flaky test: ${test}`)}::${escapeData(`subject ${JSON.stringify(subject)}; test ${JSON.stringify(test)} failed then passed on retry; host ${host}`)}`;
+}
+
 function escapeData(value: string): string {
     return value.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 }
@@ -166,10 +193,10 @@ export function warningAnnotation(test: SlowTest, host: string): string {
 }
 
 if (import.meta.main) {
-    const [reportPath, logPath, subject] = process.argv.slice(2);
+    const [reportPath, logPath, subject, jsonPath] = process.argv.slice(2);
     if (!reportPath) {
         console.error(
-            "usage: bun scripts/report-slow-tests.ts <junit-report> [console-log] [browser-subject]",
+            "usage: bun scripts/report-slow-tests.ts <junit-report> [console-log] [browser-subject] [playwright-json-report]",
         );
     } else {
         try {
@@ -181,8 +208,17 @@ if (import.meta.main) {
                     logPath && (await Bun.file(logPath).exists())
                         ? await Bun.file(logPath).text()
                         : "";
-                for (const test of slowTests(await report.text(), log, subject))
-                    console.log(warningAnnotation(test, process.env.RUNNER_OS ?? "local"));
+                const xml = await report.text();
+                const host = process.env.RUNNER_OS ?? "local";
+                for (const test of slowTests(xml, log, subject))
+                    console.log(warningAnnotation(test, host));
+                if (subject !== undefined) {
+                    if (!jsonPath) throw new Error("missing Playwright JSON report");
+                    const flaky = flakyTests(await Bun.file(jsonPath).text());
+                    for (const test of flaky) console.log(flakyWarning(test, subject, host));
+                    if (flaky.length && process.env.GITHUB_OUTPUT)
+                        appendFileSync(process.env.GITHUB_OUTPUT, "flaky=true\n");
+                }
             }
         } catch (error) {
             console.error(`[slow-test-report] could not read report: ${String(error)}`);

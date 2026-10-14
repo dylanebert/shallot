@@ -400,4 +400,14 @@ jobs:
       - name: install Playwright Chromium
         run: bunx playwright install chromium
       - name: browser tier
+        id: browser
         run: time -p sh scripts/browser.sh
+      - name: upload browser results
+        if: ${{ !cancelled() && (failure() || steps.browser.outputs.flaky == 'true') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-results-${{ matrix.os }}
+          path: |
+            examples/**/test-results/**
+            scripts/**/test-results/**
+            src/**/test-results/**

@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -10,6 +10,9 @@ setDefaultTimeout(TIMEOUT.node);
 test("a missing or malformed browser JUnit report fails instead of losing the warning", () => {
     const scratch = mkdtempSync(join(tmpdir(), "shallot-browser-report-"));
     const report = join(scratch, "report.xml");
+    const json = join(scratch, "report.json");
+    const output = join(scratch, "output");
+    writeFileSync(json, '{"suites":[]}');
     try {
         for (const content of [
             undefined,
@@ -25,6 +28,7 @@ test("a missing or malformed browser JUnit report fails instead of losing the wa
                     report,
                     "",
                     "examples/embedded-scene",
+                    json,
                 ]),
                 stdout: "pipe",
                 stderr: "pipe",
@@ -41,6 +45,7 @@ test("a missing or malformed browser JUnit report fails instead of losing the wa
                 report,
                 "",
                 "examples/embedded-scene",
+                json,
             ]),
             stdout: "pipe",
             stderr: "pipe",
@@ -49,6 +54,22 @@ test("a missing or malformed browser JUnit report fails instead of losing the wa
         expect(child.stdout.toString()).toContain(
             'subject "examples/embedded-scene" took 31000.00 ms',
         );
+        writeFileSync(output, "existing=value\n");
+        const flaky = Bun.spawnSync({
+            ...bunChild([
+                join(import.meta.dir, "report-slow-tests.ts"),
+                report,
+                "",
+                "examples/minimal",
+                join(import.meta.dir, "browser-flaky.json"),
+            ]),
+            env: { ...process.env, GITHUB_OUTPUT: output },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(flaky.exitCode, flaky.stderr.toString()).toBe(0);
+        expect(flaky.stdout.toString()).toContain("failed then passed on retry");
+        expect(readFileSync(output, "utf8")).toBe("existing=value\nflaky=true\n");
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }
