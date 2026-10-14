@@ -44,7 +44,7 @@ async function measureFrameTen(lightCount: number): Promise<FrameTenSample> {
         world.add(camera, Camera);
         world.add(camera, StandardRenderer);
         world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
-        attachCanvas(camera, canvas, world);
+        attachCanvas(world, camera, canvas);
 
         for (let i = 0; i < lightCount; i++) {
             const eid = world.create();

@@ -290,7 +290,7 @@ export function trackCanvasOwner(canvas: HTMLCanvasElement, world: World): void 
  * bind a canvas to a camera entity, 1:1: each camera owns one canvas. In dev builds it arms the
  * rebuild guard ({@link trackCanvasOwner}), which catches a rebuild that skipped `dispose`.
  */
-export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: World): void {
+export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElement): void {
     const _views = world.resource(Views);
 
     if (!world.gpu.device) throw new Error("attachCanvas: RenderingPlugin not initialized");
@@ -711,6 +711,6 @@ export function bindCamera(eid: number, world: World): View | undefined {
     // alongside an explicitly-attached viewport camera) must not also grab it — two cameras on one
     // context each call getCurrentTexture per frame, and the second destroys the first's swapchain texture.
     for (const view of _views.values()) if (view.canvas === canvas) return undefined;
-    attachCanvas(eid, canvas, world);
+    attachCanvas(world, eid, canvas);
     return _views.get(eid);
 }

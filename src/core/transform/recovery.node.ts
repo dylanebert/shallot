@@ -41,7 +41,7 @@ test("built world recovery publishes restored fields and discards old interpolat
         world.add(camera, Transform);
         world.add(camera, Camera);
         world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
-        attachCanvas(camera, canvas, world);
+        attachCanvas(world, camera, canvas);
         const eid = world.create();
         world.add(eid, Transform);
         const initial = world.create();

@@ -56,7 +56,7 @@ test("standard composition, vignette, after-tonemap and points present and captu
             world.add(eid, Camera, { clearColor: 0x4080c0 });
             world.add(eid, StandardRenderer);
         }
-        attachCanvas(cameras[0], canvas, world);
+        attachCanvas(world, cameras[0], canvas);
         attachTexture(world, cameras[1], { width: 16, height: 16 });
         expect(
             world.resource(Views).get(cameras[1])!.texture!.usage & GPUTextureUsage.STORAGE_BINDING,

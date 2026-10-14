@@ -536,7 +536,7 @@ function featurePlugin(subject: Plugin): Plugin {
             world
                 .storage(CameraBackground)
                 .name.set(camera, world.resource(Backgrounds).id("sky") ?? 0);
-            attachCanvas(camera, canvas, world);
+            attachCanvas(world, camera, canvas);
 
             if (
                 subject === RenderingPlugin ||

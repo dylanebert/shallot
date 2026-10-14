@@ -48,7 +48,7 @@ export default async function create(_input = "", device?: GPUDevice) {
     const camera = world.create();
     world.add(camera, Transform); world.add(camera, Camera); world.add(camera, StandardRenderer);
     world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
-    attachCanvas(camera, canvas, world);
+    attachCanvas(world, camera, canvas);
     const ambient = world.create(); world.add(ambient, AmbientLight);
     const light = world.create(); world.add(light, Transform); world.add(light, PointLight);
     const sun = world.create(); world.add(sun, Transform); world.add(sun, DirectionalLight);

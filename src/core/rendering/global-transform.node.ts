@@ -225,7 +225,7 @@ function attachTestCamera(world: engine.World, existing?: number): number {
         world.add(camera, Camera);
         world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
     }
-    attachCanvas(camera, canvas, world);
+    attachCanvas(world, camera, canvas);
     return camera;
 }
 

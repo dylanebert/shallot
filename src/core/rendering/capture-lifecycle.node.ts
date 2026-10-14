@@ -92,7 +92,7 @@ function testWorld() {
 
 function bindCanvas(world: World, canvas: HTMLCanvasElement): number {
     const eid = world.create();
-    attachCanvas(eid, canvas, world);
+    attachCanvas(world, eid, canvas);
     return eid;
 }
 

@@ -298,7 +298,7 @@ async function checkClusterScene(world: World): Promise<void> {
             const halfYaw = Math.sin(Math.PI / 8);
             world.storage(Transform).rotation.set(camera, 0, halfYaw, 0, Math.cos(Math.PI / 8));
         }
-        attachCanvas(camera, canvas, world);
+        attachCanvas(world, camera, canvas);
     }
     const [perspectiveCamera, secondCamera] = cameras as [number, number];
 
@@ -484,7 +484,7 @@ test("point and directional light overflow each warn once per episode", () => {
     const camera = world.create();
     world.add(camera, Transform);
     world.add(camera, Camera);
-    attachCanvas(camera, canvas, world);
+    attachCanvas(world, camera, canvas);
     for (let i = 0; i < 300; i++) {
         const eid = world.create();
         world.add(eid, Transform);

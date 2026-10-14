@@ -48,7 +48,7 @@ function attachTestCamera(world: World): void {
     world.add(camera, Transform);
     world.add(camera, Camera);
     world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
-    attachCanvas(camera, canvas, world);
+    attachCanvas(world, camera, canvas);
 }
 
 function bounded<T>(promise: PromiseLike<T>): Promise<T> {

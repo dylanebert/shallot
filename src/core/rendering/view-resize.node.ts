@@ -42,7 +42,7 @@ test("a canvas DPR change is sampled by the next frame when its CSS size is unch
     const camera = world.create();
     world.add(camera, Transform);
     world.add(camera, Camera);
-    attachCanvas(camera, canvas, world);
+    attachCanvas(world, camera, canvas);
 
     try {
         world.step(0);
@@ -81,7 +81,7 @@ test("a canvas display resize is sampled by the next frame without a resize call
     const camera = world.create();
     world.add(camera, Transform);
     world.add(camera, Camera);
-    attachCanvas(camera, canvas, world);
+    attachCanvas(world, camera, canvas);
 
     try {
         world.step(0);
