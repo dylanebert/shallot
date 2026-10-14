@@ -96,7 +96,7 @@ while True: time.sleep(1)
         ]);
         await expect(
             startVirtualDisplay(scratch, { ...env, MODE: "refuse" }, probe),
-        ).rejects.toThrow(/Xvfb exited/);
+        ).rejects.toThrow(/Xvfb exited \(7\)/);
         expect(readFileSync(join(scratch, "virtual-display.log"), "utf8")).toContain(
             "fixture refusal",
         );

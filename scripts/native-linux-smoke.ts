@@ -387,7 +387,12 @@ export async function startVirtualDisplay(
 (trap '' USR1; exec Xvfb "$@" >&2) &
 server=$!
 wait "$server"
-while kill -0 "$server" 2>/dev/null; do wait "$server"; done`;
+status=$?
+while kill -0 "$server" 2>/dev/null; do
+    wait "$server"
+    status=$?
+done
+exit "$status"`;
     const child = spawn(
         "sh",
         [
