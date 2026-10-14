@@ -191,7 +191,7 @@ bun run format                  # biome
 
 - Iterate on selected files or subjects.
 - Before it lands, a change runs every repository policy.
-- Wide runs are CI's, on every push; their reds are settled before a release, and they gate no landing. The wide Node command is in [CI](.github/workflows/test.yml), and `sh scripts/browser.sh` runs every browser subject.
+- Wide runs are CI's, on every push. The wide Node command is in [CI](.github/workflows/test.yml), and `sh scripts/browser.sh` runs every browser subject.
 - Manual oracles run by path.
 - The import gate runs `bun test --todo ./scripts/check-imports.node.ts`: only the debts named in those assertions are todos, every other finding fails, and a passing todo fails until its scope is retired.
 - Import-gate todos leave with their migrations; they are not a mechanism for new exceptions.
@@ -272,11 +272,14 @@ bun run format                  # biome
 
 ### CI coverage
 
-- [CI](.github/workflows/test.yml) owns host and tier commands, and judges operating-system compatibility on the hosts each tier runs on; a local run does not.
-- For a red only one hosted OS shows, run that OS and tier alone from [CI](.github/workflows/test.yml) before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`.
-- The `linux-native` tier in [CI](.github/workflows/test.yml) launches a packed Linux consumer under Xvfb and Mesa software Vulkan and runs `bun test ./scripts/native-linux-smoke.oracle.ts` by path for its Linux-only process-group assertions; it does not qualify WebGPU capability.
-- Mac/Windows native launch, real-adapter claims, display-bound allocation and software WebGPU capability remain outside CI.
-- On Windows, Dawn loads only in a host named `node.exe` ([dawn-host.ts](src/engine/runtime/dawn-host.ts)), so CI runs Bun there from a copy with that name.
+- [CI](.github/workflows/test.yml) owns host and tier commands and judges compatibility on those hosts; a local run does not.
+- A red push run on main closes landing until a revert or fix naming that run lands with the `Fixes-red: <run id>` trailer.
+- A dependency or infrastructure failure is named as such, not quarantined as a test.
+- Every job in `test.yml` and `release.yml` declares its `timeout-minutes` budget.
+- For a red only one hosted OS shows, run that OS and tier before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`.
+- Windows GPU and Node tiers use WARP. Dawn loads only in a host named `node.exe` ([dawn-host.ts](src/engine/runtime/dawn-host.ts)), so CI runs Bun from a copy with that name.
+- `linux-native` launches a packed Linux consumer under Xvfb and Mesa software Vulkan and runs `bun test ./scripts/native-linux-smoke.oracle.ts` for Linux-only process-group assertions, not WebGPU capability.
+- Release-time qualification stays outside the push sweep: hardware oracles, display runs, the packed release candidate, newest-in-range resolution and the published-pin spike. Mac/Windows native launch and software WebGPU capability also remain outside it.
 
 ## Code
 

@@ -1,4 +1,4 @@
-import { setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 
 import { CEILING } from "@dylanebert/shallot/testing";
 
@@ -7,6 +7,18 @@ setDefaultTimeout(CEILING.node);
 import { resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
+
+test("every CI job declares its timeout budget", async () => {
+    for (const workflow of ["test.yml", "release.yml"]) {
+        const source = await Bun.file(resolve(ROOT, ".github/workflows", workflow)).text();
+        const { jobs } = Bun.YAML.parse(source) as {
+            jobs: Record<string, { "timeout-minutes"?: number }>;
+        };
+        for (const [name, job] of Object.entries(jobs)) {
+            expect(job["timeout-minutes"], `${workflow}: ${name}`).toBeGreaterThan(0);
+        }
+    }
+});
 
 test("src/project/policy.test.ts passes", () => {
     const result = Bun.spawnSync(["bun", "test", "src/project/policy.test.ts"], {

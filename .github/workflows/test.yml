@@ -36,6 +36,7 @@ concurrency:
 
 jobs:
   cheap:
+    timeout-minutes: 5
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'cheap' }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -81,6 +82,7 @@ jobs:
         run: bun scripts/report-slow-tests.ts cheap-junit.xml cheap-test.log
 
   gpu:
+    timeout-minutes: 5
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'gpu' }}
     runs-on: ${{ matrix.os }}
     defaults:
@@ -145,6 +147,7 @@ jobs:
         run: bun scripts/report-slow-tests.ts gpu-junit.xml gpu-test.log
 
   cargo:
+    timeout-minutes: 5
     if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'cargo' && inputs.os == 'ubuntu-latest') }}
     runs-on: ubuntu-latest
     steps:
@@ -158,6 +161,7 @@ jobs:
         run: /usr/bin/time -p cargo test -p shallot-physics
 
   node:
+    timeout-minutes: 13
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'node' }}
     runs-on: ${{ matrix.os }}
     defaults:
@@ -234,6 +238,7 @@ jobs:
         run: bun test ./scripts/compile.oracle.ts
 
   checked-kernel:
+    timeout-minutes: 11
     if: ${{ github.event_name != 'workflow_dispatch' || (inputs.tier == 'checked-kernel' && inputs.os == 'ubuntu-latest') }}
     runs-on: ubuntu-latest
     defaults:
@@ -352,6 +357,7 @@ jobs:
           if-no-files-found: warn
 
   browser:
+    timeout-minutes: 7
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.tier == 'browser' }}
     runs-on: ${{ matrix.os }}
     defaults:
