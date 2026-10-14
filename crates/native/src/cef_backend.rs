@@ -14,6 +14,8 @@ const VK_ESCAPE: i32 = 0x1B;
 #[cfg(target_os = "linux")]
 const EVENTFLAG_ALT: u32 = 8;
 
+mod policy;
+
 static ORIGIN: OnceLock<String> = OnceLock::new();
 
 fn start_asset_server() -> String {
@@ -449,7 +451,26 @@ mod tests {
     fn linux_keeps_angle_vulkan_without_forcing_the_vulkan_compositor() {
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
         let mut command_line = command_line_create().expect("failed to create CEF command line");
-        ShallotApp::new().on_before_command_line_processing(None, Some(&mut command_line));
+        let app = ShallotApp::new();
+        app.on_before_command_line_processing(None, Some(&mut command_line));
+        for process in [None, Some(CefString::from("gpu-process"))] {
+            let mut switches = command_line_create().unwrap();
+            app.on_before_command_line_processing(process.as_ref(), Some(&mut switches));
+            for name in ["enable-unsafe-webgpu", "ignore-gpu-blocklist"] {
+                assert_eq!(switches.has_switch(Some(&CefString::from(name))), 1);
+            }
+            assert_eq!(
+                CefString::from(
+                    &switches.switch_value(Some(&CefString::from("enable-dawn-features")))
+                )
+                .to_string(),
+                "allow_unsafe_apis"
+            );
+            assert_eq!(
+                switches.has_switch(Some(&CefString::from("remote-debugging-port"))),
+                i32::from(cfg!(debug_assertions))
+            );
+        }
 
         assert_eq!(
             CefString::from(&command_line.switch_value(Some(&CefString::from("use-angle"))))
@@ -511,6 +532,18 @@ wrap_client! {
     struct ShallotClient;
 
     impl Client {
+        fn command_handler(&self) -> Option<CommandHandler> {
+            Some(policy::AppCommandHandler::new())
+        }
+
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(policy::AppContextMenuHandler::new())
+        }
+
+        fn request_handler(&self) -> Option<RequestHandler> {
+            Some(policy::AppRequestHandler::new())
+        }
+
         fn display_handler(&self) -> Option<DisplayHandler> {
             Some(ShallotDisplayHandler::new())
         }
@@ -536,9 +569,56 @@ wrap_life_span_handler! {
     struct ShallotLifeSpanHandler;
 
     impl LifeSpanHandler {
+        fn on_before_popup(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _popup_id: i32,
+            _target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            _target_disposition: WindowOpenDisposition,
+            _user_gesture: i32,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut i32>,
+        ) -> i32 { 1 }
+
+        fn on_before_dev_tools_popup(
+            &self,
+            _browser: Option<&mut Browser>,
+            _window_info: Option<&mut WindowInfo>,
+            client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            use_default_window: Option<&mut i32>,
+        ) {
+            // DevTools must not inherit app command filtering or app exit lifetime.
+            if let Some(client) = client { *client = Some(DevToolsClient::new()); }
+            if let Some(use_default_window) = use_default_window { *use_default_window = 1; }
+        }
+
         fn on_before_close(&self, _browser: Option<&mut Browser>) {
             quit_message_loop();
         }
+    }
+}
+
+wrap_client! {
+    struct DevToolsClient;
+    impl Client {
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(DevToolsLifeSpanHandler::new())
+        }
+    }
+}
+
+wrap_life_span_handler! {
+    struct DevToolsLifeSpanHandler;
+    impl LifeSpanHandler {
+        fn on_before_close(&self, _browser: Option<&mut Browser>) {}
     }
 }
 
