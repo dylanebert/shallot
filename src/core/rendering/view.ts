@@ -481,7 +481,7 @@ export function attachTexture(
 /**
  * Register a depth-only view: it takes a cull slot and packs Camera + Transform, but has no
  * framebuffer or presenting surface. Its caller renders to its own target. Refuses duplicate
- * bindings; detachCanvas, camera pruning and disposal release the view registration.
+ * bindings; detachView, camera pruning and disposal release the view registration.
  */
 export function attachView(world: World, eid: number): void {
     const _views = world.resource(Views);
@@ -510,7 +510,7 @@ export function attachView(world: World, eid: number): void {
 }
 
 /** Release a camera's view and owned targets (canvas, texture or depth-only). Safe on unbound eids. */
-export function detachCanvas(world: World, eid: number): void {
+export function detachView(world: World, eid: number): void {
     const _views = world.resource(Views);
     const view = _views.get(eid);
 
@@ -536,7 +536,7 @@ export function detachCanvas(world: World, eid: number): void {
 export function cameraView(world: World, eid: number): View | undefined {
     const view = world.resource(Views).get(eid);
     if (!view || world.resolve(view.camera)) return view;
-    detachCanvas(world, eid);
+    detachView(world, eid);
     return undefined;
 }
 
@@ -552,7 +552,7 @@ export function pruneViews(world: World): void {
 
 // one View's liveness check for the `pruneViews` walk; the walk passes the World as `this`
 function pruneView(this: World, view: View, eid: number): void {
-    if (!this.resolve(view.camera) || !this.has(eid, Camera)) detachCanvas(this, eid);
+    if (!this.resolve(view.camera) || !this.has(eid, Camera)) detachView(this, eid);
 }
 
 // per-camera offscreen scene-color target — the `view.framebuffer` a renderer draws (or resolves)

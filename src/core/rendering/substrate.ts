@@ -574,7 +574,7 @@ export {
     attachCanvas,
     attachTexture,
     attachView,
-    detachCanvas,
+    detachView,
     INITIAL_VIEW_CAPACITY,
     linearToSrgb3,
     MAX_SLOTS,

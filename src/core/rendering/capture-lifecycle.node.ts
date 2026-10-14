@@ -4,7 +4,7 @@ import { World } from "../../engine";
 import type { WorldGpu } from "../../engine/runtime";
 import { captureFrame } from "./capture";
 import { RenderContext } from "./render";
-import { attachCanvas, detachCanvas } from "./view";
+import { attachCanvas, detachView } from "./view";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -114,7 +114,7 @@ function bindAndDetachCanvas(
     tag: number,
 ): WeakRef<HTMLCanvasElement> {
     const { eid, ref } = bindCanvasRef(world, registry, tag);
-    detachCanvas(world, eid);
+    detachView(world, eid);
     return ref;
 }
 
@@ -199,7 +199,7 @@ test("detaching repeatedly does not retain old canvas bindings", async () => {
         expect(finalized).toEqual(new Set([0, 1, 2, 3, 4, 5, 6, 7]));
         expect(retainedRef.deref()).toBeDefined();
 
-        detachCanvas(world, retainedEid);
+        detachView(world, retainedEid);
         await collectUntil(() => retainedRef.deref() === undefined && finalized.has(-1));
         expect(retainedRef.deref()).toBeUndefined();
         expect(finalized.has(-1)).toBe(true);

@@ -11,7 +11,7 @@ import {
     ColorGrading,
     CorePipelinePlugin,
     captureTexture,
-    detachCanvas,
+    detachView,
     EffectPasses,
     RenderPhases,
     Tonemapping,
@@ -165,7 +165,7 @@ test("TonyMcMapface HDR ramp and saturated sweep match the pinned HLSL sampling;
     console.log(`Tony ramp/sweep max RGBA ${diff}`);
     expect(diff.every((v) => v <= 1)).toBe(true);
     expect(await device.popErrorScope()).toBeNull();
-    detachCanvas(world, eid);
+    detachView(world, eid);
     world.destroy(eid);
 });
 
@@ -228,7 +228,7 @@ test("ColorGrading matches extracted corrected Bevy WGSL on the same HDR inputs"
     console.log(`Bevy grading max RGBA ${diff}`);
     expect(diff.every((v) => v <= 1)).toBe(true);
     expect(await device.popErrorScope()).toBeNull();
-    detachCanvas(world, eid);
+    detachView(world, eid);
     world.destroy(eid);
 });
 
@@ -335,6 +335,6 @@ test("after-tonemapping pass transforms the presented image; no registration add
         device.createCommandEncoder = createEncoder;
     }
     expect(await device.popErrorScope()).toBeNull();
-    detachCanvas(world, eid);
+    detachView(world, eid);
     world.destroy(eid);
 });

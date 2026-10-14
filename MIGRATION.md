@@ -746,7 +746,7 @@ Material, background and draw contracts belong to `/standard/rendering`. Update 
 | `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |
 | `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
 | `/render/core` `Draw`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
-| `/render/core` `computeViewProj`, `Frame`, `FrameGpu`, `BeginFrameSystem`, `OverlaySystem`, `CULL_FRUSTUM`, `CULL_VOLUME_FLOATS`, `Views`, `MAX_VIEWS`, `MAX_SLOTS`, `attachCanvas`, `attachView`, `detachCanvas`, `sceneTransform`, `imageArray` | `/rendering`, same names; `computeViewProj` and `attachView` / `detachCanvas` take World first, while `attachCanvas` takes World last |
+| `/render/core` `computeViewProj`, `Frame`, `FrameGpu`, `BeginFrameSystem`, `OverlaySystem`, `CULL_FRUSTUM`, `CULL_VOLUME_FLOATS`, `Views`, `MAX_VIEWS`, `MAX_SLOTS`, `attachCanvas`, `attachView`, `detachCanvas`, `sceneTransform`, `imageArray` | `/rendering`, same names, except `detachCanvas` is `detachView`; `computeViewProj`, `attachView` and `detachView` take World first, while `attachCanvas` takes World last |
 | `/render/core` `Clusters`, `clusterCell`, `LightCull` | `/standard/rendering`, same names |
 | `/render/core` `Lighting`, `LightingGpu`, `PointLightGpu`, `distanceAttenuation`, `spotFactor` | `/standard/rendering`, same names |
 

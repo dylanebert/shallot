@@ -7,7 +7,7 @@ import {
     attachTexture,
     attachView,
     captureTexture,
-    detachCanvas,
+    detachView,
     MAX_SLOTS,
     MAX_VIEWS,
     RenderContext,
@@ -159,7 +159,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             }
             expect(greenOutlinePixels).toBeGreaterThan(10);
 
-            detachCanvas(world, second);
+            detachView(world, second);
             attachTexture(world, second, { width: 64, height: 64 });
             world.gpu.device.pushErrorScope("validation");
             world.step(0);

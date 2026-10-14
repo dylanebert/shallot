@@ -9,7 +9,7 @@ import {
     Camera,
     captureTexture,
     computeViewFromWorld,
-    detachCanvas,
+    detachView,
     RenderingPlugin,
     Resolution,
     Views,
@@ -90,7 +90,7 @@ test("a re-attached or recreated camera's view carries its view-from-world matri
     computeViewFromWorld(world, eid, expected);
     expect(world.resource(Views).get(eid)!.viewFromWorld).toEqual(expected);
 
-    detachCanvas(world, eid);
+    detachView(world, eid);
     attachTexture(world, eid, { width: 4, height: 4 });
     world.step(0);
     expect(world.resource(Views).get(eid)!.viewFromWorld).toEqual(expected);
@@ -121,7 +121,7 @@ test("a recycled camera eid neither inherits nor is refused its predecessor's te
     attachTexture(world, recycled, { width: 8, height: 8 });
     expect(predecessor).toHaveBeenCalledTimes(1);
     expect(world.resource(Views).get(recycled)!.width).toBe(8);
-    detachCanvas(world, recycled);
+    detachView(world, recycled);
     world.destroy(recycled);
 });
 
@@ -174,7 +174,7 @@ test("texture final frames capture tight RGBA and refuse missing presentation; o
         surface: "final-texture",
         encoding: "rgba8-tight",
     });
-    detachCanvas(world, eid);
+    detachView(world, eid);
     expect(destroyed).toHaveBeenCalledTimes(1);
     attachTexture(world, eid, { width: 2, height: 2 });
     const disposed = spyOn(world.resource(Views).get(eid)!.texture!, "destroy");

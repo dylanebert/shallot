@@ -6,7 +6,7 @@ import {
     Camera,
     CameraMode,
     DirectionalLight,
-    detachCanvas,
+    detachView,
     MAX_SLOTS,
     MAX_VIEWS,
     PointLight,
@@ -558,7 +558,7 @@ function syncCascadePool(world: World, shadow: ShadowRuntime, n: number): void {
     while (shadow.cascadeEids.length < n) shadow.cascadeEids.push(createCascadeCamera(world));
     while (shadow.cascadeEids.length > n) {
         const eid = shadow.cascadeEids.pop()!;
-        detachCanvas(world, eid);
+        detachView(world, eid);
         world.destroy(eid);
     }
 }
@@ -594,7 +594,7 @@ function poseCascade(world: World, eid: number, fit: LightFit): void {
 export function destroyCascades(world: World): void {
     const shadow = shadows(world);
     for (const eid of shadow.cascadeEids) {
-        detachCanvas(world, eid);
+        detachView(world, eid);
         world.destroy(eid);
     }
     shadow.cascadeEids.length = 0;
@@ -1145,7 +1145,7 @@ function syncComboPool(world: World, shadows: ShadowRuntime, n: number): void {
     while (shadows.comboEids.length < n) shadows.comboEids.push(createComboCamera(world));
     while (shadows.comboEids.length > n) {
         const eid = shadows.comboEids.pop()!;
-        detachCanvas(world, eid);
+        detachView(world, eid);
         world.destroy(eid);
     }
 }
@@ -1272,7 +1272,7 @@ function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: num
 export function destroyPointShadows(world: World): void {
     const shadow = shadows(world);
     for (const eid of shadow.comboEids) {
-        detachCanvas(world, eid);
+        detachView(world, eid);
         world.destroy(eid);
     }
     shadow.comboEids.length = 0;
