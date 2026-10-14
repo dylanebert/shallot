@@ -6,42 +6,25 @@ webgpu game engine. fast by default, instant iteration, runs where webgpu does.
 
 ## quick start
 
-```bash
-# install bun
-curl -fsSL https://bun.sh/install | bash
+Install [Bun](https://bun.sh/docs/installation). Create a project and start its development server:
 
-# new project
+```bash
 bun create shallot my-game
-# or use an installed example: bun create shallot my-game --template first-person
 cd my-game
 bun install
-
-# run it
 bun run dev
 ```
 
-The project owns its `index.html` and Vite config, with `plugins: [shallot()]`.
+Open the URL printed in the terminal in a WebGPU-capable browser, such as Chrome or Edge. Edit the scene in `src/welcome/index.ts`; changes reload the page.
 
-Projects depend on Shallot through a registry release (including `@next` prereleases), a staged tarball or a live link; see [Dependencies and releases](CONTRIBUTING.md#dependencies-and-releases) for commands.
+## next steps
 
-For web, run the project's scripts with `bun run dev`, `bun run build` or `bun run preview`. `shallot dev`, `shallot build` and `shallot preview` require `--target mac`, `--target windows` or `--target linux`; native `dev` and `build` add the desktop shell, and native `preview` launches that build.
+[Demos](https://dylanebert.com/shallot/). Copy the first-person example with `bun create shallot first-person --template first-person`, then install and run it as above.
 
-Use `bun test` for checks. For browser checks, run `bunx playwright install chromium` once, then `bunx playwright test`. `bunx shallot --help` lists every command.
-
-## linux browser troubleshooting
-
-Chrome or Chromium can stutter periodically on NVIDIA/Wayland setups even when WebGPU is hardware accelerated. If affected, fully exit the browser and relaunch with:
-
-```text
---ozone-platform=wayland --use-angle=vulkan
-```
-
-This removed the observed presentation stalls in Chromium 152 on an RTX 4090 with fractional scaling. It is a setup-specific workaround, not a requirement for every Linux system.
+In the project, `bunx shallot --help` lists commands.
 
 ## more
 
-- demos: [dylanebert.com/shallot](https://dylanebert.com/shallot/)
-- examples: `bun create shallot my-game --template first-person`
 - questions: [discord](https://discord.gg/eEY75Nqk3C). bugs: [issues](https://github.com/dylanebert/shallot/issues). releases: [npm](https://www.npmjs.com/package/@dylanebert/shallot)
 - changing the engine: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
