@@ -432,7 +432,7 @@ function setPointerLock(d: DeviceRecord, status: PointerLockStatus, refusal: str
     d.pointer.lock.refusal = refusal;
 }
 
-/** Release every held input as the window loses focus. */
+/** Release every held input as the window loses focus or the page is hidden. */
 export function blurCanvas(world: World): void {
     const d = record(world);
     const a = adapters.get(world);
@@ -449,11 +449,6 @@ export function focusCanvas(world: World, canvasIndex = 0): void {
     if (a) a.canvasFocused = true;
     d.focused = canvasIndex;
     d.pointerCanvasIndex = canvasIndex;
-}
-
-/** Produce a document visibility transition. Hidden visibility has the same release-edge contract as blur. */
-export function visibilityChanged(world: World, hidden: boolean): void {
-    if (hidden) blurCanvas(world);
 }
 
 /** Produce a pointer-lock transition. Exiting a lock is an input boundary and releases every held input. */
@@ -585,7 +580,9 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         }
     };
     a.windowBlur = () => blurCanvas(world);
-    a.visibilityChange = () => visibilityChanged(world, document.hidden);
+    a.visibilityChange = () => {
+        if (document.hidden) blurCanvas(world);
+    };
     a.pointerLockChange = () => {
         if (a.disposed) return;
         const element = document.pointerLockElement as HTMLCanvasElement | null;

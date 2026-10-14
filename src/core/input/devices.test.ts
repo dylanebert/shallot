@@ -25,7 +25,6 @@ import {
     touchPoint,
     UpdatePlayerControlSystem,
     Viewports,
-    visibilityChanged,
     World,
 } from "@dylanebert/shallot";
 import { sizeView, type View } from "@dylanebert/shallot/rendering";
@@ -707,19 +706,6 @@ test("window blur leaves keys or pointer buttons held, or releases them without 
     if (input.keys.held.has("KeyW") || !input.keys.released.has("KeyW"))
         throw new Error("blur did not emit a key release edge");
     if (input.pointer.left) throw new Error("blur left a pointer button held");
-    world.dispose();
-});
-
-test("hiding the page leaves keys or pointer buttons held, or releases them without an edge", () => {
-    const world = inputState();
-    focusCanvas(world, 0);
-    pressKey(world, "KeyA");
-    pressButton(world, "right");
-    visibilityChanged(world, true);
-    const input = world.resource(Devices);
-    if (input.keys.held.has("KeyA") || !input.keys.released.has("KeyA"))
-        throw new Error("hidden visibility did not emit a key release edge");
-    if (input.pointer.right) throw new Error("hidden visibility left a pointer button held");
     world.dispose();
 });
 

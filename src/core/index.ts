@@ -32,7 +32,6 @@ export {
     setInputEnabled,
     type Touch,
     touchPoint,
-    visibilityChanged,
 } from "./input";
 export * from "./mesh";
 export * from "./physics";
