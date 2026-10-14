@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { CEILING } from "@dylanebert/shallot/testing";
@@ -37,10 +37,8 @@ beforeAll(() => {
     );
 
     mkdirSync(resolve(shell, "src"), { recursive: true });
-    writeFileSync(
-        resolve(shell, "build.rs"),
-        readFileSync(resolve(repo, "crates/native/build.rs")),
-    );
+    cpSync(resolve(repo, "crates/native/build.rs"), resolve(shell, "build.rs"));
+    cpSync(resolve(repo, "crates/native/icon.ico"), resolve(shell, "icon.ico"));
     writeFileSync(
         resolve(shell, "Cargo.toml"),
         `[package]\nname="shallot-native"\nversion="0.10.0"\nedition="2021"\nbuild="build.rs"\n[dependencies]\ncef-dll-sys={path="../cef-dll-sys"}\n`,
@@ -77,6 +75,7 @@ function build(cefPath: string) {
             env: {
                 ...process.env,
                 CEF_PATH: cefPath,
+                SHALLOT_ICON_ICO: "",
                 SHALLOT_CARGO_FIXTURE_LOG: buildLog,
             },
             stdio: ["ignore", "pipe", "pipe"],

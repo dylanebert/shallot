@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { delimiter, resolve } from "node:path";
 import { CEILING } from "@dylanebert/shallot/testing";
+import { BUN_CHILD, bunCommand } from "./bun-child";
 
 setDefaultTimeout(CEILING.node);
 const repo = resolve(import.meta.dir, "..");
@@ -12,7 +13,8 @@ test("installed packed CLI preserves editable favicon and native PNG at a nested
     const project = resolve(root, "game");
     const env = { ...process.env };
     const run = (args: string[], cwd = project) => {
-        const result = Bun.spawnSync([process.execPath, ...args], {
+        const result = Bun.spawnSync(bunCommand(args), {
+            ...BUN_CHILD,
             cwd,
             env,
             stdout: "pipe",
