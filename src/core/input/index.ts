@@ -67,8 +67,12 @@ export interface AudioDevice {
     context: AudioContextState;
 }
 
-/** all device-fed facts for one World. Producers below are the single mutation seam used by both the DOM
- * path and headless callers. The record is created lazily, so a World with no DOM still has devices. */
+/** all device-fed facts for one World, read directly. `keys.pressed`, `keys.released`, `pointer.scroll` and
+ * the pointer and touch deltas cover one frame; the input plugin clears them at the draw boundary. A game or
+ * headless driver changes every field except `audio.context` through the producers below, which keep edges and
+ * boundary releases; the browser producer writes the same fields from DOM events. `audio.context` has no
+ * producer: the audio runtime or a headless driver writes it directly. The record is created lazily, so a World
+ * with no DOM still has devices. */
 export interface Devices {
     readonly keys: Keys;
     readonly audio: AudioDevice;
@@ -867,24 +871,9 @@ export function setInputEnabled(world: World, on: boolean): void {
     }
 }
 
-/** whether one World's device producers are live. */
-export function inputEnabled(world: World): boolean {
-    return !record(world).suspended;
-}
-
 /** Set the pointer-button gate on one World. */
 export function requirePointerLock(world: World, on: boolean): void {
     record(world).requireLock = on;
-}
-
-/** read the pointer-lock status from one World's device record. */
-export function pointerLockStatus(world: World): PointerLockStatus {
-    return record(world).pointer.lock.status;
-}
-
-/** read the browser's last pointer-lock refusal from one World's device record. */
-export function pointerLockRefusal(world: World): string | null {
-    return record(world).pointer.lock.refusal;
 }
 
 const InputSystem: System = {

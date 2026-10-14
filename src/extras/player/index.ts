@@ -1,10 +1,4 @@
-import {
-    Devices,
-    InputPlugin,
-    inputEnabled,
-    releasePointerLock,
-    requirePointerLock,
-} from "../../core/input";
+import { Devices, InputPlugin, releasePointerLock, requirePointerLock } from "../../core/input";
 import { Body, Shape } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import {
@@ -141,7 +135,7 @@ const LocalPlayerInputSystem: System = {
     group: "setup",
     update(world) {
         const devices = world.resource(Devices);
-        const active = inputEnabled(world);
+        const active = !devices.suspended;
         const players = world.storage(Player);
         const local = world.storage(LocalPlayer);
         const inputs = world.storage(PlayerInput);

@@ -8,7 +8,6 @@ import {
     type InputHost,
     InputPlugin,
     pointerLockChanged,
-    pointerLockStatus,
     pointerMove,
     pointerWheel,
     pressButton,
@@ -363,12 +362,17 @@ test("pointer-lock exit clears the facts but leaves a live adapter's shared canv
     second.step(0);
     requestPointerLock(first);
     firstFixture.emitLockChange();
-    if (pointerLockStatus(first) !== "locked") throw new Error("first lock did not engage");
+    if (first.resource(Devices).pointer.lock.status !== "locked")
+        throw new Error("first lock did not engage");
     firstFixture.exitLock();
-    if (pointerLockStatus(first) !== "unlocked") throw new Error("first lock did not exit");
+    if (first.resource(Devices).pointer.lock.status !== "unlocked")
+        throw new Error("first lock did not exit");
     requestPointerLock(second);
     secondFixture.emitLockChange();
-    if (secondFixture.requestCount !== 1 || pointerLockStatus(second) !== "locked")
+    if (
+        secondFixture.requestCount !== 1 ||
+        second.resource(Devices).pointer.lock.status !== "locked"
+    )
         throw new Error("second live adapter could not acquire the released canvas");
     first.dispose();
     second.dispose();
@@ -383,7 +387,10 @@ test("a pending second-canvas pointer-lock request leaks the first canvas owners
 
     requestPointerLock(first);
     fixture.emitLockChange();
-    if (pointerLockStatus(first) !== "locked" || fixture.lock.element !== fixture.canvases[0])
+    if (
+        first.resource(Devices).pointer.lock.status !== "locked" ||
+        fixture.lock.element !== fixture.canvases[0]
+    )
         throw new Error("first canvas did not engage");
 
     fixture.emitCanvas(
@@ -407,13 +414,16 @@ test("a pending second-canvas pointer-lock request leaks the first canvas owners
     replacement.step(0);
     requestPointerLock(replacement);
     fixture.emitLockChange();
-    if (pointerLockStatus(replacement) !== "locked" || fixture.lock.element !== fixture.canvases[0])
+    if (
+        replacement.resource(Devices).pointer.lock.status !== "locked" ||
+        fixture.lock.element !== fixture.canvases[0]
+    )
         throw new Error("replacement adapter could not reuse canvas A");
 
     fixture.resolveLock(fixture.canvases[1]);
     await Promise.resolve();
     if (
-        pointerLockStatus(replacement) !== "locked" ||
+        replacement.resource(Devices).pointer.lock.status !== "locked" ||
         fixture.lock.element !== fixture.canvases[0] ||
         fixture.releaseCount !== 1
     )
@@ -454,14 +464,14 @@ test("releasing a retired adapter's late pointer-lock grant releases a replaceme
     replacement.step(0);
     requestPointerLock(replacement);
     fixture.emitLockChange();
-    if (pointerLockStatus(replacement) !== "locked")
+    if (replacement.resource(Devices).pointer.lock.status !== "locked")
         throw new Error("replacement adapter did not acquire the canvas");
 
     fixture.lock.element = fixture.canvas;
     fixture.resolveLock(fixture.canvas);
     await Promise.resolve();
     if (
-        pointerLockStatus(replacement) !== "locked" ||
+        replacement.resource(Devices).pointer.lock.status !== "locked" ||
         fixture.lock.element !== fixture.canvas ||
         fixture.releaseCount !== 0
     )
@@ -716,11 +726,12 @@ test("pointer-lock exit leaves keys or pointer buttons held, or loses the lock r
     pressButton(world, "middle");
     pointerLockChanged(world, false);
     const input = _devices;
-    if (pointerLockStatus(world) !== "unlocked") throw new Error("lock status did not exit");
+    if (world.resource(Devices).pointer.lock.status !== "unlocked")
+        throw new Error("lock status did not exit");
     pointerLockChanged(world, true);
     pointerLockChanged(world, false, "denied by browser");
     if (
-        pointerLockStatus(world) !== "refused" ||
+        world.resource(Devices).pointer.lock.status !== "refused" ||
         _devices.pointer.lock.refusal !== "denied by browser"
     )
         throw new Error("lock refusal was not recorded");

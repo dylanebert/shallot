@@ -6,6 +6,7 @@ import {
     CharacterPlugin,
     component,
     cube,
+    Devices,
     DirectionalLight,
     GlobalAmbientLight,
     InputPlugin,
@@ -20,8 +21,6 @@ import {
     Player,
     PlayerPlugin,
     type Plugin,
-    pointerLockRefusal,
-    pointerLockStatus,
     type Resource,
     Shape,
     ShapeKind,
@@ -231,14 +230,14 @@ const controls: System = {
         mountControls(world);
         const bag = stateBag(world);
         if (!bag.panel || !bag.look) return;
-        const status = pointerLockStatus(world);
+        const { status, refusal } = world.resource(Devices).pointer.lock;
         const look =
             status === "locked" ? "locked" : status === "unlocked" ? "idle" : "unavailable";
         if (bag.look.dataset.pointerLook === look) return;
         bag.look.dataset.pointerLook = look;
         bag.look.style.opacity = look === "locked" ? "1" : "0.45";
         bag.look.style.textDecoration = look === "unavailable" ? "line-through" : "none";
-        bag.look.title = look === "unavailable" ? (pointerLockRefusal(world) ?? "") : "";
+        bag.look.title = look === "unavailable" ? (refusal ?? "") : "";
     },
 };
 
