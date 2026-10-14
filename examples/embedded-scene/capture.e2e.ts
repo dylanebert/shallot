@@ -12,7 +12,9 @@ test("a browser capture preserves the declared page geometry and shows its color
 }) => {
     await page.goto("/");
     const canvas = page.locator("#scene");
-    await expect(canvas).toHaveClass(/visible/);
+    // A cold first draw on hosted macOS outlasts expect's 5 s default (410e41d0), so the reveal wait is
+    // bounded by the test's timeout instead.
+    await page.locator("#scene.visible").waitFor();
     expect(page.viewportSize()).toEqual({ width: 1280, height: 720 });
     await page.waitForTimeout(200);
 

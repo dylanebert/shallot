@@ -50,7 +50,9 @@ async function openPage(page: Page): Promise<void> {
 
 async function waitForScene(page: Page): Promise<void> {
     await openPage(page);
-    await expect(page.locator("#scene")).toHaveClass(/visible/);
+    // A cold first draw on hosted macOS outlasts expect's 5 s default (410e41d0), so the reveal wait is
+    // bounded by the test's timeout instead.
+    await page.locator("#scene.visible").waitFor();
 }
 
 async function inspectStartup(page: Page) {
@@ -792,7 +794,7 @@ test("the canvas remains hidden after loading cleanup until its first submitted 
                 window.__releaseReveal?.();
             }),
     );
-    await expect(page.locator("#scene")).toHaveClass(/visible/);
+    await page.locator("#scene.visible").waitFor();
 });
 
 test("the first and later scene frames match the projected unit cube and remain stable", async ({
