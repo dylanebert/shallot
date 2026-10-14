@@ -156,7 +156,7 @@ export function getShapeUserMaterialId(
         childIndex,
         triangleIndex,
     );
-    return world.shapeStore.materialUserIdAt(
+    return world.shapeStore.userMaterialIdAt(
         shape,
         Math.max(0, Math.min(materialIndex, materialCount - 1)),
     );

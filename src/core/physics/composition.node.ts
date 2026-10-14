@@ -79,8 +79,8 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
             shape.tangentVelocity.z.get(body),
             shape.tangentVelocity.w.get(body),
         ]).toEqual([0, 0, 0, 0]);
-        expect(shape.materialUserIdLow.get(body)).toBe(0);
-        expect(shape.materialUserIdHigh.get(body)).toBe(0);
+        expect(shape.userMaterialIdLow.get(body)).toBe(0);
+        expect(shape.userMaterialIdHigh.get(body)).toBe(0);
         expect(shape.customColor.get(body)).toBe(0);
         expect(shape.filterCategoryLow.get(body)).toBe(0xffffffff);
         expect(shape.filterCategoryHigh.get(body)).toBe(0xffffffff);

@@ -307,8 +307,8 @@ test("PhysicsEvents and GlobalTransform preserve the ordered contact, hit, joint
                 density: 1,
                 enableContactEvents: 1,
                 enableHitEvents: 1,
-                materialUserIdLow: 0x76543210,
-                materialUserIdHigh: 0xfedcba98,
+                userMaterialIdLow: 0x76543210,
+                userMaterialIdHigh: 0xfedcba98,
             },
         );
         const anchor = sphere(

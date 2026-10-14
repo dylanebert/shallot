@@ -294,8 +294,8 @@ test("contact, hit and joint events retain ECS identity and Box3D payloads", asy
         const groundShape = world.create();
         world.add(groundShape, Shape, {
             body: groundBody,
-            materialUserIdLow: 0x89abcdef,
-            materialUserIdHigh: 0x01234567,
+            userMaterialIdLow: 0x89abcdef,
+            userMaterialIdHigh: 0x01234567,
         });
         const fallingBody = world.create();
         world.add(fallingBody, Body, {
@@ -311,8 +311,8 @@ test("contact, hit and joint events retain ECS identity and Box3D payloads", asy
             density: 1,
             enableContactEvents: 1,
             enableHitEvents: 1,
-            materialUserIdLow: 0x76543210,
-            materialUserIdHigh: 0xfedcba98,
+            userMaterialIdLow: 0x76543210,
+            userMaterialIdHigh: 0xfedcba98,
         });
         const quietGround = world.create();
         world.add(quietGround, Body, {

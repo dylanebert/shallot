@@ -256,7 +256,7 @@ function fillQueryHit(
     hit.fraction = values[offset + 1];
     hit.triangleIndex = values[offset + 9];
     hit.childIndex = values[offset + 10];
-    hit.userMaterialId = state.shapeStore.materialUserIdAt(shapeId, values[offset + 11]);
+    hit.userMaterialId = state.shapeStore.userMaterialIdAt(shapeId, values[offset + 11]);
 }
 
 function castQueryCallback(

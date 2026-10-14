@@ -200,7 +200,7 @@ export class ShapeStore extends KernelViews {
     }
 
     /** Read a material's user id without constructing a TypeScript material copy. */
-    materialUserIdAt(shape: Shape, index: number): bigint {
+    userMaterialIdAt(shape: Shape, index: number): bigint {
         this.refreshViews();
         const k = kernel(this.ecsState);
         if (k.shapeMaterialCount(this._worldId, shape) >>> 0 === 0) return 0n;

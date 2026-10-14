@@ -164,8 +164,8 @@ test("Shape material, filter and event writes reach Box3D setters only when valu
             authored.restitution.set(eid, 0.4);
             authored.rollingResistance.set(eid, 0.2);
             authored.tangentVelocity.set(eid, 1, 2, 3, 0);
-            authored.materialUserIdLow.set(eid, 0x12345678);
-            authored.materialUserIdHigh.set(eid, 0x9abcdef0);
+            authored.userMaterialIdLow.set(eid, 0x12345678);
+            authored.userMaterialIdHigh.set(eid, 0x9abcdef0);
             authored.customColor.set(eid, 0xff00ff);
             authored.filterCategoryLow.set(eid, 0x1234);
             authored.filterMaskHigh.set(eid, 0x5678);

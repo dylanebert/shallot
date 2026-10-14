@@ -518,8 +518,8 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             capsuleA,
             capsuleB,
             scale,
-            materialUserIdLow: input.kind + 1,
-            materialUserIdHigh: 1,
+            userMaterialIdLow: input.kind + 1,
+            userMaterialIdHigh: 1,
         });
         world.step(Time.FIXED_DT);
 

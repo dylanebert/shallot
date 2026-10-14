@@ -42,8 +42,8 @@ export const Shape = component(
         /** Base material conveyor velocity in shape-local m/s. */
         tangentVelocity: vec3,
         /** Low and high u32 halves of the base material's u64 user id. */
-        materialUserIdLow: u32,
-        materialUserIdHigh: u32,
+        userMaterialIdLow: u32,
+        userMaterialIdHigh: u32,
         /** Base material debug color; zero disables custom coloring. */
         customColor: u32,
         /** Low and high halves of the collision category bit set. */
@@ -90,8 +90,8 @@ export const Shape = component(
             restitution: 0,
             rollingResistance: 0,
             tangentVelocity: [0, 0, 0],
-            materialUserIdLow: 0,
-            materialUserIdHigh: 0,
+            userMaterialIdLow: 0,
+            userMaterialIdHigh: 0,
             customColor: 0,
             filterCategoryLow: 0xffffffff,
             filterCategoryHigh: 0xffffffff,

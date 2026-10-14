@@ -80,7 +80,7 @@ function queryCastHit(
         point: { x: origin.x + f[n + 2], y: origin.y + f[n + 3], z: origin.z + f[n + 4] },
         normal: { x: f[n + 5], y: f[n + 6], z: f[n + 7] },
         fraction: f[n + 1],
-        userMaterialId: world.shapeStore.materialUserIdAt(id, f[n + 11]),
+        userMaterialId: world.shapeStore.userMaterialIdAt(id, f[n + 11]),
         triangleIndex: f[n + 9],
         childIndex: f[n + 10],
     };
@@ -102,7 +102,7 @@ function bodyCastHit(
         normal: { x: f[9], y: f[10], z: f[11] },
         fraction: f[5],
         triangleIndex: f[13],
-        userMaterialId: world.shapeStore.materialUserIdAt(
+        userMaterialId: world.shapeStore.userMaterialIdAt(
             id,
             Math.max(0, Math.min(materialCount - 1, f[15])),
         ),

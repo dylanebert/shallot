@@ -96,8 +96,8 @@ function anyChanged(binding: ShapeBinding, mask: number, fields: readonly string
 const MATERIAL_FIELDS = [
     "rollingResistance",
     "tangentVelocity",
-    "materialUserIdLow",
-    "materialUserIdHigh",
+    "userMaterialIdLow",
+    "userMaterialIdHigh",
     "customColor",
 ] as const;
 const FILTER_FIELDS = [

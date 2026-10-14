@@ -50,8 +50,8 @@ export function authoredShapeMaterial(world: World, eid: number): SurfaceMateria
             z: shape.tangentVelocity.z.get(eid),
         },
         userMaterialId:
-            (BigInt(shape.materialUserIdHigh.get(eid) >>> 0) << 32n) |
-            BigInt(shape.materialUserIdLow.get(eid) >>> 0),
+            (BigInt(shape.userMaterialIdHigh.get(eid) >>> 0) << 32n) |
+            BigInt(shape.userMaterialIdLow.get(eid) >>> 0),
         customColor: shape.customColor.get(eid) >>> 0,
     };
 }

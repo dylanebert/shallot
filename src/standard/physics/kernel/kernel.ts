@@ -1206,8 +1206,8 @@ function materialImport(runtime: KernelState) {
             const world = runtime.materialWorld;
             if (world === null) throw new Error("physics: material callback is not installed");
             runtime.queryWorld = world.worldId;
-            const idA = world.shapeStore.materialUserIdAt(shapeA, indexA);
-            const idB = world.shapeStore.materialUserIdAt(shapeB, indexB);
+            const idA = world.shapeStore.userMaterialIdAt(shapeA, indexA);
+            const idB = world.shapeStore.userMaterialIdAt(shapeB, indexB);
             const memory = kernel(world.ecsState).memory.buffer;
             if (values.buffer !== memory) values = new Float32Array(memory);
             const o = pointer >>> 2;
