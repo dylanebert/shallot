@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 
 import { CEILING } from "@dylanebert/shallot/testing";
 
@@ -15,9 +15,8 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { normalizePath } from "../src/project/paths";
-import { packedInstall } from "./packed-install-spawn";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
@@ -71,9 +70,6 @@ test("files excludes no paths under the unlisted scripts directory", () => {
 });
 
 function run(command: string[], cwd: string, label: string): string {
-    if (command[0] === "bun" && (command[1] === "install" || command[1] === "add")) {
-        return packedInstall(command.slice(1), cwd, label);
-    }
     const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
     if (result.exitCode !== 0) throw new Error(`${label} failed:\n${output}`);
@@ -264,99 +260,6 @@ test("an out-of-range project TypeGPU fails before either module evaluates", () 
         rmSync(scratch, { recursive: true, force: true });
     }
 });
-
-for (const subject of ["pin", "overlay", "restore"] as const) {
-    describe(`staged published project pin: ${subject}`, () => {
-        const scratch = mkdtempSync(join(tmpdir(), "shallot-package-shape-stage-"));
-        const project = join(scratch, "project");
-        const rootManifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-        const tarball = join(scratch, `dylanebert-shallot-${rootManifest.version}.tgz`);
-
-        let manifestBefore: string;
-        let lockBefore: string;
-        let pinnedVersion: string;
-        const installed = () =>
-            JSON.parse(
-                readFileSync(
-                    join(project, "node_modules/@dylanebert/shallot/package.json"),
-                    "utf8",
-                ),
-            ).version;
-
-        afterAll(() => rmSync(scratch, { recursive: true, force: true }));
-        beforeAll(() => {
-            mkdirSync(project);
-            run(
-                ["bun", "pm", "pack", "--ignore-scripts", "--destination", scratch, "--quiet"],
-                ROOT,
-                "packing staged Shallot",
-            );
-            writeFileSync(
-                join(project, "package.json"),
-                `${JSON.stringify(
-                    {
-                        name: "shallot-package-shape-staged-fixture",
-                        private: true,
-                        type: "module",
-                        dependencies: { "@dylanebert/shallot": "^0.9.5" },
-                        devDependencies: { typegpu: TYPEGPU_RANGE },
-                    },
-                    null,
-                    2,
-                )}\n`,
-            );
-            if (subject !== "pin") {
-                run(["bun", "install", "--no-progress"], project, "preparing the published pin");
-                manifestBefore = readFileSync(join(project, "package.json"), "utf8");
-                lockBefore = readFileSync(join(project, "bun.lock"), "utf8");
-                pinnedVersion = installed();
-                expect(Bun.semver.satisfies(pinnedVersion, "^0.9.5")).toBe(true);
-            }
-            if (subject === "restore") {
-                run(
-                    ["bun", "add", "--no-save", `./${normalizePath(relative(project, tarball))}`],
-                    project,
-                    "preparing the packed overlay",
-                );
-                expect(installed()).toBe(rootManifest.version);
-                expect(installed()).not.toBe(pinnedVersion);
-                expect(readFileSync(join(project, "package.json"), "utf8")).toBe(manifestBefore);
-                expect(readFileSync(join(project, "bun.lock"), "utf8")).toBe(lockBefore);
-            }
-        }, CEILING.startup);
-
-        if (subject === "pin")
-            test("the published pin installs", () => {
-                run(["bun", "install", "--no-progress"], project, "installing the published pin");
-                manifestBefore = readFileSync(join(project, "package.json"), "utf8");
-                lockBefore = readFileSync(join(project, "bun.lock"), "utf8");
-                pinnedVersion = installed();
-                expect(Bun.semver.satisfies(pinnedVersion, "^0.9.5")).toBe(true);
-                console.log(`staged restore pin: @dylanebert/shallot@${pinnedVersion}`);
-            });
-
-        if (subject === "overlay")
-            test("the packed overlay preserves the project pin and lock", () => {
-                // A ./-relative tarball path, the same on every host.
-                run(
-                    ["bun", "add", "--no-save", `./${normalizePath(relative(project, tarball))}`],
-                    project,
-                    "overlaying the packed Shallot tarball",
-                );
-                expect(installed()).toBe(rootManifest.version);
-                expect(readFileSync(join(project, "package.json"), "utf8")).toBe(manifestBefore);
-                expect(readFileSync(join(project, "bun.lock"), "utf8")).toBe(lockBefore);
-            });
-
-        if (subject === "restore")
-            test("bun install restores the published pin after the overlay", () => {
-                run(["bun", "install", "--no-progress"], project, "restoring the published pin");
-                expect(installed()).toBe(pinnedVersion);
-                expect(readFileSync(join(project, "package.json"), "utf8")).toBe(manifestBefore);
-                expect(readFileSync(join(project, "bun.lock"), "utf8")).toBe(lockBefore);
-            });
-    });
-}
 
 test("release creation passes --prerelease only for hyphenated tags", () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");

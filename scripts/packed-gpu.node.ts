@@ -5,7 +5,15 @@ import { packedInstall } from "./packed-install-spawn";
 
 setDefaultTimeout(CEILING.node);
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    realpathSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -32,7 +40,7 @@ let project = "";
 
 // Packing and installing are build work, so the startup ceiling budgets them, not the test.
 beforeAll(() => {
-    scratch = mkdtempSync(join(tmpdir(), "shallot-packed-gpu-"));
+    scratch = realpathSync.native(mkdtempSync(join(tmpdir(), "shallot-packed-gpu-")));
     project = join(scratch, "project");
     const rootPackage = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const tarballName = `dylanebert-shallot-${rootPackage.version}.tgz`;
