@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp, expectAdapterNotice, gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import type { createApp, Plugin, System, World } from "../../engine";
@@ -21,7 +21,7 @@ import {
 import { Transform } from "../transform";
 import { type Mesh, Meshes, type MeshHandle, MeshInstance, MeshPlugin } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 // a 4×4 quad facing +z, wider than the default view from z = 5
 const vertices = new Float32Array([

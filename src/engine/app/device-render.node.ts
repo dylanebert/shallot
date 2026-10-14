@@ -10,14 +10,14 @@ import {
 } from "../../standard/rendering";
 import "../../standard";
 
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import { Transform } from "../../core/transform";
 import { stampAdapter, Time, type World } from "../index";
 import type { createApp } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

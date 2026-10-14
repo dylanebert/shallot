@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { controlledReadback } from "./readback.fixture";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("an uncaptured GPU error rejects a pending readback with its copy context", async () => {
     await controlledReadback(async (world, slots, errors) => {

@@ -12,11 +12,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
 import { packedInstall, spawnPackedInstall } from "./packed-install-spawn";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const BOUND = 2000;
 
@@ -76,7 +76,7 @@ test("a stalled install is killed inside its bound and retains the last step", (
     ).toThrow(
         `fake install timed out after ${BOUND} ms (last 8192 bytes per stream):\nstdout:\nResolving dependencies\n`,
     );
-    expect(performance.now() - start).toBeLessThan(CEILING.node / 2);
+    expect(performance.now() - start).toBeLessThan(TIMEOUT.node / 2);
 });
 
 test("early stderr cannot displace the last stdout step in a timeout tail", () => {

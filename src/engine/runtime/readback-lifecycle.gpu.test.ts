@@ -1,12 +1,12 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import type { createApp } from "../app";
 import { probeBuffer } from "./probe";
 import { countStaging } from "./readback.fixture";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const worlds: Awaited<ReturnType<typeof createApp>>[] = [];
 const devices: GPUDevice[] = [];
 const subjects = compileGpuFile(import.meta.path, async () => {

@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     assertStandaloneOrigin,
     requireLinuxPrerequisites,
@@ -13,7 +13,7 @@ import {
     terminateProcessGroup,
 } from "./native-linux-smoke";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("Linux smoke refuses a missing system prerequisite with the setup command", () => {
     expect(() =>

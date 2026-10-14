@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
@@ -34,7 +34,7 @@ import {
     VolumetricLight,
 } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,

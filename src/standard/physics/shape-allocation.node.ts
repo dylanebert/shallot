@@ -2,7 +2,7 @@ import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
@@ -29,7 +29,7 @@ import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from 
 import { bodyIsAwake, bodySetAwake, destroyBody } from "./world/body";
 import type { WorldState } from "./world/world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const entry = resolve(import.meta.dir, "fixtures/shape-allocation.entry.ts");
 let countedKernelBytes: ArrayBuffer | undefined;
 
@@ -59,7 +59,7 @@ beforeAll(async () => {
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
-}, CEILING.startup);
+}, TIMEOUT.startup);
 
 test("warm recycled shape create/destroy, filters, inline materials, mass walks, static enable/disable, sleeping wake with shape query sync and pair finding allocate no WASM heap; the allocating control fails", async () => {
     const bytes = countedKernelBytes;

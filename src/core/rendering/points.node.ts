@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import type { Resource, System } from "../../engine";
@@ -66,7 +66,7 @@ import { compositeCacheKey } from "./tonemapping";
 import { TonemappingSystem, tonemappingStateKey } from "./tonemapping-state";
 import { Views, viewResourcesKey } from "./view";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [RenderingPlugin, PointsPlugin] },
     {

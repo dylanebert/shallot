@@ -1,10 +1,10 @@
 import { setDefaultTimeout, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { buildProjectDeclaration } from "./project-declaration";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("published project-tooling declarations are current", () => {
     const root = resolve(import.meta.dir, "..");

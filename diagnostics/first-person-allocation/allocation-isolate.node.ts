@@ -3,10 +3,10 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { allocationFailure, measuredIsolateTrace, tracedSample, TIER_FLAGS } from "./allocation";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("a worker isolate's optimization inside a window does not refuse it, and the measured isolate's still does", async () => {
     const dir = mkdtempSync(join(tmpdir(), "shallot-isolate-trace-"));

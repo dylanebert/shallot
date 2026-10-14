@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
@@ -26,7 +26,7 @@ import {
     StandardMaterialInput,
 } from "./material";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS] },
     { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] },

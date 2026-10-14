@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { Time, type World } from "@dylanebert/shallot";
 import { Body, BodyType, Shape, ShapeKind } from "@dylanebert/shallot/physics";

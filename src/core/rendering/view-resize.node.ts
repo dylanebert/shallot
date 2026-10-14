@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp } from "../../../scripts/gpu.fixture";
 import { Viewports } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { Transform } from "../transform";
 import { attachCanvas, Camera, RenderingPlugin, Views } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

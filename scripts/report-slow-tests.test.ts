@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
 import { slowTests, warningAnnotation } from "./report-slow-tests";
 
 const report = `<?xml version="1.0"?>
@@ -18,18 +17,36 @@ const report = `<?xml version="1.0"?>
   </testsuite>
 </testsuites>`;
 
-test("JUnit testcase time uses its filename tier and warns only above half the ceiling", () => {
-    const slow = slowTests(report);
+test("JUnit testcase time warns only above half the speed budget, not the hang ceiling", () => {
     expect(
-        slow.map(({ name, tier, timeMs, ceiling }) => ({ name, tier, timeMs, ceiling })),
+        slowTests(report).map(({ name, tier, timeMs, budget }) => ({ name, tier, timeMs, budget })),
     ).toEqual([
-        { name: "cheap & slow", tier: "cheap", timeMs: 126, ceiling: CEILING.cheap },
-        { name: "GPU slow", tier: "gpu", timeMs: 501, ceiling: CEILING.gpu },
-        { name: "Node slow", tier: "node", timeMs: 10_001, ceiling: CEILING.node },
+        { name: "cheap & slow", tier: "cheap", timeMs: 126, budget: 250 },
+        { name: "GPU slow", tier: "gpu", timeMs: 501, budget: 1000 },
+        { name: "Node slow", tier: "node", timeMs: 10_001, budget: 20_000 },
     ]);
 });
 
-test("the warning names the test, host, ceiling and adapter printed for its file", () => {
+test("Playwright reports the whole browser subject, including work outside testcases", () => {
+    const report = (seconds: number) =>
+        `<testsuites time="${seconds}"><testsuite time="1"><testcase name="page" time="1" /></testsuite></testsuites>`;
+    expect(slowTests(report(30), "", "examples/embedded-scene")).toEqual([]);
+    const slow = slowTests(report(30.001), "", "examples/embedded-scene");
+    expect(slow).toEqual([
+        {
+            name: "examples/embedded-scene",
+            file: "examples/embedded-scene",
+            tier: "browser",
+            timeMs: 30_001,
+            budget: 60_000,
+        },
+    ]);
+    expect(warningAnnotation(slow[0]!, "Linux")).toContain(
+        'subject "examples/embedded-scene" took 30001.00 ms; browser speed budget 60000 ms',
+    );
+});
+
+test("the warning names the test, host, speed budget and adapter printed for its file", () => {
     const log = `./src/render.gpu.test.ts:
 frame-encoder adapter: {
   class: "fallback",
@@ -39,6 +56,6 @@ frame-encoder adapter: {
     const [slow] = slowTests(report, log).filter(({ name }) => name === "GPU slow");
     expect(slow).toBeDefined();
     expect(warningAnnotation(slow!, "Linux")).toBe(
-        '::warning title=Slow test%3A GPU slow::test "GPU slow" took 501.00 ms; gpu ceiling 1000 ms; host Linux; adapter frame-encoder adapter: { class: "fallback", identity: "llvmpipe", }',
+        '::warning title=Slow test%3A GPU slow::test "GPU slow" took 501.00 ms; gpu speed budget 1000 ms; host Linux; adapter frame-encoder adapter: { class: "fallback", identity: "llvmpipe", }',
     );
 });

@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../scripts/bun-child";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import {
     chmodSync,
@@ -116,7 +116,7 @@ test("native preview streams the shell's output while the shell runs", async () 
     try {
         let seen = "";
         const reader = cli.stderr.getReader();
-        const deadline = Date.now() + CEILING.node / 2;
+        const deadline = Date.now() + TIMEOUT.node / 2;
         while (!seen.includes("asset server on") && Date.now() < deadline) {
             const chunk = await Promise.race([
                 reader.read(),

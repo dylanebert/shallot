@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import { expectAdapterNotice } from "../../../scripts/gpu.fixture";
 import { PointLight } from "../../core/rendering";
@@ -7,7 +7,7 @@ import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import { CLUSTER_COUNT, LIGHT_GRID_OFFSET, LIGHT_POOL, requestLightOverflow } from "./cluster";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

@@ -1,11 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import { RenderingPlugin } from "../../core/rendering";
 import { type Plugin, runApp } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
@@ -35,7 +35,7 @@ test("runApp logs a system error once, pauses the failed system, and keeps healt
     });
     try {
         const waitFor = async (ready: () => boolean) => {
-            const deadline = performance.now() + CEILING.node / 2;
+            const deadline = performance.now() + TIMEOUT.node / 2;
             while (!ready()) {
                 if (performance.now() > deadline) throw new Error("frame loop did not progress");
                 await Bun.sleep(1);
@@ -86,7 +86,7 @@ test("runApp delivers each settled frame wait to a fence-wait sink", async () =>
     expectAdapterNotice(app.world.gpuIfAvailable?.adapter);
     try {
         const waitForFrame = async (frame: number) => {
-            const deadline = performance.now() + CEILING.node / 2;
+            const deadline = performance.now() + TIMEOUT.node / 2;
             while (app.world.gpu.frame < frame) {
                 if (performance.now() > deadline)
                     throw new Error(`render loop did not submit frame ${frame}`);
@@ -217,7 +217,7 @@ test("runApp waits on the engine frame fence instead of issuing a second complet
     const app = await runApp({ defaults: false, plugins: [RenderingPlugin, observed] });
     expectAdapterNotice(app.world.gpuIfAvailable?.adapter);
     try {
-        const deadline = performance.now() + CEILING.node / 2;
+        const deadline = performance.now() + TIMEOUT.node / 2;
         while (app.world.gpu.frame < 3) {
             if (performance.now() > deadline)
                 throw new Error("render loop did not submit three frames");

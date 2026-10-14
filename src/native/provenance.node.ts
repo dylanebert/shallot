@@ -3,10 +3,10 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { cargoRuntimeDir } from "./provenance.js";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const repo = resolve(import.meta.dir, "../..");
 let cargoRoot: string;
@@ -49,10 +49,10 @@ beforeAll(() => {
         JSON.stringify({
             fixtureSetup: "real Cargo provenance cold build",
             beforeAllMs: Number((performance.now() - started).toFixed(2)),
-            startupCeilingMs: CEILING.startup,
+            startupCeilingMs: TIMEOUT.startup,
         }),
     );
-}, CEILING.startup);
+}, TIMEOUT.startup);
 
 afterAll(() => {
     rmSync(cargoRoot, { recursive: true, force: true });

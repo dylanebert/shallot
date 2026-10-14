@@ -1,13 +1,13 @@
 import { setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
     windowBytes,
 } from "../../../../diagnostics/first-person-allocation/allocation";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("a warm GPU-backed step moving kinematic proxies outside their fat AABBs allocates no JavaScript heap", async () => {
     const sample = await sampleAllocation(resolve(import.meta.dir, "tree-allocation.entry.ts"), {

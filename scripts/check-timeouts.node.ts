@@ -1,11 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Glob } from "bun";
 import { normalizePath } from "../src/project/paths";
 import { browserCommandErrors, packageTimeoutErrors, timeoutErrors } from "./timeout-policy";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("test tiers and browser subjects follow the shared timeouts", async () => {
     const root = resolve(import.meta.dir, "..");

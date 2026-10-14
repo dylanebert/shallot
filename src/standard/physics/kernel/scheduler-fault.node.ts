@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../../../scripts/bun-child";
 import { BodyType } from "../common/types";
 import { createSphereShape } from "../shapes/shape";
@@ -8,7 +8,7 @@ import { init, kernel, kernelState, shutdown } from "./kernel";
 import { KERNEL_SHARED_WASM_BASE64, SHARED_STACK_SIZE } from "./kernel.shared.wasm";
 import { createPool } from "./pool";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 if (process.env.PHYSICS_SCHEDULER_FAULT === "1") {
     test("a wasm worker trap throws from the step and poisons further steps", async () => {

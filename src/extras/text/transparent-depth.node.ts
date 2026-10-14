@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
@@ -16,7 +16,7 @@ import { Line, LinesPlugin } from "../lines";
 import { isolationFont } from "./font.fixture";
 import { internText, registerFont, Text, TextPlugin } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 let font = 0;
 const subjects = gpuApps(import.meta.path, [
     {

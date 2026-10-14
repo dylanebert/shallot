@@ -158,7 +158,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
   - `bunx playwright test`: browser, after `bunx playwright install chromium` once;
   - CI runs the wide set.
 - Every other command runs by its native verb: `bun check`, `bun <file>`, `bunx shallot`.
-- A project that adopts the engine's ceilings, as the engine does, defines one `test`: `bun test --timeout=<CEILING.cheap>`, run as `bun run test`.
+- A project that adopts the engine's timeouts, as the engine does, defines one `test` running `bun test` with a preload that calls `setDefaultTimeout(TIMEOUT.cheap)`, run as `bun run test`.
 - No package defines `check` or a renamed tier such as `test:node` or `test:browser`.
 
 ```bash
@@ -189,22 +189,22 @@ bun run format                  # biome
 ## Verification
 
 - Module promises are tested beside their owners and through public examples; test names state claims.
-- The engine owns its test ceilings and publishes them in [the `./testing` subpath](src/project/testing.js) alongside shared browser configuration; those ceilings are hang and runaway backstops, not performance targets. A test runs under half its ceiling on every CI host, and CI warns on one that passes half; work needing more splits or moves to a heavier tier.
+- The engine owns its test ceilings and publishes them in [the `./testing` subpath](src/project/testing.js) alongside shared browser configuration; those ceilings are hang and runaway backstops, not performance targets. The same subpath publishes `BUDGET` for local iteration and `TIMEOUT`, which selects `CEILING` when `CI` is nonempty and `BUDGET` otherwise. Local runs fail over budget; CI warns above half a budget, including a whole browser subject. Work needing more splits or moves to a heavier tier.
 
-| Tier | Files / budget |
-|---|---|
-| Cheap | `*.test.ts`; `CEILING.cheap` |
-| GPU | `*.gpu.test.ts`; `CEILING.gpu` |
-| Node | `*.node.ts`; `CEILING.node` |
-| Browser | `*.e2e.ts`; `CEILING.browser` per subject |
-| Build/startup | `CEILING.startup` |
-| Manual oracle | `*.oracle.ts`; unbounded, run by path |
+| Tier | Files | Hang ceiling | Speed budget |
+|---|---|---|---|
+| Cheap | `*.test.ts` | `CEILING.cheap`: 2 500 ms | 250 ms |
+| GPU | `*.gpu.test.ts` | `CEILING.gpu`: 10 000 ms | 1 000 ms |
+| Node | `*.node.ts` | `CEILING.node`: 120 000 ms | 20 000 ms |
+| Browser | `*.e2e.ts` | `CEILING.browser`: 300 000 ms per subject | 60 000 ms per subject |
+| Build/startup | | `CEILING.startup`: 120 000 ms | — |
+| Manual oracle | `*.oracle.ts`; run by path | unbounded | — |
 
-- GPU and Node files call `setDefaultTimeout` once with `CEILING.gpu` or `CEILING.node` from `@dylanebert/shallot/testing`. A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the ceiling catches a hang.
+- GPU and Node files call `setDefaultTimeout` once with `TIMEOUT.gpu` or `TIMEOUT.node` from `@dylanebert/shallot/testing`. A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the ceiling catches a hang.
 - Other projects use Bun's default timeout unless they opt into the engine's ceilings with a `test` script.
 - A missing tier premise fails, never skips.
 - Quarantine uses `test.todo`, runnable with `--todo`; a known failure stays failing until fixed.
-- Every browser subject keeps its Playwright and Vite configs together and spreads `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `scripts/browser.sh` applies the engine's browser ceiling and one worker; a copy runs under Playwright's defaults. Browser tests hold the browser tier's page-only claims; Playwright's per-test default stays unchanged.
+- Every browser subject keeps its Playwright and Vite configs together and spreads `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `scripts/browser.sh` applies `TIMEOUT.browser` and one worker; a copy runs under Playwright's defaults. Browser tests hold the browser tier's page-only claims; Playwright's per-test default stays unchanged.
 - A test requests the fewest solver threads its claim needs. The solver spins at its stage barriers, so threads beyond the host's free cores multiply its time; a CI runner has three or four vCPUs, shared with the test runner and any child.
 - GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work.
 - Compiled pipelines are never shared across worlds; a device a loss claim destroys is prepared during that compile step.

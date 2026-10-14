@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { PhysicsPlugin } from "../physics";
 import { globalTransformTable, RenderingPlugin } from "../rendering";
 import { GlobalTransform, Transform, TransformPlugin } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 await setupGlobals();
 
 test("placement without rendering refuses placement GPU residency", async () => {

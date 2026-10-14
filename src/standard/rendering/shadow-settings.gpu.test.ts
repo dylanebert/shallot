@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     compileGpuFile,
     createTestGpuApp,
@@ -24,7 +24,7 @@ import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
 import { DirectionalLightShadowMap, PointShadows } from "./shadows";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 
 // app B's shadow settings, written the way their JSDoc instructs
 function configure(world: World): void {

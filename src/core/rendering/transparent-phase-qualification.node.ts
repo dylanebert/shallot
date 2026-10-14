@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
@@ -37,7 +37,7 @@ import {
 } from ".";
 import { computeViewProj } from "./camera";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const TransitionParameters = d.struct({ color: d.vec4f });
 const transitionLayout = materialLayout(TransitionParameters, {});
 const TransitionContext = materialFragmentContext();

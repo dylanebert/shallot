@@ -1,9 +1,9 @@
 import { setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
 
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("a non-page allocation row can import the allocation instrument without loading Vite before requesting a page build", () => {
     const probe = `
@@ -30,7 +30,7 @@ test("a non-page allocation row can import the allocation instrument without loa
     const proc = Bun.spawnSync([process.execPath, "--eval", probe], {
         stdout: "pipe",
         stderr: "pipe",
-        timeout: CEILING.startup,
+        timeout: TIMEOUT.startup,
     });
     if (proc.exitCode !== 0)
         throw new Error(`Bun allocation import failed: ${proc.stderr.toString()}`);

@@ -53,14 +53,18 @@ if [ "$check_only" = true ]; then
 fi
 
 printf '%s\n' "$subjects" | while IFS= read -r subject; do
-    playwright_config="$subject/playwright.config.ts"
-
     # A subject with no browser check yet, as a fresh minimal project, has nothing for Playwright to run.
     if [ -z "$(find "$subject" -name node_modules -prune -o -type f -name '*.e2e.ts' -print)" ]; then
         echo "No browser checks: $subject"
         continue
     fi
 
+    timeout=$(bun -e 'import { TIMEOUT } from "./src/project/testing.js"; console.log(TIMEOUT.browser)')
     echo "Browser subject: $subject"
-    bunx playwright test -c "$subject" --global-timeout=60000 --workers=1
+    report=$(mktemp)
+    status=0
+    PLAYWRIGHT_JUNIT_OUTPUT_FILE="$report" bunx playwright test -c "$subject" --global-timeout="$timeout" --workers=1 --reporter=list,junit || status=$?
+    bun scripts/report-slow-tests.ts "$report" "" "$subject"
+    rm -f "$report"
+    [ "$status" -eq 0 ] || exit "$status"
 done

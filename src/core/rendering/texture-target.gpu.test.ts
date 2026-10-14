@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { rawDevice } from "../../engine/runtime";
 import { Transform } from "../transform";
@@ -15,7 +15,7 @@ import {
     Views,
 } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,

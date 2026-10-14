@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
@@ -12,7 +12,7 @@ import {
 } from "../../standard/rendering";
 import { probeBuffer } from "../runtime";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

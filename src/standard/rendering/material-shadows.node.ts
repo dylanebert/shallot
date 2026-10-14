@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -29,7 +29,7 @@ import {
 } from "./material-type";
 import { MeshRenderPlugin } from "./mesh-render";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const CutoutParameters = d.struct({ color: d.vec4f });
 const cutoutLayout = materialLayout(CutoutParameters, {});
 const CutoutContext = materialFragmentContext();

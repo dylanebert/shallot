@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { PointLightGpu } from "./lighting";
@@ -12,7 +12,7 @@ import {
 } from "./shade";
 import { EDGE_TEXELS, MAX_POINT_CASTERS } from "./shadows";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const SIDE = 256;
 const OFFSETS = Array.from({ length: 33 }, (_, i) => (i - 16) / 4);
 const apps: Awaited<ReturnType<typeof createTestGpuApp>>[] = [];

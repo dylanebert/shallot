@@ -6,14 +6,14 @@ import {
     StandardPhysicsPlugin,
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { snapshot } from "./api/snapshot";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { worldCounters } from "./world/world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 await setupGlobals();
 
 for (const mutation of ["spawn", "despawn", "joint"] as const) {

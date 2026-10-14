@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { cube, Meshes, MeshInstance } from "../../core/mesh";
 import {
@@ -20,7 +20,7 @@ import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
 import { DirectionalLightShadowMap, PointShadows } from "./shadows";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 const subjects = gpuApps(import.meta.path, [config, config]);
 const WIDTH = 256;

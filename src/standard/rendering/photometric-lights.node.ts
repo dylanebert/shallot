@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
@@ -37,7 +37,7 @@ import {
     writeLighting,
 } from "./lighting";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 const subjects = gpuApps(import.meta.path, [

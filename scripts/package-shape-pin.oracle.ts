@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { normalizePath } from "../src/project/paths";
 import { bunChild } from "./bun-child";
 import { spawnPackedInstall } from "./packed-install-spawn";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const ROOT = resolve(import.meta.dir, "..");
 const TYPEGPU_RANGE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).peerDependencies
     .typegpu;
@@ -79,7 +79,7 @@ for (const subject of ["pin", "overlay", "restore"] as const) {
                 expect(readFileSync(join(project, "package.json"), "utf8")).toBe(manifestBefore);
                 expect(readFileSync(join(project, "bun.lock"), "utf8")).toBe(lockBefore);
             }
-        }, CEILING.startup);
+        }, TIMEOUT.startup);
 
         if (subject === "pin")
             test("the published pin installs", () => {
@@ -157,5 +157,5 @@ test(
             rmSync(scratch, { recursive: true, force: true });
         }
     },
-    CEILING.startup,
+    TIMEOUT.startup,
 );

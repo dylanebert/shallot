@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { create, globals } from "webgpu";
@@ -89,7 +89,7 @@ const FloorMaterial = materialType({
 });
 const FloorMaterialPlugin = MaterialPlugin(FloorMaterial);
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

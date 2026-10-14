@@ -2,11 +2,11 @@ import { afterEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
 import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { cpuTotal } from "../../extras/profile/cpu";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

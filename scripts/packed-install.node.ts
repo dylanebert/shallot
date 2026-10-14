@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import {
     existsSync,
@@ -119,7 +119,7 @@ beforeAll(() => {
         rmSync(scratch, { recursive: true, force: true });
         throw error;
     }
-}, CEILING.startup);
+}, TIMEOUT.startup);
 
 afterAll(() => {
     if (install) rmSync(install.scratch, { recursive: true, force: true });
@@ -339,7 +339,7 @@ for (const name of [
     "hud",
 ] as const) {
     describe(name, () => {
-        beforeAll(() => createExample(name), CEILING.startup);
+        beforeAll(() => createExample(name), TIMEOUT.startup);
 
         test(`${name} creates and installs from the packed CLI`, () => {
             assertCreatedExample(name);

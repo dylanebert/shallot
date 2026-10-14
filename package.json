@@ -93,7 +93,7 @@
         "prepare": "bun run ./scripts/tooling.ts",
         "format": "biome check --write",
         "lint": "biome check",
-        "test": "bun test --timeout=250"
+        "test": "bun test --preload ./scripts/test-timeout.ts"
     },
     "peerDependencies": {
         "playwright": "^1.63.0",

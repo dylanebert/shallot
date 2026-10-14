@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     compileGpuFile,
     createTestGpuApp,
@@ -25,7 +25,7 @@ import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
 import { PointShadows, updatePointShadows } from "./shadows";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const subjects = compileGpuFile(import.meta.path, async () => {
     const owner = await createTestGpuApp({

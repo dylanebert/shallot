@@ -1,5 +1,5 @@
 import { parse } from "@babel/parser";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 
 /** Check declarations, not elapsed time. Delay timers inside tests are not tier declarations. */
 export function timeoutErrors(path: string, text: string): string[] {
@@ -12,7 +12,7 @@ export function timeoutErrors(path: string, text: string): string[] {
         : path.endsWith(".node.ts")
           ? "node"
           : "cheap";
-    const ceiling = CEILING[tier];
+    const ceiling = TIMEOUT[tier];
     const file = parse(text, { sourceType: "module", plugins: ["typescript"] });
     const errors: string[] = [];
     const tests = new Set<string>();
@@ -54,7 +54,7 @@ export function timeoutErrors(path: string, text: string): string[] {
                 const name =
                     item.imported.type === "Identifier" ? item.imported.name : item.imported.value;
                 if (source === "@dylanebert/shallot/testing") {
-                    if (name === "CEILING") tiers.add(item.local.name);
+                    if (name === "TIMEOUT") tiers.add(item.local.name);
                     if (name === "BROWSER_CONFIG") browserConfigs.add(item.local.name);
                     if (name === "WEB_SERVER_CONFIG") serverConfigs.add(item.local.name);
                 }
@@ -73,11 +73,14 @@ export function timeoutErrors(path: string, text: string): string[] {
             }
         }
     }
-    if (sharedBrowser) tiers.add("CEILING");
+    if (sharedBrowser) {
+        tiers.add("TIMEOUT");
+        tiers.add("CEILING");
+    }
     function budget(expression: any, seen = new Set<string>()): number | undefined {
         if (expression?.type === "MemberExpression" && tiers.has(expression.object.name)) {
             const key = expression.computed ? expression.property.value : expression.property.name;
-            if (Object.hasOwn(CEILING, key)) return CEILING[key as keyof typeof CEILING];
+            if (Object.hasOwn(TIMEOUT, key)) return TIMEOUT[key as keyof typeof TIMEOUT];
         }
         if (expression?.type === "Identifier" && !seen.has(expression.name)) {
             seen.add(expression.name);
@@ -115,7 +118,7 @@ export function timeoutErrors(path: string, text: string): string[] {
         if (value === undefined)
             fail(
                 node,
-                "timeout must derive from CEILING from @dylanebert/shallot/testing; literal timeout numbers are forbidden",
+                "timeout must derive from TIMEOUT from @dylanebert/shallot/testing; literal timeout numbers are forbidden",
             );
         else if (value === repeated) fail(node, "test timeout repeats its file default; omit it");
         else if (value > maximum) fail(node, "timeout exceeds its tier backstop");
@@ -150,7 +153,7 @@ export function timeoutErrors(path: string, text: string): string[] {
         if (node.type === "ObjectProperty") {
             const key = node.key.name ?? node.key.value;
             if (!browser && ["timeout", "globalTimeout"].includes(key))
-                checkBudget(node.value, CEILING.startup);
+                checkBudget(node.value, browserTest ? TIMEOUT.browser : TIMEOUT.startup);
             if (
                 sharedBrowser &&
                 [
@@ -235,7 +238,7 @@ export function timeoutErrors(path: string, text: string): string[] {
                 }
             }
             if (name && hooks.has(name) && node.arguments[1])
-                checkBudget(node.arguments[1], CEILING.startup);
+                checkBudget(node.arguments[1], TIMEOUT.startup);
         }
         for (const [key, child] of Object.entries(node))
             if (key !== "loc" && key !== "extra") visit(child);
@@ -250,18 +253,19 @@ export function timeoutErrors(path: string, text: string): string[] {
         tier !== "cheap" &&
         (defaults !== 1 || !correctDefault)
     )
-        errors.push(`${path}: one setDefaultTimeout(CEILING.${tier}) header is required`);
+        errors.push(`${path}: one setDefaultTimeout(TIMEOUT.${tier}) header is required`);
     return [...new Set(errors)];
 }
 
 export function browserCommandErrors(text: string): string[] {
-    const timeouts = [...text.matchAll(/--global-timeout(?:=|\s+)(\d+)/g)].map((match) =>
-        Number(match[1]),
+    const derivesTimeout = text.includes(
+        `timeout=$(bun -e 'import { TIMEOUT } from "./src/project/testing.js"; console.log(TIMEOUT.browser)')`,
     );
+    const timeouts = [...text.matchAll(/--global-timeout(?:=|\s+)(\S+)/g)];
     const workers = [...text.matchAll(/--workers(?:=|\s+)(\d+)/g)].map((match) => Number(match[1]));
     const errors: string[] = [];
-    if (timeouts.length !== 1 || timeouts[0] !== CEILING.browser)
-        errors.push("scripts/browser.sh: --global-timeout must equal CEILING.browser");
+    if (!derivesTimeout || timeouts.length !== 1 || timeouts[0]![1] !== '"$timeout"')
+        errors.push("scripts/browser.sh: --global-timeout must equal TIMEOUT.browser");
     if (workers.length !== 1 || workers[0] !== 1)
         errors.push("scripts/browser.sh: each subject must run with --workers=1");
     return errors;
@@ -269,10 +273,7 @@ export function browserCommandErrors(text: string): string[] {
 
 export function packageTimeoutErrors(text: string): string[] {
     const command = JSON.parse(text).scripts?.test ?? "";
-    const values = [...command.matchAll(/--timeout(?:=|\s+)(\d+)/g)].map((match) =>
-        Number(match[1]),
-    );
-    return values.length === 1 && values[0] === CEILING.cheap
+    return command === "bun test --preload ./scripts/test-timeout.ts"
         ? []
-        : ["package.json: test --timeout must equal CEILING.cheap"];
+        : ["package.json: test must preload scripts/test-timeout.ts"];
 }

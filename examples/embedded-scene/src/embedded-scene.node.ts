@@ -1,11 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Camera } from "@dylanebert/shallot";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp as createApp } from "../tests/gpu-app";
 import { LoadingWorld } from "./scene";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("embedded-scene draws with default WebGPU limits", async () => {
     const app = await createApp({ plugins: [LoadingWorld] });

@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import type { createApp } from "../../engine/app";
@@ -12,7 +12,7 @@ import "../../standard";
 import { attachCanvas, attachTexture, Camera, captureTexture, EffectPasses, Views } from "./index";
 import { PointsPlugin } from "./points.fixture";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

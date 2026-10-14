@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
@@ -15,7 +15,7 @@ import { encodePos } from "../../engine/utils";
 import { maskLayoutPlain, maskVertex } from "../outline/passes";
 import { TextVertex } from "./pipeline";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
     const app = await createTestGpuApp({ defaults: false, plugins: [RenderingPlugin] });
     const world = app.world;

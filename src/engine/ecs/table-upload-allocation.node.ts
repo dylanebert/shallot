@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { setupGlobals } from "../runtime/webgpu";
 
 await setupGlobals();
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 test("whole steady table frames reuse copy records and staging with one completion reaction", async () => {
     const app = await createApp({
         defaults: false,

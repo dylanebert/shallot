@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { BUDGET, CEILING, TIMEOUT } from "@dylanebert/shallot/testing";
 import { browserCommandErrors, packageTimeoutErrors, timeoutErrors } from "./timeout-policy";
 
 const cheap =
-    'import { test } from "bun:test"; import { CEILING } from "@dylanebert/shallot/testing";';
+    'import { test } from "bun:test"; import { CEILING, BUDGET, TIMEOUT } from "@dylanebert/shallot/testing";';
 const header = (tier: "gpu" | "node") =>
-    `import { test, setDefaultTimeout } from "bun:test"; import { CEILING } from "@dylanebert/shallot/testing"; setDefaultTimeout(CEILING.${tier});`;
+    `import { test, setDefaultTimeout } from "bun:test"; import { CEILING, BUDGET, TIMEOUT } from "@dylanebert/shallot/testing"; setDefaultTimeout(TIMEOUT.${tier});`;
 const browser = 'import { BROWSER_CONFIG, WEB_SERVER_CONFIG } from "@dylanebert/shallot/testing";';
 
 test("cheap test fixtures that start a process require the Node tier", () => {
@@ -45,11 +45,11 @@ test("tier headers derive from the published tooling subpath and reject literal 
         const path = tier === "gpu" ? "subject.gpu.test.ts" : "subject.node.ts";
         expect(timeoutErrors(path, header(tier))).toEqual([]);
         expect(
-            timeoutErrors(path, header(tier).replace(`CEILING.${tier}`, String(CEILING[tier]))),
+            timeoutErrors(path, header(tier).replace(`TIMEOUT.${tier}`, String(TIMEOUT[tier]))),
         ).toHaveLength(2);
         expect(timeoutErrors(path, cheap)).toHaveLength(1);
         expect(
-            timeoutErrors(path, `${header(tier)} setDefaultTimeout(CEILING.${tier});`),
+            timeoutErrors(path, `${header(tier)} setDefaultTimeout(TIMEOUT.${tier});`),
         ).toHaveLength(1);
     }
 });
@@ -61,28 +61,28 @@ test("per-test literal timeouts and restated file defaults are rejected", () => 
         ["subject.node.ts", header("node"), "node"],
     ] as const) {
         expect(
-            timeoutErrors(path, `${source} test("literal", () => {}, ${CEILING[tier]});`),
+            timeoutErrors(path, `${source} test("literal", () => {}, ${TIMEOUT[tier]});`),
         ).toHaveLength(1);
         expect(
-            timeoutErrors(path, `${source} test("redundant", () => {}, CEILING.${tier});`),
+            timeoutErrors(path, `${source} test("redundant", () => {}, TIMEOUT.${tier});`),
         ).toHaveLength(1);
         expect(
             timeoutErrors(
                 path,
-                `${source} test("options", () => {}, { timeout: CEILING.${tier} });`,
+                `${source} test("options", () => {}, { timeout: TIMEOUT.${tier} });`,
             ),
         ).toHaveLength(1);
         expect(
             timeoutErrors(
                 path,
-                `${source} const ownBudget = ${CEILING[tier]}; test("alias", () => {}, ownBudget);`,
+                `${source} const ownBudget = ${TIMEOUT[tier]}; test("alias", () => {}, ownBudget);`,
             ),
         ).toHaveLength(1);
     }
     expect(
         timeoutErrors(
             "subject.gpu.test.ts",
-            `${header("gpu")} test("oversized", () => {}, CEILING.node);`,
+            `${header("gpu")} test("oversized", () => {}, TIMEOUT.node);`,
         ),
     ).toHaveLength(1);
 });
@@ -106,11 +106,11 @@ test("browser subjects inherit categorical values from their one shared home", (
         ),
     ).toEqual([]);
     for (const properties of [
-        `globalTimeout: ${CEILING.browser}`,
-        `timeout: ${CEILING.node}`,
-        `timeout: ${CEILING.startup}`,
-        `webServer: { timeout: ${CEILING.startup} }`,
-        `webServer: [{ ...WEB_SERVER_CONFIG, command: "vite" }, { timeout: ${CEILING.startup} }]`,
+        `globalTimeout: ${TIMEOUT.browser}`,
+        `timeout: ${TIMEOUT.node}`,
+        `timeout: ${TIMEOUT.startup}`,
+        `webServer: { timeout: ${TIMEOUT.startup} }`,
+        `webServer: [{ ...WEB_SERVER_CONFIG, command: "vite" }, { timeout: ${TIMEOUT.startup} }]`,
         "workers: 2",
         "...BROWSER_CONFIG",
     ]) {
@@ -126,13 +126,13 @@ test("browser subjects inherit categorical values from their one shared home", (
     expect(
         timeoutErrors(
             "src/project/testing.js",
-            'const CEILING = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { testMatch: "**/*.e2e.ts" }; export const WEB_SERVER_CONFIG = { timeout: CEILING.startup };',
+            'const TIMEOUT = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { testMatch: "**/*.e2e.ts" }; export const WEB_SERVER_CONFIG = { timeout: TIMEOUT.startup };',
         ),
     ).toEqual([]);
     expect(
         timeoutErrors(
             "src/project/testing.js",
-            "const CEILING = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { globalTimeout: CEILING.browser }; export const WEB_SERVER_CONFIG = { timeout: CEILING.startup };",
+            "const TIMEOUT = { browser: 60_000, startup: 120_000 }; export const BROWSER_CONFIG = { globalTimeout: TIMEOUT.browser }; export const WEB_SERVER_CONFIG = { timeout: TIMEOUT.startup };",
         ),
     ).toContain(
         "src/project/testing.js:1: shared globalTimeout belongs to scripts/browser.sh or Playwright's defaults",
@@ -143,15 +143,45 @@ test("browser tests leave Playwright's test timeout at its default", () => {
     const source = 'import { test } from "playwright/test";';
     expect(timeoutErrors("subject.e2e.ts", `${source} test("browser", () => {});`)).toEqual([]);
     expect(
-        timeoutErrors("subject.e2e.ts", `${source} test.setTimeout(${CEILING.startup});`),
+        timeoutErrors("subject.e2e.ts", `${source} test.setTimeout(${TIMEOUT.startup});`),
     ).toHaveLength(1);
 });
 
-test("the browser runner pins the global and worker budgets", () => {
-    const command = `bunx playwright test -c "$subject" --global-timeout=${CEILING.browser} --workers=1`;
+test("local budgets retain today's limits and CI selects hang ceilings", () => {
+    expect(BUDGET).toEqual({
+        cheap: 250,
+        gpu: 1000,
+        node: 20_000,
+        browser: 60_000,
+        startup: 120_000,
+    });
+    expect(TIMEOUT).toBe(process.env.CI ? CEILING : BUDGET);
+});
+
+test("hang ceilings stay below the shortest CI job for their tier", () => {
+    expect(CEILING).toEqual({
+        cheap: 2500,
+        gpu: 10_000,
+        node: 120_000,
+        browser: 300_000,
+        startup: 120_000,
+    });
+    for (const [tier, minutes] of [
+        ["cheap", 10],
+        ["gpu", 10],
+        ["node", 20],
+        ["browser", 10],
+        ["startup", 10],
+    ] as const)
+        expect(CEILING[tier]).toBeLessThan(minutes * 60_000);
+});
+
+test("the browser runner selects the declared timeout and one worker", () => {
+    const command = `timeout=$(bun -e 'import { TIMEOUT } from "./src/project/testing.js"; console.log(TIMEOUT.browser)')
+    bunx playwright test -c "$subject" --global-timeout="$timeout" --workers=1`;
     expect(browserCommandErrors(command)).toEqual([]);
-    expect(browserCommandErrors(command.replace(String(CEILING.browser), "30000"))).toContain(
-        "scripts/browser.sh: --global-timeout must equal CEILING.browser",
+    expect(browserCommandErrors(command.replace('"$timeout"', "30000"))).toContain(
+        "scripts/browser.sh: --global-timeout must equal TIMEOUT.browser",
     );
     expect(browserCommandErrors(command.replace("--workers=1", "--workers=2"))).toContain(
         "scripts/browser.sh: each subject must run with --workers=1",
@@ -159,12 +189,18 @@ test("the browser runner pins the global and worker budgets", () => {
 });
 
 test("package test timeout follows the cheap tier and manual oracles remain unbounded", () => {
-    const manifest = (timeout: number) =>
-        JSON.stringify({ scripts: { test: `bun test --timeout=${timeout}` } });
-    expect(packageTimeoutErrors(manifest(CEILING.cheap))).toEqual([]);
-    expect(packageTimeoutErrors(manifest(CEILING.gpu))).toHaveLength(1);
+    expect(
+        packageTimeoutErrors(
+            JSON.stringify({ scripts: { test: "bun test --preload ./scripts/test-timeout.ts" } }),
+        ),
+    ).toEqual([]);
+    expect(
+        packageTimeoutErrors(
+            JSON.stringify({ scripts: { test: `bun test --timeout=${CEILING.cheap}` } }),
+        ),
+    ).toHaveLength(1);
     expect(packageTimeoutErrors(JSON.stringify({ scripts: { test: "bun test" } }))).toHaveLength(1);
     expect(
-        timeoutErrors("subject.oracle.ts", `${cheap} test("manual", () => {}, CEILING.startup);`),
+        timeoutErrors("subject.oracle.ts", `${cheap} test("manual", () => {}, TIMEOUT.startup);`),
     ).toEqual([]);
 });

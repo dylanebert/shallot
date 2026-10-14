@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
@@ -11,7 +11,7 @@ import {
     isAdmittedAllocationSite,
 } from "../first-person-allocation/allocation-admissions";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 test("runApp without a fence-wait reader allocates no fence-reaction heap per frame", async () => {
     assertAllocationWrappers(
         readFileSync(resolve(import.meta.dir, "../../src/engine/runtime/allocation-site.ts"), "utf8"),

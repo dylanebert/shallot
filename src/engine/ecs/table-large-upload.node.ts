@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import type { createApp } from "../app";
 import { probeBuffer } from "../runtime";
 import type { World } from "./world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const Record = d.struct({ amount: d.f32, tag: d.u32 });
 const current = {} as { table: ReturnType<World["table"]> };

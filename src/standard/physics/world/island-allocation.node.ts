@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
 } from "../../../../diagnostics/first-person-allocation/allocation";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("steady contact touch-link churn inside an island and merging two islands allocates no JavaScript heap", async () => {
     const sample = await sampleAllocation(resolve(import.meta.dir, "island-allocation.entry.ts"), {

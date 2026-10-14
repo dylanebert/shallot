@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { World } from "../../engine";
 import { contactIds } from "./collision/contact";
 import { readContactManifolds } from "./collision/manifoldstore";
@@ -19,7 +19,7 @@ import {
 import { bodyGetLinearVelocity, bodyGetTransform } from "./world/body";
 import type { WorldState } from "./world/world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const identity = () => ({ p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } });
 

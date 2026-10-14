@@ -2,7 +2,7 @@ import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
@@ -12,7 +12,7 @@ import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 import { createTestWorld, destroyTestWorld } from "./testing";
 import type { WorldState } from "./world/world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const entry = resolve(import.meta.dir, "fixtures/joint-allocation.entry.ts");
 let countedKernelBytes: ArrayBuffer | undefined;
 
@@ -42,7 +42,7 @@ beforeAll(async () => {
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
-}, CEILING.startup);
+}, TIMEOUT.startup);
 const fieldEntry = resolve(import.meta.dir, "fixtures/joint-field-allocation.entry.ts");
 
 test("a public ECS motor-speed write allocates no steady JavaScript heap", async () => {

@@ -6,9 +6,9 @@ import { readContactManifolds } from "../collision/manifoldstore";
 
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { splitAllocationSubject } from "../joint-allocation.fixture";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";

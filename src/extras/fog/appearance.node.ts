@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { AmbientLight, attachTexture, Camera, captureTexture } from "../../core/rendering";
@@ -14,7 +14,7 @@ import {
 } from "../../standard/rendering";
 import { Fog, FogPlugin, NoFog } from ".";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const SIZE = 48;
 const HAZE = [1, 0, 0] as const;

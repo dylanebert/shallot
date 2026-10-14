@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import type { World } from "../../engine";
 import {
@@ -28,7 +28,7 @@ import {
 } from ".";
 import { computeViewProj } from "./camera";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] },
 ]);

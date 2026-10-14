@@ -2,14 +2,14 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { Time } from "@dylanebert/shallot";
 import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { defaultJointDef } from "./solver/joint";
 import { createRevoluteJoint, defaultRevoluteJointDef } from "./solver/revoluteJoint";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

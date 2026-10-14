@@ -1,4 +1,4 @@
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 declare global {
@@ -232,7 +232,7 @@ test("the game title bootstrap hands off without a jump to its own progress trac
     ).toBe(0);
     await hiddenOverlay.evaluate((element) => element.parentNode?.removeChild(element));
     await page.evaluate(() => window.__releaseDeviceRequest?.());
-    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: CEILING.browser });
+    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: TIMEOUT.browser });
 });
 
 test("the complete card stays after progress reaches one and leaves after its dwell", async ({
@@ -253,7 +253,7 @@ test("the complete card stays after progress reaches one and leaves after its dw
     await expect(card).toBeVisible();
     const shownAt = Number(await card.getAttribute("data-observed-at"));
     expect((await page.evaluate(() => performance.now())) - shownAt).toBeLessThan(1500);
-    await expect(card).toHaveCount(0, { timeout: CEILING.browser });
+    await expect(card).toHaveCount(0, { timeout: TIMEOUT.browser });
     expect((await page.evaluate(() => performance.now())) - shownAt).toBeGreaterThanOrEqual(1500);
 });
 
@@ -310,9 +310,9 @@ test("a real GPU process crash after presentation reaches the failure screen", a
     browser,
 }) => {
     await page.goto("/");
-    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: CEILING.browser });
+    await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: TIMEOUT.browser });
     await expect
-        .poll(() => renderedCanvasPixels(page), { timeout: CEILING.browser })
+        .poll(() => renderedCanvasPixels(page), { timeout: TIMEOUT.browser })
         .toBeGreaterThan(100);
     if (process.env.SHALLOT_CAPTURE_DIR)
         await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/scene.png` });

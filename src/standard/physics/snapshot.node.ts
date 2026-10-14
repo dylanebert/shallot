@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { restore, snapshot } from "./api/snapshot";
 import { BodyType, defaultQueryFilter } from "./common/types";
 import { queryColumns } from "./kernel/querycolumns";
@@ -14,7 +14,7 @@ import {
 import { hashWorldState } from "./world/hash";
 import type { WorldState } from "./world/world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const origin = { x: 0, y: 10, z: 0 };
 const translation = { x: 0, y: -20, z: 0 };

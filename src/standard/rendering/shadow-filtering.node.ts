@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     compileGpuFile,
     createTestGpuApp,
@@ -24,7 +24,7 @@ import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
 import { DirectionalLightShadowMap, PointShadows } from "./shadows";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const renderingExports = (await import("./index")) as unknown as Record<string, unknown>;
 const shadowFilteringMethod = renderingExports["ShadowFilteringMethod"] as any;

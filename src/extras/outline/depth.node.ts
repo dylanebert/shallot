@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, Views } from "../../core/rendering";
@@ -8,7 +8,7 @@ import { DEFAULT_PLUGINS } from "../../standard";
 import { StandardRenderer } from "../../standard/rendering";
 import { Outline, OutlinePlugin } from ".";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },

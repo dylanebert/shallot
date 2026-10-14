@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, captureTexture, DepthPrepass, Views } from "../../core/rendering";
@@ -11,7 +11,7 @@ import { maskLayoutOcclude, maskLayoutOccludeMultisampled } from "../outline/pas
 import { Fog, FogPlugin, NoFog } from ".";
 import { fogLayout0, fogLayout0Multisampled, fogLayout1 } from "./pipeline";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },

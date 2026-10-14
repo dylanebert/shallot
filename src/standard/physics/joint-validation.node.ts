@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { type Component, Time } from "@dylanebert/shallot";
 import * as core from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import {
@@ -33,7 +33,7 @@ import { readJointFloat, readJointQuat, readJointVec3 } from "./kernel/jointcolu
 import { physicsState } from "./runtime";
 import { jointIds } from "./solver/joint.fixture";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

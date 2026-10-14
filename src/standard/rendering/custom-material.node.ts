@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
@@ -26,7 +26,7 @@ import {
     StandardRenderingPlugin,
 } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const TintParameters = d.struct({ tint: d.vec4f });
 const tintLayout = materialLayout(TintParameters, {});

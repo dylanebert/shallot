@@ -3,9 +3,9 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const repo = resolve(import.meta.dir, "../..");
 const crate = resolve(repo, "crates/native");
@@ -26,7 +26,7 @@ beforeAll(() => {
             beforeAllMs: Number((performance.now() - started).toFixed(2)),
         }),
     );
-}, CEILING.startup);
+}, TIMEOUT.startup);
 
 afterAll(() => {
     rmSync(temp, { recursive: true, force: true });

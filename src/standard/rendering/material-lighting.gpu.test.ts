@@ -1,5 +1,5 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -24,7 +24,7 @@ import {
 } from "./index";
 import type { MaterialHandle } from "./material-type";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 
 // With no sun or point lights, the lit diffuse pixel is baseColor * this white ambient intensity.
 // At EV100 9.7, the recalibrated cd/m² value yields the former 0.25 linear response.
@@ -78,7 +78,7 @@ beforeAll(async () => {
     add(0, world.resource(VertexMaterialType).add(StandardMaterial({ baseColor: [0, 1, 0, 1] })));
     add(0.7, world.resource(Materials).add(StandardMaterial({ baseColor: [0, 0, 1, 1] })));
     await capture();
-}, CEILING.startup);
+}, TIMEOUT.startup);
 
 test("StandardMaterial unlit preserves base colour under lighting that dims a lit material", async () => {
     const { world } = subjects()[0];

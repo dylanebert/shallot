@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { GlobalTransform, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 await setupGlobals();
 
 test("built world recovery publishes restored fields and discards old interpolation without altering pacing or GPU frame", async () => {

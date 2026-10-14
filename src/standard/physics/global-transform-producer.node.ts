@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import { Body, BodyType } from "../../core/physics";
@@ -10,7 +10,7 @@ import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { physicsBodyIndex, physicsState, setAwake, setLinearVelocity } from "./runtime";
 import { bodyGetLinearVelocity, bodyIsAwake } from "./world/body";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

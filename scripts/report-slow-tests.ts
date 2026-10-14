@@ -1,14 +1,14 @@
-import { CEILING } from "@dylanebert/shallot/testing";
+import { BUDGET } from "@dylanebert/shallot/testing";
 import { normalizePath } from "../src/project/paths";
 
-export type Tier = "cheap" | "gpu" | "node";
+export type Tier = "cheap" | "gpu" | "node" | "browser";
 
 export interface SlowTest {
     name: string;
     file: string;
     tier: Tier;
     timeMs: number;
-    ceiling: number;
+    budget: number;
     adapter?: string;
 }
 
@@ -83,8 +83,24 @@ function adapterForFile(log: string, file: string): string | undefined {
     return [...new Set(adapters)].join("; ") || undefined;
 }
 
-export function slowTests(report: string, log = ""): SlowTest[] {
+export function slowTests(report: string, log = "", subject?: string): SlowTest[] {
     const slow: SlowTest[] = [];
+    if (subject !== undefined) {
+        const root = report.match(/<testsuites\b[^>]*>/);
+        const seconds = root ? Number(attributes(root[0]).get("time")) : NaN;
+        if (!Number.isFinite(seconds) || seconds < 0)
+            throw new Error("invalid JUnit browser subject duration");
+        const timeMs = seconds * 1000;
+        if (timeMs > BUDGET.browser / 2)
+            slow.push({
+                name: subject,
+                file: subject,
+                tier: "browser",
+                timeMs,
+                budget: BUDGET.browser,
+            });
+        return slow;
+    }
     for (const match of report.matchAll(/<testcase\b[^>]*>/g)) {
         const attrs = attributes(match[0]);
         const name = attrs.get("name");
@@ -94,10 +110,10 @@ export function slowTests(report: string, log = ""): SlowTest[] {
             throw new Error(`invalid JUnit testcase: ${match[0]}`);
 
         const tier = tierForFile(file);
-        const ceiling = CEILING[tier];
+        const budget = BUDGET[tier];
         const timeMs = seconds * 1000;
-        if (timeMs <= ceiling / 2) continue;
-        slow.push({ name, file, tier, timeMs, ceiling, adapter: adapterForFile(log, file) });
+        if (timeMs <= budget / 2) continue;
+        slow.push({ name, file, tier, timeMs, budget, adapter: adapterForFile(log, file) });
     }
     return slow;
 }
@@ -113,8 +129,8 @@ function escapeProperty(value: string): string {
 export function warningAnnotation(test: SlowTest, host: string): string {
     const duration = `${test.timeMs.toFixed(2)} ms`;
     const message = [
-        `test ${JSON.stringify(test.name)} took ${duration}`,
-        `${test.tier} ceiling ${test.ceiling} ms`,
+        `${test.tier === "browser" ? "subject" : "test"} ${JSON.stringify(test.name)} took ${duration}`,
+        `${test.tier} speed budget ${test.budget} ms`,
         `host ${host}`,
         ...(test.adapter ? [`adapter ${test.adapter}`] : []),
     ].join("; ");
@@ -122,9 +138,11 @@ export function warningAnnotation(test: SlowTest, host: string): string {
 }
 
 if (import.meta.main) {
-    const [reportPath, logPath] = process.argv.slice(2);
+    const [reportPath, logPath, subject] = process.argv.slice(2);
     if (!reportPath) {
-        console.error("usage: bun scripts/report-slow-tests.ts <junit-report> [console-log]");
+        console.error(
+            "usage: bun scripts/report-slow-tests.ts <junit-report> [console-log] [browser-subject]",
+        );
     } else {
         try {
             const report = Bun.file(reportPath);
@@ -135,7 +153,7 @@ if (import.meta.main) {
                     logPath && (await Bun.file(logPath).exists())
                         ? await Bun.file(logPath).text()
                         : "";
-                for (const test of slowTests(await report.text(), log))
+                for (const test of slowTests(await report.text(), log, subject))
                     console.log(warningAnnotation(test, process.env.RUNNER_OS ?? "local"));
             }
         } catch (error) {

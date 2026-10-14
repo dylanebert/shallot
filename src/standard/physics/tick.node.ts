@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { Body, BodyType } from "../../core/physics";
@@ -7,7 +7,7 @@ import { GlobalTransform } from "../../core/transform";
 import { Time } from "../../engine";
 import { hashPhysics, StandardPhysicsPlugin } from ".";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 await setupGlobals();
 
 test("exact ticks then draw match frame ticks in physics hash and published fields", async () => {

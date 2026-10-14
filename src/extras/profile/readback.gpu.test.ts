@@ -1,10 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import { Profile, ProfilePlugin } from "./index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("profiler adapter unavailable");

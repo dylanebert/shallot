@@ -1,10 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { probeBuffer } from "./probe";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const kinds = ["records", "active", "map"] as const;
 const subjects = gpuApps(
     import.meta.path,

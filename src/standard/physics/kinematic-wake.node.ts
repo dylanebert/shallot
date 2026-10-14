@@ -6,12 +6,12 @@ import {
     setLinearVelocity,
     setTargetTransform,
 } from "@dylanebert/shallot/standard/physics";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 await setupGlobals();
 
 async function sleepingPlatform() {

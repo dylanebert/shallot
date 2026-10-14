@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { World } from "../../../engine";
 import { restore, snapshot } from "../api/snapshot";
 import { BodyType } from "../common/types";
@@ -22,7 +22,7 @@ import { bodyGetTransform, destroyBody } from "../world/body";
 import type { WorldState } from "../world/world";
 import { worldSetGravity } from "../world/world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const zero = { x: 0, y: 0, z: 0 };
 const pose = () => ({ p: { ...zero }, q: { v: { ...zero }, s: 1 } });

@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import {
@@ -35,7 +35,7 @@ import {
 import { StandardRenderingPlugin } from "./index";
 import { MAX_POINT_LIGHTS } from "./lighting";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 // CTS accepts f32 results within an interval; bracket each CPU range by this relative radius.
 const RANGE_EPSILON = 1e-5;

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { normalizePath } from "../project/paths";
 import { cargoRuntimeDir } from "./provenance.js";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { execFileSync } from "node:child_process";
 import {
@@ -40,7 +40,7 @@ beforeAll(async () => {
             beforeAllMs: Number((performance.now() - started).toFixed(2)),
         }),
     );
-}, CEILING.startup);
+}, TIMEOUT.startup);
 
 afterAll(() => {
     rmSync(packedPackageDir, { recursive: true, force: true });

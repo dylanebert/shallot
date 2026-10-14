@@ -1,13 +1,13 @@
 import { setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     allocationFailure,
     sampleAllocation,
     windowBytes,
 } from "../../../../diagnostics/first-person-allocation/allocation";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 // Two threads hold the threaded claim: the sampler measures only the main isolate, whose code is the
 // same for any pool of two or more. Four oversubscribed a four-vCPU Windows runner beside the sampled

@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../../../scripts/bun-child";
 import { contactCount } from "../collision/contact";
 import type { WorldTransform } from "../common/math";
@@ -17,7 +17,7 @@ import {
 import type { WorldState } from "../world/world";
 import { step as stepWorld } from "./step";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const zero = { x: 0, y: 0, z: 0 };
 const sphere = { center: zero, radius: 0.5 };

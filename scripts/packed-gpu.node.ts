@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
 import { packedInstall } from "./packed-install-spawn";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import {
     existsSync,
@@ -154,7 +154,7 @@ test("the packed headless plugin set steps the world through public engine subpa
         rmSync(scratch, { recursive: true, force: true });
         throw error;
     }
-}, CEILING.startup);
+}, TIMEOUT.startup);
 
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 

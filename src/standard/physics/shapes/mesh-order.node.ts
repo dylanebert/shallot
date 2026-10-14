@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     createBoxMesh,
     createGridMesh,
@@ -10,7 +10,7 @@ import {
     type MeshData,
 } from "./mesh";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 function orderedTraversal(mesh: MeshData | null): void {
     expect(mesh).not.toBeNull();

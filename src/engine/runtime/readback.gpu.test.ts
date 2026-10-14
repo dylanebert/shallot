@@ -1,9 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { probeBuffer, probeTexture } from "./probe";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const subjects = gpuApps(
     import.meta.path,
     Array.from({ length: 3 }, () => ({ defaults: false, plugins: [] })),

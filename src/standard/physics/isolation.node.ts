@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { World } from "../../engine";
 import { BodyType, defaultShapeDef } from "./common/types";
 import { queryColumns } from "./kernel/querycolumns";
@@ -25,7 +25,7 @@ import { bodySetAwake } from "./world/body";
 import { hashWorldState } from "./world/hash";
 import type { WorldState } from "./world/world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 function scene(owner: World, variant: number): { world: WorldState; sleeper: number } {
     const world = createTestWorld({}, owner);

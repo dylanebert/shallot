@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { World } from "../../engine";
 import { restore, snapshot } from "./api/snapshot";
 import { contactIds } from "./collision/contact";
@@ -22,7 +22,7 @@ import { hashWorldState } from "./world/hash";
 import type { WorldState } from "./world/world";
 import { worldCounters } from "./world/world";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 function makeWorld() {
     const owner = new World();

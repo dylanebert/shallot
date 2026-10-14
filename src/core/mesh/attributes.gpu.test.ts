@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { Meshes, type MeshHandle, MeshPlugin } from "./index";
 import { clearMeshes, flushMeshes } from "./mesh";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [MeshPlugin] }]);
 const vertices = new Float32Array([0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
 const indices = new Uint32Array([0, 1]);

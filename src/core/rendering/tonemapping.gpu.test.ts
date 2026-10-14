@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import type { Plugin } from "../../engine";
 import { Vignette, VignettePlugin } from "../../extras/vignette";
@@ -20,7 +20,7 @@ import {
 } from "./index";
 import { TonemappingSystem, tonemappingStateKey } from "./tonemapping-state";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const sources = { create: () => new Map<number, GPUTextureView>() };
 const Scene: Plugin = {
     name: "PresentationComparisonScene",

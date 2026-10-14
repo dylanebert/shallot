@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -8,7 +8,7 @@ import type { Plugin } from "../app";
 import { probeBuffer } from "../runtime";
 import type { World } from "./world";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 await setupGlobals();
 
 const outputLayout = tgpu.bindGroupLayout({

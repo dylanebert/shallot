@@ -2,11 +2,11 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "@babel/parser";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Glob } from "bun";
 import { normalizePath } from "../src/project/paths";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const ROOT = resolve(import.meta.dir, "..");
 type AstNode = Record<string, any>;

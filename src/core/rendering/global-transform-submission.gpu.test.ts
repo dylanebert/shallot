@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { Time, type World } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { Transform, TransformPlugin } from "../transform";
 import { GlobalTransformHistory as TransformRuntime } from "./global-transform";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 

@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import type { createApp } from "../app";
 import type { World } from "../ecs";
@@ -7,7 +7,7 @@ import { rawDevice } from "./gpu";
 import { probeBuffer } from "./probe";
 import { countStaging } from "./readback.fixture";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 const subject = compileGpuFile(import.meta.path, async () => {
     const owner = await createTestGpuApp({

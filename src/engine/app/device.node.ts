@@ -1,8 +1,8 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { expectError, expectWarning } from "../../../scripts/test-console";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform } from "../../core/transform";

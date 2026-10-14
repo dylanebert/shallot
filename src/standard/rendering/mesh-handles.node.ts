@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
@@ -16,7 +16,7 @@ import {
     StandardRenderingPlugin,
 } from "./index";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const rendering = { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] };
 // the shared labels and handles world, one for the draw-args growth row, one for the alpha-key draws row

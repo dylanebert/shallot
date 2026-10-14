@@ -10,11 +10,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
 import { packedInstall } from "./packed-install-spawn";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 const repo = resolve(import.meta.dir, "..");
 
 test("installed packed CLI preserves editable favicon and native PNG at a nested web base", () => {

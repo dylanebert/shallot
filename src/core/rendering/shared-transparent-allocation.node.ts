@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, setDefaultTimeout, test } from "bun:test";
 import { resolve } from "node:path";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     type PreparedAllocationSampler,
     prepareAllocationSampler,
     windowBytes,
 } from "../../../diagnostics/first-person-allocation/allocation";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const entry = resolve(
     import.meta.dir,
@@ -19,7 +19,7 @@ let sampler: PreparedAllocationSampler | undefined;
 
 beforeAll(async () => {
     sampler = await prepareAllocationSampler(entry);
-}, CEILING.startup);
+}, TIMEOUT.startup);
 
 afterAll(() => sampler?.dispose());
 

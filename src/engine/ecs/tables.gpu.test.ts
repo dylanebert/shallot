@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import type { createApp, Plugin } from "../app";
@@ -8,7 +8,7 @@ import { probeBuffer } from "../runtime";
 import { type Component, component } from "./component";
 import type { World } from "./world";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 
 type App = Awaited<ReturnType<typeof createApp>>;
 interface Subject {

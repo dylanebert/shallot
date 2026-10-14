@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
@@ -27,7 +27,7 @@ import {
 } from "./index";
 import { MeshRenderPlugin } from "./mesh-render";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const parameters = d.struct({ unused: d.u32 });
 const varyings = { tint: d.vec4f };

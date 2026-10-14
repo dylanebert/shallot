@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     compileGpuFile,
     createTestGpuApp,
@@ -22,7 +22,7 @@ import { Materials, MeshMaterial, StandardMaterial } from "./material";
 import { MeshRenderPlugin } from "./mesh-render";
 import { PointShadows } from "./shadows";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 // each arm's app sets its world's PointShadows in setup, as its JSDoc instructs
 const settings = {

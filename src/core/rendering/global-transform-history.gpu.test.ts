@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { attachCanvas, Camera, PointLight, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import {
@@ -13,7 +13,7 @@ import {
     type World,
 } from "../../index";
 
-setDefaultTimeout(CEILING.gpu);
+setDefaultTimeout(TIMEOUT.gpu);
 
 import { disposeGpuApps, gpuApps } from "../../../scripts/gpu.fixture";
 import { deriveTransforms } from "../transform";

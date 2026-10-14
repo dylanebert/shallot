@@ -1,9 +1,9 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp } from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { AudioPlugin, Listener, Sound } from "../../core/audio";
 import { MeshInstance } from "../../core/mesh";

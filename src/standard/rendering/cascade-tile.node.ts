@@ -1,5 +1,5 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, gpuRequirements } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
@@ -25,7 +25,7 @@ import {
     DirectionalLightShadowMap,
 } from "./shadows";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 const BASE_3X3_SUBTEXEL_SHADOWED_PIXELS = 8;
 

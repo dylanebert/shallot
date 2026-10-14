@@ -1,12 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { World } from "../../engine";
 import type { WorldGpu } from "../../engine/runtime";
 import { captureFrame } from "./capture";
 import { RenderContext } from "./render";
 import { attachCanvas, detachCanvas } from "./view";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 function deferred<T>() {
     let resolve!: (value: T) => void;

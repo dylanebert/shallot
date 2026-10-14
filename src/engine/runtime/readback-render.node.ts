@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import {
     createTestGpuApp,
@@ -10,7 +10,7 @@ import { DEFAULT_PLUGINS } from "../../standard";
 import { classifyAdapter } from "./adapter";
 import { rawDevice } from "./gpu";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 

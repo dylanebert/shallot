@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { CEILING } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { restore, snapshot } from "../api/snapshot";
 import { BodyType, defaultShapeDef } from "../common/types";
 import { kernel } from "../kernel/kernel";
@@ -16,7 +16,7 @@ import { bodySetAwake, destroyBody } from "../world/body";
 import { hashWorldState } from "../world/hash";
 import { ContactField, contactField, contactIds } from "./contact";
 
-setDefaultTimeout(CEILING.node);
+setDefaultTimeout(TIMEOUT.node);
 
 test("mesh contact cache replays through sleep, wake, contact destruction and recycled ids", () => {
     const world = createTestWorld();
