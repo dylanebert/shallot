@@ -1,0 +1,2 @@
+stage: 3
+finding: Stage 3 finding persists: the plugin probe remains behavior-only and misses dormant module state; restore of a snapshot into a different fresh rollback World still throws unknown world snapshot. `multiplayer.md`/`engine-hardening.md` require fresh-world replay/rollback.

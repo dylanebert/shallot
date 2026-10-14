@@ -1,0 +1,2 @@
+stage: 2
+finding: The non-packed slab flush calls column.subarray for every dirty frame; instrumenting a slab(f32) world observed one view per write/step, including built-in f32/vec4 slab types, so steady play is not allocation-free. Also, Object.freeze protects only the component object: its nested FieldSchema.type remains mutable, and changing it after state.of bypasses the WeakSet cache and leaves declared f16 paired with f32 storage.

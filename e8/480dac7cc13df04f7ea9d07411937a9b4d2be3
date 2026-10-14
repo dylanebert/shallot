@@ -1,0 +1,1 @@
+finding: stage 3 Check is unmet: the only completed pack attempt used incompatible --destination and --filename flags, exited 1 before a tarball, and produced no tarball identity, frozen install, public import, installed fixtures, or report; wrapper validation covered fake installed-runner argv but not this pack flag combination

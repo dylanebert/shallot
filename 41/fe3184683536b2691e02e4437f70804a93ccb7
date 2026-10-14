@@ -1,0 +1,2 @@
+stage: 2
+finding: P1: a late pointer-lock fulfillment can retain a retired browser effect. If requestPointerLock returns a pending promise, State.dispose clears ownedCanvases and lockOwners; if the host grants the canvas before resolving that promise, finishPointerLockRequest reaches the disposed early return without calling host.releasePointerLock. Independently reproduced with a declared host: after disposal, resolving a grant that sets pointerLockElement left the retired canvas locked with release count 0, so a replacement State/browser can inherit the lock.

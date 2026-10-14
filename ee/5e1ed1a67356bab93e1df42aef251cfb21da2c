@@ -1,0 +1,1 @@
+finding: scripts/test-runner.ts prints a `shallot verdict` line for every passing or host-unrun selected row (lines 381-389), so a green selected integration run emits routine per-test chatter instead of only the aggregate count and report path required by stage 3; for example, `bun run test -- --integration --base 201043c7 --diff HEAD` printed 25 such lines before its summary.

@@ -1,0 +1,2 @@
+stage: 4
+finding: `captureArtifact` remains publicly exported from `/rendering` and is still shipped in the tarball, although its own documentation describes it as a failure-artifact helper and there are no callers in the repository. That leaves test-only support under the engine namespace contrary to the stage's deletion boundary. The pack gate only rejects `src/harness`/`src/testing` paths, and the packed-install test checks neither this export nor its absence, so both checks pass with this residue.

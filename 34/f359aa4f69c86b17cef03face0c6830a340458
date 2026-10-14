@@ -1,0 +1,2 @@
+stage: 3
+finding: Stage 3 finding: the new runtime probe enumerates the current plugin objects but has no source scan, so dormant/unexercised module Map, WeakMap, closure, Compute, static or imported caches do not red; it also runs the all-plugin set only on distinct devices. More importantly, per-World snapshot IDs make restore into a fresh rollback World throw unknown world snapshot, which the test currently asserts instead of preserving cross-world replay.

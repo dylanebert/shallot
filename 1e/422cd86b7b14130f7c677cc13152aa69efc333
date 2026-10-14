@@ -1,0 +1,2 @@
+stage: 3
+finding: Stage 3 fails: checker misses exported LiveSkin and planted Map/WeakMap/closure/Compute/class/import cases; second Skin world destroys first's GPU buffer. Physics restore(state1,snapshot) after state2 build overwrites state2's distinct WASM memory (pose 19.9083 to 1.9083); joints cache is process-global/reset by any warm, and snapshot payloads stay in a process Map after dispose.

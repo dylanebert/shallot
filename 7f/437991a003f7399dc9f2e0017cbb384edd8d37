@@ -1,0 +1,2 @@
+stage: 1
+finding: examples/loading-screen/src/browser-check.ts:164-166,342-355 — the Stage 1 Check requires a wrong or blank first frame followed by a correct later one to stay red, but the first and later screenshots are each accepted by the same loose orange-pixel count (>100); no semantic content or image comparison distinguishes the intended first scene from a wrong orange frame, so that wrong-first/correct-later case can pass.

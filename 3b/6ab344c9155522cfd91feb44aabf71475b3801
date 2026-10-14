@@ -1,0 +1,2 @@
+stage: 3
+finding: src/harness/preload.ts:9 excludes project JavaScript under every path segment named dist, including authored source such as src/dist/shader.js. I reproduced a selected row importing that shader; tgpu.resolve failed with Missing metadata for tgpu.fn. The filter therefore still leaves a supported project shader source untransformed.

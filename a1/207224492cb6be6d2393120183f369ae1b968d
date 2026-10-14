@@ -1,0 +1,2 @@
+stage: 2
+finding: An empty project still runs Vite that is not its own when the shipped CLI executes: with only index.html and no node_modules/vite, `bun bin/shallot.ts build <project>` ran Vite 8.3.1 and succeeded instead of refusing with `bun add -d vite`. In this Bun CLI context the resolver finds the cached Vite outside the project (`~/.bun/install/cache/vite@8.3.1`); the added no-Vite unit test calls the resolver under Bun's test-module context and uses a fake spawn, where it throws, so it misses the actual CLI behavior. The project-own-Vite contract still fails.

@@ -1,0 +1,2 @@
+stage: 2
+finding: P1: the CI partition drops changed display rows: Ubuntu excludes gpu, browser and display, while macOS selects only gpu and browser. The synthetic display row is absent from both host selections; its separate manually invoked refusal test does not route an actual changed display row through CI. P2: an empty macOS --requires gpu selection falls through to the full unit sweep, duplicating Ubuntu's sweep; observed 287 passed, 48 skipped locally and in run 36219940472. Both need correction before landing.

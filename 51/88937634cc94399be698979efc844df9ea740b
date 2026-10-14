@@ -1,0 +1,2 @@
+stage: 3
+finding: World.restore writes the whole kernel WASM memory image: restoring a snapshot into a second World sharing that kernel rewinds the source/sibling world (reproduced source velocity 8→1), while the new cross-world test uses separate State kernels.

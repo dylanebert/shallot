@@ -1,0 +1,2 @@
+stage: 2
+finding: P2: the layout correction makes src/harness/page.ts import the project module's internal vite.ts; check-imports reports this new boundary violation at line 3 in run 36220751286. Expose the shared header through a valid module entrypoint or otherwise avoid the deep import. P2: the exact-once fixture omits a valid row requiring both gpu and browser; each macOS selector matches that row, so it runs twice. Make the selectors disjoint or constrain the declaration vocabulary and test the combination.

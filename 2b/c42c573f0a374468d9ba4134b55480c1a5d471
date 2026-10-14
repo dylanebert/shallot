@@ -1,0 +1,1 @@
+finding: the change-selected integration sweep fails the existing named-oracle row: run() now captures successful child stdout, so scripts/surface.test.ts still expects NAMED_ORACLE_RAN and the pass verdict in the parent stdout; bun run test -- --integration --base 82105ced --diff HEAD exits 1

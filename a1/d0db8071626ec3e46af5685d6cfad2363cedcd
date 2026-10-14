@@ -1,0 +1,2 @@
+stage: 1
+finding: examples/loading-screen/src/host.ts:45-47 — host.fail now only logs, while src/reveal.ts:22-32 calls it when the first-frame device is absent or the submitted-work fence rejects after loading cleanup. The canvas then remains hidden over the void with no user-visible error. This leaves the Stage 1 Check's readable-error/first-frame handoff claim unfulfilled on a handled production failure path; the focused tests exercise Loading.error directly and would not catch it. Keep the successful page stripped down, but surface this failure condition to the host.
