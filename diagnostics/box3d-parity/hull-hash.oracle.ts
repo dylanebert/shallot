@@ -1,18 +1,10 @@
 import { expect, test } from "bun:test";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createHull, makeBoxHull, makeOffsetBoxHull } from "../../src/standard/physics/shapes/hull";
 import { hash64NonZero, hullImage } from "../../src/standard/physics/shapes/hullbytes";
-import { nativeBinary, run } from "./native";
+import { nativeBinary } from "./native";
 
 test("hull byte images and full 64-bit hashes equal direct native box construction", () => {
-    nativeBinary();
-    const box3d = process.env.BOX3D!;
-    const output = join(tmpdir(), "shallot-hull-hash-native");
-    run(["cc", "-O2", "-std=c17", "-ffp-contract=off", `-I${join(box3d, "include")}`,
-        `-I${join(box3d, "src")}`, join(import.meta.dir, "hull-hash.c"),
-        join(tmpdir(), "box3d-parity-47d7f7cc/cmake/src/libbox3d.a"), "-o", output]);
-    const result = Bun.spawnSync([output]);
+    const result = Bun.spawnSync([nativeBinary("hull-hash.c")]);
     expect(result.exitCode).toBe(0);
     expect(result.stderr.toString()).toBe("miss=1 hit=0 destroy=0\n");
     const bytes = new Uint8Array(result.stdout);

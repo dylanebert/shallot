@@ -235,26 +235,17 @@ test("the game title bootstrap hands off without a jump to its own progress trac
     await expect(page.locator(loadingOverlay)).toHaveCount(0, { timeout: TIMEOUT.browser });
 });
 
-test("the complete card stays after progress reaches one and leaves after its dwell", async ({
+// The hold's duration is `src/title-card/dwell.test.ts`, on an injected clock: a page reading of it is
+// smaller than browser startup noise, so it passes a dwell of zero.
+test("the complete card stays visible at full progress and leaves when its hold ends", async ({
     page,
 }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => {
-        const observer = new MutationObserver(() => {
-            const card = document.querySelector<HTMLElement>("[data-title-card]");
-            if (card && !card.dataset.observedAt)
-                card.dataset.observedAt = String(performance.now());
-        });
-        observer.observe(document, { subtree: true, attributes: true, childList: true });
-    });
     await page.goto("/", { waitUntil: "commit" });
     const card = page.locator(loadingOverlay);
     await expect(card).toHaveAttribute("data-progress", "1");
     await expect(card).toBeVisible();
-    const shownAt = Number(await card.getAttribute("data-observed-at"));
-    expect((await page.evaluate(() => performance.now())) - shownAt).toBeLessThan(1500);
     await expect(card).toHaveCount(0, { timeout: TIMEOUT.browser });
-    expect((await page.evaluate(() => performance.now())) - shownAt).toBeGreaterThanOrEqual(1500);
 });
 
 test("the screenshot witness rejects a blank bootstrap text control", async ({ page }) => {

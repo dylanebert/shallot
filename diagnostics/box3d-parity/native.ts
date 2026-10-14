@@ -60,6 +60,7 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
         source,
         join(cmake, "shared/libshared.a"),
         join(cmake, "src/libbox3d.a"),
+        "-lm",
         "-o",
         native,
     ]);

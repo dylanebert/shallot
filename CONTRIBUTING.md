@@ -222,7 +222,7 @@ bun run format                  # biome
 | Deterministic work and owned counts | Stepped world assertions, engine counters, `FinalizationRegistry` under `Bun.gc(true)` / cheap |
 | WASM memory | Feature-gated counting allocator and `memory.buffer.byteLength` / Cargo |
 | Native heap per step | `dhat`, one profiler per process / Cargo |
-| Steady JavaScript allocation | V8 sampling heap profiler over a GPU-backed Node child with Dawn's `webgpu` / Node, macOS |
+| Steady JavaScript allocation | V8 sampling heap profiler over a GPU-backed Node child with Dawn's `webgpu` / Node |
 | GPU release | Counting wrapper over a real Dawn device / GPU |
 | Beyond the suite | Heap snapshots, CDP tracing, `measureUserAgentSpecificMemory`, GPU timestamps / oracle |
 
