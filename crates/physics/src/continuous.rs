@@ -141,15 +141,7 @@ fn end(s: Sweep) -> Transform {
         q: s.q2,
     }
 }
-fn box_transform(lower: Vec3, upper: Vec3, xf: Transform) -> [f32; 6] {
-    let center = xf.point(lower.add(upper).scale(0.5));
-    let extent = crate::math::Mat3::from_quat(xf.q)
-        .abs()
-        .mul_v(upper.sub(lower).scale(0.5));
-    let a = center.sub(extent);
-    let b = center.add(extent);
-    [a.x, a.y, a.z, b.x, b.y, b.z]
-}
+use crate::geometry_read::transform_bounds as box_transform;
 pub(crate) fn bounds(world_index: usize, id: usize, xf: Transform) -> [f32; 6] {
     let r = shapes::col_f(world_index);
     let o = id * shapes::SHAPE_STRIDE;

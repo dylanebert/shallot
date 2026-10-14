@@ -140,6 +140,7 @@ mod events;
 #[cfg(target_arch = "wasm32")]
 #[cfg(target_arch = "wasm32")]
 mod geo;
+pub mod geometry_read;
 #[cfg(any(target_arch = "wasm32", test))]
 mod hull_database;
 #[cfg(target_arch = "wasm32")]

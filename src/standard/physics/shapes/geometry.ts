@@ -1,4 +1,6 @@
-import { type AABB, f32, type Mat3, type Transform, type Vec3, vec3, xf } from "../common/math";
+import { f32, type Mat3, type Vec3, vec3 } from "../common/math";
+
+export { computeCapsuleAABB, computeSphereAABB } from "./read-geometry";
 
 /** Mass, local center of mass, and inertia about that center (b3MassData). */
 export type MassData = {
@@ -46,22 +48,4 @@ export function roundCapsule(
     out.center2.z = f32(c.center2.z);
     out.radius = f32(c.radius);
     return out;
-}
-
-export function computeSphereAABB(shape: Sphere, transform: Transform): AABB {
-    const center = xf.point(transform, shape.center);
-    const r = shape.radius;
-    const extent: Vec3 = { x: r, y: r, z: r };
-    return { lowerBound: vec3.sub(center, extent), upperBound: vec3.add(center, extent) };
-}
-
-export function computeCapsuleAABB(shape: Capsule, transform: Transform): AABB {
-    const r = shape.radius;
-    const center1 = xf.point(transform, shape.center1);
-    const center2 = xf.point(transform, shape.center2);
-    const extent: Vec3 = { x: r, y: r, z: r };
-    return {
-        lowerBound: vec3.sub(vec3.min(center1, center2), extent),
-        upperBound: vec3.add(vec3.max(center1, center2), extent),
-    };
 }

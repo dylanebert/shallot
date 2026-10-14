@@ -105,13 +105,7 @@ mod wasm {
     pub(crate) unsafe fn bounds(world_index: usize, id: usize, pose: Transform) -> [f32; 6] {
         if kind(world_index, id) == 3 {
             let h = geo::hull_record(reference(world_index, id));
-            let center = pose.point(h.bounds[0].add(h.bounds[1]).scale(0.5));
-            let extent = Mat3::from_quat(pose.q)
-                .abs()
-                .mul_v(h.bounds[1].sub(h.bounds[0]).scale(0.5));
-            let lo = center.sub(extent);
-            let hi = center.add(extent);
-            [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z]
+            crate::geometry_read::transform_bounds(h.bounds[0], h.bounds[1], pose)
         } else {
             crate::continuous::bounds(world_index, id, pose)
         }

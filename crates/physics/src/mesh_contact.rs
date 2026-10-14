@@ -53,58 +53,30 @@ pub enum TriangleSource<'a> {
 }
 impl TriangleSource<'_> {
     pub fn triangle(&self, index: usize) -> TriangleInput {
-        use crate::mesh_query::mul;
-        let (vertices, indices, flags, material_index) = match self {
+        let (triangle, material_index) = match self {
             Self::Mesh { mesh, flags } => {
-                let mut indices = mesh.triangles[index].indices;
-                let mut flags = flags[index];
-                if mesh.scale.x * mesh.scale.y * mesh.scale.z < 0.0 {
-                    indices.swap(1, 2);
-                    flags = (flags >> 4) & 7;
-                }
+                let indices = mesh.triangles[index].indices;
                 (
-                    indices.map(|i| mul(mesh.scale, mesh.vertices[i as usize])),
-                    indices,
-                    flags,
+                    crate::geometry_read::mesh_triangle(
+                        indices.map(|i| mesh.vertices[i as usize]),
+                        indices,
+                        flags[index],
+                        mesh.scale,
+                    ),
                     mesh.materials[index],
                 )
             }
-            Self::Height { field, flags } => {
-                let cell = index >> 1;
-                let row = cell / (field.columns() - 1);
-                let column = cell - row * (field.columns() - 1);
-                let i11 = row * field.columns() + column;
-                let i12 = i11 + 1;
-                let i21 = (row + 1) * field.columns() + column;
-                let i22 = i21 + 1;
-                let mut indices = if index & 1 == 0 {
-                    [i11 as u32, i21 as u32, i12 as u32]
-                } else {
-                    [i22 as u32, i12 as u32, i21 as u32]
-                };
-                let mut flags = flags[index];
-                if field.clockwise() {
-                    indices.swap(1, 2);
-                    let edge1 = flags & 0x11;
-                    let edge3 = flags & 0x44;
-                    flags = (flags & !0x55) | (edge1 << 2) | (edge3 >> 2);
-                }
-                let vertices = indices.map(|i| {
-                    let row = i as usize / field.columns();
-                    let column = i as usize % field.columns();
-                    mul(
-                        field.scale,
-                        Vec3::new(
-                            column as f32,
-                            field.min_height
-                                + field.height_scale * field.heights[i as usize] as f32,
-                            row as f32,
-                        ),
-                    )
-                });
-                (vertices, indices, flags, field.materials[cell])
-            }
+            Self::Height { field, flags } => (
+                crate::geometry_read::height_triangle(
+                    field.header,
+                    index,
+                    |i| field.heights[i],
+                    flags[index],
+                ),
+                field.materials[index >> 1],
+            ),
         };
+        let (vertices, indices, flags) = triangle;
         TriangleInput {
             vertices,
             indices,

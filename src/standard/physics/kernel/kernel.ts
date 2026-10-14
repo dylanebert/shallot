@@ -38,6 +38,8 @@ export type Kernel = {
      * then three i32 indices, 40 bytes per plane. `local` selects per-kind dispatch without a
      * shape transform, preserving the local oracle's signed zeros. */
     jointReaction(world: number, joint: number, invH: number, torque: number): void;
+    geometryReadInputPtr(words: number): number;
+    geometryRead(operation: number): number;
     worldDraw(world: number, flags: number, maskHi: number, maskLo: number, invH: number): number;
     worldDrawRelease(start: number): void;
     worldDrawPtr(): number;

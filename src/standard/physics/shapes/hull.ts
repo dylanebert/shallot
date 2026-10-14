@@ -1,4 +1,7 @@
-import { type AABB, aabb, type Mat3, type Plane, type Transform, type Vec3 } from "../common/math";
+import type { AABB, Mat3, Plane, Vec3 } from "../common/math";
+
+export { computeHullAABB } from "./read-geometry";
+
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "../kernel/shapecolumns";
 import type { WorldState } from "../world/world";
 import { drawHull } from "./readgeometry";
@@ -73,8 +76,4 @@ export function cloneHull(hull: HullData): HullData {
         planes: hull.planes.map((pl) => ({ normal: { ...pl.normal }, offset: pl.offset })),
         hash: hull.hash,
     };
-}
-/** Enclosing AABB of a transformed hull (b3ComputeHullAABB). */
-export function computeHullAABB(shape: HullData, transform: Transform): AABB {
-    return aabb.transform(transform, shape.aabb);
 }
