@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { AudioOutput, Clips, Listener, play, registerClip, Sound } from "../../core/audio";
-import { audioContextState } from "../../core/input";
+import { Devices } from "../../core/input";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { World } from "../../engine";
 import { AudioRuntime, installAudioRestore, reconcileAudio, returnAudioBuffer } from "./runtime";
@@ -28,7 +28,7 @@ function setup(world: World): Message[] {
         },
     } as unknown as AudioWorkletNode;
     world.resource(AudioOutput).context = runtime.context;
-    audioContextState(world, "running");
+    world.resource(Devices).audio.context = "running";
     return messages;
 }
 
@@ -107,7 +107,7 @@ test("a suspended context drops a once Sound and leaves a loop pending", () => {
     const world = new World();
     registerClip(world, "suspended", new Float32Array([0.25]));
     setup(world);
-    audioContextState(world, "suspended");
+    world.resource(Devices).audio.context = "suspended";
     const once = play(world, "suspended");
     const loop = play(world, "suspended", { loop: true });
     reconcileAudio(world);

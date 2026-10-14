@@ -63,6 +63,7 @@ export interface Touch {
 export type AudioContextState = "none" | "suspended" | "running" | "closed";
 
 export interface AudioDevice {
+    /** written by the audio runtime; a headless driver writes it directly */
     context: AudioContextState;
 }
 
@@ -269,11 +270,6 @@ function adapter(world: World, host: InputHost): BrowserAdapter {
 function unit(value: number, size: number): number {
     if (!Number.isFinite(value) || size <= 0) return 0;
     return Math.min(Math.max(value / size, 0), 1);
-}
-
-/** Produce the audio context state supplied by an application or test driver. */
-export function audioContextState(world: World, context: AudioContextState): void {
-    record(world).audio.context = context;
 }
 
 /** Produce a keyboard press. Repeated presses do not retrigger an edge. */

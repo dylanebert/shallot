@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import {
-    audioContextState,
     BrowserInputPlugin,
     blurCanvas,
     createBrowserInputPlugin,
@@ -547,7 +546,7 @@ test("browser viewport and audio-status producers overwrite application facts wh
     const world = inputState();
     try {
         resizeViewport(world, 0, 100, 50, 2);
-        audioContextState(world, "running");
+        world.resource(Devices).audio.context = "running";
         world.step(0);
         const input = world.resource(Devices);
         const viewport = world.resource(Viewports).get(0);

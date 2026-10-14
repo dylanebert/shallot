@@ -1,7 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { GlobalTransform, type Plugin, type Resource, type World } from "@dylanebert/shallot";
 import {
-    audioContextState,
     Devices,
     InputPlugin,
     pointerMove,
@@ -210,12 +209,12 @@ test("snapshot and restore leave device state outside recovery", async () => {
         pointerMove(world, 12, 8, 3, 4);
         touchPoint(world, 1, 10, 20);
         touchPoint(world, 2, 30, 20);
-        audioContextState(world, "suspended");
+        devices.audio.context = "suspended";
         const saved = world.snapshot();
         releaseKey(world, "Space");
         pointerMove(world, 42, 18, 8, 9);
         touchPoint(world, 1, 30, 40);
-        audioContextState(world, "running");
+        devices.audio.context = "running";
         world.restore(saved);
         expect(world.resource(Devices)).toBe(devices);
         expect(devices.keys).toBe(keys);

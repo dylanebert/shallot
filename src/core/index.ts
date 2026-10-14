@@ -2,7 +2,6 @@ export * from "./audio";
 export {
     type AudioContextState,
     type AudioDevice,
-    audioContextState,
     BrowserInputPlugin,
     blurCanvas,
     createBrowserInputPlugin,
