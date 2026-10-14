@@ -1,10 +1,10 @@
 :root {
-    --bg: #f7f3ec;
-    --bg2: #1e1b19;
-    --ink: #2a231e;
+    --bg: #1c1917;
+    --bg2: #1c1917;
+    --ink: #f0e6d6;
     --frame-error: #cd6559;
     --sans: "IBM Plex Sans", system-ui, sans-serif;
-    color-scheme: light;
+    color-scheme: dark;
 }
 
 * {
@@ -27,27 +27,17 @@ body {
 
 .page {
     --page-pad-y: min(40px, 5svh);
-    --page-gap: 16px;
+    --page-gap: 40px;
 
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: var(--page-gap);
-    width: min(
-        100%,
-        880px,
-        calc((100svh - var(--page-pad-y) - var(--page-pad-y) - 190px) * 16 / 9 + 48px)
-    );
+    width: min(100%, 880px);
     min-height: 100svh;
     margin: 0 auto;
     padding-block: var(--page-pad-y);
     padding-inline: min(24px, 5vw);
-}
-
-@media (max-height: 480px) {
-    body { font-size: 13px; line-height: 1.4; }
-    h1 { font-size: 20px; }
-    .page { --page-gap: 8px; }
 }
 
 .description {
@@ -60,10 +50,12 @@ body {
 
 .frame {
     position: relative;
-    width: 100%;
+    width: min(
+        100%,
+        calc((100svh - var(--page-pad-y) - var(--page-pad-y) - var(--page-gap) - 1.55em) * 16 / 9)
+    );
     aspect-ratio: 16 / 9;
     overflow: hidden;
-    border-radius: 6px;
     margin-inline: auto;
     background: var(--bg2);
 }
@@ -73,31 +65,22 @@ body {
     inset: 0;
     z-index: 1;
     display: flex;
-    overflow: auto;
-    background: #141210;
-    color: #f0e6d6;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 24px;
+    background: var(--bg2);
+    color: var(--ink);
     font: 14px/1.5 var(--sans);
     text-align: center;
 }
-
-.bootstrap-panel {
-    margin: auto;
-    width: 100%;
-    max-width: 276px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    padding: 32px 24px;
-}
-
-[data-bootstrap-label] { position: absolute; transform: translateY(-28px); }
 
 [data-bootstrap-track] {
     width: 228px;
     max-width: 100%;
     height: 4px;
-    background: #1c1917;
+    background: #373635;
 }
 
 [data-shallot-bootstrap][data-state="error"] {

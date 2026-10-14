@@ -51,14 +51,14 @@ test("a browser capture preserves the declared page geometry and shows its color
                 x++
             ) {
                 const index = (y * surface.width + x) * 4;
-                if (rgba[index]! < 70 && rgba[index + 1]! < 65 && rgba[index + 2]! < 60) ink++;
+                if (rgba[index]! > 210 && rgba[index + 1]! > 190 && rgba[index + 2]! > 170) ink++;
             }
         }
         return { width: surface.width, height: surface.height, ink };
     }, first.toString("base64"));
     expect(pixels.width, "the page screenshot uses the declared width").toBe(1280);
     expect(pixels.height, "the page screenshot uses the declared height").toBe(720);
-    expect(pixels.ink, "the real page's embedding description remains visible").toBeGreaterThan(20);
+    expect(pixels.ink, "the real page's color-tag description remains visible").toBeGreaterThan(20);
 
     await page.addScriptTag({ path: CAPTURE_ENTRY });
     await page.waitForFunction(() => typeof window.shallotCaptureFrame === "function");

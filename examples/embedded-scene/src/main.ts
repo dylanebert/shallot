@@ -1,10 +1,10 @@
-import { runApp, shallotDark } from "@dylanebert/shallot";
+import { minimalDark, runApp } from "@dylanebert/shallot";
 import { mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
 import { LoadingWorld } from "./scene";
 
 const host = mountHost();
-const loading = shallotDark({
+const loading = minimalDark({
     container: host.frame,
     bootstrap: host.frame.querySelector<HTMLElement>("[data-shallot-bootstrap]") ?? undefined,
 });
