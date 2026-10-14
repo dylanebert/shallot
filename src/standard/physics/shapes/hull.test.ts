@@ -238,7 +238,7 @@ test("a convex hull leaves a broken half-edge topology — counts off the expect
     }
 });
 
-test("the convex hull builder overruns its maxVertexCount cap or fails to clamp an out-of-range cap into [4, 255]", () => {
+test("the convex hull builder respects Box3D's [4, 128] vertex budget", () => {
     const cloud = fillSphereSample(64, 12345);
     const cases: [string, number][] = [
         ["cap 8", 8],
@@ -248,11 +248,17 @@ test("the convex hull builder overruns its maxVertexCount cap or fails to clamp 
     for (const [label, max] of cases) {
         const h = createHull(cloud, max) as HullData;
         if (h === null) throw new Error(`${label}: builder returned null`);
-        const upper = max === 8 ? 8 : 255;
+        const upper = Math.min(128, Math.max(4, max));
         if (h.vertexCount < 4 || h.vertexCount > upper) {
             throw new Error(`${label}: vertexCount ${h.vertexCount} outside [4, ${upper}]`);
         }
     }
+});
+
+test("a 64-sided cone accepts Box3D's 256-half-edge boundary", () => {
+    const hull = createCone(2, 1, 0, 64);
+    expect(hull).not.toBeNull();
+    expect([hull.vertexCount, hull.edgeCount, hull.faceCount]).toEqual([65, 256, 65]);
 });
 
 test("the convex hull builder returns a hull instead of null for a degenerate point cloud: empty, fewer than four points, collinear, coincident or coplanar", () => {
