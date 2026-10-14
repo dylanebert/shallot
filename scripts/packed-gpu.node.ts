@@ -79,7 +79,8 @@ beforeAll(() => {
         writeFileSync(
             join(project, "packed-engine.gpu.test.ts"),
             `import { expect, setDefaultTimeout, test } from "bun:test";
-setDefaultTimeout(1000);
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+setDefaultTimeout(TIMEOUT.gpu);
 import { createApp, type Plugin } from "@dylanebert/shallot/app";
 import { component, f32, Time } from "@dylanebert/shallot/ecs";
 import * as Rendering from "@dylanebert/shallot/rendering";

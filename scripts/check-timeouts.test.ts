@@ -54,6 +54,20 @@ test("tier headers derive from the published tooling subpath and reject literal 
     }
 });
 
+test("generated consumer test sources must declare tier timeouts through TIMEOUT", () => {
+    const generated = (source: string) =>
+        `${header("node")} writeFileSync(join(project, "packed-engine.gpu.test.ts"), ${JSON.stringify(source)});`;
+    expect(timeoutErrors("scripts/fixture.node.ts", generated(header("gpu")))).toEqual([]);
+    expect(
+        timeoutErrors(
+            "scripts/fixture.node.ts",
+            generated(header("gpu").replace("TIMEOUT.gpu", "1000")),
+        ),
+    ).toContain(
+        "scripts/fixture.node.ts: generated packed-engine.gpu.test.ts:1: timeout must derive from TIMEOUT from @dylanebert/shallot/testing; literal timeout numbers are forbidden",
+    );
+});
+
 test("per-test literal timeouts and restated file defaults are rejected", () => {
     for (const [path, source, tier] of [
         ["subject.test.ts", cheap, "cheap"],
@@ -153,9 +167,8 @@ test("local budgets retain today's limits and CI selects hang ceilings", () => {
         gpu: 1000,
         node: 20_000,
         browser: 60_000,
-        startup: 120_000,
     });
-    expect(TIMEOUT).toBe(process.env.CI ? CEILING : BUDGET);
+    expect(TIMEOUT).toEqual(process.env.CI ? CEILING : { ...BUDGET, startup: CEILING.startup });
 });
 
 test("hang ceilings stay below the shortest CI job for their tier", () => {

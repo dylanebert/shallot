@@ -206,6 +206,33 @@ export function timeoutErrors(path: string, text: string): string[] {
         )
             fail(node, "cheap tests must not start processes; move this file to the Node tier");
         if (node.type === "CallExpression") {
+            const callee =
+                node.callee.type === "Identifier" ? node.callee.name : node.callee.property?.name;
+            if (["writeFileSync", "writeFile"].includes(callee)) {
+                const destination = node.arguments[0];
+                const parts =
+                    destination?.type === "CallExpression" ? destination.arguments : [destination];
+                const generatedPath = parts.find(
+                    (part: any) =>
+                        part?.type === "StringLiteral" &&
+                        /\.(?:test|node|e2e)\.ts$/.test(part.value),
+                )?.value;
+                const source = node.arguments[1];
+                const generatedSource =
+                    source?.type === "StringLiteral"
+                        ? source.value
+                        : source?.type === "TemplateLiteral" && source.expressions.length === 0
+                          ? source.quasis[0].value.cooked
+                          : undefined;
+                if (generatedPath && generatedSource !== undefined)
+                    errors.push(
+                        ...timeoutErrors(generatedPath, generatedSource)
+                            .filter(
+                                (error) => !error.includes("cheap tests must not start processes"),
+                            )
+                            .map((error) => `${path}: generated ${error}`),
+                    );
+            }
             if (tier === "cheap" && path.endsWith(".test.ts") && startsProcess(node.callee))
                 fail(node, "cheap tests must not start processes; move this file to the Node tier");
             const name = root(node.callee);

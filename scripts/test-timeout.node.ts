@@ -17,6 +17,9 @@ test("the test script's default rejects a cheap test that runs longer than 250 m
     const [runtime, command, ...args] = packageJson.scripts.test.trim().split(/\s+/);
     expect([runtime, command]).toEqual(["bun", "test"]);
 
+    const preload = args.indexOf("--preload");
+    if (preload !== -1) args[preload + 1] = resolve(ROOT, args[preload + 1]!);
+
     const fixture = mkdtempSync(join(tmpdir(), "shallot-test-timeout-"));
     try {
         writeFileSync(
@@ -25,6 +28,7 @@ test("the test script's default rejects a cheap test that runs longer than 250 m
         );
         const result = Bun.spawnSync([runtime, command, ...args, "./slow.test.ts"], {
             cwd: fixture,
+            env: { ...process.env, CI: "" },
             stdout: "pipe",
             stderr: "pipe",
         });

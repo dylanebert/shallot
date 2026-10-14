@@ -12,11 +12,10 @@ export const BUDGET = /** @type {const} */ ({
     gpu: 1000,
     node: 20_000,
     browser: 60_000,
-    startup: 120_000,
 });
 
 /** CI tolerates host variance up to the hang ceiling; local runs enforce speed budgets. */
-export const TIMEOUT = process.env.CI ? CEILING : BUDGET;
+export const TIMEOUT = process.env.CI ? CEILING : { ...BUDGET, startup: CEILING.startup };
 
 const chromiumArgs =
     process.platform === "linux"

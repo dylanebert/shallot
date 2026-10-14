@@ -83,12 +83,35 @@ function adapterForFile(log: string, file: string): string | undefined {
     return [...new Set(adapters)].join("; ") || undefined;
 }
 
+function completeXml(report: string): boolean {
+    const stack: string[] = [];
+    let roots = 0;
+    const tags =
+        /<!\[CDATA\[[\s\S]*?\]\]>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<\/?([\w:.-]+)(?:\s+[\w:.-]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*\/?>/g;
+    let end = 0;
+    for (const match of report.matchAll(tags)) {
+        const text = report.slice(end, match.index);
+        if (text.includes("<") || (stack.length === 0 && text.trim())) return false;
+        end = match.index + match[0].length;
+        const name = match[1];
+        if (!name) continue;
+        if (match[0].startsWith("</")) {
+            if (stack.pop() !== name) return false;
+        } else {
+            if (stack.length === 0 && (++roots !== 1 || name !== "testsuites")) return false;
+            if (!match[0].endsWith("/>")) stack.push(name);
+        }
+    }
+    return roots === 1 && stack.length === 0 && !report.slice(end).trim();
+}
+
 export function slowTests(report: string, log = "", subject?: string): SlowTest[] {
     const slow: SlowTest[] = [];
     if (subject !== undefined) {
         const root = report.match(/<testsuites\b[^>]*>/);
-        const seconds = root ? Number(attributes(root[0]).get("time")) : NaN;
-        if (!Number.isFinite(seconds) || seconds < 0)
+        const duration = root ? attributes(root[0]).get("time") : undefined;
+        const seconds = duration?.trim() ? Number(duration) : NaN;
+        if (!completeXml(report) || !Number.isFinite(seconds) || seconds < 0)
             throw new Error("invalid JUnit browser subject duration");
         const timeMs = seconds * 1000;
         if (timeMs > BUDGET.browser / 2)
@@ -147,7 +170,7 @@ if (import.meta.main) {
         try {
             const report = Bun.file(reportPath);
             if (!(await report.exists())) {
-                console.error(`[slow-test-report] no JUnit report at ${reportPath}`);
+                throw new Error(`no JUnit report at ${reportPath}`);
             } else {
                 const log =
                     logPath && (await Bun.file(logPath).exists())
@@ -158,6 +181,7 @@ if (import.meta.main) {
             }
         } catch (error) {
             console.error(`[slow-test-report] could not read report: ${String(error)}`);
+            if (subject !== undefined) process.exitCode = 1;
         }
     }
 }
