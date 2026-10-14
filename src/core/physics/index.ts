@@ -1,4 +1,13 @@
-import { component, f32, type Plugin, Registry, type Resource, u32, vec4 } from "../../engine";
+import {
+    component,
+    f32,
+    type Plugin,
+    Registry,
+    type Resource,
+    u32,
+    vec3,
+    vec4,
+} from "../../engine";
 import { GlobalTransform, TransformPlugin } from "../transform";
 import { Hulls } from "./hull";
 import {
@@ -70,13 +79,13 @@ export const Body = component(
         /** Box3D motion type; changing it applies at the next fixed sync. */
         type: u32,
         /** Initial world position in meters; spawn-only. */
-        position: vec4,
+        position: vec3,
         /** Initial world rotation as `(x, y, z, w)`; spawn-only. */
         rotation: vec4,
         /** Initial linear velocity in meters per second; spawn-only. */
-        linearVelocity: vec4,
+        linearVelocity: vec3,
         /** Initial angular velocity in radians per second; spawn-only. */
-        angularVelocity: vec4,
+        angularVelocity: vec3,
         /** Linear damping; changing it applies at the next fixed sync. */
         linearDamping: f32,
         /** Angular damping; changing it applies at the next fixed sync. */
@@ -103,10 +112,10 @@ export const Body = component(
     {
         defaults: () => ({
             type: BodyType.Static,
-            position: [0, 0, 0, 0],
+            position: [0, 0, 0],
             rotation: [0, 0, 0, 1],
-            linearVelocity: [0, 0, 0, 0],
-            angularVelocity: [0, 0, 0, 0],
+            linearVelocity: [0, 0, 0],
+            angularVelocity: [0, 0, 0],
             linearDamping: 0,
             angularDamping: 0,
             gravityScale: 1,

@@ -43,7 +43,7 @@ function makeScene(world: World): void {
     const cube = world.create();
     world.add(cube, MeshInstance);
     world.add(cube, MeshMaterial, cubeMaterial);
-    world.add(cube, Transform, { translation: [0, 0.15, 0, 0] });
+    world.add(cube, Transform, { translation: [0, 0.15, 0] });
     world.add(cube, WelcomeCube);
 
     const groundMaterial = materials.add(
@@ -56,8 +56,8 @@ function makeScene(world: World): void {
     world.add(ground, MeshInstance);
     world.add(ground, MeshMaterial, groundMaterial);
     world.add(ground, Transform, {
-        translation: [0, -0.62, 0, 0],
-        scale: [8, 0.2, 8, 0],
+        translation: [0, -0.62, 0],
+        scale: [8, 0.2, 8],
     });
 }
 

@@ -1,4 +1,4 @@
-import { component, entity, f32, u32, vec4 } from "../../engine";
+import { component, entity, f32, u32, vec3, vec4 } from "../../engine";
 
 const FLT_MAX = 3.4028234663852886e38;
 const base = {
@@ -6,8 +6,8 @@ const base = {
     a: entity,
     b: entity,
     /** Frame origins relative to body origins, not centers of mass; xyz in meters. */
-    localAnchorA: vec4,
-    localAnchorB: vec4,
+    localAnchorA: vec3,
+    localAnchorB: vec3,
     /** Local frame orientations as normalized (x, y, z, w) quaternions. */
     localRotationA: vec4,
     localRotationB: vec4,
@@ -24,8 +24,8 @@ const base = {
 const baseDefaults = () => ({
     a: 0,
     b: 0,
-    localAnchorA: [0, 0, 0, 0] as const,
-    localAnchorB: [0, 0, 0, 0] as const,
+    localAnchorA: [0, 0, 0] as const,
+    localAnchorB: [0, 0, 0] as const,
     localRotationA: [0, 0, 0, 1] as const,
     localRotationB: [0, 0, 0, 1] as const,
     forceThreshold: FLT_MAX,
@@ -81,9 +81,9 @@ export const MotorJoint = component(
     "MotorJoint",
     {
         ...base,
-        linearVelocity: vec4,
+        linearVelocity: vec3,
         maxVelocityForce: f32,
-        angularVelocity: vec4,
+        angularVelocity: vec3,
         maxVelocityTorque: f32,
         linearHertz: f32,
         linearDampingRatio: f32,
@@ -95,9 +95,9 @@ export const MotorJoint = component(
     {
         defaults: () => ({
             ...baseDefaults(),
-            linearVelocity: [0, 0, 0, 0],
+            linearVelocity: [0, 0, 0],
             maxVelocityForce: 0,
-            angularVelocity: [0, 0, 0, 0],
+            angularVelocity: [0, 0, 0],
             maxVelocityTorque: 0,
             linearHertz: 0,
             linearDampingRatio: 0,
@@ -204,7 +204,7 @@ export const SphericalJoint = component(
         upperTwistAngle: f32,
         enableMotor: u32,
         maxMotorTorque: f32,
-        motorVelocity: vec4,
+        motorVelocity: vec3,
     },
     {
         defaults: () => ({
@@ -220,7 +220,7 @@ export const SphericalJoint = component(
             upperTwistAngle: 0,
             enableMotor: 0,
             maxMotorTorque: 0,
-            motorVelocity: [0, 0, 0, 0],
+            motorVelocity: [0, 0, 0],
         }),
     },
 );

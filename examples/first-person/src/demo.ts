@@ -34,6 +34,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 
+type Vec3 = readonly [number, number, number];
 type Vec4 = readonly [number, number, number, number];
 const GROUND_COLOR = [0.2078536, 0.17658735, 0.13200411, 1] as const;
 const STEP_COLOR = [0.38498746, 0.3374035, 0.26791645, 1] as const;
@@ -43,8 +44,8 @@ const PERCH_COLOR = [0.48282395, 0.42732621, 0.34567192, 1] as const;
 
 function block(
     world: World,
-    at: Vec4,
-    size: Vec4,
+    at: Vec3,
+    size: Vec3,
     rgba: Vec4,
     type: BodyType = BodyType.Static,
 ): number {
@@ -83,10 +84,10 @@ export function route(world: World) {
     // Minecraft Java's default vertical field of view.
     world.add(eye, Camera, { fov: 70, clearColor: 0x1c1917 });
     world.add(eye, StandardRenderer);
-    world.add(eye, Transform, { translation: [0, 2.7, 12, 0] });
+    world.add(eye, Transform, { translation: [0, 2.7, 12] });
     const player = world.create();
     world.add(player, Body, {
-        position: [0, 2, 12, 0],
+        position: [0, 2, 12],
         type: BodyType.Kinematic,
     });
     world.add(player, Shape, { kind: ShapeKind.Capsule });
@@ -96,29 +97,29 @@ export function route(world: World) {
     world.add(player, Character);
     world.add(player, Player, { camera: eye });
     world.add(player, LocalPlayer);
-    block(world, [0, 0, -5, 0], [16, 0.5, 26, 0], GROUND_COLOR);
+    block(world, [0, 0, -5], [16, 0.5, 26], GROUND_COLOR);
     const steps = [
         [
-            [0, 0.75, 3, 0],
-            [3, 0.25, 1.5, 0],
+            [0, 0.75, 3],
+            [3, 0.25, 1.5],
         ],
         [
-            [0, 1.25, 0, 0],
-            [3, 0.25, 1.5, 0],
+            [0, 1.25, 0],
+            [3, 0.25, 1.5],
         ],
         [
-            [0, 1.75, -3, 0],
-            [3, 0.25, 1.5, 0],
+            [0, 1.75, -3],
+            [3, 0.25, 1.5],
         ],
-    ] as const satisfies readonly (readonly [Vec4, Vec4])[];
+    ] as const satisfies readonly (readonly [Vec3, Vec3])[];
     for (const [at, size] of steps) block(world, at, size, STEP_COLOR);
-    const lift = block(world, [0, 1.75, -6.5, 0], [3, 0.25, 2, 0], LIFT_COLOR, BodyType.Kinematic);
+    const lift = block(world, [0, 1.75, -6.5], [3, 0.25, 2], LIFT_COLOR, BodyType.Kinematic);
     world.add(lift, Lift);
     const tower = [
-        [[0.7, 2.5, -10, 0], [2.2, 0.5, 1.2, 0], TOWER_COLOR],
-        [[-0.7, 3.5, -12.3, 0], [1.8, 0.5, 1.2, 0], TOWER_COLOR],
-        [[0.7, 4.5, -14.5, 0], [2.2, 0.5, 1.5, 0], PERCH_COLOR],
-    ] as const satisfies readonly (readonly [Vec4, Vec4, Vec4])[];
+        [[0.7, 2.5, -10], [2.2, 0.5, 1.2], TOWER_COLOR],
+        [[-0.7, 3.5, -12.3], [1.8, 0.5, 1.2], TOWER_COLOR],
+        [[0.7, 4.5, -14.5], [2.2, 0.5, 1.5], PERCH_COLOR],
+    ] as const satisfies readonly (readonly [Vec3, Vec3, Vec4])[];
     for (const [at, size, rgba] of tower) block(world, at, size, rgba);
     return { player, eye, lift };
 }

@@ -11,7 +11,9 @@ export type ComponentValues<T> = {
             ? number
             : T[K]["lanes"] extends 2
               ? readonly [number, number]
-              : readonly [number, number, number, number]
+              : T[K] extends { readonly name: "vec3" }
+                ? readonly [number, number, number] | readonly [number, number, number, number]
+                : readonly [number, number, number, number]
         : never;
 };
 
@@ -189,10 +191,19 @@ export const vec2: FieldType<Float32Array> & { readonly lanes: 2 } = {
 };
 
 /**
- * four f32 lanes. use for any 3-or-4-lane data: `vec3<f32>` is clobbered to
- * stride 16 in WebGPU storage anyway, so a true 3-lane type wouldn't save
- * memory. put something useful in `.w` (mass paired with position, opacity
- * with RGB) or leave it 0.
+ * three f32 values in four lanes, as WGSL `vec3<f32>` in a storage array: a 16-byte stride, so its
+ * storage, snapshots and GPU binding match {@link vec4}. Author `[x, y, z]`; the fourth lane is 0
+ * unless written as `[x, y, z, w]` or through `.w`.
+ */
+export const vec3: FieldType<Float32Array> & { readonly lanes: 4; readonly name: "vec3" } = {
+    ctor: Float32Array,
+    lanes: 4,
+    name: "vec3",
+};
+
+/**
+ * four f32 lanes whose fourth carries meaning: a quaternion, a color with alpha, or xyz paired
+ * with a scalar such as a radius. Use {@link vec3} for xyz data.
  */
 export const vec4: FieldType<Float32Array> & { readonly lanes: 4 } = {
     ctor: Float32Array,

@@ -55,7 +55,7 @@ function makeScene(world: World): void {
     );
     world.resource(CubeMaterial).handle = handle;
     world.add(cube, MeshMaterial, handle);
-    world.add(cube, Transform, { translation: [0, 0.15, 0, 0] });
+    world.add(cube, Transform, { translation: [0, 0.15, 0] });
     world.add(cube, Turntable);
 
     const ground = world.create();
@@ -70,7 +70,7 @@ function makeScene(world: World): void {
             }),
         ),
     );
-    world.add(ground, Transform, { translation: [0, -0.62, 0, 0], scale: [8, 0.2, 8, 0] });
+    world.add(ground, Transform, { translation: [0, -0.62, 0], scale: [8, 0.2, 8] });
 }
 
 const TurnCube = {

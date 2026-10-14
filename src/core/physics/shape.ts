@@ -1,4 +1,4 @@
-import { component, entity, f32, i32, u32, vec4 } from "../../engine";
+import { component, entity, f32, i32, u32, vec3, vec4 } from "../../engine";
 
 /** Box3D collision-shape kinds. A box is a scaled hull. */
 export const ShapeKind = {
@@ -24,11 +24,11 @@ export const Shape = component(
         /** Sphere center and radius in body-local meters. */
         sphere: vec4,
         /** First capsule endpoint in body-local meters. */
-        capsuleA: vec4,
+        capsuleA: vec3,
         /** Second capsule endpoint and radius in body-local meters. */
         capsuleB: vec4,
         /** Hull half-scale or mesh scale. */
-        scale: vec4,
+        scale: vec3,
         /** Shape density in kg/m³; changes apply at the next fixed sync. */
         density: f32,
         /** Non-dimensional scale used by world explosions. */
@@ -40,7 +40,7 @@ export const Shape = component(
         /** Base material rolling resistance. */
         rollingResistance: f32,
         /** Base material conveyor velocity in shape-local m/s. */
-        tangentVelocity: vec4,
+        tangentVelocity: vec3,
         /** Low and high u32 halves of the base material's u64 user id. */
         materialUserIdLow: u32,
         materialUserIdHigh: u32,
@@ -81,15 +81,15 @@ export const Shape = component(
             kind: ShapeKind.Hull,
             geometry: 0,
             sphere: [0, 0, 0, 0.5],
-            capsuleA: [0, -0.5, 0, 0],
+            capsuleA: [0, -0.5, 0],
             capsuleB: [0, 0.5, 0, 0.5],
-            scale: [0.5, 0.5, 0.5, 0],
+            scale: [0.5, 0.5, 0.5],
             density: 1000,
             explosionScale: 1,
             friction: 0.6,
             restitution: 0,
             rollingResistance: 0,
-            tangentVelocity: [0, 0, 0, 0],
+            tangentVelocity: [0, 0, 0],
             materialUserIdLow: 0,
             materialUserIdHigh: 0,
             customColor: 0,

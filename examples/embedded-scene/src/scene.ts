@@ -32,7 +32,7 @@ export function authorWorld(world: World): void {
     world.add(camera, Transform);
     const cube = world.create();
     world.add(cube, MeshInstance);
-    world.add(cube, Transform, { translation: [0, 0, 0, 0] });
+    world.add(cube, Transform, { translation: [0, 0, 0] });
     const materials = world.resource(Materials);
     const material = materials.add(
         StandardMaterial({
@@ -43,7 +43,7 @@ export function authorWorld(world: World): void {
     world.add(cube, MeshMaterial, material);
     const ground = world.create();
     world.add(ground, MeshInstance);
-    world.add(ground, Transform, { translation: [0, -0.6, 0, 0], scale: [4, 0.2, 4, 0] });
+    world.add(ground, Transform, { translation: [0, -0.6, 0], scale: [4, 0.2, 4] });
     world.add(
         ground,
         MeshMaterial,

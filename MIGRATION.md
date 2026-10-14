@@ -163,7 +163,7 @@ Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/gla
 
 Cameras without settings now use `TonyMcMapface`, not Khronos PBR Neutral. Add `Tonemapping` with `method: TonemappingMethod.KhronosPbrNeutral` to keep the former operator. `None` skips the operator for display-ready **linear** images; grading and the screen encode still apply. `AgX` retains the former analytic Filament/three.js approximation, rather than Bevy's LUT.
 
-`ColorGrading` applies exposure, temperature, tint and hue (in degrees) globally; `postSaturation` applies after tonemapping. The `saturation`, `contrast`, `gamma`, `gain` and `lift` vectors hold shadows, midtones and highlights in x/y/z (w unused). Defaults are identity; `midtonesRange` defaults to `[0.2, 0.7]`.
+`ColorGrading` applies exposure, temperature, tint and hue (in degrees) globally; `postSaturation` applies after tonemapping. The `saturation`, `contrast`, `gamma`, `gain` and `lift` vectors hold shadows, midtones and highlights as `[x, y, z]`. Defaults are identity; `midtonesRange` defaults to `[0.2, 0.7]`.
 
 Register view-specific passes in `world.resource(EffectPasses)` under the camera eid, with `before` and `after` arrays. Each callback receives `(world, eid, view, input, output)` and records on the frame encoder. Before passes operate on linear HDR; after passes operate on encoded display-referred intermediates. With no after pass, tonemapping writes the presented target directly. Remove registrations when their camera or owner leaves.
 
@@ -377,7 +377,7 @@ Standard packs up to ten directional lights. At most one enabled directional cas
 A shadowed spot light is now authored as:
 
 ```ts
-world.add(lamp, Transform, { translation: [0, 4, 0, 0] });
+world.add(lamp, Transform, { translation: [0, 4, 0] });
 world.add(lamp, SpotLight, {
     color: 0xffffff, intensity: 157612.96, range: 12,
     innerAngle: 18,
@@ -499,7 +499,7 @@ const gpuRows = table.buffer;
 
 Change shaders from entity-indexed scalar arrays to struct records addressed by dense row slots. `table.rowIndex(eid)` gives the CPU slot; enable the table's eid lookup when a shader starts from an eid. Rebind when the table's buffer generation changes. Built-in Body, GlobalTransform and light fields no longer publish their old per-field `.gpu` buffers either.
 
-`f16x4`, `srgb8x4` and `FieldType.gpu` are removed; no table packs a field. Declare `vec4` and bind it as a 16-byte `d.vec4f`. For a 4-byte color, store `packColor4(r, g, b, a)` from `/utils` in a `u32` field, bind it as `d.u32` and read it in the shader with `unpackLdrColor`:
+`f16x4`, `srgb8x4` and `FieldType.gpu` are removed; no table packs a field. Declare `vec4` and bind it as a 16-byte `d.vec4f`. Declare data that holds only x, y and z as `vec3`: it has `vec4`'s 16-byte layout, binds as `d.vec3f` or `d.vec4f`, and is written `[x, y, z]` in `world.add` and defaults, with the fourth lane 0. For a 4-byte color, store `packColor4(r, g, b, a)` from `/utils` in a `u32` field, bind it as `d.u32` and read it in the shader with `unpackLdrColor`:
 
 ```ts
 // 0.9.5
@@ -522,7 +522,7 @@ world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
 
 ## Authored Transform and world GlobalTransform are separate
 
-`Transform` remains authored placement. Replace `TransformsPlugin` with `TransformPlugin` from `@dylanebert/shallot/transform` (also exported at the root). Physics and rendering include it as a dependency; add it explicitly to placement-only compositions. It derives `GlobalTransform` for each `Transform` entity; physics publishes a body's placement. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is derived world placement, never authored, and has no hierarchy. Physics publishes rigid pose and velocity, not collider-derived scale. Register a sized mesh with `cube([hx, hy, hz])`, `sphere(radius)` or `capsule(halfHeight, radius)` from `/mesh` when the visual should match the collider; these builders default to the built-in sizes.
+`Transform` remains authored placement. Replace `TransformsPlugin` with `TransformPlugin` from `@dylanebert/shallot/transform` (also exported at the root). Physics and rendering include it as a dependency; add it explicitly to placement-only compositions. It derives `GlobalTransform` for each `Transform` entity; physics publishes a body's placement. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is derived world placement, never authored, and has no hierarchy. Physics publishes rigid pose and velocity, not collider-derived scale. Register a sized mesh with `cube([hx, hy, hz])`, `sphere(radius)` or `capsule(halfHeight, radius)` from `/mesh` when the visual should match the collider; these builders default to the built-in sizes. `Transform.translation` and `.scale` and `GlobalTransform.translation`, `.scale` and `.linearVelocity` are `vec3` fields, written `[x, y, z]`; `rotation` stays a four-value quaternion.
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 
@@ -859,12 +859,14 @@ Body.friction.set(eid, 0.5);
 ```ts
 // 0.10
 const eid = world.create();
-world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 5, 0, 0] });
+world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 5, 0] });
 world.add(eid, Shape, {
-    kind: ShapeKind.Hull, geometry: UNIT_CUBE_ID, scale: [0.5, 0.5, 0.5, 0],
+    kind: ShapeKind.Hull, geometry: UNIT_CUBE_ID, scale: [0.5, 0.5, 0.5],
     density: 1, friction: 0.5,
 });
 ```
+
+`Body.position`, `.linearVelocity` and `.angularVelocity`, `Shape.capsuleA`, `.scale` and `.tangentVelocity`, the joints' `localAnchorA`/`localAnchorB` and velocities, and `Character`'s `velocity`, `groundNormal`, `groundVelocity` and `up` are `vec3` fields, written `[x, y, z]`. Rotations stay four-value quaternions, and `Shape.sphere` and `Shape.capsuleB` carry their radius in the fourth value.
 
 0.9.5 `TumbleBody` could create several shapes directly; author each as a `Shape` entity instead:
 
@@ -1026,7 +1028,7 @@ Author worlds in code:
 ```ts
 import { Transform } from "@dylanebert/shallot";
 const eid = world.create();
-world.add(eid, Transform, { translation: [0, 1, 0, 0] });
+world.add(eid, Transform, { translation: [0, 1, 0] });
 ```
 
 ## `/harness` helpers are removed

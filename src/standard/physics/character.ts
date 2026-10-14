@@ -6,9 +6,9 @@ import {
     type System,
     Time,
     u32,
-    vec4,
     type World,
 } from "../../engine";
+import * as ecs from "../../engine/ecs";
 import { type CollisionPlane, clipVector, solvePlanes } from "./collision/mover";
 import { f32, mat3, PI, quat, vec3, xf } from "./common/math";
 import { BodyType } from "./common/types";
@@ -44,17 +44,17 @@ export const GroundState = { InAir: 0, OnGround: 1, OnSteepGround: 2 } as const;
 export const Character = component(
     "Character",
     {
-        /** World-space metres per second in xyz; w is unused. */
-        velocity: vec4,
+        /** World-space metres per second. */
+        velocity: ecs.vec3,
         groundState: u32,
         /** World-space unit normal at the pogo ray hit, or zero in air. */
-        groundNormal: vec4,
+        groundNormal: ecs.vec3,
         /** Hit body's velocity at the ground point, in world-space metres per second, or zero in air. */
-        groundVelocity: vec4,
+        groundVelocity: ecs.vec3,
         /** Maximum walkable slope in radians, measured from up. */
         maxSlope: field,
         /** Unit world-space up direction. */
-        up: vec4,
+        up: ecs.vec3,
         /** Pogo spring speed in metres per second; persists between fixed ticks. */
         pogoVelocity: field,
         /** Pogo spring rest length in capsule radii, down from the lower sphere's centre, so the capsule rests `pogoRest - 1` radii above contact. Box3D's mover sample uses 3. */
@@ -65,12 +65,12 @@ export const Character = component(
     {
         requires: [Body],
         defaults: () => ({
-            velocity: [0, 0, 0, 0],
+            velocity: [0, 0, 0],
             groundState: GroundState.InAir,
-            groundNormal: [0, 0, 0, 0],
-            groundVelocity: [0, 0, 0, 0],
+            groundNormal: [0, 0, 0],
+            groundVelocity: [0, 0, 0],
             maxSlope: Math.PI / 4,
-            up: [0, 1, 0, 0],
+            up: [0, 1, 0],
             pogoVelocity: 0,
             pogoRest: 3,
             steepWalls: 0,

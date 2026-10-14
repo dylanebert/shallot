@@ -22,6 +22,7 @@ export {
     u16,
     u32,
     vec2,
+    vec3,
     vec4,
 } from "./component";
 export type { EntityRef } from "./entity";

@@ -4,6 +4,7 @@ import {
     component,
     type Resource,
     type System,
+    vec3,
     vec4,
     type World,
 } from "../../engine/ecs";
@@ -13,27 +14,27 @@ import {
 export const GlobalTransform = component(
     "GlobalTransform",
     {
-        translation: vec4,
+        translation: vec3,
         rotation: vec4,
-        scale: vec4,
-        linearVelocity: vec4,
+        scale: vec3,
+        linearVelocity: vec3,
     },
     {
         defaults: () => ({
-            translation: [0, 0, 0, 0],
+            translation: [0, 0, 0],
             rotation: [0, 0, 0, 1],
-            scale: [1, 1, 1, 0],
-            linearVelocity: [0, 0, 0, 0],
+            scale: [1, 1, 1],
+            linearVelocity: [0, 0, 0],
         }),
     },
 );
 /** Authored world placement, derived into GlobalTransform by TransformPlugin. There is no hierarchy. */
 export const Transform = component(
     "Transform",
-    { translation: vec4, rotation: vec4, scale: vec4 },
+    { translation: vec3, rotation: vec4, scale: vec3 },
     {
         defaults: () => ({
-            translation: [0, 0, 0, 0],
+            translation: [0, 0, 0],
             rotation: [0, 0, 0, 1],
             scale: [1, 1, 1, 1],
         }),

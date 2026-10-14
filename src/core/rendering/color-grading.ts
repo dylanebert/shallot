@@ -3,12 +3,12 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { component, f32, vec2, vec4 } from "../../engine";
+import { component, f32, vec2, vec3 } from "../../engine";
 import { tmLuma } from "./tonemap";
 
 /** Camera grading in Bevy's model. Exposure is an offset in stops; hue is in degrees.
  * Temperature and tint adjust the D65 CIE xy white point. Section vectors contain
- * shadows, midtones, highlights in xyz; w is unused. All sections default to identity.
+ * shadows, midtones, highlights. All sections default to identity.
  * midtonesRange defaults to [0.2, 0.7], with a 0.1 crossfade on either side.
  */
 export const ColorGrading = component(
@@ -21,11 +21,11 @@ export const ColorGrading = component(
         hue: f32,
         postSaturation: f32,
         midtonesRange: vec2,
-        saturation: vec4,
-        contrast: vec4,
-        gamma: vec4,
-        gain: vec4,
-        lift: vec4,
+        saturation: vec3,
+        contrast: vec3,
+        gamma: vec3,
+        gain: vec3,
+        lift: vec3,
     },
     { defaults: () => gradingDefaults },
 );
@@ -37,11 +37,11 @@ export const gradingDefaults = {
     hue: 0,
     postSaturation: 1,
     midtonesRange: [0.2, 0.7] as [number, number],
-    saturation: [1, 1, 1, 0] as [number, number, number, number],
-    contrast: [1, 1, 1, 0] as [number, number, number, number],
-    gamma: [1, 1, 1, 0] as [number, number, number, number],
-    gain: [1, 1, 1, 0] as [number, number, number, number],
-    lift: [0, 0, 0, 0] as [number, number, number, number],
+    saturation: [1, 1, 1] as [number, number, number],
+    contrast: [1, 1, 1] as [number, number, number],
+    gamma: [1, 1, 1] as [number, number, number],
+    gain: [1, 1, 1] as [number, number, number],
+    lift: [0, 0, 0] as [number, number, number],
 };
 
 export const GradingConfig = d.struct({

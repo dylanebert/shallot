@@ -19,7 +19,7 @@ import {
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
-import { f32, vec4 } from "../../engine";
+import { f32, vec3 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { createLinePipeline, lineLayout, viewLayout } from "./pipeline";
 import {
@@ -48,7 +48,7 @@ export const Line = component(
     "Line",
     {
         /** line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up) */
-        offset: vec4,
+        offset: vec3,
         /** constant screen width in pixels */
         thickness: f32,
         /** hex sRGB color */
@@ -60,7 +60,7 @@ export const Line = component(
     },
     {
         defaults: () => ({
-            offset: [1, 0, 0, 0],
+            offset: [1, 0, 0],
             thickness: 2,
             color: 0xffffff,
             opacity: 1,

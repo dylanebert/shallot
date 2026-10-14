@@ -10,7 +10,7 @@ import {
     type System,
     u8,
     Viewports,
-    vec4,
+    vec3,
     type World,
 } from "../../engine";
 import { clamp, lookAtRotation } from "../../engine/utils";
@@ -86,7 +86,7 @@ export const Orbit = component(
         /** mouse button that flies (hold to look around, WASD/QE to move): 0 left, 1 middle, 2 right */
         flyButton: u8,
         /** pan offset from the orbit target, world units */
-        pan: vec4,
+        pan: vec3,
         /** WASD/QE fly speed, world units per second; scroll while flying adjusts it (clamped to flyMin/flyMax) */
         flySpeed: f32,
         /** shift-held fly boost multiplier, transient; scales flySpeed while shift is down, never stored */
@@ -127,7 +127,7 @@ export const Orbit = component(
             orbitButton: 0,
             panButton: 1,
             flyButton: 2,
-            pan: [0, 0, 0, 0],
+            pan: [0, 0, 0],
             flySpeed: 5,
             flyBoost: 3,
             flyMin: 0.5,

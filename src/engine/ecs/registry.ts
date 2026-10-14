@@ -10,7 +10,7 @@ interface Entry {
     /**
      * default field values, applied on `world.add`. Values are scalars for
      * ScalarField fields and per-lane arrays for direct `Vector2Field`/`Vector4Field`
-     * fields (`{ translation: [0, 0, 0, 0] }`).
+     * fields (`{ translation: [0, 0, 0] }`); an omitted lane is 0.
      */
     defaults?: (world: World) => ComponentValues<Component>;
     /** lazy-compiled defaults writer. undefined = unbuilt, null = no defaults. */

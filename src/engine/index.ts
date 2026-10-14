@@ -41,6 +41,7 @@ export {
     type Vector2Field,
     type Vector4Field,
     vec2,
+    vec3,
     vec4,
     World,
     type WorldSnapshot,
