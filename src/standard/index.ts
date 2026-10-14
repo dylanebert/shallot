@@ -16,7 +16,6 @@ export {
 export { composeGlobalTransform, GlobalTransform, Transform } from "../core/transform";
 export { loadClip, StandardAudioPlugin } from "./audio";
 export {
-    type LoadingOptions,
     type SplashOptions,
     type SplashProfile,
     shallotDark,

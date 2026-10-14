@@ -36,8 +36,6 @@ export interface SplashOptions {
     bootstrap?: HTMLElement;
 }
 
-export type LoadingOptions = SplashOptions;
-
 interface Theme {
     bg: string;
     surface: string;
