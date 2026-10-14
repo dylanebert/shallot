@@ -386,11 +386,7 @@ test("contact, hit and joint events retain ECS identity and Box3D payloads", asy
                     normal: { x: 0, y: 1, z: 0 },
                     approachSpeed: 9.83334732055664,
                     userMaterialIdA: 0x0123456789abcdefn,
-                    userMaterialIdALow: 0x89abcdef,
-                    userMaterialIdAHigh: 0x01234567,
                     userMaterialIdB: 0xfedcba9876543210n,
-                    userMaterialIdBLow: 0x76543210,
-                    userMaterialIdBHigh: 0xfedcba98,
                 });
                 for (let i = 0; i < events.contactHit.count; i++) {
                     expect([

@@ -23,11 +23,7 @@ export interface PhysicsHitEvent extends PhysicsContactPair {
     normal: { x: number; y: number; z: number };
     approachSpeed: number;
     userMaterialIdA: bigint;
-    userMaterialIdALow: number;
-    userMaterialIdAHigh: number;
     userMaterialIdB: bigint;
-    userMaterialIdBLow: number;
-    userMaterialIdBHigh: number;
 }
 
 export interface PhysicsJointEvent {

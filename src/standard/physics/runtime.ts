@@ -145,6 +145,9 @@ interface PhysicsRuntime {
     full: boolean;
     hulls: number;
     observing: boolean;
+    // each hit record's material-id words (A low, A high, B low, B high), so fillHitRecords rebuilds a
+    // record's bigint only when its words change
+    hitMaterialWords: Uint32Array;
 }
 
 export interface PhysicsQueryHit {
@@ -226,6 +229,7 @@ function newRuntime(): PhysicsRuntime {
         full: true,
         hulls: 0,
         observing: false,
+        hitMaterialWords: new Uint32Array(64),
     };
     runtime.queryCastCallback = castQueryCallback.bind(runtime);
     runtime.queryOverlapCallback = overlapQueryCallback.bind(runtime);
@@ -1289,8 +1293,20 @@ function contactRecordAt(
     });
 }
 
-function hitRecordAt(list: PhysicsEventRecords<PhysicsHitEvent>, index: number): PhysicsHitEvent {
-    return (list.records[index] ??= {
+function hitRecordAt(
+    runtime: PhysicsRuntime,
+    list: PhysicsEventRecords<PhysicsHitEvent>,
+    index: number,
+): PhysicsHitEvent {
+    const existing = list.records[index];
+    if (existing) return existing;
+    if (runtime.hitMaterialWords.length < (index + 1) * 4) {
+        const grown = new Uint32Array(runtime.hitMaterialWords.length * 2);
+        grown.set(runtime.hitMaterialWords);
+        runtime.hitMaterialWords = grown;
+    }
+    runtime.hitMaterialWords.fill(0, index * 4, index * 4 + 4);
+    return (list.records[index] = {
         shapeA: 0 as EntityRef,
         bodyA: 0 as EntityRef,
         shapeB: 0 as EntityRef,
@@ -1299,12 +1315,16 @@ function hitRecordAt(list: PhysicsEventRecords<PhysicsHitEvent>, index: number):
         normal: { x: 0, y: 0, z: 0 },
         approachSpeed: 0,
         userMaterialIdA: 0n,
-        userMaterialIdALow: 0,
-        userMaterialIdAHigh: 0,
         userMaterialIdB: 0n,
-        userMaterialIdBLow: 0,
-        userMaterialIdBHigh: 0,
     });
+}
+
+// the 64-bit id from its u32 words, reusing `current` while the record's memoized words match
+function materialId(words: Uint32Array, at: number, low: number, high: number, current: bigint) {
+    if (words[at] === low && words[at + 1] === high) return current;
+    words[at] = low;
+    words[at + 1] = high;
+    return BigInt(low) | (BigInt(high) << 32n);
 }
 
 function jointRecordAt(
@@ -1373,7 +1393,8 @@ function fillHitRecords(
         const a = eventShapeBinding(runtime, k, state.worldId, kind, i, 0);
         const b = eventShapeBinding(runtime, k, state.worldId, kind, i, 2);
         if (!a || !b) continue;
-        const record = hitRecordAt(list, written++);
+        const at = written * 4;
+        const record = hitRecordAt(runtime, list, written++);
         record.shapeA = a.shape;
         record.bodyA = a.body;
         record.shapeB = b.shape;
@@ -1385,26 +1406,21 @@ function fillHitRecords(
         record.normal.y = k.eventFloat(state.worldId, kind, i, 11);
         record.normal.z = k.eventFloat(state.worldId, kind, i, 12);
         record.approachSpeed = k.eventFloat(state.worldId, kind, i, 13);
-        const materialALow = k.eventWord(state.worldId, kind, i, 14) >>> 0;
-        const materialAHigh = k.eventWord(state.worldId, kind, i, 15) >>> 0;
-        if (
-            record.userMaterialIdALow !== materialALow ||
-            record.userMaterialIdAHigh !== materialAHigh
-        ) {
-            record.userMaterialIdALow = materialALow;
-            record.userMaterialIdAHigh = materialAHigh;
-            record.userMaterialIdA = BigInt(materialALow) | (BigInt(materialAHigh) << 32n);
-        }
-        const materialBLow = k.eventWord(state.worldId, kind, i, 16) >>> 0;
-        const materialBHigh = k.eventWord(state.worldId, kind, i, 17) >>> 0;
-        if (
-            record.userMaterialIdBLow !== materialBLow ||
-            record.userMaterialIdBHigh !== materialBHigh
-        ) {
-            record.userMaterialIdBLow = materialBLow;
-            record.userMaterialIdBHigh = materialBHigh;
-            record.userMaterialIdB = BigInt(materialBLow) | (BigInt(materialBHigh) << 32n);
-        }
+        const words = runtime.hitMaterialWords;
+        record.userMaterialIdA = materialId(
+            words,
+            at,
+            k.eventWord(state.worldId, kind, i, 14) >>> 0,
+            k.eventWord(state.worldId, kind, i, 15) >>> 0,
+            record.userMaterialIdA,
+        );
+        record.userMaterialIdB = materialId(
+            words,
+            at + 2,
+            k.eventWord(state.worldId, kind, i, 16) >>> 0,
+            k.eventWord(state.worldId, kind, i, 17) >>> 0,
+            record.userMaterialIdB,
+        );
     }
     list.count = written;
 }
