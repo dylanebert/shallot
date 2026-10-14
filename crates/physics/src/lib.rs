@@ -148,6 +148,7 @@ mod joint_creation;
 mod joint_draw;
 #[cfg(target_arch = "wasm32")]
 mod joint_lifecycle;
+pub mod joint_read;
 mod joint_record;
 #[cfg(target_arch = "wasm32")]
 mod manifolds;

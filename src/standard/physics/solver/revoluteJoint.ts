@@ -1,9 +1,6 @@
-import { quat, type Vec3 } from "../common/math";
-import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
-import { readJointQuat, readJointReaction } from "../kernel/jointcolumns";
-import { JointField, jointField } from "../kernel/jointrecords";
+import type { Vec3 } from "../common/math";
+import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
-import { readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
@@ -74,25 +71,5 @@ export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
 
 /** The current hinge angle (b3RevoluteJoint_GetAngle): relative twist of the two joint frames. */
 export function revoluteJointAngle(world: WorldState, sim: Joint): number {
-    const bodyPoseScratch1 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-    const bodyPoseScratch2 = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-    const transformA = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 0),
-        bodyPoseScratch1,
-    );
-    const transformB = readBodyTransform(
-        world,
-        jointField(world, sim, JointField.bodyIdA + 3 * 1),
-        bodyPoseScratch2,
-    );
-    const quatA = quat.mul(transformA.q, readJointQuat(world, sim, J_LOCAL_FRAME_A + 3));
-    let quatB = quat.mul(transformB.q, readJointQuat(world, sim, J_LOCAL_FRAME_B + 3));
-    if (quat.dot(quatA, quatB) < 0) {
-        // keeps the twist angle in [-pi, pi]
-        quatB = quat.negate(quatB);
-    }
-    const relQ = quat.invMul(quatA, quatB);
-    return quat.getTwistAngle(relQ);
+    return kernel(world.ecsState).jointRead(world.worldId, sim, 0);
 }

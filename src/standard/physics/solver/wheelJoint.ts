@@ -1,7 +1,7 @@
-import { atan2, f32, mat3, quat, type Vec3, vec3 } from "../common/math";
+import { f32, quat, type Vec3, vec3 } from "../common/math";
 import { bodySimSlot, readSimTransform, readStateAngularVelocity } from "../kernel/bodycolumns";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
-import { J_LOCAL_FRAME_A, J_LOCAL_FRAME_B } from "../kernel/columns";
+import { J_LOCAL_FRAME_B } from "../kernel/columns";
 import { readJointQuat, readJointReaction } from "../kernel/jointcolumns";
 import { JointField, jointField } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";
@@ -130,34 +130,5 @@ export function wheelJointSpinSpeed(world: WorldState, sim: Joint): number {
 
 /** The current steering angle about body A's x-axis (b3WheelJoint_GetSteeringAngle). */
 export function wheelJointSteeringAngle(world: WorldState, sim: Joint): number {
-    const transformScratch1 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-    const transformScratch2 = {
-        p: { x: 0, y: 0, z: 0 },
-        q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-    };
-
-    const bodyA = jointField(world, sim, JointField.bodyIdA + 3 * 0);
-    const bodyB = jointField(world, sim, JointField.bodyIdA + 3 * 1);
-    const setA = bodyField(world, bodyA, BodyField.setIndex);
-    const setB = bodyField(world, bodyB, BodyField.setIndex);
-    const bodySimA = bodySimSlot(setA, bodyField(world, bodyA, BodyField.localIndex));
-    const bodySimB = bodySimSlot(setB, bodyField(world, bodyB, BodyField.localIndex));
-    const quatA = quat.mul(
-        readSimTransform(world, bodySimA, transformScratch1).q,
-        readJointQuat(world, sim, J_LOCAL_FRAME_A + 3),
-    );
-    const quatB = quat.mul(
-        readSimTransform(world, bodySimB, transformScratch2).q,
-        readJointQuat(world, sim, J_LOCAL_FRAME_B + 3),
-    );
-    const matrixA = mat3.fromQuat(quatA);
-    const matrixB = mat3.fromQuat(quatB);
-
-    // Twist around the x-axis.
-    const cs = vec3.dot(matrixB.cz, matrixA.cz);
-    const ss = f32(-vec3.dot(matrixB.cz, matrixA.cy));
-    return atan2(ss, cs);
+    return kernel(world.ecsState).jointRead(world.worldId, sim, 3);
 }
