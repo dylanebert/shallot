@@ -7,7 +7,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### Device and world ownership
 
 - A build acquires WebGPU only when an enabled plugin declares `gpu` (including `{}`) or `config.device` is supplied. CPU-only compositions build and step without a WebGPU backend.
-- Headless Bun and Node GPU apps install the optional `webgpu` peer and call `setupGlobals` from `@dylanebert/shallot/webgpu` before building; browser GPU apps use the host's WebGPU. A headless app with no GPU-declaring plugin and no supplied device needs neither.
+- Headless Bun and Node GPU apps install the optional `webgpu` peer and call `setupGlobals` from `@dylanebert/shallot/webgpu` before building; browser GPU apps use the host's WebGPU.
 - Each app owns its world storage and allocations; disposing one releases its resources, not the device or a sibling's data.
 - Builds serialize registration and warm-up; completed apps coexist.
 - Components declare fields, not storage or GPU residency.
@@ -27,7 +27,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - GPU consumers bind tables, not authoring fields.
 - A table has one TypeGPU struct per row, shaped by access, update frequency and lifetime; a pass needing fewer fields reads a narrower table, not a second engine-wide layout.
-- Each mesh material type owns one typed GPU table whose row matches its parameter schema; `MeshMaterial` selects that World-local type and row. Do not bind one buffer per material instance or authoring field.
+- Each mesh material type owns one typed GPU table whose row matches its parameter schema; `MeshMaterial` selects that World-local type and row.
 - Draws and dispatches read compact active-row or instance lists, never the sparse eid range; eid-based lookups opt into the uploaded map.
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback. GPU-only tables have no CPU record source or upload.
 - Uploads preserve command order across buffer growth. Outside draw, queue writes and immediate growth submissions follow program order; during draw, distinct staging ranges preserve encoded observations on the World's lazy frame encoder.
@@ -36,18 +36,15 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Shader arrays are runtime-sized. Device buffer limits bound table capacity, and refusal names the cause.
 - Fixed writes precede head-of-draw upload and GPU passes, including writes from exact ticks before a frame.
 - TypeGPU is the engine and extension GPU language; raw WGSL uses its escape hatch.
-- Steady updates use raw handles and byte ranges, not allocating object-form writes. Buffer generations, row addressing and upload APIs are documented beside [GpuTable](src/engine/ecs/table.ts).
+- Buffer generations, row addressing and upload APIs are documented beside [GpuTable](src/engine/ecs/table.ts).
 
 ### GPU floor
 
 - Built-in pipelines and shipped renderer compositions fit WebGPU's default eight storage-buffer bindings per shader stage.
-- Count declared storage bindings across all bound groups by stage visibility; unused declarations still count.
-- Pipeline creation is guarded against the granted per-stage limit: the World counts storage entries in each bound layout by visibility before calling WebGPU, then refuses an over-budget pipeline with its plugin, pipeline, stage and count. A layout that cannot be accounted against this World is refused rather than bypassing the floor.
+- Storage bindings count across all bound groups by stage visibility, unused declarations included. Pipeline creation refuses a pipeline over the granted per-stage limit, naming its plugin, pipeline, stage and count, and refuses a layout it cannot account for.
 - Device acquisition uses the enabled plugins' declared requirements, never adapter maxima. The built-in renderer does not raise the default storage-buffer limit; an external plugin may require more and owns that compatibility choice.
-- A floor-device proof requests only the composition's required features, with no `requiredLimits`.
-- Record the real adapter identity, granted features and resulting limits.
-- Build and draw the covered pipeline families and examples on the floor device.
-- A built-in pipeline that exceeds the floor or lacks a required feature refuses with its owner and the stage/limit or feature named.
+- A floor-device proof requests only the composition's required features, with no `requiredLimits`, builds and draws the covered pipeline families and examples, and records the adapter identity, granted features and limits.
+- A built-in pipeline lacking a required feature refuses, naming its owner and the feature.
 - A layout repair preserves precision and capacity, and reports uploads, passes and dispatches on named hardware.
 
 ### Readback
@@ -60,16 +57,16 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### Frame schedule
 
-- `runApp` is clocked by `requestAnimationFrame` alone and requests the next callback before GPU work, as PlayCanvas and three.js are. A step's delta is the difference between rAF timestamps, never `now()`: the nearest web analogue of a presentation timestamp, which Unity 2020.2 adopted to stop CPU-sampled deltas jittering motion.
-- Simulation runs fixed 60 Hz ticks from an accumulator, at most four a step, and rendering interpolates by `fixedAlpha`. The rate is one constant; raising it doubles fixed passes and rewrites tick-count tests, tuning and replays.
-- Input is sampled once per callback into tick-addressed records, and look applies per frame, as Source's `CreateMove` and `ExtraMouseSample` split them. Fixed systems read tick records, never devices, and an instantaneous action stays latched until a tick consumes it.
+- `runApp` is clocked by `requestAnimationFrame` alone and requests the next callback before GPU work. A step's delta is the difference between rAF timestamps, never `now()`, whose CPU-sampled deltas jitter motion.
+- Simulation runs fixed 60 Hz ticks from an accumulator, at most four a step, and rendering interpolates by `fixedAlpha`. The rate is one constant; changing it rewrites tick-count tests, tuning and replays.
+- Input is sampled once per callback into tick-addressed records, and look applies per frame. Fixed systems read tick records, never devices, and an instantaneous action stays latched until a tick consumes it.
 - Skip a callback only while six frames are pending: Chrome's rAF throttle can engage too late to bound queued GPU work (`81e3375c`), and a web callback cannot block like a native frame-latency cap.
-- No callback is skipped for landing early. Neither PlayCanvas nor three.js does, and a skipped refresh shows one image twice.
+- No callback is skipped for landing early: a skipped refresh shows one image twice.
 
 ### GlobalTransform
 
 - `TransformPlugin` (`core/transform`) owns authored `Transform`, derived `GlobalTransform`, fixed-tick derivation and boundaries, discontinuities and placement recovery.
-- Physics and rendering depend on it; a composition without a placement reader registers no placement unless it adds `TransformPlugin`.
+- A composition without a placement reader registers no placement unless it adds `TransformPlugin`.
 - `GlobalTransform` is derived world placement, never authored.
 - Gameplay and physics read its fixed-tick columns; rendering owns `globalTransformTable(world)` in `core/rendering`, its GPU history and interpolation. Placement without rendering allocates no placement GPU buffers or pipelines.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
@@ -96,7 +93,6 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - Modules are named for what they own, not their technique.
 - Core and standard use the same noun and matching subpaths, such as `core/rendering` at `/rendering` and `standard/rendering` at `/standard/rendering`.
-- Export names describe the implementation.
 
 ### Rendering
 
@@ -111,11 +107,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Transparent items are sorted back-to-front by view-space depth across renderers for each view, with deterministic identity ties; renderers may batch only consecutive compatible items in that order.
 - `AlphaMode` is per material row. StandardMaterial preserves base-color alpha; `Mask` writes depth, blended modes do not, and `AlphaToCoverage` emits a fragment sample mask because the `rg11b10ufloat` HDR target has no alpha channel (single-sample views use the 0.5 mask fallback).
 - At most one enabled directional casts shadows: greatest illuminance wins, then lower eid. Light units and direction live beside the [lighting components](src/core/rendering/lighting.ts).
-- Presenting view state grows without recompiling pipelines or layouts. The cull-uniform hardware bound and shadow reservation determine [MAX_VIEWS](src/core/rendering/view.ts); overflow warns and skips the camera.
-- `Tonemapping` selects the operator, TonyMcMapface by default; `TonemappingMethod.None` skips it for display-ready linear images, but not grading or encoding.
-- `ColorGrading` grades the image, and presentation encodes it for the screen.
-- Effects are separate passes registered per camera in `EffectPasses`: before tonemapping they read linear HDR, after it they read encoded display-referred intermediates.
-- `CustomPresentation` replaces the built-in presentation for a camera.
+- Presenting view state grows without recompiling pipelines or layouts, up to [MAX_VIEWS](src/core/rendering/view.ts); a camera beyond it is skipped with a warning.
+- Presentation tonemaps, grades and encodes each view; `TonemappingMethod.None` skips only the operator.
 - `core/mesh` owns mesh data, GPU storage, built-in primitives and `MeshInstance`, independent of rendering.
 - `standard/rendering` is the one clustered forward mesh pipeline over both core modules: surfaces, materials, light packing, culling, indirect draws, backgrounds and shadow passes. It records into core's phases.
 - Standard contains no effects; they belong in extras.
@@ -152,12 +145,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
   - an app's `dev`, `build` and `preview`, calling Vite;
   - `lint` and `format`, where the project has them;
   - `typecheck`, only for `svelte-check`.
-- Tests run by native verb:
-  - `bun test`: cheap and GPU;
-  - `bun test ./<file>`: Node and oracle files, by path;
-  - `bunx playwright test`: browser, after `bunx playwright install chromium` once;
-  - CI runs the wide set.
-- Every other command runs by its native verb: `bun check`, `bun <file>`, `bunx shallot`.
+- Every command runs by its native verb: `bun test` for cheap and GPU files, `bun test ./<file>` for Node and oracle files, `bunx playwright test` for browser subjects (after `bunx playwright install chromium` once), `bun check`, `bun <file>`, `bunx shallot`.
 - A project that adopts the engine's timeouts, as the engine does, defines one `test` running `bun test` with a preload that calls `setDefaultTimeout(TIMEOUT.cheap)`, run as `bun run test`.
 - No package defines `check` or a renamed tier such as `test:node` or `test:browser`.
 
@@ -182,9 +170,7 @@ bun run format                  # biome
 - Bun child processes spread [the executable and host identity](scripts/bun-child.ts) into object-form spawn options.
 - Iterate on selected files or subjects.
 - Before it lands, a change runs every repository policy.
-- [CI](.github/workflows/test.yml) owns the wide push runs and their commands.
-- The import gate runs `bun test --todo ./scripts/check-imports.node.ts`: only the debts named in those assertions are todos, every other finding fails, and a passing todo fails until its scope is retired.
-- Import-gate todos leave with their migrations; they are not a mechanism for new exceptions.
+- The import gate (`bun test --todo ./scripts/check-imports.node.ts`) admits only the debts its todos name, each leaving with its migration; every other finding fails, a passing todo fails until its scope is retired, and no new exception becomes a todo.
 
 ## Verification
 
@@ -201,7 +187,6 @@ bun run format                  # biome
 | Manual oracle | `*.oracle.ts`; run by path | unbounded | — |
 
 - GPU and Node files call `setDefaultTimeout` once with `TIMEOUT.gpu` or `TIMEOUT.node` from `@dylanebert/shallot/testing`. A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the ceiling catches a hang.
-- Other projects use Bun's default timeout unless they opt into the engine's ceilings with a `test` script.
 - A missing tier premise fails, never skips.
 - Quarantine uses `test.todo`, runnable with `--todo`; a known failure stays failing until fixed.
 - Every browser subject keeps its Playwright and Vite configs together and spreads `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `scripts/browser.sh` applies `TIMEOUT.browser` and one worker; a copy runs under Playwright's defaults. Browser tests hold the browser tier's page-only claims; Playwright's per-test default stays unchanged.
@@ -220,7 +205,6 @@ bun run format                  # biome
 - Simulation lives in components and declared recovery participants; derived presentation reconciles after restore. Capture state a plugin owns that any fixed system reads, not only state it writes. [Plugin.recovery](src/engine/app/index.ts) and [World.snapshot/restore](src/engine/ecs/world.ts) hold the capture and ordering contracts.
 - Every fixed system has a recovery owner. Registration guards cannot prove that a participant captures every simulation input.
 - Core physics recovers its geometry registries, read by fixed body synchronization. Standard physics recovers its solver image and ECS bindings; a physics hash does not prove ECS or gameplay recovery.
-- `fixed` reads per-tick actions and `draw` presents. Recovery does not turn live device reads into replayable inputs.
 - Determinism holds within one runtime and engine version; hashes detect divergence across versions.
 - Frame evidence uses the cheapest observable: CPU state, then GPU readback, then browser pixels, then a person.
 - An engine's final frame uses `attachTexture` and `captureTexture`; other owned textures use `probeTexture`.
@@ -273,12 +257,11 @@ bun run format                  # biome
 Naming pillars, in order; an earlier pillar wins when two conflict:
 
 1. **Self-explanatory where read.** At its call site, with its receiver, arguments and type, a name says what it acts on and what it does; a stranger who has not read the declaration guesses right.
-2. **Grounded in precedent.** Names and techniques come from the domain's precedent: Bevy for the ECS and rendering where they carry meaning in Shallot, Box3D and Avian for physics, WebGPU and TypeGPU for the GPU, glTF for assets. A divergence names its reason.
+2. **Grounded in precedent.** Names and techniques come from the domain's precedent: Bevy for the ECS and rendering where they carry meaning in Shallot, Box3D and Avian for physics, WebGPU and TypeGPU for the GPU, glTF for assets. A divergence names its reason; a rendering divergence from Bevy names its referent, or the Bevy structure Shallot lacks, in the `bevy` entry of the harness's `strategy/shallot/referents.md`.
 3. **Concise.** A name does not repeat what its receiver, module or type carries.
 
 A choice the pillars leave open is taste, and goes to the person.
 
-- Each rendering divergence from Bevy names its referent, or the Bevy structure Shallot lacks, in the `bevy` entry of the harness's `strategy/shallot/referents.md`.
 - A name means one thing across the tree, one act takes one verb and one shape, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
 - One fact has one name, one producer and one path; a second spelling or a forwarding wrapper goes.
 - JSDoc states the contract the signature cannot: units, ownership, lifetime, frame timing and what is refused. It carries no `@example`; examples live in `examples/`.
