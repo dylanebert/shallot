@@ -254,16 +254,16 @@ bun run format                  # biome
 
 ## Code
 
-Naming pillars, in order; an earlier pillar wins when two conflict:
+Name and shape pillars, in order; an earlier pillar wins when two conflict:
 
-1. **Self-explanatory where read.** At its call site, with its receiver, arguments and type, a name says what it acts on and what it does; a stranger who has not read the declaration guesses right.
-2. **Grounded in precedent.** Names and techniques come from the domain's precedent: Bevy for the ECS and rendering where they carry meaning in Shallot, Box3D and Avian for physics, WebGPU and TypeGPU for the GPU, glTF for assets. A divergence names its reason; a rendering divergence from Bevy names its referent, or the Bevy structure Shallot lacks, in the `bevy` entry of the harness's `strategy/shallot/referents.md`.
-3. **Concise.** A name does not repeat what its receiver, module or type carries.
+1. **Self-explanatory where read.** At its call site, with its receiver, arguments and type, a name and the shape of what it takes and returns say what it acts on and what it does; a stranger who has not read the declaration guesses right.
+2. **Grounded in precedent.** Names, shapes and techniques come from the domain's precedent: Bevy for the ECS and rendering where they carry meaning in Shallot, Box3D and Avian for physics, WebGPU and TypeGPU for the GPU, glTF for assets. A divergence names its reason; a rendering divergence from Bevy names its referent, or the Bevy structure Shallot lacks, in the `bevy` entry of the harness's `strategy/shallot/referents.md`.
+3. **Concise.** A name does not repeat what its receiver, module or type carries, and a shape carries nothing its user does not need.
 
 A choice the pillars leave open is taste, and goes to the person.
 
 - A name means one thing across the tree, one act takes one verb and one shape, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
-- One fact has one name, one producer and one path; a second spelling or a forwarding wrapper goes.
+- One fact has one name, one representation, one producer and one path, and one algorithm has one implementation; a second spelling, a second copy or a forwarding wrapper goes.
 - JSDoc states the contract the signature cannot: units, ownership, lifetime, frame timing and what is refused. It carries no `@example`; examples live in `examples/`.
 - A `//` comment says why the code is as it is.
 - Neither JSDoc nor a comment restates the code or its history ([Google TypeScript Style](https://google.github.io/styleguide/tsguide.html#comments-documentation), Comments and documentation).
