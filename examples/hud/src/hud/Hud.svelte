@@ -1,9 +1,10 @@
 <script lang="ts">
-    import { Materials, type World } from "@dylanebert/shallot";
-    import { untrack } from "svelte";
+    import { Materials, type System, type World } from "@dylanebert/shallot";
+    import { onMount, untrack } from "svelte";
     import { CubeMaterial, Turn } from "../turntable";
 
     let { world }: { world: World } = $props();
+    let degrees = $state(0);
     let speed = $state(untrack(() => world.resource(Turn).speed));
     let selected = $state(0);
     const swatches = [
@@ -25,6 +26,18 @@
         });
         selected = index;
     }
+
+    onMount(() => {
+        const read: System = {
+            name: "Hud/Read",
+            group: "draw",
+            update(world) {
+                degrees = Math.floor((world.resource(Turn).angle * 180) / Math.PI) % 360;
+            },
+        };
+        world.addSystem(read);
+        return () => world.removeSystem(read);
+    });
 </script>
 
 <section class="hud" aria-label="Cube controls">
@@ -35,6 +48,7 @@
         {/each}
     </div>
     <input id="speed" aria-label="Turn speed" type="range" min="0" max="3" step="0.1" bind:value={speed} />
+    <span class="angle" data-hud="angle">{degrees}<small>°</small></span>
 </section>
 
 <style>
@@ -54,5 +68,7 @@
     .swatches { display: flex; gap: 8px; }
     button { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 4px; cursor: pointer; }
     button[aria-pressed="true"] { border-color: #efe3cf; }
+    .angle { min-width: 4ch; color: #efe3cf; font: 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: right; }
+    small { font-size: 0.7em; vertical-align: top; }
     input { width: 140px; margin: 0; accent-color: #efe3cf; }
 </style>

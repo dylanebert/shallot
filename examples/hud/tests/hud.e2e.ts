@@ -29,6 +29,25 @@ test("the controls float centred along the canvas's bottom edge", async ({ page 
     expect(errors).toEqual([]);
 });
 
+test("the angle the HUD shows is the game's own Turn after each step", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(STEPPED);
+    await page.waitForFunction(() => (window as SteppedWindow).stepHud !== undefined);
+
+    let previous: Turn | undefined;
+    for (const steps of [1, 29, 300, 37]) {
+        const turn = await step(page, steps);
+        expect(turn.angle).toBeGreaterThan(previous?.angle ?? 0);
+        const degrees = Math.floor((turn.angle * 180) / Math.PI) % 360;
+        // `stepHud` flushes Svelte's updates before it returns, so the text is already the step's.
+        expect(await page.locator('[data-hud="angle"]').textContent()).toBe(`${degrees}°`);
+        previous = turn;
+    }
+    expect(previous!.angle).toBeGreaterThan(2 * Math.PI);
+    expect(errors).toEqual([]);
+});
+
 test("DOM controls change stepped speed, material colour and the cube centre hue", async ({
     page,
 }) => {
