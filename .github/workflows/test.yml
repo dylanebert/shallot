@@ -31,7 +31,7 @@ on:
           - linux-native
 
 concurrency:
-  group: test-${{ github.event.pull_request.number || github.sha }}
+  group: test-${{ github.event_name }}-${{ inputs.os || 'all' }}-${{ inputs.tier || 'all' }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
