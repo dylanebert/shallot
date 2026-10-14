@@ -272,20 +272,15 @@ bun run format                  # biome
 
 Naming pillars, in order; an earlier pillar wins when two conflict:
 
-1. **Self-explanatory where read.** At its call site, with its receiver, arguments and type, a name says what it acts on and does. A stranger who has not read the declaration guesses right.
-2. **Grounded in precedent.** Names and techniques come from the domain's precedent: Bevy for the ECS and rendering, Box3D and Avian for physics, WebGPU and TypeGPU for the GPU, glTF for assets. Take the referent's name where it names the concept; a divergence names its reason. A precedent's name that misleads under Shallot's receiver fails pillar 1.
-3. **Concise.** Use the shortest name that keeps 1 and 2. Do not repeat context the receiver, module or type carries.
+1. **Self-explanatory where read.** At its call site, with its receiver, arguments and type, a name says what it acts on and what it does; a stranger who has not read the declaration guesses right.
+2. **Grounded in precedent.** Names and techniques come from the domain's precedent: Bevy for the ECS and rendering where they carry meaning in Shallot, Box3D and Avian for physics, WebGPU and TypeGPU for the GPU, glTF for assets. A divergence names its reason.
+3. **Concise.** A name does not repeat what its receiver, module or type carries.
 
-Flavor is taste, which no check holds. A choice the pillars leave open goes to the person.
+A choice the pillars leave open is taste, and goes to the person.
 
 - Each rendering divergence from Bevy names its referent, or the Bevy structure Shallot lacks, in the `bevy` entry of the harness's `strategy/shallot/referents.md`.
-- A name means one thing across the tree, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
+- A name means one thing across the tree, one act takes one verb and one shape, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
 - One fact has one name, one producer and one path; a second spelling or a forwarding wrapper goes.
-- One act takes one verb and one shape across the tree. Each lifecycle has its own pair: an entity is spawned and despawned; no other lifecycle reuses those words.
-- Data takes nouns: components, resources and records. Behavior takes verbs; booleans read as predicates. Bevy's `*Plugin` and `*System` suffixes hold.
-- An abbreviation is allowed only where the domain uses it everywhere (`eid`, `GPU`, `Mat4`, `Quat`); each concept has one spelling.
-- Public names rank above internal ones: a rename costs strangers more after each release. Rank a candidate by how far it reaches times how badly it misleads.
-- A rename is a breaking change, admitted like any other candidate. Its landing updates every in-tree consumer and `MIGRATION.md`, with no alias.
 - JSDoc states the contract the signature cannot: units, ownership, lifetime, frame timing and what is refused. It carries no `@example`; examples live in `examples/`.
 - A `//` comment says why the code is as it is.
 - Neither JSDoc nor a comment restates the code or its history ([Google TypeScript Style](https://google.github.io/styleguide/tsguide.html#comments-documentation), Comments and documentation).
