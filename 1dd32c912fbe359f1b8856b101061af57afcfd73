@@ -1,0 +1,2 @@
+stage: 1
+finding: Startup failure attribution loses Xvfb's exit status: the shell's final while compound returns 0 after wait observes exit 7, so production reports "Xvfb exited (0)" for a refusal. Independently reproduced with the same wrapper and an owned shell child exiting 7, without a display server. Preserve the last server wait status across notification-interrupted waits and assert exact refusal status 7 in the executable fixture.
