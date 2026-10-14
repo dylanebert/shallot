@@ -1,10 +1,9 @@
 <script lang="ts">
-    import { Materials, type System, type World } from "@dylanebert/shallot";
-    import { onMount, untrack } from "svelte";
+    import { Materials, type World } from "@dylanebert/shallot";
+    import { untrack } from "svelte";
     import { CubeMaterial, Turn } from "../turntable";
 
     let { world }: { world: World } = $props();
-    let degrees = $state(0);
     let speed = $state(untrack(() => world.resource(Turn).speed));
     let selected = $state(0);
     const swatches = [
@@ -26,50 +25,34 @@
         });
         selected = index;
     }
-
-    onMount(() => {
-        const read: System = {
-            name: "Hud/Read",
-            group: "draw",
-            update(world) {
-                degrees = Math.floor((world.resource(Turn).angle * 180) / Math.PI) % 360;
-            },
-        };
-        world.addSystem(read);
-        return () => world.removeSystem(read);
-    });
 </script>
 
 <section class="hud" aria-label="Cube controls">
-    <div>Angle <span data-hud="angle">{degrees}°</span></div>
     <div class="swatches" aria-label="Cube colour">
         {#each swatches as swatch, index}
             <button aria-label={swatch.name} aria-pressed={selected === index}
                 style:background={srgb(swatch.color)} onclick={() => recolor(index)}></button>
         {/each}
     </div>
-    <label for="speed">Speed <span>{speed.toFixed(1)} rad/s</span></label>
-    <input id="speed" type="range" min="0" max="3" step="0.1" bind:value={speed} />
+    <input id="speed" aria-label="Turn speed" type="range" min="0" max="3" step="0.1" bind:value={speed} />
 </section>
 
 <style>
     .hud {
         pointer-events: auto;
         position: absolute;
-        top: 16px;
-        left: 16px;
-        display: grid;
-        gap: 8px;
-        width: 180px;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 12px;
         padding: 10px 12px;
         border-radius: 6px;
         background: #373635;
-        color: #efe3cf;
-        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
-    span { float: right; font-variant-numeric: tabular-nums; }
     .swatches { display: flex; gap: 8px; }
     button { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 4px; cursor: pointer; }
     button[aria-pressed="true"] { border-color: #efe3cf; }
-    input { width: 100%; margin: 0; accent-color: #efe3cf; }
+    input { width: 140px; margin: 0; accent-color: #efe3cf; }
 </style>

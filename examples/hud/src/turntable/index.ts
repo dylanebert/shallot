@@ -19,9 +19,9 @@ import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
 
 export const Turntable = component("Turntable", {});
 
-/** Angle in radians, completed turns, and speed in radians per second. */
-export const Turn: Resource<{ angle: number; turns: number; speed: number }> = {
-    create: () => ({ angle: 0, turns: 0, speed: 1.2 }),
+/** Angle in radians and speed in radians per second. */
+export const Turn: Resource<{ angle: number; speed: number }> = {
+    create: () => ({ angle: 0, speed: 1.2 }),
 };
 
 export const CubeMaterial: Resource<{ handle?: MaterialHandle }> = {
@@ -81,7 +81,6 @@ const TurnCube = {
     update(world: World): void {
         const turn = world.resource(Turn);
         turn.angle += world.time.deltaTime * turn.speed;
-        turn.turns = Math.floor(turn.angle / (2 * Math.PI));
         const half = turn.angle * 0.5;
         const rotation = world.storage(Transform).rotation;
         for (const eid of world.query([Turntable]))

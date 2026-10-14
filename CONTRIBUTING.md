@@ -307,6 +307,7 @@ bun run format                  # biome
 - There are no duplicate demonstrations; the one showing the engine at its best stays.
 - Each example has a check that fails when its answer breaks, or the example is removed.
 - Examples and their checks use only published names and public seams.
+- An example's UI shows only what its player needs; a control that explains itself carries no label or readout.
 - Examples share the `dev-orange` content palette: neutral ground, dark neutral only on small trim or UI panels, and orange as the subject accent. Example suns cast shadows; use the palette's warm sun, cool ambient and `#1c1917` clear.
 - `diagnostics/default-look/palette.ts`, with `CANDIDATES["dev-orange"]`, is the source of these values. Copied user projects carry literal values copied from that source, never imports from `diagnostics/`.
 
