@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { UnsupportedError } from "../../engine";
 import { requestGPU } from "../../engine/runtime/gpu";
-import { minimalDark, minimalLight, shallotDark } from "./index";
+import { shallotDark } from "./index";
 
 class Element {
     style = { cssText: "", width: "", transition: "", opacity: "", background: "" };
@@ -58,6 +58,8 @@ function contrast(foreground: string, background: string): number {
 function withDocument(run: (body: Element) => void): void {
     const previous = globalThis.document;
     const previousStyle = globalThis.getComputedStyle;
+    const previousCancel = globalThis.cancelAnimationFrame;
+    globalThis.cancelAnimationFrame = () => {};
     const body = new Element();
     const fake = {
         body,
@@ -72,6 +74,8 @@ function withDocument(run: (body: Element) => void): void {
     try {
         run(body);
     } finally {
+        if (previousCancel) globalThis.cancelAnimationFrame = previousCancel;
+        else Reflect.deleteProperty(globalThis, "cancelAnimationFrame");
         if (previous)
             Object.defineProperty(globalThis, "document", { configurable: true, value: previous });
         else Reflect.deleteProperty(globalThis, "document");
@@ -84,11 +88,11 @@ function withDocument(run: (body: Element) => void): void {
     }
 }
 
-test("minimal dark and light loading are transparent, preserve progress colors, readable notices and errors, and clean up; branded loading stays opaque", () => {
+test("dark loading preserves progress colors, readable notices and errors, and cleans up", () => {
     withDocument((body) => {
         const themes = [
             {
-                screen: minimalDark(),
+                screen: shallotDark(),
                 overlay: "#141210",
                 track: "#1c1917",
                 bar: "#d49560",
@@ -97,21 +101,11 @@ test("minimal dark and light loading are transparent, preserve progress colors, 
                 text: "#f0e6d6",
                 amber: "#d49560",
             },
-            {
-                screen: minimalLight(),
-                overlay: "#f7f3ec",
-                track: "#efe9df",
-                bar: "#d49560",
-                muted: "#6e655c",
-                surface: "#efe9df",
-                text: "#2a231e",
-                amber: "#73512f",
-            },
         ] as const;
         for (const theme of themes) {
             const cleanup = theme.screen.show();
             const overlay = body.children.at(-1)!;
-            expect(overlay.style.cssText).toContain("background: transparent");
+            expect(overlay.style.cssText).toContain("background: #141210");
             theme.screen.update(0.4);
             const content = overlay.children[0]!;
             const track = content.children[0]!;
@@ -152,12 +146,13 @@ test("loading takes over only the host bootstrap explicitly assigned to it", () 
     withDocument((body) => {
         const bootstrap = body.appendChild(new Element());
         const embeddedSurface = body.appendChild(new Element());
-        const screen = minimalDark({ bootstrap: bootstrap as unknown as HTMLElement });
+        const screen = shallotDark({ bootstrap: bootstrap as unknown as HTMLElement });
 
-        screen.show();
+        const cleanup = screen.show();
 
         expect(bootstrap.isConnected).toBe(false);
         expect(embeddedSurface.isConnected).toBe(true);
+        cleanup?.();
     });
 });
 
@@ -180,8 +175,8 @@ test("the standard failure screen shows the no-adapter remedy", async () => {
 
     expect(refusal).toBeInstanceOf(UnsupportedError);
     withDocument((body) => {
-        const screen = minimalDark();
-        screen.show();
+        const screen = shallotDark();
+        const cleanup = screen.show();
         screen.error?.(refusal);
         const overlay = body.children[0]!;
         expect(text(overlay)).toContain(
@@ -190,12 +185,13 @@ test("the standard failure screen shows the no-adapter remedy", async () => {
         expect(overlay.children[0]!.children[2]!.children[0]!.innerHTML).toContain(
             "WebGPU not supported.",
         );
+        cleanup?.();
     });
 });
 
 test("the standard loading screen can show a startup error after progress cleanup", () => {
     withDocument((body) => {
-        const screen = minimalDark();
+        const screen = shallotDark();
         screen.show()?.();
         screen.error?.(new Error("GPU device lost unknown: startup loss"));
 
@@ -206,7 +202,8 @@ test("the standard loading screen can show a startup error after progress cleanu
 
 test("the shallot-branded dark loading screen keeps its established opaque background", () => {
     withDocument((body) => {
-        shallotDark().show();
+        const cleanup = shallotDark().show();
         expect(body.children[0]!.style.cssText).toContain("background: #141210");
+        cleanup?.();
     });
 });

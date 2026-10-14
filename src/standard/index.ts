@@ -17,12 +17,9 @@ export { composeGlobalTransform, GlobalTransform, Transform } from "../core/tran
 export { loadClip, StandardAudioPlugin } from "./audio";
 export {
     type LoadingOptions,
-    minimalDark,
-    minimalLight,
     type SplashOptions,
     type SplashProfile,
     shallotDark,
-    shallotLight,
 } from "./loading";
 export {
     applyAngularImpulse,

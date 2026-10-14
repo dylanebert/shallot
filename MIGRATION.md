@@ -2,6 +2,10 @@
 
 These changes require updates to a 0.9.5 app.
 
+## Loading presets
+
+`shallotLight`, `minimalDark` and `minimalLight` are removed. For a custom loading screen, implement `Loading`, as [`examples/loading-screen`](examples/loading-screen) does. `shallotDark` remains the default preset.
+
 ## GPU requirements belong to plugins
 
 Replace `Plugin.features` and `Plugin.preferredFeatures` with `Plugin.gpu`:

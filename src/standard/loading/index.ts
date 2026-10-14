@@ -9,7 +9,7 @@ import pkg from "../../../package.json" with { type: "json" };
 import { UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
 import type { AdapterVerdict } from "../../engine/runtime";
-import { DARK, END_TICK, LIGHT, type Palette, type Splash, splash, toSvg } from "./brand";
+import { DARK, END_TICK, type Palette, type Splash, splash, toSvg } from "./brand";
 import {
     initialPresentation,
     type PresentationEvent,
@@ -61,18 +61,6 @@ const dark: Theme = {
     amber: DARK.gold,
     red: "#c4574b",
     mark: DARK,
-};
-
-const light: Theme = {
-    bg: LIGHT.bg,
-    surface: "#efe9df",
-    track: "#efe9df",
-    bar: LIGHT.gold,
-    text: LIGHT.ink,
-    muted: "#6e655c",
-    amber: "#73512f",
-    red: "#9b3528",
-    mark: LIGHT,
 };
 
 const SUPPORT_URL = "https://caniuse.com/webgpu";
@@ -371,12 +359,7 @@ function renderError(overlay: HTMLDivElement, error: unknown, theme: Theme): voi
     renderEngineError(overlay, wrapped, theme);
 }
 
-function loading(
-    theme: Theme,
-    options: SplashOptions,
-    withSplash: boolean,
-    transparent = false,
-): Loading {
+function loading(theme: Theme, options: SplashOptions): Loading {
     let overlay: HTMLDivElement | null = null;
     let bar: HTMLDivElement | null = null;
     let track: HTMLDivElement | null = null;
@@ -491,7 +474,7 @@ function loading(
     const screen: Loading = {
         show() {
             options.bootstrap?.remove();
-            overlay = createOverlay(transparent ? "transparent" : theme.bg, options.container);
+            overlay = createOverlay(theme.bg, options.container);
             if (!overlay) return;
 
             content = panel(276, "center");
@@ -501,14 +484,12 @@ function loading(
             content.appendChild(progressBar.track);
             overlay.appendChild(content);
 
-            if (withSplash) {
-                const made = createSplash(theme);
-                driver = made.driver;
-                splashElement = made.el;
-                state = initialPresentation(options.profile ?? "responsive", made.reduced);
-                dispatch({ type: "show" });
-                if (state.phase === "grace") scheduleGrace();
-            }
+            const made = createSplash(theme);
+            driver = made.driver;
+            splashElement = made.el;
+            state = initialPresentation(options.profile ?? "responsive", made.reduced);
+            dispatch({ type: "show" });
+            if (state.phase === "grace") scheduleGrace();
 
             return () => {
                 dispatch({ type: "cleanup" });
@@ -543,7 +524,7 @@ function loading(
 
         error(error) {
             if (!overlay) {
-                overlay = createOverlay(transparent ? "transparent" : theme.bg, options.container);
+                overlay = createOverlay(theme.bg, options.container);
                 if (!overlay) return;
             }
             dispatch({ type: "error" });
@@ -551,31 +532,29 @@ function loading(
         },
     };
 
-    if (withSplash) {
-        screen.complete = () => {
-            if (!state || state.phase === "error" || state.phase === "cleaned") return;
-            if (completion === null) {
-                completion = new Promise<void>((resolve) => {
-                    finishCompletion = resolve;
-                });
-            }
-            dispatch({ type: "ready" });
-            if (state.phase === "ready" && !state.branded) {
-                graceTimer = clearTimer(graceTimer);
-                completeExit();
-                return Promise.resolve();
-            }
-            if (state.profile === "cinematic" && state.animationFinished && !state.restFinished) {
-                const wait = Math.max(0, SPLASH_LOCKUP_REST_MS - (performance.now() - lockupAt));
-                if (restTimer === null)
-                    restTimer = setTimeout(() => {
-                        restTimer = null;
-                        dispatch({ type: "rest-finished" });
-                    }, wait);
-            }
-            return completion;
-        };
-    }
+    screen.complete = () => {
+        if (!state || state.phase === "error" || state.phase === "cleaned") return;
+        if (completion === null) {
+            completion = new Promise<void>((resolve) => {
+                finishCompletion = resolve;
+            });
+        }
+        dispatch({ type: "ready" });
+        if (state.phase === "ready" && !state.branded) {
+            graceTimer = clearTimer(graceTimer);
+            completeExit();
+            return Promise.resolve();
+        }
+        if (state.profile === "cinematic" && state.animationFinished && !state.restFinished) {
+            const wait = Math.max(0, SPLASH_LOCKUP_REST_MS - (performance.now() - lockupAt));
+            if (restTimer === null)
+                restTimer = setTimeout(() => {
+                    restTimer = null;
+                    dispatch({ type: "rest-finished" });
+                }, wait);
+        }
+        return completion;
+    };
 
     return screen;
 }
@@ -587,23 +566,6 @@ function loadingOptions(options?: SplashOptions | HTMLElement): SplashOptions {
         : (options as SplashOptions);
 }
 
-function shallotLoading(theme: Theme, options?: SplashOptions | HTMLElement): Loading {
-    return loading(theme, loadingOptions(options), true);
-}
-
-function minimalLoading(theme: Theme, options?: SplashOptions | HTMLElement): Loading {
-    return loading(theme, loadingOptions(options), false, true);
-}
-
 /** dark-theme startup screen: the shallot splash over a progress bar. the engine default. */
 export const shallotDark = (options?: SplashOptions | HTMLElement): Loading =>
-    shallotLoading(dark, options);
-/** light-theme startup screen: the shallot splash over a progress bar */
-export const shallotLight = (options?: SplashOptions | HTMLElement): Loading =>
-    shallotLoading(light, options);
-/** dark-theme startup screen: a bare progress bar, no splash */
-export const minimalDark = (options?: SplashOptions | HTMLElement): Loading =>
-    minimalLoading(dark, options);
-/** light-theme startup screen: a bare progress bar, no splash */
-export const minimalLight = (options?: SplashOptions | HTMLElement): Loading =>
-    minimalLoading(light, options);
+    loading(dark, loadingOptions(options));
