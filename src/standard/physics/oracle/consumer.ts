@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeJointId } from "../api/config";
 import { ContactField, ContactFlags, contactField, contactIds } from "../collision/contact";
-import { emptyCache, shapeDistance } from "../collision/distance";
 import { readContactManifolds } from "../collision/manifoldstore";
 import { type CollisionPlane, clipVector, solvePlanes } from "../collision/mover";
 import { kernelRay } from "../collision/shape_query_gold";
@@ -340,35 +339,6 @@ function runBaseCase(item: OracleCase): unknown {
             return {
                 closest: outVec(pointToSegmentDistance(vec(input.a), vec(input.b), vec(input.q))),
             };
-        case "distance.shape.v1.scalar":
-        case "distance.shape.v1.simd": {
-            const cache = emptyCache();
-            const result = shapeDistance(
-                {
-                    proxyA: {
-                        points: (input.proxyA as unknown[]).map(vec),
-                        count: (input.proxyA as unknown[]).length,
-                        radius: 0,
-                    },
-                    proxyB: {
-                        points: (input.proxyB as unknown[]).map(vec),
-                        count: (input.proxyB as unknown[]).length,
-                        radius: 0,
-                    },
-                    transform: transform(input.translationB),
-                    useRadii: input.useRadii === true,
-                },
-                cache,
-            );
-            return {
-                pointA: outVec(result.pointA),
-                pointB: outVec(result.pointB),
-                normal: outVec(result.normal),
-                distance: bits(result.distance),
-                iterations: `0x${result.iterations.toString(16).padStart(8, "0")}`,
-                simplexCount: `0x${result.simplexCount.toString(16).padStart(8, "0")}`,
-            };
-        }
         case "tree.query.v1.scalar":
         case "tree.query.v1.simd": {
             const tree = createTree(2);
