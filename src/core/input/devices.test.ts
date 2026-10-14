@@ -320,6 +320,50 @@ test("disposing and recreating a World leaves old listeners delivering input to 
     if (fixture.listenerCount() !== 0) throw new Error("replacement adapter leaked listeners");
 });
 
+test("a DOM keyup leaves an enabled World's key held, or changes a disabled World's record", () => {
+    const fixture = declaredHost();
+    const world = inputState();
+    const plugin = createBrowserInputPlugin(fixture.host);
+    for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
+    try {
+        world.step(0);
+        const input = world.resource(Devices);
+        fixture.window.emit("keydown", { code: "KeyW" });
+        fixture.window.emit("keyup", { code: "KeyW" });
+        if (input.keys.held.has("KeyW") || !input.keys.released.has("KeyW"))
+            throw new Error("keyup did not release the key with an edge while enabled");
+        fixture.window.emit("keydown", { code: "KeyA" });
+        setInputEnabled(world, false);
+        input.keys.released.clear();
+        fixture.window.emit("keyup", { code: "KeyA" });
+        if (input.keys.held.size !== 0 || input.keys.released.size !== 0)
+            throw new Error("keyup changed the record while disabled");
+    } finally {
+        world.dispose();
+    }
+});
+
+test("disabling input leaves the pointer locked, or an enabled World's lock is released", () => {
+    const fixture = declaredHost();
+    const world = inputState();
+    const plugin = createBrowserInputPlugin(fixture.host);
+    for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
+    try {
+        world.step(0);
+        requestPointerLock(world);
+        fixture.emitLockChange();
+        world.step(0);
+        if (fixture.lock.element !== fixture.canvas || fixture.releaseCount !== 0)
+            throw new Error("an enabled World released its lock");
+        setInputEnabled(world, false);
+        world.step(0);
+        if (fixture.lock.element !== null || Number(fixture.releaseCount) !== 1)
+            throw new Error("disabling input did not release the lock");
+    } finally {
+        world.dispose();
+    }
+});
+
 test("releasing one World's pointer lock affects a different World's canvas", () => {
     const firstFixture = declaredHost();
     const secondFixture = declaredHost();
