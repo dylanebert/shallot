@@ -7,6 +7,7 @@ import {
     cpSync,
     createWriteStream,
     existsSync,
+    lstatSync,
     mkdirSync,
     readdirSync,
     readFileSync,
@@ -353,23 +354,64 @@ interface VirtualDisplay {
     stop(): Promise<void>;
 }
 
-async function startVirtualDisplay(logs: string, env: NodeJS.ProcessEnv): Promise<VirtualDisplay> {
+function displayPathExists(path: string): boolean {
+    try {
+        lstatSync(path);
+        return true;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+    }
+}
+
+/** Own one lock-arbitrated Xvfb process group; never remove display paths ourselves. */
+export async function startVirtualDisplay(
+    logs: string,
+    env: NodeJS.ProcessEnv,
+    probe = { pathExists: displayPathExists, timeoutMs: 15_000 },
+): Promise<VirtualDisplay> {
     const step = "virtual display";
     const logPath = resolve(logs, "virtual-display.log");
+    let number = 99;
+    while (
+        number < 1099 &&
+        (probe.pathExists(`/tmp/.X${number}-lock`) || probe.pathExists(`/tmp/.X11-unix/X${number}`))
+    )
+        number++;
+    if (number === 1099)
+        throw new SmokeFailure(step, logPath, "no unused display number in 99..1098");
     const log = createWriteStream(logPath);
+    // Like Debian xvfb-run: inherited SIGUSR1 ignore asks Xserver to notify its parent.
+    // Normal Xserver locking arbitrates competing launches after our occupancy check.
+    const script = `trap 'printf "ready\\n"' USR1
+(trap '' USR1; exec Xvfb "$@" >&2) &
+server=$!
+wait "$server"
+while kill -0 "$server" 2>/dev/null; do wait "$server"; done`;
     const child = spawn(
-        "Xvfb",
-        ["-displayfd", "1", "-screen", "0", "1280x720x24", "-nolisten", "tcp", "-ac"],
+        "sh",
+        [
+            "-c",
+            script,
+            "shallot-xvfb",
+            `:${number}`,
+            "-screen",
+            "0",
+            "1280x720x24",
+            "-nolisten",
+            "tcp",
+            "-ac",
+        ],
         { env: cleanEnvironment(env), detached: true, stdio: ["ignore", "pipe", "pipe"] },
     );
-    let displayNumber = "";
+    let ready = false;
     let spawnError: Error | undefined;
     let output = "";
     child.stdout.on("data", (data: Buffer) => {
         const text = data.toString();
         output += text;
         log.write(`[stdout] ${text}`);
-        if (!displayNumber) displayNumber = output.match(/(?:^|\n)(\d+)\s*(?:\n|$)/)?.[1] ?? "";
+        ready ||= /(?:^|\n)ready\n/.test(output);
     });
     child.stderr.on("data", (data: Buffer) => log.write(`[stderr] ${data.toString()}`));
     child.once("error", (error) => {
@@ -382,22 +424,20 @@ async function startVirtualDisplay(logs: string, env: NodeJS.ProcessEnv): Promis
             resolveExit();
         });
     });
-    const deadline = Date.now() + 15_000;
-    while (!displayNumber && !closeResult && !spawnError && Date.now() < deadline)
-        await Bun.sleep(25);
-    if (!displayNumber) {
-        if (child.pid) await terminateProcessGroup(child.pid, 100);
-        await new Promise<void>((resolveEnd) => log.end(resolveEnd));
-        throw new SmokeFailure(
-            step,
-            logPath,
+    const deadline = Date.now() + probe.timeoutMs;
+    while (!ready && !closeResult && !spawnError && Date.now() < deadline) await Bun.sleep(25);
+    if (!ready || closeResult || spawnError) {
+        const reason =
             spawnError?.message ??
-                (closeResult
-                    ? `Xvfb exited (${closeResult.code ?? closeResult.signal})`
-                    : "Xvfb did not allocate a display within 15s"),
-        );
+            (closeResult
+                ? `Xvfb exited (${closeResult.code ?? closeResult.signal})`
+                : `Xvfb did not signal readiness within ${probe.timeoutMs}ms`);
+        if (child.pid) await terminateProcessGroup(child.pid, 100);
+        await Promise.race([exited, Bun.sleep(1500)]);
+        await new Promise<void>((resolveEnd) => log.end(resolveEnd));
+        throw new SmokeFailure(step, logPath, reason);
     }
-    const display = `:${displayNumber}`;
+    const display = `:${number}`;
     console.info(`virtual display: ${display} (log: ${logPath})`);
     return {
         display,

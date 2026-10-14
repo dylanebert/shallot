@@ -1,13 +1,14 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CEILING } from "@dylanebert/shallot/testing";
 import {
     assertStandaloneOrigin,
     requireLinuxPrerequisites,
+    startVirtualDisplay,
     streamLines,
     terminateProcessGroup,
 } from "./native-linux-smoke";
@@ -47,6 +48,71 @@ test("standalone pages require the exact observed shell asset-server origin", ()
     expect(() =>
         assertStandaloneOrigin("http://127.0.0.1:4173/", "http://127.0.0.1:4173", null),
     ).not.toThrow();
+});
+
+test("virtual display skips occupied locks and sockets and waits for server notification", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "shallot-display-contract-"));
+    const executable = join(scratch, "Xvfb");
+    const record = join(scratch, "record");
+    writeFileSync(
+        executable,
+        `#!/usr/bin/python3
+import os, signal, sys, time
+assert sys.argv[1:] == [':101', '-screen', '0', '1280x720x24', '-nolisten', 'tcp', '-ac'], sys.argv
+assert signal.getsignal(signal.SIGUSR1) == signal.SIG_IGN
+open(os.environ['RECORD'], 'w').write(str(os.getpid()))
+print('101', flush=True)
+if os.environ['MODE'] == 'refuse':
+    print('fixture refusal', file=sys.stderr, flush=True)
+    sys.exit(7)
+if os.environ['MODE'] == 'ready':
+    os.kill(os.getppid(), signal.SIGUSR1)
+while True: time.sleep(1)
+`,
+    );
+    chmodSync(executable, 0o755);
+    const inspected: string[] = [];
+    const probe = {
+        pathExists(path: string) {
+            inspected.push(path);
+            return path === "/tmp/.X99-lock" || path === "/tmp/.X11-unix/X100";
+        },
+        timeoutMs: 300,
+    };
+    const env = { ...process.env, PATH: `${scratch}:${process.env.PATH}`, RECORD: record };
+    try {
+        const display = await startVirtualDisplay(scratch, { ...env, MODE: "ready" }, probe);
+        expect(display.display).toBe(":101");
+        const pid = Number(readFileSync(record, "utf8"));
+        expect(running(pid)).toBe(true);
+        await display.stop();
+        expect(running(pid)).toBe(false);
+        expect(inspected).toEqual([
+            "/tmp/.X99-lock",
+            "/tmp/.X100-lock",
+            "/tmp/.X11-unix/X100",
+            "/tmp/.X101-lock",
+            "/tmp/.X11-unix/X101",
+        ]);
+        await expect(
+            startVirtualDisplay(scratch, { ...env, MODE: "refuse" }, probe),
+        ).rejects.toThrow(/Xvfb exited/);
+        expect(readFileSync(join(scratch, "virtual-display.log"), "utf8")).toContain(
+            "fixture refusal",
+        );
+        await expect(
+            startVirtualDisplay(scratch, { ...env, MODE: "silent" }, probe),
+        ).rejects.toThrow(/did not signal readiness/);
+        expect(running(Number(readFileSync(record, "utf8")))).toBe(false);
+        await expect(
+            startVirtualDisplay(scratch, env, {
+                pathExists: () => true,
+                timeoutMs: 300,
+            }),
+        ).rejects.toThrow(/no unused display number/);
+    } finally {
+        rmSync(scratch, { recursive: true, force: true });
+    }
 });
 
 function running(pid: number): boolean {
