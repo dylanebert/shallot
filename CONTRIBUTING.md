@@ -297,7 +297,7 @@ A choice the pillars leave open is taste, and goes to the person.
 - Each example lives in its promise's repository, under `examples/<name>`, in the shape of a copied user project, and its `index.html` carries one `<meta name="description">` describing it.
 - One problem per example; only `first-person` composes many.
 - An example puts the player in its world, in first person, unless its problem needs another view.
-- Every public promise has an example whose answer depends on it.
+- Every public promise is owed an example whose answer depends on it.
 - There are no duplicate demonstrations; the one showing the engine at its best stays.
 - Each example has a check that fails when its answer breaks, or the example is removed.
 - Examples and their checks use only published names and public seams.

@@ -1,12 +1,12 @@
 import type { World } from "../../engine";
-import { type MeshHandle, registerMesh } from "./mesh";
+import { Meshes, type MeshHandle } from "./mesh";
 
 /**
- * register the built-in default cube, unit-sized with flat per-face normals. Other primitive
- * constructors return geometry for the game to register when needed.
+ * add the built-in default cube, unit-sized with flat per-face normals. Other primitive
+ * constructors return geometry for the game to add when needed.
  */
 export function initMeshes(world: World): MeshHandle {
-    return registerMesh(world, { name: "cube", ...cube() });
+    return world.resource(Meshes).add({ name: "cube", ...cube() });
 }
 
 interface Vert {

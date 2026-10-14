@@ -9,7 +9,7 @@ import { component } from "../../engine";
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { Meshes, type MeshHandle, MeshPlugin, registerMesh } from "../../core/mesh";
+import { Meshes, type MeshHandle, MeshPlugin } from "../../core/mesh";
 import {
     BeginFrameSystem,
     Camera,
@@ -544,7 +544,7 @@ export const TextPlugin: Plugin = {
 
         if (_fonts.size === 0) registerFont(world, DEFAULT_FONT);
 
-        _textState.quad = registerMesh(world, {
+        _textState.quad = world.resource(Meshes).add({
             name: "textQuad",
             vertices: QUAD_VERTS,
             indices: QUAD_INDICES,

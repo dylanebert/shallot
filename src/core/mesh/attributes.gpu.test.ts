@@ -3,7 +3,7 @@ import { CEILING } from "@dylanebert/shallot/testing";
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { Meshes, type MeshHandle, MeshPlugin, registerMesh } from "./index";
+import { Meshes, type MeshHandle, MeshPlugin } from "./index";
 import { clearMeshes, flushMeshes } from "./mesh";
 
 setDefaultTimeout(CEILING.gpu);
@@ -28,7 +28,7 @@ async function words(buffer: TgpuBuffer<d.AnyData>) {
 test("a batch splits by attribute signature, with dense absolute addressing and unchanged default bytes", async () => {
     const { world } = subjects()[0];
     clearMeshes(world);
-    const aloneHandle = registerMesh(world, spec("plain"));
+    const aloneHandle = world.resource(Meshes).add(spec("plain"));
     flushMeshes(world);
     const alone = world.resource(Meshes).get(aloneHandle)!;
     const bytes = await Promise.all([
@@ -37,7 +37,7 @@ test("a batch splits by attribute signature, with dense absolute addressing and 
         words(alone.quant!),
     ]);
     clearMeshes(world);
-    const plainHandle = registerMesh(world, spec("plain"));
+    const plainHandle = world.resource(Meshes).add(spec("plain"));
     const handles = new Map<string, MeshHandle>();
     for (const [name, data] of [
         ["a", new Float32Array([1, 2])],
@@ -45,7 +45,7 @@ test("a batch splits by attribute signature, with dense absolute addressing and 
     ] as const)
         handles.set(
             name,
-            registerMesh(world, {
+            world.resource(Meshes).add({
                 ...spec(name),
                 attributes: { weight: { element: d.f32, data } },
             }),
@@ -67,7 +67,7 @@ test("a batch splits by attribute signature, with dense absolute addressing and 
 test("a wrong-length stream refuses naming mesh, stream and storage stride", () => {
     const { world } = subjects()[0];
     expect(() =>
-        registerMesh(world, {
+        world.resource(Meshes).add({
             ...spec("bad"),
             attributes: { weight: { element: d.vec3f, data: new Float32Array(6) } },
         }),
@@ -77,7 +77,7 @@ test("a wrong-length stream refuses naming mesh, stream and storage stride", () 
 test("clearMeshes destroys every attribute buffer with its family", () => {
     const { world } = subjects()[0];
     clearMeshes(world);
-    const handle = registerMesh(world, {
+    const handle = world.resource(Meshes).add({
         ...spec("owned"),
         attributes: {
             weight: { element: d.f32, data: new Float32Array(2) },

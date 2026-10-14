@@ -16,7 +16,14 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { internText, Sky, SkyPlugin, Text, TextPlugin } from "@dylanebert/shallot/extras";
-import { capsule, cube, MeshPlugin, registerMesh, sphere } from "@dylanebert/shallot/mesh";
+import {
+    capsule,
+    cube,
+    Meshes,
+    type MeshHandle,
+    MeshPlugin,
+    sphere,
+} from "@dylanebert/shallot/mesh";
 import {
     Backgrounds,
     CameraBackground,
@@ -35,7 +42,6 @@ export interface SceneDefinition {
 
 type Vec3 = readonly [number, number, number];
 type MaterialRole = keyof LookPalette["materials"];
-type MeshHandle = ReturnType<typeof registerMesh>;
 
 interface SceneBuilder {
     box(role: MaterialRole, position: Vec3, scale: Vec3, roughness?: number): number;
@@ -141,9 +147,9 @@ function primitivesAndGreybox(world: World, palette: LookPalette): void {
     exampleLighting(world, true);
     camera(world, palette, [5, 4.5, 7.5], [0, 0.7, 0]);
     const scene = builder(world, palette);
-    const cubeMesh = registerMesh(world, { name: "default-look/cube", ...cube() });
-    const sphereMesh = registerMesh(world, { name: "default-look/sphere", ...sphere() });
-    const capsuleMesh = registerMesh(world, {
+    const cubeMesh = world.resource(Meshes).add({ name: "default-look/cube", ...cube() });
+    const sphereMesh = world.resource(Meshes).add({ name: "default-look/sphere", ...sphere() });
+    const capsuleMesh = world.resource(Meshes).add({
         name: "default-look/capsule",
         ...capsule(0.5, 0.42),
     });
@@ -179,7 +185,9 @@ function sunlitExterior(world: World, palette: LookPalette): void {
         hazeDensity: 0.003,
     });
     const scene = builder(world, palette);
-    const sphereMesh = registerMesh(world, { name: "default-look/exterior-sphere", ...sphere() });
+    const sphereMesh = world
+        .resource(Meshes)
+        .add({ name: "default-look/exterior-sphere", ...sphere() });
 
     scene.box("blueGround", [0, -0.35, 0], [8, 0.3, 8]);
     scene.primitive("greyboxPerch", sphereMesh, [-4, 0.15, -3], [3, 1.8, 2.4]);

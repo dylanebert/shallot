@@ -200,9 +200,9 @@ All names below came from v0.9.5 `/render/core` except `backingSize` (`/src/stan
 | `meshBounds` | Register mesh vertices; `MeshPlugin` computes culling bounds. |
 | `MeshStorage` | Infer storage from the registered `Mesh`. |
 | `QuantStreams` | No public replacement; mesh quantization is internal. |
-| `packMeshes` | Register with `registerMesh`; `MeshPlugin` packs at warm-up. |
-| `quantizeMeshes` | Register with `registerMesh`; quantization is internal. |
-| `VERTEX_FLOATS` | Author the vertex data accepted by `registerMesh`; packing is internal. |
+| `packMeshes` | Add with `world.resource(Meshes).add`; `MeshPlugin` packs at warm-up. |
+| `quantizeMeshes` | Add with `world.resource(Meshes).add`; quantization is internal. |
+| `VERTEX_FLOATS` | Author the vertex data accepted by `Meshes.add`; packing is internal. |
 | `VERTEX_STRIDE` | Read the registered mesh's GPU bindings; packing is internal. |
 
 ### `/render/core`, `/sear/core` and root exports → `/standard/rendering`
@@ -307,7 +307,7 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `/render/core` `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |
 | `/render/core` GPU `View` schema and `linearToSrgb` | `/rendering` `ViewUniforms` and `linearToSrgb3` |
 | `/render/core` `View.cluster` | `ViewUniforms.projection` (near, far, perspective flag, slot; unchanged byte layout) |
-| Root `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
+| Root `mesh`, `image`, `font`, `text` | `world.resource(Meshes).add`, `registerImage`, `registerFont`, `internText` |
 | Root `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
 | `build`, `run`, `Config` | `createApp`, `runApp`, `AppConfig` |
 | `swap`, `SwapResult` | Removed; use `bun run dev`, which reloads the page. |
@@ -708,27 +708,27 @@ import { Xform } from "@dylanebert/shallot/utils";
 
 Custom material shaders read linear `color` and the type-local `material` row from the context returned by `materialFragmentContext()`. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, alphaMode: u32, alphaCutoff: f32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
 
-Mesh data has its own `/mesh` module. `registerMesh` now returns a world-local `MeshHandle`; retain it for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels register distinct meshes:
+Mesh data has its own `/mesh` module. Add a mesh with `world.resource(Meshes).add`, as materials are added with `world.resource(Materials).add`; it returns a world-local `MeshHandle`. Retain the handle for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels add distinct meshes:
 
 ```ts
-const mesh = registerMesh(world, { name: "block", ...cube() });
+const mesh = world.resource(Meshes).add({ name: "block", ...cube() });
 world.add(eid, MeshInstance, { mesh });
 ```
 
-Replace `Meshes.id(name)` with the retained handle from `registerMesh`; names no longer resolve mesh identity. `MeshPlugin` registers only the default cube. To use another built-in geometry constructor, register its mesh explicitly:
+Replace `Meshes.id(name)` with the retained handle from `Meshes.add`; names no longer resolve mesh identity. `Meshes.register(mesh)` becomes `Meshes.add(mesh)`: a GPU-resident `Mesh` record is added as-is, while typed arrays are staged and packed. `MeshPlugin` adds only the default cube. To use another built-in geometry constructor, add its mesh explicitly:
 
 ```ts
-import { registerMesh, sphere } from "@dylanebert/shallot/mesh";
+import { Meshes, sphere } from "@dylanebert/shallot/mesh";
 
-const sphereMesh = registerMesh(world, { name: "sphere", ...sphere() });
+const sphereMesh = world.resource(Meshes).add({ name: "sphere", ...sphere() });
 ```
 
 Update mesh imports as follows; these names are also exported from the root in 0.10:
 
 | 0.9.5 import | 0.10 import |
 |---|---|
-| Root `mesh` | Root or `/mesh` `registerMesh` |
-| — | Root or `/mesh` `MeshHandle` (returned by `registerMesh`) |
+| Root `mesh` | Root or `/mesh` `Meshes`, then `.add` |
+| — | Root or `/mesh` `MeshHandle` (returned by `Meshes.add`) |
 | `/render/core` `Mesh`, `MeshBinding`, `MeshIndex` | `/mesh`, same names |
 | `/render/core` `Meshes` | `/mesh`, same name |
 

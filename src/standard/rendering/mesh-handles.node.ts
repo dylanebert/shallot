@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { Meshes, MeshInstance, registerMesh } from "../../core/mesh";
+import { Meshes, MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import {
@@ -62,8 +62,8 @@ function quad(halfExtent: number): { vertices: Float32Array; indices: Uint32Arra
 
 test("two meshes with the same label keep distinct geometry when rendered", async () => {
     const { world } = subjects()[0];
-    const large = registerMesh(world, { name: "shared-label", ...quad(0.9) });
-    const small = registerMesh(world, { name: "shared-label", ...quad(0.2) });
+    const large = world.resource(Meshes).add({ name: "shared-label", ...quad(0.9) });
+    const small = world.resource(Meshes).add({ name: "shared-label", ...quad(0.2) });
     expect(small).not.toBe(large);
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -87,7 +87,7 @@ test("two meshes with the same label keep distinct geometry when rendered", asyn
 
 test("a MeshInstance with an unregistered mesh handle draws nothing", async () => {
     const { world } = subjects()[0];
-    const mesh = registerMesh(world, { name: "registered", ...quad(0.9) });
+    const mesh = world.resource(Meshes).add({ name: "registered", ...quad(0.9) });
     const camera = world.create();
     // the subject world is shared; this scene sits clear of the previous test's view
     world.add(camera, Transform, { translation: [0, 100, 5, 0] });
@@ -120,7 +120,7 @@ test("registering a mesh after warm writes the draw-args records once per view s
         return camera;
     });
     const material = world.resource(Materials).add(StandardMaterial({ emissive: [1, 1, 1] }));
-    for (let i = 0; i < 20; i++) registerMesh(world, { name: `warm-${i}`, ...quad(0.1) });
+    for (let i = 0; i < 20; i++) world.resource(Meshes).add({ name: `warm-${i}`, ...quad(0.1) });
     world.step(0);
     world.step(0);
 
@@ -133,7 +133,7 @@ test("registering a mesh after warm writes the draw-args records once per view s
     }) as GPUQueue["writeBuffer"];
     try {
         // a mesh joins the pair dimension: every record moves, but one write per view slot carries them
-        const mesh = registerMesh(world, { name: "late", ...quad(0.9) });
+        const mesh = world.resource(Meshes).add({ name: "late", ...quad(0.9) });
         const eid = world.create();
         world.add(eid, Transform, { translation: [-50, 0, 0, 0] });
         world.add(eid, MeshInstance, { mesh });
@@ -169,8 +169,8 @@ test("draws are registered only for the alpha keys a material type's rows use, a
     world.add(camera, StandardRenderer);
     attachTexture(world, camera, { width: 64, height: 64 });
     const opaque = world.resource(Materials).add(StandardMaterial({ emissive: [1, 1, 1] }));
-    for (let i = 0; i < 5; i++) registerMesh(world, { name: `key-${i}`, ...quad(0.1) });
-    const mesh = registerMesh(world, { name: "keyed", ...quad(0.9) });
+    for (let i = 0; i < 5; i++) world.resource(Meshes).add({ name: `key-${i}`, ...quad(0.1) });
+    const mesh = world.resource(Meshes).add({ name: "keyed", ...quad(0.9) });
     const eid = world.create();
     world.add(eid, Transform);
     world.add(eid, MeshInstance, { mesh });

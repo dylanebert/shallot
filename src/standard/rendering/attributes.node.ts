@@ -4,7 +4,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
-import { cube, type MeshHandle, MeshInstance, registerMesh } from "../../core/mesh";
+import { cube, Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
 import { clearMeshes, flushMeshes } from "../../core/mesh/mesh";
 import {
     attachTexture,
@@ -73,7 +73,7 @@ const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
 function initAttributeMeshes(world: ReturnType<typeof subjects>[number]["world"]): void {
     clearMeshes(world);
     const geometry = cube();
-    registerMesh(world, {
+    world.resource(Meshes).add({
         name: "cube",
         ...geometry,
         attributes: {
@@ -90,7 +90,7 @@ function rebuild(
     colour: number[],
 ): MeshHandle {
     initAttributeMeshes(world);
-    const quad = registerMesh(world, {
+    const quad = world.resource(Meshes).add({
         name: "quad",
         vertices,
         indices,
@@ -140,7 +140,7 @@ for (const mesh of ["missing", "wrong"])
         );
         const { world } = subjects()[0];
         initAttributeMeshes(world);
-        const handle = registerMesh(world, {
+        const handle = world.resource(Meshes).add({
             name: mesh,
             vertices,
             indices,

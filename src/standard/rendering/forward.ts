@@ -440,7 +440,7 @@ function recordMaterial(
     const warningName = `mesh:material:${surface.name}:${mesh?.name ?? draw.mesh}:${draw.mesh}`;
     if (!mesh) return warnSkip(world, warningName, `mesh handle ${draw.mesh} not registered`);
     if (!mesh.position || !mesh.quant) {
-        // registerMesh staged it after this frame's pack; it draws from the next frame
+        // Meshes.add staged it after this frame's pack; it draws from the next frame
         if (mesh.pending) return null;
         return warnSkip(
             world,

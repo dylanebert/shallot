@@ -10,7 +10,7 @@ import {
     StandardRenderer,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { cube, Meshes, MeshInstance, registerMesh } from "../mesh";
+import { cube, Meshes, MeshInstance } from "../mesh";
 import { Transform } from "../transform";
 import { attachTexture, Camera, TransparentPhases } from ".";
 
@@ -142,7 +142,7 @@ async function measure(device: GPUDevice, viewCount: number, workload: Workload)
     const defaultMesh = [...meshes.entries()].find(([, mesh]) => mesh.name === "cube")![0];
     const alternateMesh =
         workload === "alternatingMeshes"
-            ? registerMesh(world, { name: "transparent-oracle-alternate-cube", ...cube() })
+            ? world.resource(Meshes).add({ name: "transparent-oracle-alternate-cube", ...cube() })
             : defaultMesh;
     const entities = new Uint32Array(MAX_ITEMS);
     for (let i = 0; i < MAX_ITEMS; i++) {

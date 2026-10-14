@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { Camera, PointLight, StandardRenderingPlugin, Transform } from "@dylanebert/shallot";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { cube, MeshInstance, registerMesh } from "../../core/mesh";
+import { cube, Meshes, MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
     attachView,
@@ -418,7 +418,7 @@ test("adding a camera builds engine bind groups per mesh family and view slot, n
             const eid = world.create();
             world.add(eid, Transform, { translation: [i - 10, 0, 0, 0] });
             world.add(eid, MeshInstance, {
-                mesh: registerMesh(world, { name: `family-${i}`, ...cube([0.4, 0.4, 0.4]) }),
+                mesh: world.resource(Meshes).add({ name: `family-${i}`, ...cube([0.4, 0.4, 0.4]) }),
             });
             world.add(eid, MeshMaterial, material);
         }

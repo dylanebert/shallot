@@ -14,7 +14,7 @@ import {
     StandardRenderer,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { MeshInstance, registerMesh } from "../mesh";
+import { Meshes, MeshInstance } from "../mesh";
 import { Transform } from "../transform";
 import {
     attachTexture,
@@ -141,7 +141,7 @@ test("standard, text and line renderers alternate in one phase; text and lines d
         1,
         1,
     ]);
-    const mesh = registerMesh(world, {
+    const mesh = world.resource(Meshes).add({
         name: "transparent-depth-probe-slope",
         vertices,
         indices: new Uint32Array([0, 1, 2, 0, 2, 3]),

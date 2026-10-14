@@ -19,14 +19,7 @@ import {
     captureTexture,
 } from "../rendering";
 import { Transform } from "../transform";
-import {
-    type Mesh,
-    Meshes,
-    type MeshHandle,
-    MeshInstance,
-    MeshPlugin,
-    registerMesh,
-} from "./index";
+import { type Mesh, Meshes, type MeshHandle, MeshInstance, MeshPlugin } from "./index";
 
 setDefaultTimeout(CEILING.node);
 
@@ -36,7 +29,7 @@ const vertices = new Float32Array([
     1,
 ]);
 const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
-const register = (world: World) => registerMesh(world, { name: "slab", vertices, indices });
+const register = (world: World) => world.resource(Meshes).add({ name: "slab", vertices, indices });
 function handleForLabel(world: World, label: string): MeshHandle {
     for (const [handle, mesh] of world.resource(Meshes).entries())
         if (mesh.name === label) return handle;
@@ -140,7 +133,7 @@ async function frame(arm: Arm, steps = 1): Promise<Uint8ClampedArray> {
     if (arm === "directly without streams") {
         const meshes = world.resource(Meshes);
         const [, cube] = [...meshes.entries()].find(([, mesh]) => mesh.name === "cube")!;
-        meshes.register({ ...cube, name: "slab", position: undefined, quant: undefined });
+        meshes.add({ ...cube, name: "slab", position: undefined, quant: undefined });
     }
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });

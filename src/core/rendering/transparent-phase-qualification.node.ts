@@ -18,7 +18,7 @@ import {
     StandardRenderingPlugin,
 } from "../../standard/rendering";
 import { MeshDrawBuffers } from "../../standard/rendering/preprocess";
-import { MeshInstance, registerMesh } from "../mesh";
+import { Meshes, MeshInstance } from "../mesh";
 import { Transform } from "../transform";
 import {
     attachTexture,
@@ -577,12 +577,14 @@ test("a standard transparent surface cannot occlude a later, farther fragment wi
             1,
         ]);
     const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
-    const sloped = registerMesh(world, {
+    const sloped = world.resource(Meshes).add({
         name: "depth-write-slope",
         vertices: vertices(0.25),
         indices,
     });
-    const flat = registerMesh(world, { name: "depth-write-flat", vertices: vertices(0), indices });
+    const flat = world
+        .resource(Meshes)
+        .add({ name: "depth-write-flat", vertices: vertices(0), indices });
     const materials = world.resource(Materials);
     const red = materials.add(StandardMaterial({ baseColor: [1, 0, 0, 0.5], unlit: true }), {
         alphaMode: AlphaMode.Blend,

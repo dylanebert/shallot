@@ -14,15 +14,12 @@ import {
 import { initMeshes } from "./primitives";
 
 export type { Mesh, MeshBinding, MeshHandle, MeshIndex } from "./mesh";
-export {
-    Meshes,
-    registerMesh,
-} from "./mesh";
+export { Meshes } from "./mesh";
 
 /**
- * Owns this world's mesh registry and GPU storage, including the default unit cube. Register
- * other primitive geometry explicitly. Initialization-time registrations pack at warm before
- * the first draw; later registrations pack at the start of the next draw group. `registerMesh`
+ * Owns this world's mesh registry and GPU storage, including the default unit cube. Add
+ * other primitive geometry explicitly. Meshes added during initialization pack at warm before
+ * the first draw; later ones pack at the start of the next draw group. `Meshes.add`
  * refuses before this plugin initializes.
  */
 export const MeshPlugin: Plugin = {

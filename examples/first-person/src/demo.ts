@@ -12,6 +12,7 @@ import {
     LocalPlayer,
     lookAtRotation,
     Materials,
+    Meshes,
     MeshInstance,
     MeshMaterial,
     MeshPlugin,
@@ -22,7 +23,6 @@ import {
     pointerLockRefusal,
     pointerLockStatus,
     type Resource,
-    registerMesh,
     Shape,
     ShapeKind,
     StandardMaterial,
@@ -51,7 +51,7 @@ function block(
     const eid = world.create();
     world.add(eid, Body, { type, position: at });
     world.add(eid, Shape, { scale: size });
-    const mesh = registerMesh(world, {
+    const mesh = world.resource(Meshes).add({
         name: `block-${eid}`,
         ...cube([size[0], size[1], size[2]]),
     });

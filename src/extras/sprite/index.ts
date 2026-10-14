@@ -3,7 +3,7 @@
 // path as every other mesh.
 
 import * as d from "typegpu/data";
-import { type MeshHandle, MeshInstance, MeshPlugin, registerMesh } from "../../core/mesh";
+import { Meshes, type MeshHandle, MeshInstance, MeshPlugin } from "../../core/mesh";
 import { BeginFrameSystem, imageArray, RenderingPlugin } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import {
@@ -270,7 +270,7 @@ export const SpritePlugin: Plugin = {
         state.sampler = null;
         state.instances.clear();
         if (world.gpu.device) {
-            state.quad = registerMesh(world, {
+            state.quad = world.resource(Meshes).add({
                 name: "spriteQuad",
                 vertices: QUAD_VERTS,
                 indices: QUAD_INDICES,

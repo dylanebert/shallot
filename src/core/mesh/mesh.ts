@@ -14,7 +14,7 @@ export type MeshBinding =
     | (TgpuBuffer<AnyData> & (StorageFlag | UniformFlag));
 
 /**
- * registered vertex-pull geometry: a slice descriptor into the quantized vertex
+ * added vertex-pull geometry: a slice descriptor into the quantized vertex
  * streams + `indices` GPU storage. `vertices` is the 16 B/vertex main stream
  * (`vec4<u32>`: unorm16 pos + meshId, oct normal, unorm16 uv); `position` is the
  * 8 B/vertex depth/shadow stream (pos + meshId only); `quant` is the per-mesh
@@ -23,19 +23,19 @@ export type MeshBinding =
  * stream. All have `STORAGE` usage: consumer renderers pull indexed vertices in
  * WGSL, never via `setVertexBuffer` / `setIndexBuffer`.
  *
- * Producers stage typed arrays via {@link registerMesh}, which {@link flushMeshes} packs into
+ * Producers stage typed arrays via `Meshes.add`, which {@link flushMeshes} packs into
  * shared family buffer sets: every mesh is a slice (its own `indexBase` + meshId) of one set.
- * Registrations during `initialize` pack at warm; each later frame's registrations pack
+ * Additions during `initialize` pack at warm; each later frame's additions pack
  * before drawing. Each batch splits into families by attribute names and element schemas.
  *
  * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
- * frustum cull GlobalTransforms per instance. {@link registerMesh} derives it from the staged
+ * frustum cull GlobalTransforms per instance. `Meshes.add` derives it from the staged
  * vertices; procedural producers may supply their own or omit it (a culler then
  * treats the mesh as always-visible)
  */
 declare const meshHandleBrand: unique symbol;
 
-/** Stable, world-local identity returned by {@link registerMesh}. */
+/** Stable, world-local identity returned by `Meshes.add`. */
 export type MeshHandle = number & { readonly [meshHandleBrand]: true };
 const DEFAULT_MESH_HANDLE = 0 as MeshHandle;
 
@@ -51,7 +51,7 @@ export interface Mesh {
     indexBase: number;
     indexCount: number;
     bounds?: [number, number, number, number];
-    /** `true` while {@link registerMesh}'s data waits for its pack, which replaces the entry before the next frame's draw */
+    /** `true` while `Meshes.add`'s data waits for its pack, which replaces the entry before the next frame's draw */
     pending?: true;
     /**
      * per-mesh binding overrides: resources scoped to *this* mesh's draws, keyed by the surface's binding
@@ -66,13 +66,38 @@ export interface Mesh {
     attributes?: Record<string, MeshStorage<AnyWgslData>>;
 }
 
+/** Typed-array mesh data accepted by {@link MeshRegistry.add}, which stages and packs it. */
+interface MeshData {
+    name: string;
+    vertices: Float32Array;
+    indices: Uint32Array;
+    attributes?: PendingMesh["attributes"];
+}
+
 /**
- * Every registered mesh, keyed by its world-local handle. Standard draws an entry only with its
- * `position` and `quant` streams, which {@link registerMesh} builds; a direct registration without
- * them is skipped with a warning, and a pending entry is skipped silently.
+ * Every added mesh, keyed by its world-local handle. Standard draws an entry only with its
+ * `position` and `quant` streams, which the typed-array form of {@link MeshRegistry.add} builds;
+ * an entry without them is skipped with a warning, and a pending entry is skipped silently.
  */
 interface MeshRegistry extends Iterable<Mesh> {
-    register(mesh: Mesh): MeshHandle;
+    /**
+     * Add a mesh from typed arrays, from `MeshPlugin.initialize` on. Its handle is assigned now;
+     * its data is packed by {@link flushMeshes} before the next frame's draw: at warm for
+     * additions during `initialize`, otherwise at the start of the next draw group, so an
+     * addition in a draw-group system draws a frame later. Refuses before `MeshPlugin`
+     * initializes (`AppConfig.setup`), whose initialize would drop it. Requires
+     * `world.gpu.device`; it refuses without one. `name` is a display label, so duplicate labels are valid.
+     * Optional named attributes contain raw storage bytes:
+     * each byte length must equal vertex count times the element's storage-array stride
+     * (including padding), otherwise it refuses naming mesh and stream. A batch splits
+     * into families by attribute names and schemas; each array uses absolute vertex indices.
+     */
+    add(mesh: MeshData): MeshHandle;
+    /**
+     * Add a GPU-resident mesh as-is: its buffers stay the producer's, so a compute pass may write
+     * them and an indirect draw may size them each frame. Nothing is staged or packed.
+     */
+    add(mesh: Mesh): MeshHandle;
     get(handle: MeshHandle): Mesh | undefined;
     has(handle: MeshHandle): boolean;
     entries(): IterableIterator<[MeshHandle, Mesh]>;
@@ -82,12 +107,20 @@ interface MeshRegistry extends Iterable<Mesh> {
 }
 
 class MeshRegistryImpl implements MeshRegistry {
+    private readonly _world: World;
     private _nextHandle = 0;
     private readonly _entriesByHandle = new Map<MeshHandle, Mesh>();
 
-    register(mesh: Mesh): MeshHandle {
+    constructor(world: World) {
+        this._world = world;
+    }
+
+    add(mesh: MeshData | Mesh): MeshHandle {
+        // typed arrays are staged for the pack; a GPU record's own buffers are its data. A view test,
+        // not instanceof, so typed arrays from another realm (an iframe) are still staged
+        if (ArrayBuffer.isView(mesh.vertices)) return addMesh(this._world, mesh as MeshData);
         const handle = this._nextHandle++ as MeshHandle;
-        this._entriesByHandle.set(handle, mesh);
+        this._entriesByHandle.set(handle, mesh as Mesh);
         return handle;
     }
 
@@ -133,7 +166,7 @@ export const Meshes: import("../../engine").Resource<MeshRegistry> = {
 /** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
 export const VERTEX_FLOATS = 8;
 
-// `registerMesh()` stages the typed arrays + a placeholder registry entry, so its handle and
+// `Meshes.add` stages the typed arrays + a placeholder registry entry, so its handle and
 // `Meshes.size` are known at once; `flushMeshes()` packs staged meshes by stream signature.
 interface PendingMesh {
     handle: MeshHandle;
@@ -156,9 +189,9 @@ interface MeshResources {
 
 export const meshResourcesKey = { create: createMeshResources };
 
-function createMeshResources(): MeshResources {
+function createMeshResources(world: World): MeshResources {
     return {
-        meshes: new MeshRegistryImpl(),
+        meshes: new MeshRegistryImpl(world),
         pending: [],
         defaultMesh: DEFAULT_MESH_HANDLE,
         initialized: false,
@@ -213,7 +246,7 @@ function meshAabb(vertices: Float32Array): {
  * local-space bounding sphere `[cx, cy, cz, radius]` of a vertex buffer. Center
  * is the {@link meshAabb} midpoint; radius is the farthest vertex from it, so the
  * sphere is tight and a producer's cull can scale it by world scale. Pure:
- * derived once at registration, never per frame.
+ * derived once when the mesh is added, never per frame.
  */
 export function meshBounds(vertices: Float32Array): [number, number, number, number] {
     const { min, max } = meshAabb(vertices);
@@ -231,27 +264,7 @@ export function meshBounds(vertices: Float32Array): [number, number, number, num
     return [cx, cy, cz, Math.sqrt(r2)];
 }
 
-/**
- * register a mesh from typed arrays, from `MeshPlugin.initialize` on. Its handle is assigned now;
- * its data is packed by {@link flushMeshes} before the next frame's draw: at warm for
- * registrations during `initialize`, otherwise at the start of the next draw group, so a
- * registration in a draw-group system draws a frame later. Refuses before `MeshPlugin`
- * initializes (`AppConfig.setup`), whose initialize would drop it. Requires
- * `world.gpu.device`; registration refuses without one. `name` is a display label, so duplicate labels are valid.
- * Optional named attributes contain raw storage bytes:
- * each byte length must equal vertex count times the element's storage-array stride
- * (including padding), otherwise registration refuses naming mesh and stream. A batch splits
- * into families by attribute names and schemas; each array uses absolute vertex indices.
- */
-export function registerMesh(
-    world: World,
-    spec: {
-        name: string;
-        vertices: Float32Array;
-        indices: Uint32Array;
-        attributes?: PendingMesh["attributes"];
-    },
-): MeshHandle {
+function addMesh(world: World, spec: MeshData): MeshHandle {
     if (spec.vertices.length % VERTEX_FLOATS !== 0) {
         throw new Error(
             `mesh "${spec.name}": vertices length ${spec.vertices.length} is not a multiple of ${VERTEX_FLOATS} (one Vertex = posU + normalV)`,
@@ -268,11 +281,11 @@ export function registerMesh(
     const resources = meshResources(world);
     if (!resources.initialized) {
         throw new Error(
-            `mesh "${spec.name}": registerMesh needs MeshPlugin initialized; register from a plugin's initialize or later, not AppConfig.setup`,
+            `mesh "${spec.name}": Meshes.add needs MeshPlugin initialized; add from a plugin's initialize or later, not AppConfig.setup`,
         );
     }
     const device = world.gpu.device;
-    if (!device) throw new Error(`mesh "${spec.name}": registerMesh needs a GPU device`);
+    if (!device) throw new Error(`mesh "${spec.name}": Meshes.add needs a GPU device`);
     // a placeholder reserves the registry entry now; flushMeshes swaps in the
     // real shared buffer + correct indexBase
     resources.placeholderVertices ??= world.gpu.root
@@ -284,7 +297,7 @@ export function registerMesh(
         .$usage("storage", "index")
         .$name("shallot-mesh-pending-indices");
     const bounds = meshBounds(spec.vertices);
-    const handle = resources.meshes.register({
+    const handle = resources.meshes.add({
         name: spec.name,
         vertices: resources.placeholderVertices,
         indices: resources.placeholderIndices,
@@ -463,7 +476,7 @@ function resetStaging(world: World): void {
 
 /**
  * pack staged meshes into families keyed by attribute names and element schemas, each with
- * quantized vertex streams and a shared index buffer. Re-register each as a slice;
+ * quantized vertex streams and a shared index buffer. Replace each entry with its slice;
  * earlier families and their entries are untouched.
  * `MeshPlugin.warm` runs it after every `initialize`, and {@link PrepareMeshesSystem} at the
  * start of each draw group; with nothing staged it does nothing.
@@ -553,7 +566,7 @@ function packFamily(world: World, staged: PendingMesh[]): void {
     }
 }
 
-/** packs the meshes registered since the last pack before this frame's draw, as Bevy prepares
+/** packs the meshes added since the last pack before this frame's draw, as Bevy prepares
  * render assets added during the frame */
 export const PrepareMeshesSystem: System = {
     name: "prepareMeshes",
@@ -563,8 +576,8 @@ export const PrepareMeshesSystem: System = {
 };
 
 /**
- * drop every registered mesh + any staged-but-unflushed data and destroy every family packed for them,
- * resetting the registry for a fresh build (`MeshPlugin.initialize`, clear then rebuild). Static producers re-stage via {@link registerMesh} in
+ * drop every added mesh + any staged-but-unflushed data and destroy every family packed for them,
+ * resetting the registry for a fresh build (`MeshPlugin.initialize`, clear then rebuild). Static producers re-stage via `Meshes.add` in
  * their own initialize, so a producer toggled off leaves no stale slice to be paired against
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */
