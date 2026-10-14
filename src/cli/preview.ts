@@ -81,33 +81,29 @@ export async function previewProject(
         const command = opts.devUrl
             ? [resolve(artifact, "Contents", "MacOS", name)]
             : ["open", "-W", artifact];
-        const result = Bun.spawnSync(command, { env });
-        process.stdout.write(result.stdout);
-        process.stderr.write(result.stderr);
-        return result.exitCode;
+        return run(command, { env });
     }
 
     if (target.kind === "linux") {
         console.log(`\n  running ${name}...\n`);
         const launchEnv = linuxPreviewEnv(outputDir, portable, env);
-        const result = Bun.spawnSync([artifact], { env: launchEnv });
-        process.stdout.write(result.stdout);
-        process.stderr.write(result.stderr);
-        return result.exitCode;
+        return run([artifact], { env: launchEnv });
     }
 
     console.log(`\n  running ${name}...\n`);
     if (process.platform === "win32") {
-        const result = Bun.spawnSync([artifact], { cwd: outputDir, env });
-        process.stdout.write(result.stdout);
-        process.stderr.write(result.stderr);
-        return result.exitCode;
+        return run([artifact], { cwd: outputDir, env });
     }
     // From WSL, Windows builds launch through the host's PowerShell.
     const winPath = execSync(`wslpath -w "${outputDir}"`, { encoding: "utf-8" }).trim();
     const cmd = windowsPreviewCommand(winPath, name);
-    const result = Bun.spawnSync(["powershell.exe", "-Command", cmd], { env });
-    process.stdout.write(result.stdout);
-    process.stderr.write(result.stderr);
-    return result.exitCode;
+    return run(["powershell.exe", "-Command", cmd], { env });
+}
+
+/** Run the shell with the CLI's own stdio, so its output reaches the caller while it runs, not after it exits. */
+async function run(
+    command: string[],
+    options: { cwd?: string; env: Record<string, string | undefined> },
+): Promise<number> {
+    return Bun.spawn(command, { ...options, stdio: ["inherit", "inherit", "inherit"] }).exited;
 }

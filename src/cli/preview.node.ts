@@ -4,9 +4,17 @@ import { BUN_CHILD, bunCommand } from "../../scripts/bun-child";
 
 setDefaultTimeout(CEILING.node);
 
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { nativeOutDir } from "../native";
 import {
     linuxPreviewEnv,
@@ -68,4 +76,59 @@ test("native preview retains its platform launch command and portable Linux libr
     expect(
         linuxPreviewEnv("/games/app", false, { LD_LIBRARY_PATH: "/system" }).LD_LIBRARY_PATH,
     ).toBe("/system");
+});
+
+test("native preview streams the shell's output while the shell runs", async () => {
+    const project = mkdtempSync(join(tmpdir(), "shallot-native-preview-stream-"));
+    const name = basename(project);
+    const windows = process.platform === "win32";
+    const output = nativeOutDir(project, windows ? "windows" : "linux", false, false, false);
+    mkdirSync(output, { recursive: true });
+    const release = join(project, "release");
+    const source = join(project, "app.ts");
+    // The shell prints its line, then waits for the test, so a buffered preview shows nothing until it exits.
+    writeFileSync(
+        source,
+        `console.error("[shallot] asset server on http://127.0.0.1:1");\nwhile (!require("node:fs").existsSync(${JSON.stringify(release)})) await Bun.sleep(20);\n`,
+    );
+    const compiled = Bun.spawnSync(
+        bunCommand([
+            "build",
+            "--compile",
+            source,
+            "--outfile",
+            join(output, windows ? `${name}.exe` : name),
+        ]),
+        { ...BUN_CHILD, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(compiled.exitCode, compiled.stderr.toString()).toBe(0);
+    const preview = resolve(import.meta.dir, "preview.ts");
+    const cli = Bun.spawn(
+        bunCommand([
+            "-e",
+            `const { previewProject } = await import(${JSON.stringify(preview)}); process.exit(await previewProject(${JSON.stringify(project)}, { target: ${JSON.stringify(windows ? "windows" : "linux")} }));`,
+        ]),
+        { ...BUN_CHILD, stdout: "pipe", stderr: "pipe" },
+    );
+    try {
+        let seen = "";
+        const reader = cli.stderr.getReader();
+        const deadline = Date.now() + CEILING.node / 2;
+        while (!seen.includes("asset server on") && Date.now() < deadline) {
+            const chunk = await Promise.race([
+                reader.read(),
+                Bun.sleep(deadline - Date.now()).then(() => undefined),
+            ]);
+            if (!chunk || chunk.done) break;
+            seen += new TextDecoder().decode(chunk.value);
+        }
+        expect(existsSync(release)).toBe(false);
+        expect(seen).toContain("[shallot] asset server on http://127.0.0.1:1");
+        reader.releaseLock();
+        writeFileSync(release, "");
+        expect(await cli.exited).toBe(0);
+    } finally {
+        cli.kill();
+        rmSync(project, { recursive: true, force: true });
+    }
 });
