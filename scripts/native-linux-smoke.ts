@@ -427,6 +427,23 @@ function cliUrl(output: string): string | null {
     return null;
 }
 
+/** Prefix whole lines per stream: a writer may split one line across chunks, and a chunk prefix would break it. */
+export function streamLines(write: (stream: "stdout" | "stderr", line: string) => void) {
+    const partial = { stdout: "", stderr: "" };
+    return {
+        push(stream: "stdout" | "stderr", text: string) {
+            const parts = (partial[stream] + text).split(/\r?\n/);
+            partial[stream] = parts.pop() ?? "";
+            for (const line of parts) write(stream, line);
+        },
+        flush() {
+            for (const stream of ["stdout", "stderr"] as const)
+                if (partial[stream]) write(stream, partial[stream]);
+            partial.stdout = partial.stderr = "";
+        },
+    };
+}
+
 function assetOrigin(output: string): string | null {
     for (const line of output.split(/\r?\n/)) {
         const match = line.match(/\[shallot\] asset server on (https?:\/\/\S+)/);
@@ -509,10 +526,11 @@ async function launchAndObserve(
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],
     });
+    const lines = streamLines((stream, line) => log.write(`[${stream}] ${line}\n`));
     const record = (stream: "stdout" | "stderr", data: Buffer) => {
         const text = data.toString();
         transcript += text;
-        log.write(`[${stream}] ${text}`);
+        lines.push(stream, text);
         if (!started && /running\s+game\.\.\./.test(transcript)) {
             started = true;
             shellStartedAt = performance.now();
@@ -579,6 +597,7 @@ async function launchAndObserve(
         } finally {
             if (child.pid) await terminateProcessGroup(child.pid);
             await Promise.race([exited, Bun.sleep(1500)]);
+            lines.flush();
             await new Promise<void>((resolveEnd) => log.end(resolveEnd));
         }
     }

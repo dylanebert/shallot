@@ -62,7 +62,7 @@ test("a native debug process receives the Vite URL instead of its packaged asset
         expect(status).toBe(0);
         expect(readFileSync(observed, "utf8")).toBe("http://localhost:5173/");
     } finally {
-        rmSync(project, { recursive: true, force: true });
+        rmSync(project, { recursive: true, force: true, maxRetries: 10 });
     }
 });
 
@@ -129,6 +129,6 @@ test("native preview streams the shell's output while the shell runs", async () 
         expect(await cli.exited).toBe(0);
     } finally {
         cli.kill();
-        rmSync(project, { recursive: true, force: true });
+        rmSync(project, { recursive: true, force: true, maxRetries: 10 });
     }
 });

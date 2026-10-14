@@ -8,6 +8,7 @@ import { CEILING } from "@dylanebert/shallot/testing";
 import {
     assertStandaloneOrigin,
     requireLinuxPrerequisites,
+    streamLines,
     terminateProcessGroup,
 } from "./native-linux-smoke";
 
@@ -93,4 +94,18 @@ test("Linux smoke cleanup terminates the whole detached process group", async ()
         if (parent.pid) await terminateProcessGroup(parent.pid, 100);
         rmSync(scratch, { recursive: true, force: true });
     }
+});
+
+test("the smoke log keeps a line whole when the shell writes it in pieces", () => {
+    const written: string[] = [];
+    const lines = streamLines((stream, line) => written.push(`[${stream}] ${line}`));
+    lines.push("stderr", "[shallot] asset server on ");
+    lines.push("stdout", "running game...\n");
+    lines.push("stderr", "http://127.0.0.1:41301\nnext");
+    lines.flush();
+    expect(written).toEqual([
+        "[stdout] running game...",
+        "[stderr] [shallot] asset server on http://127.0.0.1:41301",
+        "[stderr] next",
+    ]);
 });
