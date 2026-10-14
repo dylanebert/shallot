@@ -79,8 +79,8 @@ export interface Devices {
     /** pointer facts for the same record */
     readonly pointer: Pointer;
     readonly touch: Touch;
-    /** true when device producers are suspended and all reads are neutral */
-    readonly suspended: boolean;
+    /** false while {@link setInputEnabled} suspends the device producers; reads are then neutral */
+    readonly enabled: boolean;
     /** when true, pointer buttons stay up until `pointer.lock.status` is locked */
     readonly requireLock: boolean;
     /** document-order index of the canvas holding input focus, or -1 when none is focused */
@@ -89,7 +89,7 @@ export interface Devices {
 
 interface DeviceRecord extends Devices {
     audio: AudioDevice;
-    suspended: boolean;
+    enabled: boolean;
     requireLock: boolean;
     readonly touchPoints: Map<number, { x: number; y: number }>;
     pinchDistance: number | null;
@@ -201,7 +201,7 @@ function emptyRecord(world: World): DeviceRecord {
         audio: { ...DEFAULT_AUDIO },
         pointer,
         touch: { ...DEFAULT_TOUCH },
-        suspended: false,
+        enabled: true,
         focused: -1,
         requireLock: false,
         touchPoints: new Map(),
@@ -279,7 +279,7 @@ function unit(value: number, size: number): number {
 /** Produce a keyboard press. Repeated presses do not retrigger an edge. */
 export function pressKey(world: World, code: string): void {
     const d = record(world);
-    if (d.suspended || d.keys.held.has(code)) return;
+    if (!d.enabled || d.keys.held.has(code)) return;
     d.keys.held.add(code);
     d.keys.pressed.add(code);
 }
@@ -287,7 +287,7 @@ export function pressKey(world: World, code: string): void {
 /** Produce a keyboard release. */
 export function releaseKey(world: World, code: string): void {
     const d = record(world);
-    if (d.suspended || !d.keys.held.has(code)) return;
+    if (!d.enabled || !d.keys.held.has(code)) return;
     d.keys.held.delete(code);
     d.keys.released.add(code);
 }
@@ -311,7 +311,7 @@ export function pointerMove(
     deltaY = 0,
 ): void {
     const d = record(world);
-    if (d.suspended) return;
+    if (!d.enabled) return;
     const move = typeof x === "number" ? { x, y: y ?? 0, deltaX, deltaY } : x;
     d.pointer.x = move.x;
     d.pointer.y = move.y;
@@ -330,7 +330,7 @@ export type PointerButton = "left" | "right" | "middle" | 0 | 1 | 2;
 
 function setButton(world: World, button: PointerButton, pressed: boolean): void {
     const d = record(world);
-    if (d.suspended) return;
+    if (!d.enabled) return;
     const name =
         button === 0 || button === "left"
             ? "left"
@@ -361,7 +361,7 @@ export function pointerButtons(world: World, buttons: number): void {
 /** Produce wheel movement. */
 export function pointerWheel(world: World, delta: number): void {
     const d = record(world);
-    if (!d.suspended) d.pointer.scroll += delta;
+    if (d.enabled) d.pointer.scroll += delta;
 }
 
 function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
@@ -391,7 +391,7 @@ export function touchPoint(
     active = true,
 ): void {
     const d = record(world);
-    if (d.suspended) return;
+    if (!d.enabled) return;
     if (!active) {
         d.touchPoints.delete(pointerId);
         d.touch.count = d.touchPoints.size;
@@ -444,7 +444,7 @@ export function blurCanvas(world: World): void {
 /** Produce a focus transition for a bound canvas. */
 export function focusCanvas(world: World, canvasIndex = 0): void {
     const d = record(world);
-    if (d.suspended) return;
+    if (!d.enabled) return;
     const a = adapters.get(world);
     if (a) a.canvasFocused = true;
     d.focused = canvasIndex;
@@ -537,13 +537,13 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         if (a.activePointerId === null) d.pointer.hover = false;
     };
     a.keyDown = (e) => {
-        if (a.disposed || d.suspended) return;
+        if (a.disposed || !d.enabled) return;
         const lockElement = document.pointerLockElement as HTMLCanvasElement | null;
         if (!a.canvasFocused && !(lockElement && a.canvases.has(lockElement))) return;
         pressKey(world, e.code);
     };
     a.keyUp = (e) => {
-        if (a.disposed || d.suspended) return;
+        if (a.disposed || !d.enabled) return;
         const lockElement = document.pointerLockElement as HTMLCanvasElement | null;
         if (!a.canvasFocused && !(lockElement && a.canvases.has(lockElement))) return;
         releaseKey(world, e.code);
@@ -774,7 +774,7 @@ function setup(world: World, canvasElements: readonly HTMLCanvasElement[], host:
 /** Request pointer lock through the composed browser adapter from an engagement gesture. */
 export function requestPointerLock(world: World): void {
     const d = record(world);
-    if (d.suspended) return;
+    if (!d.enabled) return;
     if (d.pointer.lock.status === "unsupported") return;
     const a = adapters.get(world);
     if (!a || a.disposed) return;
@@ -861,8 +861,8 @@ export function releasePointerLock(world: World): void {
 /** Suspend or resume one World's device producers. Suspension releases held inputs with normal edges. */
 export function setInputEnabled(world: World, on: boolean): void {
     const d = record(world);
-    d.suspended = !on;
-    if (d.suspended) {
+    d.enabled = on;
+    if (!on) {
         releaseAll(world, d);
         d.keys.pressed.clear();
         d.pointer.deltaX = 0;
@@ -918,8 +918,7 @@ export function createBrowserInputPlugin(host?: InputHost): Plugin {
         },
         update(world: World) {
             const input = record(world);
-            if (input.suspended && input.pointer.lock.status === "locked")
-                releasePointerLock(world);
+            if (!input.enabled && input.pointer.lock.status === "locked") releasePointerLock(world);
         },
     };
     return {

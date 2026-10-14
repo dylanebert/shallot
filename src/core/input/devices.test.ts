@@ -785,7 +785,7 @@ test("a suspended World still reads held keys, pointer or touch data, or accepts
     pressButton(world, "left");
     setInputEnabled(world, false);
     const input = world.resource(Devices);
-    if (!input.suspended || input.keys.held.has("KeyS") || !input.keys.released.has("KeyS"))
+    if (input.enabled || input.keys.held.has("KeyS") || !input.keys.released.has("KeyS"))
         throw new Error("suspension did not neutralize the key with an edge");
     if (input.pointer.left || input.pointer.deltaX !== 0 || input.touch.count !== 0)
         throw new Error("suspension did not neutralize pointer/touch reads");
@@ -800,9 +800,9 @@ test("suspending one World suspends or clears a second World's device record", (
     pressKey(first, "KeyW");
     pressKey(second, "KeyW");
     setInputEnabled(first, false);
-    if (!first.resource(Devices).suspended || first.resource(Devices).keys.held.has("KeyW"))
+    if (first.resource(Devices).enabled || first.resource(Devices).keys.held.has("KeyW"))
         throw new Error("first World did not suspend");
-    if (second.resource(Devices).suspended || !second.resource(Devices).keys.held.has("KeyW"))
+    if (!second.resource(Devices).enabled || !second.resource(Devices).keys.held.has("KeyW"))
         throw new Error("second World was affected by suspension");
     first.dispose();
     second.dispose();

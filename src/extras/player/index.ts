@@ -135,7 +135,7 @@ const LocalPlayerInputSystem: System = {
     group: "setup",
     update(world) {
         const devices = world.resource(Devices);
-        const active = !devices.suspended;
+        const active = devices.enabled;
         const players = world.storage(Player);
         const local = world.storage(LocalPlayer);
         const inputs = world.storage(PlayerInput);
