@@ -3,11 +3,6 @@ import * as d from "typegpu/data";
 import { clamp, pack2x16unorm, round, select, unpack2x16unorm } from "typegpu/std";
 import { chunk } from "../../engine/utils";
 
-// The quantized vertex codec: each a TGSL function that runs on the CPU and resolves to the WGSL a
-// vertex-pull shader splices, so the lattice cannot drift between the packer and the decode. The decode
-// and encode halves share `quantNs`, so `MeshQuant` is emitted once, into posQuantWgsl(); the encode
-// half resolves the decode half first and is spliced after it.
-
 const quantNs = tgpu["~unstable"].namespace({ names: "strict" });
 
 /** the per-mesh position + uv AABB the quantized vertex stream dequantizes against: `posOffset` =
@@ -25,8 +20,8 @@ export const meshIdOf = tgpu.fn(
     d.u32,
 )((w1) => {
     "use gpu";
-    // `>>>`, not `>>`: JS's `>>` is arithmetic and WGSL's on u32 is logical, so the two arms would
-    // disagree on a word with bit 31 set. Both emit WGSL `>>`. The mask states the field's width.
+    // JS's arithmetic shift would disagree with WGSL's logical u32 shift when the sign bit is set.
+    // Both JS shift operators emit WGSL `>>`.
     return (w1 >>> 16) & 0xffff;
 });
 
@@ -64,7 +59,7 @@ export const decodeUv = tgpu.fn(
 export const posQuantWgsl = chunk("posQuantWgsl", [meshIdOf, decodePos, decodeUv], quantNs);
 
 /** encode a world/object-space position into the quantized vertex words: `.x` = unorm16 pos.xy,
- *  `.y` = unorm16 pos.z | (meshId << 16). A zero-extent axis normalizes to 0, never a divide by zero. */
+ *  `.y` = unorm16 pos.z | (meshId << 16). A zero-extent axis selects normalized zero. */
 export const encodePos = tgpu.fn(
     [d.vec3f, d.u32, MeshQuant],
     d.vec2u,
@@ -94,12 +89,11 @@ const packChunk = chunk("posQuantPackWgsl", [encodePos, encodeUv], quantNs);
 
 /** WGSL `encodePos(p, meshId, q) -> vec2<u32>` + `encodeUv(uv, q) -> u32`: the {@link posQuantWgsl}
  *  encode half, for a GPU producer (compute-emitted terrain / meshing) that writes the quantized streams
- *  directly. Splice **after** {@link posQuantWgsl} — that chunk defines the shared `MeshQuant` struct. The
+ *  directly. Splice after {@link posQuantWgsl} — that chunk defines the shared `MeshQuant` struct. The
  *  producer supplies its mesh's analytic AABB as the `MeshQuant`. */
 export function posQuantPackWgsl(): string {
-    // resolve the decode half first, unconditionally: the shared `MeshQuant` lands in whichever chunk
-    // resolves first, and pinning that to the decode half keeps both chunks the same text whatever
-    // order a consumer asks for them in.
+    // MeshQuant lands in the first resolved chunk; resolve decode first to keep chunk text
+    // independent of the caller's resolution order.
     posQuantWgsl();
     return packChunk();
 }

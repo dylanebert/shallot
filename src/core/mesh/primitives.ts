@@ -20,8 +20,6 @@ interface Vert {
     v: number;
 }
 
-// interleave per-vertex data into the shared vertex layout — eight floats per
-// vertex: (posX posY posZ uvX) (normalX normalY normalZ uvY)
 function pack(verts: Vert[]): Float32Array {
     const out = new Float32Array(verts.length * 8);
     for (let i = 0; i < verts.length; i++) {
@@ -54,7 +52,6 @@ export function cube(size: readonly [number, number, number] = [1, 1, 1]): {
         [1, 1],
         [0, 1],
     ];
-    // outward normal, then the BL, BR, TR, TL corners of each face
     const faces = [
         {
             normal: [0, 0, 1],
@@ -176,9 +173,7 @@ export function sphere(
  * Capsule with the supplied radius (default 0.5) and cylindrical mid-section full length
  * (default 1): two hemispherical caps over the mid-section, smooth-shaded.
  * `segments` divisions around the axis, `rings` from cap pole to cap pole
- * (rounded down to an even count). The bottom cap winds the opposite direction
- * from the top because its rings run pole→equator (the top runs equator→pole),
- * keeping every triangle CCW outward
+ * (rounded down to an even count). For positive dimensions, outward faces use CCW winding.
  */
 export function capsule(
     radius = 0.5,
@@ -191,7 +186,6 @@ export function capsule(
     const indices: number[] = [];
     const halfRings = Math.floor(rings / 2);
 
-    // top cap: pole (theta 0) down to the equator (theta PI/2), lifted +halfHeight
     for (let y = 0; y <= halfRings; y++) {
         const theta = (y / halfRings) * (Math.PI / 2);
         const v = (y / halfRings) * 0.25;
@@ -214,7 +208,6 @@ export function capsule(
         }
     }
 
-    // cylinder seam rings — top then bottom, horizontal normals
     for (let x = 0; x <= segments; x++) {
         const u = x / segments;
         const phi = u * Math.PI * 2;
@@ -239,7 +232,6 @@ export function capsule(
         });
     }
 
-    // bottom cap: pole (theta 0, pointing down) up to the equator (theta PI/2), dropped -halfHeight
     for (let y = 0; y <= halfRings; y++) {
         const theta = (y / halfRings) * (Math.PI / 2);
         const v = 0.75 + (y / halfRings) * 0.25;
@@ -284,6 +276,7 @@ export function capsule(
         for (let x = 0; x < segments; x++) {
             const a = botStart + y * stride + x;
             const b = a + stride;
+            // The bottom cap faces down, so its winding is reversed relative to the top cap.
             indices.push(a, b, a + 1, a + 1, b, b + 1);
         }
     }

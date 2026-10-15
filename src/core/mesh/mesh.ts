@@ -14,32 +14,16 @@ export type MeshBinding =
     | GPUBuffer
     | (TgpuBuffer<AnyData> & (StorageFlag | UniformFlag));
 
-/**
- * added vertex-pull geometry: a slice descriptor into the quantized vertex
- * streams + `indices` GPU storage. `vertices` is the 16 B/vertex main stream
- * (`vec4<u32>`: unorm16 pos + meshId, oct normal, unorm16 uv); `position` is the
- * 8 B/vertex depth/shadow stream (pos + meshId only); `quant` is the per-mesh
- * `MeshQuant` table the decode dequantizes against. `indices` is
- * `u32` absolute vertex positions. `indexBase`/`indexCount` slice the index
- * stream. All have `STORAGE` usage: consumer renderers pull indexed vertices in
- * WGSL, never via `setVertexBuffer` / `setIndexBuffer`.
- *
- * Producers stage typed arrays via `Meshes.add`, which {@link flushMeshes} packs into
- * shared family buffer sets: every mesh is a slice (its own `indexBase` + meshId) of one set.
- * Additions during `initialize` pack at warm; each later frame's additions pack
- * before drawing. Each batch splits into families by attribute names and element schemas.
- *
- * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
- * frustum cull GlobalTransforms per instance. `Meshes.add` derives it from the staged
- * vertices; procedural producers may supply their own or omit it (a culler then
- * treats the mesh as always-visible)
- */
 declare const meshHandleBrand: unique symbol;
 
 /** Stable, world-local identity returned by `Meshes.add`. */
 export type MeshHandle = number & { readonly [meshHandleBrand]: true };
 const DEFAULT_MESH_HANDLE = 0 as MeshHandle;
 
+/** Vertex-pull geometry in shared storage buffers, not vertex/index bindings.
+ * `vertices` uses the packed layout in {@link QuantStreams}; `indices` holds absolute vertex indices,
+ * sliced by `indexBase` and `indexCount`. Typed-array additions share family buffers built by
+ * {@link flushMeshes}. */
 export interface Mesh {
     /** Display label; mesh identity is its {@link MeshHandle}. */
     name: string;
@@ -51,6 +35,8 @@ export interface Mesh {
     indices: MeshIndex;
     indexBase: number;
     indexCount: number;
+    /** Local-space culling sphere `[cx, cy, cz, radius]`, derived for typed-array additions.
+     * GPU producers may supply it or omit it to remain always visible to standard's culler. */
     bounds?: [number, number, number, number];
     /** `true` while `Meshes.add`'s data waits for its pack, which replaces the entry before the next frame's draw */
     pending?: true;
@@ -117,8 +103,7 @@ class MeshRegistryImpl implements MeshRegistry {
     }
 
     add(mesh: MeshData | Mesh): MeshHandle {
-        // typed arrays are staged for the pack; a GPU record's own buffers are its data. A view test,
-        // not instanceof, so typed arrays from another realm (an iframe) are still staged
+        // ArrayBuffer.isView also recognizes typed arrays from another realm.
         if (ArrayBuffer.isView(mesh.vertices)) return addMesh(this._world, mesh as MeshData);
         const handle = this._nextHandle++ as MeshHandle;
         this._entriesByHandle.set(handle, mesh as Mesh);
@@ -167,8 +152,6 @@ export const Meshes: import("../../engine").Resource<MeshRegistry> = {
 /** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
 export const VERTEX_FLOATS = 8;
 
-// `Meshes.add` stages the typed arrays + a placeholder registry entry, so its handle and
-// `Meshes.size` are known at once; `flushMeshes()` packs staged meshes by stream signature.
 interface PendingMesh {
     handle: MeshHandle;
     name: string;
@@ -211,13 +194,7 @@ export function initializeMeshState(world: World): void {
     world.resource(meshResourcesKey).initialized = true;
 }
 
-/**
- * local-space axis-aligned bounds `{ min, max }` of a vertex buffer (the shared
- * `posU + normalV` layout, position in the first three floats per record).
- * Pure: the one position-AABB scan both the cull sphere ({@link meshBounds})
- * and the unorm16 dequant range (the per-mesh `MeshQuant`) derive
- * from, so they share one source. An empty buffer returns a zero box.
- */
+/** Local-space bounds of the {@link VERTEX_FLOATS} staging layout; an empty buffer returns a zero box. */
 function meshAabb(vertices: Float32Array): {
     min: [number, number, number];
     max: [number, number, number];
@@ -243,12 +220,9 @@ function meshAabb(vertices: Float32Array): {
     return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
 }
 
-/**
- * local-space bounding sphere `[cx, cy, cz, radius]` of a vertex buffer. Center
- * is the {@link meshAabb} midpoint; radius is the farthest vertex from it, so the
- * sphere is tight and a producer's cull can scale it by world scale. Pure:
- * derived once when the mesh is added, never per frame.
- */
+/** Local-space sphere `[cx, cy, cz, radius]` for the {@link VERTEX_FLOATS} staging layout.
+ * Center is the AABB midpoint; radius reaches the farthest vertex from that center.
+ * Typed-array additions derive it once, not per frame. */
 export function meshBounds(vertices: Float32Array): [number, number, number, number] {
     const { min, max } = meshAabb(vertices);
     const cx = (min[0] + max[0]) * 0.5;
@@ -287,8 +261,7 @@ function addMesh(world: World, spec: MeshData): MeshHandle {
     }
     const device = world.gpu.device;
     if (!device) throw new Error(`mesh "${spec.name}": Meshes.add needs a GPU device`);
-    // a placeholder reserves the registry entry now; flushMeshes swaps in the
-    // real shared buffer + correct indexBase
+    // Reserve a handle before its family is packed.
     resources.placeholderVertices ??= world.gpu.root
         .createBuffer(d.arrayOf(d.vec4u, 1))
         .$usage("storage")
@@ -311,11 +284,6 @@ function addMesh(world: World, spec: MeshData): MeshHandle {
     return handle;
 }
 
-/**
- * concatenate staged meshes into one vertex + index pair, shifting each mesh's
- * indices by its vertex base so the index stream holds absolute positions.
- * Pure: {@link flushMeshes} uploads it
- */
 function packMeshes(staged: PendingMesh[]): {
     vertices: Float32Array;
     indices: Uint32Array;
@@ -369,13 +337,11 @@ function packMeshes(staged: PendingMesh[]): {
 const MESH_QUANT_FLOATS = 12;
 
 /**
- * the GPU vertex streams a quantized family uploads, derived from the packed f32
- *. `main` is 16 B/vertex (`vec4<u32>`): w0 = unorm16 pos.xy,
+ * GPU streams for one family. `main` is 16 B/vertex (`vec4<u32>`): w0 = unorm16 pos.xy,
  * w1 = unorm16 pos.z | (meshId << 16), w2 = oct normal, w3 = unorm16 uv.
  * `position` is the 8 B/vertex depth/shadow stream (w0, w1: pos + meshId only).
  * `quant` is `MeshQuant` per mesh (the position + uv AABB the decode dequantizes
- * against, selected by meshId). The f32 stays the lossless authoring form: only
- * the GPU mirror quantizes (the slab packed-mirror discipline).
+ * against, selected by meshId). Only the GPU mirror quantizes; authoring data stays f32.
  */
 export interface QuantStreams {
     main: Uint32Array;
@@ -383,14 +349,8 @@ export interface QuantStreams {
     quant: Float32Array;
 }
 
-/**
- * quantize a packed f32 vertex stream ({@link packMeshes}'s output) into the GPU
- * formats. One AABB per mesh slice (its own position + uv range), so a small mesh
- * keeps full unorm16 precision; meshId is the slice index, packed into the stream
- * so the decode selects the right `MeshQuant` from a plain storage table: no
- * per-draw uniform, works unchanged in render bundles. Pure: the single emitter, paired with
- * the WGSL `decodePos` (`posQuantWgsl()`) so the lattice can't drift between writer and reader.
- */
+// Per-mesh AABBs keep small meshes from losing precision to a family's larger meshes.
+// Packed meshId selects MeshQuant without a per-draw uniform, including in render bundles.
 function quantizeMeshes(
     vertices: Float32Array,
     slices: { vertexBase: number; vertexCount: number }[],
@@ -404,7 +364,6 @@ function quantizeMeshes(
             throw new Error(
                 `quantizeMeshes: ${slices.length} meshes exceeds the 16-bit meshId cap (65535) per family`,
             );
-        // per-mesh position + uv AABB over the slice (a vertex belongs to one mesh)
         const pmin = [Infinity, Infinity, Infinity];
         const pmax = [-Infinity, -Infinity, -Infinity];
         const umin = [Infinity, Infinity];
@@ -428,7 +387,6 @@ function quantizeMeshes(
         }
         const pext = [pmax[0] - pmin[0], pmax[1] - pmin[1], pmax[2] - pmin[2]];
         const uext = [umax[0] - umin[0], umax[1] - umin[1]];
-        // MeshQuant: posOffset(pmin.xyz, umin.x), posScale(pext.xyz, umin.y), uvScale(uext.xy, 0, 0)
         const q = meshId * MESH_QUANT_FLOATS;
         quant.set([pmin[0], pmin[1], pmin[2], umin[0]], q);
         quant.set([pext[0], pext[1], pext[2], umin[1]], q + 4);
@@ -463,9 +421,7 @@ function quantizeMeshes(
     return { main, position, quant };
 }
 
-// drop the staged-but-unflushed mesh data + the placeholder buffers. flushMeshes calls it after packing,
-// clearMeshes after discarding — one source of truth for the staging state to reset. No bind group holds
-// a placeholder: standard skips an entry without its quantized streams before binding it.
+// No bind group holds a placeholder: standard skips pending entries before binding them.
 function resetStaging(world: World): void {
     const resources = meshResources(world);
     resources.pending.length = 0;
@@ -567,8 +523,7 @@ function packFamily(world: World, staged: PendingMesh[]): void {
     }
 }
 
-/** packs the meshes added since the last pack before this frame's draw, as Bevy prepares
- * render assets added during the frame */
+/** Packs staged additions at the start of the draw group. */
 export const PrepareMeshesSystem: System = {
     name: "prepareMeshes",
     group: "draw",
@@ -576,12 +531,9 @@ export const PrepareMeshesSystem: System = {
     update: flushMeshes,
 };
 
-/**
- * drop every added mesh + any staged-but-unflushed data and destroy every family packed for them,
- * resetting the registry for a fresh build (`MeshPlugin.initialize`, clear then rebuild). Static producers re-stage via `Meshes.add` in
- * their own initialize, so a producer toggled off leaves no stale slice to be paired against
- * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
- */
+/** Clear the registry and staging, destroying packed family buffers but not producer-owned buffers.
+ * Runs during MeshPlugin initialization; producers must re-stage geometry in their own initialize
+ * so disabled producers leave no stale slices paired with live surfaces. */
 export function clearMeshes(world: World): void {
     const resources = meshResources(world);
     resources.meshes.clear();
