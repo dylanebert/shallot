@@ -19,20 +19,16 @@ import { OrbitSmooth } from "./smooth";
 const Tau = Math.PI * 2;
 const Deg2Rad = Math.PI / 180;
 
-// scroll-to-flyspeed ramp: geometric, so each notch feels equal across magnitudes (5→10 like 50→100).
-// one wheel notch (~100 accumulated deltaY) scales flySpeed ×1.15. scroll up (deltaY < 0) speeds up;
-// the negation at the call site makes up = faster.
+// Multiplicative fly-speed changes make wheel input feel equal across speed magnitudes.
 const FlyScrollRate = Math.log(1.15) / 100; // ≈ 0.0014
 
 /** `Free` orbits, pans, and zooms; `Locked` disables all look (orbit rotation and fly look), leaving pan and zoom. */
 export const OrbitMode = { Free: 0, Locked: 1 } as const;
 
 /**
- * contextual left-click hook: a picker registers `claim` so that pressing the orbit
- * button over something interactive starts an interaction instead of an orbit. Consulted once, at the orbit
- * button's press edge, with the cursor in canvas-local CSS pixels; returning true suppresses orbit rotation
- * for that whole drag (until the button releases), while pan and fly stay unaffected. Unregistered, every
- * press orbits (the optional slot is a `?.` no-op). Analogous to `world.gpu.span`.
+ * Consulted at the orbit button's press edge with the cursor in canvas-local CSS pixels.
+ * Returning true suppresses orbit rotation for that drag, while pan and fly stay unaffected.
+ * Without a claim callback, presses orbit normally.
  */
 export const OrbitPick: { claim?: (x: number, y: number) => boolean } = {};
 
@@ -65,11 +61,11 @@ export const Orbit = component(
         maxSize: f32,
         /** follow damping, 0–1; higher snaps to the target pose faster */
         smoothness: f32,
-        /** fly look damping, 0–1; higher is snappier; default tighter than orbit so first-person look tracks closely */
+        /** fly look damping, 0–1; higher is snappier */
         flySmoothness: f32,
         /** orbit look speed (yaw/pitch), radians per pixel of mouse drag */
         sensitivity: f32,
-        /** fly look speed (yaw/pitch), radians per pixel; separate so fly look reads calmer than orbit */
+        /** fly look speed (yaw/pitch), radians per pixel */
         flySensitivity: f32,
         /** held-arrow orbit speed, radians per second */
         keyRate: f32,
@@ -109,9 +105,6 @@ export const Orbit = component(
             // shy of ±90° so the look-at pose never degenerates at the pole
             minPitch: -89 * Deg2Rad,
             maxPitch: 89 * Deg2Rad,
-            // permissive by default so a scene at any reasonable scale isn't clamped: the bounds span
-            // the default camera frustum (near 0.1 → far 1000), and the geometric zoom step makes a wide
-            // range cost nothing. Tighten per-camera for a game that wants to constrain zoom.
             minDistance: 0.1,
             maxDistance: 900,
             minSize: 0.05,
@@ -176,8 +169,7 @@ const OrbitSystem: System = {
             // sparse storage survives destroy — a recycled eid could inherit a stale latch
             world.storage(OrbitSmooth).flyActive.set(eid, 0);
             world.storage(OrbitSmooth).orbitLatch.set(eid, 0);
-            // the pose loop below requires Transform — orbit drives pos + rot through it. Without one the
-            // camera silently never moves; warn at init (once per Orbit entity) so it's not a blank screen.
+            // Warn on initialization because the pose query silently excludes entities without Transform.
             if (!world.has(eid, Transform)) {
                 console.warn(
                     `[orbit] entity ${eid} has Orbit but no Transform — add Transform or it won't move`,
@@ -217,12 +209,8 @@ const OrbitSystem: System = {
                 hasCamera && world.storage(Camera).mode.get(eid) === CameraMode.Orthographic;
             const locked = world.storage(Orbit).mode.get(eid) === OrbitMode.Locked;
             const touchCount = input.touch.count;
-            // touch overrides the mouse-button read entirely rather than adding to it, while any finger
-            // is down: the first finger's continued capture keeps `pointer.left` true for the
-            // whole gesture, so reading it during a two-finger pinch/pan would
-            // orbit alongside the intended gesture. Gesture count alone decides the mode instead — one
-            // finger rotates, two-plus pan. Fly
-            // has no touch equivalent (out of scope), so any touch keeps it held-off.
+            // Touch capture also holds pointer.left; reading mouse buttons here would orbit during pinch/pan.
+            // Fly has no touch equivalent.
             const orbitHeld =
                 touchCount > 0
                     ? touchCount === 1
@@ -235,19 +223,12 @@ const OrbitSystem: System = {
                 touchCount > 0
                     ? false
                     : isButton(input.pointer, world.storage(Orbit).flyButton.get(eid));
-            // Fly engages only while its button is held, and orbit/pan win over it.
-            // Bare WASD/QE never fly, so a gameplay
-            // scene owns the movement keys by default — the camera only takes them while fly is held.
+            // Leave movement keys to gameplay unless the fly button is held; orbit and pan take priority.
             const flying = !orbitHeld && !panHeld && flyHeld;
-            // look applies the active mode's drag: fly looks in place (fly button), orbit swings the target.
             const looking = flying ? flyHeld : orbitHeld;
             const lookSpeed = flying ? world.storage(Orbit).flySensitivity.get(eid) : sensitivity;
 
-            // consult the picker once, at the orbit button's down-edge (latch idle → a fresh press). a true
-            // claim suppresses this drag's orbit rotation so an interaction owns the press; the latch holds
-            // until release, so a mid-drag claim change can't flip it. only orbit look is gated — fly look
-            // reads flyHeld (which needs the orbit button up, so suppression can't coincide) and pan/zoom
-            // read their own buttons.
+            // Latch the claim so a picker's mid-drag changes cannot switch rotation on or off.
             let orbitLatch = world.storage(OrbitSmooth).orbitLatch.get(eid);
             if (orbitHeld) {
                 if (orbitLatch === 0)
@@ -307,9 +288,6 @@ const OrbitSystem: System = {
                           )) /
                       (world.resource(Viewports).get(input.focused)?.cssHeight ?? 0);
 
-                // two-finger centroid drag while touching; single-pointer capture delta otherwise —
-                // `Touch.deltaX/deltaY` is only ever populated at two fingers (input/index.ts), so this
-                // never reads a stale value.
                 const dragX = touchCount > 0 ? input.touch.deltaX : input.pointer.deltaX;
                 const dragY = touchCount > 0 ? input.touch.deltaY : input.pointer.deltaY;
                 const dx = dragX * worldPerPixel;
@@ -319,12 +297,7 @@ const OrbitSystem: System = {
                 panZ += dy * upZ - dx * rightZ;
             }
 
-            // pinch shares the wheel's geometric zoom step (same distanceScale/sizeScale/zoomSpeed), just
-            // negated: `pointer.scroll`'s own JSDoc states positive = zoom out/away, while `touch.pinchDelta`
-            // spreading positive means zoom in — so a spread pinch subtracts. Summing them is safe because
-            // a two-finger pinch zeroes `flyHeld` (touch overrides the mouse-button read while any finger is
-            // down), not because the two inputs can't coexist in the same frame — so combining them into one
-            // input is just addition, not a priority choice.
+            // Wheel-away zooms out; a positive pinch spread zooms in. Both can arrive in one frame.
             const pinch = touchCount > 0 ? input.touch.pinchDelta : 0;
             const zoomInput = input.pointer.scroll - pinch;
             if (zoomInput !== 0) {
@@ -354,8 +327,6 @@ const OrbitSystem: System = {
             }
 
             const t = smoothLerp(smoothness, dt);
-            // fly look uses its own, tighter damping (flySmoothness) so first-person look tracks the mouse
-            // closely without orbit's floaty glide. the exit reproject keeps pose continuous either way.
             const tLook = flying ? smoothLerp(world.storage(Orbit).flySmoothness.get(eid), dt) : t;
             yawS += angleDiff(yawS, yawO) * tLook;
             pitchS += (pitchO - pitchS) * tLook;
@@ -368,7 +339,6 @@ const OrbitSystem: System = {
 
             if (flying) {
                 flyActive = 1;
-                // shift boosts speed transiently — the stored base (flySpd) is unchanged
                 const boost =
                     input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight")
                         ? world.storage(Orbit).flyBoost.get(eid)
