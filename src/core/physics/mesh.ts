@@ -1,13 +1,11 @@
-// Triangle-mesh authoring geometry — the registry of meshes a `Shape` of kind Mesh references by id.
-// It holds Box3D's mesh input (`b3MeshDef`); a solver builds and shares its own mesh from it.
-
 import { Registry, type Resource } from "../../engine";
 
 /**
- * A triangle mesh's input. A solver builds it once per World and culls degenerate triangles. It
+ * Box3D's `b3MeshDef`. A solver builds it once per World and culls degenerate triangles. It
  * refuses an `indices` length that is not a multiple of 3, an index past the last vertex, a
- * `materialIndices` length other than the triangle count, a `vertices` length that is not whole
- * vertices at `stride`, and a mesh with no triangle left. Replace a mesh by registering its name
+ * `materialIndices` length other than the triangle count, and a mesh with no triangle left.
+ * `vertices` must fill whole strides or end immediately after the last vertex's xyz.
+ * Replace a mesh by registering its name
  * again rather than mutating a registered one.
  */
 export interface PhysicsMesh {

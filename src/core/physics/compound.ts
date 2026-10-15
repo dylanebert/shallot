@@ -1,7 +1,3 @@
-// Compound authoring geometry — the registry of compounds a `Shape` of kind Compound references by
-// id. It holds Box3D's compound input (`b3CompoundDef`), naming its hulls and meshes by their own
-// registry ids; a solver builds and shares its own compound from it.
-
 import { Registry, type Resource } from "../../engine";
 import type { SurfaceMaterial } from "./shape";
 
@@ -11,7 +7,7 @@ type Vec3 = [number, number, number];
 type Placement = { position: Vec3; rotation: [number, number, number, number] };
 
 /**
- * A compound's input: child shapes in compound-local meters, baked into one shape with one
+ * Box3D's `b3CompoundDef`: child shapes in compound-local meters, baked into one shape with one
  * broad-phase proxy. A solver shares a build per definition and body Transform.scale in each World,
  * and builds again for the next Shape once a child's
  * hull or mesh is registered again by name. Children carry their own materials, the default

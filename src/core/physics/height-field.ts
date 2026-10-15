@@ -1,11 +1,7 @@
-// Height-field authoring geometry — the registry of height fields a `Shape` of kind HeightField
-// references by id. It holds Box3D's height-field input (`b3HeightFieldDef`); a solver builds and
-// shares its own quantized field from it.
-
 import { Registry, type Resource } from "../../engine";
 
 /**
- * A height field's input: a grid of `countX` by `countZ` points in the shape's xz plane, one unit
+ * Box3D's `b3HeightFieldDef`: a grid of `countX` by `countZ` points in the shape's xz plane, one unit
  * apart before `scale`, starting at the shape origin. A solver shares a build per definition and body
  * Transform.scale in each World, quantizing
  * each height to 16 bits between the global bounds. It refuses a count below 2, a `heights` length
