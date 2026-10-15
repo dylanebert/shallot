@@ -9,7 +9,7 @@ import {
     UNIT_CUBE_ID,
 } from "../../core/physics";
 import { World } from "../../engine";
-import { marshalShape } from "./marshal-shape";
+import { marshalShape, shapeHullGeometry } from "./marshal-shape";
 import { createTestBody, createTestWorld, destroyTestWorld } from "./testing";
 import { getMassData, makeBodyId } from "./world/body";
 
@@ -48,5 +48,28 @@ test("two worlds marshal their own hull registered under the same name", () => {
     } finally {
         for (const solver of solvers) destroyTestWorld(solver);
         for (const world of worlds) world.dispose();
+    }
+});
+
+test("a hull's maxVertexCount bounds the vertices its built hull keeps, and its absence keeps every extreme point", () => {
+    const world = new World();
+    try {
+        for (const component of PhysicsPlugin.components!)
+            world.registry.register(component, PhysicsPlugin.name);
+        const points = new Float32Array(48);
+        for (let i = 0; i < 16; i++) {
+            const angle = (2 * Math.PI * (i % 8)) / 8;
+            points.set([Math.cos(angle), i < 8 ? -1 : 1, Math.sin(angle)], 3 * i);
+        }
+        const hulls = world.resource(Hulls);
+        const vertexCount = (geometry: number) => {
+            const eid = world.create();
+            world.add(eid, Shape, { kind: ShapeKind.Hull, geometry, scale: [1, 1, 1] });
+            return shapeHullGeometry(world, eid).vertexCount;
+        };
+        expect(vertexCount(hulls.register({ name: "prism", points }))).toBe(16);
+        expect(vertexCount(hulls.register({ name: "prism-6", points, maxVertexCount: 6 }))).toBe(6);
+    } finally {
+        world.dispose();
     }
 });
