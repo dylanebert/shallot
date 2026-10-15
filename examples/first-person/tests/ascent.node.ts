@@ -71,11 +71,13 @@ function goalReached(
     const radius = shape.radius.get(player);
     const dx = Math.abs(placement.x.get(player) - placement.x.get(target));
     const dz = Math.abs(placement.z.get(player) - placement.z.get(target));
-    const top = placement.y.get(target) + shape.scale.y.get(target) / 2;
+    // A box's extent is its Shape scale times its body's scale.
+    const scale = world.storage(GlobalTransform).scale;
+    const half = (axis: "x" | "y" | "z") =>
+        (shape.scale[axis].get(target) * Math.abs(scale[axis].get(target))) / 2;
+    const top = placement.y.get(target) + half("y");
     return (
-        dx <= shape.scale.x.get(target) / 2 + radius &&
-        dz <= shape.scale.z.get(target) / 2 + radius &&
-        placement.y.get(player) >= top + 0.6
+        dx <= half("x") + radius && dz <= half("z") + radius && placement.y.get(player) >= top + 0.6
     );
 }
 
