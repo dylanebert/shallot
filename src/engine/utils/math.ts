@@ -24,9 +24,6 @@ export function qRotate(
     ];
 }
 
-const DEG_TO_RAD = Math.PI / 180;
-const RAD_TO_DEG = 180 / Math.PI;
-
 /** constrain `value` to `[min, max]`: below `min` returns `min`, above `max` returns `max` */
 export function clamp(value: number, min: number, max: number): number {
     return value < min ? min : value > max ? max : value;
@@ -96,11 +93,11 @@ export function slerp(
     ];
 }
 
-/** quaternion from euler angles in degrees (XYZ order) */
+/** quaternion from euler angles in radians (XYZ order), as three.js `Quaternion.setFromEuler` */
 export function eulerToQuat(x: number, y: number, z: number): [number, number, number, number] {
-    const hx = x * DEG_TO_RAD * 0.5;
-    const hy = y * DEG_TO_RAD * 0.5;
-    const hz = z * DEG_TO_RAD * 0.5;
+    const hx = x * 0.5;
+    const hy = y * 0.5;
+    const hz = z * 0.5;
     const cx = Math.cos(hx),
         sx = Math.sin(hx);
     const cy = Math.cos(hy),
@@ -116,7 +113,7 @@ export function eulerToQuat(x: number, y: number, z: number): [number, number, n
     ];
 }
 
-/** euler angles in degrees (XYZ order) from a quaternion */
+/** euler angles in radians (XYZ order) from a quaternion, as three.js `Euler.setFromQuaternion` */
 export function quatToEuler(x: number, y: number, z: number, w: number): [number, number, number] {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(w)) {
         throw new Error(`quatToEuler received non-finite: q=[${x},${y},${z},${w}]`);
@@ -138,17 +135,13 @@ export function quatToEuler(x: number, y: number, z: number, w: number): [number
     const ey = Math.asin(m13 < -1 ? -1 : m13 > 1 ? 1 : m13);
 
     if (m13 > -0.9999999 && m13 < 0.9999999) {
-        return [
-            Math.atan2(wx - yz, 1 - (xx + yy)) * RAD_TO_DEG,
-            ey * RAD_TO_DEG,
-            Math.atan2(wz - xy, 1 - (yy + zz)) * RAD_TO_DEG,
-        ];
+        return [Math.atan2(wx - yz, 1 - (xx + yy)), ey, Math.atan2(wz - xy, 1 - (yy + zz))];
     } else {
-        return [Math.atan2(yz + wx, 1 - (xx + zz)) * RAD_TO_DEG, ey * RAD_TO_DEG, 0];
+        return [Math.atan2(yz + wx, 1 - (xx + zz)), ey, 0];
     }
 }
 
-/** apply an euler delta (degrees, XYZ order) to a quaternion */
+/** apply an euler delta (radians, XYZ order) to a quaternion in its local frame: `q * eulerToQuat(dx, dy, dz)` */
 export function rotateQuatByEuler(
     qx: number,
     qy: number,
@@ -158,9 +151,9 @@ export function rotateQuatByEuler(
     dy: number,
     dz: number,
 ): [number, number, number, number] {
-    const hx = dx * DEG_TO_RAD * 0.5;
-    const hy = dy * DEG_TO_RAD * 0.5;
-    const hz = dz * DEG_TO_RAD * 0.5;
+    const hx = dx * 0.5;
+    const hy = dy * 0.5;
+    const hz = dz * 0.5;
     const cx = Math.cos(hx),
         sx = Math.sin(hx);
     const cy = Math.cos(hy),

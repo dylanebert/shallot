@@ -433,7 +433,7 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `build`, `run`, `Config` | `createApp`, `runApp`, `AppConfig` |
 | `swap`, `SwapResult` | Removed; use `bun run dev`, which reloads the page. |
 | `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
-| `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation`. These and `slerp` return tuples, `[x, y, z, w]` (or `[x, y, z]` from `quatToEuler`), not `{ x, y, z, w }`: pass a quaternion straight to `Transform.rotation` and read `q[0]` where 0.9.5 read `q.x`. |
+| `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation`. These and `slerp` return tuples, `[x, y, z, w]` (or `[x, y, z]` from `quatToEuler`), not `{ x, y, z, w }`: pass a quaternion straight to `Transform.rotation` and read `q[0]` where 0.9.5 read `q.x`. The Euler angles are now radians, as in three.js and Bevy: multiply a 0.9.5 degree value by `Math.PI / 180`, and a `quatToEuler` result by `180 / Math.PI` to read degrees. |
 | `composeTransform` | `composeGlobalTransform` |
 | `state.stamp`, `state.timescale` | `world.ref` and `world.resolve`, `world.setTimeScale` |
 | `state.swap` | Removed; use `bun run dev`, which reloads the page. |
