@@ -44,8 +44,8 @@ export default async function create(input: string) {
         position: [0, pushing ? 2 : 1.3, 0, 0],
     });
     world.add(eid, Shape, { kind: ShapeKind.Capsule });
-    world.storage(Shape).capsuleCenter1.set(eid, 0, -0.5, 0, 0);
-    world.storage(Shape).capsuleCenter2.set(eid, 0, 0.5, 0, 0);
+    world.storage(Shape).capsuleCenter1.set(eid, 0, -0.5, 0);
+    world.storage(Shape).capsuleCenter2.set(eid, 0, 0.5, 0);
     world.storage(Shape).radius.set(eid, 0.3);
     world.add(eid, Character);
     world.step(1 / 60);
@@ -59,13 +59,13 @@ export default async function create(input: string) {
     return {
         step: () => {
             if (pushing) {
-                velocity.set(eid, 3, 0, 0, 0);
+                velocity.set(eid, 3, 0, 0);
                 // Isolate SolveMove from the rigid solver's contact pipeline; the full fixed-step claim is the other mode.
                 CharacterPlugin.systems![0].update!(world);
                 if (world.resource(characterScratch).impulseCount !== 1)
                     throw new Error("allocation subject lost its push plane");
             } else {
-                velocity.set(eid, tick++ % 120 < 60 ? 3 : -3, -12, 0, 0);
+                velocity.set(eid, tick++ % 120 < 60 ? 3 : -3, -12, 0);
                 world.step(1 / 60);
                 if (tick > 600 && world.resource(characterScratch).count === 0)
                     throw new Error("allocation subject lost its floor planes");

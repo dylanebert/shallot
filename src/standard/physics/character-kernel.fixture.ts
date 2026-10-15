@@ -81,8 +81,8 @@ export async function visitCharacterGold(
                     rotation: [input[25], input[26], input[27], input[28]],
                 });
                 world.add(eid, Shape, { kind: ShapeKind.Capsule });
-                world.storage(Shape).capsuleCenter1.set(eid, input[9], input[10], input[11], 0);
-                world.storage(Shape).capsuleCenter2.set(eid, input[12], input[13], input[14], 0);
+                world.storage(Shape).capsuleCenter1.set(eid, input[9], input[10], input[11]);
+                world.storage(Shape).capsuleCenter2.set(eid, input[12], input[13], input[14]);
                 world.storage(Shape).radius.set(eid, input[15]);
                 world.add(eid, Character, {
                     velocity: [input[3], input[4], input[5]],

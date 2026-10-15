@@ -580,7 +580,7 @@ function poseCascade(world: World, eid: number, fit: LightFit): void {
         up[1],
         up[2],
     );
-    world.storage(Transform).translation.set(eid, eye[0], eye[1], eye[2], 1);
+    world.storage(Transform).translation.set(eid, eye[0], eye[1], eye[2]);
     world.storage(Transform).rotation.set(eid, ...q);
     world.storage(Camera).mode.set(eid, CameraMode.Orthographic);
     world.storage(Camera).near.set(eid, 0);
@@ -1249,7 +1249,7 @@ function poseSpotRotation(world: World, eid: number, frame: PointShadowFrame): v
 // `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's `_faceVP` folds
 // the tile placement onto — the cull frustum and the render projection agree (to f32).
 function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: number): void {
-    world.storage(Transform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2], 1);
+    world.storage(Transform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2]);
     if (frame.spot) poseSpotRotation(world, eid, frame);
     else {
         const r = face * 4;

@@ -43,7 +43,7 @@ async function measureFrameTen(lightCount: number): Promise<FrameTenSample> {
         world.add(camera, Transform);
         world.add(camera, Camera);
         world.add(camera, StandardRenderer);
-        world.storage(Transform).translation.set(camera, 0, 0, 5, 0);
+        world.storage(Transform).translation.set(camera, 0, 0, 5);
         attachCanvas(world, camera, canvas);
 
         for (let i = 0; i < lightCount; i++) {
@@ -53,7 +53,7 @@ async function measureFrameTen(lightCount: number): Promise<FrameTenSample> {
             const x = i % 4 === 3 ? 12 : ((i % 13) - 6) * 0.25;
             const y = ((Math.floor(i / 13) % 9) - 4) * 0.2;
             const depth = 4 + ((i * 7) % 28);
-            world.storage(Transform).translation.set(eid, x, y, 5 - depth, 0);
+            world.storage(Transform).translation.set(eid, x, y, 5 - depth);
             world.storage(PointLight).range.set(eid, 1 + (i % 3));
         }
 

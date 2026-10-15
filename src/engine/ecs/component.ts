@@ -11,7 +11,7 @@ export type ComponentValues<T> = {
             ? number
             : T[K]["lanes"] extends 2
               ? readonly [number, number]
-              : T[K] extends { readonly name: "vec3" }
+              : T[K] extends { readonly components: 3 }
                 ? readonly [number, number, number] | readonly [number, number, number, number]
                 : readonly [number, number, number, number]
         : never;
@@ -59,6 +59,9 @@ export interface FieldType<TArray extends TypedArray = TypedArray> {
     };
     /** scalar = 1, vec2 = 2, vec4 = 4. stride into the backing array per eid */
     readonly lanes: 1 | 2 | 4;
+    /** Values an entity authors when fewer than `lanes`: 3 for {@link vec3}. Layout ignores it. */
+    readonly components?: 3;
+    /** Debug label; it selects no behavior. */
     readonly name: string;
     /** JS number → array-slot value. omit for identity-mapped types */
     readonly encode?: (v: number) => number;
@@ -195,9 +198,10 @@ export const vec2: FieldType<Float32Array> & { readonly lanes: 2 } = {
  * storage, snapshots and GPU binding match {@link vec4}. Author `[x, y, z]`; the fourth lane is 0
  * unless written as `[x, y, z, w]` or through `.w`.
  */
-export const vec3: FieldType<Float32Array> & { readonly lanes: 4; readonly name: "vec3" } = {
+export const vec3: FieldType<Float32Array> & { readonly lanes: 4; readonly components: 3 } = {
     ctor: Float32Array,
     lanes: 4,
+    components: 3,
     name: "vec3",
 };
 
@@ -248,6 +252,14 @@ export interface Vector2Field {
     readonly column: TypedArray;
     /** Publish this eid after a raw column write. Resolve column again after growth. */
     markChanged(eid: number): void;
+}
+
+/**
+ * per-entity storage of a {@link vec3} field: {@link Vector4Field} whose `set` takes x, y and z,
+ * writing the fourth lane 0 unless `w` is given.
+ */
+export interface Vector3Field extends Omit<Vector4Field, "set"> {
+    set(eid: number, x: number, y: number, z: number, w?: number): void;
 }
 
 /**

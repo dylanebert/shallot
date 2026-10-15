@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { component } from "./component";
-import { f16, f32, vec2, vec4, World } from "./index";
+import { f16, f32, vec2, vec3, vec4, World } from "./index";
 
 const Component = { scalar: f32, pair: vec2, quad: vec4, half: f16, omitted: f32 };
 
@@ -67,3 +67,21 @@ function startingValueTypeControls(world: World, eid: number): void {
     world.add(eid, Component, { scalar: [1] });
 }
 void startingValueTypeControls;
+
+// A renamed vec4 keeps four-value meaning; the name is a label, not the vec3 discriminant.
+const Lanes = { xyz: vec3, quad: vec4, renamed: { ...vec4, name: "vec3" as const } };
+
+function setTypeControls(world: World, eid: number): void {
+    const storage = world.storage(Lanes);
+    storage.xyz.set(eid, 1, 2, 3);
+    storage.xyz.set(eid, 1, 2, 3, 4);
+    storage.quad.set(eid, 1, 2, 3, 4);
+    // @ts-expect-error A vec4 set requires all four lanes.
+    storage.quad.set(eid, 1, 2, 3);
+    // @ts-expect-error A renamed vec4 set still requires all four lanes.
+    storage.renamed.set(eid, 1, 2, 3);
+    world.add(eid, Lanes, { xyz: [1, 2, 3] });
+    // @ts-expect-error A renamed vec4 still requires four starting lanes.
+    world.add(eid, Lanes, { renamed: [1, 2, 3] });
+}
+void setTypeControls;

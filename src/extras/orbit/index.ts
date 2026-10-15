@@ -409,7 +409,6 @@ const OrbitSystem: System = {
                         world.storage(GlobalTransform).translation.x.get(eid) + wx,
                         world.storage(GlobalTransform).translation.y.get(eid) + wy,
                         world.storage(GlobalTransform).translation.z.get(eid) + wz,
-                        0,
                     );
 
                 const hy = yawS * 0.5;
@@ -461,7 +460,7 @@ const OrbitSystem: System = {
                 const camY = targetY + distS * Math.sin(pitchS);
                 const camZ = targetZ + distS * Math.cos(pitchS) * Math.cos(yawS);
 
-                world.storage(Transform).translation.set(eid, camX, camY, camZ, 0);
+                world.storage(Transform).translation.set(eid, camX, camY, camZ);
                 const r = lookAtRotation(camX, camY, camZ, targetX, targetY, targetZ);
                 world.storage(Transform).rotation.set(eid, ...r);
             }
@@ -470,7 +469,7 @@ const OrbitSystem: System = {
             world.storage(Orbit).pitch.set(eid, pitchO);
             world.storage(Orbit).distance.set(eid, distO);
             world.storage(Orbit).size.set(eid, sizeO);
-            world.storage(Orbit).pan.set(eid, panX, panY, panZ, 0);
+            world.storage(Orbit).pan.set(eid, panX, panY, panZ);
             world.storage(Orbit).flySpeed.set(eid, flySpd);
             world.storage(OrbitSmooth).flyActive.set(eid, flyActive);
             world.storage(OrbitSmooth).orbitLatch.set(eid, orbitLatch);

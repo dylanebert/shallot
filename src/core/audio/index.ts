@@ -134,7 +134,7 @@ export function play(
         world.add(eid, Transform);
         world
             .storage(Transform)
-            .translation.set(eid, options.position[0], options.position[1], options.position[2], 0);
+            .translation.set(eid, options.position[0], options.position[1], options.position[2]);
     }
     return eid;
 }

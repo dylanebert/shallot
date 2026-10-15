@@ -4,6 +4,7 @@ import {
     type ScalarField,
     type TypedArray,
     type Vector2Field,
+    type Vector3Field,
     type Vector4Field,
 } from "./component";
 import type { EntityRef } from "./entity";
@@ -13,7 +14,9 @@ export type FieldStorage<T extends FieldType> = T["lanes"] extends 1
     ? ScalarField
     : T["lanes"] extends 2
       ? Vector2Field
-      : Vector4Field;
+      : T extends { readonly components: 3 }
+        ? Vector3Field
+        : Vector4Field;
 
 type Column = {
     array: TypedArray;

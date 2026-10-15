@@ -510,9 +510,9 @@ function writeGlobalTransform(
     quat: readonly [number, number, number, number],
     vel: readonly [number, number, number],
 ): void {
-    world.storage(GlobalTransform).translation.set(eid, pos[0], pos[1], pos[2], 0);
+    world.storage(GlobalTransform).translation.set(eid, pos[0], pos[1], pos[2]);
     world.storage(GlobalTransform).rotation.set(eid, quat[0], quat[1], quat[2], quat[3]);
-    world.storage(GlobalTransform).linearVelocity.set(eid, vel[0], vel[1], vel[2], 0);
+    world.storage(GlobalTransform).linearVelocity.set(eid, vel[0], vel[1], vel[2]);
 }
 
 const spawnTransform: WorldTransform = {
@@ -822,7 +822,7 @@ function publishBodyVelocity(world: World, eid: number, state: WorldState, body:
     bodyGetLinearVelocity(state, body.index1 - 1, stateVelocity);
     world
         .storage(GlobalTransform)
-        .linearVelocity.set(eid, stateVelocity.x, stateVelocity.y, stateVelocity.z, 0);
+        .linearVelocity.set(eid, stateVelocity.x, stateVelocity.y, stateVelocity.z);
 }
 
 /**

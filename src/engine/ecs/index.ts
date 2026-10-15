@@ -4,6 +4,7 @@ export type {
     ScalarField,
     TypedArray,
     Vector2Field,
+    Vector3Field,
     Vector4Field,
 } from "./component";
 export {

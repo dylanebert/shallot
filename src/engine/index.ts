@@ -39,6 +39,7 @@ export {
     u16,
     u32,
     type Vector2Field,
+    type Vector3Field,
     type Vector4Field,
     vec2,
     vec3,

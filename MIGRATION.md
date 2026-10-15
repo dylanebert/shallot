@@ -619,7 +619,7 @@ const gpuRows = table.buffer;
 
 Change shaders from entity-indexed scalar arrays to struct records addressed by dense row slots. `table.rowIndex(eid)` gives the CPU slot; enable the table's eid lookup when a shader starts from an eid. Rebind when the table's buffer generation changes. Built-in Body, GlobalTransform and light fields no longer publish their old per-field `.gpu` buffers either.
 
-`f16x4`, `srgb8x4` and `FieldType.gpu` are removed; no table packs a field. Declare `vec4` and bind it as a 16-byte `d.vec4f`. Declare data that holds only x, y and z as `vec3`: it has `vec4`'s 16-byte layout, binds as `d.vec3f` or `d.vec4f`, and is written `[x, y, z]` in `world.add` and defaults, with the fourth lane 0. For a 4-byte color, store `packColor4(r, g, b, a)` from `/utils` in a `u32` field, bind it as `d.u32` and read it in the shader with `unpackLdrColor`:
+`f16x4`, `srgb8x4` and `FieldType.gpu` are removed; no table packs a field. Declare `vec4` and bind it as a 16-byte `d.vec4f`. Declare data that holds only x, y and z as `vec3`: it has `vec4`'s 16-byte layout, binds as `d.vec3f` or `d.vec4f`, and is written `[x, y, z]` in `world.add` and defaults and `.set(eid, x, y, z)` on its storage, with the fourth lane 0. For a 4-byte color, store `packColor4(r, g, b, a)` from `/utils` in a `u32` field, bind it as `d.u32` and read it in the shader with `unpackLdrColor`:
 
 ```ts
 // 0.9.5
