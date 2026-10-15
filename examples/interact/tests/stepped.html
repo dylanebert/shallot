@@ -3,7 +3,7 @@
 <style>body{margin:0;background:#1c1917}canvas{display:block}</style></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { createApp, Transform, Outline, Text, Sprite, pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
+import { Camera, createApp, Transform, Outline, Text, Sprite, pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { Room, RoomPlugin } from '../src/room';
@@ -13,9 +13,11 @@ const app = await createApp({plugins:[RoomPlugin]});
 const world = app.world;
 const room = world.resource(Room);
 const canvas = document.querySelector('canvas');
+// Checks read a small final texture, as first-person does; manual PNGs retain the game's full canvas.
 if (!new URLSearchParams(location.search).has('captures')) {
  canvas.width=320; canvas.height=180;
  attachTexture(world, room.camera, {width:320, height:180});
+ world.storage(Camera).antialias.set(room.camera,0);
  world.resource(DirectionalLightShadowMap).size=256;
 }
 // The check places the same player, leaving the controller to pose its camera.
@@ -31,11 +33,11 @@ window.aim = (index, distance=2.6) => {
  world.storage(Player).friction.set(room.player,1000);
  world.step(1/60);
  world.step(1/60);
- world.step(0);
 };
 window.key = (down) => { setInputEnabled(world,true); (down?pressKey:releaseKey)(world,'KeyE'); };
 window.advance = (count=1) => {
  world.step(1/60);
+ // Sample the input once, then advance the hold without drawing every fixed tick.
  for(let i=1;i<count;i++) world.tick();
  if(count>1) world.step(0);
  return window.state();
