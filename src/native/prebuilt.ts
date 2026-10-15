@@ -5,15 +5,6 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 import { normalizePath } from "../project";
 
-// Prebuilts layer over the lazy path, never replace it. A release-profile shell published to GitHub
-// Releases (tag v<version>) is downloaded + SHA256-verified + extracted into a cache dir; any miss
-// (404, offline, checksum mismatch, source checkout) falls through to cargoBuild with a one-line
-// note. Debug stays lazy — dev-iteration machines have the toolchain.
-//
-// SHA256SUMS ships from the same release as the archive, so the checksum defends transport
-// corruption, not a compromised release (an attacker who can publish assets can publish a matching
-// SHA256SUMS).
-
 export type PrebuiltMode = "system" | "portable";
 
 export type PrebuiltFetchResult =
@@ -30,12 +21,7 @@ export interface PrebuiltDecision {
     reason: string;
 }
 
-/**
- * Pure decision table for prebuilt vs lazy: given the version, target, mode, cache state, and fetch
- * result, decide whether to use a prebuilt shell or fall back to cargo. Pure — no network, no
- * filesystem — so the fallback arms (not-found, checksum-mismatch, offline) are testable without
- * touching either. The caller gathers the facts (check cache, attempt fetch) and feeds them in.
- */
+/** Decides from caller-supplied cache and fetch results; performs no I/O. */
 export function resolvePrebuiltDecision(
     version: string | null,
     target: string,
@@ -43,9 +29,7 @@ export function resolvePrebuiltDecision(
     cacheHit: boolean,
     fetchResult: PrebuiltFetchResult | null,
 ): PrebuiltDecision {
-    // target and mode are part of the input space the table maps over, but the prebuilt-vs-lazy
-    // decision doesn't vary by them — a hit is a hit regardless of target/mode. They're kept in the
-    // signature so the table's contract is explicit and callers don't need a separate lookup.
+    // Cache and fetch results already account for target and mode.
     void target;
     void mode;
     if (version === null)
@@ -79,9 +63,7 @@ export function resolvePrebuiltDecision(
     }
 }
 
-// Archive contract (pinned in the spec's Approach): one shallot-native-<target>-<mode>.tar.gz per
-// matrix cell, plus a top-level SHA256SUMS asset covering all archives. URL derived from the version
-// tag — no new version site for check-versions.ts.
+// Each version tag publishes target/mode archives and a SHA256SUMS asset.
 const GITHUB_RELEASES = "https://github.com/dylanebert/shallot/releases/download";
 
 export function prebuiltArchiveName(target: string, mode: PrebuiltMode): string {
@@ -125,12 +107,8 @@ export function parseSha256Sums(sums: string, archiveName: string): string | nul
 /** Extract a .tar.gz archive into `destDir` (creates it if needed). Uses the system `tar`. */
 export function extractTarGz(archivePath: string, destDir: string): void {
     mkdirSync(destDir, { recursive: true });
-    // Containment guard (F4): reject archive entries that would land outside destDir — absolute
-    // paths or `..` traversal. This defends a *malformed archive our own CI could produce*, not a
-    // compromised release: under a compromised release the executed binary is the strictly greater
-    // threat, and the archive is SHA256-verified against a same-origin SHA256SUMS (see the comment
-    // at the comparison in tryPrebuilt) which blocks transport corruption but not a malicious
-    // publisher. We list entries and refuse the set before extracting.
+    // Check entry names before extraction to catch malformed archive paths.
+    // This is not a sandbox for an untrusted publisher; the archive contains executable code.
     const entries = execSync(`tar -tzf "${archivePath}"`, { encoding: "utf8" })
         .split("\n")
         .filter(Boolean);
@@ -167,8 +145,7 @@ async function downloadToBuffer(url: string): Promise<Buffer> {
     return Buffer.from(await resp.arrayBuffer());
 }
 
-// Source checkout: running from a git clone, not an npm install. The package dir has no node_modules
-// in its path, and there's likely no GitHub release for the dev version. Skip the fetch entirely.
+// Source checkouts may have no published release; only installed packages attempt a versioned fetch.
 function getPackageVersion(): string | null {
     if (!import.meta.dir.includes("node_modules")) return null;
     try {
@@ -233,9 +210,7 @@ export async function tryPrebuilt(
     const cacheDir = prebuiltCacheDir(version, target, mode);
     const binaryName = target.includes("windows") ? "shallot-native.exe" : "shallot-native";
     const binaryPath = resolve(cacheDir, binaryName);
-    // Sentinel written only after a fully successful extract, so a partial extraction (process
-    // killed mid-write, disk full) is never read as a cache hit — the hit path checks this, not
-    // just the binary's existence (F1).
+    // Binary existence alone does not prove extraction completed; require the completion marker.
     const completeMarker = resolve(cacheDir, ".complete");
 
     if (existsSync(completeMarker)) {
@@ -256,8 +231,7 @@ export async function tryPrebuilt(
         if (expectedHash === null) {
             fetchResult = "not-found";
         } else if (sha256Hex(archiveBuf) !== expectedHash) {
-            // SHA256SUMS ships from the same release as the archive, so this defends transport
-            // corruption, not a compromised release (see the section-header comment above).
+            // The same-release checksum detects corruption, not a compromised publisher.
             fetchResult = "checksum-mismatch";
         } else {
             try {
@@ -267,8 +241,7 @@ export async function tryPrebuilt(
                 try {
                     extractTarGz(tmpArchive, cacheDir);
                 } catch {
-                    // Partial extraction must not poison the cache (F1): a half-extracted dir
-                    // would read as a hit on the next run. Clean up so the miss is honest.
+                    // Do not reuse a partially extracted tree on a retry.
                     rmSync(cacheDir, { recursive: true, force: true });
                     throw new PrebuiltFetchError("extract-failed");
                 }
@@ -282,7 +255,7 @@ export async function tryPrebuilt(
                 }
             } catch (e) {
                 if (e instanceof PrebuiltFetchError) throw e;
-                // mkdir/writeFileSync failure: unwritable cache dir, not a network problem (F3).
+                // Classify local cache failures separately from network failures.
                 rmSync(cacheDir, { recursive: true, force: true });
                 throw new PrebuiltFetchError("cache-error");
             }

@@ -32,9 +32,7 @@ const MAC_HELPER_SUFFIXES = [
 
 // SwiftShader is Chromium's software-GL fallback. WebGPU runs on Vulkan/Metal/D3D12 directly, so a
 // real-GPU target doesn't need it — but the Chromium compositor may, so dropping it risks a black
-// window. Off by default until validated per platform; opt in with SHALLOT_DROP_SWIFTSHADER set. Read
-// per call, not once at module load, so a caller that sets the env var mid-process (a test, a script
-// driving multiple builds) is honored rather than frozen at whatever it was on import.
+// window. Opt in with SHALLOT_DROP_SWIFTSHADER set; read per call to honor environment changes.
 export function dropSwiftshader(): boolean {
     return process.env.SHALLOT_DROP_SWIFTSHADER != null;
 }
@@ -69,11 +67,7 @@ export function cargoTarget(target: string, release: boolean, targetDir = CRATE_
     );
 }
 
-// running under WSL — the Windows target then builds with the host's native MSVC toolchain through
-// PowerShell, not cargo-xwin (see cargoBuild). This describes the *consumer's* machine, not any seat
-// this repo is developed on: `shallot native` ships, and a user developing under the Windows Subsystem
-// for Linux who builds a Windows portable target reaches the host toolchain through exactly this
-// branch, so it stays.
+// Windows portable targets under WSL use the host's MSVC toolchain through PowerShell.
 const isWSL = process.env.WSL_INTEROP != null || existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
 
 // translate a WSL path to its Windows form (\\wsl.localhost\… UNC) so PowerShell can `cd` into it.
@@ -82,9 +76,8 @@ function winPath(p: string): string {
 }
 
 // the windows-portable build can't write to the crate's target/ over the 9p UNC share — rust's
-// incremental lock and the CEF cmake build fail there. It builds into this local Windows dir
-// (under LOCALAPPDATA) instead: fast, lock-friendly, cached across builds. Returns the Windows path
-// (for CARGO_TARGET_DIR) and its WSL /mnt view (for reading the artifacts back).
+// incremental lock and the CEF cmake build fail there.
+// Returns the local Windows target directory and its WSL view for reading artifacts.
 function winBuildDir(): { win: string; wsl: string } {
     const r = Bun.spawnSync(
         ["powershell.exe", "-NoProfile", "-Command", "[Console]::Write($env:LOCALAPPDATA)"],
@@ -131,8 +124,7 @@ export type CargoInvocation =
     | { kind: "native"; flags: string[] };
 
 /**
- * cargoBuild's portable/target/WSL decision table, pulled out pure: which cargo invocation a
- * (target, release, portable, isWSL) combination selects, and the flags it carries. `devshell` is
+ * Selects the cargo invocation and flags without I/O. `devshell` is
  * windows-portable under WSL (needs the host's native MSVC toolchain via PowerShell, see
  * devShellBuild); `xwin` is any other msvc target (cross-compiled with cargo-xwin); `native` is
  * everything else (`cargo build` in place).
@@ -172,6 +164,7 @@ function requireRustCrate(): void {
 // no appended overlay and never extracts itself at runtime. Debug serves from the sibling dist/ for
 // fast iteration. `portable` selects the CEF backend (self-contained Chromium) over the default
 // system webview; it drops the default `system` feature so the artifact never links wry. See build.rs.
+// The runtime path comes from this invocation's Cargo build-script message, not the target cache.
 function cargoBuild(
     target: string,
     release: boolean,
@@ -183,13 +176,9 @@ function cargoBuild(
     requireRustCrate();
     const invocation = resolveCargoInvocation(target, release, portable, isWSL);
 
-    // Windows portable (CEF) under WSL builds natively on the host via PowerShell — the same
-    // WSL→Windows bridge the bench uses. cargo-xwin's clang-cl can't build CEF's libcef_dll_wrapper
-    // (no ATL, and CEF's `/MP` trips clang-cl's `/WX`); real cl.exe handles both. The system build
-    // stays on cargo-xwin (below) — it needs no C++/VS toolchain, so it works out of the box. cargo
-    // runs in-place over the crate's UNC path (devShellBuild cd's there), so its target/ dir is the
-    // one bundling reads back. The powershell process is launched with a real Windows cwd (the C:\
-    // mount) so the dev-shell's internal cmd.exe doesn't choke on a UNC working directory.
+    // cargo-xwin's clang-cl can't build CEF's libcef_dll_wrapper
+    // (no ATL, and CEF's `/MP` trips clang-cl's `/WX`); real cl.exe handles both.
+    // The dev-shell's internal cmd.exe needs a local Windows cwd before switching to the crate's UNC path.
     if (invocation.kind === "devshell") {
         const winCwd = execSync("wslpath -u 'C:\\'", { encoding: "utf-8" }).trim();
         const r = Bun.spawnSync(
@@ -225,7 +214,6 @@ function cargoBuild(
         return cargoRuntimeDir(output, marker, translate);
     }
 
-    // cross-compile a Windows target from a non-WSL host (cargo-xwin), or build a native target.
     const cmd = invocation.kind === "xwin" ? "cargo xwin build" : "cargo build";
     const env = {
         ...process.env,
@@ -283,10 +271,7 @@ function projectDist(projectDir: string, dev: boolean): string {
     return distDir;
 }
 
-// The runtime path comes from this invocation's Cargo build-script message, not the target cache.
-
-// strip is the single biggest CEF size win — the Spotify builds ship libcef unstripped. Skips when the
-// tool is absent (a non-stripped build still works, just larger). Mac framework binaries pass "-x -S"
+// Strip failures warn and leave the build usable but larger. Mac framework binaries pass "-x -S"
 // to keep external symbols so the dylib still loads + can be re-signed.
 function tryStrip(file: string, args = ""): void {
     if (!existsSync(file)) return;
@@ -297,8 +282,7 @@ function tryStrip(file: string, args = ""): void {
     }
 }
 
-// ship only the active locale's pak (CefSettings.locale defaults to en-US); the other ~50 are dead
-// weight. Officially supported — the locales dir is optional beyond the active locale.
+// CefSettings.locale defaults to en-US; the locales dir is optional beyond the active locale.
 function copyLocale(srcLocales: string, destLocales: string): void {
     const en = resolve(srcLocales, "en-US.pak");
     if (!existsSync(en)) return;
@@ -318,13 +302,10 @@ export async function bundleNativeWindows(
 
     const distDir = projectDist(projectDir, dev);
 
-    // portable on WSL builds into a local Windows dir (off the 9p share); read its artifacts back
-    // through the /mnt view. Every other case uses the in-tree target/.
     console.log(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
     );
 
-    // The prebuilt returns its runtime directory as plain data; a miss captures Cargo's selected result.
     const customIco = resolve(projectDir, "public/icon.ico");
     let iconPath = existsSync(customIco) ? customIco : undefined;
     if (iconPath) {
@@ -470,8 +451,7 @@ export function macInfoPlist(opts: {
 // the regionless and region-qualified English spelling survive) alongside the required CEF resource
 // paks (chrome_100_percent.pak, chrome_200_percent.pak, resources.pak) that ship unconditionally —
 // so a `.pak` entry is never stale there. Resources/locales/ holds the flat per-locale `.pak` files,
-// where only `en-US.pak` survives. Pulled out of trimMacLocales' two directory walks so the delete
-// rule is testable without touching a filesystem.
+// where only `en-US.pak` survives.
 export function isStaleLocaleEntry(entry: string, scope: "bundle" | "locales"): boolean {
     if (entry.endsWith(".lproj")) return entry !== "en.lproj" && entry !== "en_US.lproj";
     if (scope === "locales" && entry.endsWith(".pak")) return entry !== "en-US.pak";
@@ -519,7 +499,6 @@ export async function bundleNativeMac(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
     );
 
-    // The prebuilt returns its runtime directory as plain data; a miss captures Cargo's selected result.
     const prebuilt = await tryPrebuilt(MAC_TARGET, release, portable);
     let bin: string;
     let cefDir = prebuilt?.cefDir;
@@ -696,7 +675,6 @@ export async function bundleNativeLinux(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
     );
 
-    // The prebuilt returns its runtime directory as plain data; a miss captures Cargo's selected result.
     const prebuilt = await tryPrebuilt(LINUX_TARGET, release, portable);
     let bin: string;
     let cefDir = prebuilt?.cefDir;
