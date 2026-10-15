@@ -112,7 +112,7 @@ const quatChunk = chunk("quatSnorm16x4Wgsl", [packQuatSnorm16x4, unpackQuatSnorm
 /** WGSL `packQuatSnorm16x4(q) -> vec2<u32>` + `unpackQuatSnorm16x4(p) -> vec4<f32>`: the quaternion
  *  storage codec for a field whose precision feeds a finite-difference downstream (a body quat read
  *  back as angular velocity, an iter-mutated-state case). Worst-case angular error
- *  ≤ ~0.01° per round-trip. Splice **after** {@link octEncodeWgsl} — the two share the snorm pack/unpack
+ *  < 0.06° per round-trip. Splice **after** {@link octEncodeWgsl} — the two share the snorm pack/unpack
  *  leaves, and that chunk defines them. */
 export function quatSnorm16x4Wgsl(): string {
     // resolve the oct half first, unconditionally: the shared snorm leaves land in whichever chunk
@@ -280,7 +280,7 @@ export const smallest3Wgsl = chunk("smallest3Wgsl", [packQuatSmallest3, unpackQu
 // encoder, against ~30 ns hand-written. That is the right price for a unit test and the wrong one for a
 // per-vertex mesh bake or a GPU table upload.
 //
-// So the two hot packers get a plain-JS mirror, over the same lattice primitives, and encode.test.ts
+// So the hot packers get a plain-JS mirror, over the same lattice primitives, and encode.test.ts
 // pins each against the TGSL function it mirrors across a sweep — bit-identical on the packed word.
 // That differential is the point: a hand-paired CPU/WGSL twin is held in step only by a comment, and
 // these are held in step by a gate.

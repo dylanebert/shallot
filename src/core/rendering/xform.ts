@@ -52,7 +52,7 @@ export const xformNormal = tgpu.fn(
 });
 
 /** rebuild the world matrix, for a reader that needs columns or a matmul (the billboard / glyph
- *  surfaces). Bit-identical to the prior compose's matrix, so column-extracted scale is unchanged. */
+ *  surfaces). Columns 0–2 are the rotated basis axes times `scale`, so column i has length `|scale[i]|`. */
 export const xformMat = tgpu.fn(
     [Xform],
     d.mat4x4f,
