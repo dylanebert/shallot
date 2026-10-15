@@ -10,8 +10,9 @@ import {
 } from "../../core/physics";
 import { World } from "../../engine";
 import { marshalShape, shapeHullGeometry } from "./marshal-shape";
-import { createTestBody, createTestWorld, destroyTestWorld } from "./testing";
+import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "./testing";
 import { getMassData, makeBodyId } from "./world/body";
+import { hashWorldState } from "./world/hash";
 
 test("two worlds marshal their own hull registered under the same name", () => {
     const worlds = [new World(), new World()];
@@ -49,6 +50,66 @@ test("two worlds marshal their own hull registered under the same name", () => {
         for (const solver of solvers) destroyTestWorld(solver);
         for (const world of worlds) world.dispose();
     }
+});
+
+// The unit cube spans ±0.5, so a box's Shape.scale is its full lengths: scaled by 2h it builds the
+// same hull, and steps to the same world hash, as a registered ±1 cube scaled by h, the box a ±1 unit
+// cube gave at half-extents h. fround(2h) is 2 * fround(h), so the two meet bit for bit.
+test("the unit cube at scale 2h builds the hull and world hash of a registered ±1 cube at scale h", () => {
+    const half = [0.3, 0.7, 1.1] as const;
+    const groundHalf = [10, 0.5, 10] as const;
+    const run = (unitCube: boolean) => {
+        const world = new World();
+        const state = createTestWorld({}, world);
+        try {
+            for (const component of PhysicsPlugin.components!)
+                world.registry.register(component, PhysicsPlugin.name);
+            const geometry = unitCube
+                ? UNIT_CUBE_ID
+                : world.resource(Hulls).register({
+                      name: "cube-2",
+                      points: world.resource(Hulls).get("__unit_cube__")!.points.map(Math.sign),
+                  });
+            const shape = (h: readonly number[], body: number) => {
+                const eid = world.create();
+                const k = unitCube ? 2 : 1;
+                world.add(eid, Shape, {
+                    kind: ShapeKind.Hull,
+                    geometry,
+                    scale: [k * h[0]!, k * h[1]!, k * h[2]!],
+                });
+                marshalShape(world, state, makeBodyId(state, body), eid);
+                return eid;
+            };
+            shape(groundHalf, createTestBody(state));
+            const box = shape(
+                half,
+                createTestBody(state, {
+                    type: BodyType.Dynamic,
+                    position: { x: 0, y: 2, z: 0 },
+                    rotation: { v: { x: 0.2, y: 0.1, z: 0 }, s: Math.sqrt(0.95) },
+                }),
+            );
+            const hull = shapeHullGeometry(world, box);
+            const hashes: bigint[] = [];
+            for (let i = 0; i < 60; i++) {
+                stepTestWorld(state, 1 / 60);
+                hashes.push(hashWorldState(state));
+            }
+            return { hull, hashes };
+        } finally {
+            destroyTestWorld(state);
+            world.dispose();
+        }
+    };
+    const [unit, registered] = [run(true), run(false)];
+    expect(unit.hull.aabb.upperBound).toEqual({
+        x: Math.fround(half[0]),
+        y: Math.fround(half[1]),
+        z: Math.fround(half[2]),
+    });
+    expect(unit.hull).toEqual(registered.hull);
+    expect(unit.hashes).toEqual(registered.hashes);
 });
 
 test("a hull's maxVertexCount bounds the vertices its built hull keeps, and its absence keeps every extreme point", () => {
