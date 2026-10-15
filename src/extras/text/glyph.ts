@@ -1,19 +1,10 @@
-// The glyph instance buffer's CPU↔GPU boundary: the `Glyph` layout the staging writer fills and the
-// surface's vs reads, plus the two pure decode helpers its fs calls. A sibling of the producer (index.ts)
-// rather than one of its exports — a WGSL chunk and a codegen schema are not author surface.
-
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { SDF_EXPONENT } from "./sdf";
 
-/**
- * one glyph instance: a glyph-local quad origin + the owning entity id, the atlas uv rect, the world-space
- * quad size, and a packed sRGBA color. Three vec4 reads — `pos` shares its 16-byte slot with `eid`
- * (matching the line segment's pos+width packing), so the trailing `pad` is what rounds the struct to
- * that stride. The CPU↔GPU layout of the glyph instance buffer, so the staging writer's indices and its
- * byte size both derive from here.
- */
+/** Shared CPU/GPU instance layout; staging stride and field offsets derive from this schema.
+ * Positions are glyph-local, size is world-space, and color is packed sRGBA. */
 export const Glyph = d.struct({
     pos: d.vec3f,
     eid: d.u32,
@@ -56,13 +47,11 @@ export const sdfToSignedDistance = tgpu.fn(
     "use gpu";
     const a = std.select(sdf, 1 - sdf, sdf > 0.5);
     const absDist = (1 - std.pow(2 * a, 1 / SDF_EXPONENT)) * maxDimension;
-    // f32-typed rails: a bare `1` / `-1` transpiles i32 and lands an implicit conversion in the emitted
-    // WGSL (the integer-literal law)
+    // Explicit f32 values avoid implicit integer conversions in emitted WGSL.
     return absDist * std.select(d.f32(1), d.f32(-1), sdf > 0.5);
 });
 
-/** the sRGB→linear transfer function (the exact piecewise form, not the γ-2.2 approximation): the packed
- *  glyph color is sRGB-encoded and the color target is linear, so it decodes before the blend. */
+/** Decodes packed sRGB glyph colors to linear RGB before blending. */
 export const textSrgbToLinear = tgpu.fn(
     [d.vec3f],
     d.vec3f,

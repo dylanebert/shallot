@@ -3,14 +3,6 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { World } from "../../engine";
 
-// The glyph SDF generator: two raster passes per glyph, both authored in TGSL over explicit bind group
-// layouts. The distance pass rasterizes one instanced fullscreen triangle per outline segment into a
-// shared `rgba8unorm` intermediate, additively accumulating an exponent-encoded distance falloff in
-// alpha (blend op `max`, so the nearest segment wins) and the even-odd winding crossings in r/g. The
-// finalize pass reads that intermediate, flips the falloff where the crossings disagree (inside), and
-// writes the single-channel result into one `sdfSize` tile of the caller's atlas — placed by the pass's
-// viewport + scissor rect, which is why the finalize draw goes through a pass this file owns.
-
 /** the SDF falloff exponent the atlas bakes and {@link sdfToSignedDistance} inverts. @internal */
 export const SDF_EXPONENT = 9;
 
@@ -168,8 +160,6 @@ const finalizeLayout = tgpu.bindGroupLayout({
     samp: { sampler: "non-filtering", visibility: ["fragment"] },
 });
 
-// a fullscreen triangle covering the viewport, uv 0..1 across the covered quad — the same three-vertex
-// form the mipmap blit uses (`core/rendering/image.ts`)
 const fullscreenUv = tgpu.fn(
     [d.u32],
     d.vec2f,
@@ -357,8 +347,7 @@ export class SDFGenerator {
     }
 
     begin(world: World): void {
-        // built here, drawn from `flush` microseconds later, so there is no force-compile forcer: a
-        // `precompile` thunk drains after warm, long after these draws already went out
+        // flush draws during warm, before deferred precompile thunks drain.
         this._pipelines = pipelines(world);
         this.ensureIntermediateTexture();
         this._pending = [];
@@ -400,7 +389,6 @@ export class SDFGenerator {
             const [xMin, yMin, xMax, yMax] = entry.bounds;
             const maxDist = Math.max(xMax - xMin, yMax - yMin) / 2;
 
-            // the uniform writes through the schema, so no lane index is hand-counted
             const uniformBuffer = root
                 .createBuffer(SdfUniforms, {
                     glyphBounds: d.vec4f(xMin, yMin, xMax, yMax),
@@ -412,8 +400,7 @@ export class SDFGenerator {
                 .$name("text-sdf-uniforms");
             tempBuffers.push(uniformBuffer);
 
-            // the ArrayBuffer write path, never the schema-array form (the serializer is ~480×
-            // `Float32Array.set`) — CPU truth stays a typed array
+            // Write the ArrayBuffer to bypass schema-array serialization.
             const segmentData = new Float32Array(segments.length * 4);
             for (let i = 0; i < segments.length; i++) {
                 const seg = segments[i];
@@ -474,9 +461,7 @@ export class SDFGenerator {
                 timestampWrites: world.gpu.span?.("text:sdf-finalize"),
             });
 
-            // the viewport + scissor are what place this glyph in its atlas tile, and a pipeline
-            // exposes neither — `.with(pass)` records into the pass this file already owns, so they stay
-            // raw calls on it, set before the draw
+            // Atlas placement needs viewport and scissor, which the pipeline API does not expose.
             finalizePass.setViewport(
                 entry.outputX,
                 entry.outputY,

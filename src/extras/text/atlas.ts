@@ -27,9 +27,7 @@ export interface GlyphAtlas {
     sdfGenerator: SDFGenerator;
 }
 
-/** tear down every atlas's GPU-owned state: the glyph texture and the SDF generator's own
- *  {@link SDFGenerator.destroy} (its `_intermediateTexture`) — both, or a rebuilt atlas leaks the
- *  generator's texture on every teardown. @internal */
+/** Releases both the atlas texture and its generator's intermediate texture. @internal */
 export function disposeAtlases(atlases: readonly (GlyphAtlas | null | undefined)[]): void {
     for (const atlas of atlases) {
         atlas?.sdfGenerator.destroy();
@@ -75,10 +73,8 @@ interface PendingGlyphEntry {
     atlasY: number;
 }
 
-/** the shelf packer: place `char`'s glyph on the atlas's current row (wrapping to a new row, or throwing
- *  once the atlas is full), record its {@link GlyphMetrics} (UV rect + font-unit-normalized box) into
- *  `atlas.glyphs`, and return the SDF-render request for the caller to batch. `null` when the font has no
- *  outline for `char` (e.g. space). */
+/** Records UVs and em-normalized metrics in atlas.glyphs; returns a request for batched rendering.
+ * Returns null without an outline or bounds; throws when the atlas is full. */
 function computeGlyphMetrics(atlas: GlyphAtlas, char: string): PendingGlyphEntry | null {
     const path = atlas.font.glyphPath(char);
     const bounds = atlas.font.glyphBounds(char);

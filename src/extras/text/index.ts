@@ -1,11 +1,5 @@
 import { component } from "../../engine";
-// Text — the shallot SDF-text producer. A retained `Text` component (string content, font, size,
-// anchor, color) lays each label out into instanced glyph quads, drawn in core's transparent phase (one
-// draw per label). The glyph buffer holds glyph-local positions + the owning entity id; the VS resolves
-// the entity's dense row through `globalTransformRows` each frame, so placement flows through
-// GlobalTransform and triggers no glyph rebuild.
-// The SDF atlas / font / layout substance remains renderer-agnostic. Single-channel SDF (Valve "Improved
-// Alpha-Tested Magnification").
+// Placement changes do not rebuild glyph geometry; the vertex shader resolves GlobalTransform rows.
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
@@ -109,7 +103,6 @@ const QUAD_VERTS = new Float32Array([
 const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
 const TEXT_TRANSFORM_QUERY = [Text, GlobalTransform];
 
-// initial glyph capacity; the CPU staging + GPU buffer double on demand (long paragraphs push thousands)
 const INITIAL = 1 << 12;
 
 interface LabelGlyph {
@@ -239,9 +232,7 @@ function grow(world: World, min: number): void {
     _textState.cap = cap;
 }
 
-// lay every visible label out into per-font glyph lists, pack them into the shared staging in font-id
-// order (each label's draw indexes its contiguous range via firstInstance), then grow + upload the GPU
-// buffer. Runs only on a signature change
+// Keep each label's glyphs contiguous for firstInstance addressing.
 function rebuild(world: World, device: GPUDevice): void {
     const _textState = world.resource(textStateKey);
     _textState.labelDraws.length = 0;
@@ -340,8 +331,7 @@ function rebuild(world: World, device: GPUDevice): void {
         );
 }
 
-// runs before standard reads the glyph buffer (the VS positions glyphs from it), so it pins before:
-// [PrepassSystem] like any geometry producer. Skips the rebuild when the signature is unchanged
+// Publish glyph geometry before the prepass can read it.
 const TextSystem: System = {
     name: "text",
     group: "draw",
