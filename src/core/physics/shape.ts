@@ -29,7 +29,8 @@ export const Shape = component(
         capsuleCenter2: vec3,
         /** Sphere or capsule radius in meters. */
         radius: f32,
-        /** Hull or mesh scale; default `[1, 1, 1]`. A box is the unit cube at its full lengths. */
+        /** Hull or mesh scale, multiplied per axis by the body's Transform.scale; default `[1, 1, 1]`.
+         * A box is the unit cube at its full lengths. */
         scale: vec3,
         /** Shape density in kg/m³; changes apply at the next fixed sync. */
         density: f32,

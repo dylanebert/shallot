@@ -1,4 +1,5 @@
 import { ShapeKind, ShapeMaterials } from "../../core/physics";
+import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
 import type { ShapeBinding } from "./authoring";
 import type { EntityId } from "./common/ids";
@@ -6,10 +7,11 @@ import type { Filter, SurfaceMaterial } from "./common/types";
 import { meshBuild } from "./geometry-builds";
 import { geometryIdentity, hullDatabaseIndex } from "./kernel/geocolumns";
 import { kernel } from "./kernel/kernel";
-import { ShapeFlags, setShapeFlag, shapeFlag } from "./kernel/shaperecords";
+import { ShapeField, ShapeFlags, setShapeFlag, shapeField, shapeFlag } from "./kernel/shaperecords";
 import {
     authoredShapeFilter,
     authoredShapeMaterial,
+    shapeBodyScale,
     shapeGeometry,
     shapeHullGeometry,
 } from "./marshal-shape";
@@ -36,6 +38,7 @@ import {
     setShapeSphere,
     setShapeSurfaceMaterial,
 } from "./shapes/shape";
+import { updateBodyMassData } from "./world/body";
 import type { WorldState } from "./world/world";
 
 function scalar(binding: ShapeBinding, eid: number, field: string): number {
@@ -71,13 +74,31 @@ const RECREATION_FIELD_INDEX: Map<string, number> = new Map(
 
 /** Captures only authored fields that require shape recreation and lack a live getter. */
 export function captureShapeRecreationState(
+    world: World,
     binding: ShapeBinding,
     eid: number,
-    values: Float64Array<ArrayBufferLike> = new Float64Array(RECREATION_FIELDS.length),
+    values: Float64Array<ArrayBufferLike> = new Float64Array(RECREATION_FIELDS.length + 3),
 ): Float64Array<ArrayBufferLike> {
     for (let i = 0; i < RECREATION_FIELDS.length; i++)
         values[i] = scalar(binding, eid, RECREATION_FIELDS[i]);
+    const s = shapeBodyScale(world, eid);
+    values[RECREATION_FIELDS.length] = s.x;
+    values[RECREATION_FIELDS.length + 1] = s.y;
+    values[RECREATION_FIELDS.length + 2] = s.z;
     return values;
+}
+
+export function shapeBodyScaleChanged(
+    world: World,
+    body: number,
+    previous: Float64Array | undefined,
+): boolean {
+    if (!previous) return true;
+    const scale = world.storage(Transform).scale.column;
+    const offset = body * 4;
+    for (let i = 0; i < 3; i++)
+        if (!Object.is(scale[offset + i], previous[RECREATION_FIELDS.length + i])) return true;
+    return false;
 }
 
 function fieldDiffersFromSnapshot(
@@ -152,12 +173,14 @@ function materialSet(
 }
 
 function expectedMeshScale(
+    world: World,
     binding: ShapeBinding,
     eid: number,
 ): { x: number; y: number; z: number } {
     const scale = vector(binding, eid, "scale");
     const safe = (value: number) => (value >= 0 ? 1 : -1) * Math.max(Math.abs(value), 0.01);
-    return { x: safe(scale[0]), y: safe(scale[1]), z: safe(scale[2]) };
+    const s = shapeBodyScale(world, eid);
+    return { x: safe(scale[0] * s.x), y: safe(scale[1] * s.y), z: safe(scale[2] * s.z) };
 }
 
 /** Whether a marked definition field lacks a Box3D setter or needs a shape with different creation semantics. */
@@ -169,10 +192,13 @@ export function shapeNeedsRecreation(
     previous: Float64Array | undefined,
     shape: EntityId,
     state: WorldState,
+    bodyScaleChanged = false,
 ): boolean {
     const record = shape.index1 - 1;
     const kind = scalar(binding, eid, "kind");
     if (kind !== getShapeType(state, record)) return true;
+    if (bodyScaleChanged && (kind === ShapeKind.HeightField || kind === ShapeKind.Compound))
+        return true;
     if (
         changed(binding, mask, "explosionScale") &&
         fieldDiffersFromSnapshot(binding, eid, "explosionScale", previous)
@@ -222,8 +248,10 @@ export function syncShapeFields(
     eid: number,
     mask: number,
     id: EntityId,
+    bodyScaleChanged = false,
 ): void {
     const shape = id.index1 - 1;
+    let geometryChanged = false;
     const kind = scalar(binding, eid, "kind");
     const materialSetChanged = changed(binding, mask, "materialSet");
     const hasMeshMaterials = kind === ShapeKind.Mesh || kind === ShapeKind.HeightField;
@@ -287,7 +315,9 @@ export function syncShapeFields(
 
     if (
         kind === ShapeKind.Sphere &&
-        (changed(binding, mask, "sphereCenter") || changed(binding, mask, "radius"))
+        (bodyScaleChanged ||
+            changed(binding, mask, "sphereCenter") ||
+            changed(binding, mask, "radius"))
     ) {
         const sphere = shapeGeometry(world, eid).sphere;
         const current = readShapeSphere(state, shape);
@@ -296,12 +326,15 @@ export function syncShapeFields(
             Math.fround(sphere.center.y) !== current.center.y ||
             Math.fround(sphere.center.z) !== current.center.z ||
             Math.fround(sphere.radius) !== current.radius
-        )
+        ) {
             setShapeSphere(state, shape, sphere);
+            geometryChanged = true;
+        }
     }
     if (
         kind === ShapeKind.Capsule &&
-        (changed(binding, mask, "capsuleCenter1") ||
+        (bodyScaleChanged ||
+            changed(binding, mask, "capsuleCenter1") ||
             changed(binding, mask, "capsuleCenter2") ||
             changed(binding, mask, "radius"))
     ) {
@@ -315,12 +348,14 @@ export function syncShapeFields(
             Math.fround(capsule.center2.y) !== current.center2.y ||
             Math.fround(capsule.center2.z) !== current.center2.z ||
             Math.fround(capsule.radius) !== current.radius
-        )
+        ) {
             setShapeCapsule(state, shape, capsule);
+            geometryChanged = true;
+        }
     }
     if (
         kind === ShapeKind.Hull &&
-        (changed(binding, mask, "geometry") || changed(binding, mask, "scale"))
+        (bodyScaleChanged || changed(binding, mask, "geometry") || changed(binding, mask, "scale"))
     ) {
         const hull = shapeHullGeometry(world, eid);
         let nextReference: number | undefined;
@@ -332,17 +367,19 @@ export function syncShapeFields(
         if (
             nextReference === undefined ||
             getShapeGeometryReference(state, shape) !== nextReference
-        )
+        ) {
             setShapeHull(state, shape, hull);
+            geometryChanged = true;
+        }
     }
     if (
         kind === ShapeKind.Mesh &&
-        (changed(binding, mask, "geometry") || changed(binding, mask, "scale"))
+        (bodyScaleChanged || changed(binding, mask, "geometry") || changed(binding, mask, "scale"))
     ) {
         const id = scalar(binding, eid, "geometry");
         const mesh = meshBuild(world, id);
         if (!mesh) throw new Error(`physics: Shape ${eid} names missing mesh ${id}`);
-        const expectedScale = expectedMeshScale(binding, eid);
+        const expectedScale = expectedMeshScale(world, binding, eid);
         const currentScale = getShapeGeometryScale(state, shape);
         const identity = geometryIdentity(mesh);
         const reference = kernel(world).geometryDatabaseLookup(state.worldId, 4, identity) >>> 0;
@@ -352,9 +389,13 @@ export function syncShapeFields(
             expectedScale.x !== currentScale.x ||
             expectedScale.y !== currentScale.y ||
             expectedScale.z !== currentScale.z
-        )
+        ) {
             setShapeMesh(state, shape, mesh, expectedScale);
+            geometryChanged = true;
+        }
     }
+    if (geometryChanged && scalar(binding, eid, "updateBodyMass") !== 0)
+        updateBodyMassData(state, shapeField(state, shape, ShapeField.bodyId));
     if (materialSetChanged && hasMeshMaterials) {
         const materials = liveMaterials;
         const current = getShapeMaterials(state, shape);

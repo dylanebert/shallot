@@ -71,7 +71,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Gameplay and physics read its fixed-tick columns; rendering owns `globalTransformTable(world)` in `core/rendering`, its GPU history and interpolation. Placement without rendering allocates no placement GPU buffers or pipelines.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
 - A body's `Transform` holds its pose, which physics writes back each step.
-- A body's pose and linear velocity reach `GlobalTransform` through physics, not Transform pose derivation; scale still derives from `Transform`.
+- A body's pose and linear velocity reach `GlobalTransform` through physics, not Transform pose derivation; scale still derives from `Transform` and scales the body's shapes and rendered mesh alike.
 - Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
 - Hierarchy belongs to the domain deriving placement. A general attachment relation enters core only when two examples need the same one.
 

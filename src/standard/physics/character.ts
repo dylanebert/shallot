@@ -103,6 +103,20 @@ function moveCharacter(world: World, eid: number): void {
         body.type.column[eid] !== BodyType.Kinematic
     )
         throw new Error(`Character entity ${eid} requires a kinematic capsule Body`);
+    const scale = world.storage(Transform).scale.column;
+    const scaleOffset = (shape.body.get(eid) || eid) * 4;
+    const sx = scale[scaleOffset],
+        sy = scale[scaleOffset + 1],
+        sz = scale[scaleOffset + 2];
+    if (
+        !Number.isFinite(sx) ||
+        !Number.isFinite(sy) ||
+        !Number.isFinite(sz) ||
+        sx === 0 ||
+        Math.abs(sx) !== Math.abs(sy) ||
+        Math.abs(sx) !== Math.abs(sz)
+    )
+        return;
     applyTransformPose(world, eid);
     const character = world.storage(Character);
     const s = world.resource(characterScratch);
@@ -135,10 +149,10 @@ function moveCharacter(world: World, eid: number): void {
     for (let i = 0; i < 3; ++i) {
         input[3 + i] = velocity[offset + i];
         input[6 + i] = up[offset + i];
-        input[9 + i] = a[offset + i];
-        input[12 + i] = b[offset + i];
+        input[9 + i] = a[offset + i] * scale[scaleOffset + i];
+        input[12 + i] = b[offset + i] * scale[scaleOffset + i];
     }
-    input[15] = shape.radius.column[eid];
+    input[15] = shape.radius.column[eid] * Math.abs(sx);
     input[16] = Time.FIXED_DT;
     input[17] = character.pogoVelocity.column[eid];
     input[18] = character.pogoRest.column[eid];

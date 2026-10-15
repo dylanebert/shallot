@@ -1,6 +1,6 @@
 // Built geometry for a World's geometry registries, keyed weakly by the definition each was built
-// from. Every Shape naming a definition shares one build and one geometry-database entry; a
-// definition replaced by name is a new key, and a deleted one the game no longer holds is collected
+// from. Shapes naming a definition at the same body scale share one build and geometry-database
+// entry; a definition replaced by name is a new key, and a deleted one the game no longer holds is collected
 // with its build. A compound's build also records its children's builds, and is rebuilt once one
 // of them is no longer current.
 
@@ -27,25 +27,44 @@ import { createMesh, type MeshData } from "./shapes/mesh";
 interface Geometry<Def extends { name: string }, Built extends object> {
     registry: Resource<Registry<Def>>;
     builds: Resource<WeakMap<Def, Built>>;
-    build(world: World, def: Def): Built;
+    scaled: Resource<WeakMap<Def, Map<string, Built>>>;
+    build(world: World, def: Def, sx?: number, sy?: number, sz?: number): Built;
     /** Whether a cached build still reflects the registries it was built from; default always. */
-    current?(world: World, def: Def, built: Built): boolean;
+    current?(world: World, def: Def, built: Built, sx?: number, sy?: number, sz?: number): boolean;
 }
 
 function lookup<Def extends { name: string }, Built extends object>(
     world: World,
     geometry: Geometry<Def, Built>,
     id: number,
+    sx = 1,
+    sy = 1,
+    sz = 1,
 ): Built | undefined {
     const registry = world.resource(geometry.registry);
     const name = registry.name(id);
     const def = name === undefined ? undefined : registry.get(name);
     if (!def) return undefined;
-    const builds = world.resource(geometry.builds);
-    let built = builds.get(def);
-    if (!built || geometry.current?.(world, def, built) === false) {
-        built = geometry.build(world, def);
-        builds.set(def, built);
+    if (sx === 1 && sy === 1 && sz === 1) {
+        const builds = world.resource(geometry.builds);
+        let built = builds.get(def);
+        if (!built || geometry.current?.(world, def, built) === false) {
+            built = geometry.build(world, def);
+            builds.set(def, built);
+        }
+        return built;
+    }
+    const scaled = world.resource(geometry.scaled);
+    let builds = scaled.get(def);
+    if (!builds) {
+        builds = new Map();
+        scaled.set(def, builds);
+    }
+    const key = `${sx},${sy},${sz}`;
+    let built = builds.get(key);
+    if (!built || geometry.current?.(world, def, built, sx, sy, sz) === false) {
+        built = geometry.build(world, def, sx, sy, sz);
+        builds.set(key, built);
     }
     return built;
 }
@@ -53,13 +72,16 @@ function lookup<Def extends { name: string }, Built extends object>(
 function capture<Def extends { name: string }, Built extends object>(
     world: World,
     geometry: Geometry<Def, Built>,
-): [number, Built][] {
+): [number, Built, string?][] {
     const registry = world.resource(geometry.registry);
     const builds = world.resource(geometry.builds);
-    const captured: [number, Built][] = [];
+    const captured: [number, Built, string?][] = [];
     for (const def of registry) {
         const built = builds.get(def);
         if (built) captured.push([registry.id(def.name)!, built]);
+        const scaled = world.resource(geometry.scaled).get(def);
+        if (scaled)
+            for (const [key, built] of scaled) captured.push([registry.id(def.name)!, built, key]);
     }
     return captured;
 }
@@ -67,14 +89,24 @@ function capture<Def extends { name: string }, Built extends object>(
 function restore<Def extends { name: string }, Built extends object>(
     world: World,
     geometry: Geometry<Def, Built>,
-    captured: [number, Built][],
+    captured: [number, Built, string?][],
 ): void {
     const registry = world.resource(geometry.registry);
     const builds = world.resource(geometry.builds);
-    for (const [id, built] of captured) {
+    for (const [id, built, key] of captured) {
         const name = registry.name(id);
         const def = name === undefined ? undefined : registry.get(name);
-        if (def) builds.set(def, built);
+        if (!def) continue;
+        if (key === undefined) builds.set(def, built);
+        else {
+            const scaled = world.resource(geometry.scaled);
+            let entries = scaled.get(def);
+            if (!entries) {
+                entries = new Map();
+                scaled.set(def, entries);
+            }
+            entries.set(key, built);
+        }
     }
 }
 
@@ -125,6 +157,7 @@ function buildMesh(world: World, def: PhysicsMesh): MeshData {
 const meshes: Geometry<PhysicsMesh, MeshData> = {
     registry: PhysicsMeshes,
     builds: { create: () => new WeakMap() },
+    scaled: { create: () => new WeakMap() },
     build: buildMesh,
 };
 
@@ -133,7 +166,7 @@ export function meshBuild(world: World, id: number): MeshData | undefined {
     return lookup(world, meshes, id);
 }
 
-function buildHeightField(world: World, def: HeightField): HeightFieldData {
+function buildHeightField(world: World, def: HeightField, sx = 1, sy = 1, sz = 1): HeightFieldData {
     const { heights, materialIndices, scale, countX, countZ } = def;
     const label = `physics: height field "${def.name}"`;
     if (!Number.isInteger(countX) || !Number.isInteger(countZ) || countX < 2 || countZ < 2)
@@ -155,7 +188,7 @@ function buildHeightField(world: World, def: HeightField): HeightFieldData {
         {
             heights,
             materialIndices: materialIndices ?? null,
-            scale: { x: scale[0], y: scale[1], z: scale[2] },
+            scale: { x: scale[0] * sx, y: scale[1] * sy, z: scale[2] * sz },
             countX,
             countZ,
             globalMinimumHeight: def.globalMinimumHeight,
@@ -169,12 +202,19 @@ function buildHeightField(world: World, def: HeightField): HeightFieldData {
 const heightFields: Geometry<HeightField, HeightFieldData> = {
     registry: HeightFields,
     builds: { create: () => new WeakMap() },
+    scaled: { create: () => new WeakMap() },
     build: buildHeightField,
 };
 
 /** The built height field for a HeightFields id, or undefined when none is registered; throws for a definition a solver refuses. */
-export function heightFieldBuild(world: World, id: number): HeightFieldData | undefined {
-    return lookup(world, heightFields, id);
+export function heightFieldBuild(
+    world: World,
+    id: number,
+    sx = 1,
+    sy = 1,
+    sz = 1,
+): HeightFieldData | undefined {
+    return lookup(world, heightFields, id, sx, sy, sz);
 }
 
 /** Builds a hull from its points scaled per axis; throws for a definition a solver refuses. */
@@ -192,11 +232,12 @@ export function buildHull(world: World, def: Hull, sx = 1, sy = 1, sz = 1): Hull
     return built;
 }
 
-// Compound children's hulls, at their registered size. A Shape of kind Hull builds its own, scaled.
+// Compound children share hull builds at each body scale. A Shape of kind Hull builds its own.
 const hulls: Geometry<Hull, HullData> = {
     registry: Hulls,
     builds: { create: () => new WeakMap() },
-    build: (world, def) => buildHull(world, def),
+    scaled: { create: () => new WeakMap() },
+    build: buildHull,
 };
 
 interface CompoundBuild {
@@ -208,21 +249,32 @@ interface CompoundBuild {
 
 type Placement = NonNullable<Compound["hulls"]>[number]["transform"];
 
-function placement({ position, rotation }: Placement): Transform {
+function placement({ position, rotation }: Placement, sx = 1, sy = 1, sz = 1): Transform {
     return {
-        p: { x: position[0], y: position[1], z: position[2] },
+        p: { x: position[0] * sx, y: position[1] * sy, z: position[2] * sz },
         q: { v: { x: rotation[0], y: rotation[1], z: rotation[2] }, s: rotation[3] },
     };
 }
 
-const vec3 = ([x, y, z]: [number, number, number]) => ({ x, y, z });
+const vec3 = ([x, y, z]: [number, number, number], sx = 1, sy = 1, sz = 1) => ({
+    x: x * sx,
+    y: y * sy,
+    z: z * sz,
+});
 
-function buildCompound(world: World, def: Compound): CompoundBuild {
+function buildCompound(world: World, def: Compound, sx = 1, sy = 1, sz = 1): CompoundBuild {
     const label = `physics: compound "${def.name}"`;
+    if (
+        (def.spheres?.length || def.capsules?.length) &&
+        (Math.abs(sx) !== Math.abs(sy) || Math.abs(sx) !== Math.abs(sz))
+    )
+        throw new Error(
+            `${label} sphere or capsule child requires uniform body Transform.scale magnitudes`,
+        );
     const hullChildren = def.hulls ?? [];
     const meshChildren = def.meshes ?? [];
     const hullBuilds = hullChildren.map((child, i) => {
-        const built = lookup(world, hulls, child.hull);
+        const built = lookup(world, hulls, child.hull, sx, sy, sz);
         if (!built) throw new Error(`${label} hull ${i} names missing hull ${child.hull}`);
         return built;
     });
@@ -239,29 +291,29 @@ function buildCompound(world: World, def: Compound): CompoundBuild {
     const data = createCompound({
         capsules: def.capsules?.map((child) => ({
             capsule: {
-                center1: vec3(child.center1),
-                center2: vec3(child.center2),
-                radius: child.radius,
+                center1: vec3(child.center1, sx, sy, sz),
+                center2: vec3(child.center2, sx, sy, sz),
+                radius: child.radius * Math.abs(sx),
             },
             material: child.material ?? defaultSurfaceMaterial(),
         })),
         hulls: hullChildren.map((child, i) => ({
             hull: hullBuilds[i],
-            transform: placement(child.transform),
+            transform: placement(child.transform, sx, sy, sz),
             material: child.material ?? defaultSurfaceMaterial(),
         })),
         meshes: meshChildren.map((child, i) => {
             const materials = child.materials ?? [defaultSurfaceMaterial()];
             return {
                 meshData: meshBuilds[i],
-                transform: placement(child.transform),
-                scale: vec3(child.scale),
+                transform: placement(child.transform, sx, sy, sz),
+                scale: vec3(child.scale, sx, sy, sz),
                 materials,
                 materialCount: materials.length,
             };
         }),
         spheres: def.spheres?.map((child) => ({
-            sphere: { center: vec3(child.center), radius: child.radius },
+            sphere: { center: vec3(child.center, sx, sy, sz), radius: child.radius * Math.abs(sx) },
             material: child.material ?? defaultSurfaceMaterial(),
         })),
     });
@@ -272,10 +324,11 @@ function buildCompound(world: World, def: Compound): CompoundBuild {
 const compounds: Geometry<Compound, CompoundBuild> = {
     registry: Compounds,
     builds: { create: () => new WeakMap() },
+    scaled: { create: () => new WeakMap() },
     build: buildCompound,
-    current: (world, def, built) =>
+    current: (world, def, built, sx = 1, sy = 1, sz = 1) =>
         (def.hulls ?? []).every(
-            (child, i) => lookup(world, hulls, child.hull) === built.hulls[i],
+            (child, i) => lookup(world, hulls, child.hull, sx, sy, sz) === built.hulls[i],
         ) &&
         (def.meshes ?? []).every(
             (child, i) => lookup(world, meshes, child.mesh) === built.meshes[i],
@@ -283,16 +336,22 @@ const compounds: Geometry<Compound, CompoundBuild> = {
 };
 
 /** The built compound for a Compounds id, or undefined when none is registered; throws for a definition a solver refuses. */
-export function compoundBuild(world: World, id: number): CompoundData | undefined {
-    return lookup(world, compounds, id)?.data;
+export function compoundBuild(
+    world: World,
+    id: number,
+    sx = 1,
+    sy = 1,
+    sz = 1,
+): CompoundData | undefined {
+    return lookup(world, compounds, id, sx, sy, sz)?.data;
 }
 
 /** Builds of the registered definitions by registry id, by reference; builds are immutable. */
 export interface GeometryBuilds {
-    hulls: [number, HullData][];
-    meshes: [number, MeshData][];
-    heightFields: [number, HeightFieldData][];
-    compounds: [number, CompoundBuild][];
+    hulls: [number, HullData, string?][];
+    meshes: [number, MeshData, string?][];
+    heightFields: [number, HeightFieldData, string?][];
+    compounds: [number, CompoundBuild, string?][];
 }
 
 export function captureGeometryBuilds(world: World): GeometryBuilds {

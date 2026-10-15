@@ -6,11 +6,13 @@ import { Registry, type Resource } from "../../engine";
 
 /**
  * A height field's input: a grid of `countX` by `countZ` points in the shape's xz plane, one unit
- * apart before `scale`, starting at the shape origin. A solver builds it once per World, quantizing
+ * apart before `scale`, starting at the shape origin. A solver shares a build per definition and body
+ * Transform.scale in each World, quantizing
  * each height to 16 bits between the global bounds. It refuses a count below 2, a `heights` length
  * other than `countX * countZ`, a `materialIndices` length other than the cell count, a
  * non-positive `scale`, and `globalMinimumHeight` above `globalMaximumHeight`. `Shape.scale` does
- * not apply. Replace a height field by registering its name again rather than mutating a
+ * not apply; the body's Transform.scale multiplies the definition scale and must be positive and
+ * finite. Body-scale changes recreate the shape at the next fixed sync. Replace a height field by registering its name again rather than mutating a
  * registered one.
  */
 export interface HeightField {

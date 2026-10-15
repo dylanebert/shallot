@@ -5,7 +5,6 @@ import {
     Character,
     CharacterPlugin,
     component,
-    cube,
     Devices,
     DirectionalLight,
     GlobalAmbientLight,
@@ -13,7 +12,6 @@ import {
     LocalPlayer,
     lookAtRotation,
     Materials,
-    Meshes,
     MeshInstance,
     MeshMaterial,
     MeshPlugin,
@@ -49,14 +47,10 @@ function block(
     type: BodyType = BodyType.Static,
 ): number {
     const eid = world.create();
-    world.add(eid, Transform, { translation: at });
+    world.add(eid, Transform, { translation: at, scale: size });
     world.add(eid, Body, { type });
-    world.add(eid, Shape, { scale: size });
-    const mesh = world.resource(Meshes).add({
-        name: `block-${eid}`,
-        ...cube(size),
-    });
-    world.add(eid, MeshInstance, { mesh });
+    world.add(eid, Shape);
+    world.add(eid, MeshInstance);
     const material = world.resource(Materials).add(StandardMaterial({ baseColor: rgba }));
     world.add(eid, MeshMaterial, material);
     return eid;

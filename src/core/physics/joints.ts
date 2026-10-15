@@ -5,10 +5,11 @@ const base = {
     /** Body entity references, resolved by the simulation. */
     a: entity,
     b: entity,
-    /** Frame origins relative to body origins, not centers of mass; xyz in meters. */
+    /** Frame origins relative to body origins, not centers of mass; xyz in unscaled body-frame meters.
+     * Body Transform.scale does not scale joint anchors or local frames. */
     localAnchorA: vec3,
     localAnchorB: vec3,
-    /** Local frame orientations as normalized (x, y, z, w) quaternions. */
+    /** Unscaled local frame orientations as normalized (x, y, z, w) quaternions. */
     localRotationA: vec4,
     localRotationB: vec4,
     /** Force and torque thresholds for joint events, in N and N·m. */

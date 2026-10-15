@@ -12,10 +12,13 @@ type Placement = { position: Vec3; rotation: [number, number, number, number] };
 
 /**
  * A compound's input: child shapes in compound-local meters, baked into one shape with one
- * broad-phase proxy. A solver builds it once per World, and again for the next Shape once a child's
+ * broad-phase proxy. A solver shares a build per definition and body Transform.scale in each World,
+ * and builds again for the next Shape once a child's
  * hull or mesh is registered again by name. Children carry their own materials, Box3D's default
  * surface material (friction 0.6) when omitted; the Shape's material columns and `scale` do not
- * apply. A solver refuses a child naming a missing hull or mesh, a hull or mesh it refuses on its
+ * apply. Body Transform.scale multiplies child positions and each child's geometry in its own frame,
+ * retaining child rotations. Body-scale changes recreate the shape at the next fixed sync; sphere
+ * and capsule children require uniform component magnitudes. A solver refuses a child naming a missing hull or mesh, a hull or mesh it refuses on its
  * own, and a mesh child whose `materials` count differs from its mesh's or exceeds 4. Replace a
  * compound by registering its name again rather than mutating a registered one.
  */

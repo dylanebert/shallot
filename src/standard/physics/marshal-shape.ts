@@ -1,4 +1,5 @@
 import { Hulls, Shape as ShapeComponent, ShapeKind, ShapeMaterials } from "../../core/physics";
+import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
 import { makeShapeId } from "./api/config";
 import type { EntityId } from "./common/ids";
@@ -81,6 +82,30 @@ function definition(world: World, eid: number): ShapeDef {
     };
 }
 
+/** Body-frame geometry uses the named body's authored scale, never a separate shape entity's placement. */
+export function shapeBodyScale(world: World, eid: number) {
+    const shape = world.storage(ShapeComponent);
+    const body = shape.body.get(eid) || eid;
+    if (!body) throw new Error(`physics: Shape ${eid} has no body for Transform.scale`);
+    const scale = world.storage(Transform).scale;
+    const x = scale.x.get(body),
+        y = scale.y.get(body),
+        z = scale.z.get(body);
+    const kind = shape.kind.get(eid);
+    if (![x, y, z].every((v) => Number.isFinite(v) && v !== 0))
+        throw new Error(`physics: Shape ${eid} refuses zero or non-finite body Transform.scale`);
+    if (kind === ShapeKind.HeightField && (x <= 0 || y <= 0 || z <= 0))
+        throw new Error(`physics: HeightField Shape ${eid} requires positive body Transform.scale`);
+    if (
+        (kind === ShapeKind.Sphere || kind === ShapeKind.Capsule) &&
+        (Math.abs(x) !== Math.abs(y) || Math.abs(x) !== Math.abs(z))
+    )
+        throw new Error(
+            `physics: ${kind === ShapeKind.Sphere ? "Sphere" : "Capsule"} Shape ${eid} requires uniform body Transform.scale magnitudes`,
+        );
+    return { x, y, z };
+}
+
 export function shapeHullGeometry(world: World, eid: number): HullData {
     const shape = world.storage(ShapeComponent);
     const hulls = world.resource(Hulls);
@@ -88,38 +113,45 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
     const name = hulls.name(id);
     const hull = name === undefined ? undefined : hulls.get(name);
     if (!hull) throw new Error(`physics: Shape ${eid} names missing hull ${id}`);
+    const s = shapeBodyScale(world, eid);
     return buildHull(
         world,
         hull,
-        shape.scale.x.get(eid),
-        shape.scale.y.get(eid),
-        shape.scale.z.get(eid),
+        shape.scale.x.get(eid) * s.x,
+        shape.scale.y.get(eid) * s.y,
+        shape.scale.z.get(eid) * s.z,
     );
 }
 
 function localSphere(world: World, eid: number) {
     const shape = world.storage(ShapeComponent);
     const center = shape.sphereCenter;
+    const s = shapeBodyScale(world, eid);
     return {
-        center: { x: center.x.get(eid), y: center.y.get(eid), z: center.z.get(eid) },
-        radius: shape.radius.get(eid),
+        center: {
+            x: center.x.get(eid) * s.x,
+            y: center.y.get(eid) * s.y,
+            z: center.z.get(eid) * s.z,
+        },
+        radius: shape.radius.get(eid) * Math.abs(s.x),
     };
 }
 
 function localCapsule(world: World, eid: number) {
     const shape = world.storage(ShapeComponent);
+    const s = shapeBodyScale(world, eid);
     return {
         center1: {
-            x: shape.capsuleCenter1.x.get(eid),
-            y: shape.capsuleCenter1.y.get(eid),
-            z: shape.capsuleCenter1.z.get(eid),
+            x: shape.capsuleCenter1.x.get(eid) * s.x,
+            y: shape.capsuleCenter1.y.get(eid) * s.y,
+            z: shape.capsuleCenter1.z.get(eid) * s.z,
         },
         center2: {
-            x: shape.capsuleCenter2.x.get(eid),
-            y: shape.capsuleCenter2.y.get(eid),
-            z: shape.capsuleCenter2.z.get(eid),
+            x: shape.capsuleCenter2.x.get(eid) * s.x,
+            y: shape.capsuleCenter2.y.get(eid) * s.y,
+            z: shape.capsuleCenter2.z.get(eid) * s.z,
         },
-        radius: shape.radius.get(eid),
+        radius: shape.radius.get(eid) * Math.abs(s.x),
     };
 }
 
@@ -132,6 +164,7 @@ export function marshalShape(
 ): EntityId {
     const shape = world.storage(ShapeComponent);
     const kind = shape.kind.get(eid);
+    const s = shapeBodyScale(world, eid);
     const def = definition(world, eid);
     const bodyIndex = body.index1 - 1;
     let shapeId: number | null;
@@ -146,19 +179,19 @@ export function marshalShape(
         if (!data)
             throw new Error(`physics: Shape ${eid} names missing mesh ${shape.geometry.get(eid)}`);
         shapeId = createMeshShape(state, bodyIndex, def, data, {
-            x: shape.scale.x.get(eid),
-            y: shape.scale.y.get(eid),
-            z: shape.scale.z.get(eid),
+            x: shape.scale.x.get(eid) * s.x,
+            y: shape.scale.y.get(eid) * s.y,
+            z: shape.scale.z.get(eid) * s.z,
         });
     } else if (kind === ShapeKind.HeightField) {
-        const data = heightFieldBuild(world, shape.geometry.get(eid));
+        const data = heightFieldBuild(world, shape.geometry.get(eid), s.x, s.y, s.z);
         if (!data)
             throw new Error(
                 `physics: Shape ${eid} names missing height-field ${shape.geometry.get(eid)}`,
             );
         shapeId = createHeightFieldShape(state, bodyIndex, def, data);
     } else if (kind === ShapeKind.Compound) {
-        const data = compoundBuild(world, shape.geometry.get(eid));
+        const data = compoundBuild(world, shape.geometry.get(eid), s.x, s.y, s.z);
         if (!data)
             throw new Error(
                 `physics: Shape ${eid} names missing compound ${shape.geometry.get(eid)}`,

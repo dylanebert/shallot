@@ -59,7 +59,11 @@ export const BodyMotionLock = {
  * Shared rigid-body authoring data. Standard physics uses Box3D's body-definition defaults;
  * definition fields with setters apply at the next fixed sync; initial velocities are spawn-only.
  * Pose lives in Transform, which physics writes back after each step. A marked translation or
- * rotation write teleports the body at the next step.
+ * rotation write teleports the body at the next step. Transform.scale scales every attached shape,
+ * including shapes on separate entities, and applies changes at the next fixed sync.
+ * Scale must be finite and nonzero; height fields require positive components, and spheres and
+ * capsules (including compound children) require equal component magnitudes. Refused shapes retry
+ * after a named warning and attach once their body scale is valid.
  */
 export const Body = component(
     "Body",

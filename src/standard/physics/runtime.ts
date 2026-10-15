@@ -76,8 +76,13 @@ import {
     wakeSolverSet,
 } from "./kernel/solversetcolumns";
 import { marshalBody } from "./marshal";
-import { marshalShape } from "./marshal-shape";
-import { captureShapeRecreationState, shapeNeedsRecreation, syncShapeFields } from "./shape-sync";
+import { marshalShape, shapeBodyScale } from "./marshal-shape";
+import {
+    captureShapeRecreationState,
+    shapeBodyScaleChanged,
+    shapeNeedsRecreation,
+    syncShapeFields,
+} from "./shape-sync";
 import { destroyShape, shapeIsValid } from "./shapes/shape";
 import { step as stepWorld } from "./solver/step";
 import {
@@ -1682,11 +1687,27 @@ function warnShape(runtime: PhysicsRuntime, eid: number, error: unknown): void {
     console.warn(`[physics] Shape ${eid} was not attached: ${String(error)}`);
 }
 
+function markScaledShape(this: World, body: number, eid: number): void {
+    const runtime = runtimeFor(this);
+    const dirty = this.fieldStorage(Transform, "scale").dirty;
+    if (
+        (dirty[body >>> 5] & (1 << (body & 31))) !== 0 &&
+        shapeBodyScaleChanged(this, body, runtime.shapeRecreationState.get(eid))
+    )
+        markFieldCandidate(runtime.shapeCandidates, eid);
+}
+
 function syncShapes(world: World, runtime: PhysicsRuntime): void {
     const state = runtime.physicsWorld;
     if (!state) return;
     const candidates = runtime.shapeCandidates;
     const binding = shapeBinding(world);
+    const scaleDirty = world.fieldStorage(Transform, "scale").dirty;
+    for (let word = 0; word < scaleDirty.length; word++) {
+        if (scaleDirty[word] === 0) continue;
+        runtime.shapeBodies.forEach(markScaledShape, world);
+        break;
+    }
     const count = candidates.count;
     let pending = 0;
     for (let i = 0; i < count; i++) {
@@ -1730,13 +1751,33 @@ function syncShapes(world: World, runtime: PhysicsRuntime): void {
             shape = undefined;
         }
         if (shape) {
-            const previous = runtime.shapeRecreationState.get(eid);
             try {
-                if (shapeNeedsRecreation(world, binding, eid, mask, previous, shape, state)) {
+                shapeBodyScale(world, eid);
+            } catch (error) {
+                removeShape(runtime, eid, updateBodyMass);
+                warnShape(runtime, eid, error);
+                candidates.eids[pending++] = eid;
+                continue;
+            }
+            const previous = runtime.shapeRecreationState.get(eid);
+            const scaleChanged = shapeBodyScaleChanged(world, bodyEid, previous);
+            try {
+                if (
+                    shapeNeedsRecreation(
+                        world,
+                        binding,
+                        eid,
+                        mask,
+                        previous,
+                        shape,
+                        state,
+                        scaleChanged,
+                    )
+                ) {
                     removeShape(runtime, eid, updateBodyMass);
                     shape = undefined;
                 } else {
-                    syncShapeFields(world, state, binding, eid, mask, shape);
+                    syncShapeFields(world, state, binding, eid, mask, shape, scaleChanged);
                 }
             } catch (error) {
                 warnShape(runtime, eid, error);
@@ -1760,7 +1801,7 @@ function syncShapes(world: World, runtime: PhysicsRuntime): void {
         rememberShapeEntity(world, runtime, shape, eid, bodyEid);
         runtime.shapeRecreationState.set(
             eid,
-            captureShapeRecreationState(binding, eid, runtime.shapeRecreationState.get(eid)),
+            captureShapeRecreationState(world, binding, eid, runtime.shapeRecreationState.get(eid)),
         );
         candidates.seen[eid] = 0;
         candidates.fieldMarks[eid] = 0;

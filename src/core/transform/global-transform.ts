@@ -28,7 +28,9 @@ export const GlobalTransform = component(
         }),
     },
 );
-/** Authored world placement, derived into GlobalTransform by TransformPlugin. There is no hierarchy. */
+/** Authored world placement, derived into GlobalTransform by TransformPlugin. There is no hierarchy.
+ * For a bound body, translation and rotation reach GlobalTransform through physics;
+ * scale still derives from Transform and scales the body's shapes and rendered mesh alike. */
 export const Transform = component(
     "Transform",
     { translation: vec3, rotation: vec4, scale: vec3 },
