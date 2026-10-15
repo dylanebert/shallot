@@ -460,7 +460,7 @@ In v0.10, authored light values use photometric units and a directional light sh
 | Root `DirectionalLight.color`, `.intensity`, `.direction` | `DirectionalLight.color`, `.illuminance` in lux, and a `Transform` rotation; `direction` is removed. Use a quaternion that rotates local `-Z` onto the old normalized travel direction. |
 | Root `PointLight.color`, `.intensity`, `.range`, `.radius` on a point light | `PointLight` with color, `intensity` in lumens, range and radius; the light now requires `Transform`. |
 | Root `PointLight.color`, `.intensity`, `.range`, `.radius` on an entity with root `Spot` | `SpotLight.color`, `intensity` in lumens, range and radius; remove `PointLight`. `SpotLight` requires `Transform`. |
-| Root `Spot.inner`, `.outer` | `SpotLight.innerAngle`, `.outerAngle`, still half-angles in degrees. |
+| Root `Spot.inner`, `.outer` | `SpotLight.innerAngle`, `.outerAngle`, half-angles now in radians: multiply a v0.9.5 degree value by `Math.PI / 180`. |
 | Root `Shadow` presence | Set each light's `shadowMapsEnabled` to `1`; `0` disables its shadow request. |
 | Root `Shadow.distance` on a directional light | `DirectionalLight.maximumDistance`, still world units. |
 | Root `Shadow.distance` on a point or spot light | Remove it; it was ignored. Shadow coverage still uses the light's `range`. |
@@ -501,8 +501,8 @@ A shadowed spot light is now authored as:
 world.add(lamp, Transform, { translation: [0, 4, 0] });
 world.add(lamp, SpotLight, {
     color: 0xffffff, intensity: 157612.96, range: 12,
-    innerAngle: 18,
-    outerAngle: 28,
+    innerAngle: (18 * Math.PI) / 180,
+    outerAngle: (28 * Math.PI) / 180,
     shadowMapsEnabled: 1,
     depthBias: 0.0005,
     shadowNormalBias: 1.8,

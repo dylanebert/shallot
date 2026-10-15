@@ -293,14 +293,14 @@ export const spotFactor = tgpu.fn(
 
 /**
  * the spot cone's angular-attenuation coefficients (Frostbite `getAngleAtt`, Lagarde 2014) from the
- * inner/outer half-angles (degrees). The FS multiplies the light by `saturate(cd·scale + offset)²`, cd =
+ * inner/outer half-angles (radians). The FS multiplies the light by `saturate(cd·scale + offset)²`, cd =
  * cos(angle between the cone axis and the light→fragment direction): 1 inside the inner cone, smoothly to
  * 0 at the outer. The GPU compact pass bakes these into the light's `params.zw`; the oracle its WGSL twin
  * is pinned to. `inner == outer` is a hard edge (the divide is clamped), never a NaN.
  */
-export function spotParams(innerDeg: number, outerDeg: number): { scale: number; offset: number } {
-    const cosInner = Math.cos((innerDeg * Math.PI) / 180);
-    const cosOuter = Math.cos((outerDeg * Math.PI) / 180);
+export function spotParams(inner: number, outer: number): { scale: number; offset: number } {
+    const cosInner = Math.cos(inner);
+    const cosOuter = Math.cos(outer);
     const scale = 1 / Math.max(cosInner - cosOuter, 1e-4);
     return { scale, offset: -cosOuter * scale };
 }

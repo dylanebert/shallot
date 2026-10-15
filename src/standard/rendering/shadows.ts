@@ -934,7 +934,7 @@ export function spotBasis(
     qy: number,
     qz: number,
     qw: number,
-    outerDeg: number,
+    outer: number,
     tilePx: number,
     out: Pick<PointShadowFrame, "fwd" | "right" | "up" | "coneTanHalf" | "coneFov">,
 ): void {
@@ -966,10 +966,10 @@ export function spotBasis(
     out.up[0] = ry * fz - rz * fy;
     out.up[1] = rz * fx - rx * fz;
     out.up[2] = rx * fy - ry * fx;
-    // clamp the outer half-angle so the perspective frustum stays under 180° (tan finite); widen by the
-    // PCF seam margin like pointTanHalf, so a cone-edge fragment's 3×3 footprint stays inside its tile
-    const clamped = Math.min(Math.max(outerDeg, 1), 80);
-    out.coneTanHalf = Math.tan((clamped * Math.PI) / 180) + (2 * EDGE_TEXELS) / tilePx;
+    // clamp the outer half-angle to [1°, 80°] so the perspective frustum stays under 180° (tan finite); widen
+    // by the PCF seam margin like pointTanHalf, so a cone-edge fragment's 3×3 footprint stays inside its tile
+    const clamped = Math.min(Math.max(outer, Math.PI / 180), (80 * Math.PI) / 180);
+    out.coneTanHalf = Math.tan(clamped) + (2 * EDGE_TEXELS) / tilePx;
     out.coneFov = (Math.atan(out.coneTanHalf) * 360) / Math.PI;
 }
 

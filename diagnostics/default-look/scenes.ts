@@ -236,8 +236,8 @@ function pointLitInterior(world: World, palette: LookPalette): void {
         color: 0xffe8cc,
         intensity: 315225.92,
         range: 8,
-        innerAngle: 18,
-        outerAngle: 34,
+        innerAngle: (18 * Math.PI) / 180,
+        outerAngle: (34 * Math.PI) / 180,
         shadowMapsEnabled: 1,
     });
 }

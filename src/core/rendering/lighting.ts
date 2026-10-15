@@ -91,9 +91,9 @@ export const SpotLight = component(
         intensity: f32,
         range: f32,
         radius: f32,
-        /** Inner half-angle in degrees; full brightness inside it. */
+        /** Inner half-angle in radians, at most `outerAngle`; full brightness inside it. */
         innerAngle: f32,
-        /** Outer half-angle in degrees; dark beyond it. */
+        /** Outer half-angle in radians, below `Math.PI / 2`; dark beyond it. */
         outerAngle: f32,
         shadowMapsEnabled: u32,
         /** Receiver offset toward this light in world units. */
@@ -107,7 +107,7 @@ export const SpotLight = component(
             range: 20,
             radius: 0,
             innerAngle: 0,
-            outerAngle: 45,
+            outerAngle: Math.PI / 4,
             shadowMapsEnabled: 0,
             depthBias: 0.02,
             shadowNormalBias: 1.8,
