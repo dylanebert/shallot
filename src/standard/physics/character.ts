@@ -147,7 +147,7 @@ function moveCharacter(world: World, eid: number): void {
         throw new Error(`Character entity ${eid} requires a kinematic capsule Body`);
     const character = world.storage(Character);
     const s = world.resource(characterScratch);
-    s.dt = Time.FIXED_DT;
+    s.dt = f32(Time.FIXED_DT);
     // Pose-driven kinematics must stay in the solver's live publish set, without periodic wake/clone churn.
     bodySetAwake(state, bodyId, true);
     setBodyField(state, bodyId, BodyField.sleepTime, 0);

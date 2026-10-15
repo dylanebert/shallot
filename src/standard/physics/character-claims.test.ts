@@ -47,14 +47,17 @@ test("the kinematic capsule mirrors the resolved endpoint without a second move 
         const c = world.storage(Character);
         c.velocity.set(eid, 1200, 0, 0, 0);
         world.step(Time.FIXED_DT);
-        expect(world.storage(Body).position.x.get(eid)).toBe(20);
+        const endpoint = Math.fround(1200 * Math.fround(Time.FIXED_DT));
+        expect(world.storage(Body).position.x.get(eid)).toBe(endpoint);
         expect(world.storage(Body).type.get(eid)).toBe(BodyType.Kinematic);
         const position = world.storage(GlobalTransform).translation;
         expect([position.x.get(eid), position.y.get(eid), position.z.get(eid)]).toEqual([
-            20, 100, 0,
+            endpoint,
+            100,
+            0,
         ]);
         expect(c.velocity.x.get(eid)).toBe(1200);
-        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(endpoint);
         for (let tick = 0; tick < 60; ++tick) {
             c.velocity.set(eid, 3, 0, 0, 0);
             world.step(Time.FIXED_DT);
