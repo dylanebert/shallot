@@ -61,6 +61,9 @@ export type Kernel = {
         capacity: number,
         local: number,
     ): number;
+    characterInputPtr(): number;
+    characterOutputPtr(): number;
+    characterMove(world: number, own: number): void;
     worldQueryHeaderPtr(): number;
     worldQueryResultPtr(): number;
     worldQuery(world: number, operation: number, callback: number): void;

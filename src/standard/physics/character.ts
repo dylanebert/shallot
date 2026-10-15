@@ -9,18 +9,9 @@ import {
     type World,
 } from "../../engine";
 import * as ecs from "../../engine/ecs";
-import { type CollisionPlane, clipVector, solvePlanes } from "./collision/mover";
-import { f32, mat3, PI, quat, vec3, xf } from "./common/math";
+import { vec3, xf } from "./common/math";
 import { BodyType } from "./common/types";
-import {
-    readSimCenter,
-    readSimInvInertiaWorld,
-    readStateAngularVelocity,
-    readStateLinearVelocity,
-    simInvMass,
-} from "./kernel/bodycolumns";
-import { BodyField, bodyField, setBodyField } from "./kernel/bodyrecords";
-import { bodyType, shapeBodyId } from "./kernel/filtercolumns";
+import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { queryColumns } from "./kernel/querycolumns";
 import {
     physicsBodyIndex,
@@ -30,12 +21,9 @@ import {
     SyncPhysicsConstraintsSystem,
 } from "./runtime";
 import {
-    bodyApplyLinearImpulse,
     bodySetAwake,
     bodySetLinearVelocity,
     bodySetTransform,
-    getBodySim,
-    getBodyState,
     readBodyTransform,
 } from "./world/body";
 
@@ -77,59 +65,28 @@ export const Character = component(
         }),
     },
 );
-
 const terms = [Character, Body];
 
 export const characterScratch = {
     create: () => ({
-        planes: Array.from(
-            { length: 16 },
-            (): CollisionPlane => ({
-                plane: { normal: vec3.zero(), offset: 0 },
-                pushLimit: 3.4028234663852886e38,
-                push: 0,
-                clipVelocity: true,
-            }),
-        ),
-        points: Array.from({ length: 8 }, () => vec3.zero()),
-        shapes: new Int32Array(8),
-        impulses: Array.from({ length: 8 }, () => vec3.zero()),
-        impulseBodies: new Int32Array(8),
-        impulseCount: 0,
         pose: xf.identity(),
         start: vec3.zero(),
-        velocity: vec3.zero(),
-        up: vec3.zero(),
-        center1: vec3.zero(),
-        center2: vec3.zero(),
-        local: vec3.zero(),
-        ray: vec3.zero(),
-        translation: vec3.zero(),
-        normal: vec3.zero(),
-        point: vec3.zero(),
-        target: vec3.zero(),
-        delta: vec3.zero(),
-        groundVelocity: vec3.zero(),
+        zeroVelocity: vec3.zero(),
         center: vec3.zero(),
-        angular: vec3.zero(),
-        linear: vec3.zero(),
-        r: vec3.zero(),
-        rn: vec3.zero(),
-        mrn: vec3.zero(),
-        inertia: mat3.zero(),
-        vr: vec3.zero(),
-        impulse: vec3.zero(),
-        solved: { delta: vec3.zero(), iterationCount: 0 },
-        dt: 0,
+        input: new Float32Array(0),
+        inputU: new Uint32Array(0),
+        slope: new Float64Array(0),
+        output: new Float32Array(0),
+        outputU: new Uint32Array(0),
+        shapes: new Int32Array(8),
+        impulseBodies: new Int32Array(8),
+        impulses: Array.from({ length: 8 }, () => vec3.zero()),
+        impulseCount: 0,
         count: 0,
         planeCount: 0,
-        steepWalls: 0,
-        cosMaxSlope: 0,
-        radius: 0,
         groundShape: -1,
         passes: 0,
         solverIterations: 0,
-        zeroVelocity: vec3.zero(),
     }),
 };
 
@@ -147,7 +104,6 @@ function moveCharacter(world: World, eid: number): void {
         throw new Error(`Character entity ${eid} requires a kinematic capsule Body`);
     const character = world.storage(Character);
     const s = world.resource(characterScratch);
-    s.dt = f32(Time.FIXED_DT);
     // Pose-driven kinematics must stay in the solver's live publish set, without periodic wake/clone churn.
     bodySetAwake(state, bodyId, true);
     setBodyField(state, bodyId, BodyField.sleepTime, 0);
@@ -156,46 +112,90 @@ function moveCharacter(world: World, eid: number): void {
     s.start.x = position.x;
     s.start.y = position.y;
     s.start.z = position.z;
-    const velocity = s.velocity;
+    const k = queryColumns(state).prepare(position);
+    const memory = k.memory.buffer;
+    if (s.input.buffer !== memory) {
+        s.input = new Float32Array(memory, k.characterInputPtr(), 30);
+        s.inputU = new Uint32Array(memory, k.characterInputPtr(), 30);
+        s.slope = new Float64Array(memory, k.characterInputPtr() + 80, 1);
+        s.output = new Float32Array(memory, k.characterOutputPtr(), 63);
+        s.outputU = new Uint32Array(memory, k.characterOutputPtr(), 63);
+    }
+    const input = s.input;
     const offset = eid * 4;
-    const vc = character.velocity.column;
-    velocity.x = vc[offset];
-    velocity.y = vc[offset + 1];
-    velocity.z = vc[offset + 2];
-    const up = s.up;
-    const uc = character.up.column;
-    up.x = uc[offset];
-    up.y = uc[offset + 1];
-    up.z = uc[offset + 2];
-    const shapeOffset = eid * 4;
-    const capsuleA = shape.capsuleA.column;
-    const capsuleB = shape.capsuleB.column;
-    s.radius = capsuleB[shapeOffset + 3];
-    s.local.x = capsuleA[shapeOffset];
-    s.local.y = capsuleA[shapeOffset + 1];
-    s.local.z = capsuleA[shapeOffset + 2];
-    quat.rotateOut(s.pose.q, s.local, s.center1);
-    s.local.x = capsuleB[shapeOffset];
-    s.local.y = capsuleB[shapeOffset + 1];
-    s.local.z = capsuleB[shapeOffset + 2];
-    quat.rotateOut(s.pose.q, s.local, s.center2);
-    s.steepWalls = character.steepWalls.column[eid];
-    s.cosMaxSlope = Math.cos(character.maxSlope.column[eid]);
-    spring(world, eid, state, bodyId, s);
-    collide(state, bodyId, s);
-    push(state, s);
-    clipVector(velocity, s.planes, s.planeCount, velocity);
-    vc[offset] = velocity.x;
-    vc[offset + 1] = velocity.y;
-    vc[offset + 2] = velocity.z;
-    vc[offset + 3] = 0;
+    const velocity = character.velocity.column;
+    const up = character.up.column;
+    const a = shape.capsuleA.column;
+    const b = shape.capsuleB.column;
+    input[0] = position.x;
+    input[1] = position.y;
+    input[2] = position.z;
+    for (let i = 0; i < 3; ++i) {
+        input[3 + i] = velocity[offset + i];
+        input[6 + i] = up[offset + i];
+        input[9 + i] = a[offset + i];
+        input[12 + i] = b[offset + i];
+    }
+    input[15] = b[offset + 3];
+    input[16] = Time.FIXED_DT;
+    input[17] = character.pogoVelocity.column[eid];
+    input[18] = character.pogoRest.column[eid];
+    s.inputU[19] = character.steepWalls.column[eid];
+    s.slope[0] = character.maxSlope.column[eid];
+    input[22] = s.center.x;
+    input[23] = s.center.y;
+    input[24] = s.center.z;
+    input[25] = s.pose.q.v.x;
+    input[26] = s.pose.q.v.y;
+    input[27] = s.pose.q.v.z;
+    input[28] = s.pose.q.s;
+    input[29] = state.maxLinearSpeed;
+    k.characterMove(state.worldId, bodyId);
+    if (s.output.buffer !== k.memory.buffer) {
+        s.output = new Float32Array(k.memory.buffer, k.characterOutputPtr(), 63);
+        s.outputU = new Uint32Array(k.memory.buffer, k.characterOutputPtr(), 63);
+    }
+    const result = s.output,
+        words = s.outputU;
+    position.x = result[0];
+    position.y = result[1];
+    position.z = result[2];
+    const normals = character.groundNormal.column;
+    const groundVelocity = character.groundVelocity.column;
+    const positions = body.position.column;
+    for (let i = 0; i < 3; ++i) {
+        velocity[offset + i] = result[3 + i];
+        normals[offset + i] = result[8 + i];
+        groundVelocity[offset + i] = result[11 + i];
+        positions[offset + i] = result[i];
+    }
+    velocity[offset + 3] = 0;
+    normals[offset + 3] = 0;
+    groundVelocity[offset + 3] = 0;
+    positions[offset + 3] = 0;
     character.velocity.markChanged(eid);
-    const pc = body.position.column;
-    pc[offset] = position.x;
-    pc[offset + 1] = position.y;
-    pc[offset + 2] = position.z;
-    pc[offset + 3] = 0;
+    character.groundNormal.markChanged(eid);
+    character.groundVelocity.markChanged(eid);
     body.position.markChanged(eid);
+    character.pogoVelocity.column[eid] = result[6];
+    character.pogoVelocity.markChanged(eid);
+    character.groundState.set(eid, words[7]);
+    s.count = words[14];
+    s.planeCount = words[15];
+    s.passes = words[16];
+    s.solverIterations = words[17];
+    s.impulseCount = words[18];
+    for (let i = 0; i < 8; ++i) {
+        s.impulseBodies[i] = words[19 + i];
+        s.impulses[i].x = result[27 + 3 * i];
+        s.impulses[i].y = result[28 + 3 * i];
+        s.impulses[i].z = result[29 + 3 * i];
+        s.shapes[i] = words[55 + i];
+    }
+    s.center.x = result[51];
+    s.center.y = result[52];
+    s.center.z = result[53];
+    s.groundShape = words[54] === 0xffffffff ? -1 : words[54];
     // The kinematic body mirrors the virtual capsule's endpoint; integrating it again would move it twice.
     if (
         !Object.is(position.x, s.start.x) ||
@@ -204,249 +204,6 @@ function moveCharacter(world: World, eid: number): void {
     )
         bodySetTransform(state, bodyId, position, s.pose.q);
     bodySetLinearVelocity(state, bodyId, s.zeroVelocity);
-}
-
-type Scratch = ReturnType<typeof characterScratch.create>;
-
-function spring(
-    world: World,
-    eid: number,
-    state: NonNullable<ReturnType<typeof physicsState>>,
-    own: number,
-    s: Scratch,
-): void {
-    const character = world.storage(Character);
-    const q = queryColumns(state);
-    const position = s.pose.p,
-        velocity = s.velocity,
-        up = s.up;
-    const radius = world.storage(ShapeComponent).capsuleB.column[eid * 4 + 3];
-    const dt = s.dt;
-    const rest = f32(character.pogoRest.column[eid] * radius);
-    const rayLength = f32(rest + radius);
-    vec3.addOut(position, s.center1, s.ray);
-    const k = q.prepare(s.ray);
-    q.headerU[6] = 0;
-    q.headerU[7] = 1;
-    q.headerU[9] = 0xfffffffd;
-    q.headerU[19] = own + 1;
-    vec3.scaleOut(-rayLength, up, s.translation);
-    q.translation(s.translation);
-    k.worldQuery(state.worldId, 3, 0);
-    const hit = q.resultU[0] !== 0xffffffff;
-    s.groundShape = hit ? q.resultU[0] : -1;
-    let pogo = character.pogoVelocity.column[eid];
-    if (hit) {
-        s.point.x = f32(s.ray.x + q.resultF[6]);
-        s.point.y = f32(s.ray.y + q.resultF[7]);
-        s.point.z = f32(s.ray.z + q.resultF[8]);
-        groundVelocity(state, q.resultU[0], s);
-    } else {
-        s.groundVelocity.x = 0;
-        s.groundVelocity.y = 0;
-        s.groundVelocity.z = 0;
-    }
-    // f32 position spacing bounds residue; upward carry is not a jump, and pogo suppression uses the hit body's frame.
-    vec3.subOut(velocity, s.groundVelocity, s.vr);
-    if (
-        !hit ||
-        vec3.dot(s.vr, up) >
-            (2 *
-                2 ** -23 *
-                Math.max(Math.abs(s.center.x), Math.abs(s.center.y), Math.abs(s.center.z)) *
-                (Math.abs(up.x) + Math.abs(up.y) + Math.abs(up.z))) /
-                dt
-    ) {
-        character.groundState.set(eid, GroundState.InAir);
-        character.groundNormal.set(eid, 0, 0, 0, 0);
-        character.groundVelocity.set(eid, 0, 0, 0, 0);
-        pogo = 0;
-    } else {
-        s.normal.x = q.resultF[9];
-        s.normal.y = q.resultF[10];
-        s.normal.z = q.resultF[11];
-        s.point.x = f32(s.ray.x + q.resultF[6]);
-        s.point.y = f32(s.ray.y + q.resultF[7]);
-        s.point.z = f32(s.ray.z + q.resultF[8]);
-        character.groundState.set(
-            eid,
-            vec3.dot(s.normal, up) < Math.cos(character.maxSlope.column[eid])
-                ? GroundState.OnSteepGround
-                : GroundState.OnGround,
-        );
-        const offset = eid * 4;
-        const normals = character.groundNormal.column;
-        normals[offset] = s.normal.x;
-        normals[offset + 1] = s.normal.y;
-        normals[offset + 2] = s.normal.z;
-        normals[offset + 3] = 0;
-        character.groundNormal.markChanged(eid);
-        const gv = s.groundVelocity;
-        const velocities = character.groundVelocity.column;
-        velocities[offset] = gv.x;
-        velocities[offset + 1] = gv.y;
-        velocities[offset + 2] = gv.z;
-        velocities[offset + 3] = 0;
-        character.groundVelocity.markChanged(eid);
-        const omega = f32(f32(2 * PI) * 4);
-        const omegaH = f32(omega * dt);
-        const length = f32(q.resultF[5] * rayLength);
-        pogo = f32(
-            f32(pogo - f32(f32(omega * omegaH) * f32(length - rest))) /
-                f32(f32(1 + f32(f32(f32(2 * f32(0.7)) * omegaH))) + f32(omegaH * omegaH)),
-        );
-    }
-    character.pogoVelocity.column[eid] = pogo;
-    character.pogoVelocity.markChanged(eid);
-    // Keep this update written out: vec3.mulAddOut boxes both double arguments when spring exhausts V8's inlining budget.
-    s.target.x = f32(position.x + f32(dt * velocity.x));
-    s.target.y = f32(position.y + f32(dt * velocity.y));
-    s.target.z = f32(position.z + f32(dt * velocity.z));
-    const pogoDistance = f32(dt * pogo);
-    s.target.x = f32(s.target.x + f32(pogoDistance * up.x));
-    s.target.y = f32(s.target.y + f32(pogoDistance * up.y));
-    s.target.z = f32(s.target.z + f32(pogoDistance * up.z));
-}
-
-function groundVelocity(
-    state: NonNullable<ReturnType<typeof physicsState>>,
-    shape: number,
-    s: Scratch,
-): void {
-    const body = shapeBodyId(state, shape);
-    const sim = getBodySim(state, body);
-    const ground = getBodyState(state, body);
-    const gv = s.groundVelocity;
-    gv.x = 0;
-    gv.y = 0;
-    gv.z = 0;
-    if (ground === null) return;
-    readSimCenter(state, sim, s.center);
-    readStateAngularVelocity(state, ground, s.angular);
-    readStateLinearVelocity(state, ground, s.linear);
-    vec3.subOut(s.point, s.center, s.r);
-    vec3.crossOut(s.angular, s.r, gv);
-    vec3.addOut(s.linear, gv, gv);
-}
-
-function collide(
-    state: NonNullable<ReturnType<typeof physicsState>>,
-    own: number,
-    s: Scratch,
-): void {
-    const q = queryColumns(state);
-    const k = q.prepare(s.pose.p);
-    const position = s.pose.p;
-    let count = 0;
-    s.passes = 0;
-    s.solverIterations = 0;
-    for (let pass = 0; pass < 5; ++pass) {
-        q.prepare(position);
-        q.headerU[6] = 0;
-        q.headerU[7] = 1;
-        q.headerU[19] = own + 1;
-        q.mover(s.center1, s.center2, s.radius);
-        k.worldQuery(state.worldId, 5, 0);
-        count = q.resultU[0];
-        for (let i = 0; i < count; ++i) {
-            const n = 16 + 8 * i;
-            const plane = s.planes[i];
-            plane.plane.normal.x = q.resultF[n + 1];
-            plane.plane.normal.y = q.resultF[n + 2];
-            plane.plane.normal.z = q.resultF[n + 3];
-            plane.plane.offset = q.resultF[n + 4];
-            s.points[i].x = f32(position.x + q.resultF[n + 5]);
-            s.points[i].y = f32(position.y + q.resultF[n + 6]);
-            s.points[i].z = f32(position.z + q.resultF[n + 7]);
-            s.shapes[i] = q.resultU[n];
-        }
-        let planeCount = count;
-        if (s.steepWalls) {
-            // Jolt's CharacterVirtual adds a vertical plane behind a steep upward contact, at the horizontal
-            // distance to the contact plane, so sliding along the contact cannot lift the capsule.
-            const up = s.up;
-            for (let i = 0; i < count && planeCount < s.planes.length; ++i) {
-                const contact = s.planes[i].plane;
-                const d = vec3.dot(contact.normal, up);
-                if (d <= 1e-3 || d >= s.cosMaxSlope) continue;
-                const hx = contact.normal.x - d * up.x;
-                const hy = contact.normal.y - d * up.y;
-                const hz = contact.normal.z - d * up.z;
-                const length = Math.sqrt(hx * hx + hy * hy + hz * hz);
-                const wall = s.planes[planeCount++].plane;
-                wall.normal.x = f32(hx / length);
-                wall.normal.y = f32(hy / length);
-                wall.normal.z = f32(hz / length);
-                wall.offset = f32(contact.offset / length);
-            }
-        }
-        vec3.subOut(s.target, position, s.delta);
-        const solved = solvePlanes(s.delta, s.planes, planeCount, s.solved);
-        s.passes++;
-        s.solverIterations += solved.iterationCount;
-        q.prepare(position);
-        q.headerU[6] = 0;
-        q.headerU[7] = 1;
-        q.headerU[9] = 0xfffffffd;
-        q.headerU[19] = own + 1;
-        q.translation(solved.delta);
-        k.worldQuery(state.worldId, 6, 0);
-        vec3.scaleOut(q.resultF[3], solved.delta, s.delta);
-        vec3.addOut(position, s.delta, position);
-        s.planeCount = planeCount;
-        if (vec3.lengthSq(s.delta) < f32(f32(0.01) * f32(0.01))) break;
-    }
-    s.count = count;
-}
-
-function push(state: NonNullable<ReturnType<typeof physicsState>>, s: Scratch): void {
-    const velocity = s.velocity;
-    s.impulseCount = 0;
-    for (let i = 0; i < s.count; ++i) {
-        const pushed = shapeBodyId(state, s.shapes[i]);
-        if (bodyType(state, bodyField(state, pushed, BodyField.id)) !== BodyType.Dynamic) continue;
-        const sim = getBodySim(state, pushed);
-        const b = getBodyState(state, pushed);
-        vec3.scaleOut(-1, s.planes[i].plane.normal, s.normal);
-        readSimCenter(state, sim, s.center);
-        vec3.subOut(s.points[i], s.center, s.r);
-        vec3.crossOut(s.r, s.normal, s.rn);
-        const m = readSimInvInertiaWorld(state, sim, s.inertia);
-        const rn = s.rn;
-        s.mrn.x = f32(f32(f32(m.cx.x * rn.x) + f32(m.cy.x * rn.y)) + f32(m.cz.x * rn.z));
-        s.mrn.y = f32(f32(f32(m.cx.y * rn.x) + f32(m.cy.y * rn.y)) + f32(m.cz.y * rn.z));
-        s.mrn.z = f32(f32(f32(m.cx.z * rn.x) + f32(m.cy.z * rn.y)) + f32(m.cz.z * rn.z));
-        const mass = f32(simInvMass(state, sim) + vec3.dot(rn, s.mrn));
-        const normalMass = mass > 0 ? f32(1 / mass) : 0;
-        s.vr.x = 0;
-        s.vr.y = 0;
-        s.vr.z = 0;
-        if (b !== null) {
-            readStateAngularVelocity(state, b, s.angular);
-            readStateLinearVelocity(state, b, s.linear);
-            vec3.crossOut(s.angular, s.r, s.vr);
-            vec3.addOut(s.linear, s.vr, s.vr);
-        }
-        vec3.subOut(s.vr, velocity, s.vr);
-        const vn = vec3.dot(s.vr, s.normal);
-        vec3.scaleOut(Math.max(f32(-normalMass * vn), 0), s.normal, s.impulse);
-        vec3.mulSubOut(velocity, 0, s.impulse, velocity);
-        let index = 0;
-        while (
-            index < s.impulseCount &&
-            s.impulseBodies[index] !== bodyField(state, pushed, BodyField.id)
-        )
-            index++;
-        if (index === s.impulseCount) {
-            s.impulseCount++;
-            s.impulseBodies[index] = bodyField(state, pushed, BodyField.id);
-            s.impulses[index].x = 0;
-            s.impulses[index].y = 0;
-            s.impulses[index].z = 0;
-        }
-        vec3.addOut(s.impulses[index], s.impulse, s.impulses[index]);
-        bodyApplyLinearImpulse(state, pushed, s.impulse, s.points[i], true);
-    }
 }
 
 const MoveCharactersSystem: System = {
@@ -462,8 +219,7 @@ const MoveCharactersSystem: System = {
 /** Optional velocity-driven capsule movement, without gravity or input policy. */
 export const CharacterPlugin: Plugin = {
     name: "Character",
-    // characterScratch is per-call workspace: queries and motion overwrite every consumed lane;
-    // only Character component fields and the physics participant carry state between ticks.
+    // Query and motion scratch is overwritten per call; Character fields and physics own recovery.
     recovery: "stateless",
     dependencies: [StandardPhysicsPlugin],
     components: [Character],
