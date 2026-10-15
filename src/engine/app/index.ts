@@ -50,17 +50,14 @@ export interface Plugin {
     ) => void | Promise<void>;
     /**
      * GPU setup and derived spawns after initialization. Nothing paints while this hook runs synchronously, until it awaits. Split long setup into awaited slices and report each through `onProgress`.
-     * Idempotent: entity spawns need nothing (they live in the `World`). Tie any external effect
-     * (a DOM mount, listener, or rAF loop) to the World via `world.onDispose` / `world.signal` so it
-     * unwinds at dispose.
+     * Must be idempotent. Tie external effects to the World via `world.onDispose` / `world.signal`
+     * so they unwind at disposal; entity storage is already World-owned.
      */
     readonly warm?: (world: World, onProgress?: (progress: number) => void) => void | Promise<void>;
     /**
-     * teardown, run in reverse dependency order on `App.dispose`. reserve it for process/module-lifetime
-     * teardown — engine singletons, globals — not per-build external effects. tie a per-build mount,
-     * listener, or rAF loop to the World via `world.onDispose` / `world.signal` at its creation site
-     * instead: a `dispose` hook fires only on the `App.dispose` path, never on a direct `world.dispose()`
-     * (a host driving the World without an App), so a World-registered effect is the only one covering both.
+     * Teardown in reverse dependency order on `App.dispose`, and for started initializers on build failure.
+     * Direct `world.dispose()` does not call this hook. Register per-build external cleanup with
+     * `world.onDispose` / `world.signal` so direct World disposal also releases it.
      */
     readonly dispose?: (world: World) => void;
 }
@@ -200,9 +197,8 @@ async function withPluginHookTiming<T>(
     }
 }
 
-// Caps the queue at the onset of GPU-bound work, where Chrome's rAF throttle engages late: Omarchy queued 24
-// frames in 0.12 s (81e3375c). A web callback cannot block as a native frame-latency cap does, so the loop
-// skips. In steady GPU-bound play pending stays below the cap, so it never fires there.
+// Chrome's rAF throttle can engage too late to bound queued GPU work.
+// A web callback cannot block like a native frame-latency cap, so the loop skips at this limit.
 const MAX_FRAMES_IN_FLIGHT = 6;
 
 export const ClearChangeMarksSystem: System = {
@@ -268,8 +264,7 @@ async function buildNow(config: AppConfig): Promise<App> {
         }
         for (const plugin of config.plugins) pluginSet.add(plugin);
 
-        // A public plugin selection pulls in its declared substrates. The resolver remains pure and strict;
-        // this boundary makes `createApp({ defaults: false, plugins: [StandardPhysicsPlugin] })` a complete composition.
+        // Expand dependencies here so public selections are complete while resolvePlugins stays strict.
         const requested = [...pluginSet];
         for (let i = 0; i < requested.length; i++) {
             for (const dependency of requested[i].dependencies ?? []) {
@@ -327,7 +322,6 @@ async function buildNow(config: AppConfig): Promise<App> {
 
         world.addSystem(ClearChangeMarksSystem, "Engine");
 
-        // Assign registered components their world-owned columns before loading.
         for (const { component } of world.registry.entries()) {
             world.storage(component);
         }
@@ -391,9 +385,7 @@ async function buildNow(config: AppConfig): Promise<App> {
             },
         };
     } catch (e) {
-        // a failed build leaves nothing live: plugins that started initialize dispose in
-        // reverse, then the World, so a retry builds against clean module singletons. A dispose
-        // throw here is reported, never allowed to mask the build error.
+        // Report cleanup failures without masking the build error or skipping remaining cleanup.
         for (let i = initialized.length - 1; i >= 0; i--) {
             try {
                 initialized[i].dispose?.(world);
@@ -417,15 +409,11 @@ async function buildNow(config: AppConfig): Promise<App> {
 }
 
 /**
- * create the sandboxed UI overlay over a canvas: the single DOM surface a shallot app's UI mounts
- * into ({@link AppConfig.ui}). It fills the canvas's parent and is a true sandbox: `contain: layout
- * paint` makes it the containing block for absolute *and* fixed descendants and clips paint to its
- * box, so app UI is bounded to the canvas region and can never spill into an embedding host (a
- * host page), even a stray `position: fixed`. `pointer-events: none` lets input
- * reach the canvas; UI panels re-enable it. Returns the overlay. Pass `world` to tie the overlay's
- * removal to the World's lifetime — it auto-registers `overlay.remove()` via {@link World.onDispose}
- * and restores the host element's prior inline `position`, so a build that disposes cleans it up; omit
- * `world` to remove the overlay yourself, in which case the `position` is not restored.
+ * Mount an overlay filling the canvas's parent, or document.body when there is no parent.
+ * Layout and paint containment bounds absolute and fixed descendants to the overlay.
+ * Pointer events pass through; UI panels must re-enable them.
+ * With `world`, disposal removes the overlay and restores the parent's prior inline `position`.
+ * Without it, the caller removes the overlay; the parent's `position` is not restored.
  */
 export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
@@ -458,10 +446,7 @@ export async function runApp(config: AppConfig): Promise<App> {
         const device = gpu?.device;
         const pending = gpu?.pending;
         const sync = gpu?.sync;
-        // UI teardown is World-owned: the overlay auto-registers its removal (mountOverlay above), and the
-        // ui cleanup registers beside it. Both run at world.dispose() — after the plugin dispose hooks on the
-        // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
-        // covers a host that calls world.dispose() directly.
+        // World-owned UI cleanup also covers direct world.dispose(), after plugin hooks on App.dispose.
         if (config.ui && Runtime === "web") {
             const overlay = mountOverlay(document.querySelector("canvas"), world);
             const uiCleanup = config.ui(overlay, world);
@@ -481,10 +466,7 @@ export async function runApp(config: AppConfig): Promise<App> {
                 );
             });
         }
-        // stop the rAF loop when the World tears down, so a host that calls world.dispose() directly
-        // halts the loop too — not only the returned App.dispose(). Without this the loop keeps
-        // stepping a torn-down World every frame (the stacked-rAF leak). App.dispose sets it first; this is
-        // idempotent with that.
+        // Direct world.dispose() must stop the loop too.
         world.onDispose(() => {
             disposed = true;
         });
@@ -517,17 +499,10 @@ export async function runApp(config: AppConfig): Promise<App> {
                     world.gpuIfAvailable?.sync !== sync
                 )
                     return;
-                // rAF clocks the loop and reschedules first, before any GPU work: the next frame is registered
-                // while the browser's paint deadline is still open, so frame delivery stays vsync-aligned. The
-                // alternative — scheduling the next rAF off the completion fence — slips a paint whenever the
-                // fence resolves late, and under a throttled present (fullscreen vsync) its phase drifts against
-                // the deadline, turning a steady rate into visible judder.
+                // Register the next callback before GPU work, while the browser's paint deadline is open.
                 requestFrame(loop.frame);
-                // drive dt from the rAF presentation timestamp (the frame's vsync-aligned start time the browser
-                // assigns), not now() at callback time: the callback runs after a variable event-loop delay, so
-                // now() carries that jitter into the sim timebase and misaligns the fixed-step interpolation from
-                // the actual present (Raph Levien, "Swapchains and frame pacing"). The headless setTimeout path,
-                // with no timestamp, falls back to now().
+                // rAF timestamps exclude callback-delay jitter from simulation and fixed-step interpolation.
+                // The headless setTimeout path supplies no timestamp.
                 const t = timestamp ?? now();
                 if ((pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
                 const dt = frameDelta(t, lastTime);
