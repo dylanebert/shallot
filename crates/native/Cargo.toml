@@ -15,11 +15,8 @@ path = "src/main.rs"
 name = "shallot-helper"
 path = "src/helper.rs"
 
-# Two build modes, one per backend. `system` (default) builds against the platform's system webview
-# (wry → WebView2 / WKWebView / WebKitGTK); `portable` ships the Chromium runtime (CEF) and runs
-# anywhere. A portable build is invoked with `--no-default-features --features portable`, so it never
-# links wry/winit — the artifact is self-contained. objc2 is macOS-only; Cargo recognizes the
-# `dep:` reference on every target and activates it only where its `cfg(target_os)` matches.
+# Select portable with --no-default-features --features portable to exclude
+# the system webview dependencies.
 [features]
 default = ["system"]
 system = ["dep:wry", "dep:winit", "dep:image"]
@@ -54,7 +51,7 @@ objc2-app-kit = { version = "0.3", default-features = false, optional = true, fe
     "NSEvent",
 ] }
 
-# Mirrors the workspace root profile; read only when built standalone from the npm tarball.
+# The npm tarball has no workspace root, so standalone builds need this profile.
 [profile.release]
 opt-level = 3
 lto = true

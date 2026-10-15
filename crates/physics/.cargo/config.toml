@@ -1,9 +1,6 @@
-# simd128 applies only when targeting wasm; native `cargo test` builds for the host with no
-# wasm feature flag, exercising the scalar FloatW fallback. No default `target` is set on
-# purpose — the build script passes `--target wasm32-unknown-unknown` explicitly, so bare
-# `cargo test` runs on the host.
+# Leave target selection to the build script so bare cargo test runs on the host
+# and exercises the scalar FloatW fallback.
 [target.wasm32-unknown-unknown]
-# --remap-path-prefix strips the workspace-member prefix rustc now sees (crates/physics/src/x.rs), so
-# embedded panic-location paths read src/x.rs as they did before the Cargo workspace. build-kernel.ts
-# repeats the SIMD and workspace-prefix flags when its RUSTFLAGS add rust-src and registry remaps.
+# Strip the workspace-member prefix so embedded panic paths read src/x.rs.
+# crates/physics/scripts/build-kernel.ts supplies RUSTFLAGS; keep its flags aligned.
 rustflags = ["-C", "target-feature=+simd128", "--remap-path-prefix=crates/physics/="]
