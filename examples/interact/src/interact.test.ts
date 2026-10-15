@@ -80,6 +80,28 @@ test("in reach and in view focuses, outlines and shows the prompt", async () => 
     expect(w.has(w.storage(Prompt).ring.get(prompt), NotShadowCaster)).toBe(true);
 });
 
+test("the billboard cap, key and ring have distinct view depths and both texts share a baseline, even side-on", async () => {
+    const { w, camera, prompt, step } = await scene();
+    const t = w.storage(Transform);
+    const p = w.storage(Prompt);
+    const key = p.key.get(prompt),
+        label = p.label.get(prompt),
+        ring = p.ring.get(prompt);
+    for (const side of [false, true]) {
+        if (side) {
+            t.translation.set(camera, 2, 1.4, -3.8);
+            t.rotation.set(camera, 0, Math.SQRT1_2, 0, Math.SQRT1_2);
+            step();
+        }
+        const depth = side ? t.translation.x : t.translation.z;
+        expect(depth.get(key) - depth.get(prompt)).toBeCloseTo(0.01);
+        expect(depth.get(ring) - depth.get(prompt)).toBeCloseTo(0.02);
+        expect(t.translation.y.get(key)).toBeCloseTo(t.translation.y.get(label));
+        expect(w.storage(Text).anchor.y.get(key)).toBe(0);
+        expect(w.storage(Text).anchor.y.get(label)).toBe(0);
+    }
+});
+
 test("out of reach or behind a wall neither focuses nor outlines nor shows the prompt", async () => {
     const { w, camera, target, prompt, step } = await scene();
     w.storage(Transform).translation.z.set(camera, 2);
@@ -169,8 +191,7 @@ for (const [name, action] of Object.entries(Action))
         pressKey(w, "KeyE");
         step(action === Action.Hold ? 60 : 1);
         expect(w.storage(Usable).active.get(target)).toBe(1);
-        if (action === Action.Lamp) expect(w.storage(PointLight).intensity.get(light)).toBe(1800);
-        if (action === Action.Door) expect(w.storage(Transform).translation.y.get(target)).toBe(4);
+        if (action === Action.Lamp) expect(w.storage(PointLight).intensity.get(light)).toBe(150000);
         if (action === Action.Button)
             expect(w.storage(Transform).translation.z.get(target)).toBeCloseTo(-3.92);
         if (action === Action.Hold)

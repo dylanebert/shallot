@@ -26,7 +26,7 @@ import { Billboard } from "@dylanebert/shallot/rendering";
 import { castRayClosest, type PhysicsQueryHit } from "@dylanebert/shallot/standard/physics";
 import { LocalPlayer, Player, PlayerPlugin, UpdatePlayerControlSystem } from "./player";
 
-export const Action = { Lamp: 0, Door: 1, Button: 2, Hold: 3 } as const;
+export const Action = { Lamp: 0, Button: 1, Hold: 2 } as const;
 export const Usable = component("Usable", {
     action: u8,
     active: u8,
@@ -124,14 +124,13 @@ function activate(world: World, target: number): void {
     usable.active.set(target, active);
     switch (usable.action.get(target)) {
         case Action.Lamp:
-            world.storage(PointLight).intensity.set(usable.light.get(target), active ? 1800 : 0);
+            world.storage(PointLight).intensity.set(usable.light.get(target), active ? 150000 : 0);
             break;
-        case Action.Door:
-            world.storage(Transform).translation.y.set(target, active ? 4 : 1.4);
+        case Action.Button: {
+            const z = world.storage(Transform).translation.z;
+            z.set(target, z.get(target) + (active ? -0.12 : 0.12));
             break;
-        case Action.Button:
-            world.storage(Transform).translation.z.set(target, active ? -3.92 : -3.8);
-            break;
+        }
         case Action.Hold:
             world.storage(Transform).translation.y.set(target, active ? 2.2 : 1.2);
             break;
@@ -236,10 +235,29 @@ const ShowInteraction: System = {
                 2 * (q.x.get(camera) * q.y.get(camera) + q.w.get(camera) * q.z.get(camera));
             const rightZ =
                 2 * (q.x.get(camera) * q.z.get(camera) - q.w.get(camera) * q.y.get(camera));
+            const backX =
+                2 * (q.x.get(camera) * q.z.get(camera) + q.w.get(camera) * q.y.get(camera));
+            const backY =
+                2 * (q.y.get(camera) * q.z.get(camera) - q.w.get(camera) * q.x.get(camera));
+            const backZ = 1 - 2 * (q.x.get(camera) ** 2 + q.y.get(camera) ** 2);
+            const upX = 2 * (q.x.get(camera) * q.y.get(camera) - q.w.get(camera) * q.z.get(camera));
+            const upY = 1 - 2 * (q.x.get(camera) ** 2 + q.z.get(camera) ** 2);
+            const upZ = 2 * (q.y.get(camera) * q.z.get(camera) + q.w.get(camera) * q.x.get(camera));
             t.translation.set(eid, x, y, z);
-            t.translation.set(key, x, y, z);
-            t.translation.set(ring, x, y, z);
-            t.translation.set(label, x + rightX * 0.2, y + rightY * 0.2, z + rightZ * 0.2);
+            // Separate billboard planes along view depth; text shares one baseline below the cap centre.
+            t.translation.set(
+                key,
+                x + backX * 0.01 - upX * 0.065,
+                y + backY * 0.01 - upY * 0.065,
+                z + backZ * 0.01 - upZ * 0.065,
+            );
+            t.translation.set(ring, x + backX * 0.02, y + backY * 0.02, z + backZ * 0.02);
+            t.translation.set(
+                label,
+                x + rightX * 0.23 + backX * 0.01 - upX * 0.065,
+                y + rightY * 0.23 + backY * 0.01 - upY * 0.065,
+                z + rightZ * 0.23 + backZ * 0.01 - upZ * 0.065,
+            );
             // A focus change is immediate UI placement, not motion between fixed poses.
             resetInterpolation(world, eid);
             resetInterpolation(world, key);
@@ -267,7 +285,7 @@ export function makePrompt(world: World, image: number, ringImage: number): numb
     world.add(key, Text, {
         content: internText(world, "E"),
         fontSize: 0.18,
-        anchor: [0.5, 0.5],
+        anchor: [0.5, 0],
         billboard: Billboard.Screen,
         color: 0xefe3cf,
     });
@@ -275,7 +293,7 @@ export function makePrompt(world: World, image: number, ringImage: number): numb
     world.add(label, Transform);
     world.add(label, Text, {
         fontSize: 0.16,
-        anchor: [0, 0.5],
+        anchor: [0, 0],
         billboard: Billboard.Screen,
         color: 0xefe3cf,
     });
