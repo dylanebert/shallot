@@ -21,3 +21,4 @@ export {
     TonemappingSystem,
 } from "./tonemapping-state";
 export { viewportToWorld } from "./viewport-to-world";
+export { Xform, xformMat, xformNormal, xformPoint, xformQuat, xformWgsl } from "./xform";

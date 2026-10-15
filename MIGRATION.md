@@ -807,10 +807,10 @@ import { Xform } from "@dylanebert/shallot/utils/core";
 // 0.10
 import { FrameGpu } from "@dylanebert/shallot/rendering";
 import { engineLayout, materialLayout, materialType, MaterialPlugin } from "@dylanebert/shallot/standard/rendering";
-import { Xform } from "@dylanebert/shallot/utils";
+import { Xform } from "@dylanebert/shallot/rendering";
 ```
 
-The quantized vertex codec moved from `/utils/core` to `/mesh`: `MeshQuant`, `meshIdOf`, `decodePos`, `decodeUv`, `encodePos`, `encodeUv`, `posQuantWgsl` and `posQuantPackWgsl`.
+The placement record and its decode moved from `/utils/core` to `/rendering`: `Xform`, `xformQuat`, `xformPoint`, `xformNormal`, `xformMat` and `xformWgsl`. The quantized vertex codec moved from `/utils/core` to `/mesh`: `MeshQuant`, `meshIdOf`, `decodePos`, `decodeUv`, `encodePos`, `encodeUv`, `posQuantWgsl` and `posQuantPackWgsl`.
 
 `MeshInstance` stores `mesh` and an optional local-space culling sphere; ordinary meshes need only set `mesh`, while Sprite maintains the sphere for its billboard quad. Add StandardMaterial values with `const handle = world.resource(Materials).add(StandardMaterial(values))`, then add `MeshMaterial` with that `{ type, material }` handle. Retain the handle to share or update a material; there is no material name or name lookup. Meshes without `MeshMaterial` draw with StandardMaterial type 0, row 0. `VertexMaterialType`, exported at the root and from `/standard/rendering`, is the built-in per-vertex-lit alternative and accepts the same `StandardMaterial` parameter schema.
 

@@ -34,12 +34,6 @@ export {
     unpackLdrColor,
     unpackQuatSmallest3,
     unpackQuatSnorm16x4,
-    Xform,
-    xformMat,
-    xformNormal,
-    xformPoint,
-    xformQuat,
-    xformWgsl,
 } from "./encode";
 export {
     clamp,

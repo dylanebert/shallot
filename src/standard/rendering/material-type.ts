@@ -2,9 +2,9 @@ import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { isTgpuFn, readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
+import { Xform } from "../../core/rendering";
 import type { Plugin, Resource, System, World } from "../../engine";
 import type { ComponentStorage } from "../../engine/ecs";
-import { Xform } from "../../engine/utils";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 
 /** A shader-stage name understood by TypeGPU. */

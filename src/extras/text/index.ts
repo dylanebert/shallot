@@ -20,10 +20,11 @@ import {
     RenderPhases,
     type TransparentPhase,
     type View,
+    type Xform,
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import { f32, type Plugin, Registry, type System, u32, vec2, type World } from "../../engine";
-import { packColor, type Xform } from "../../engine/utils";
+import { packColor } from "../../engine/utils";
 import {
     createGlyphAtlas,
     disposeAtlases,

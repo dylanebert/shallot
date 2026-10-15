@@ -254,7 +254,7 @@ export function checkImports(
         const source = readFileSync(file, "utf8");
         if (sourceTier === "engine" && !fixtureSource) {
             const placement =
-                /\bTransform\b|GlobalTransform\w*|globalTransform\w*|\bresetInterpolation\b|global-transform/.exec(
+                /\bTransform\b|\bXform\b|GlobalTransform\w*|globalTransform\w*|\bresetInterpolation\b|global-transform/.exec(
                     source,
                 );
             if (placement) {

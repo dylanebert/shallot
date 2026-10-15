@@ -2,8 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { decodePos, MeshQuant, meshIdOf } from "../../core/mesh";
-import { ViewUniforms } from "../../core/rendering";
-import { Xform, xformPoint } from "../../engine/utils";
+import { ViewUniforms, Xform, xformPoint } from "../../core/rendering";
 
 // The outline's pass internals: the JFA + composite kernels with their bind group layouts, plus the pure
 // CPU logic the three passes build on (the JFA step ladder and the mask shader codegen). Split off the

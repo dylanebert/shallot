@@ -5,7 +5,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { createApp } from "../../engine/app";
 import { probeBuffer } from "../../engine/runtime";
-import { Xform } from "../../engine/utils";
+import { Xform } from "../rendering";
 
 await setupGlobals();
 

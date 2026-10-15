@@ -15,6 +15,8 @@ import {
     type View,
     Views,
     VolumetricLight,
+    Xform,
+    xformQuat,
 } from "../../core/rendering";
 import type { System, World } from "../../engine";
 import {
@@ -34,7 +36,7 @@ import {
     setRenderPipeline,
     setViewport,
 } from "../../engine/runtime";
-import { idiv, octEncodeNormal, srgbToLinear1, Xform, xformQuat } from "../../engine/utils";
+import { idiv, octEncodeNormal, srgbToLinear1 } from "../../engine/utils";
 import {
     MAX_POINT_LIGHTS,
     PointLightGpu,

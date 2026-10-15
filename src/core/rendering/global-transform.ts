@@ -2,7 +2,6 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { GpuTable, Resource, System, World } from "../../engine/ecs";
-import { Xform } from "../../engine/utils";
 import {
     GlobalTransform,
     GlobalTransformTickEndSystem,
@@ -11,6 +10,7 @@ import {
     resetInterpolation,
     TransformRuntime,
 } from "../transform";
+import { Xform } from "./xform";
 
 const terms = [GlobalTransform];
 const layout = tgpu.bindGroupLayout({
