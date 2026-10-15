@@ -4,13 +4,7 @@ import * as std from "typegpu/std";
 import { decodePos, MeshQuant, meshIdOf } from "../../core/mesh";
 import { ViewUniforms, Xform, xformPoint } from "../../core/rendering";
 
-// The outline's pass internals: the JFA + composite kernels with their bind group layouts, plus the pure
-// CPU logic the three passes build on (the JFA step ladder and the mask shader codegen). Split off the
-// barrel (orbit's smooth.ts shape) — index.ts keeps the component / system / plugin / per-camera resource
-// management, this file the shader half.
-
-// px cap on the band width — bounds the JFA pass count (`ceil(log2(width)) + 1`) and the attr texture's
-// width channel. 64px is a generous outline; wider would want a coarser/clamped field anyway
+// Cap band width to bound the jump-flood pass count.
 export const MAX_WIDTH = 64;
 
 /** the JFA ladder's slot count: one per power of two from the first ≥ MAX_WIDTH down to 1. */
@@ -47,11 +41,9 @@ export const maskLayoutPlain = tgpu.bindGroupLayout({
     meshQuant: { storage: d.arrayOf(MeshQuant), access: "readonly", visibility: ["vertex"] },
 });
 
-/** the occlusion-aware mask layout: {@link maskLayoutPlain}'s entries (duplicated, not spread — the
- *  visibility-array literal types don't survive a factory-returned intermediate) plus standard's `view.depth`
- *  lane, so the fs can discard a fragment behind the visible scene. A second layout, not a 1×1 dummy depth
- *  on the plain one: an out-of-bounds `textureLoad` returns 0 = far under reverse-Z, which would silently
- *  read every fragment as un-occluded. @internal */
+/** Occlusion-aware mask using the shared depth lane.
+ * Visibility-array literal types don't survive a factory-returned intermediate, so entries are duplicated.
+ * @internal */
 export const maskLayoutOcclude = tgpu.bindGroupLayout({
     globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
     view: { uniform: ViewUniforms, visibility: ["vertex"] },
@@ -100,7 +92,6 @@ export function maskVertex(layout: MaskLayout) {
             const quant = MeshQuant(layout.$.meshQuant[meshIdOf(raw.y)]);
             const p = decodePos(raw.x, raw.y, quant);
             const encodedRow = layout.$.globalTransformRows[layout.$.maskEids[input.iid]];
-            // Missing placement is excluded by the standard instance packer too.
             if (encodedRow === 0) return { pos: d.vec4f(2, 2, 2, 1), iid: input.iid };
             const x = Xform(layout.$.globalTransforms[encodedRow - 1]);
             const world = d.vec4f(xformPoint(x, p), 1);
@@ -125,9 +116,7 @@ export function maskFragment(layout: MaskLayout, occlude: boolean) {
             "use gpu";
             const color = layout.$.maskAttrs[input.iid * 2];
             const params = layout.$.maskAttrs[input.iid * 2 + 1]; // (width, occlude, _, _)
-            // `occlude` is a captured JS boolean (the factory's own argument, not a GPU value) — the
-            // transpiler folds this branch at build time exactly like the pre-port `${occlude ? … : ""}`
-            // template did, so the plain variant never even sees the depth read
+            // The captured host boolean folds at build time, keeping depth reads out of the plain variant.
             if (occlude) {
                 if (params.y > 0.5) {
                     const scene = std.textureLoad(
@@ -146,15 +135,12 @@ export function maskFragment(layout: MaskLayout, occlude: boolean) {
         .$name(occlude ? "maskFsOcclude" : "maskFs");
 }
 
-/** compute workgroup tile — 8×8 = 64 threads, matching fog's screen-space composite @internal */
+/** Compute workgroup tile side length. @internal */
 export const WORKGROUP = 8;
 
-/** the JFA flood pass's I/O: the seed field it reads (ping-ponged per pass) and this pass's jump step. The
- *  step is a bare `f32` uniform — the pre-port wrapped it in a one-field `Step` struct only because a raw
- *  layout entry needed a `minBindingSize`; a typed layout takes the scalar directly. `step` collides with the
- *  WGSL builtin, so it emits as `step_1` under strict naming — inert while nothing splices this pass by name,
- *  but rename the key before making it relocatable.
- *  @internal */
+/** Ping-ponged seed field and jump step.
+ * `step` collides with the WGSL builtin, so it emits as `step_1` under strict naming;
+ * rename the key before making this pass relocatable. @internal */
 export const jfaLayout = tgpu.bindGroupLayout({
     seed: { texture: d.texture2d(d.u32), visibility: ["fragment"] },
     step: { uniform: d.f32, visibility: ["fragment"] },
@@ -226,8 +212,8 @@ export const jfaFs = tgpu.fragmentFn({
  * alpha 0, the object keeps its color), the outer `1 - smoothstep(width-1,width,d)` fades it out at the band
  * edge — uniform width, antialiased. The seed's color/width come from the attr texture at the resolved seed
  * coordinate. `mix(scene, band, alpha)` is straight (non-premultiplied) alpha `over`, in linear scene space
- * (the offscreen + scratch are linear HDR) — the analytic twin of the old hardware ALPHA_BLEND. It writes
- * *every* pixel (scene-through where there's no band) because the ping-pong target is a separate texture, so
+ * (the offscreen + scratch are linear HDR). It writes
+ * every pixel (scene-through where there's no band) because the ping-pong target is a separate texture, so
  * there's no in-place `discard`; tonemapping reads the result.
  * @internal
  */

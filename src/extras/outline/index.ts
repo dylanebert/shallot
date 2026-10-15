@@ -1,29 +1,5 @@
 import { component } from "../../engine";
-// Outline — the drop-in screen-space highlight. Add the `Outline` component to a MeshInstance entity and a
-// uniform-width band hugs its silhouette: hover/select feedback, the player's grab highlight. The
-// technique is mask → jump-flood distance field → threshold (Ben Golus, "The Quest for Very Wide
-// Outlines"), NOT an inverted hull (stylistic, non-uniform width). Cost
-// scales with the highlighted-object count + screen × log(width), never with scene geometry — only the
-// highlighted entities draw into a small coverage mask, and the JFA pass count is bounded by the band
-// width, not the screen.
-//
-// Three passes per camera, single-sample at framebuffer resolution — two render, then one compute:
-//   1. mask — draw only the `Outline` entities (a scoped instanced draw, grouped by mesh) into a seed
-//      texture (each covered pixel seeds its own coordinate) + an attribute texture (per-entity color +
-//      width). Always-on-top by default; `Outline.occlude` depth-tests against core's `view.depth` lane
-//      so an occluded object's outline hides. The plugin requests the lane only while an occluding outline exists.
-//   2. JFA — ping-pong fullscreen passes (`jfaPassCount(maxWidth)` of them) that flood the nearest seed
-//      coordinate outward, producing a distance field within `width` pixels of every silhouette.
-//   3. composite — one fullscreen **compute** dispatch through the `sceneTransform` seam: reads the
-//      resolved scene (format-agnostic — the offscreen, or the fog scratch), the JFA distance field, and
-//      the seed's color/width, blends the band over the scene in linear, and writes the rgba16float scratch.
-//
-// Runs in the post-color seam, ordered `after: [MainPassSystem, OverlaySystem]` (an overlay — on top of any
-// scene-transform effect like fog) `before: [TonemappingSystem]`. The
-// composite goes through `sceneTransform` (a compute pass) rather than a render pass into
-// `view.framebuffer`, so it never assumes the framebuffer's format/usage — a fog scratch is rgba16float
-// storage, not a render attachment — which is what let the two effects collide. Both anchor refs drop
-// harmlessly when their plugin isn't registered. Targets the standard rendering path and requests core's shared depth lane.
+// Jump-flood outlines: Ben Golus, "The Quest for Very Wide Outlines".
 
 import type { TgpuBuffer, TgpuComputePipeline, TgpuRenderPipeline, UniformFlag } from "typegpu";
 import * as d from "typegpu/data";
@@ -84,7 +60,7 @@ import {
 export const Outline = component(
     "Outline",
     {
-        /** band color, linear rgb (alpha unused in v1) */
+        /** band color, linear rgb (alpha unused) */
         color: vec4,
         /** band thickness in pixels, clamped to 64 */
         width: f32,
@@ -103,12 +79,7 @@ export const Outline = component(
 const OUTLINE_MESH_QUERY = [Outline, MeshInstance];
 const OUTLINE_CAMERA_QUERY = [Camera];
 
-// the seed texture stores the nearest covered-pixel coordinate as an INTEGER pixel index — uint, not
-// f16: pixel-center fractions (x + 0.5) stop being f16-representable at 1024, which broke the
-// interior's d == 0 test (every covered pixel right of screen x 1024 read d = 0.5 to its own seed →
-// a half-alpha wash over the object). Integer indices are exact to 65535 and shift every coordinate
-// uniformly by the same half-pixel, so distances are unchanged. The attr texture stores per-seed
-// color (rgb) + width (a), read once at composite via the resolved seed coord
+// Integer pixel indices avoid half-float rounding of pixel centers, which would tint silhouette interiors.
 const SEED_FORMAT: GPUTextureFormat = "rg16uint";
 const ATTR_FORMAT: GPUTextureFormat = "rgba16float";
 // the "no seed" sentinel the seed textures clear to: a coordinate far off-screen, so any real seed wins
@@ -125,9 +96,7 @@ type StepBuffer = TgpuBuffer<typeof d.f32> & UniformFlag;
 
 type MaskTargets = { seed: d.Vec4u; attr: d.Vec4f };
 
-// per-camera screen-space targets: two ping-pong seed textures + the static attr texture, sized to the
-// view and recreated on resize (standard's _laneTargets pattern), with the pass descriptors and JFA bind
-// groups that read them. Keyed by camera eid so multi-view never shares one set
+// Camera-eid keys keep views' targets independent; resizing recreates them.
 interface Targets {
     seeds: [GPUTexture, GPUTexture];
     seedViews: [GPUTextureView, GPUTextureView];
@@ -207,8 +176,7 @@ function targets(world: World, eid: number, w: number, h: number): Targets {
     return entry;
 }
 
-// per-camera composite bind group, cached on the sceneTransform read + write + the attr view (mirroring
-// fog's per-view cache); the seed it reads is fixed per target set
+// The seed view is fixed per target set; the other texture identities invalidate this cache.
 type CompositeEntry = {
     read: GPUTextureView;
     write: GPUTextureView;
@@ -435,7 +403,6 @@ function renderOutline(
     // the ladder's first slot; the mask seeds the texture that slot reads
     const offset = MAX_JFA_PASSES - passes;
 
-    // 1. mask — the scoped instanced draw, grouped by mesh, into seed + attr (MRT, no depth attachment)
     const maskDescriptor = t.mask[offset % 2];
     maskDescriptor.timestampWrites = world.gpu.span?.("outline:mask");
     const mask = beginRenderPass(encoder, maskDescriptor);
@@ -472,10 +439,7 @@ function renderOutline(
         endRenderPass(pass);
     }
 
-    // 3. composite — blend the band over the resolved scene through the sceneTransform seam. A compute pass
-    // reads the scene format-agnostically (offscreen, or fog's scratch) + the
-    // JFA field, writes the rgba16float scratch, repoints `view.framebuffer`. `sceneTransform` is called here,
-    // last — the caller's early-outs already ran, so the framebuffer is never repointed at an unwritten scratch
+    // Call sceneTransform after early returns: it repoints the framebuffer to the scratch we must write.
     const { read, write } = sceneTransform(world, view, camEid);
     t.composite.timestampWrites = world.gpu.span?.("outline:composite");
     const composite = beginComputePass(encoder, t.composite);
@@ -489,11 +453,6 @@ function renderOutline(
     endComputePass(composite);
 }
 
-/**
- * draw every camera's outline, after the scene color is resolved. Collects the highlighted MeshInstance entities,
- * groups them by mesh into one instance buffer, then runs mask → JFA → composite per camera. Nothing
- * highlighted → returns before any GPU pass (zero cost on the bare path)
- */
 const OutlineSystem: System = {
     name: "outline",
     group: "draw",
@@ -605,12 +564,8 @@ function releaseTargets(world: World): void {
 function prepareOutline(world: World): void {
     const _outlineState = world.resource(outlineStateKey);
 
-    // the JFA + composite layouts are the `jfaLayout` / `compositeLayout` in passes.ts — declared
-    // beside the kernels that read them, bound by layout object, never by group index. Only the per-pass
-    // step uniforms are this module's: one buffer per ladder slot, written once here, since a queued write lands
-    // before the submit and one rewritten uniform would clobber every pass with the last step. Rebuilt (not
-    // reused) so a re-warm on a fresh device can't hold a buffer from the old one; the prior set and the
-    // targets whose bind groups read it are freed rather than leaked
+    // Queue writes precede submission, so each ladder slot needs a distinct step buffer.
+    // Recreate buffers and dependent targets on warm to avoid retaining the prior device's resources.
     releaseTargets(world);
     for (const s of _outlineState.gpu.steps) s.destroy();
     _outlineState.gpu.steps.length = 0;
@@ -638,9 +593,6 @@ function prepareOutline(world: World): void {
     _outlineState.gpu.composite = world.gpu.root
         .createComputePipeline({ compute: compositeKernel })
         .$name("outline-composite");
-    // the two mask variants: same vs/fs shape over the plain / occlude layout (`maskVertex`/`maskFragment`
-    // re-emit per layout), splicing the TGSL `decodePos` /
-    // `xformPoint` real references (the resolve-call-graph precedent — no chunk splice needed)
     _outlineState.gpu.maskPlain = world.gpu.root
         .createRenderPipeline({
             vertex: maskVertex(maskLayoutPlain),
