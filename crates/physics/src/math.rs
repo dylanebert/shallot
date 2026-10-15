@@ -16,7 +16,6 @@ pub const HUGE: f32 = 1.0e5 * LENGTH_UNITS_PER_METER;
 
 const TWO_PI: f32 = 2.0 * PI;
 
-
 #[inline]
 pub fn absf(a: f32) -> f32 {
     if a < 0.0 {
@@ -55,7 +54,6 @@ pub fn clampf(a: f32, lo: f32, hi: f32) -> f32 {
         a
     }
 }
-
 
 // Reducing modulo two periods retains the even-quotient tie rule without forming a
 // rounded large quotient. The bounded subtractions are exact for f32 operands in f64.
@@ -166,7 +164,6 @@ pub fn compute_cos_sin(radians: f32) -> CosSin {
         sine: s * inv_mag,
     }
 }
-
 
 // repr(C) permits hull point pools in WASM memory to be reinterpreted as &[Vec3].
 #[repr(C)]
@@ -327,7 +324,6 @@ pub fn arbitrary_perp(v: Vec3) -> Vec3 {
     p.normalize()
 }
 
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Vec2 {
@@ -358,7 +354,6 @@ impl Vec2 {
         self.x * o.x + self.y * o.y
     }
 }
-
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -596,7 +591,6 @@ pub fn make_quat_from_matrix(m: &Mat3) -> Quat {
     q.normalize()
 }
 
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mat3 {
@@ -733,7 +727,6 @@ impl Mat3 {
     }
 }
 
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mat2 {
@@ -787,7 +780,6 @@ impl Mat2 {
     }
 }
 
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transform {
@@ -830,7 +822,6 @@ impl Transform {
     }
 }
 
-
 // repr(C) so a hull's plane pool in wasm linear memory reinterprets as `&[Plane]` (kernel/src/hull.rs).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -870,7 +861,6 @@ impl Plane {
         }
     }
 }
-
 
 /// Normalize `a` and return its length; zero vector if `a` is tiny (b3GetLengthAndNormalize).
 pub fn get_length_and_normalize(a: Vec3) -> (Vec3, f32) {

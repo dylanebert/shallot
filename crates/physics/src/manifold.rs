@@ -174,7 +174,6 @@ impl ClipVertex {
     };
 }
 
-
 /// b3MakeFeaturePair — pack two features into a pair (each index truncated to uint8).
 fn make_feature_pair(owner1: u8, index1: u8, owner2: u8, index2: u8) -> FeaturePair {
     FeaturePair {
@@ -325,7 +324,6 @@ pub(crate) fn clip_polygon(
     n
 }
 
-
 fn is_minkowski_face(a: Vec3, b: Vec3, bxa: Vec3, c: Vec3, d: Vec3, dxc: Vec3) -> bool {
     let cba = c.dot(bxa);
     let dba = d.dot(bxa);
@@ -404,7 +402,6 @@ fn clip_segment_to_hull_face(
 
     2
 }
-
 
 fn query_face_direction_hull_and_capsule(
     hull: &HullData,
@@ -625,7 +622,6 @@ fn reduce_manifold_points(
         manifold.point_count += 1;
     }
 }
-
 
 /// b3CollideSpheres — one-point manifold for two spheres, in frame A.
 pub fn collide_spheres(
@@ -971,7 +967,6 @@ pub fn collide_capsules(
     pt.pair = FeaturePair::SINGLE;
 }
 
-
 fn build_hull_face_and_capsule_contact(
     manifold: &mut LocalManifold,
     hull_a: &HullData,
@@ -1226,7 +1221,6 @@ pub fn collide_hull_and_capsule(
         );
     }
 }
-
 
 /// b3BuildPolygon — the incident face of `hull` transformed into frame A as a clip polygon, written into
 /// `out` (at least `MAX_CLIP_POINTS` slots); returns its length.

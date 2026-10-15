@@ -75,7 +75,6 @@ pub struct ContactConstraint {
     pub manifold_count: i32,
 }
 
-
 // SAFETY: referenced manifolds belong to this constraint; graph coloring separates body writes,
 // and contact flag writes use atomics. All referenced storage stays put until workers join.
 unsafe impl Send for ContactConstraint {}
@@ -103,7 +102,6 @@ pub struct Columns<'a> {
     pub cc: Col<'a, ContactConstraint>,
     pub mc: Col<'a, ManifoldConstraint>,
 }
-
 
 pub fn prepare(
     cols: &Columns,
@@ -273,7 +271,6 @@ pub fn prepare(
     }
 }
 
-
 /// Seed body velocities from the prior step's impulses (b3WarmStartContacts_Mesh). Reads the
 /// transient constraints; mutates the velocity fields of the state column (dynamic bodies only).
 pub fn warm_start(cols: &Columns, start: usize, count: usize) {
@@ -344,7 +341,6 @@ pub fn warm_start(cols: &Columns, start: usize, count: usize) {
         }
     }
 }
-
 
 /// Run one solve (bias) or relax (no bias) pass over the contacts (b3SolveContacts_Mesh). Mutates
 /// the accumulated impulses in the transient columns and the body velocities (dynamic bodies only).
@@ -518,7 +514,6 @@ pub fn solve(
     }
 }
 
-
 /// Apply restitution bounce to approaching contacts (b3ApplyRestitution_Mesh). Mutates the point
 /// normal impulses and the body velocities (dynamic bodies only).
 pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
@@ -585,7 +580,6 @@ pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
         }
     }
 }
-
 
 /// Write the solved impulses back into the persistent manifold pool and mark hit events
 /// (b3StoreImpulses_Mesh). The pool records are the persistent warm-start state the next step reads;

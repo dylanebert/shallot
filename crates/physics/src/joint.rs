@@ -124,7 +124,6 @@ fn write_angular_velocity(state_col: Col<f32>, index: u32, w: Vec3) {
     state_col.set(o + 5, w.z);
 }
 
-
 /// b3PrepareJoint.
 pub fn prepare(
     joints: Col<f32>,
@@ -374,7 +373,6 @@ pub(crate) fn reaction(
     (linear * inv_h, angular * inv_h)
 }
 
-
 #[inline]
 fn read_softness(joints: Col<f32>, slot: usize, field: usize) -> Softness {
     Softness {
@@ -390,7 +388,6 @@ fn write_softness(joints: Col<f32>, slot: usize, field: usize, s: Softness) {
     set(joints, slot, field + 1, s.mass_scale);
     set(joints, slot, field + 2, s.impulse_scale);
 }
-
 
 /// b3PrepareDistanceJoint (`src/distanceJoint.ts` `prepareDistanceJoint`). The two sim indices +
 /// invMass/invInertia are cached by base prepare; the body-column pose feeds the anchors.
@@ -699,7 +696,6 @@ fn solve_distance(
     }
 }
 
-
 /// b3PrepareWeldJoint (`src/weldJoint.ts` `prepareWeldJoint`). Frames are world-space relative to each
 /// COM; a zero linear/angular hertz falls the corresponding spring back to the base constraint softness.
 fn prepare_weld(
@@ -920,7 +916,6 @@ fn solve_weld(
         write_velocity(state_col, base.sim_index_b, v_b, w_b);
     }
 }
-
 
 /// b3PrepareRevoluteJoint (`src/revoluteJoint.ts` `prepareRevoluteJoint`). The hinge axis is body A's
 /// local z; the perp axes are the warm-start collinearity basis.
@@ -1289,7 +1284,6 @@ fn solve_revolute(
     }
 }
 
-
 /// b3PrepareSphericalJoint.
 fn prepare_spherical(
     joints: Col<f32>,
@@ -1650,7 +1644,6 @@ fn solve_spherical(
         write_velocity(state_col, base.sim_index_b, v_b, w_b);
     }
 }
-
 
 /// b3PreparePrismaticJoint (`src/prismaticJoint.ts`). The joint axis is body A's local x; perpY/perpZ are
 /// its local y/z. `rotationMass` is always inverted (unlike spherical); the axial effective mass is not
@@ -2060,7 +2053,6 @@ fn solve_prismatic(
         write_velocity(state_col, base.sim_index_b, v_b, w_b);
     }
 }
-
 
 /// The steering constraint axis (twist about body A's x), `b3SolveWheelJoint`'s inline block. Pure f32
 /// dots, so every recompute is bit-identical.
@@ -2725,7 +2717,6 @@ fn solve_wheel(
     }
 }
 
-
 /// K = (1/mA + 1/mB) I − skew(rA) invIA skew(rA) − skew(rB) invIB skew(rB), the point-to-point
 /// effective-mass matrix the motor's linear spring + linear velocity sub-solves share (`linearK`).
 #[inline]
@@ -2992,7 +2983,6 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
         write_velocity(state_col, base.sim_index_b, v_b, w_b);
     }
 }
-
 
 /// The two perpendicular collinearity axes in world space, from the relative rotation `rel_q` of the
 /// two joint frames — half the rotated imaginary parts (`perpAxes` in `src/parallelJoint.ts`).

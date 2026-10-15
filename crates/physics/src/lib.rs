@@ -72,11 +72,11 @@ mod simd;
 #[cfg(target_arch = "wasm32")]
 mod solver_set;
 pub mod stages;
+pub mod table;
 mod task_memory;
 mod toi;
-pub mod triangle_manifold;
-pub mod table;
 pub mod tree;
+pub mod triangle_manifold;
 pub mod wide;
 
 /// In a checked build (`build-kernel.ts --checked`), a panic hands its message to the host before the
@@ -162,8 +162,8 @@ mod shape_lifecycle;
 #[cfg(target_arch = "wasm32")]
 mod shapes;
 #[cfg(target_arch = "wasm32")]
+mod solve;
+#[cfg(target_arch = "wasm32")]
 mod treework;
 #[cfg(target_arch = "wasm32")]
 mod world_query;
-#[cfg(target_arch = "wasm32")]
-mod solve;

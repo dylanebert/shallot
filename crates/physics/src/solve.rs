@@ -298,7 +298,6 @@ impl StageWork for Work {
         unsafe { arena::finish_hit_events(self.world, 0, has_hits) };
     }
 
-
     fn prepare_joints(&self, b: Block) {
         let mut color = 0;
         let mut index = b.start;

@@ -98,7 +98,6 @@ const P_REL_VEL: usize = 44;
 
 pub const WIDE_STRIDE: usize = size_of::<ContactConstraintWide>() / 4;
 
-
 #[inline]
 fn ld(col: Col<f32>, o: usize) -> FloatW {
     FloatW::set(col.get(o), col.get(o + 1), col.get(o + 2), col.get(o + 3))
@@ -285,7 +284,6 @@ fn scatter_scalar(
     scatter_lane(3);
 }
 
-
 #[cfg(not(target_arch = "wasm32"))]
 #[inline]
 fn fw(a: [f32; 4]) -> FloatW {
@@ -404,7 +402,6 @@ fn scatter(
 ) {
     scatter_scalar(state, flags, idx, io, v, w);
 }
-
 
 /// 4×4 f32 transpose (unpcklps/unpckhps + movlhps/movhlps decomposition).
 #[cfg(target_arch = "wasm32")]
@@ -545,7 +542,6 @@ fn scatter(
     let _ = ident;
     scatter_scalar(state, flags, idx, io, v, w);
 }
-
 
 /// Build the wide constraints for the records in `[start, start+count)` (b3PrepareContacts_Convex).
 /// Gathers each active lane's convex contact (one manifold) through its contactId → the persistent
@@ -729,7 +725,6 @@ pub fn prepare(
     }
 }
 
-
 /// Seed body velocities from the warm-start impulses (b3WarmStartContacts_Convex) for records
 /// `[start, start+count)`.
 pub fn warm_start(
@@ -805,7 +800,6 @@ pub fn warm_start(
         scatter(state, flags, idx, io + LANES, &bb_v, &bb_w, ident);
     }
 }
-
 
 /// One TGS solve/relax pass over records `[start, start+count)` (b3SolveContacts_Convex). `use_bias`
 /// selects the biased solve (position drift removal, friction skipped) vs the relax pass (no bias,
@@ -989,7 +983,6 @@ pub fn solve(
     }
 }
 
-
 /// Apply restitution bounce over records `[start, start+count)` (b3ApplyRestitution_Convex).
 #[allow(clippy::too_many_arguments)]
 pub fn restitution(
@@ -1066,7 +1059,6 @@ pub fn restitution(
         scatter(state, flags, idx, io + LANES, &bb.v, &bb.w, ident);
     }
 }
-
 
 /// Write solved impulses back into the pool manifolds and flag hit events (b3StoreImpulses_Convex)
 /// for records `[start, start+count)`. Each lane's contactId (from `meta`) resolves to its manifold

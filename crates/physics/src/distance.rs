@@ -133,7 +133,6 @@ pub fn get_point_support(points: &[Vec3], count: usize, axis: Vec3) -> usize {
     max_index
 }
 
-
 fn barycentric_edge(a: Vec3, b: Vec3) -> [f32; 3] {
     let ab = b.sub(a);
     let divisor = ab.dot(ab);
@@ -171,7 +170,6 @@ fn barycentric_tet(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> [f32; 5] {
     ]
 }
 
-
 fn get_metric(simplex: &Simplex) -> f32 {
     let vs = &simplex.vertices;
     match simplex.count {
@@ -201,7 +199,6 @@ fn write_cache(cache: &mut SimplexCache, simplex: &Simplex) {
         cache.index_b[index] = simplex.vertices[index].index_b as u8;
     }
 }
-
 
 fn solve_simplex2(simplex: &mut Simplex) -> bool {
     let vs = &mut simplex.vertices;
@@ -639,7 +636,6 @@ pub fn shape_cast(input: &ShapeCastPairInput) -> CastOutput {
     }
     output
 }
-
 
 /// Closest points between two convex proxies via GJK (b3ShapeDistance).
 ///

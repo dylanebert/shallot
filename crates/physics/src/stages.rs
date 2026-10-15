@@ -215,7 +215,6 @@ pub trait StageWork: Sync {
     fn solve_overflow_joints(&self, _use_bias: bool) {}
 }
 
-
 /// Blocks per worker, so a worker that finishes early can steal without unbounded per-block sync overhead.
 const BLOCKS_PER_WORKER: usize = 4;
 /// Minimum bodies per body block (box3d `minBodiesPerBlock`).
@@ -338,7 +337,6 @@ pub fn sizes(plan: &Plan) -> Sizes {
         blocks: d.body.count + d.wide.count + d.mesh.count + d.joint.count + d.graph_block_count,
     }
 }
-
 
 /// Stage descriptors and block ranges stay fixed until every worker has joined.
 pub struct Context<'a> {
@@ -624,7 +622,6 @@ pub fn build<'a>(
     }
 }
 
-
 /// b3ExecuteBlock: stage type + block type → phase.
 fn execute_block<W: StageWork>(work: &W, ty: StageType, block: Block, worker_index: usize) {
     match ty {
@@ -794,7 +791,6 @@ fn orchestrate<W: StageWork>(ctx: &Context, work: &W) {
     let _ = walk(ctx, work);
 
     ctx.sync_bits.0.store(FINISH, Ordering::SeqCst);
-
 }
 
 /// The stage list, in order. `None` if a worker faulted partway.
