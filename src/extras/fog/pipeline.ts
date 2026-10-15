@@ -1,16 +1,3 @@
-// The fog march's pipeline: the two bind-group layouts (group 0 — the per-camera scene/depth/output
-// + the ViewUniforms/Fog uniforms; group 1 — the camera-independent light + shadow service) and the compute kernel
-// over them. The march primitives themselves (`fogDensity`, the in-scatter terms) are
-// pure TGSL fns in `./march`, spliced by this pipeline.
-//
-// Six of the ten group-1 bindings (`pointAtlas`/`shadowSamp`/`pointShadows`/`tileRects` for the point path,
-// `shadowMap`/`sunShadow` for the sun path) are read only inside standard's relocatable shadow receivers
-// (`pointShadowOf` / `sampleSunShadow`, `standard`), which are WGSL-bodied and read those six as free
-// names — a real-reference call into them reaches `tgpu.resolve`'s call graph (the call itself is tracked),
-// but the free names inside their bodies are not (the same forcing-touch pattern the AVBD solver's `hullData` uses), so
-// nothing here would otherwise force their WGSL declarations. `fogKernel` below forces them into scope with
-// a read folded into the real, already-live `t` accumulator — a separately discarded local risks the
-// JS→WGSL transpiler pruning it as dead, so the fold must feed a value that's genuinely written to `output`.
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -72,10 +59,7 @@ export const fogLayout0Multisampled = tgpu
     })
     .$idx(0);
 
-// group 1's caster-cap-sized uniforms are built once here (a schema instance is exactly one WGSL struct
-// declaration per resolve, and this pipeline's resolve is independent of standard's own raw one — `chunk()`'s
-// duplicate-name suffixing only matters *within* one resolve, so a second `PointCasters`/`TileRects`
-// instance here doesn't collide with standard's).
+// Schema instances are scoped to this resolve, independent of standard's declarations.
 const _pointCastersGpu = pointCastersSchema();
 const _tileRectsGpu = tileRectsSchema(MAX_POINT_CASTERS * 6);
 
@@ -95,10 +79,7 @@ export const fogLayout1 = tgpu
     })
     .$idx(1);
 
-// `pointShadowRef()` is a plain host-side getter (its factory memoizes one instance for every
-// consumer, `standard/shade.ts`), not itself a TGSL value — calling it *inside* the kernel body
-// reads as an untranspiled function to the resolver ("not marked with 'use gpu'"). Resolve it once here,
-// in ordinary module-scope JS, so the kernel body below closes over the real `tgpu.fn` value directly.
+// Resolve the host-side getter outside TGSL so the kernel captures a transpileable tgpu.fn.
 const pointShadowOf = pointShadowRef();
 
 const loadDepth = tgpu.fn(
@@ -209,9 +190,7 @@ function createFogKernel(
                                 fogLayout1.$.pointLights.indices[entry.x + j]
                             ],
                         );
-                        // params.x < 0 is the VolumetricLight flag; a plain light has no shaft (skip it) — the for-loop
-                        // `continue` becomes an early increment + `continue` under the dynamic-bound `while` shape
-                        // (the "loop{} emits as while(true)" class), never a reassociation
+                        // Negative params.x marks VolumetricLight.
                         if (light.params.x >= 0) {
                             j = j + 1;
                             continue;
@@ -267,9 +246,7 @@ function createFogKernel(
                         }
                         k = k + 1;
                     }
-                    // (trans·albedo·gain) is one scalar product that scales lstep, and the result is scaled again
-                    // by (1−sampleTrans) as a separate step — matching the shipped shader's left-to-right f32
-                    // rounding; folding (1−sampleTrans) into the leading scalar chain shifts the last bits
+                    // Keep the separate vector scales: reassociation changes f32 rounding.
                     inScatter = d.vec3f(
                         std.add(
                             inScatter,
@@ -280,10 +257,8 @@ function createFogKernel(
                     i = i + 1;
                 }
 
-                // force the six shadow-only bindings into scope: `pointShadowRef()`/`sampleSunShadow`'s own bodies
-                // read `pointAtlas`/`shadowSamp`/`pointShadows`/`tileRects`/`shadowMap`/`sunShadow` as free names,
-                // invisible to the call-graph walk from here — folded (times zero) into the live `t` below rather
-                // than a discarded local, so the JS→WGSL transpiler can't drop it as dead
+                // Shadow receivers use free binding names invisible to the call-graph walk.
+                // Feed these reads into the output so transpilation retains their declarations.
                 const forcedZero =
                     (fogLayout1.$.pointShadows.casters[0].pos.x +
                         fogLayout1.$.tileRects.rects[0].x +

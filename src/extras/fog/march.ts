@@ -1,5 +1,3 @@
-// The fog raymarch primitives: TGSL functions the fog kernel (`./pipeline`) calls for extinction (uniform
-// haze + exponential height fog, Beer-Lambert per step) and in-scatter from volumetric lights.
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -8,10 +6,7 @@ import { distanceAttenuation, PointLightGpu, spotFactor } from "../../standard/r
 /** Compute workgroup tile: 8×8 = 64 threads. */
 export const WORKGROUP = 8;
 
-/** the march's constant loop cap. DXC chokes on a fully-dynamic loop bound, so the marched loop runs to this
- * compile-time constant and `break`s at the runtime `steps`;
- * a captured JS constant folds to a literal in the emitted WGSL. `packFog` clamps `Fog.steps` to it,
- * so a clamped step count integrates the full ray at the cap resolution, never a silent under-integration. */
+/** DXC chokes on a fully-dynamic loop bound. packFog clamps the runtime step count to this cap. */
 export const FOG_MAX_STEPS = 256;
 
 // a captured constant folds to a literal in the emitted WGSL, so this is the shader's PI too
@@ -29,8 +24,7 @@ export const FogGpu = d
         march: d.vec4f,
         extra: d.vec4f,
     })
-    // the emitted struct is `Fog` (what every splice site declares its binding as); the TS name carries the
-    // `Gpu` suffix so it doesn't collide with the `Fog` component, the `PointLight` / `PointLightGpu` shape
+    // Splice sites declare their binding with the emitted name Fog.
     .$name("Fog");
 
 /** the `Fog` uniform's f32 count: the length of `packFog`'s staging array. */
@@ -50,8 +44,6 @@ export const FOG_PARAMS = {
     march: at(FogGpu, (f) => f.march),
     extra: at(FogGpu, (f) => f.extra),
 } as const;
-
-// ---- extinction: density, the haze composite and the per-pixel ray setup ----
 
 /** exponential height fog's density at a world point: `density · exp(-falloff · (p.y - base))`. Height-only,
  *  so the x/z lanes are unread — the point is the parameter because the in-scatter loop already has one. */
@@ -74,8 +66,7 @@ export const fogComposite = tgpu.fn(
 
 /**
  * reconstruct a fragment's world position from its screen `uv` (0..1, y-down) + ndc `depth` (0..1) through
- * the camera's inverse view-projection. The matrix is a parameter, not a `view` global, so the function
- * stays pure; the production march calls it with `view.invViewProj`.
+ * the camera's inverse view-projection.
  */
 export const reconstructWorld = tgpu.fn(
     [d.mat4x4f, d.vec2f, d.f32],
@@ -96,8 +87,6 @@ export const ign = tgpu.fn(
     "use gpu";
     return std.fract(52.9829189 * std.fract(std.dot(p, d.vec2f(0.06711056, 0.00583715))));
 });
-
-// ---- in-scatter (clustered lights + directionals) ----
 
 /** the Henyey-Greenstein single-scatter phase function. `g` in [-1,1]: 0 isotropic (1/4π), →1 forward-peaked
  *  (a bright halo toward a light), →-1 back-scatter. `cosTheta` is the cosine between the view ray and the

@@ -1,14 +1,3 @@
-// Fog — opt-in volumetric atmosphere. A compute pass marches each pixel camera→scene-depth, fusing
-// **extinction** (uniform haze + exponential height fog, fading the scene toward the haze color) with
-// **in-scatter** — every point, spot or directional light carrying `VolumetricLight`: point/spot sources use
-// standard's point atlas, and only the selected directional shadow caster uses the directional atlas; other
-// enabled directionals scatter unshadowed. Occluders still cast dark shafts for shadowed sources.
-// It runs through the `sceneTransform` seam after the main pass and before tonemapping.
-// A scene opts in with one `Fog` singleton; the plugin requests core's shared depth lane for each standard camera
-// unless it carries `NoFog`. The march primitives + the Fog
-// uniform schema live in `./march`; the pipeline (the two bind-group layouts + the compute kernel
-// calling them) lives in `./pipeline`, the uniform pack in `./pack`. This file is the ECS/system/plugin
-// half: the components and the per-camera dispatch.
 import type { TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import {
     Camera,
@@ -137,10 +126,7 @@ const createFogState = (): FogState => ({
 });
 const fogState = (world: World) => world.resource(fogStateKey);
 
-// the camera-independent light + shadow service group (group 1), cached on the identities of the resources
-// it binds. The cull already binned every shading view this frame, so one group serves all cameras; standard's
-// shadow resources can flip identity (the atlas allocates lazily, the sun map toggles with a casting frame),
-// so rebuild only when one changes — standard's `shadowGroup` idiom, not a per-frame allocation
+// One light group serves all cameras. Shadow resources can change identity, invalidating the cache.
 function fogLights(world: World): GPUBindGroup {
     const _lightCull = world.resource(LightCull);
     const _lighting = world.resource(Lighting);
@@ -214,7 +200,6 @@ const FogSystem: System = {
         if (fogEid < 0) return;
         packFog(world, fogEid, fogState(world).staging);
         _fogState.fog.buffer.write(fogState(world).staging.buffer as ArrayBuffer);
-        // a null resource is a wiring bug, not a frame to skip (gpu firehose rule) — fogLights asserts them
         const lights = fogLights(world);
         for (const eid of world.query(FOG_CAMERA_QUERY)) {
             if (world.has(eid, NoFog)) continue;
@@ -225,8 +210,6 @@ const FogSystem: System = {
                 ? _fogState.fog.multisampledPipeline
                 : _fogState.fog.pipeline;
             const { read, write } = sceneTransform(world, view, eid);
-            // per-camera group 0, cached per eid on the `sceneTransform` read + write and the depth view (all
-            // three reallocate only on a resize) and the view slot (the per-slot ViewUniforms buffer it binds)
             let cam = fogState(world).views.get(eid);
             if (
                 !cam ||

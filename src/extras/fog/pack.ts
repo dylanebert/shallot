@@ -3,11 +3,8 @@ import { unpackColorInto } from "../../engine";
 import { Fog } from "./index";
 import { FOG_MAX_STEPS, FOG_PARAMS } from "./march";
 
-/** pack a `Fog` singleton entity into its uniform (the `FogGpu` schema's layout, `./march`). `steps` clamps
- * to `[1, FOG_MAX_STEPS]` so the GPU loop integrates the full ray at the cap resolution. `extra` carries the
- * scattering knobs for the S2 in-scatter march: `(steps, anisotropy g, absorption, gain)`. Gain includes a
- * `1/π` calibration that reverses the surface-light conversion for volumetric sources, preserving the former
- * shaft response without folding that factor into the Henyey–Greenstein phase. */
+/** Packs into caller-owned storage using FogGpu's layout; clamps steps to the GPU loop's range.
+ * Gain reverses the surface-light conversion for volumetric sources, outside the phase function. */
 export function packFog(world: World, eid: number, out: Float32Array): void {
     out.fill(0);
     unpackColorInto(world.storage(Fog).color.get(eid), out, FOG_PARAMS.color);
