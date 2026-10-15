@@ -302,7 +302,7 @@ function projectAgents(): string {
 `;
 }
 
-/** Create a project from an installed example; project metadata has one producer here, not in templates. */
+/** Copies an installed example and generates project metadata. */
 export function runCreate(args: string[], e: Env = env()): number {
     if (args.some((arg) => arg === "--help" || arg === "-h")) {
         console.log(CREATE_USAGE);
