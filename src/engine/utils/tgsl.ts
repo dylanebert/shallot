@@ -7,22 +7,17 @@ import { isBeingTranspiled } from "typegpu/std";
 //
 // Two shapes, and the choice is forced by whether the leaf can run on the CPU:
 //
-//   1. **Dual.** `isBeingTranspiled() ? <raw leaf>(args) : <plain JS>` — a ternary, never an `if`. The
-//      condition folds at shader-gen time and ONLY the taken arm is transpiled, so the CPU arm may use
-//      anything JS (`Math.round`, `&`, `<<`), and the GPU arm emits the native intrinsic. An `if`
-//      statement does not fold: both arms are transpiled (the untaken one then fails on the first
-//      non-TGSL expression) and the emitted WGSL carries dead code after the `return`.
+//   1. **Dual.** `isBeingTranspiled() ? <raw leaf>(args) : <plain JS>` — the condition folds at
+//      shader-gen time and ONLY the taken arm is transpiled, so the CPU arm may use anything JS
+//      (`Math.round`, `&`, `<<`), and the GPU arm emits the native intrinsic.
 //   2. **GPU-only.** A `tgpu.fn` whose implementation is a WGSL string. Not callable on the CPU (typegpu
 //      throws), which is correct for a construct with no CPU meaning — a workgroup pointer, an atomic.
 //
 // The raw arms are named `*Wgsl` and stay module-private: both they and their dual wrapper are emitted
 // into the resolved WGSL, and the wrapper owns the public name.
 //
-// Four of these are upstream-PR candidates (the 2×16 packs); when typegpu binds them in `typegpu/std`,
-// delete the leaf and import theirs. `typegpu/std`'s own CPU implementations are not automatically
-// trustworthy: `std.pack4x8unorm` truncates instead of rounding and never clamps, so it disagrees with
-// the WGSL intrinsic it names (asserted in tgsl.test.ts) — which is why the 8-bit pack is a leaf here
-// too, rather than a re-export.
+// `typegpu/std` 0.12.6 binds the 2×16 packs, `pack4x8unorm` and `bitcastF32toU32`, rounding and
+// clamping as the intrinsics do; a leaf `typegpu/std` binds can give way to its import.
 
 const packSnorm2x16Wgsl = tgpu.fn(
     [d.vec2f],
@@ -127,10 +122,10 @@ export const unpackUnorm2x16 = tgpu.fn(
 });
 
 /** pack four [0,1] lanes into a `u32` of four unorm8 bytes (lane x → byte 0): WGSL `pack4x8unorm`.
- *  Rounds and clamps, exactly like the intrinsic — unlike `typegpu/std`'s CPU implementation, which
- *  truncates and wraps. Named lane-count-first like its 2×16 siblings, and **not** `pack4x8unorm`: an
- *  authored name that collides with a WGSL builtin resolves to `pack4x8unorm_1` even under strict
- *  naming, so a raw splice site could not call it (asserted in tgsl.test.ts). */
+ *  Rounds and clamps, exactly like the intrinsic. Named lane-count-first like its 2×16 siblings, and
+ *  **not** `pack4x8unorm`: an authored name that collides with a WGSL builtin resolves to
+ *  `pack4x8unorm_1` even under strict naming, so a raw splice site could not call it (asserted in
+ *  tgsl.test.ts). */
 export const packUnorm4x8 = tgpu.fn(
     [d.vec4f],
     d.u32,
