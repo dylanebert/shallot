@@ -2,8 +2,8 @@ import gold from "../../../crates/physics/tests/character.gold.json";
 import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
 import { Time, World } from "../../engine";
 import { Character, CharacterPlugin, characterScratch } from "./character";
-import { quat } from "./common/math";
 import { BodyType, defaultBodyDef } from "./common/types";
+import { quaternion } from "./kernel/math";
 import { physicsState, StandardPhysicsPlugin } from "./runtime";
 import { makeBoxHull } from "./shapes/build-hull";
 import { createHullShape } from "./shapes/shape";
@@ -43,7 +43,7 @@ export async function visitCharacterGold(
                     const body = createBody(state, {
                         ...defaultBodyDef(),
                         position: { x: p[0], y: p[1], z: p[2] },
-                        rotation: quat.fromAxisAngle({ x: 0, y: 0, z: 1 }, angle),
+                        rotation: quaternion.fromAxisAngle({ x: 0, y: 0, z: 1 }, angle),
                         type: dynamic ? BodyType.Dynamic : BodyType.Static,
                         isAwake: awake,
                     });

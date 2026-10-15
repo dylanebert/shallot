@@ -1,5 +1,5 @@
 import type { EntityId } from "../common/ids";
-import type { Pos, Quat, Transform, Vec3 } from "../common/math";
+import type { Pos, Quat, Transform, Vec3 } from "../common/records";
 import { JointField, jointField } from "../kernel/jointrecords";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 import type { Shape as ShapeRecord } from "../shapes/shape";

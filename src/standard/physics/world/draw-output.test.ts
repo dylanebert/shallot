@@ -18,11 +18,11 @@ import {
 } from "../../../core/physics";
 import { createApp, Time } from "../../../engine";
 import { DEFAULT_MASK_BITS } from "../common/constants";
-import type { AABB, WorldTransform } from "../common/math";
-import { quat } from "../common/math";
+import type { AABB, WorldTransform } from "../common/records";
 import { defaultSurfaceMaterial } from "../common/types";
 import { drawPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from "../index";
 import { kernel } from "../kernel/kernel";
+import { quaternion } from "../kernel/math";
 import { shapeHullGeometry } from "../marshal-shape";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
@@ -96,7 +96,7 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
             hulls: [
                 {
                     hull: childHull,
-                    transform: { p: { x: 0.5, y: 1, z: 1.5 }, q: quat.identity() },
+                    transform: { p: { x: 0.5, y: 1, z: 1.5 }, q: quaternion.identity() },
                     material: defaultSurfaceMaterial(),
                 },
             ],
@@ -276,7 +276,7 @@ test("drawPhysics reports the deleted golden's exact stepped ECS joint reactions
             WeldJoint,
             WheelJoint,
         ];
-        const rotation = quat.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4);
+        const rotation = quaternion.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4);
         for (let i = 0; i < joints.length; i++) {
             const anchor = world.create();
             world.add(anchor, Body, { position: [i * 5 - 15, 0, 0, 0] });

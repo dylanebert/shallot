@@ -1,4 +1,4 @@
-import type { Vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
 import type { HullData } from "./hull";
 
 export type HullImage = HullData;

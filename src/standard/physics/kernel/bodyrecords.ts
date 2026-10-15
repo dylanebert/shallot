@@ -1,4 +1,4 @@
-import type { Mat3 } from "../common/math";
+import type { Mat3 } from "../common/records";
 import type { WorldState } from "../world/world";
 
 export const BODY_RECORD_STRIDE = 29;

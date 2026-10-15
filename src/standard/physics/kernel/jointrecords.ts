@@ -1,4 +1,5 @@
-import { f32 } from "../common/math";
+const f32 = Math.fround;
+
 import type { WorldState } from "../world/world";
 import { type Kernel, kernel } from "./kernel";
 

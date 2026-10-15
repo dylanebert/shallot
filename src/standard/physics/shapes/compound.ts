@@ -16,7 +16,7 @@
 // assert; the child instances keep their own geometry references either way.
 
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
-import { type Transform, type Vec3, xf } from "../common/math";
+import type { Transform, Vec3 } from "../common/records";
 import { cloneMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import * as tree from "../kernel/treecolumns";
 import {
@@ -185,7 +185,7 @@ export function getCompoundChild(compound: CompoundData, childIndex: number): Ch
         const c = compound.capsules[index];
         return {
             type: ShapeType.Capsule,
-            transform: xf.identity(),
+            transform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
             materialIndices: [c.materialIndex, 0, 0, 0],
             capsule: c.capsule,
         };
@@ -217,7 +217,7 @@ export function getCompoundChild(compound: CompoundData, childIndex: number): Ch
     const s = compound.spheres[index];
     return {
         type: ShapeType.Sphere,
-        transform: xf.identity(),
+        transform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
         materialIndices: [s.materialIndex, 0, 0, 0],
         sphere: s.sphere,
     };
@@ -267,7 +267,10 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         const materialIndex = getOrInsertMaterial(cd.material);
         const capsule = roundCapsule(cd.capsule);
         capsules.push({ capsule, materialIndex });
-        const box = computeCapsuleAABB(capsule, xf.identity());
+        const box = computeCapsuleAABB(capsule, {
+            p: { x: 0, y: 0, z: 0 },
+            q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+        });
         tree.createProxy(t, box, ALL_BITS_HI, ALL_BITS_LO, childIndex);
         childIndex += 1;
     }
@@ -314,7 +317,10 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         const materialIndex = getOrInsertMaterial(sd.material);
         const sphere = roundSphere(sd.sphere);
         spheres.push({ sphere, materialIndex });
-        const box = computeSphereAABB(sphere, xf.identity());
+        const box = computeSphereAABB(sphere, {
+            p: { x: 0, y: 0, z: 0 },
+            q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+        });
         tree.createProxy(t, box, ALL_BITS_HI, ALL_BITS_LO, childIndex);
         childIndex += 1;
     }

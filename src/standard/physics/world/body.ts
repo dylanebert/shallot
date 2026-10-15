@@ -3,15 +3,10 @@
 import { NULL_INDEX } from "../common/array";
 import { BODY_NAME_LENGTH, SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
-import {
-    f32,
-    type Mat3,
-    mat3,
-    type Pos,
-    type Quat,
-    type Vec3,
-    type WorldTransform,
-} from "../common/math";
+import type { Mat3, Pos, Quat, Vec3, WorldTransform } from "../common/records";
+
+const f32 = Math.fround;
+
 import type { BodyDef, BodyType } from "../common/types";
 import {
     readSimLocalCenter,
@@ -464,6 +459,10 @@ export function getMassData(world: WorldState, body: number): MassData {
     return {
         mass: bodyField(world, body, BodyField.mass),
         center: readSimLocalCenter(world, getBodySim(world, body), { x: 0, y: 0, z: 0 }),
-        inertia: bodyInertia(world, body, mat3.zero()),
+        inertia: bodyInertia(world, body, {
+            cx: { x: 0, y: 0, z: 0 },
+            cy: { x: 0, y: 0, z: 0 },
+            cz: { x: 0, y: 0, z: 0 },
+        }),
     };
 }

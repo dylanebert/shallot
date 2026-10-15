@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { quat } from "../common/math";
 import { BodyType, defaultQueryFilter, type QueryFilter } from "../common/types";
 import { createSphereShape, getSensorData, setShapeFilter } from "../shapes/shape";
 import {
@@ -11,6 +10,7 @@ import {
 } from "../testing";
 import { bodySetAwake, bodySetLinearVelocity, bodySetTransform, destroyBody } from "../world/body";
 import { init } from "./kernel";
+import { quaternion } from "./math";
 import { queryColumns } from "./querycolumns";
 import { SHAPE_STRIDE } from "./shapecolumns";
 import { ShapeFlags, setShapeFlag } from "./shaperecords";
@@ -108,13 +108,13 @@ test("sleeping poses, wake indices and compacted awake indices are visible to th
         const sphere = { center: origin, radius: 0.5 };
         createSphereShape(world, a, testShapeDef(), sphere);
         createSphereShape(world, b, testShapeDef(), sphere);
-        bodySetTransform(world, a, { x: 4, y: 0, z: 0 }, quat.identity());
+        bodySetTransform(world, a, { x: 4, y: 0, z: 0 }, quaternion.identity());
         bodySetAwake(world, a, false);
         expect(rayFraction(world)).toBeCloseTo(0.35, 6);
-        bodySetTransform(world, a, { x: 20, y: 0, z: 0 }, quat.identity());
+        bodySetTransform(world, a, { x: 20, y: 0, z: 0 }, quaternion.identity());
         expect(rayFraction(world)).toBeCloseTo(0.55, 6);
         bodySetAwake(world, a, true);
-        bodySetTransform(world, a, { x: 2, y: 0, z: 0 }, quat.identity());
+        bodySetTransform(world, a, { x: 2, y: 0, z: 0 }, quaternion.identity());
         expect(rayFraction(world)).toBeCloseTo(0.15, 6);
         destroyBody(world, a);
         expect(rayFraction(world)).toBeCloseTo(0.55, 6);

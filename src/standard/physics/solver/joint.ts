@@ -1,6 +1,7 @@
 import { NULL_INDEX } from "../common/array";
+import { FLT_MAX } from "../common/constants";
 import type { EntityId } from "../common/ids";
-import { FLT_MAX, type Transform, type Vec3 } from "../common/math";
+import type { Transform, Vec3 } from "../common/records";
 import { readJointEventUserData, readJointReaction } from "../kernel/jointcolumns";
 import { JointField, jointCapacity, jointField, jointViews } from "../kernel/jointrecords";
 import { kernel } from "../kernel/kernel";

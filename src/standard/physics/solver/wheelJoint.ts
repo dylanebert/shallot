@@ -1,4 +1,7 @@
-import { f32, type Vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
+
+const f32 = Math.fround;
+
 import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";

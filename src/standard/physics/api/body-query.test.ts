@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ShapeProxy } from "../collision/distance";
-import type { Pos, Transform, Vec3 } from "../common/math";
+import type { Pos, Transform, Vec3 } from "../common/records";
 import { defaultQueryFilter } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { setQueryCallback } from "../kernel/kernel";

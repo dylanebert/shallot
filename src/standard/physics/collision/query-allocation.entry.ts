@@ -15,8 +15,8 @@ import {
     overlapShape,
     type PhysicsQueryHit,
 } from "@dylanebert/shallot/standard/physics";
-import { xf } from "../common/math";
 import { defaultQueryFilter, defaultSurfaceMaterial } from "../common/types";
+import { transform } from "../kernel/math";
 import { queryColumns } from "../kernel/querycolumns";
 import { physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/build-hull";
@@ -45,7 +45,9 @@ export default async function create() {
     const entityWorld = entityApp.world;
     const hull = makeBoxHull(1, 0.25, 1);
     const material = defaultSurfaceMaterial();
-    const compound = createCompound({ hulls: [{ hull, transform: xf.identity(), material }] })!;
+    const compound = createCompound({
+        hulls: [{ hull, transform: transform.identity(), material }],
+    })!;
     const capsule = {
         center1: { x: 0, y: -0.5, z: 0 },
         center2: { x: 0, y: 0.5, z: 0 },

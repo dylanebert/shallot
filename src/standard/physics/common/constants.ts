@@ -7,7 +7,8 @@
 // sweep every module's constant at once, and no implementation exercises a non-unit world. So the derived
 // constants below are the final, correct values for the locked scope, not a lesser stopgap.
 
-import { f32 } from "./math";
+const f32 = Math.fround;
+export const FLT_MAX = 3.4028234663852886e38;
 
 /** Length units per meter. Fixed at 1.0 for the port; see the file header. */
 export const LENGTH_UNITS_PER_METER = f32(1.0);

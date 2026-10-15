@@ -1,6 +1,6 @@
 import type { ShapeProxy } from "../collision/distance";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS } from "../common/constants";
-import type { AABB, Pos, Vec3, WorldTransform } from "../common/math";
+import type { AABB, Pos, Vec3, WorldTransform } from "../common/records";
 import type { QueryFilter } from "../common/types";
 import type { WorldState } from "../world/world";
 import { assertQueryWorld, type Kernel, kernel } from "./kernel";

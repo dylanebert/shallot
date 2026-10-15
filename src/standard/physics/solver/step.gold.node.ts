@@ -167,8 +167,10 @@ test("a Shallot physics result diverges from the Box3D reference on any case of 
         // shape_distance_box3d_corpus in crates/physics/tests/distance_gold.rs checks these
         // against the kernel's GJK, which TypeScript does not reach.
         if (item.symbol === "b3ShapeDistance") continue;
-        // math_box3d_corpus in crates/physics/tests/math_gold.rs checks all six math cases.
-        if (["b3Add", "b3Dot", "b3ComputeCosSin"].includes(item.symbol)) continue;
+        // math_box3d_corpus in crates/physics/tests/math_gold.rs checks the six math cases;
+        // point_to_segment_box3d_corpus there checks both point-segment cases.
+        if (["b3Add", "b3Dot", "b3ComputeCosSin", "b3PointToSegmentDistance"].includes(item.symbol))
+            continue;
         const result = compareCase(item, runCommonInput(item));
         if (result.status !== "pass")
             throw new Error(`${item.id}: ${result.firstDifference?.path ?? "mismatch"}`);

@@ -2,7 +2,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../../../scripts/bun-child";
 import { contactCount } from "../collision/contact";
-import type { WorldTransform } from "../common/math";
+import type { WorldTransform } from "../common/records";
 import { type BodyDef, BodyType } from "../common/types";
 import { EventKind, eventCount } from "../kernel/eventbuffers";
 import { init, shutdown, threads } from "../kernel/kernel";

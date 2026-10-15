@@ -1,7 +1,12 @@
 // Direct-state joint behavior checks. Wrapper-specific accessor tests left with the removed handle API;
 // kernel creation, ordering, filtering, solver response and output are exercised over state and IDs.
 import { expect, test } from "bun:test";
-import { f32, froundConfig, quat, type Vec3, vec3 } from "../common/math";
+import { froundConfig } from "../common/config";
+import type { Vec3 } from "../common/records";
+import { quaternion, vector } from "../kernel/math";
+
+const f32 = Math.fround;
+
 import { BodyType, type WorldDef } from "../common/types";
 import { readSimCenter, readStateAngularVelocity } from "../kernel/bodycolumns";
 import { JointField, jointField, setJointField } from "../kernel/jointrecords";
@@ -149,10 +154,10 @@ function position(world: WorldState, body: number) {
 }
 function angularVelocity(world: WorldState, body: number): Vec3 {
     const state = getBodyState(world, body);
-    return state === null ? vec3.zero() : readStateAngularVelocity(world, state, vec3.zero());
+    return state === null ? vector.zero() : readStateAngularVelocity(world, state, vector.zero());
 }
 function rig(def: Partial<WorldDef> = {}) {
-    const world = createTestWorld({ gravity: vec3.zero(), ...def });
+    const world = createTestWorld({ gravity: vector.zero(), ...def });
     const anchor = createTestBody(world);
     const body = createTestBody(world, { type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
     addHull(world, body, makeCubeHull(0.5));
@@ -189,19 +194,19 @@ test("joint generations wrap at sixteen bits in the kernel slot", () => {
 });
 
 test("prismatic speed uses f32 anchors, center offsets and rotating-axis terms", () => {
-    const world = createTestWorld({ gravity: vec3.zero() });
+    const world = createTestWorld({ gravity: vector.zero() });
     try {
         const a = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 1.2, y: 2.3, z: 3.4 },
-            rotation: quat.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4),
+            rotation: quaternion.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4),
             linearVelocity: { x: 0.1, y: 0.2, z: 0.3 },
             angularVelocity: { x: 0.4, y: 0.5, z: 0.6 },
         });
         const b = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: 4.5, y: 5.6, z: 6.7 },
-            rotation: quat.fromAxisAngle({ x: 1, y: 0, z: 0 }, 0.7),
+            rotation: quaternion.fromAxisAngle({ x: 1, y: 0, z: 0 }, 0.7),
             linearVelocity: { x: 0.7, y: 0.8, z: 0.9 },
             angularVelocity: { x: 1.1, y: 1.2, z: 1.3 },
         });
@@ -215,7 +220,7 @@ test("prismatic speed uses f32 anchors, center offsets and rotating-axis terms",
         });
         const localFrameA = froundConfig({
             p: { x: 0.6, y: 0.7, z: 0.8 },
-            q: quat.fromAxisAngle({ x: 0, y: 0, z: 1 }, 0.3),
+            q: quaternion.fromAxisAngle({ x: 0, y: 0, z: 1 }, 0.3),
         });
         const localFrameB = froundConfig(frame(0.9, 1.1, 1.2));
         const joint = prismatic(world, a, b, { localFrameA, localFrameB });
@@ -223,18 +228,21 @@ test("prismatic speed uses f32 anchors, center offsets and rotating-axis terms",
         const poseB = readBodyTransform(world, b, identityPose());
         const centerA = getMassData(world, a).center;
         const centerB = getMassData(world, b).center;
-        const axis = quat.rotate(poseA.q, quat.rotate(localFrameA.q, vec3.axisX()));
-        const rA = quat.rotate(poseA.q, vec3.sub(localFrameA.p, centerA));
-        const rB = quat.rotate(poseB.q, vec3.sub(localFrameB.p, centerB));
-        const centerAWorld = readSimCenter(world, getBodySim(world, a), vec3.zero());
-        const centerBWorld = readSimCenter(world, getBodySim(world, b), vec3.zero());
-        const d = vec3.add(vec3.sub(centerBWorld, centerAWorld), vec3.sub(rB, rA));
+        const axis = quaternion.rotate(poseA.q, quaternion.rotate(localFrameA.q, vector.axisX()));
+        const rA = quaternion.rotate(poseA.q, vector.sub(localFrameA.p, centerA));
+        const rB = quaternion.rotate(poseB.q, vector.sub(localFrameB.p, centerB));
+        const centerAWorld = readSimCenter(world, getBodySim(world, a), vector.zero());
+        const centerBWorld = readSimCenter(world, getBodySim(world, b), vector.zero());
+        const d = vector.add(vector.sub(centerBWorld, centerAWorld), vector.sub(rB, rA));
         const wA = angularVelocity(world, a);
         const wB = angularVelocity(world, b);
-        const vA = bodyGetLinearVelocity(world, a, vec3.zero());
-        const vB = bodyGetLinearVelocity(world, b, vec3.zero());
-        const vRel = vec3.sub(vec3.add(vB, vec3.cross(wB, rB)), vec3.add(vA, vec3.cross(wA, rA)));
-        const expected = f32(vec3.dot(d, vec3.cross(wA, axis)) + vec3.dot(axis, vRel));
+        const vA = bodyGetLinearVelocity(world, a, vector.zero());
+        const vB = bodyGetLinearVelocity(world, b, vector.zero());
+        const vRel = vector.sub(
+            vector.add(vB, vector.cross(wB, rB)),
+            vector.add(vA, vector.cross(wA, rA)),
+        );
+        const expected = f32(vector.dot(d, vector.cross(wA, axis)) + vector.dot(axis, vRel));
         expect(prismaticJointSpeed(world, joint)).toBe(expected);
     } finally {
         destroyTestWorld(world);
@@ -243,7 +251,7 @@ test("prismatic speed uses f32 anchors, center offsets and rotating-axis terms",
 
 test("joint filtering suppresses a touching pair only when collideConnected is false", () => {
     function contacts(collide: boolean): number {
-        const world = createTestWorld({ gravity: vec3.zero(), enableContinuous: false });
+        const world = createTestWorld({ gravity: vector.zero(), enableContinuous: false });
         try {
             const a = createTestBody(world, {
                 type: BodyType.Dynamic,
@@ -439,7 +447,7 @@ test("wheel joint spin motor follows the sign of its target speed", () => {
 
 test("filter joint suppresses contact without adding a solver constraint", () => {
     function contacts(filtered: boolean): number {
-        const world = createTestWorld({ gravity: vec3.zero(), enableContinuous: false });
+        const world = createTestWorld({ gravity: vector.zero(), enableContinuous: false });
         try {
             const a = createTestBody(world, {
                 type: BodyType.Dynamic,

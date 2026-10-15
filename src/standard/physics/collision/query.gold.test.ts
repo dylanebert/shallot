@@ -4,8 +4,9 @@ import { test } from "bun:test";
 // Current target evidence belongs to the standalone oracle. Equality, not tolerance (the README).
 // The gold is a reference fixture: never edited to match.
 
-import { type Transform, type Vec3, xf } from "../common/math";
+import type { Transform, Vec3 } from "../common/records";
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
+import { transform } from "../kernel/math";
 import { createHull, makeBoxHull } from "../shapes/build-hull";
 import { type CompoundData, createCompound } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
@@ -111,7 +112,7 @@ const castInput = (proxy: ShapeProxy, translation: string[], maxFraction: string
     maxFraction: fromBits(maxFraction),
     canEncroach: false,
 });
-const identityAt = (p: string[]): Transform => ({ p: vecFromHex(p), q: xf.identity().q });
+const identityAt = (p: string[]): Transform => ({ p: vecFromHex(p), q: transform.identity().q });
 
 // Geometry reconstructed with the exact builders fixtures/query_gold.c uses; construction is proven
 // bit-exact by the geometry gold, so this reuses it and validates only the query paths.

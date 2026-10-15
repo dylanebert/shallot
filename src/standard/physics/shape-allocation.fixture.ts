@@ -1,7 +1,7 @@
 import { updateBroadPhasePairs } from "./collision/pairs";
-import { mat3, vec3, xf } from "./common/math";
 import { BodyType, defaultShapeDef } from "./common/types";
 import { hullDatabaseIndex } from "./kernel/geocolumns";
+import { matrix, transform, vector } from "./kernel/math";
 import { queryColumns } from "./kernel/querycolumns";
 import { makeBoxHull } from "./shapes/build-hull";
 import { createCompound } from "./shapes/compound";
@@ -59,11 +59,11 @@ export function shapeAllocationSubject(
     createCompoundShape(state, staticId, staticDef, compound);
     stepTestWorld(world, 1 / 60, 1);
     const hullIndex = hullDatabaseIndex(state, hull);
-    const pose = xf.identity();
-    const bounds = { lowerBound: vec3.zero(), upperBound: vec3.zero() };
-    const mass = { mass: 0, center: vec3.zero(), inertia: mat3.zero() };
-    const extent = { minExtent: 0, maxExtent: vec3.zero() };
-    const center = vec3.zero();
+    const pose = transform.identity();
+    const bounds = { lowerBound: vector.zero(), upperBound: vector.zero() };
+    const mass = { mass: 0, center: vector.zero(), inertia: matrix.zero() };
+    const extent = { minExtent: 0, maxExtent: vector.zero() };
+    const center = vector.zero();
     const queries = queryColumns(state);
     const k = queries.prepare(pose.p);
     queries.placement(pose, pose.p);

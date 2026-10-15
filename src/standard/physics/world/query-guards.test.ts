@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ShapeProxy } from "../collision/distance";
 import type { EntityId } from "../common/ids";
-import type { AABB, Pos, Transform, WorldTransform } from "../common/math";
+import type { AABB, Pos, Transform, WorldTransform } from "../common/records";
 import { createTestBody, createTestWorld, destroyTestWorld } from "../testing";
 import { makeBodyId } from "./body";
 import {

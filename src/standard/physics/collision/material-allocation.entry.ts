@@ -1,5 +1,5 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import type { Vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/build-hull";

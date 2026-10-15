@@ -12,9 +12,10 @@ import {
     kernelOverlap,
     kernelRay,
 } from "../collision/shape_query_gold";
-import { aabb, intersectRayTriangle, type Vec3, xf } from "../common/math";
+import type { Vec3 } from "../common/records";
 import { defaultBodyDef, defaultShapeDef, defaultWorldDef, ShapeType } from "../common/types";
 import { kernel } from "../kernel/kernel";
+import { intersectRayTriangle, transform } from "../kernel/math";
 import { queryColumns } from "../kernel/querycolumns";
 import { createBody } from "../world/body";
 import { createWorld, destroyWorld, getWorld, type WorldState } from "../world/world";
@@ -156,7 +157,11 @@ test("createWave would author a height field with the wrong row, column, materia
             ).toBe(true);
         }
     }
-    expect(aabb.isValid(hf.aabb), "wave field AABB valid").toBe(true);
+    for (const axis of ["x", "y", "z"] as const) {
+        expect(Number.isFinite(hf.aabb.lowerBound[axis])).toBe(true);
+        expect(Number.isFinite(hf.aabb.upperBound[axis])).toBe(true);
+        expect(hf.aabb.lowerBound[axis]).toBeLessThanOrEqual(hf.aabb.upperBound[axis]);
+    }
 });
 
 // --- query behavioral checks (ported from test_height_field.c) -------------------------------
@@ -302,7 +307,7 @@ test("overlapHeightField would report a hit for a proxy hovering clear above the
     ];
     for (const c of cases) {
         expect(
-            kernelOverlap(ShapeType.HeightField, hf, xf.identity(), c.proxy),
+            kernelOverlap(ShapeType.HeightField, hf, transform.identity(), c.proxy),
             `height field overlap ${c.name}`,
         ).toBe(c.want);
     }

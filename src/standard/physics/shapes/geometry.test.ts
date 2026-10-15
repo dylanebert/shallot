@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { f32, type Transform, type Vec3, xf } from "../common/math";
+import type { Transform, Vec3 } from "../common/records";
+import { transform } from "../kernel/math";
+
+const f32 = Math.fround;
+
 import { BodyType } from "../common/types";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
@@ -183,9 +187,9 @@ test("computeSphereMass or computeCapsuleMass drifts from the Box3D C reference'
 
 test("computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule at center +/- radius, or stops following the transform's translation", () => {
     exercisePublicShapeLifecycle();
-    // AABBs compose xf.point (bit-exact) with min/max/sub/add; concrete extremes pin the
+    // AABBs compose transform.point (bit-exact) with min/max/sub/add; concrete extremes pin the
     // wrapper without reimplementing the transform.
-    const id = xf.identity();
+    const id = transform.identity();
 
     // sphere AABB is center +/- radius under identity
     const idSphere = computeSphereAABB({ center: v(0.5, -1, 2), radius: 0.25 }, id);

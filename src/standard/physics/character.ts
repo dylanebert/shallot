@@ -6,10 +6,9 @@ import {
     type System,
     Time,
     u32,
+    vec3,
     type World,
 } from "../../engine";
-import * as ecs from "../../engine/ecs";
-import { vec3, xf } from "./common/math";
 import { BodyType } from "./common/types";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { queryColumns } from "./kernel/querycolumns";
@@ -33,16 +32,16 @@ export const Character = component(
     "Character",
     {
         /** World-space metres per second. */
-        velocity: ecs.vec3,
+        velocity: vec3,
         groundState: u32,
         /** World-space unit normal at the pogo ray hit, or zero in air. */
-        groundNormal: ecs.vec3,
+        groundNormal: vec3,
         /** Hit body's velocity at the ground point, in world-space metres per second, or zero in air. */
-        groundVelocity: ecs.vec3,
+        groundVelocity: vec3,
         /** Maximum walkable slope in radians, measured from up. */
         maxSlope: field,
         /** Unit world-space up direction. */
-        up: ecs.vec3,
+        up: vec3,
         /** Pogo spring speed in metres per second; persists between fixed ticks. */
         pogoVelocity: field,
         /** Pogo spring rest length in capsule radii, down from the lower sphere's centre, so the capsule rests `pogoRest - 1` radii above contact. Box3D's mover sample uses 3. */
@@ -69,10 +68,10 @@ const terms = [Character, Body];
 
 export const characterScratch = {
     create: () => ({
-        pose: xf.identity(),
-        start: vec3.zero(),
-        zeroVelocity: vec3.zero(),
-        center: vec3.zero(),
+        pose: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
+        start: { x: 0, y: 0, z: 0 },
+        zeroVelocity: { x: 0, y: 0, z: 0 },
+        center: { x: 0, y: 0, z: 0 },
         input: new Float32Array(0),
         inputU: new Uint32Array(0),
         slope: new Float64Array(0),
@@ -80,7 +79,7 @@ export const characterScratch = {
         outputU: new Uint32Array(0),
         shapes: new Int32Array(8),
         impulseBodies: new Int32Array(8),
-        impulses: Array.from({ length: 8 }, () => vec3.zero()),
+        impulses: Array.from({ length: 8 }, () => ({ x: 0, y: 0, z: 0 })),
         impulseCount: 0,
         count: 0,
         planeCount: 0,

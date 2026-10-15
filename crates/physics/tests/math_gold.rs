@@ -1,13 +1,39 @@
-//! Bit-exact parity of the Rust scalar math against the frozen historical oracle vectors, read from
-//! the committed gold vectors the TS port also verifies against (`src/math.gold.json`). Current
-//! target evidence is produced by the standalone oracle. This is the load-bearing proof that Rust
-//! native f32 equals the fround-per-op TS port over the recorded cases, op for op. Mirrors the
-//! `dispatch` table in `src/math.test.ts`.
+//! Bit-exact scalar math parity against frozen native Box3D vectors and the immutable v6 corpus.
 
 use serde_json::Value;
 use shallot_physics::math::*;
 
-const GOLD: &str = include_str!("../../../src/standard/physics/common/math.gold.json");
+const GOLD: &str = include_str!("math.gold.json");
+
+#[test]
+fn point_to_segment_box3d_corpus() {
+    let corpus: Value = serde_json::from_str(include_str!("../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6/cases.json")).unwrap();
+    let mut count = 0;
+    for case in corpus["cases"].as_array().unwrap() {
+        if case["symbol"] != "b3PointToSegmentDistance" {
+            continue;
+        }
+        count += 1;
+        let input = &case["input"];
+        let vec = |name: &str| {
+            let a = input[name].as_array().unwrap();
+            Vec3::new(
+                from_bits(a[0].as_str().unwrap()),
+                from_bits(a[1].as_str().unwrap()),
+                from_bits(a[2].as_str().unwrap()),
+            )
+        };
+        let result = point_to_segment_distance(vec("a"), vec("b"), vec("q"));
+        for (i, value) in [result.x, result.y, result.z].iter().enumerate() {
+            assert_bits(
+                *value,
+                case["output"]["closest"][i].as_str().unwrap(),
+                case["id"].as_str().unwrap(),
+            );
+        }
+    }
+    assert_eq!(count, 2);
+}
 
 #[test]
 fn math_box3d_corpus() {
@@ -122,7 +148,7 @@ fn flat_t(t: Transform) -> Vec<f32> {
     vec![t.p.x, t.p.y, t.p.z, t.q.v.x, t.q.v.y, t.q.v.z, t.q.s]
 }
 
-// Each case maps its flat input array to the port's flat output array (mirrors src/math.test.ts).
+// Native generator field order.
 fn dispatch(name: &str, a: &[f32]) -> Vec<f32> {
     match name {
         "normalizeVec3" => flat_v(v3(a, 0).normalize()),

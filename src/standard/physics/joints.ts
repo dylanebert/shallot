@@ -3,8 +3,8 @@ import type { Quat, Transform, Vec3 } from "./api";
 import { makeJointId } from "./api/config";
 import type { JointBinding, JointDef } from "./authoring";
 import { JOINT_KIND_COUNT, jointDef } from "./authoring";
+import { froundConfig } from "./common/config";
 import type { EntityId } from "./common/ids";
-import { froundConfig } from "./common/math";
 import {
     clearFieldCandidates,
     createFieldCandidates,

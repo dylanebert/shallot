@@ -3,6 +3,7 @@
 import { Body, BodyType, Hulls, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
 import { GlobalTransform, resetInterpolation, Transform } from "../../core/transform";
 import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
+import { clamp } from "../../engine/utils";
 import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
 import { init, type PhysicsSnapshot, shutdown } from "./api";
 import {
@@ -15,7 +16,9 @@ import { syncBodyFields } from "./body-sync";
 import type { ShapeProxy } from "./collision/distance";
 import { DEFAULT_MASK_BITS, SetType } from "./common/constants";
 import type { EntityId } from "./common/ids";
-import { f32, maxf } from "./common/math";
+
+const f32 = Math.fround;
+
 import { defaultWorldDef, type QueryFilter, type WorldDef } from "./common/types";
 import {
     clearPhysicsEvents,
@@ -1166,15 +1169,15 @@ function syncWorldDefinition(state: WorldState, definition: PhysicsWorldDefiniti
     )
         worldSetGravity(state, gravity);
 
-    const restitutionThreshold = maxf(0, f32(definition.restitutionThreshold));
+    const restitutionThreshold = clamp(f32(definition.restitutionThreshold), 0, Infinity);
     if (state.restitutionThreshold !== restitutionThreshold)
         worldSetRestitutionThreshold(state, definition.restitutionThreshold);
-    const hitEventThreshold = maxf(0, f32(definition.hitEventThreshold));
+    const hitEventThreshold = clamp(f32(definition.hitEventThreshold), 0, Infinity);
     if (state.hitEventThreshold !== hitEventThreshold)
         worldSetHitEventThreshold(state, definition.hitEventThreshold);
-    const contactHertz = maxf(0, f32(definition.contactHertz));
-    const contactDampingRatio = maxf(0, f32(definition.contactDampingRatio));
-    const contactSpeed = maxf(0, f32(definition.contactSpeed));
+    const contactHertz = clamp(f32(definition.contactHertz), 0, Infinity);
+    const contactDampingRatio = clamp(f32(definition.contactDampingRatio), 0, Infinity);
+    const contactSpeed = clamp(f32(definition.contactSpeed), 0, Infinity);
     if (
         state.contactHertz !== contactHertz ||
         state.contactDampingRatio !== contactDampingRatio ||
@@ -1186,7 +1189,7 @@ function syncWorldDefinition(state: WorldState, definition: PhysicsWorldDefiniti
             definition.contactDampingRatio,
             definition.contactSpeed,
         );
-    const recycleDistance = maxf(0, f32(definition.contactRecycleDistance));
+    const recycleDistance = clamp(f32(definition.contactRecycleDistance), 0, Infinity);
     if (state.contactRecycleDistance !== recycleDistance)
         worldSetContactRecycleDistance(state, definition.contactRecycleDistance);
     const maximumLinearSpeed = f32(definition.maximumLinearSpeed);

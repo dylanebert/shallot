@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { restore, snapshot } from "../api/snapshot";
-import { f32, xf } from "../common/math";
+import { transform } from "./math";
+
+const f32 = Math.fround;
+
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
@@ -34,7 +37,7 @@ test("compound hull images relocate with caller-owned compound identity and surv
     try {
         const hull = makeBoxHull(1, 1, 1);
         const data = createCompound({
-            hulls: [{ hull, transform: xf.identity(), material: defaultSurfaceMaterial() }],
+            hulls: [{ hull, transform: transform.identity(), material: defaultSurfaceMaterial() }],
         })!;
         const body = createTestBody(source, { type: BodyType.Static });
         const shape = createCompoundShape(source, body, testShapeDef(), data)!;

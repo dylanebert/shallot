@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Time, World } from "@dylanebert/shallot";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "@dylanebert/shallot/physics";
-import type { Pos, Vec3 } from "../common/math";
+import type { Pos, Vec3 } from "../common/records";
 import { castRay, castRayClosest, StandardPhysicsPlugin } from "../runtime";
 
 const origin = { x: 0, y: 0, z: 0 };

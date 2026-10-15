@@ -3,7 +3,7 @@ import type { World } from "../../../engine";
 // dynamic trees (static / kinematic / dynamic) plus the move buffer that records which proxies
 // changed this step, in deterministic insertion order.
 
-import type { AABB } from "../common/math";
+import type { AABB } from "../common/records";
 import { type BroadStore, createBroadStore } from "../kernel/broadcolumns";
 import { kernel } from "../kernel/kernel";
 import type { DynamicTree } from "../kernel/treecolumns";

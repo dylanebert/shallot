@@ -6,7 +6,9 @@
 
 import { hi32, lo32 } from "./bits";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS, LENGTH_UNITS_PER_METER } from "./constants";
-import { f32, type Pos, type Quat, quat, type Vec3 } from "./math";
+import type { Pos, Quat, Vec3 } from "./records";
+
+const f32 = Math.fround;
 
 /** Body simulation type (b3BodyType). Numeric values are load-bearing (broadphase tree index). */
 export const BodyType = {
@@ -235,7 +237,7 @@ export function defaultBodyDef(): BodyDef {
     return {
         type: BodyType.Static,
         position: { x: 0, y: 0, z: 0 },
-        rotation: quat.identity(),
+        rotation: { v: { x: 0, y: 0, z: 0 }, s: 1 },
         linearVelocity: { x: 0, y: 0, z: 0 },
         angularVelocity: { x: 0, y: 0, z: 0 },
         linearDamping: 0,

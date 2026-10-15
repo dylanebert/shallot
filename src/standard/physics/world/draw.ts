@@ -1,5 +1,5 @@
 import { hi32, lo32 } from "../common/bits";
-import type { AABB, Pos, WorldTransform } from "../common/math";
+import type { AABB, Pos, WorldTransform } from "../common/records";
 import { queryColumns } from "../kernel/querycolumns";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";

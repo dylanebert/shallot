@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { mat3 } from "../common/math";
 import { BodyType } from "../common/types";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
@@ -17,6 +16,7 @@ import {
     readSimTransform,
     simFlags,
 } from "./bodycolumns";
+import { matrix } from "./math";
 
 test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", () => {
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
@@ -37,7 +37,7 @@ test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", (
         const sim = getBodySim(world, body);
         expect(simFlags(world, sim) & BodyFlags.isFast).not.toBe(0);
         expect(simFlags(world, sim) & BodyFlags.hadTimeOfImpact).not.toBe(0);
-        const rotation = mat3.fromQuat(
+        const rotation = matrix.fromQuat(
             readSimTransform(world, sim, {
                 p: { x: 0, y: 0, z: 0 },
                 q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
@@ -50,8 +50,8 @@ test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", (
                 cz: { x: 0, y: 0, z: 0 },
             }),
         ).toEqual(
-            mat3.mul(
-                mat3.mul(
+            matrix.mul(
+                matrix.mul(
                     rotation,
                     readSimInvInertiaLocal(world, sim, {
                         cx: { x: 0, y: 0, z: 0 },
@@ -59,7 +59,7 @@ test("fast non-bullet inertia follows its CCD-clipped rotation in the kernel", (
                         cz: { x: 0, y: 0, z: 0 },
                     }),
                 ),
-                mat3.transpose(rotation),
+                matrix.transpose(rotation),
             ),
         );
     } finally {

@@ -354,7 +354,7 @@ function concat(chunks: Uint8Array[]): Uint8Array {
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
     return a.length === b.length && a.every((x, i) => x === b[i]);
 }
-function putTransform(v: DataView, o: number, t: import("../common/math").Transform): void {
+function putTransform(v: DataView, o: number, t: import("../common/records").Transform): void {
     const values = [t.p.x, t.p.y, t.p.z, t.q.v.x, t.q.v.y, t.q.v.z, t.q.s];
     for (let i = 0; i < values.length; ++i) v.setFloat32(o + i * 4, values[i], true);
 }

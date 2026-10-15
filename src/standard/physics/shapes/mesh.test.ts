@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
 import { BodyType } from "../common/types";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
 import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";

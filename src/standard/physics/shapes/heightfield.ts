@@ -1,4 +1,4 @@
-import type { AABB, Vec3 } from "../common/math";
+import type { AABB, Vec3 } from "../common/records";
 
 export { createGrid, createHeightField, createWave } from "./build-nonconvex";
 export { getHeightFieldTriangle } from "./read-geometry";

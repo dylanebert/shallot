@@ -7,15 +7,10 @@ import type * as bp from "../collision/broadphase";
 import { NULL_INDEX } from "../common/array";
 import { hi32, lo32 } from "../common/bits";
 import type { EntityId } from "../common/ids";
-import {
-    type AABB,
-    f32,
-    mat3,
-    type Transform,
-    type Vec3,
-    vec3,
-    type WorldTransform,
-} from "../common/math";
+import type { AABB, Transform, Vec3, WorldTransform } from "../common/records";
+
+const f32 = Math.fround;
+
 import {
     type BodyType,
     type Filter,
@@ -168,7 +163,11 @@ export function getShapeUserMaterialId(
 export function computeShapeMass(
     world: WorldState,
     shape: Shape,
-    out: MassData = { mass: 0, center: vec3.zero(), inertia: mat3.zero() },
+    out: MassData = {
+        mass: 0,
+        center: { x: 0, y: 0, z: 0 },
+        inertia: { cx: { x: 0, y: 0, z: 0 }, cy: { x: 0, y: 0, z: 0 }, cz: { x: 0, y: 0, z: 0 } },
+    },
 ): MassData {
     kernel(world.ecsState).shapeComputeMass(world.worldId, shape);
     const values = world.shapeStore.geometryOutput;
@@ -192,7 +191,7 @@ export function computeShapeExtent(
     world: WorldState,
     shape: Shape,
     localCenter: Vec3,
-    out: ShapeExtent = { minExtent: 0, maxExtent: vec3.zero() },
+    out: ShapeExtent = { minExtent: 0, maxExtent: { x: 0, y: 0, z: 0 } },
 ): ShapeExtent {
     kernel(world.ecsState).shapeComputeExtent(
         world.worldId,
@@ -210,8 +209,8 @@ export function computeShapeExtent(
 /** Enclosing AABB of a shape under a transform (b3ComputeShapeAABB). */
 export function computeShapeAABB(world: WorldState, shape: Shape, transform: Transform): AABB {
     return computeShapeAABBOut(world, shape, transform, {
-        lowerBound: vec3.zero(),
-        upperBound: vec3.zero(),
+        lowerBound: { x: 0, y: 0, z: 0 },
+        upperBound: { x: 0, y: 0, z: 0 },
     });
 }
 
@@ -223,8 +222,8 @@ export function computeFatShapeAABB(
     extra: number,
 ): AABB {
     return computeFatShapeAABBOut(world, shape, transform, extra, {
-        lowerBound: vec3.zero(),
-        upperBound: vec3.zero(),
+        lowerBound: { x: 0, y: 0, z: 0 },
+        upperBound: { x: 0, y: 0, z: 0 },
     });
 }
 
@@ -267,7 +266,11 @@ export function computeFatShapeAABBOut(
 }
 
 /** Local centroid of a shape (b3GetShapeCentroid). */
-export function getShapeCentroid(world: WorldState, shape: Shape, out: Vec3 = vec3.zero()): Vec3 {
+export function getShapeCentroid(
+    world: WorldState,
+    shape: Shape,
+    out: Vec3 = { x: 0, y: 0, z: 0 },
+): Vec3 {
     kernel(world.ecsState).shapeGetCentroid(world.worldId, shape);
     return copyGeometryVector(world.shapeStore.geometryOutput, 0, out);
 }

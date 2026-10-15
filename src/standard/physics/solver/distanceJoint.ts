@@ -1,5 +1,5 @@
-import { HUGE } from "../common/constants";
-import { FLT_MAX, type Vec3 } from "../common/math";
+import { FLT_MAX, HUGE } from "../common/constants";
+import type { Vec3 } from "../common/records";
 import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";

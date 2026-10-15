@@ -1,5 +1,5 @@
 import type { World } from "../../../engine";
-import type { Vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
 import { type Kernel, kernel } from "../kernel/kernel";
 import type { HeightFieldData, HeightFieldDef } from "./heightfield";
 import type { MeshData, MeshDef } from "./mesh";

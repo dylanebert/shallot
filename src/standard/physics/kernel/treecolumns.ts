@@ -1,5 +1,5 @@
 import type { World } from "../../../engine";
-import type { AABB } from "../common/math";
+import type { AABB } from "../common/records";
 import { kernel, rethrowQueryError, setQueryCallback } from "./kernel";
 import { guardViews } from "./views";
 

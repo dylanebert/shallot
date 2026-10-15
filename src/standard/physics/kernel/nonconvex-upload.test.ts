@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { xf } from "../common/math";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
@@ -9,6 +8,7 @@ import { createBoxMesh, createGridMesh } from "../shapes/mesh";
 import { createCompoundShape, createHeightFieldShape, createMeshShape } from "../shapes/shape";
 import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
 import type { WorldState } from "../world/world";
+import { transform } from "./math";
 import { S_GEO_REFERENCE, SHAPE_STRIDE } from "./shapecolumns";
 import { ShapeField, shapeField } from "./shaperecords";
 
@@ -124,11 +124,11 @@ test("compound uploads use Box3D header, tree, material and child-blob offsets",
                     material: defaultSurfaceMaterial(),
                 },
             ],
-            hulls: [{ hull, transform: xf.identity(), material: defaultSurfaceMaterial() }],
+            hulls: [{ hull, transform: transform.identity(), material: defaultSurfaceMaterial() }],
             meshes: [
                 {
                     meshData,
-                    transform: xf.identity(),
+                    transform: transform.identity(),
                     scale: { x: 1, y: 1, z: 1 },
                     materials: [defaultSurfaceMaterial()],
                     materialCount: 1,

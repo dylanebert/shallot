@@ -5,14 +5,7 @@ import { ContactField, ContactFlags, contactField, contactIds } from "../collisi
 import { readContactManifolds } from "../collision/manifoldstore";
 import { type CollisionPlane, clipVector, solvePlanes } from "../collision/mover";
 import { kernelRay } from "../collision/shape_query_gold";
-import {
-    type AABB,
-    type Vec3 as PhysicsVec3,
-    pointToSegmentDistance,
-    type Quat,
-    type Transform,
-    type Vec3,
-} from "../common/math";
+import type { AABB, Vec3 as PhysicsVec3, Quat, Transform, Vec3 } from "../common/records";
 import { BodyType, ShapeType } from "../common/types";
 import { readStateAngularVelocity } from "../kernel/bodycolumns";
 import {
@@ -318,11 +311,6 @@ function runBaseCase(item: OracleCase): unknown {
                 destroyTestWorld(world);
             }
         }
-        case "distance.point-segment.v1.scalar":
-        case "distance.point-segment.v1.simd":
-            return {
-                closest: outVec(pointToSegmentDistance(vec(input.a), vec(input.b), vec(input.q))),
-            };
         case "tree.query.v1.scalar":
         case "tree.query.v1.simd": {
             const tree = createTree(2);

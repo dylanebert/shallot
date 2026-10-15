@@ -1,6 +1,7 @@
-import { type Transform, type Vec3, xf } from "../common/math";
+import type { Transform, Vec3 } from "../common/records";
 import { defaultBodyDef, defaultShapeDef, defaultWorldDef, ShapeType } from "../common/types";
 import { init, kernel } from "../kernel/kernel";
+import { transform } from "../kernel/math";
 import type { CompoundData } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
@@ -105,7 +106,7 @@ export function kernelRay(kind: ShapeType, geometry: Geometry, ray: RayCastInput
     let result: CastOutput | undefined;
     subject(kind, geometry, (world, id) => {
         input(
-            xf.identity(),
+            transform.identity(),
             { points: [ray.origin], count: 1, radius: 0 },
             ray.translation,
             ray.maxFraction,
@@ -130,7 +131,7 @@ export function kernelCastResident(
     id: number,
     cast: ShapeCastInput,
 ): CastOutput {
-    input(xf.identity(), cast.proxy, cast.translation, cast.maxFraction, cast.canEncroach);
+    input(transform.identity(), cast.proxy, cast.translation, cast.maxFraction, cast.canEncroach);
     kernel(undefined).shapeQueryCast(world.worldId, id, 1);
     return output();
 }
@@ -157,7 +158,7 @@ export function kernelMover(
     const results: PlaneResult[] = [];
     subject(kind, geometry, (world, id) => {
         input(
-            xf.identity(),
+            transform.identity(),
             { points: [mover.center1, mover.center2], count: 2, radius: mover.radius },
             { x: 0, y: 0, z: 0 },
             0,

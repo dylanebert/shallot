@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AABB } from "../common/math";
+import type { AABB } from "../common/records";
 import {
     BodyType,
     type BodyTypeValue,

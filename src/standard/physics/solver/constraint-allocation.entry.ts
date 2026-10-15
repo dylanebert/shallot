@@ -6,9 +6,9 @@ import {
     SphericalJoint,
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
-import { quat } from "../common/math";
 import { BodyType } from "../common/types";
 import { init, shutdown } from "../kernel/kernel";
+import { quaternion } from "../kernel/math";
 import { physicsBodyIndex, physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createHullShape } from "../shapes/shape";
@@ -74,7 +74,9 @@ async function bodyReads(input: string) {
     const body = createTestBody(solver, {
         type: BodyType.Dynamic,
         rotation:
-            input === "target" ? quat.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4) : quat.identity(),
+            input === "target"
+                ? quaternion.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4)
+                : quaternion.identity(),
         linearVelocity: { x: 1, y: 2, z: 3 },
         angularVelocity: { x: 4, y: 5, z: 6 },
     });
@@ -87,9 +89,9 @@ async function bodyReads(input: string) {
     const stationary = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
     const target = {
         p: { x: 0.1, y: 0.2, z: 0.3 },
-        q: quat.fromAxisAngle({ x: 1, y: 0, z: 0 }, 0.7),
+        q: quaternion.fromAxisAngle({ x: 1, y: 0, z: 0 }, 0.7),
     };
-    const negativeTarget = { p: target.p, q: quat.negate(target.q) };
+    const negativeTarget = { p: target.p, q: quaternion.negate(target.q) };
     const impulse = { x: 0.1, y: 0.2, z: 0.3 };
     const point = { x: 1, y: 0, z: 0 };
     const app = await createApp({

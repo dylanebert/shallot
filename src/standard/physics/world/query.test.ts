@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ShapeProxy } from "../collision/distance";
-import type { Pos, Transform, WorldTransform } from "../common/math";
+import type { Pos, Transform, WorldTransform } from "../common/records";
 import { createSphereShape } from "../shapes/shape";
 import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
 import { bodyIsValid, destroyBody, makeBodyId } from "./body";

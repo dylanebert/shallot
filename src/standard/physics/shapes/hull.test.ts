@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { f32, quat, type Vec3, vec3, xf } from "../common/math";
+import type { Vec3 } from "../common/records";
+import { quaternion, transform, vector } from "../kernel/math";
+
+const f32 = Math.fround;
+
 import { BodyType } from "../common/types";
 import { kernel } from "../kernel/kernel";
 import { createTestBody, createTestWorld, destroyTestWorld, testShapeDef } from "../testing";
@@ -170,8 +174,8 @@ test("a convex hull built from box half-extents — unit, oblong, or rotated by 
 
     // f32-round the literals to match the C `0.3f`/`0.6f` axis + angle bit-for-bit before
     // normalize/fromAxisAngle (both verified bit-exact), else f64 literals diverge by 1 ULP.
-    const axis = vec3.normalize(v(f32(0.3), f32(0.7), f32(0.2)));
-    const q = quat.fromAxisAngle(axis, f32(0.6));
+    const axis = vector.normalize(v(f32(0.3), f32(0.7), f32(0.2)));
+    const q = quaternion.fromAxisAngle(axis, f32(0.6));
     assertHull(
         makeTransformedBoxHull(0.75, 1.25, 0.5, { p: v(0.5, -0.25, 1), q }),
         goldBox("transformed"),
@@ -304,11 +308,11 @@ test("a convex hull's support vertex is not the extreme point along the query di
         destroyTestWorld(world);
     }
 
-    const local = computeHullAABB(cube, xf.identity());
+    const local = computeHullAABB(cube, transform.identity());
     expect(local.lowerBound).toEqual(cube.aabb.lowerBound);
     expect(local.upperBound).toEqual(cube.aabb.upperBound);
 
-    const moved = computeHullAABB(cube, { p: v(1, 2, 3), q: quat.identity() });
+    const moved = computeHullAABB(cube, { p: v(1, 2, 3), q: quaternion.identity() });
     expect(moved.lowerBound).toEqual(v(0, 1, 2));
     expect(moved.upperBound).toEqual(v(2, 3, 4));
 });

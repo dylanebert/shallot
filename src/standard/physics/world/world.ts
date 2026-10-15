@@ -13,6 +13,7 @@ import type {
     WorldMixCallback,
     WorldPreSolveCallback,
 } from "../world-definition";
+
 // The simulation world: the root that owns every entity pool and the broad-phase. Ported from
 // Box3D's physics_world.c (Erin Catto, MIT). Each entity type has an id pool paired with a sparse
 // array of records; the hot payload lives in solver sets. Worlds live in a fixed registry so a
@@ -20,11 +21,16 @@ import type {
 //
 // fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
+import { clamp } from "../../../engine/utils";
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { contactCount } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
+import { froundConfig } from "../common/config";
 import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
-import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
+
+const f32 = Math.fround;
+
 import {
     type Capacity,
     defaultShapeDef,
@@ -138,7 +144,7 @@ export const defaultFrictionCallback: MixCallback = (a, _idA, b, _idB) =>
     f32(Math.sqrt(f32(a * b)));
 
 /** Default restitution mixing: the larger of the two (b3DefaultRestitutionCallback). */
-export const defaultRestitutionCallback: MixCallback = (a, _idA, b, _idB) => maxf(a, b);
+export const defaultRestitutionCallback: MixCallback = (a, _idA, b, _idB) => (a > b ? a : b);
 
 // --- hull database ---------------------------------------------------------------------------
 
@@ -300,12 +306,12 @@ export function worldSetGravity(world: WorldState, gravity: Vec3): void {
 
 export function worldSetHitEventThreshold(world: WorldState, value: number): void {
     if (!world.inUse || world.locked) return;
-    world.hitEventThreshold = maxf(0, f32(value));
+    world.hitEventThreshold = clamp(f32(value), 0, Infinity);
 }
 
 export function worldSetRestitutionThreshold(world: WorldState, value: number): void {
     if (!world.inUse || world.locked) return;
-    world.restitutionThreshold = maxf(0, f32(value));
+    world.restitutionThreshold = clamp(f32(value), 0, Infinity);
 }
 
 export function worldSetContactTuning(
@@ -315,14 +321,14 @@ export function worldSetContactTuning(
     contactSpeed: number,
 ): void {
     if (!world.inUse || world.locked) return;
-    world.contactHertz = maxf(0, f32(hertz));
-    world.contactDampingRatio = maxf(0, f32(dampingRatio));
-    world.contactSpeed = maxf(0, f32(contactSpeed));
+    world.contactHertz = clamp(f32(hertz), 0, Infinity);
+    world.contactDampingRatio = clamp(f32(dampingRatio), 0, Infinity);
+    world.contactSpeed = clamp(f32(contactSpeed), 0, Infinity);
 }
 
 export function worldSetContactRecycleDistance(world: WorldState, distance: number): void {
     if (!world.inUse || world.locked) return;
-    world.contactRecycleDistance = maxf(0, f32(distance));
+    world.contactRecycleDistance = clamp(f32(distance), 0, Infinity);
 }
 
 export function worldSetMaximumLinearSpeed(world: WorldState, speed: number): void {

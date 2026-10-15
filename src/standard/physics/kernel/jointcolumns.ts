@@ -1,5 +1,8 @@
 import { GRAPH_COLOR_COUNT, SetType } from "../common/constants";
-import { f32, type Quat, type Transform, type Vec3 } from "../common/math";
+import type { Quat, Transform, Vec3 } from "../common/records";
+
+const f32 = Math.fround;
+
 import type { Joint } from "../solver/joint";
 import type { WorldState } from "../world/world";
 import { J_JOINT_ID } from "./columns";

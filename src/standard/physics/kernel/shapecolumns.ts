@@ -1,5 +1,5 @@
 import type { World } from "../../../engine";
-import type { AABB } from "../common/math";
+import type { AABB } from "../common/records";
 import type { ShapeDef, ShapeType, SurfaceMaterial } from "../common/types";
 import type { Shape } from "../shapes/shape";
 import type { WorldState } from "../world/world";

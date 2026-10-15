@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { ContactField, contactField, contactIds, contactIsValid } from "../collision/contact";
 import { updateBroadPhasePairs } from "../collision/pairs";
-import { f32, mat3, vec3, xf } from "../common/math";
+import { matrix, transform, vector } from "../kernel/math";
+
+const f32 = Math.fround;
+
 import { BodyType, defaultShapeDef, defaultSurfaceMaterial, ShapeType } from "../common/types";
 import { readShapeAabb } from "../kernel/shapecolumns";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
@@ -128,7 +131,7 @@ test("kernel shape mass getters retain native sphere/capsule gold bits and retur
                     m.inertia.cz.z,
                 ].map(hex),
             ).toEqual(g.inertia);
-            const out = { mass: 0, center: vec3.zero(), inertia: mat3.zero() };
+            const out = { mass: 0, center: vector.zero(), inertia: matrix.zero() };
             expect(computeShapeMass(world, shape, out)).toBe(out);
             expect(out).toEqual(m);
             m.center.x = 99;
@@ -162,7 +165,7 @@ test("kernel AABB, fat AABB, centroid, hull mass and extent results are independ
             testShapeDef({ density: 2 }),
             makeBoxHull(1, 2, 3),
         )!;
-        const pose = xf.identity();
+        const pose = transform.identity();
         pose.p = v(3, 4, 5);
         const expected = { lowerBound: v(0.75, 4.75, 4.75), upperBound: v(1.25, 5.25, 5.25) };
         const box = computeShapeAABB(world, sphere, pose);
@@ -287,7 +290,7 @@ test("kernel creation collapses short capsules and rejects nonstatic compounds, 
         expect(createCompoundShape(world, body, testShapeDef(), compound)).toBeNull();
         const ground = createTestBody(world, { type: BodyType.Static });
         const staticShape = createCompoundShape(world, ground, testShapeDef(), compound)!;
-        const out = vec3.zero();
+        const out = vector.zero();
         expect(getShapeCentroid(world, staticShape, out)).toBe(out);
         expect(out).toEqual(v(0, 0, 0));
     } finally {

@@ -1,4 +1,6 @@
-import { f32, type Mat3, type Vec3, vec3 } from "../common/math";
+import type { Mat3, Vec3 } from "../common/records";
+
+const f32 = Math.fround;
 
 export { computeCapsuleAABB, computeSphereAABB } from "./read-geometry";
 
@@ -27,7 +29,10 @@ export type Capsule = {
 // Applied at each shape/compound-child storage boundary, mirroring the C float assignment.
 
 /** Round a sphere's fields to f32 for storage. */
-export function roundSphere(s: Sphere, out: Sphere = { center: vec3.zero(), radius: 0 }): Sphere {
+export function roundSphere(
+    s: Sphere,
+    out: Sphere = { center: { x: 0, y: 0, z: 0 }, radius: 0 },
+): Sphere {
     out.center.x = f32(s.center.x);
     out.center.y = f32(s.center.y);
     out.center.z = f32(s.center.z);
@@ -38,7 +43,7 @@ export function roundSphere(s: Sphere, out: Sphere = { center: vec3.zero(), radi
 /** Round a capsule's fields to f32 for storage. */
 export function roundCapsule(
     c: Capsule,
-    out: Capsule = { center1: vec3.zero(), center2: vec3.zero(), radius: 0 },
+    out: Capsule = { center1: { x: 0, y: 0, z: 0 }, center2: { x: 0, y: 0, z: 0 }, radius: 0 },
 ): Capsule {
     out.center1.x = f32(c.center1.x);
     out.center1.y = f32(c.center1.y);

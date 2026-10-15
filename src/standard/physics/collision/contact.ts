@@ -1,7 +1,7 @@
 // contact.c bindings (Box3D, Erin Catto, MIT).
 import { NULL_INDEX } from "../common/array";
 import type { EntityId } from "../common/ids";
-import type { Vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
 import { kernel } from "../kernel/kernel";
 import type { Shape } from "../shapes/shape";
 import type { WorldState } from "../world/world";

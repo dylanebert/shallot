@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { SPECULATIVE_DISTANCE } from "../common/constants";
-import { aabb } from "../common/math";
 import { BodyType } from "../common/types";
 import { createMesh } from "../shapes/mesh";
 import { computeFatShapeAABB, createMeshShape } from "../shapes/shape";
@@ -12,6 +11,7 @@ import {
     testShapeDef,
 } from "../testing";
 import { bodyGetTransform } from "../world/body";
+import { bounds } from "./math";
 import { readFatAabb, readShapeAabb } from "./shapecolumns";
 
 test("kernel finalization commits a moving non-convex mesh's tight and fat bounds", () => {
@@ -62,7 +62,7 @@ test("kernel finalization commits a moving non-convex mesh's tight and fat bound
                 lowerBound: { x: 0, y: 0, z: 0 },
                 upperBound: { x: 0, y: 0, z: 0 },
             });
-            expect(aabb.contains(fat, expected)).toBe(true);
+            expect(bounds.contains(fat, expected)).toBe(true);
             expect(fat).not.toEqual(initialFat);
         }
     } finally {

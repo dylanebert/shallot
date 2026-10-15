@@ -1,4 +1,4 @@
-import type { AABB, Transform, Vec3 } from "../common/math";
+import type { AABB, Transform, Vec3 } from "../common/records";
 import { type Kernel, kernel } from "../kernel/kernel";
 import type { Capsule, Sphere } from "./geometry";
 import type { HeightFieldData } from "./heightfield";

@@ -15,10 +15,11 @@ import {
     makeBoxHull,
     makeTransformedBoxHull,
 } from "../api/index";
-import { froundConfig, quat as mathQuat } from "../common/math";
+import { froundConfig } from "../common/config";
 import type { Capacity, ShapeDef } from "../common/types";
 import { readStateAngularVelocity } from "../kernel/bodycolumns";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
+import { quaternion as mathQuat } from "../kernel/math";
 import {
     createCapsuleShape,
     createCompoundShape,
@@ -104,7 +105,7 @@ const bits = (value: number): string => {
 const quat = (values: unknown[]): { v: { x: number; y: number; z: number }; s: number } => {
     if (!Array.isArray(values) || values.length !== 4)
         throw new Error("expected a four-component f32 quaternion");
-    return { v: vec3(values.slice(0, 3)), s: f32(String(values[3])) };
+    return { v: decodeVector(values.slice(0, 3)), s: f32(String(values[3])) };
 };
 const frame = (
     value: unknown,
@@ -116,9 +117,9 @@ const frame = (
     if (!value || typeof value !== "object") throw new Error("expected a joint frame");
     const record = value as Record<string, unknown>;
     const q = quat(record.q as unknown[]);
-    return { p: vec3(record.p as unknown[]), q: normalize ? mathQuat.normalize(q) : q };
+    return { p: decodeVector(record.p as unknown[]), q: normalize ? mathQuat.normalize(q) : q };
 };
-const vec3 = (values: unknown[]): { x: number; y: number; z: number } => {
+const decodeVector = (values: unknown[]): { x: number; y: number; z: number } => {
     if (!Array.isArray(values) || values.length !== 3)
         throw new Error("expected a three-component f32 vector");
     return { x: f32(String(values[0])), y: f32(String(values[1])), z: f32(String(values[2])) };
@@ -288,7 +289,7 @@ export function runScenario(
     let observed = false;
     const material = (value: unknown): ReturnType<typeof defaultSurfaceMaterial> => {
         const source = (value ?? {}) as Record<string, unknown>;
-        const tangent = vec3(
+        const tangent = decodeVector(
             (source.tangentVelocity ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[],
         );
         return {
@@ -327,7 +328,7 @@ export function runScenario(
         switch (command.op) {
             case "world.create": {
                 if (physicsWorld !== undefined) throw new Error("duplicate world.create");
-                const gravity = vec3(command.gravity as unknown[]);
+                const gravity = decodeVector(command.gravity as unknown[]);
                 physicsWorld = createTestWorld({
                     gravity,
                     enableSleep: command.enableSleep === true,
@@ -341,9 +342,9 @@ export function runScenario(
             case "body.create":
             case "body.spawn": {
                 if (!physicsWorld) throw new Error("body.create before world.create");
-                const position = vec3(command.position as unknown[]);
-                const linearVelocity = vec3(command.linearVelocity as unknown[]);
-                const angularVelocity = vec3(command.angularVelocity as unknown[]);
+                const position = decodeVector(command.position as unknown[]);
+                const linearVelocity = decodeVector(command.linearVelocity as unknown[]);
+                const angularVelocity = decodeVector(command.angularVelocity as unknown[]);
                 if (mutateAngularVelocity && bodies.size === 0)
                     angularVelocity.z = Math.fround(angularVelocity.z + 1);
                 const body = createTestBody(physicsWorld, {
@@ -374,8 +375,8 @@ export function runScenario(
                 break;
             }
             case "resource.box": {
-                const halfExtents = vec3(command.halfExtents as unknown[]);
-                const center = vec3(
+                const halfExtents = decodeVector(command.halfExtents as unknown[]);
+                const center = decodeVector(
                     (command.center ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[],
                 );
                 boxes.set(
@@ -391,7 +392,7 @@ export function runScenario(
             }
             case "resource.sphere":
                 spheres.set(command.id, {
-                    center: vec3(
+                    center: decodeVector(
                         (command.center ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[],
                     ),
                     radius: f32(String(command.radius)),
@@ -399,14 +400,14 @@ export function runScenario(
                 break;
             case "resource.capsule":
                 capsules.set(command.id, {
-                    center1: vec3(command.center1 as unknown[]),
-                    center2: vec3(command.center2 as unknown[]),
+                    center1: decodeVector(command.center1 as unknown[]),
+                    center2: decodeVector(command.center2 as unknown[]),
                     radius: f32(String(command.radius)),
                 });
                 break;
             case "resource.hull": {
                 const points = (command.points as unknown[]).map((point) =>
-                    vec3(point as unknown[]),
+                    decodeVector(point as unknown[]),
                 );
                 const hull = createHull(points, points.length);
                 if (!hull) throw new Error(`hull resource ${command.id} could not be built`);
@@ -496,7 +497,7 @@ export function runScenario(
                     return {
                         meshData: resource,
                         transform: frame(child.transform),
-                        scale: vec3(
+                        scale: decodeVector(
                             (child.scale ?? [
                                 "0x3f800000",
                                 "0x3f800000",
@@ -569,7 +570,7 @@ export function runScenario(
                         body,
                         def,
                         mesh,
-                        vec3(
+                        decodeVector(
                             (command.scale ?? [
                                 "0x3f800000",
                                 "0x3f800000",
@@ -638,7 +639,7 @@ export function runScenario(
                     )
                         continue;
                     if (typeof value === "boolean") config[key] = value;
-                    else if (Array.isArray(value)) config[key] = vec3(value);
+                    else if (Array.isArray(value)) config[key] = decodeVector(value);
                     else config[key] = f32(String(value));
                 }
                 createScenarioJoint(physicsWorld, command.op, bodyA, bodyB, config);
@@ -661,12 +662,12 @@ export function runScenario(
                 bodySetLinearVelocity(
                     physicsWorld!,
                     body,
-                    vec3(command.linearVelocity as unknown[]),
+                    decodeVector(command.linearVelocity as unknown[]),
                 );
                 bodySetAngularVelocity(
                     physicsWorld!,
                     body,
-                    vec3(command.angularVelocity as unknown[]),
+                    decodeVector(command.angularVelocity as unknown[]),
                 );
                 break;
             }
@@ -680,7 +681,7 @@ export function runScenario(
                     physicsWorld!,
                     body,
                     {
-                        p: vec3((command.target as Record<string, unknown>).p as unknown[]),
+                        p: decodeVector((command.target as Record<string, unknown>).p as unknown[]),
                         q: quat((command.target as Record<string, unknown>).q as unknown[]),
                     },
                     f32(String(command.timeStep)),

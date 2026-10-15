@@ -1,4 +1,4 @@
-import type { Plane, Vec3 } from "../common/math";
+import type { Plane, Vec3 } from "../common/records";
 import { kernel } from "../kernel/kernel";
 
 let buffer: ArrayBufferLike | undefined;

@@ -1,4 +1,4 @@
-import type { Transform, Vec3 } from "../common/math";
+import type { Transform, Vec3 } from "../common/records";
 import { ShapeType } from "../common/types";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";

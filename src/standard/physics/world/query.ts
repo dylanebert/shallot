@@ -1,7 +1,7 @@
 import type { ShapeProxy } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
 import type { EntityId } from "../common/ids";
-import type { AABB, Pos, Transform, Vec3, WorldTransform } from "../common/math";
+import type { AABB, Pos, Transform, Vec3, WorldTransform } from "../common/records";
 import { defaultQueryFilter, type QueryFilter } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { rethrowQueryError, setQueryCallback } from "../kernel/kernel";

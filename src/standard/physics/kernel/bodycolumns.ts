@@ -6,7 +6,7 @@ import type { World } from "../../../engine";
 // refresh after grow-capable calls checks both the column offsets and the memory buffer.
 
 import { SetType } from "../common/constants";
-import type { Mat3, Vec3, WorldTransform } from "../common/math";
+import type { Mat3, Vec3, WorldTransform } from "../common/records";
 import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import {

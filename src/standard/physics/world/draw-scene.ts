@@ -1,5 +1,5 @@
-import { quat, xf } from "../common/math";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { quaternion, transform } from "../kernel/math";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
 import { createGrid } from "../shapes/heightfield";
@@ -59,7 +59,7 @@ export function drawScene() {
             hulls: [
                 {
                     hull: makeBoxHull(0.3, 0.4, 0.5),
-                    transform: xf.identity(),
+                    transform: transform.identity(),
                     material: defaultSurfaceMaterial(),
                 },
             ],
@@ -106,7 +106,7 @@ export function reactionScene() {
         const b = createTestBody(world, {
             type: BodyType.Dynamic,
             position: { x: i * 5 - 14, y: 2, z: 0 },
-            rotation: quat.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4),
+            rotation: quaternion.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4),
             angularVelocity: { x: 1, y: 2, z: 3 },
         });
         createSphereShape(world, b, testShapeDef({ density: 2 }), {

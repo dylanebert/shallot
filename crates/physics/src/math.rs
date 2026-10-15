@@ -1,19 +1,9 @@
-//! Scalar vector math for the serial contact solver, ported op-for-op from box3d's
-//! `math_functions.h/.c` (Erin Catto, MIT) via the upstream TS port (`src/math.ts`).
+//! Scalar math from Box3D's `math_functions.h/.c` (Erin Catto, MIT).
 //!
-//! Rust `f32` is native IEEE-754 with no FMA contraction (box3d builds `-ffp-contract=off`, and
-//! Rust never fuses `a + b * c`), so each C/TS `f32(...)`-wrapped op maps to one Rust `f32` op with
-//! the same operand order. The double-rounding theorem makes this bit-identical to the TS
-//! `Math.fround`-per-op port: `f32(a ⊙ b)` (round an f64 result) equals the native f32 `⊙` for
-//! `+ − × ÷ √` on f32 operands, so no explicit rounding is needed.
-//!
-//! Two disciplines are load-bearing and mirrored from the port:
-//!   - min/max are explicit comparisons (`a < b ? a : b`), never `f32::min`/`max`, which diverge
-//!     from box3d's scalar `b3MinFloat`/`b3MaxFloat` on NaN and signed zero.
-//!   - Angle reduction uses an f64 modulo of twice the period to retain quotient parity
-//!     even when a finite f32 angle is too large for quotient subtraction.
-
-// biome-ignore-parity: the file mirrors src/math.ts; comments there explain the arithmetic.
+//! Preserve operand order without FMA contraction, as Box3D's `-ffp-contract=off` build does.
+//! Min/max use ordered comparisons rather than `f32::min`/`max` for NaN and signed-zero parity.
+//! Angle reduction uses an f64 modulo of twice the period to retain quotient parity even when
+//! a finite f32 angle is too large for quotient subtraction.
 
 pub const PI: f32 = 3.141_592_653_59;
 
@@ -980,6 +970,15 @@ pub fn segment_distance(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> SegmentDistan
         point2: p2.mul_add(s2, d2),
         fraction2: s2,
     }
+}
+
+/// Store a host-authored world position plus an f32 offset at the position-column boundary.
+pub fn offset_world_position(position: [f64; 3], offset: Vec3) -> Vec3 {
+    Vec3::new(
+        (offset.x as f64 + position[0]) as f32,
+        (offset.y as f64 + position[1]) as f32,
+        (offset.z as f64 + position[2]) as f32,
+    )
 }
 
 /// Closest point on segment a-b to query point q (b3PointToSegmentDistance).

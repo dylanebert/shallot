@@ -11,7 +11,6 @@ import { World } from "../../src/engine";
 import { awakeContactCount, contactBodyId, contactCapacity, contactField, ContactField } from "../../src/standard/physics/collision/contact";
 import { OVERFLOW_INDEX } from "../../src/standard/physics/common/constants";
 import { BodyType, defaultBodyDef, defaultFilter, defaultShapeDef, defaultSurfaceMaterial, type BodyDef, type ShapeDef, type WorldDef } from "../../src/standard/physics/common/types";
-import { DEG_TO_RAD, offsetPos, PI } from "../../src/standard/physics/common/math";
 import { DIR_CACHE, DIR_STRIDE } from "../../src/standard/physics/kernel/contact-layout";
 import { kernel, init, shutdown } from "../../src/standard/physics/kernel/kernel";
 import { hashWorldState } from "../../src/standard/physics/world/hash";
@@ -29,6 +28,8 @@ import { PROFILE_FIELDS } from "../../src/standard/physics/world/profile";
 import BONE_TABLE from "../../src/standard/physics/solver/fixtures/human.json";
 
 const f = Math.fround;
+const PI = f(Math.PI);
+const DEG_TO_RAD = f(0.01745329251);
 const hex = (v: number) => (v >>> 0).toString(16).padStart(8, "0");
 const env = (name: string, fallback: number) => Number(process.env[name] ?? fallback);
 
@@ -78,9 +79,14 @@ function createHuman(
         hertz = 1,
         dampingRatio = f(0.7);
     const bodies = BONES.map((b) => {
+        const k = kernel(w.ecsState);
+        new Float32Array(k.memory.buffer, k.mathInputPtr(), 6).set([
+            position.x, position.y, position.z, ...b.refP,
+        ]);
+        const p = new Float32Array(k.memory.buffer, k.mathRead(0), 3);
         const body = makeBody(w, {
             type: BodyType.Dynamic,
-            position: offsetPos(position, { x: f(b.refP[0]), y: f(b.refP[1]), z: f(b.refP[2]) }),
+            position: { x: p[0], y: p[1], z: p[2] },
             rotation: { v: { x: f(b.refQ[0]), y: f(b.refQ[1]), z: f(b.refQ[2]) }, s: f(b.refQ[3]) },
         });
         createCapsuleShape(

@@ -1,4 +1,4 @@
-import type { AABB, Mat3, Plane, Vec3 } from "../common/math";
+import type { AABB, Mat3, Plane, Vec3 } from "../common/records";
 
 export { computeHullAABB } from "./read-geometry";
 

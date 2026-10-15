@@ -1,7 +1,7 @@
 // Query records from Box3D's types.h (Erin Catto, MIT). The queries run in the kernel
 // (crates/physics/src/distance.rs); these are the TypeScript shapes of their inputs and outputs.
 
-import { type Vec3, vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
 
 /** A convex shape as a point cloud wrapped with a rounding radius (b3ShapeProxy). */
 export type ShapeProxy = {
@@ -47,8 +47,8 @@ export type CastOutput = {
 /** A zero-initialized cast output (C `b3CastOutput output = { 0 }`): a miss, all fields zero. */
 export function emptyCastOutput(): CastOutput {
     return {
-        normal: vec3.zero(),
-        point: vec3.zero(),
+        normal: { x: 0, y: 0, z: 0 },
+        point: { x: 0, y: 0, z: 0 },
         fraction: 0,
         iterations: 0,
         triangleIndex: 0,

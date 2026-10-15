@@ -10,7 +10,7 @@ export {
     type PlaneSolverResult,
     solvePlanes,
 } from "../collision/mover";
-export type { AABB, Mat3, Pos, Quat, Transform, Vec3, WorldTransform } from "../common/math";
+export type { AABB, Mat3, Pos, Quat, Transform, Vec3, WorldTransform } from "../common/records";
 export {
     type BodyDef,
     BodyType,

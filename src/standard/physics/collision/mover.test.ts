@@ -6,7 +6,11 @@ import { kernelMover } from "./shape_query_gold";
 // guard against the C reference itself being wrong, which equality against it cannot.
 
 import { expect, test } from "bun:test";
-import { absf, type Vec3, vec3 } from "../common/math";
+import type { Vec3 } from "../common/records";
+import { vector } from "../kernel/math";
+
+const absf = Math.abs;
+
 import { makeBoxHull } from "../shapes/build-hull";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import { type CollisionPlane, solvePlanes } from "./mover";
@@ -39,7 +43,7 @@ test("mover-versus-sphere returns an unnormalized normal, the wrong push directi
     const r = kernelMover(ShapeType.Sphere, shape, mover)[0] ?? null;
     expect(r).not.toBeNull();
     if (!r) return;
-    expect(vec3.isNormalized(r.plane.normal)).toBe(true);
+    expect(vector.isNormalized(r.plane.normal)).toBe(true);
     expect(r.plane.normal.y).toBeGreaterThan(0.99);
     expect(absf(r.plane.offset - 0.1)).toBeLessThan(1e-5);
 });
@@ -50,7 +54,7 @@ test("mover-versus-sphere degenerates when the mover axis runs through the spher
     const r = kernelMover(ShapeType.Sphere, shape, mover)[0] ?? null;
     expect(r).not.toBeNull();
     if (!r) return;
-    expect(vec3.isNormalized(r.plane.normal)).toBe(true);
+    expect(vector.isNormalized(r.plane.normal)).toBe(true);
     // The fallback axis is perpendicular to the mover axis (X).
     expect(absf(r.plane.normal.x)).toBeLessThan(1e-5);
     // Deepest possible penetration: the full combined radius.
@@ -69,7 +73,7 @@ test("mover-versus-capsule returns an unnormalized normal, the wrong push direct
     const r = kernelMover(ShapeType.Capsule, capsuleShape, mover)[0] ?? null;
     expect(r).not.toBeNull();
     if (!r) return;
-    expect(vec3.isNormalized(r.plane.normal)).toBe(true);
+    expect(vector.isNormalized(r.plane.normal)).toBe(true);
     expect(r.plane.normal.y).toBeGreaterThan(0.99);
     expect(absf(r.plane.offset - 0.1)).toBeLessThan(1e-5);
 });
@@ -79,7 +83,7 @@ test("mover-versus-capsule picks a normal in the plane of two crossing core segm
     const r = kernelMover(ShapeType.Capsule, capsuleShape, mover)[0] ?? null;
     expect(r).not.toBeNull();
     if (!r) return;
-    expect(vec3.isNormalized(r.plane.normal)).toBe(true);
+    expect(vector.isNormalized(r.plane.normal)).toBe(true);
     expect(absf(r.plane.normal.x)).toBeLessThan(1e-5);
     expect(absf(r.plane.normal.z)).toBeLessThan(1e-5);
     expect(absf(r.plane.offset - 0.5)).toBeLessThan(1e-5);
@@ -90,7 +94,7 @@ test("mover-versus-capsule degenerates when both core segments lie on the same a
     const r = kernelMover(ShapeType.Capsule, capsuleShape, mover)[0] ?? null;
     expect(r).not.toBeNull();
     if (!r) return;
-    expect(vec3.isNormalized(r.plane.normal)).toBe(true);
+    expect(vector.isNormalized(r.plane.normal)).toBe(true);
     expect(absf(r.plane.normal.x)).toBeLessThan(1e-5);
     expect(absf(r.plane.offset - 0.5)).toBeLessThan(1e-5);
 });
@@ -107,7 +111,7 @@ test("mover-versus-hull returns an unnormalized normal, a push that is not the t
     const r = kernelMover(ShapeType.Hull, boxHull, mover)[0] ?? null;
     expect(r).not.toBeNull();
     if (!r) return;
-    expect(vec3.isNormalized(r.plane.normal)).toBe(true);
+    expect(vector.isNormalized(r.plane.normal)).toBe(true);
     expect(r.plane.normal.y).toBeGreaterThan(0.99);
     expect(absf(r.plane.offset - 0.1)).toBeLessThan(1e-4);
 });

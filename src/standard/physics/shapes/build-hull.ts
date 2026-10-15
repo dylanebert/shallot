@@ -1,5 +1,5 @@
 import type { World } from "../../../engine";
-import type { Transform, Vec3 } from "../common/math";
+import type { Transform, Vec3 } from "../common/records";
 import { type Kernel, kernel } from "../kernel/kernel";
 import type { HullData } from "./hull";
 import { drawHull } from "./readgeometry";

@@ -1,17 +1,12 @@
 import { expect, test } from "bun:test";
 import type { ShapeProxy } from "../collision/distance";
 import { kernelCast, kernelMover, kernelOverlap, kernelRay } from "../collision/shape_query_gold";
-import {
-    aabb,
-    f32,
-    PI,
-    type Quat,
-    quat,
-    type Transform,
-    type Vec3,
-    vec3,
-    xf,
-} from "../common/math";
+import type { Quat, Transform, Vec3 } from "../common/records";
+import { bounds, quaternion, transform, vector } from "../kernel/math";
+
+const f32 = Math.fround;
+const PI = Math.fround(Math.PI);
+
 import { BodyType, defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import { assertQueryWorld, kernel, rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { ShapeField, shapeField } from "../kernel/shaperecords";
@@ -59,7 +54,7 @@ function quatEqual(got: Quat, want: string[], label: string) {
 }
 
 /** Run one folded case, naming the vector in whatever it throws so a red says which one failed. */
-function vector(name: string, body: () => void): void {
+function nativeCase(name: string, body: () => void): void {
     try {
         body();
     } catch (error) {
@@ -173,16 +168,16 @@ function assertCompound(c: CompoundData, g: CompoundGold) {
 function buildMixed(): CompoundData {
     const mat = defaultSurfaceMaterial();
     const box = makeBoxHull(0.5, 0.5, 0.5);
-    const md = createBoxMesh(vec3.zero(), v(0.5, 0.5, 0.5), false);
+    const md = createBoxMesh(vector.zero(), v(0.5, 0.5, 0.5), false);
     const def: CompoundDef = {
         capsules: [
             { capsule: { center1: v(-1, 0, 0), center2: v(1, 0, 0), radius: 0.25 }, material: mat },
         ],
-        hulls: [{ hull: box, transform: xf.identity(), material: mat }],
+        hulls: [{ hull: box, transform: transform.identity(), material: mat }],
         meshes: [
             {
                 meshData: md,
-                transform: xf.identity(),
+                transform: transform.identity(),
                 scale: v(1, 1, 1),
                 materials: [mat],
                 materialCount: 1,
@@ -235,10 +230,10 @@ function exerciseCompoundShape(compound: CompoundData): void {
 function buildTransforms(): CompoundData {
     const box = makeBoxHull(0.5, 0.5, 0.5);
     // f32-round the axis/angle literals to match the C `0.3f`/`0.6f` before normalize/fromAxisAngle.
-    const q = quat.fromAxisAngle(vec3.normalize(v(f32(0.3), f32(0.7), f32(0.2))), f32(0.6));
+    const q = quaternion.fromAxisAngle(vector.normalize(v(f32(0.3), f32(0.7), f32(0.2))), f32(0.6));
     const matA = makeMat(0.6, 10n);
     const matB = makeMat(0.3, 20n);
-    const idTransform: Transform = { p: v(1, 0.5, -0.5), q: quat.identity() };
+    const idTransform: Transform = { p: v(1, 0.5, -0.5), q: quaternion.identity() };
     const rotTransform: Transform = { p: v(-1, 0, 2), q };
     const def: CompoundDef = {
         hulls: [
@@ -258,7 +253,7 @@ test("a compound's materials, inner tree nodes and resolved child transforms dri
     ];
     for (const [name, build] of scenes) {
         const goldName = name.split(" ")[0];
-        vector(name, () => {
+        nativeCase(name, () => {
             const authored = build();
             if (name.startsWith("mixed")) exerciseCompoundShape(authored);
             assertCompound(authored, cGold(goldName));
@@ -271,7 +266,7 @@ test("a compound's materials, inner tree nodes and resolved child transforms dri
 const parityMat = defaultSurfaceMaterial();
 
 test("createCompound mis-sorts a compound's children into the wrong per-type arrays, or leaves its inner tree unbuilt, for the mixed scene or for a lone capsule, hull, mesh or sphere.", () => {
-    vector("CompoundCreateMixed — counts + shared diagnostics", () => {
+    nativeCase("CompoundCreateMixed — counts + shared diagnostics", () => {
         const c = buildMixed();
         expect(c.capsules.length).toBe(1);
         expect(c.hulls.length).toBe(1);
@@ -284,7 +279,7 @@ test("createCompound mis-sorts a compound's children into the wrong per-type arr
         expect(c.tree.root).toBeGreaterThanOrEqual(0);
     });
 
-    vector("CompoundCreateSingleType — one child of each type in isolation", () => {
+    nativeCase("CompoundCreateSingleType — one child of each type in isolation", () => {
         const cap = createCompound({
             capsules: [
                 {
@@ -300,18 +295,18 @@ test("createCompound mis-sorts a compound's children into the wrong per-type arr
 
         const box = makeBoxHull(1, 1, 1);
         const hull = createCompound({
-            hulls: [{ hull: box, transform: xf.identity(), material: parityMat }],
+            hulls: [{ hull: box, transform: transform.identity(), material: parityMat }],
         }) as CompoundData;
         expect(hull.hulls.length).toBe(1);
         expect(hull.sharedHullCount).toBe(1);
         expect(hull.capsules.length).toBe(0);
 
-        const md = createBoxMesh(vec3.zero(), v(1, 1, 1), false);
+        const md = createBoxMesh(vector.zero(), v(1, 1, 1), false);
         const mesh = createCompound({
             meshes: [
                 {
                     meshData: md,
-                    transform: xf.identity(),
+                    transform: transform.identity(),
                     scale: v(1, 1, 1),
                     materials: [parityMat],
                     materialCount: 1,
@@ -329,7 +324,7 @@ test("createCompound mis-sorts a compound's children into the wrong per-type arr
 });
 
 test("a compound's material table collapses materials that differ, or duplicates identical ones, across capsules, hulls, spheres and mesh material arrays.", () => {
-    vector("CompoundMaterialDedup — identical materials collapse to one slot", () => {
+    nativeCase("CompoundMaterialDedup — identical materials collapse to one slot", () => {
         const m = makeMat(0.4, 7n);
         const c = createCompound({
             capsules: [0, 1, 2].map((i) => ({
@@ -343,7 +338,7 @@ test("a compound's material table collapses materials that differ, or duplicates
         }
     });
 
-    vector("CompoundMaterialDistinct — unique materials keep distinct slots", () => {
+    nativeCase("CompoundMaterialDistinct — unique materials keep distinct slots", () => {
         const c = createCompound({
             capsules: [0, 1, 2].map((i) => ({
                 capsule: { center1: v(i, 0, 0), center2: v(i + 1, 0, 0), radius: 0.25 },
@@ -360,118 +355,130 @@ test("a compound's material table collapses materials that differ, or duplicates
         }
     });
 
-    vector("CompoundMaterialCrossShape — one material shared across capsule/hull/sphere", () => {
-        const m = makeMat(0.5, 99n);
-        const box = makeBoxHull(0.5, 0.5, 0.5);
-        const c = createCompound({
-            capsules: [
-                {
-                    capsule: { center1: v(0, 0, 0), center2: v(1, 0, 0), radius: 0.25 },
-                    material: m,
-                },
-            ],
-            hulls: [{ hull: box, transform: xf.identity(), material: m }],
-            spheres: [{ sphere: { center: v(5, 0, 0), radius: 0.5 }, material: m }],
-        }) as CompoundData;
-        expect(c.materialCount).toBe(1);
-        expect(c.capsules[0].materialIndex).toBe(0);
-        expect(c.hulls[0].materialIndex).toBe(0);
-        expect(c.spheres[0].materialIndex).toBe(0);
-    });
+    nativeCase(
+        "CompoundMaterialCrossShape — one material shared across capsule/hull/sphere",
+        () => {
+            const m = makeMat(0.5, 99n);
+            const box = makeBoxHull(0.5, 0.5, 0.5);
+            const c = createCompound({
+                capsules: [
+                    {
+                        capsule: { center1: v(0, 0, 0), center2: v(1, 0, 0), radius: 0.25 },
+                        material: m,
+                    },
+                ],
+                hulls: [{ hull: box, transform: transform.identity(), material: m }],
+                spheres: [{ sphere: { center: v(5, 0, 0), radius: 0.5 }, material: m }],
+            }) as CompoundData;
+            expect(c.materialCount).toBe(1);
+            expect(c.capsules[0].materialIndex).toBe(0);
+            expect(c.hulls[0].materialIndex).toBe(0);
+            expect(c.spheres[0].materialIndex).toBe(0);
+        },
+    );
 
-    vector("CompoundMaterialMeshShared — mesh material dedups against a convex material", () => {
-        const m = makeMat(0.3, 11n);
-        const md = createBoxMesh(vec3.zero(), v(1, 1, 1), false);
-        expect(md.materialCount).toBe(1);
-        const c = createCompound({
-            meshes: [
-                {
-                    meshData: md,
-                    transform: xf.identity(),
-                    scale: v(1, 1, 1),
-                    materials: [m],
-                    materialCount: 1,
-                },
-            ],
-            spheres: [{ sphere: { center: v(5, 0, 0), radius: 0.5 }, material: m }],
-        }) as CompoundData;
-        // The mesh's one material and the sphere's identical material share a single slot.
-        expect(c.materialCount).toBe(1);
-        expect(c.meshes[0].materialIndices[0]).toBe(0);
-        expect(c.spheres[0].materialIndex).toBe(0);
-    });
+    nativeCase(
+        "CompoundMaterialMeshShared — mesh material dedups against a convex material",
+        () => {
+            const m = makeMat(0.3, 11n);
+            const md = createBoxMesh(vector.zero(), v(1, 1, 1), false);
+            expect(md.materialCount).toBe(1);
+            const c = createCompound({
+                meshes: [
+                    {
+                        meshData: md,
+                        transform: transform.identity(),
+                        scale: v(1, 1, 1),
+                        materials: [m],
+                        materialCount: 1,
+                    },
+                ],
+                spheres: [{ sphere: { center: v(5, 0, 0), radius: 0.5 }, material: m }],
+            }) as CompoundData;
+            // The mesh's one material and the sphere's identical material share a single slot.
+            expect(c.materialCount).toBe(1);
+            expect(c.meshes[0].materialIndices[0]).toBe(0);
+            expect(c.spheres[0].materialIndex).toBe(0);
+        },
+    );
 });
 
 test("a compound's shared hull and shared mesh counts stop deduplicating identical geometry by content, or wrongly merge geometry that differs.", () => {
-    vector("CompoundHullSharingPointer / Content / Distinct — shared-hull count by content", () => {
-        const box = makeBoxHull(0.5, 0.5, 0.5);
-        // Same pointer twice → 1 shared hull.
-        const samePtr = createCompound({
-            hulls: [
-                { hull: box, transform: xf.identity(), material: parityMat },
-                {
-                    hull: box,
-                    transform: { p: v(2, 0, 0), q: quat.identity() },
-                    material: parityMat,
-                },
-            ],
-        }) as CompoundData;
-        expect(samePtr.hulls.length).toBe(2);
-        expect(samePtr.sharedHullCount).toBe(1);
+    nativeCase(
+        "CompoundHullSharingPointer / Content / Distinct — shared-hull count by content",
+        () => {
+            const box = makeBoxHull(0.5, 0.5, 0.5);
+            // Same pointer twice → 1 shared hull.
+            const samePtr = createCompound({
+                hulls: [
+                    { hull: box, transform: transform.identity(), material: parityMat },
+                    {
+                        hull: box,
+                        transform: { p: v(2, 0, 0), q: quaternion.identity() },
+                        material: parityMat,
+                    },
+                ],
+            }) as CompoundData;
+            expect(samePtr.hulls.length).toBe(2);
+            expect(samePtr.sharedHullCount).toBe(1);
 
-        // Distinct pointers, identical content → still 1 (content dedup by hash).
-        const box2 = makeBoxHull(0.5, 0.5, 0.5);
-        const sameContent = createCompound({
-            hulls: [
-                { hull: box, transform: xf.identity(), material: parityMat },
-                { hull: box2, transform: xf.identity(), material: parityMat },
-            ],
-        }) as CompoundData;
-        expect(sameContent.sharedHullCount).toBe(1);
+            // Distinct pointers, identical content → still 1 (content dedup by hash).
+            const box2 = makeBoxHull(0.5, 0.5, 0.5);
+            const sameContent = createCompound({
+                hulls: [
+                    { hull: box, transform: transform.identity(), material: parityMat },
+                    { hull: box2, transform: transform.identity(), material: parityMat },
+                ],
+            }) as CompoundData;
+            expect(sameContent.sharedHullCount).toBe(1);
 
-        // Genuinely different hulls → 2.
-        const other = makeBoxHull(1, 0.5, 0.25);
-        const distinct = createCompound({
-            hulls: [
-                { hull: box, transform: xf.identity(), material: parityMat },
-                { hull: other, transform: xf.identity(), material: parityMat },
-            ],
-        }) as CompoundData;
-        expect(distinct.sharedHullCount).toBe(2);
-    });
+            // Genuinely different hulls → 2.
+            const other = makeBoxHull(1, 0.5, 0.25);
+            const distinct = createCompound({
+                hulls: [
+                    { hull: box, transform: transform.identity(), material: parityMat },
+                    { hull: other, transform: transform.identity(), material: parityMat },
+                ],
+            }) as CompoundData;
+            expect(distinct.sharedHullCount).toBe(2);
+        },
+    );
 
-    vector("CompoundMeshSharingPointer / Content / Distinct — shared-mesh count by content", () => {
-        const md = createBoxMesh(vec3.zero(), v(1, 1, 1), false);
-        const meshDef = (data: MeshData, tp: Vec3) => ({
-            meshData: data,
-            transform: { p: tp, q: quat.identity() },
-            scale: v(1, 1, 1),
-            materials: [parityMat],
-            materialCount: 1,
-        });
+    nativeCase(
+        "CompoundMeshSharingPointer / Content / Distinct — shared-mesh count by content",
+        () => {
+            const md = createBoxMesh(vector.zero(), v(1, 1, 1), false);
+            const meshDef = (data: MeshData, tp: Vec3) => ({
+                meshData: data,
+                transform: { p: tp, q: quaternion.identity() },
+                scale: v(1, 1, 1),
+                materials: [parityMat],
+                materialCount: 1,
+            });
 
-        const samePtr = createCompound({
-            meshes: [meshDef(md, v(0, 0, 0)), meshDef(md, v(3, 0, 0))],
-        }) as CompoundData;
-        expect(samePtr.meshes.length).toBe(2);
-        expect(samePtr.sharedMeshCount).toBe(1);
+            const samePtr = createCompound({
+                meshes: [meshDef(md, v(0, 0, 0)), meshDef(md, v(3, 0, 0))],
+            }) as CompoundData;
+            expect(samePtr.meshes.length).toBe(2);
+            expect(samePtr.sharedMeshCount).toBe(1);
 
-        const md2 = createBoxMesh(vec3.zero(), v(1, 1, 1), false);
-        const sameContent = createCompound({
-            meshes: [meshDef(md, v(0, 0, 0)), meshDef(md2, v(0, 0, 0))],
-        }) as CompoundData;
-        expect(sameContent.sharedMeshCount).toBe(1);
+            const md2 = createBoxMesh(vector.zero(), v(1, 1, 1), false);
+            const sameContent = createCompound({
+                meshes: [meshDef(md, v(0, 0, 0)), meshDef(md2, v(0, 0, 0))],
+            }) as CompoundData;
+            expect(sameContent.sharedMeshCount).toBe(1);
 
-        const mdOther = createBoxMesh(vec3.zero(), v(2, 1, 0.5), false);
-        const distinct = createCompound({
-            meshes: [meshDef(md, v(0, 0, 0)), meshDef(mdOther, v(0, 0, 0))],
-        }) as CompoundData;
-        expect(distinct.sharedMeshCount).toBe(2);
-    });
+            const mdOther = createBoxMesh(vector.zero(), v(2, 1, 0.5), false);
+            const distinct = createCompound({
+                meshes: [meshDef(md, v(0, 0, 0)), meshDef(mdOther, v(0, 0, 0))],
+            }) as CompoundData;
+            expect(distinct.sharedMeshCount).toBe(2);
+        },
+    );
 });
 
 test("a compound's child index stops resolving to the right child shape, its inner-tree AABB query visits the wrong children, or its root AABB fails to contain a child's own AABB.", () => {
-    vector("CompoundChildDispatch — getCompoundChild resolves the right type per index", () => {
+    nativeCase("CompoundChildDispatch — getCompoundChild resolves the right type per index", () => {
         const c = buildMixed();
         // Order: capsule (0), hull (1), mesh (2), spheres (3,4).
         expect(getCompoundChild(c, 0).type).toBe(ShapeType.Capsule);
@@ -485,7 +492,7 @@ test("a compound's child index stops resolving to the right child shape, its inn
         expect(getCompoundChild(c, 3).sphere).toBeDefined();
     });
 
-    vector("CompoundQuery — inner-tree AABB query visits the overlapping children", () => {
+    nativeCase("CompoundQuery — inner-tree AABB query visits the overlapping children", () => {
         const c = buildMixed();
         const world = createTestWorld();
         try {
@@ -533,13 +540,13 @@ test("a compound's child index stops resolving to the right child shape, its inn
         }
     });
 
-    vector("CompoundAABBContainsChildren — root AABB contains every child's AABB", () => {
+    nativeCase("CompoundAABBContainsChildren — root AABB contains every child's AABB", () => {
         const c = buildMixed();
         const world = createTestWorld();
         try {
             const body = createTestBody(world, { type: BodyType.Static });
             const shape = createCompoundShape(world, body, testShapeDef(), c)!;
-            const root = computeShapeAABB(world, shape, xf.identity());
+            const root = computeShapeAABB(world, shape, transform.identity());
             const childCount =
                 c.capsules.length + c.hulls.length + c.meshes.length + c.spheres.length;
             for (let i = 0; i < childCount; ++i) {
@@ -561,7 +568,7 @@ test("a compound's child index stops resolving to the right child shape, its inn
                         break;
                     }
                 }
-                expect(aabb.contains(root, box)).toBe(true);
+                expect(bounds.contains(root, box)).toBe(true);
             }
         } finally {
             destroyTestWorld(world);
@@ -574,11 +581,11 @@ test("a compound's child index stops resolving to the right child shape, its inn
 const rayDown = (origin: Vec3, translation: Vec3) => ({ origin, translation, maxFraction: 1 });
 
 test("a compound's ray cast, shape cast or overlap query reports the wrong child, fraction, material or hull normal frame, or hits where the compound has a gap.", () => {
-    vector("ray cast misses a compound it passes over", () => {
+    nativeCase("ray cast misses a compound it passes over", () => {
         const c = createCompound({
             spheres: [
                 {
-                    sphere: { center: vec3.zero(), radius: 0.5 },
+                    sphere: { center: vector.zero(), radius: 0.5 },
                     material: defaultSurfaceMaterial(),
                 },
             ],
@@ -591,7 +598,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
         expect(out.hit).toBe(false);
     });
 
-    vector("ray cast returns the nearest child, its normal and material", () => {
+    nativeCase("ray cast returns the nearest child, its normal and material", () => {
         const matA = makeMat(0.4, 100n);
         const matB = makeMat(0.4, 200n);
         const c = createCompound({
@@ -600,7 +607,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
                 { sphere: { center: { x: 10, y: 0, z: 0 }, radius: 1 }, material: matB },
             ],
         }) as CompoundData;
-        const out = kernelRay(ShapeType.Compound, c, rayDown(vec3.zero(), { x: 20, y: 0, z: 0 }));
+        const out = kernelRay(ShapeType.Compound, c, rayDown(vector.zero(), { x: 20, y: 0, z: 0 }));
         expect(out.hit).toBe(true);
         // Front face of the nearer sphere is at x=4 → fraction 4/20 = 0.2.
         expect(Math.abs(out.fraction - 0.2)).toBeLessThanOrEqual(1e-4);
@@ -610,7 +617,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
         expect(mats[out.materialIndex].userMaterialId).toBe(100n);
     });
 
-    vector("ray cast rotates a hull child's normal back into compound space", () => {
+    nativeCase("ray cast rotates a hull child's normal back into compound space", () => {
         // A unit box rotated 90° about Z at compound +X. The hit normal must come back from hull-local
         // space rotated into compound space (pointing -X toward the incoming ray).
         const c = createCompound({
@@ -619,13 +626,13 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
                     hull: makeBoxHull(1, 1, 1),
                     transform: {
                         p: { x: 5, y: 0, z: 0 },
-                        q: quat.fromAxisAngle(vec3.axisZ(), f32(0.5 * PI)),
+                        q: quaternion.fromAxisAngle(vector.axisZ(), f32(0.5 * PI)),
                     },
                     material: defaultSurfaceMaterial(),
                 },
             ],
         }) as CompoundData;
-        const out = kernelRay(ShapeType.Compound, c, rayDown(vec3.zero(), { x: 20, y: 0, z: 0 }));
+        const out = kernelRay(ShapeType.Compound, c, rayDown(vector.zero(), { x: 20, y: 0, z: 0 }));
         expect(out.hit).toBe(true);
         expect(Math.abs(out.fraction - 0.2)).toBeLessThanOrEqual(1e-4);
         expect(Math.abs(out.normal.x + 1)).toBeLessThanOrEqual(1e-3);
@@ -633,7 +640,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
         expect(Math.abs(out.normal.z)).toBeLessThanOrEqual(1e-3);
     });
 
-    vector("shape cast returns the nearest child", () => {
+    nativeCase("shape cast returns the nearest child", () => {
         const mat = defaultSurfaceMaterial();
         const c = createCompound({
             spheres: [
@@ -642,7 +649,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
             ],
         }) as CompoundData;
         const out = kernelCast(ShapeType.Compound, c, {
-            proxy: { points: [vec3.zero()], count: 1, radius: 0.25 },
+            proxy: { points: [vector.zero()], count: 1, radius: 0.25 },
             translation: { x: 20, y: 0, z: 0 },
             maxFraction: 1,
             canEncroach: false,
@@ -653,7 +660,7 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
         expect(out.childIndex).toBe(0);
     });
 
-    vector("overlap distinguishes the gap between children from a hit on one", () => {
+    nativeCase("overlap distinguishes the gap between children from a hit on one", () => {
         const mat = defaultSurfaceMaterial();
         const c = createCompound({
             spheres: [
@@ -661,28 +668,28 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
                 { sphere: { center: { x: 3, y: 0, z: 0 }, radius: 0.5 }, material: mat },
             ],
         }) as CompoundData;
-        const gap: ShapeProxy = { points: [vec3.zero()], count: 1, radius: 0.25 };
-        expect(kernelOverlap(ShapeType.Compound, c, xf.identity(), gap)).toBe(false);
+        const gap: ShapeProxy = { points: [vector.zero()], count: 1, radius: 0.25 };
+        expect(kernelOverlap(ShapeType.Compound, c, transform.identity(), gap)).toBe(false);
         const hit: ShapeProxy = { points: [{ x: 3, y: 0, z: 0 }], count: 1, radius: 0.1 };
-        expect(kernelOverlap(ShapeType.Compound, c, xf.identity(), hit)).toBe(true);
+        expect(kernelOverlap(ShapeType.Compound, c, transform.identity(), hit)).toBe(true);
     });
 });
 
 test("the kernel compound mover query returns an up-facing plane from each straddled box child without overrunning its plane capacity.", () => {
     // Ported from test_compound.c CompoundMover.
-    vector("collideMover: a mover spanning two boxes gets an up-plane from each", () => {
+    nativeCase("collideMover: a mover spanning two boxes gets an up-plane from each", () => {
         const mat = defaultSurfaceMaterial();
         const box = makeBoxHull(0.5, 0.5, 0.5);
         const c = createCompound({
             hulls: [
                 {
                     hull: box,
-                    transform: { p: { x: -1, y: 0, z: 0 }, q: quat.identity() },
+                    transform: { p: { x: -1, y: 0, z: 0 }, q: quaternion.identity() },
                     material: mat,
                 },
                 {
                     hull: box,
-                    transform: { p: { x: 1, y: 0, z: 0 }, q: quat.identity() },
+                    transform: { p: { x: 1, y: 0, z: 0 }, q: quaternion.identity() },
                     material: mat,
                 },
             ],

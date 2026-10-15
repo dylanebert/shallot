@@ -5,8 +5,9 @@
 // equality, not tolerance (the README).
 
 import { expect, test } from "bun:test";
-import { type Transform, type Vec3, xf } from "../common/math";
+import type { Transform, Vec3 } from "../common/records";
 import { defaultSurfaceMaterial, ShapeType } from "../common/types";
+import { transform } from "../kernel/math";
 import { createHull, makeBoxHull } from "../shapes/build-hull";
 import { type CompoundData, createCompound } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
@@ -122,7 +123,7 @@ const slab = makeBoxHull(0.5, 0.5, 0.5);
 const cmat = defaultSurfaceMaterial();
 const identityAt = (x: number, y: number, z: number): Transform => ({
     p: v(x, y, z),
-    q: xf.identity().q,
+    q: transform.identity().q,
 });
 const compound = createCompound({
     hulls: [

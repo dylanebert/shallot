@@ -1,4 +1,4 @@
-import type { AABB, Vec3 } from "../common/math";
+import type { AABB, Vec3 } from "../common/records";
 
 export {
     createBoxMesh,
