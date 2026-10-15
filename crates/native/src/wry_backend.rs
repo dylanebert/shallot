@@ -179,8 +179,7 @@ impl ApplicationHandler for App {
                     Some(data) => Response::builder()
                         .header("Content-Type", content_type(path))
                         .header("Access-Control-Allow-Origin", "*")
-                        // COOP/COEP: cross-origin isolation so physics can multithread
-                        // (mirrors the JS serve surfaces' CROSS_ORIGIN_ISOLATION in src/project/vite.js)
+                        // Cross-origin isolation permits shared-memory physics workers.
                         .header("Cross-Origin-Opener-Policy", "same-origin")
                         .header("Cross-Origin-Embedder-Policy", "require-corp")
                         .body(data)
