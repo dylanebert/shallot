@@ -21,14 +21,14 @@ const Deg2Rad = Math.PI / 180;
 
 // scroll-to-flyspeed ramp: geometric, so each notch feels equal across magnitudes (5→10 like 50→100).
 // one wheel notch (~100 accumulated deltaY) scales flySpeed ×1.15. scroll up (deltaY < 0) speeds up;
-// the negation at the call site makes up = faster, like Unity's / Blender's scene-view accelerator.
+// the negation at the call site makes up = faster.
 const FlyScrollRate = Math.log(1.15) / 100; // ≈ 0.0014
 
 /** `Free` orbits, pans, and zooms; `Locked` disables all look (orbit rotation and fly look), leaving pan and zoom. */
 export const OrbitMode = { Free: 0, Locked: 1 } as const;
 
 /**
- * contextual left-click hook (PlayCanvas-style): a picker registers `claim` so that pressing the orbit
+ * contextual left-click hook: a picker registers `claim` so that pressing the orbit
  * button over something interactive starts an interaction instead of an orbit. Consulted once, at the orbit
  * button's press edge, with the cursor in canvas-local CSS pixels; returning true suppresses orbit rotation
  * for that whole drag (until the button releases), while pan and fly stay unaffected. Unregistered, every
@@ -221,7 +221,7 @@ const OrbitSystem: System = {
             // is down: the first finger's continued capture keeps `pointer.left` true for the
             // whole gesture, so reading it during a two-finger pinch/pan would
             // orbit alongside the intended gesture. Gesture count alone decides the mode instead — one
-            // finger rotates, two-plus pan, matching three.js OrbitControls' / Babylon's touch map. Fly
+            // finger rotates, two-plus pan. Fly
             // has no touch equivalent (out of scope), so any touch keeps it held-off.
             const orbitHeld =
                 touchCount > 0
@@ -235,8 +235,8 @@ const OrbitSystem: System = {
                 touchCount > 0
                     ? false
                     : isButton(input.pointer, world.storage(Orbit).flyButton.get(eid));
-            // the held button picks the mode; fly engages only while the fly button is held (hold-to-fly, the
-            // Unity/UE scene-view idiom), and orbit/pan win over it. bare WASD/QE never fly, so a gameplay
+            // Fly engages only while its button is held, and orbit/pan win over it.
+            // Bare WASD/QE never fly, so a gameplay
             // scene owns the movement keys by default — the camera only takes them while fly is held.
             const flying = !orbitHeld && !panHeld && flyHeld;
             // look applies the active mode's drag: fly looks in place (fly button), orbit swings the target.
@@ -330,7 +330,7 @@ const OrbitSystem: System = {
             if (zoomInput !== 0) {
                 if (flying) {
                     // flying drives Transform directly, so the orbit distance is invisible — scroll
-                    // retargets to fly speed, multiplicative like Unity's scene-view accelerator.
+                    // retargets to fly speed, multiplicative so each notch feels equal across magnitudes.
                     flySpd = clamp(
                         flySpd * Math.exp(-zoomInput * FlyScrollRate),
                         world.storage(Orbit).flyMin.get(eid),

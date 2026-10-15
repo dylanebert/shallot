@@ -1,4 +1,4 @@
-//! Box3D four-lane convex contact constraints.
+//! Four-lane convex contact constraints.
 
 use crate::body::flags as body_flags;
 use crate::body::{read_sim, read_state, STATE_STRIDE};
@@ -227,7 +227,7 @@ fn ident_rec(_worker: usize) -> usize {
     0
 }
 
-// Box3D's explicit lane blocks keep null and non-dynamic bodies out of the write set.
+// Explicit lane blocks keep null and non-dynamic bodies out of the write set.
 fn scatter_scalar(
     state: Col<f32>,
     flags: Col<u32>,

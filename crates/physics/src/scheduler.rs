@@ -1,4 +1,4 @@
-//! Box3D's task-slot scheduler. The caller helps pending tasks in finish; only background workers park.
+//! Task-slot scheduler. The caller helps pending tasks in finish; only background workers park.
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 

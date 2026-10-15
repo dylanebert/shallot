@@ -114,7 +114,7 @@ test("the view matrix an aimed camera implies does not place the eye at the view
     }
 });
 
-// Euler helpers follow three.js and Bevy: radians, intrinsic XYZ order. The expected values are three.js's own output
+// The expected values are three.js's own output for radians, intrinsic XYZ order
 // (reference/three.js 1e7e3cff30, `new Quaternion().setFromEuler(new Euler(x, y, z))`, `Euler.setFromQuaternion` and
 // `Quaternion.multiply`), not this file's formula.
 const THREE_EULER: { euler: [number, number, number]; quat: [number, number, number, number] }[] = [

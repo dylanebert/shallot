@@ -1807,7 +1807,7 @@ fn compute_separating_axis(
             }
             let s = separation.to_array();
             let n = normal.map(|v| v.to_array());
-            // Lane order preserves Box3D's ties and first early return; zero tail fails the Gauss mask.
+            // Lane order preserves first-wins ties and the first early return; zero tail fails the Gauss mask.
             for lane in 0..4 {
                 if s[lane] > result.edge.separation {
                     result.edge = SeparatingAxis {
@@ -1966,7 +1966,7 @@ pub fn collide_hulls(
                         let normal = u2.lerp(v2, t).normalize();
                         let separation = normal.dot(q1.sub(q2));
                         if separation > speculative_distance {
-                            // Box3D counts a cached edge pair still separated as a hit and keeps the cache.
+                            // A still-separated cached edge pair needs no new axis search; keep the cache.
                             cache.hit = 1;
                             return;
                         }

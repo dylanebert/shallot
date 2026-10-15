@@ -282,7 +282,7 @@ export const casterWgsl = chunk("casterWgsl", () => {
     return [pointCastersSchema(), tileRectsSchema(MAX_POINT_CASTERS * 6)];
 });
 
-// Bevy's fixed 2×2 and Castaño 13-tap map filters, expressed over one atlas tile. `rect` keeps
+// Fixed 2×2 and Castaño 13-tap map filters, expressed over one atlas tile. `rect` keeps
 // comparison taps inside the selected tile; map-space offsets are measured in that tile's pixels.
 function mapHardwareWgsl(texture: "shadowMap" | "pointAtlas") {
     return /* wgsl */ `(uv: vec2f, depth: f32, rect: vec4f) -> f32 {
@@ -362,7 +362,7 @@ const sampleShadowPointMapCastanoThirteen = tgpu
     .$uses({ ["sample_shadow_point_map_hardware"]: sampleShadowPointMapHardware })
     .$name("sample_shadow_point_map_castano_thirteen");
 
-// Bevy's cubemap Gaussian pattern projected onto Shallot's face atlas. Each offset resolves its own cube
+// Cubemap Gaussian pattern projected onto the face atlas. Each offset resolves its own cube
 // face before looking up that face's tile, so samples crossing a face edge stay continuous.
 const sampleShadowCubemapHardware = tgpu
     .fn(
@@ -448,7 +448,7 @@ function pointShadowFn() {
         if (method == 0u) {
             return sample_shadow_cubemap_hardware(dOff, c.nf.x, k, tanHalf);
         }
-        // Bevy measures kernel scale before receiver bias, by the dominant axis rather than Euclidean distance.
+        // Measure kernel scale before bias so receiver offsets do not change the filter footprint.
         let distanceToLight = max(abs(toFrag.x), max(abs(toFrag.y), abs(toFrag.z)));
         return sample_shadow_cubemap_gaussian(dOff, c.nf.x, k, tanHalf, distanceToLight);
     }

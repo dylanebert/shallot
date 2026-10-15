@@ -6,7 +6,7 @@ use crate::math::{Plane, Vec3, FLT_MAX, HUGE};
 use crate::simd::FloatW;
 use std::borrow::Cow;
 
-/// Derive Box3D's padded SoA stream; vertices repeat the first point, normals have zero tails.
+/// Pad the SoA stream for wide loads; vertices repeat the first point, normals have zero tails.
 pub fn soa_vectors(points: impl ExactSizeIterator<Item = Vec3>, repeat_first: bool) -> Vec<f32> {
     let count = points.len();
     let n = (count + 3) & !3;

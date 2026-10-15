@@ -19,10 +19,10 @@ export const CameraMode = {
     Orthographic: 1,
 } as const;
 
-/** Bevy's Blender-calibrated default exposure in EV100. */
+/** Blender-calibrated default exposure in EV100. */
 export const EXPOSURE_EV100_BLENDER = 9.7;
 
-/** Camera exposure in EV100. The default follows Bevy's Blender-calibrated value. */
+/** Camera exposure in EV100; defaults to 9.7. */
 export const Exposure = component(
     "Exposure",
     { ev100: f32 },

@@ -2,7 +2,7 @@ import { component } from "../../engine";
 // Outline — the drop-in screen-space highlight. Add the `Outline` component to a MeshInstance entity and a
 // uniform-width band hugs its silhouette: hover/select feedback, the player's grab highlight. The
 // technique is mask → jump-flood distance field → threshold (Ben Golus, "The Quest for Very Wide
-// Outlines"; Bevy's JFA outline crates), NOT an inverted hull (stylistic, non-uniform width). Cost
+// Outlines"), NOT an inverted hull (stylistic, non-uniform width). Cost
 // scales with the highlighted-object count + screen × log(width), never with scene geometry — only the
 // highlighted entities draw into a small coverage mask, and the JFA pass count is bounded by the band
 // width, not the screen.

@@ -195,7 +195,7 @@ pub struct Plan<'a> {
 /// owns the columns and the per-step scalars (softness, `h`, thresholds).
 ///
 /// Blocks of a stage run **concurrently on different threads** — an impl must treat its columns as
-/// shared and rely on the write-disjointness this module's header states, exactly as box3d does.
+/// shared and rely on the write-disjointness this module's header states.
 /// The `_overflow` methods are the exception: the orchestrator calls them alone, between stages.
 ///
 /// The columns are [`Col`](crate::col::Col)s, not `&mut [f32]`: every block of a stage holds the whole
@@ -246,8 +246,7 @@ pub trait StageWork: Sync {
 
 // --- block sizing -----------------------------------------------------------------------------
 
-/// Blocks per worker, so a worker that finishes early can steal (box3d: "target 4 blocks per
-/// worker"). Small enough to keep the per-block sync overhead low.
+/// Blocks per worker, so a worker that finishes early can steal without unbounded per-block sync overhead.
 const BLOCKS_PER_WORKER: usize = 4;
 /// Minimum bodies per body block (box3d `minBodiesPerBlock`).
 const MIN_BODIES_PER_BLOCK: usize = 32;
@@ -510,8 +509,8 @@ pub fn build<'a>(
         NULL_COLOR,
     );
 
-    // Each color's blocks are contiguous: joints, then wide contacts, then mesh contacts (box3d's
-    // order). A color stage points at the whole run, so all three kinds run concurrently.
+    // Each color's blocks are contiguous: joints, then wide contacts, then mesh contacts.
+    // A color stage points at the whole run, so all three kinds run concurrently.
     let mut color_at = [0usize; MAX_COLORS];
     let mut color_blocks = [0usize; MAX_COLORS];
     let mut at = graph_at;

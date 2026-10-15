@@ -236,7 +236,7 @@ export function initializeShadowAtlasState(world: World): void {
 
 // ---- point-light shadows: the GPU half (face viewProjs + tile math in ./shadows) ----
 //
-// One depth atlas shared by every shadowed point light (cube faces as tiles, the PlayCanvas model),
+// One depth atlas shared by every shadowed point light (cube faces as tiles),
 // allocated lazily on the first casting frame at `PointShadows.atlas`'s side. `_atlas.pointParams` is the
 // PointCaster uniform array the FS matches compacted lights against — always bound on group 1 (an empty slot's
 // pos.w = -1 never matches a real eid, so the no-caster path reads the fallback atlas never).
@@ -491,7 +491,7 @@ export function comboViewSlots(
 
 // ---- CSM cascade atlas: the GPU half (the cascade combo cameras + fit are in ./shadows) ----
 //
-// A dedicated depth atlas (separate from the point atlas — Bevy's directional/point split), N cascade tiles
+// A dedicated depth atlas (separate from the point atlas), N cascade tiles
 // in a fixed grid. Each cascade is its own frustum-culled depth view (the per-cascade cull, ./shadows poses
 // the cameras); the cascade `Regather` instance concatenates each casting mesh's per-cascade culled members
 // into one indirect draw per mesh, the cascade pipeline's VS projecting each into its tile. Mirrors the point
@@ -792,7 +792,7 @@ export function disposeShadowAtlas(world: World): void {
 }
 
 /** allocate the point-shadow atlas at the world's {@link pointAtlasSize} on the first casting frame, and
- * reallocate it when that side changes, as Bevy's per-frame texture-cache request does; the bare path (no
+ * reallocate it when that side changes; the bare path (no
  * shadowMapsEnabled on any point/spot light) never allocates it. `ShadowCameraSystem` calls it before the draw
  * group records, since the depth prepass binds {@link shadowGroup} ahead of the shadow pass and a texture
  * destroyed after that binding fails the frame's submit. */
@@ -812,7 +812,7 @@ export function ensurePointAtlas(world: World): void {
 }
 
 /** allocate the cascade atlas (the per-cascade resolution × the grid for the light's `numCascades`) on the
- * first casting frame, and reallocate it when either changes, as Bevy's per-frame texture-cache request does;
+ * first casting frame, and reallocate it when either changes;
  * the bare path (shadowMapsEnabled off on the sun) never allocates it. `ShadowCameraSystem` calls it before
  * the draw group records, since the depth prepass binds {@link shadowGroup} ahead of the shadow pass and a
  * texture destroyed after that binding fails the frame's submit. */

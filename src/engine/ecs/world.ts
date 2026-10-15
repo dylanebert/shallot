@@ -411,7 +411,7 @@ export class World {
         this.recordFrameCopy(chunk.buffer, sourceOffset, buffer, offset, size);
     }
 
-    // Like wgpu's StagingBelt, append until submission completion makes an entire chunk reusable.
+    // Append until submission completion makes an entire chunk reusable.
     // In-flight chunks may accept more bytes, but never overwrite a recorded copy's source.
     private uploadChunk(size: number): UploadChunk {
         for (const chunk of this._uploadChunks) {

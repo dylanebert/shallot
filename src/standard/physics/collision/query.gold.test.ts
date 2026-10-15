@@ -127,7 +127,7 @@ const compound = createCompound({
     ],
 }) as CompoundData;
 
-// The per-kind level is the frozen authority; shape-level rotation canonicalizes -0 as Box3D does.
+// The per-kind level is the frozen authority; shape-level rotation canonicalizes -0.
 test("world-created kernel shapes answer every immutable per-shape query vector bit-exactly", () => {
     for (const g of gold.raySphere) {
         const sphere: Sphere = { center: vecFromHex(g.center), radius: fromBits(g.radius) };

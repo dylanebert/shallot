@@ -6,8 +6,8 @@ import type { Draw } from "./registry";
 // RenderContext bundles: every standard pass is a fixed program of draws over bind groups that change only at named
 // transitions (a draw joining or leaving the set, a bind-group identity change, an antialias toggle, a
 // target format change). WebGPU records such a program once as a `GPURenderBundle` and replays it with
-// `executeBundles`, which is what keeps a steady frame's pass free of per-draw work — the shape three.js's
-// `WebGPUBackend` takes. This module owns the recorded program, the transition test and the recording; the
+// `executeBundles`, which keeps a steady frame's pass free of per-draw work.
+// This module owns the recorded program, the transition test and the recording; the
 // passes own what goes into the program. It is a leaf like ./bound, so ./forward and ./atlas share it
 // without importing each other.
 

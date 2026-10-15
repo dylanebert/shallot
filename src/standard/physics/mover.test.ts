@@ -121,7 +121,6 @@ test("internal mover queries land a falling capsule on an authored floor sliding
                 y: position.y + velocity.y / 60,
                 z: position.z + velocity.z / 60,
             };
-            // Box3D CharacterMover's collide, solve and cast passes, without its pogo spring or input tuning.
             for (let pass = 0; pass < 5; ++pass) {
                 planes = [];
                 collideMover(world, position, capsule, gather, filter);
@@ -154,7 +153,7 @@ test("internal mover queries land a falling capsule on an authored floor sliding
         expect(touchedFloor).toBe(true);
         expect(touchedWall).toBe(true);
         expect(position.x).toBeCloseTo(0.7, 2);
-        // The plane solver permits Box3D's 0.005 m linear slop at the floor.
+        // The plane solver permits 0.005 m linear slop at the floor.
         expect(position.y).toBeCloseTo(0.795, 5);
         expect(position.z).toBeCloseTo(-0.5, 4);
         expect(velocity.x).toBeCloseTo(0, 5);

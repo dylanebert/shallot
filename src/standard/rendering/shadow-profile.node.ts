@@ -37,7 +37,7 @@ function castano(offset: number): number {
     const s = pixel + 0.5 - base;
     const weights = [4 - 3 * s, 7, 1 + 3 * s];
     const taps = [(3 - 2 * s) / weights[0] - 2, (3 + s) / 7, s / weights[2] + 2];
-    // The map is constant vertically: Bevy's three vertical weights sum to 12.
+    // The map is constant vertically: the three vertical weights sum to 12.
     return (
         taps.reduce(
             (sum, tap, i) => sum + weights[i] * hardware((base - 0.5 + tap) / SIDE, SIDE / 2),

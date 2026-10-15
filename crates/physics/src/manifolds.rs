@@ -1,4 +1,4 @@
-//! World-owned contact directories and Box3D's manifold-count block allocators.
+//! World-owned contact directories and manifold-count block allocators.
 use crate::col::Col;
 use crate::manifold_abi::{DIR_MANIFOLD_BASE, DIR_MANIFOLD_COUNT, DIR_STRIDE, MANIFOLD_STRIDE};
 use crate::regions::{self, Buffer, Columns, MAX_WORLDS};
@@ -283,7 +283,7 @@ pub extern "C" fn free_manifolds(contact: usize) {
 
 pub extern "C" fn free_manifolds_in_world(world_index: usize, contact: usize) {
     let id = world_index;
-    // Like Box3D, avoid the allocator lock when this contact owns no manifolds.
+    // Avoid the allocator lock when this contact owns no manifolds.
     unsafe {
         let dir = COLUMNS[id].layout[0] as *mut u32;
         if *dir.add(contact * DIR_STRIDE + DIR_MANIFOLD_COUNT) == 0 {

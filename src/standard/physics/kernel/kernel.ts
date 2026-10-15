@@ -603,7 +603,7 @@ export type Kernel = {
 
     // `reservePairs` reserves move-result lists and rebuild scratch. ParKind.Pairs queries the
     // resident proxies, shapes, body types and pair table, including compound recursion and default
-    // filtering. Survivors beyond 16 times the move count are discarded, as in Box3D.
+    // filtering. Survivors beyond 16 times the move count are discarded.
     // Each result is (child, shapeA, shapeB, next), prepended at its proxy's `pairsCandEndPtr` head
     // (u32::MAX for empty). TypeScript creates contacts from those lists in place after the join.
     reservePairs(): void;
@@ -956,7 +956,7 @@ export type Kernel = {
 export type InitOptions = {
     /**
      * the advanced escape from the default threading. {@link init} multithreads on its own wherever the
-     * host allows it. The default follows Box3D's samples: half the host's logical cores (floor),
+     * host allows it. The default is half the host's logical cores (floor),
      * clamped to 1–8, including the calling thread; an unavailable core count reads as 0.
      * Pass `0` to force the single-thread kernel, or `n` to
      * override the auto count (counting the calling thread, clamped to the ceiling the shadow stack

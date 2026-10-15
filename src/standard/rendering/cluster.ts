@@ -657,7 +657,7 @@ export function warmClusters(world: World): void {
 }
 
 // The per-frame light passes: compact, z-slice, count rasterization, local/global allocation and populate
-// rasterization, following Bevy's object-major binner. Compact packs active PointLight rows once; each view's
+// rasterization. Compact packs active PointLight rows once; each view's
 // z-slice records drive rasterized cluster candidates, which count and populate test against the existing
 // AABBs. Allocation writes the same slot-major grid and fixed index pool that shading and fog already read.
 

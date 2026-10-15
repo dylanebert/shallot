@@ -1,4 +1,4 @@
-//! Box3D scalar mesh and overflow contact constraints.
+//! Scalar mesh and overflow contact constraints.
 
 use crate::body::flags as body_flags;
 use crate::body::{read_sim, read_state, STATE_STRIDE};

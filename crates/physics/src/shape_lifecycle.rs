@@ -1,4 +1,4 @@
-//! Nongeometry shape lifecycle in Box3D's body/shape list and proxy order.
+//! Nongeometry shape lifecycle in body/shape list and proxy order.
 use crate::{bodies, shapes};
 
 #[export_name = "shapeLink"]

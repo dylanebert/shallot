@@ -1075,7 +1075,7 @@ unsafe fn update_contact(
         use crate::manifold_abi::*;
         let dir = manifolds::dir_col(world_index);
         let o = contact_id * DIR_STRIDE;
-        // Deferred pre-solve work mixes custom materials before inspecting the contact, as Box3D does.
+        // Deferred pre-solve work must inspect the contact with its custom materials already mixed.
         let pre_solve = reaches_pre_solve(world_index, contact_id);
         let custom = DEFAULT_MIX == 0 && pre_solve;
         if !custom {
@@ -1663,7 +1663,7 @@ pub(crate) unsafe fn finalize_block(
 
 /// Commit each non-fast body's shape bounds and enlarge flags in the finalize task.
 /// Fast non-bullets already committed in continuous; bullets commit during their deferred sweep.
-/// Tree mutation stays in the serial enlarge pass, as in Box3D.
+/// Tree mutation stays in the serial enlarge pass to avoid concurrent writes to shared tree nodes.
 ///
 /// Per-body write-disjoint: a shape belongs to one body, so two parallel-for blocks never write the same
 /// shape record — the shared-mutable [`Col`] carries that promise. Indexed only through the awake head

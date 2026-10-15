@@ -26,16 +26,14 @@ import {
 import { directionalTravelDirection, shadowDirectionalLight } from "./lighting";
 
 /** the directional shadow's cascade ceiling: each cascade takes one of the depth view slots reserved out
- * of the point-shadow combo budget, so the count can't exceed it. Four is the three.js / Bevy default. */
+ * of the point-shadow combo budget, so the count can't exceed it. */
 export const MAX_CASCADES = 4;
 
 /**
- * Shallot permits one directional shadow caster. Bevy can shadow every enabled directional, while Unity URP
- * exposes directional shadows through its main light; Shallot chooses the latter shape because every extra
- * cascade set adds depth passes and atlas area. `shadowMapsEnabled` remains per light: the brightest enabled
+ * Shallot permits one directional shadow caster because every extra cascade set adds depth passes and atlas area. `shadowMapsEnabled` remains per light: the brightest enabled
  * light wins (ties by lower eid), other requests remain unshadowed, and a conflict warns once.
  *
- * The directional shadow map size, Bevy's `DirectionalLightShadowMap`: `size` is the side in pixels of each
+ * The directional shadow map size: `size` is the side in pixels of each
  * cascade's square tile (default 2048), clamped to [256, 4096] and snapped to a power of two. The tiles share
  * one depth32float atlas `ceil(√numCascades)` tiles on a side, so 4096 with more than one cascade allocates
  * an 8192² atlas (256 MiB). It is read every frame the sun casts, and a change reallocates the atlas before
@@ -81,8 +79,7 @@ type LightFit = {
 
 // from a fit center + ortho half-extent, place the light eye back toward the sun and snap it onto the light's
 // texel grid (the plane ⊥ the sun) so the shadow doesn't crawl as the box moves. `margin` extends the box's
-// near plane *toward the light* past the fit (Bevy pushes the directional near plane to ∞, three.js's finite
-// `lightMargin`): a tight cascade's near plane would otherwise clip a caster's own occluder that sits between
+// near plane *toward the light* past the fit: a tight cascade's near plane would otherwise clip a caster's own occluder that sits between
 // the light and the slice, so its depth map never records it and the receiver reads "lit" (the boundary
 // bleed). The eye moves back by `cover + margin`, the far stays at `center + dir·cover`, so the box depth is
 // `2·cover + margin`. `margin` is along the sun, ⊥ the snap plane, so the texel snap is unaffected. Shared by
@@ -152,7 +149,7 @@ function placeFromCenter(
 /**
  * the N cascade far-bounds out to `far`, Bevy's `calculate_cascade_bounds`: the first ends at `first` and the
  * rest are spaced exponentially to `far` (one cascade ends at `far`). A `first` at or beyond `far` gives
- * equal or shrinking bounds, as in Bevy; `first` is floored just above 0.
+ * equal or shrinking bounds; `first` is floored just above 0.
  * Cascade `i` covers `[splits[i-1], splits[i]]` (`splits[-1]` = the camera near implicitly); the last bound is
  * `far` exactly. Writes the `n` bounds into `out`; otherwise pure. The receiver selects a cascade by these
  * bounds (Bevy `get_cascade_index`), so they're the same numbers the fit and the FS read.
@@ -179,7 +176,7 @@ export function cascadeSplits(
  * `nearSplit` and `farSplit` (not the ground footprint {@link orthoFootprintFit} uses) and place the ortho
  * light box around it, eye back toward the sun and texel-snapped per cascade. The box is a **bounding
  * sphere** of the symmetric slice (its two extreme corners are the far-plane diagonal or the whole-slice
- * diagonal, whichever is longer, three.js CSM), so the `cover` is rotation-stable as the camera turns
+ * diagonal, whichever is longer), so the `cover` is rotation-stable as the camera turns
  * (no per-frame size pumping). `margin` extends the box's near plane toward the light ({@link placeFromCenter})
  * so a tight cascade still captures occluders above its slice. Reads only the camera GlobalTransform + projection (the
  * perspective `fov` or the ortho `size`), never its own near/far. Writes the placement into `out`,
@@ -267,8 +264,7 @@ export function cascadeFit(
 
 /**
  * the single-box light placement for an **orthographic** main camera, fit to its visible ground (y=0)
- * footprint. An ortho camera has uniform texel density, so depth cascades buy nothing (three.js / standard
- * practice special-cases ortho): one box covering the whole view beats N frustum slices, which for a camera
+ * footprint. An ortho camera has uniform texel density, so depth cascades buy nothing: one box covering the whole view beats N frustum slices, which for a camera
  * posed far from the scene don't even reach the ground its forward range targets. The center ray meets y=0 at
  * the look point; a screen-corner offset `v` slides its parallel ray's ground hit by `v − (v.y/fwd.y)·fwd`
  * (the extra travel as `v` changes the height it must fall), so the footprint corners are `center ± Kr ± Ku`
@@ -506,8 +502,7 @@ export function cascadeTileRects(world: World): Float32Array {
     return shadows(world).cascadeRects;
 }
 
-/** the per-cascade far-bound splits in linear view-z (the receiver's `get_cascade_index` selects by these,
- * Bevy's shape), the first {@link cascadeCount} valid. */
+/** the per-cascade far-bound splits in linear view-z, the first {@link cascadeCount} valid. */
 export function cascadeFars(world: World): Float32Array {
     return shadows(world).cascadeFar;
 }
@@ -720,7 +715,7 @@ export function updateCascades(world: World, main: number): void {
             farBound = 1e9;
         } else {
             const farSplit = _splits[i];
-            // widen the near edge back over the blend band (Bevy's `next_near = (1−overlap)·this_far`), so the
+            // widen the near edge back over the blend band, so the
             // band the receiver blends across is covered by both this cascade and its predecessor
             const nearSplit = i === 0 ? near : (1 - overlap) * _splits[i - 1];
             cascadeFit(
@@ -774,8 +769,7 @@ export function updateCascades(world: World, main: number): void {
 
 // ---- point-light shadows: the CPU half of the importance-sized depth atlas ----
 //
-// Storage is one fixed **square** depth atlas sub-allocated by importance (PlayCanvas's
-// light-texture-atlas.js model) — the same `texture_depth_2d` + comparison-sampler binding shape the sun
+// Storage is one fixed **square** depth atlas sub-allocated by importance — the same `texture_depth_2d` + comparison-sampler binding shape the sun
 // shadow uses, so it needs no cube-array support and fits the integrated/WebGL floor. Each shadowed light
 // claims power-of-two square tiles sized from its apparent contribution (`intensity·range²/dist²`): a
 // point caster six face tiles, a `SpotLight` caster one cone tile. Tile *area* tracks the score (the hero light
@@ -790,7 +784,7 @@ export function updateCascades(world: World, main: number): void {
 // in — {@link tileTransform}); standard re-gathers the per-combo culled members into one contiguous run per
 // casting mesh + a per-instance combo index, so the atlas still renders in **one indirect draw per casting
 // mesh** (the Dawn ~1µs/indirect-draw floor), now reading per-combo
-// *culled* counts. The face/cone frustum is widened by a constant texel margin (the PlayCanvas seam fix)
+// *culled* counts. The face/cone frustum is widened by a constant texel margin
 // and the receiver clamps its 3×3 PCF taps to the tile interior, so a sample never bleeds into a neighbour.
 
 /** the shadowed-caster ceiling: the per-frame caster array + the combo buffers size to it; the combo

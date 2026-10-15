@@ -1,4 +1,4 @@
-//! Box3D's collide traversal, gathered from graph colors and the awake solver set.
+//! Collide traversal, gathered from graph colors and the awake solver set.
 use crate::{constraint_graph as graph, solver_set};
 #[export_name = "awakeContactCount"]
 pub unsafe extern "C" fn count() -> usize {

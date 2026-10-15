@@ -1,4 +1,4 @@
-//! Box3D body queries, in attachment order, using the caller-supplied placement.
+//! Body queries, in attachment order, using the caller-supplied placement.
 use crate::distance::{shape_distance, DistanceInput, ShapeProxy, SimplexCache};
 use crate::manifold::Capsule;
 use crate::math::Vec3;

@@ -4,7 +4,7 @@ import { component } from "../../engine";
 // `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
 // Everything draws as one non-indexed six-vertex quad per segment through core's transparent phase:
 // translucent, depth-tested, depth-write off, no overlay pass. Screen-space constant-pixel width; the shader
-// projects endpoints and expands the quad. Bevy's gizmo model; arrows are folded in (a shaft segment +
+// projects endpoints and expands the quad. Arrows are folded in (a shaft segment +
 // segment-fletched head). Staging/upload live in `segments.ts`; phase shaders live in `pipeline.ts`.
 
 import {
@@ -70,7 +70,7 @@ export const Line = component(
 );
 
 /**
- * an arrowhead on a {@link Line}: four world-space fins (Bevy's fletched shape) at the line's endpoints.
+ * an arrowhead on a {@link Line}: four world-space fins at the line's endpoints.
  * Requires a {@link Line} on the same entity
  */
 export const Arrow = component(

@@ -502,7 +502,7 @@ pub fn collide_mover_hull(shape: &HullData, mover: &Capsule) -> Option<PlaneResu
         use_radii: false,
     };
     let output = shape_distance(&input, &mut SimplexCache::empty());
-    // Box3D refuses deep hull overlap to keep behavior consistent with a hull converted to a mesh.
+    // Refuse deep hull overlap to keep behavior consistent with a hull converted to a mesh.
     if output.distance == 0.0 || output.distance > mover.radius {
         return None;
     }

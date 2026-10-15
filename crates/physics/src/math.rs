@@ -1,6 +1,6 @@
 //! Scalar math from Box3D's `math_functions.h/.c` (Erin Catto, MIT).
 //!
-//! Preserve operand order without FMA contraction, as Box3D's `-ffp-contract=off` build does.
+//! Preserve operand order without FMA contraction to retain the reference's intermediate rounding.
 //! Min/max use ordered comparisons rather than `f32::min`/`max` for NaN and signed-zero parity.
 //! Angle reduction uses an f64 modulo of twice the period to retain quotient parity even when
 //! a finite f32 angle is too large for quotient subtraction.

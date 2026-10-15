@@ -8,8 +8,7 @@
 //! **Determinism.** The partition (`block_size`, `block_count`) depends on the worker count, so eight
 //! threads sweep different ranges than two. That cannot change the result: each record's work reads only
 //! its own inputs and writes only its own outputs (a contact's manifold + cache slots),
-//! so the sweep order is free. The same property is what lets box3d run collide on any worker count and
-//! promise the same bits — and what physics.md already states for the convex/recycle partition.
+//! so the sweep order cannot affect the result bits.
 //!
 //! The claim loop ends when blocks run out; the scheduler finishes the trampoline handles.
 //!
@@ -59,7 +58,7 @@ impl ParFor {
         }
     }
 
-    /// Box3D caps the number of enqueued trampolines at the block count.
+    /// Caps enqueued trampolines at the block count so no task is queued without work.
     pub fn block_count(&self) -> usize {
         self.block_count
     }

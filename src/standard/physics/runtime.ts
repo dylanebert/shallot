@@ -829,10 +829,10 @@ function publishBodyVelocity(world: World, eid: number, state: WorldState, body:
 }
 
 /**
- * Drives a kinematic or dynamic body toward a world pose over `timeStep` seconds. Box3D derives
+ * Drives a kinematic or dynamic body toward a world pose over `timeStep` seconds. Derives
  * linear velocity in meters per second and angular velocity in radians per second; `wake` wakes an
  * asleep body when the target motion is significant. The pose and linear velocity publish immediately.
- * Static or unavailable bodies are ignored, as in Box3D.
+ * Static or unavailable bodies are ignored.
  */
 export function setTargetTransform(
     world: World,
@@ -849,7 +849,7 @@ export function setTargetTransform(
     const record = body.index1 - 1;
     if (bodyGetType(state, record) === BodyType.Static) return;
     bodySetTargetTransform(state, record, stateTransform(position, rotation), timeStep, wake);
-    // Box3D leaves sub-threshold target motion asleep without adopting its pose.
+    // Sub-threshold target motion leaves a body asleep without adopting its pose; do not publish it.
     if (!bodyIsAwake(state, record)) return;
     bodyGetLinearVelocity(state, record, stateVelocity);
     stateVelocityTuple[0] = stateVelocity.x;

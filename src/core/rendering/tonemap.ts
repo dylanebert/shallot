@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
-/** Tonemapping operators. AgX uses the analytic Filament/three.js fit. */
+/** Tonemapping operators. AgX uses an analytic fit. */
 export const TonemappingMethod = {
     TonyMcMapface: 0,
     None: 1,
@@ -37,7 +37,6 @@ export const tmNeutral = tgpu.fn(
     let c = std.sub(cin, offset);
     const peak = std.max(c.x, std.max(c.y, c.z));
     if (peak < startCompression) return c;
-    // three.js calls this `d`; that name is the typegpu data namespace in this file
     const headroom = 1 - startCompression;
     const newPeak = 1 - (headroom * headroom) / (peak + headroom - startCompression);
     c = std.mul(c, newPeak / peak);
@@ -76,7 +75,7 @@ export const tmRrtOdtFit = tgpu.fn(
     return std.div(a, b);
 });
 
-/** ACES Fitted (Stephen Hill RRT+ODT fit, via three.js / Godot) — contrasty, saturation-boosting. */
+/** ACES Fitted (Stephen Hill RRT+ODT fit) — contrasty, saturation-boosting. */
 export const tmAces = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -126,7 +125,7 @@ export const tmAgxContrast = tgpu.fn(
     );
 });
 
-/** iolite/Filament analytic AgX (three.js `AgXToneMapping`) — soft, neutral, gentle desaturation. */
+/** analytic AgX (three.js `AgXToneMapping`) — soft, neutral, gentle desaturation. */
 export const tmAgx = tgpu.fn(
     [d.vec3f],
     d.vec3f,

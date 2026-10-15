@@ -679,8 +679,8 @@ fn or_category(pool: &mut [u32], dst: i32, a: i32, b: i32) {
 /// AABB overlaps `box` in LIFO discovery order, calling `cb(leafNodeId, userData)`; a `false` return
 /// stops the walk. Returns `(node_visits, leaf_visits)`. `stack` is caller scratch (`STACK_SIZE` ints).
 ///
-/// The mask test + AABB overlap follow Box3D; both are integer /
-/// f32-compare only, so the traversal is bit-exact by replaying enumeration order.
+/// The mask test and AABB overlap use only integer operations and f32 comparisons,
+/// so replaying enumeration order preserves the traversal result bits.
 pub fn query<F: FnMut(i32, u32) -> bool>(
     pool: &[u32],
     root: i32,

@@ -22,7 +22,7 @@ import {
     setRenderPipeline,
 } from "../../engine/runtime";
 
-/** Bevy's HDR vignette. Color is sRGB, center is UV; only carrying cameras run the pass. */
+/** HDR vignette. Color is sRGB, center is UV; only carrying cameras run the pass. */
 export const Vignette = component(
     "Vignette",
     {

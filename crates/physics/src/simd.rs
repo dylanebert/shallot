@@ -2,8 +2,7 @@
 //!
 //! Two implementations, cfg-selected: wasm `simd128` intrinsics for the shipping build, and a
 //! scalar `[f32; 4]` fallback for native `cargo test`. The fallback is bit-identical to the wasm
-//! path because per-lane IEEE f32 is deterministic — the same reason box3d's SIMD and
-//! `DISABLE_SIMD` builds emit identical fixtures (verified: 52/52 default-config scenes match).
+//! path because both preserve per-lane IEEE f32 operations and operand order without fusion.
 //!
 //! `mul_add(a, b, c)` = `a + b*c`, non-fused. `min`/`max` use ordered comparisons and select
 //! the second operand on equality or unordered inputs, via compare→bitselect.

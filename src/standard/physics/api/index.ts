@@ -1,5 +1,3 @@
-// physics — a from-scratch TypeScript port of Erin Catto's Box3D (github.com/erincatto/box3d, MIT).
-// A standalone 3D physics engine. The public surface grows across the port stages; see the README.
 
 export type { Manifold, ManifoldPoint } from "../collision/contact";
 export type { ShapeProxy } from "../collision/distance";

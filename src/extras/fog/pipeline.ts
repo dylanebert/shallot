@@ -135,7 +135,7 @@ function createFogKernel(
                 if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
                 const px = d.vec2i(input.gid.xy);
                 const scn = std.textureLoad(layout.$.sceneTex, px, 0).xyz;
-                // Match Bevy's volumetric fog: sample zero is a cheap approximation at an MSAA edge.
+                // Sample zero avoids resolving multisampled depth, approximating coverage at an MSAA edge.
                 const depth = readDepth(px);
                 if (depth === 0 && layout.$.view.projection.z > 0.5) {
                     // Infinite perspective depth marks no opaque surface; avoid unprojecting it as a finite point.

@@ -6,7 +6,7 @@ import * as std from "typegpu/std";
 import { component, f32, vec2, vec3 } from "../../engine";
 import { tmLuma } from "./tonemap";
 
-/** Camera grading in Bevy's model. Exposure is an offset in stops; hue is in radians.
+/** Camera grading. Exposure is an offset in stops; hue is in radians.
  * Temperature and tint adjust the D65 CIE xy white point. Section vectors contain
  * shadows, midtones, highlights. All sections default to identity.
  * midtonesRange defaults to [0.2, 0.7], with a 0.1 crossfade on either side.
@@ -69,7 +69,7 @@ export const gradingWeights = tgpu.fn(
     if (level < range.x - 0.1) weights.x = 1;
     else if (level < range.x + 0.1) {
         weights.y = (level - range.x) * 5 + 0.5;
-        // Blender v3.6.0 COM_ColorCorrectionOperation.cc:67–69. Bevy's z here is a bug.
+        // Blender v3.6.0 COM_ColorCorrectionOperation.cc:67–69: crossfade shadows, not Bevy's highlights.
         weights.x = 1 - weights.y;
     } else if (level < range.y - 0.1) weights.y = 1;
     else if (level < range.y + 0.1) {

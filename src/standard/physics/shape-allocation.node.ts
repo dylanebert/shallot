@@ -139,7 +139,7 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
         bodySetAwake(world, sleeper, false);
         bodySetAwake(world, sleeper, true);
         for (let i = 0; i < 32; ++i) {
-            // Sleeping rebuilds Box3D's four owned solver-set buffers; only wake is allocation-free.
+            // Sleeping rebuilds four owned solver-set buffers; only wake is allocation-free.
             bodySetAwake(world, sleeper, false);
             expect(bodyIsAwake(world, sleeper)).toBe(false);
             const wakeBefore = k.allocationCount();
@@ -206,7 +206,7 @@ test("warm recycled shape create/destroy, filters, inline materials, mass walks,
                 expect(k.geometryDatabaseRefs(world.worldId, kind, pointer)).toBe(1);
                 const hitBefore = k.allocationCount();
                 const duplicate = create();
-                // Box3D creates an owned material for every compound; database hits add nothing else.
+                // Every compound owns a material; database hits add nothing else.
                 expect(k.allocationCount() - hitBefore).toBe(kind === ShapeType.Compound ? 1 : 0);
                 expect(k.geometryDatabaseRefs(world.worldId, kind, pointer)).toBe(2);
                 const releaseBefore = k.allocationCount();

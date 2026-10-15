@@ -1,4 +1,4 @@
-//! Box3D world queries over the resident broad-phase pools and shape records.
+//! World queries over the resident broad-phase pools and shape records.
 use crate::distance::{CastOutput, ShapeProxy};
 use crate::manifold::Capsule;
 use crate::math::{maxf, minf, Quat, Transform, Vec3};

@@ -24,8 +24,8 @@ import {
 } from "./lighting";
 import { initializeDrawState } from "./registry";
 // StandardRenderer — the one shallot renderer. A GPU-driven raster *forward* pass (Aaltonen-Haar / niagara
-// submission spine, primary visibility only) with sun shadows sampled inline in the FS, matching Bevy's
-// clustered-forward shape. One renderer, one plugin (`StandardRenderingPlugin`), no layers behind seams: one color
+// submission spine, primary visibility only) with sun shadows sampled inline in the FS.
+// One renderer, one plugin (`StandardRenderingPlugin`), no layers behind seams: one color
 // pass (opaque draws then `blend` draws composited over them in a single `beginRenderPass`), an
 // shared depth prepass (requested by `DepthPrepass` or a depth consumer), and sun shadows (shadowMapsEnabled on a
 // directional light) are gated by camera and light data; core owns the view targets and depth requests —
@@ -1236,7 +1236,6 @@ const ShadowCameraSystem: System = {
  * seams for standard's color pass to sample inline. `after: [PrepassSystem]` so every position-writing producer
  * (pinned before the anchor) has emitted and `_standardRendererState.frameDraws` is resolved; `before: [MainPassSystem]` so the
  * atlases + seams are ready before standard shades. No casting light → no pass, standard falls back to fully lit.
- * Bevy's shape: the shadow maps are light-data-gated, sampled inline, no separate shadow plugin
  */
 const ShadowMapSystem: System = {
     name: "shadowmap",

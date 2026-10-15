@@ -123,7 +123,6 @@ fn edge_axis(
     })
 }
 fn edges_axis(triangle: &TriangleData, hull: &HullData) -> Axis {
-    // Box3D retains the flags at this boundary but does not yet filter edge axes.
     let _flags = triangle.flags;
     let tri = &triangle.points;
     let edges = &triangle.edges;
