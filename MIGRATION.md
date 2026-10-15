@@ -220,6 +220,36 @@ const geometry = world.resource(HeightFields).register({
 world.add(eid, Shape, { kind: ShapeKind.HeightField, geometry });
 ```
 
+## Compounds hold Box3D's compound input
+
+In 0.9.5, `createCompound(def)` from `/tumble/core` built `CompoundData` for a `TumbleBody`
+compound shape from built hulls and meshes. In 0.10, register the definition as a `Compound` in
+`world.resource(Compounds)` and name its id in a `Shape` of kind `Compound`; standard physics
+builds it once per World. Hull and mesh children name `Hulls` and `PhysicsMeshes` ids, with
+`transform: { position: [x, y, z], rotation: [x, y, z, w] }`; capsule and sphere children hold
+their `center1`, `center2` or `center` as `[x, y, z]` and `radius` directly. Each child's
+`material` is optional and defaults to Box3D's default surface material; a mesh child's
+`materials` replaces `materials` and `materialCount`. `createCompound`, `CompoundDef`,
+`CompoundCapsuleDef`, `CompoundHullDef`, `CompoundMeshDef`, `CompoundSphereDef` and
+`CompoundData` are removed.
+
+```ts
+// 0.9.5
+const slab = makeBoxHull(1.6, 0.2, 3);
+const compound = createCompound({
+    hulls: [{ hull: slab, transform: { p: { x: 1, y: 2, z: 0 }, q }, material }],
+})!;
+Tumble.body(eid)?.createCompound({}, compound);
+
+// 0.10
+const slab = world.resource(Hulls).register({ name: "slab", points: slabCorners });
+const geometry = world.resource(Compounds).register({
+    name: "stairs",
+    hulls: [{ hull: slab, transform: { position: [1, 2, 0], rotation: [0, 0, 0, 1] } }],
+});
+world.add(eid, Shape, { kind: ShapeKind.Compound, geometry });
+```
+
 ## Surface materials come from `/physics`
 
 Import `SurfaceMaterial` from `/physics` instead of `/tumble/core`. Its `tangentVelocity` is

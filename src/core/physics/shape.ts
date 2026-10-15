@@ -115,12 +115,6 @@ export const Shape = component(
     },
 );
 
-/** Named geometry registered by a game and referenced from Shape.geometry. */
-export interface ShapeGeometry<T = unknown> {
-    name: string;
-    data: T;
-}
-
 /** A Box3D surface material (`b3SurfaceMaterial`), as a mesh triangle or height-field cell uses it. */
 export interface SurfaceMaterial {
     /** Coulomb friction. */

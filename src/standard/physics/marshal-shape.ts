@@ -1,18 +1,9 @@
-import {
-    Compounds,
-    Hulls,
-    Shape as ShapeComponent,
-    ShapeKind,
-    ShapeMaterials,
-} from "../../core/physics";
+import { Hulls, Shape as ShapeComponent, ShapeKind, ShapeMaterials } from "../../core/physics";
 import type { World } from "../../engine";
 import { makeShapeId } from "./api/config";
-import { MAX_HULL_VERTICES } from "./common/constants";
 import type { EntityId } from "./common/ids";
 import { defaultShapeDef, type Filter, type ShapeDef, type SurfaceMaterial } from "./common/types";
-import { heightFieldBuild, meshBuild } from "./geometry-builds";
-import { createHull } from "./shapes/build-hull";
-import type { CompoundData } from "./shapes/compound";
+import { buildHull, compoundBuild, heightFieldBuild, meshBuild } from "./geometry-builds";
 import type { HullData } from "./shapes/hull";
 import {
     createCapsuleShape,
@@ -24,17 +15,6 @@ import {
     shapeIsValid,
 } from "./shapes/shape";
 import type { WorldState } from "./world/world";
-
-function geometryData<T>(
-    registry: {
-        name(id: number): string | undefined;
-        get(name: string): { data: unknown } | undefined;
-    },
-    id: number,
-): T | undefined {
-    const name = registry.name(id);
-    return name === undefined ? undefined : (registry.get(name)?.data as T | undefined);
-}
 
 export function authoredShapeMaterial(world: World, eid: number): SurfaceMaterial {
     const shape = world.storage(ShapeComponent);
@@ -108,20 +88,13 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
     const name = hulls.name(id);
     const hull = name === undefined ? undefined : hulls.get(name);
     if (!hull) throw new Error(`physics: Shape ${eid} names missing hull ${id}`);
-    if (hull.points.length % 3 !== 0)
-        throw new Error(
-            `physics: hull "${name}" has ${hull.points.length} point coordinates, not a multiple of 3`,
-        );
-    const sx = shape.scale.x.get(eid);
-    const sy = shape.scale.y.get(eid);
-    const sz = shape.scale.z.get(eid);
-    const source = hull.points;
-    const points = new Array(source.length / 3);
-    for (let i = 0; i < points.length; i++)
-        points[i] = { x: source[3 * i] * sx, y: source[3 * i + 1] * sy, z: source[3 * i + 2] * sz };
-    const built = createHull(points, hull.maxVertexCount ?? MAX_HULL_VERTICES, world);
-    if (!built) throw new Error(`physics: hull for Shape ${eid} could not be built`);
-    return built;
+    return buildHull(
+        world,
+        hull,
+        shape.scale.x.get(eid),
+        shape.scale.y.get(eid),
+        shape.scale.z.get(eid),
+    );
 }
 
 function localSphere(world: World, eid: number) {
@@ -185,7 +158,7 @@ export function marshalShape(
             );
         shapeId = createHeightFieldShape(state, bodyIndex, def, data);
     } else if (kind === ShapeKind.Compound) {
-        const data = geometryData<CompoundData>(world.resource(Compounds), shape.geometry.get(eid));
+        const data = compoundBuild(world, shape.geometry.get(eid));
         if (!data)
             throw new Error(
                 `physics: Shape ${eid} names missing compound ${shape.geometry.get(eid)}`,

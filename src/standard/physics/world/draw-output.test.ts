@@ -5,6 +5,7 @@ import {
     Compounds,
     DistanceJoint,
     HeightFields,
+    Hulls,
     ParallelJoint,
     PhysicsMeshes,
     PrismaticJoint,
@@ -19,13 +20,11 @@ import {
 import { createApp, Time } from "../../../engine";
 import { DEFAULT_MASK_BITS } from "../common/constants";
 import type { AABB, WorldTransform } from "../common/records";
-import { defaultSurfaceMaterial } from "../common/types";
 import { drawPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from "../index";
 import { kernel } from "../kernel/kernel";
 import { quaternion } from "../kernel/math";
 import { shapeHullGeometry } from "../marshal-shape";
-import { makeBoxHull } from "../shapes/build-hull";
-import { createCompound } from "../shapes/compound";
+import { createHull } from "../shapes/build-hull";
 import type { Sphere } from "../shapes/geometry";
 import { createHeightField } from "../shapes/heightfield";
 import { createGridMesh } from "../shapes/mesh";
@@ -100,21 +99,20 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
             globalMinimumHeight: 0,
             globalMaximumHeight: 1,
         });
-        const childHull = makeBoxHull(0.25, 0.5, 0.75);
-        const compound = createCompound({
-            hulls: [
-                {
-                    hull: childHull,
-                    transform: { p: { x: 0.5, y: 1, z: 1.5 }, q: quaternion.identity() },
-                    material: defaultSurfaceMaterial(),
-                },
-            ],
-        })!;
+        const corners = [-1, 1].flatMap((x) =>
+            [-1, 1].flatMap((y) => [-1, 1].map((z) => ({ x: 0.25 * x, y: 0.5 * y, z: 0.75 * z }))),
+        );
+        const childHull = world.resource(Hulls).register({
+            name: "draw-payload-child",
+            points: new Float32Array(corners.flatMap(({ x, y, z }) => [x, y, z])),
+        });
         const compoundId = world.resource(Compounds).register({
             name: "draw-payload-compound",
-            data: compound,
+            hulls: [
+                { hull: childHull, transform: { position: [0.5, 1, 1.5], rotation: [0, 0, 0, 1] } },
+            ],
         });
-        const childExpected = structuredClone(compound.hulls[0].hull);
+        const childExpected = createHull(corners, 128)!;
         type BodyMotionType = (typeof BodyType)[keyof typeof BodyType];
         const body = (
             x: number,

@@ -8,6 +8,7 @@ import {
     BodyType as EcsBodyType,
     Compounds,
     HeightFields,
+    Hulls,
     PhysicsMeshes,
     PhysicsPlugin as CorePhysicsPlugin,
     Shape as EcsShape,
@@ -512,21 +513,28 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             });
         } else {
             kind = ShapeKind.Compound;
-            const compound = createCompound({
+            // b3MakeBoxHull(1, 0.75, 0.6)'s points.
+            const hull = world.resource(Hulls).register({
+                name: "entity-query-compound-hull",
+                points: new Float32Array([
+                    -1, -0.75, -0.6, 1, -0.75, -0.6, 1, 0.75, -0.6, -1, 0.75, -0.6, -1, -0.75, 0.6, 1, -0.75,
+                    0.6, 1, 0.75, 0.6, -1, 0.75, 0.6,
+                ]),
+            });
+            geometry = world.resource(Compounds).register({
+                name: "entity-query-compound",
                 hulls: [
                     {
-                        hull: makeBoxHull(1, 0.75, 0.6),
-                        transform: { p: { x: 0, y: -0.75, z: 0 }, q: { v: zero, s: 1 } },
+                        hull,
+                        transform: { position: [0, -0.75, 0], rotation: [0, 0, 0, 1] },
                         material: material(0x100000006n),
                     },
                 ],
                 spheres: [
-                    { sphere: { center: { x: -0.625, y: -0.2, z: 0 }, radius: 0.2 }, material: material(0x200000006n) },
-                    { sphere: { center: { x: 0.625, y: -0.2, z: 0 }, radius: 0.2 }, material: material(0x300000006n) },
+                    { center: [-0.625, -0.2, 0], radius: 0.2, material: material(0x200000006n) },
+                    { center: [0.625, -0.2, 0], radius: 0.2, material: material(0x300000006n) },
                 ],
             });
-            if (compound === null) throw new Error("entity query compound creation failed");
-            geometry = world.resource(Compounds).register({ name: "entity-query-compound", data: compound });
         }
         const shape = world.create();
         world.add(shape, EcsShape, {
