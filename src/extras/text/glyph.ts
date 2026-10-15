@@ -4,7 +4,7 @@ import * as std from "typegpu/std";
 import { SDF_EXPONENT } from "./sdf";
 
 /** Shared CPU/GPU instance layout; staging stride and field offsets derive from this schema.
- * Positions are glyph-local, size is world-space, and color is packed sRGBA. */
+ * Positions and size are local, before the entity transform; color is packed sRGBA. */
 export const Glyph = d.struct({
     pos: d.vec3f,
     eid: d.u32,

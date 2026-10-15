@@ -1,7 +1,7 @@
 import { u8, vec4 } from "../../engine";
 
 // Membership marks the first captured placement, preventing interpolation from the origin.
-// Derived camera history and warning state are not authored or serialized.
+// Camera history and warning state are derived, not authored.
 export const PlayerFollow = {
     previous: vec4,
     current: vec4,

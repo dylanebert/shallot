@@ -172,10 +172,8 @@ export const fullscreenVs = tgpu.vertexFn({
 });
 
 /**
- * one jump-flood iteration: for the 9 neighbours at the current step, keep the seed coordinate nearest this
- * pixel. Bounds-guarded — an out-of-bounds `textureLoad` returns 0, which would read as a seed at the
- * corner, so skip neighbours off the texture. The sentinel seed loses naturally (its distance is huge).
- * The 3×3 offsets are `i32` (they go negative); the emitted output is a `vec4<u32>` because typegpu types a
+ * Skip neighbours off the texture: an out-of-bounds `textureLoad` returns 0, which would read as a seed
+ * at the corner. Offsets are `i32` because they go negative; the output is a `vec4<u32>` because typegpu types a
  * fragment target as a 4-component vector — the `rg16uint` attachment consumes `xy` and drops the rest.
  * @internal
  */
@@ -207,14 +205,9 @@ export const jfaFs = tgpu.fragmentFn({
 });
 
 /**
- * the composite, a compute dispatch through the sceneTransform seam: each pixel's distance to its nearest
- * seed gives the band. `smoothstep(0,1,d)` fades the outline in 1px outside the silhouette (interior d≈0 →
- * alpha 0, the object keeps its color), the outer `1 - smoothstep(width-1,width,d)` fades it out at the band
- * edge — uniform width, antialiased. The seed's color/width come from the attr texture at the resolved seed
- * coordinate. `mix(scene, band, alpha)` is straight (non-premultiplied) alpha `over`, in linear scene space
- * (the offscreen + scratch are linear HDR). It writes
- * every pixel (scene-through where there's no band) because the ping-pong target is a separate texture, so
- * there's no in-place `discard`; tonemapping reads the result.
+ * Blends in linear HDR scene space with straight (non-premultiplied) alpha.
+ * Write every pixel, passing the scene through where there is no band: the ping-pong target is a separate
+ * texture, so discarding would leave pixels unwritten for tonemapping.
  * @internal
  */
 export const compositeKernel = tgpu.computeFn({
