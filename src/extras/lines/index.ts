@@ -1,11 +1,5 @@
 import { component } from "../../engine";
-// Lines — the shallot debug-line producer. One shared segment buffer, two feeders: an immediate API
-// (`drawLine` / `drawWireBox` / `drawArrow`, appended and cleared each frame — the scale path) and the retained
-// `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
-// Everything draws as one non-indexed six-vertex quad per segment through core's transparent phase:
-// translucent, depth-tested, depth-write off, no overlay pass. Screen-space constant-pixel width; the shader
-// projects endpoints and expands the quad. Arrows are folded in (a shaft segment +
-// segment-fletched head). Staging/upload live in `segments.ts`; phase shaders live in `pipeline.ts`.
+// Lines are depth-tested transparent geometry, not an overlay.
 
 import {
     BeginFrameSystem,
@@ -91,9 +85,7 @@ export const Arrow = component(
 const _m = new Float32Array(16);
 const RETAINED_LINES_QUERY = [Line, GlobalTransform];
 
-// each retained Line is one segment from the entity's world pos along its rotated offset; an Arrow on it
-// adds fletched heads at the endpoints. Appended on top of this frame's immediate segments. Small counts
-// (scene annotations) — the immediate API is the scale path
+// Append retained annotations after this frame's immediate segments.
 function expandRetained(world: World): void {
     for (const eid of world.query(RETAINED_LINES_QUERY)) {
         if (!world.storage(Line).visible.get(eid)) continue;
@@ -124,7 +116,6 @@ function expandRetained(world: World): void {
     }
 }
 
-// runs after immediate appends and before the main color pass: expands retained components, uploads, then clears
 interface LineRendererState {
     single: import("typegpu").TgpuRenderPipeline | null;
     multisample: import("typegpu").TgpuRenderPipeline | null;

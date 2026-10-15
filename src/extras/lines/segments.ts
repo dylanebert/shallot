@@ -1,19 +1,10 @@
-// The line producer's segment buffer: one shared CPU staging array fed by the immediate API
-// (`drawLine` / `drawWireBox` / `drawArrow`) and the retained-component expansion, doubled on demand, uploaded to a
-// GPU storage buffer each frame and drawn as one instanced quad per segment. Internal —
-// `drawLine` / `drawWireBox` / `drawArrow` re-export through the barrel; the staging, the `Lines` handle, and the GPU
-// lifecycle stay off it (`head` / `push` are shared with the retained expansion in `index.ts`).
-
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { Segment } from "./pipeline";
 
-// one segment = two world endpoints + a pixel width + a packed sRGBA color, 32 bytes / two vec4 reads
-// (read-all per instance coalesces near the floor). `a.xyz` shares its 16-byte slot with `width`,
-// `b.xyz` with `color`. Stride derived from the schema (a second hand-authored stride is layout
-// drift waiting to happen).
+// Derive staging stride from the shader schema so CPU and GPU layouts cannot drift.
 const SEGMENT_BYTES = d.sizeOf(Segment);
 const SEGMENT_FLOATS = SEGMENT_BYTES / 4;
 // initial segment capacity; the CPU staging + GPU buffer double on demand for large wireframe workloads
@@ -153,7 +144,6 @@ export function head(
     const e2z = dx * e1y - dy * e1x;
     const back = 0.2 * len * size;
     const out = back * 0.5;
-    // fin base, one step back from the tip along the shaft; four fins splay ±e1 / ±e2 from it
     const bx = tx - dx * back;
     const by = ty - dy * back;
     const bz = tz - dz * back;
@@ -239,7 +229,7 @@ export function drawWireBox(
     const x1 = max[0];
     const y1 = max[1];
     const z1 = max[2];
-    // 4 bottom edges, 4 top, 4 verticals — inlined (no per-call closure: drawWireBox() is on the scale path)
+    // Inline edges to avoid a per-call closure on the immediate path.
     push(world, x0, y0, z0, x1, y0, z0, width, c);
     push(world, x1, y0, z0, x1, y0, z1, width, c);
     push(world, x1, y0, z1, x0, y0, z1, width, c);
@@ -319,8 +309,7 @@ export function warmSegments(world: World): void {
     world.gpu.typed.set("lineSegments", buffer);
 }
 
-// grow the GPU buffer to match the CPU staging (rare); republish so standard re-resolves the binding, then
-// upload this frame's segments and clear
+// Republish a grown buffer so its consumers re-resolve the binding.
 export function flushSegments(world: World, device: GPUDevice): void {
     const resources = segmentState(world);
     if (!resources.buffer) return;
