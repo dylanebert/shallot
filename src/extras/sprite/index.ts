@@ -1,7 +1,3 @@
-// Sprite is a mesh material producer. Its image, tint, fill, billboard and blend route live in one row of
-// the Sprite material type's table; MeshInstance preprocessing supplies the same stepped draw and shadow
-// path as every other mesh.
-
 import * as d from "typegpu/data";
 import { Meshes, type MeshHandle, MeshInstance, MeshPlugin } from "../../core/mesh";
 import { BeginFrameSystem, imageArray, RenderingPlugin } from "../../core/rendering";
