@@ -1,6 +1,3 @@
-// The procedural sky shader. The full view-ray recipe is one pure TGSL graph, called from the background
-// with the Sky uniform + engine lighting. The background wrapper is the only resource-reading leaf.
-
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";

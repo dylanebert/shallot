@@ -1,11 +1,6 @@
 import type { World } from "../../engine";
 import { component } from "../../engine";
-// Sky — opt-in procedural sky. A plugin behind standard's background seam: it registers a `Backgrounds` recipe
-// (the bryce3d view-ray → HDR color fragment, in `./shader`) and publishes one uniform buffer the recipe
-// reads. The engine names no sky concept — this plugin owns all of it. It *reads* the sun from the
-// `Lighting` singleton and writes nothing; a day-night cycle that writes the sun is a separate, deferred
-// plugin, so sky and lights never depend on each other. One `Sky` singleton holds the look; a camera opts
-// in with standard's `CameraBackground` component. Not in `DEFAULT_PLUGINS`.
+// Sky reads directional lights without changing them; atmosphere does not own the light state.
 
 import { BeginFrameSystem, MainPassSystem, RenderingPlugin, SunDisk } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
@@ -73,8 +68,6 @@ const skyStateKey = { create: () => createSkyState() };
 const createSkyState = (): SkyState => ({ buffer: null, staging: new Float32Array(SKY_FLOATS) });
 const skyState = (world: World) => world.resource(skyStateKey);
 
-// writes the `Sky` uniform each frame from the scene's Sky singleton, before the main pass reads it for
-// the backdrop draw. No-op unless the scene has a Sky singleton.
 const SkySystem: System = {
     name: "sky",
     group: "draw",
@@ -102,8 +95,7 @@ export const SkyPlugin: Plugin = {
     components: [Sky],
 
     systems: [SkySystem],
-    // StandardRenderingPlugin so this initialize runs after StandardRenderingPlugin clears the Backgrounds registry; RenderingPlugin for
-    // the Lighting uniform the fragment reads
+    // Initialize after standard clears Backgrounds; the fragment also needs RenderingPlugin's lighting.
     dependencies: [RenderingPlugin, StandardRenderingPlugin],
 
     initialize(world) {
