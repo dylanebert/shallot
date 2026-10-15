@@ -1281,7 +1281,7 @@ function decode(base64: string): Uint8Array<ArrayBuffer> {
 }
 
 /** The one-time log a browser gets when it blocks multithreading for want of cross-origin isolation.
- * Loud and host-actionable — the fix is the host's headers, not the caller's code. */
+ * The fix is the host's headers, not the caller's code. */
 export const COOP_COEP_HINT =
     "physics: running single-threaded. Multithreading needs a cross-origin-isolated page — serve it with COOP and COEP headers (Cross-Origin-Opener-Policy: same-origin, Cross-Origin-Embedder-Policy: require-corp).";
 
@@ -1313,10 +1313,8 @@ export function announce(plan: Threading): void {
     if (plan.warn) console.log(COOP_COEP_HINT);
 }
 
-/** This host's threading signals. Standalone is detected the way the pool spawns its workers — a real
- * `process.versions.node` (node, bun, deno 2's node compat; pool.ts's spawn branch) — so the resolver and
- * the spawn path cannot disagree. Keying "browser" on `crossOriginIsolated` being a boolean would misroute
- * deno, which exposes that global too, into the COOP/COEP warning. */
+/** Standalone detection uses `process.versions.node` (Node, Bun, Deno 2's Node compatibility),
+ * matching pool.ts's worker-spawn branch so resolution and spawning agree on the host. */
 function host(): Host {
     const cores = globalThis.navigator?.hardwareConcurrency ?? 0;
     const p = (globalThis as { process?: { versions?: { node?: unknown } } }).process;

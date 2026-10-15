@@ -1,10 +1,5 @@
-// Both halves of this import are load-bearing under Node, and bun tolerates neither absence — which is
-// why no bun-side gate could see the defect and `scripts/check-node-import.ts` is the arm that does.
-// Without the attribute Node ≥26 throws `TypeError: Module "…/package.json" needs an import attribute of
-// "type: json"` at load; with it, a *named* import throws `SyntaxError: The requested module
-// '../../../package.json' does not provide an export named 'version'`, since a Node JSON module exposes
-// its object as the default export only (Bun adds named exports). Either way a Node-side consumer of
-// this package — a Playwright driver, a vite/playwright config — dies before running.
+// Keep the JSON attribute and default import: Node ≥26 refuses this module without the attribute,
+// and Node JSON modules expose only a default export, not named exports (Bun adds named exports).
 import pkg from "../../../package.json" with { type: "json" };
 import { UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
