@@ -3,9 +3,8 @@
 //! Each world owns a LIFO stack. Phase reservations publish column byte offsets in `LAYOUT`;
 //! TypeScript derives views from this header after allocations, which may grow linear memory.
 //!
-//! Wasm-only: the columns alias linear memory directly, so this is meaningful only in the JS host
-//! (native tests drive the phase modules against their gold vectors instead). They are shared-mutable
-//! [`Col`]s rather than `&mut` slices — `col.rs` carries the argument.
+//! Columns alias WASM linear memory through shared-mutable [`Col`] handles.
+//! See col.rs for the aliasing contract.
 
 use crate::body::{FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
 use crate::col::Col;
@@ -128,11 +127,7 @@ static mut WIDE_COUNT: usize = 0;
 // Active color count — the number of spans in the COLOR_SPAN column the batched shims loop over.
 static mut COLOR_COUNT: usize = 0;
 
-/// Column of `len` f32 at `LAYOUT[idx]`. `len` must match the reserved column size.
-///
-/// A [`Col`] and not a `&mut [f32]`: once the staged solver runs a stage's blocks on several threads
-/// (`stages.rs`), every one of them holds this same column, and a `&mut` over it would be live
-/// aliasing `&mut` — UB under `noalias` however disjoint the writes are (see `col.rs`).
+/// Column of len f32 at LAYOUT[idx]. len must match the reserved column size.
 #[inline]
 unsafe fn f32s(idx: usize, len: usize) -> Col<'static, f32> {
     Col::new(LAYOUT[idx] as *mut f32, len)
@@ -246,10 +241,8 @@ unsafe fn columns(world_index: usize) -> Columns<'static> {
     }
 }
 
-// --- the staged solver's view of the arena (solve.rs) ----------------------------------------
-// The staged solve derives its columns once, up front, and hands the same handles to every worker —
-// whose handles remain valid because none of these columns relocate between fork and join.
-// The concurrent split can grow island storage, not these solver buffers.
+// Solver columns stay fixed between fork and join; the concurrent split may grow
+// island storage, but not these buffers.
 
 /// The scalar solver's columns, as `solve.rs`'s `StageWork` holds them.
 pub(crate) unsafe fn scalar_columns(world_index: usize) -> Columns<'static> {
@@ -1327,8 +1320,7 @@ pub extern "C" fn dispatch_contacts_in_world(world_index: usize, count: usize) {
 // --- contact recycle -----------------------------------------------------------------------
 // Recycle poses resolve body ids through the resident records across sleep/wake transitions.
 
-/// Do shapes `sa` and `sb`'s fat AABBs overlap? (b3AABB_Overlaps over the resident fat-AABB column;
-/// bit-identical to `src/math.ts` `aabb.overlaps` — the same six comparisons.)
+/// b3AABB_Overlaps over resident fat AABBs.
 #[inline]
 fn fat_overlap(fat: &[f32], sa: usize, sb: usize) -> bool {
     let a = sa * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FAT_AABB;
@@ -1379,8 +1371,7 @@ fn read_pose_cache(dir: Col<u32>, contact_id: usize) -> (Quat, Quat, Transform) 
     (rot_a, rot_b, rel)
 }
 
-/// Cache this step's pose into the directory recycle record for the next step's recycle test — the
-/// column-resident equivalent of the TS `contact.cachedRotation*`/`cachedRelativePose` writes.
+/// Stores the pose used by the next step's recycle test.
 #[inline]
 fn write_pose_cache(dir: Col<u32>, contact_id: usize, xf_a: Transform, xf_b: Transform) {
     let o = contact_id * DIR_STRIDE;

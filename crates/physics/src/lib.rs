@@ -5,16 +5,13 @@
 //! Native `cargo test` exercises the same logic through the scalar `FloatW` fallback (see `simd`),
 //! which is bit-identical to the wasm-simd128 path.
 
-// The FloatW fallback methods that only the tests touch today are the solver's foundation; the
-// wide-solver port consumes them. Remove when it lands.
 #![allow(dead_code)]
 #![cfg_attr(
     all(target_arch = "wasm32", target_feature = "atomics"),
     feature(stdarch_wasm_atomic_wait)
 )]
-// These lints are intentionally allowed for the C-reference port: argument-heavy phase entry
-// points, explicit index loops, named f32 constants, and method names mirror the upstream seams
-// and preserve operation order/bit behavior rather than following idiomatic Rust rewrites.
+// Preserve phase signatures, exact constants and arithmetic order when lint rewrites
+// would obscure comparison with Box3D or change intermediate rounding.
 #![allow(clippy::approx_constant)]
 #![allow(clippy::doc_lazy_continuation)]
 #![allow(clippy::excessive_precision)]
@@ -78,9 +75,6 @@ pub mod stages;
 mod task_memory;
 mod toi;
 pub mod triangle_manifold;
-// The broad-phase pair query + dynamic-tree rebuild (3d). `tree`/`table` are native-testable (gold
-// vectors: `tests/tree_gold.rs`); the wasm arena shim that drives them over the resident region is
-// `pairwork`, wasm-only.
 pub mod table;
 pub mod tree;
 pub mod wide;
@@ -104,9 +98,6 @@ mod checked {
     }
 }
 
-// The shared-column arena + phase export shims are wasm-only: they hand the phase functions slices
-// carved straight out of linear memory, which is meaningful only in the JS host. Native `cargo test`
-// exercises the phase modules directly against their gold vectors, so the arena is cfg'd out there.
 #[cfg(all(target_arch = "wasm32", feature = "count-allocations"))]
 mod allocation;
 #[cfg(target_arch = "wasm32")]
@@ -174,6 +165,5 @@ mod shapes;
 mod treework;
 #[cfg(target_arch = "wasm32")]
 mod world_query;
-// Both wasm artifacts run the staged solve over arena columns. Native tests use owned columns.
 #[cfg(target_arch = "wasm32")]
 mod solve;

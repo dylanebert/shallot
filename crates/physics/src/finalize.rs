@@ -1,11 +1,6 @@
-//! Pose finalize: the per-body pose-advance phase of box3d's soft-step solver, ported op-for-op from
-//! `solver.c` (b3FinalizeBodiesTask). It advances the center + rotation from the solved deltas,
-//! rebuilds the world inertia tensor and body-origin transform, resets the per-step delta/force
-//! accumulators, writes the body's sleep velocity and decides whether it needs a continuous sweep.
-//! The arena follows it with shape bounds commit; the kernel enlarges proxies serially.
-//!
-//! Every arithmetic op maps one-to-one to the C scalar path (no SIMD, no FMA); bit-identical to the
-//! the frozen historical oracle vectors; current target evidence belongs to the standalone oracle.
+//! Box3D solver.c b3FinalizeBodiesTask.
+//! Preserve scalar operand order and intermediate rounding without FMA contraction.
+//! Shape bounds commit follows finalize; proxy enlargement runs serially.
 
 #[cfg(target_arch = "wasm32")]
 use crate::body::{
@@ -24,9 +19,7 @@ const POSITION_SLEEP_FACTOR: f32 = 0.5;
 /// exceeds `SAFETY_FACTOR * minExtent` is a fast-body candidate.
 const SAFETY_FACTOR: f32 = 0.5;
 
-// --- shape-AABB refit -----------------------------------------------------------------------
-// Pure bounds arithmetic stays independent of the wasm regions for bit-pinned native tests.
-// The arena commits the resulting bounds and enlarge flags to the owning shape columns.
+// The arena commits bounds and enlarge flags to the owning shape columns.
 
 /// Shape type codes (`ShapeType`).
 pub const TY_CAPSULE: u32 = 0;
@@ -34,18 +27,15 @@ pub const TY_COMPOUND: u32 = 1;
 pub const TY_HULL: u32 = 3;
 pub const TY_SPHERE: u32 = 5;
 
-/// The speculative margin the fat AABB inflates a shape by (`B3_SPECULATIVE_DISTANCE`, `src/standard/physics/common/constants.ts`).
-/// `4.0 * 0.005` const-evaluates to the same f32 as the TS `f32(4.0 * f32(0.005))`.
+/// Speculative AABB margin (B3_SPECULATIVE_DISTANCE).
 const SPECULATIVE_DISTANCE: f32 = 4.0 * 0.005;
 
-/// Does this shape type use inline convex geometry rather than the non-convex geometry pools?
 #[inline]
 pub fn is_convex_refit(shape_type: u32) -> bool {
     matches!(shape_type, TY_SPHERE | TY_CAPSULE | TY_HULL)
 }
 
-/// b3AABB_Contains: does `a` fully enclose `b`? Mirrors `src/math.ts` `aabb.contains` — `a.lower ≤
-/// b.lower` and `b.upper ≤ a.upper` on every axis. Each is `[lower.xyz, upper.xyz]`.
+/// b3AABB_Contains. Bounds are [lower.xyz, upper.xyz]; containment is inclusive.
 #[inline]
 pub fn aabb_contains(a: &[f32; 6], b: &[f32; 6]) -> bool {
     !(a[0] > b[0] || b[3] > a[3] || a[1] > b[1] || b[4] > a[4] || a[2] > b[2] || b[5] > a[5])

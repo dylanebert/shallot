@@ -1,12 +1,6 @@
-//! The convex-contact manifold bridge (b3ComputeConvexManifold, contact.c): map the geometry
-//! manifold the six convex pair functions produce (in shape A's frame) into the persistent,
-//! center-of-mass-relative manifold the solver consumes, carrying warm-start impulses forward by
-//! feature id. The pair functions (manifold.rs) run in the B-to-A frame; this layer rotates the
-//! result into world orientation and matches the previous step's points to reuse their impulses.
-//!
-//! Native gold-verified against a C transcription of the same map + warm-start over the real box3d
-//! collide functions (fixtures/convex_manifold_gold.c). The wasm build dispatches it per direct convex
-//! contact through `arena::dispatch_convex` (3c.3), over the geometry + persistent manifold columns.
+//! Box3D contact.c b3ComputeConvexManifold.
+//! Geometry points are in shape A's frame; persistent anchors use world orientation
+//! relative to each body origin. The solver later shifts anchors to the centers of mass.
 
 use crate::distance::SimplexCache;
 use crate::hull::HullData;
@@ -21,10 +15,8 @@ use crate::math::{Mat3, Transform, Vec3};
 /// (`GEOM_CAPACITY`); the pair functions reduce to at most this before the map runs.
 pub const MAX_MANIFOLD_POINTS: usize = 4;
 
-/// Geometry-manifold point capacity handed to the pair functions — box3d's 32 (`B3_MAX_LOCAL_MANIFOLD_
-/// POINTS`), matching the kernel `LocalManifold` buffer (manifold.rs) and the TS narrowphase. A face-face
-/// clip on a high-vertex hull exceeds 8 before the reduce, so the capacity must match box3d or the
-/// manifold truncates differently (fixture divergence).
+/// B3_MAX_LOCAL_MANIFOLD_POINTS. High-vertex hull clips can exceed eight points
+/// before reduction; shrinking this buffer changes the resulting manifold.
 const GEOM_CAPACITY: usize = 32;
 
 /// The GJK/SAT warm-start caches a convex contact carries between steps (b3ContactCache). The
@@ -62,9 +54,7 @@ impl ConvexContactCache {
     }
 }
 
-/// One point of a persistent contact manifold (b3ManifoldPoint). The narrowphase writes the anchors
-/// in world orientation relative to each body origin; the solver stage later shifts them to be
-/// center-of-mass-relative. `feature_id` + `normal_impulse` are the warm-start state carried forward.
+/// b3ManifoldPoint. feature_id and normal_impulse carry warm-start state between steps.
 pub use crate::manifold_abi::ManifoldPointRecord as ManifoldPoint;
 
 impl ManifoldPoint {
@@ -306,7 +296,6 @@ pub(crate) fn compute_convex_manifold_into<'a, M: ManifoldOutput + 'a>(
         pt.normal_velocity = 0.0;
     }
 
-    // Copy impulses from any matching old point (by feature id) via the snapshot.
     for i in 0..n {
         let pt = &mut points[i];
         pt.total_normal_impulse = 0.0;

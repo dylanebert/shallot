@@ -1,12 +1,6 @@
-//! Joint constraint solve, ported op-for-op from box3d's `joint.c` dispatch + the per-type files
-//! (Erin Catto, MIT) via the upstream TS port (`src/joint.ts`, `src/distanceJoint.ts`). Rust `f32`
-//! is native IEEE-754 with no FMA contraction, so each TS `f32(...)`-wrapped op maps to one Rust op in
-//! the same operand order (see `math.rs`); `b3MinFloat`/`b3MaxFloat`/`b3ClampFloat` are the explicit
-//! ternaries, never `f32::min`/`max`.
-//!
-//! The template stage ports **distance** end-to-end (`joint_abi.rs` header + payload); 3c copies the
-//! shape (a `prepare`/`warm_start`/`solve` per type over the header + its payload). The base
-//! `prepare`/`warm_start`/`solve` dispatch on `J_TYPE` exactly as box3d's `b3PrepareJoint` etc do.
+//! Box3D joint.c and per-type joint solvers (Erin Catto, MIT).
+//! Preserve operand order and intermediate f32 rounding without FMA contraction.
+//! b3MinFloat, b3MaxFloat and b3ClampFloat require ordered ternaries for NaN and signed-zero parity.
 
 use crate::body::{flags::DYNAMIC, read_state, State, STATE_STRIDE};
 use crate::col::Col;
@@ -61,8 +55,7 @@ use crate::math::{
     atan2, blend2, blend3, clampf, maxf, minf, Mat2, Mat3, Quat, Transform, Vec2, Vec3, FLT_MIN, PI,
 };
 
-/// b3MakeSoft: soft-constraint coefficients from a target frequency, damping, and substep dt. Mirrors
-/// `src/softness.ts`; a zero frequency short-circuits to a rigid (zero-bias) response.
+/// b3MakeSoft. h is the substep duration; zero hertz gives zero coefficients.
 fn make_soft(hertz: f32, zeta: f32, h: f32) -> Softness {
     if hertz == 0.0 {
         return Softness {
@@ -111,8 +104,7 @@ fn read_end(state_col: Col<f32>, flags_col: Col<u32>, index: u32) -> End {
     }
 }
 
-/// Write a dynamic body's solved linear + angular velocity back to the resident state column (slots
-/// 0..5; delta position/rotation are untouched by the solve).
+/// Writes velocity slots 0..5 without changing delta position or rotation.
 #[inline]
 fn write_velocity(state_col: Col<f32>, index: u32, v: Vec3, w: Vec3) {
     let o = index as usize * STATE_STRIDE;
@@ -132,9 +124,8 @@ fn write_angular_velocity(state_col: Col<f32>, index: u32, w: Vec3) {
     state_col.set(o + 5, w.z);
 }
 
-// --- base dispatch ----------------------------------------------------------------------------
 
-/// b3PrepareJoint: clamp the base constraint hertz, compute `constraintSoftness`, dispatch to the type.
+/// b3PrepareJoint.
 pub fn prepare(
     joints: Col<f32>,
     slot: usize,
@@ -383,7 +374,6 @@ pub(crate) fn reaction(
     (linear * inv_h, angular * inv_h)
 }
 
-// --- shared payload helpers -------------------------------------------------------------------
 
 #[inline]
 fn read_softness(joints: Col<f32>, slot: usize, field: usize) -> Softness {
@@ -401,7 +391,6 @@ fn write_softness(joints: Col<f32>, slot: usize, field: usize, s: Softness) {
     set(joints, slot, field + 2, s.impulse_scale);
 }
 
-// --- distance joint ---------------------------------------------------------------------------
 
 /// b3PrepareDistanceJoint (`src/distanceJoint.ts` `prepareDistanceJoint`). The two sim indices +
 /// invMass/invInertia are cached by base prepare; the body-column pose feeds the anchors.
@@ -587,7 +576,6 @@ fn solve_distance(
     let cs_impulse = get(joints, slot, J_CONSTRAINT_SOFTNESS + 2);
 
     if enable_spring && (min_length < max_length || !enable_limit) {
-        // spring
         let hertz = get(joints, slot, DJ_HERTZ);
         if hertz > 0.0 {
             let d_bias = get(joints, slot, DJ_DIST_SOFTNESS);
@@ -613,7 +601,6 @@ fn solve_distance(
         }
 
         if enable_limit {
-            // lower limit
             {
                 let cdot = rel_vel(v_a, w_a, v_b, w_b, r_a, r_b, axis);
                 let c = length - min_length;
@@ -684,7 +671,6 @@ fn solve_distance(
             );
         }
     } else {
-        // rigid constraint
         let cdot = rel_vel(v_a, w_a, v_b, w_b, r_a, r_b, axis);
         let c = length - length_joint;
 
@@ -713,7 +699,6 @@ fn solve_distance(
     }
 }
 
-// --- weld joint -------------------------------------------------------------------------------
 
 /// b3PrepareWeldJoint (`src/weldJoint.ts` `prepareWeldJoint`). Frames are world-space relative to each
 /// COM; a zero linear/angular hertz falls the corresponding spring back to the base constraint softness.
@@ -858,7 +843,6 @@ fn solve_weld(
     }
     let rel_q = quat_a.inv_mul(quat_b);
 
-    // angular constraint
     if !fixed_rotation {
         let angular_impulse = get_vec3(joints, slot, WJ_ANGULAR_IMPULSE);
         let mut bias = Vec3::ZERO;
@@ -889,7 +873,6 @@ fn solve_weld(
         w_b = w_b.add(i_b.mul_v(impulse));
     }
 
-    // linear constraint
     {
         let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
         let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
@@ -938,7 +921,6 @@ fn solve_weld(
     }
 }
 
-// --- revolute joint ---------------------------------------------------------------------------
 
 /// b3PrepareRevoluteJoint (`src/revoluteJoint.ts` `prepareRevoluteJoint`). The hinge axis is body A's
 /// local z; the perp axes are the warm-start collinearity basis.
@@ -1116,7 +1098,6 @@ fn solve_revolute(
     }
     let rel_q = quat_a.inv_mul(quat_b);
 
-    // Solve spring
     if enable_spring && !fixed_rotation {
         let angle = rel_q.get_twist_angle();
         let c = angle - target_angle;
@@ -1157,7 +1138,6 @@ fn solve_revolute(
         let angle = rel_q.get_twist_angle();
         let axis = rotation_axis_z;
 
-        // Lower limit
         {
             let c = angle - lower_angle;
             let mut bias = 0.0;
@@ -1182,7 +1162,6 @@ fn solve_revolute(
             w_b = w_b.mul_add(delta_impulse, i_b.mul_v(axis));
         }
 
-        // Upper limit
         {
             let c = upper_angle - angle;
             let mut bias = 0.0;
@@ -1210,7 +1189,6 @@ fn solve_revolute(
         }
     }
 
-    // Collinearity constraint
     if !fixed_rotation {
         let mut bias = Vec2::new(0.0, 0.0);
         let mut mass_scale = 1.0_f32;
@@ -1311,7 +1289,6 @@ fn solve_revolute(
     }
 }
 
-// --- spherical joint --------------------------------------------------------------------------
 
 /// b3PrepareSphericalJoint.
 fn prepare_spherical(
@@ -1510,7 +1487,6 @@ fn solve_spherical(
     let quat_b = end_b.state.delta_rotation.mul(frame_b.q);
     let rel_q = quat_a.inv_mul(quat_b);
 
-    // Solve spring
     if enable_spring && !fixed_rotation {
         let delta_rotation = rel_q.delta_to_rotation(target_rotation);
         let c = quat_a.rotate(delta_rotation).neg();
@@ -1550,7 +1526,6 @@ fn solve_spherical(
     if enable_twist && !fixed_rotation {
         let twist_angle = rel_q.get_twist_angle();
 
-        // Lower limit
         {
             let c = twist_angle - lower_twist_angle;
             let mut bias = 0.0;
@@ -1574,7 +1549,6 @@ fn solve_spherical(
             w_b = w_b.mul_add(delta_impulse, i_b.mul_v(twist_jacobian));
         }
 
-        // Upper limit
         {
             let c = upper_twist_angle - twist_angle;
             let mut bias = 0.0;
@@ -1677,7 +1651,6 @@ fn solve_spherical(
     }
 }
 
-// --- prismatic joint --------------------------------------------------------------------------
 
 /// b3PreparePrismaticJoint (`src/prismaticJoint.ts`). The joint axis is body A's local x; perpY/perpZ are
 /// its local y/z. `rotationMass` is always inverted (unlike spherical); the axial effective mass is not
@@ -1878,7 +1851,6 @@ fn solve_prismatic(
     let ka = ((m_a + m_b) + s_ax.dot(i_a.mul_v(s_ax))) + s_bx.dot(i_b.mul_v(s_bx));
     let axial_mass = if ka > 0.0 { 1.0 / ka } else { 0.0 };
 
-    // Solve spring
     if enable_spring && !fixed_rotation {
         let c = joint_translation - target_translation;
         let bias = spring_soft.bias_rate * c;
@@ -1930,7 +1902,6 @@ fn solve_prismatic(
     if enable_limit && !fixed_rotation {
         let speculative_distance = 0.25 * (upper_translation - lower_translation);
 
-        // Lower limit
         {
             let c = joint_translation - lower_translation;
             if c < speculative_distance {
@@ -1965,7 +1936,6 @@ fn solve_prismatic(
             }
         }
 
-        // Upper limit
         {
             let c = upper_translation - joint_translation;
             if c < speculative_distance {
@@ -2003,7 +1973,6 @@ fn solve_prismatic(
         }
     }
 
-    // Rotation constraint
     if !fixed_rotation {
         let mut bias = Vec3::ZERO;
         let mut mass_scale = 1.0_f32;
@@ -2036,7 +2005,6 @@ fn solve_prismatic(
         w_b = w_b.add(i_b.mul_v(impulse));
     }
 
-    // Solve point-to-line constraint
     {
         let perp_y_axis = end_a.state.delta_rotation.rotate(perp_axis_y0);
         let perp_z_axis = end_a.state.delta_rotation.rotate(perp_axis_z0);
@@ -2093,7 +2061,6 @@ fn solve_prismatic(
     }
 }
 
-// --- wheel joint ------------------------------------------------------------------------------
 
 /// The steering constraint axis (twist about body A's x), `b3SolveWheelJoint`'s inline block. Pure f32
 /// dots, so every recompute is bit-identical.
@@ -2423,7 +2390,6 @@ fn solve_wheel(
         .cross(matrix_a.cy.scale(-cs_dot).sub(matrix_a.cz.scale(ss)))
         .scale(den);
 
-    // motor constraint
     if enable_spin_motor && !fixed_rotation {
         let spin_axis = matrix_b.cz;
         let cdot = w_b.sub(w_a).dot(spin_axis) - spin_speed;
@@ -2464,7 +2430,6 @@ fn solve_wheel(
         w_b = w_b.add(i_b.mul_v(angular_b));
     }
 
-    // steering
     if enable_steering && !fixed_rotation {
         let steering_angle = atan2(ss, cs_dot);
 
@@ -2493,7 +2458,6 @@ fn solve_wheel(
         }
 
         if enable_steering_limit {
-            // Lower limit
             {
                 let c = steering_angle - lower_steering_limit;
                 let mut bias = 0.0;
@@ -2554,7 +2518,6 @@ fn solve_wheel(
     }
 
     if enable_suspension_limit {
-        // Lower limit
         {
             let c = translation - lower_suspension_limit;
             let mut bias = 0.0;
@@ -2625,7 +2588,6 @@ fn solve_wheel(
         }
     }
 
-    // Collinearity constraint
     if !fixed_rotation {
         if enable_steering {
             let mut bias = 0.0;
@@ -2706,7 +2668,6 @@ fn solve_wheel(
         }
     }
 
-    // Solve point-to-line constraint
     {
         let perp_y = matrix_a.cy;
         let perp_z = matrix_a.cz;
@@ -2764,7 +2725,6 @@ fn solve_wheel(
     }
 }
 
-// --- motor joint ------------------------------------------------------------------------------
 
 /// K = (1/mA + 1/mB) I − skew(rA) invIA skew(rA) − skew(rB) invIB skew(rB), the point-to-point
 /// effective-mass matrix the motor's linear spring + linear velocity sub-solves share (`linearK`).
@@ -2923,7 +2883,6 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
     }
     let rel_q = quat_a.inv_mul(quat_b);
 
-    // angular spring
     if max_spring_torque > 0.0 && angular_hertz > 0.0 {
         let target_quat = Quat::IDENTITY;
         let delta_rotation = rel_q.delta_to_rotation(target_quat);
@@ -2951,7 +2910,6 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
         w_b = w_b.add(i_b.mul_v(applied));
     }
 
-    // angular velocity
     if max_velocity_torque > 0.0 {
         let cdot = w_b.sub(w_a).sub(angular_velocity);
         let impulse = angular_mass.mul_v(cdot).neg();
@@ -2972,7 +2930,6 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
     let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
     let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
 
-    // linear spring
     if max_spring_force > 0.0 && linear_hertz > 0.0 {
         let dc_a = end_a.state.delta_position;
         let dc_b = end_b.state.delta_position;
@@ -3003,7 +2960,6 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
         w_b = w_b.add(i_b.mul_v(r_b.cross(applied)));
     }
 
-    // linear velocity
     if max_velocity_force > 0.0 {
         let cdot = v_b
             .add(w_b.cross(r_b))
@@ -3037,7 +2993,6 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
     }
 }
 
-// --- parallel joint ---------------------------------------------------------------------------
 
 /// The two perpendicular collinearity axes in world space, from the relative rotation `rel_q` of the
 /// two joint frames — half the rotated imaginary parts (`perpAxes` in `src/parallelJoint.ts`).
@@ -3054,8 +3009,8 @@ fn perp_axes(q_a: Quat, rel_q: Quat) -> (Vec3, Vec3) {
     (x, y)
 }
 
-/// b3PrepareParallelJoint (`src/parallelJoint.ts` `prepareParallelJoint`). Unlike motor, `fixedRotation`
-/// IS read by the solve, so it is stored.
+/// b3PrepareParallelJoint (`src/parallelJoint.ts` prepareParallelJoint).
+/// The solve reads fixedRotation; it must remain in the payload.
 fn prepare_parallel(
     joints: Col<f32>,
     slot: usize,
@@ -3155,9 +3110,8 @@ fn solve_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col:
         let impulse_scale = soft.impulse_scale;
 
         let (perp_x, perp_y) = perp_axes(quat_a, rel_q);
-        // Store the recomputed axes: the next substep's warm start reads them (b3SolveParallelJoint
-        // writes joint->perpAxisX/Y; `src/parallelJoint.ts` mirrors it). Omitting this left warm start
-        // on the stale prepared axes — the MT-vs-serial parallel-joint divergence.
+        // b3SolveParallelJoint updates perpAxisX/Y for the next substep's warm start;
+        // keeping only the prepared axes would make that warm start stale.
         set_vec3(joints, slot, PLJ_PERP_AXIS_X, perp_x);
         set_vec3(joints, slot, PLJ_PERP_AXIS_Y, perp_y);
 

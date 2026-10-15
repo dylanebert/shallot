@@ -1,7 +1,5 @@
-//! Convex narrowphase manifold generation, ported op-for-op from box3d's `manifold.c` (shared clip/
-//! query helpers) and `convex_manifold.c` (the six sphere/capsule/hull pair functions) (Erin Catto,
-//! MIT) via the upstream TS port (`src/manifold.ts`). Results are in shape A's local frame;
-//! `transform_b_to_a` places shape B in shape A's frame.
+//! Box3D manifold.c and convex_manifold.c (Erin Catto, MIT).
+//! Results are in shape A's local frame; transform_b_to_a places B in that frame.
 
 use crate::distance::{shape_distance, DistanceInput, ShapeProxy, SimplexCache};
 use crate::hull::HullData;
@@ -176,7 +174,6 @@ impl ClipVertex {
     };
 }
 
-// --- shared helpers (manifold.c) ---------------------------------------------------------------
 
 /// b3MakeFeaturePair — pack two features into a pair (each index truncated to uint8).
 fn make_feature_pair(owner1: u8, index1: u8, owner2: u8, index2: u8) -> FeaturePair {
@@ -287,11 +284,9 @@ pub(crate) fn clip_polygon(
         let distance2 = clip_plane.separation(vertex2.position);
 
         if distance1 <= 0.0 && distance2 <= 0.0 {
-            // Both behind: keep vertex2.
             out[n].put(vertex2);
             n += 1;
         } else if distance1 <= 0.0 && distance2 > 0.0 {
-            // Leaving: keep intersection, adjust outgoing edge.
             let fraction = distance1 / (distance1 - distance2);
             let position = vertex1
                 .position
@@ -306,7 +301,6 @@ pub(crate) fn clip_polygon(
             });
             n += 1;
         } else if distance2 <= 0.0 && distance1 > 0.0 {
-            // Entering: keep intersection (adjust incoming edge) then vertex2.
             let fraction = distance1 / (distance1 - distance2);
             let position = vertex1
                 .position
@@ -331,7 +325,6 @@ pub(crate) fn clip_polygon(
     n
 }
 
-// --- convex_manifold.c: Gauss-map / clip helpers -----------------------------------------------
 
 fn is_minkowski_face(a: Vec3, b: Vec3, bxa: Vec3, c: Vec3, d: Vec3, dxc: Vec3) -> bool {
     let cba = c.dot(bxa);
@@ -412,7 +405,6 @@ fn clip_segment_to_hull_face(
     2
 }
 
-// --- convex_manifold.c: SAT queries ------------------------------------------------------------
 
 fn query_face_direction_hull_and_capsule(
     hull: &HullData,
@@ -534,7 +526,6 @@ fn reduce_manifold_points(
     // A pecking-order bias for contact point consistency across time steps.
     let bias: f32 = 0.95;
 
-    // Step 1: extreme point that is touching.
     let mut best_index: i32 = -1;
     let mut best_score = -FLT_MAX;
     let search_direction = arbitrary_perp(normal);
@@ -543,7 +534,6 @@ fn reduce_manifold_points(
         if pt.separation > speculative_distance {
             continue;
         }
-        // The deeper the better.
         let score = -pt.separation + search_direction.dot(pt.point);
         if bias * score > best_score {
             best_index = index as i32;
@@ -563,7 +553,6 @@ fn reduce_manifold_points(
 
     let a = manifold.points[0].point;
 
-    // Step 2: farthest point in 2D.
     best_score = 0.0;
     best_index = -1;
     for index in 0..count {
@@ -590,7 +579,6 @@ fn reduce_manifold_points(
 
     let b = manifold.points[1].point;
 
-    // Step 3: point with the maximum triangular area.
     best_score = tol_sqr;
     best_index = -1;
     let mut best_signed_area = 0.0;
@@ -617,7 +605,6 @@ fn reduce_manifold_points(
 
     let c = manifold.points[2].point;
 
-    // Step 4: point adding the most area outside the current triangle.
     best_score = tol_sqr;
     best_index = -1;
     let sign: f32 = if best_signed_area < 0.0 { -1.0 } else { 1.0 };
@@ -639,7 +626,6 @@ fn reduce_manifold_points(
     }
 }
 
-// --- sphere / capsule pair collision -----------------------------------------------------------
 
 /// b3CollideSpheres — one-point manifold for two spheres, in frame A.
 pub fn collide_spheres(
@@ -670,7 +656,6 @@ pub fn collide_spheres(
         normal = offset.scale(1.0 / distance);
     }
 
-    // Contact at the midpoint: 0.5 * (((c1 + rA*n) + c2) - rB*n).
     let point = center1
         .mul_add(sphere_a.radius, normal)
         .add(center2)
@@ -720,7 +705,6 @@ pub fn collide_capsule_and_sphere(
         normal = offset.scale(1.0 / distance);
     }
 
-    // Contact at the midpoint: 0.5 * (((center - sB*n) + closestPoint) + cA*n).
     let point = center
         .mul_sub(sphere_b.radius, normal)
         .add(closest_point)
@@ -939,7 +923,6 @@ pub fn collide_capsules(
                 let radius_a = capsule_a.radius;
                 let radius_b = capsule_b.radius;
 
-                // Contact at the midpoint: 0.5 * (((vB.pos + rA*nK) + cP) - rB*n).
                 let point1 = vertices_b[0]
                     .position
                     .mul_add(radius_a, normal1)
@@ -972,7 +955,6 @@ pub fn collide_capsules(
     }
 
     let (normal, distance) = get_length_and_normalize(offset);
-    // Contact at the midpoint 0.5 * (((p1 + rA*n) + p2) - rB*n).
     let point = result
         .point1
         .mul_add(capsule_a.radius, normal)
@@ -989,7 +971,6 @@ pub fn collide_capsules(
     pt.pair = FeaturePair::SINGLE;
 }
 
-// --- hull / capsule collision ------------------------------------------------------------------
 
 fn build_hull_face_and_capsule_contact(
     manifold: &mut LocalManifold,
@@ -1195,7 +1176,6 @@ pub fn collide_hull_and_capsule(
             }
         }
 
-        // Create contact from closest points.
         let point = distance_output
             .point_a
             .mul_sub(capsule_b.radius, delta)
@@ -1223,7 +1203,6 @@ pub fn collide_hull_and_capsule(
         return;
     }
 
-    // Create face contact.
     let mut face_separation = face_query.separation - capsule_b.radius;
     build_hull_face_and_capsule_contact(manifold, hull_a, capsule_b, transform_b_to_a, face_query);
     if manifold.point_count > 1 {
@@ -1248,7 +1227,6 @@ pub fn collide_hull_and_capsule(
     }
 }
 
-// --- hull / hull collision ---------------------------------------------------------------------
 
 /// b3BuildPolygon — the incident face of `hull` transformed into frame A as a clip polygon, written into
 /// `out` (at least `MAX_CLIP_POINTS` slots); returns its length.
@@ -1311,11 +1289,9 @@ fn build_face_a_contact(
     let planes_a = &hull_a.planes;
     let points_a = &hull_a.points;
 
-    // Reference face.
     let ref_face = query.index_a as usize;
     let ref_plane = planes_a[ref_face];
 
-    // Find incident face.
     let ref_normal_in_b = transform_b_to_a.q.inv_rotate(ref_plane.normal);
     let inc_face = find_incident_face(hull_b, ref_normal_in_b, query.index_b as usize);
 
@@ -1325,7 +1301,6 @@ fn build_face_a_contact(
     let mut scratch = &mut buffer2;
     let mut point_count = build_polygon(transform_b_to_a, hull_b, inc_face, ref_plane, input);
 
-    // Clip incident face against side planes of the reference face.
     let face = faces_a[ref_face];
     let mut edge_index = face.edge as usize;
 
@@ -1854,7 +1829,6 @@ pub fn collide_hulls(
 
     cache.hit = 0;
 
-    // Attempt to use the cache to speed up collision.
     match cache.ty as u32 {
         separating_feature::INVALID => {}
 

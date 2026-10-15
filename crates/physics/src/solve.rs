@@ -1,14 +1,6 @@
-//! The staged solve, wired to the wasm arena — the kernel's multithreaded entry.
-//!
-//! `stages.rs` owns the staged solver's machinery (stage list, CAS-claimed blocks, barriers, the serial
-//! overflow); `parfor.rs` owns the flat block-claim sweep the outer phases use; `arena.rs` owns the
-//! columns. This module is the seam between them: it builds the [`Plan`] from the kernel graph layout,
-//! holds the [`Context`] and the [`Work`] in linear memory where every thread's instance sees
-//! them. Task slots publish each callback's context, and their finish handles protect its lifetime.
-//! Solver-column reserves precede enqueue; the island split cannot relocate those columns.
-//!
-//! Wasm-only, like the arena it reads. Native `cargo test` drives the same machinery over owned columns
-//! (`kernel/tests/stages.rs`).
+//! Solver contexts and work live in shared linear memory so every worker sees
+//! the same state. Task finish handles protect their lifetimes.
+//! Reserve solver columns before enqueue; island splitting must not relocate them.
 
 use crate::arena;
 use crate::col::Col;
@@ -48,9 +40,7 @@ pub(crate) unsafe fn release_step(world: usize) {
     }
 }
 
-/// The arena's columns and this step's scalars, as every block sees them. The columns are [`Col`]s —
-/// shared-mutable handles, because a stage's blocks run concurrently over one column and only their
-/// *writes* are disjoint (col.rs).
+/// Shared step inputs; [`Col`] supplies the whole-column aliasing contract.
 struct Work {
     world: usize,
     cols: Columns<'static>,
@@ -308,7 +298,6 @@ impl StageWork for Work {
         unsafe { arena::finish_hit_events(self.world, 0, has_hits) };
     }
 
-    // --- joints -------------------------------------------------------------------------------
 
     fn prepare_joints(&self, b: Block) {
         let mut color = 0;
@@ -427,11 +416,8 @@ impl StageWork for Work {
     }
 }
 
-/// Lay out this step's stage list and blocks, and capture the columns + scalars the blocks run over.
-///
-/// Called on the main thread, once per solve, **before** the pool is woken — see the module header. The
-/// colors come from the `colorSpan` column TS already wrote (`writeColorSpans`), including each color's
-/// joint span — jointed scenes route through this pool whenever one exists (the joints-in-kernel path).
+/// Call once per solve on the main thread, before waking the pool.
+/// The colorSpan column, including joint spans, must already be populated.
 #[allow(clippy::too_many_arguments)]
 #[export_name = "solveBuild"]
 pub extern "C" fn solve_build(
@@ -532,8 +518,8 @@ pub extern "C" fn solve_build_in_world(
     unsafe {
         arena::reset_hit_events(world_index, thread_count);
         arena::reset_joint_states(world_index);
-        // Drop the previous solve's context before re-borrowing its buffers. The workers have all left
-        // it (the join in `stages::run`), so nothing else holds them.
+        // All previous solver handles must be finished before dropping the context
+        // and reborrowing its buffers.
         STEP = core::ptr::null_mut();
         arena::free_solve(world_index);
         SPLIT_ID = crate::island::split_candidate_in_world(world_index);
@@ -658,10 +644,7 @@ pub extern "C" fn solve_build_in_world(
     }
 }
 
-// --- the outer phases -------------------------------------------------------------------------
-//
-// Collide is one flat contact-id sweep: overlap, recycle and full contact update run in the same
-// task. Its manifold allocators may grow linear memory, but never move existing chunks.
+// Collide's manifold allocators may grow linear memory but never move existing chunks.
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Job {

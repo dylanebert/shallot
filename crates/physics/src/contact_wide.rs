@@ -98,7 +98,6 @@ const P_REL_VEL: usize = 44;
 
 pub const WIDE_STRIDE: usize = size_of::<ContactConstraintWide>() / 4;
 
-// --- column load/store helpers --------------------------------------------------------------
 
 #[inline]
 fn ld(col: Col<f32>, o: usize) -> FloatW {
@@ -203,8 +202,6 @@ fn body_terms(sim: Col<f32>, state: Col<f32>, index: u32) -> (f32, Mat3, Vec3, V
     }
 }
 
-// --- body gather / scatter ------------------------------------------------------------------
-//
 // Null gathers select a local dummy; scatters skip null lanes so no shared dummy is written.
 
 /// Wide body solver state (b3BodyStateW): the four gathered bodies' velocities + deltas across lanes.
@@ -288,7 +285,6 @@ fn scatter_scalar(
     scatter_lane(3);
 }
 
-// --- native (scalar) gather / scatter: the bit-identical reference for `cargo test` ----------
 
 #[cfg(not(target_arch = "wasm32"))]
 #[inline]
@@ -360,7 +356,6 @@ fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyState
     }
 }
 
-/// Velocities-only gather (warm start reads no deltas): 6 scalar loads per lane.
 #[cfg(not(target_arch = "wasm32"))]
 fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3W, Vec3W) {
     let mut vx = [0.0f32; 4];
@@ -410,7 +405,6 @@ fn scatter(
     scatter_scalar(state, flags, idx, io, v, w);
 }
 
-// --- wasm (simd128) record-transpose gather / scatter ---------------------------------------
 
 /// 4×4 f32 transpose (unpcklps/unpckhps + movlhps/movhlps decomposition).
 #[cfg(target_arch = "wasm32")]
@@ -437,7 +431,7 @@ fn gather_body(state: Col<f32>, index: u32, dummy: *const f32) -> *const f32 {
     }
 }
 
-/// Gather four bodies' full solver state: 4 unaligned v128 record loads + shuffle transposes → 13 lanes.
+/// Gathers full solver state; null lanes contribute the identity state.
 #[cfg(target_arch = "wasm32")]
 fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyStateW {
     let mut dummy = [0.0f32; STATE_STRIDE];
@@ -500,7 +494,7 @@ fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyState
     }
 }
 
-/// Velocities-only gather (warm start reads no deltas): 2 v128 loads + 2 transposes per body quad.
+/// Warm start reads velocities only; delta fields are not loaded.
 #[cfg(target_arch = "wasm32")]
 fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3W, Vec3W) {
     let mut dummy = [0.0f32; STATE_STRIDE];
@@ -552,7 +546,6 @@ fn scatter(
     scatter_scalar(state, flags, idx, io, v, w);
 }
 
-// --- prepare --------------------------------------------------------------------------------
 
 /// Build the wide constraints for the records in `[start, start+count)` (b3PrepareContacts_Convex).
 /// Gathers each active lane's convex contact (one manifold) through its contactId → the persistent
@@ -736,7 +729,6 @@ pub fn prepare(
     }
 }
 
-// --- warm start -----------------------------------------------------------------------------
 
 /// Seed body velocities from the warm-start impulses (b3WarmStartContacts_Convex) for records
 /// `[start, start+count)`.
@@ -765,7 +757,6 @@ pub fn warm_start(
         let inv_ma = ld(wide, wo + INV_MASS_A);
         let inv_mb = ld(wide, wo + INV_MASS_B);
         let normal = ld_v3(wide, wo + NORMAL);
-        // Warm start touches only velocities; gather v/w alone (no delta_position/rotation).
         let (mut ba_v, mut ba_w) = gather_vel(state, idx, io, ident);
         let (mut bb_v, mut bb_w) = gather_vel(state, idx, io + LANES, ident);
 
@@ -785,7 +776,6 @@ pub fn warm_start(
             bb_v = mul_add_svw(bb_v, inv_mb, impulse);
         }
 
-        // Central friction
         {
             let ra = ld_v3(wide, wo + ORIGIN_A);
             let rb = ld_v3(wide, wo + ORIGIN_B);
@@ -799,14 +789,12 @@ pub fn warm_start(
             bb_w = mul_add_mvw(bb_w, ib, cross_w(rb, impulse));
             bb_v = mul_add_svw(bb_v, inv_mb, impulse);
         }
-        // Central twist friction
         {
             let twist = ld(wide, wo + TWIST_IMPULSE);
             let impulse = mul_svw(twist, normal);
             ba_w = mul_sub_mvw(ba_w, ia, impulse);
             bb_w = mul_add_mvw(bb_w, ib, impulse);
         }
-        // Rolling resistance
         {
             let impulse = ld_v3(wide, wo + ROLLING_IMPULSE);
             ba_w = mul_sub_mvw(ba_w, ia, impulse);
@@ -818,7 +806,6 @@ pub fn warm_start(
     }
 }
 
-// --- solve / relax --------------------------------------------------------------------------
 
 /// One TGS solve/relax pass over records `[start, start+count)` (b3SolveContacts_Convex). `use_bias`
 /// selects the biased solve (position drift removal, friction skipped) vs the relax pass (no bias,
@@ -899,7 +886,6 @@ pub fn solve(
 
             let normal_mass = ld(wide, pb + P_NORMAL_MASS);
             let old_impulse = ld(wide, pb + P_NORMAL_IMP);
-            // negImpulse = normalMass*(pointMassScale*vn + bias) + pointImpulseScale*normalImpulse
             let neg_impulse = normal_mass
                 .mul(point_mass_scale.mul(vn).add(bias))
                 .add(point_impulse_scale.mul(old_impulse));
@@ -920,7 +906,6 @@ pub fn solve(
         }
 
         if !use_bias {
-            // Rolling resistance
             let rolling_resistance = ld(wide, wo + ROLLING_RESISTANCE);
             if !rolling_resistance.all_zero() {
                 let rolling_mass = ld_sym3(wide, wo + ROLLING_MASS);
@@ -941,7 +926,6 @@ pub fn solve(
                 bb.w = mul_add_mvw(bb.w, ib, d);
             }
 
-            // Central twist friction
             {
                 let twist_speed = dot_w(normal, sub_vw(bb.w, ba.w));
                 let friction = ld(wide, wo + FRICTION);
@@ -957,7 +941,6 @@ pub fn solve(
                 bb.w = mul_add_mvw(bb.w, ib, l);
             }
 
-            // Central friction
             {
                 let t1 = ld_v3(wide, wo + TANGENT1);
                 let t2 = ld_v3(wide, wo + TANGENT2);
@@ -1006,7 +989,6 @@ pub fn solve(
     }
 }
 
-// --- restitution ----------------------------------------------------------------------------
 
 /// Apply restitution bounce over records `[start, start+count)` (b3ApplyRestitution_Convex).
 #[allow(clippy::too_many_arguments)]
@@ -1085,7 +1067,6 @@ pub fn restitution(
     }
 }
 
-// --- store ----------------------------------------------------------------------------------
 
 /// Write solved impulses back into the pool manifolds and flag hit events (b3StoreImpulses_Convex)
 /// for records `[start, start+count)`. Each lane's contactId (from `meta`) resolves to its manifold

@@ -1,9 +1,5 @@
-//! GJK closest-point distance, ported op-for-op from box3d's `distance.c` (Erin Catto, MIT) via the
-//! upstream TS port (`src/distance.ts`). Closest-point distance serves narrowphase and conservative
-//! advancement serves shape queries.
-//!
-//! Rust `f32` is native IEEE-754 with no FMA contraction, so each TS `f32(...)`-wrapped op maps to one
-//! Rust op with the same operand order (see `math.rs`).
+//! Box3D distance.c GJK and conservative advancement (Erin Catto, MIT).
+//! Preserve operand order and intermediate f32 rounding without FMA contraction.
 
 use crate::math::{
     blend2, blend3, scalar_triple_product, Transform, Vec3, FLT_EPSILON, FLT_MAX, FLT_MIN,
@@ -137,7 +133,6 @@ pub fn get_point_support(points: &[Vec3], count: usize, axis: Vec3) -> usize {
     max_index
 }
 
-// --- barycentric coordinates ----------------------------------------------------------------
 
 fn barycentric_edge(a: Vec3, b: Vec3) -> [f32; 3] {
     let ab = b.sub(a);
@@ -176,7 +171,6 @@ fn barycentric_tet(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> [f32; 5] {
     ]
 }
 
-// --- metric ---------------------------------------------------------------------------------
 
 fn get_metric(simplex: &Simplex) -> f32 {
     let vs = &simplex.vertices;
@@ -208,7 +202,6 @@ fn write_cache(cache: &mut SimplexCache, simplex: &Simplex) {
     }
 }
 
-// --- simplex solvers ------------------------------------------------------------------------
 
 fn solve_simplex2(simplex: &mut Simplex) -> bool {
     let vs = &mut simplex.vertices;
@@ -232,7 +225,6 @@ fn solve_simplex2(simplex: &mut Simplex) -> bool {
         vs[0].a = 1.0;
         return true;
     }
-    // Edge region
     if divisor <= 0.0 {
         return false;
     }
@@ -319,7 +311,6 @@ fn solve_simplex3(simplex: &mut Simplex) -> bool {
         return true;
     }
 
-    // Face region
     let divisor = w_abc[3];
     if divisor <= 0.0 {
         return false;
@@ -521,7 +512,6 @@ fn solve_simplex4(simplex: &mut Simplex) -> bool {
         return true;
     }
 
-    // *** Inside tetrahedron ***
     let divisor = w_abcd[4];
     if divisor <= 0.0 {
         return false;
@@ -546,7 +536,6 @@ fn compute_witness_points(simplex: &Simplex) -> (Vec3, Vec3) {
             blend3(vs[0].a, vs[0].w_b, vs[1].a, vs[1].w_b, vs[2].a, vs[2].w_b),
         ),
         4 => {
-            // Force identical points and zero distance.
             let sum = blend2(vs[0].a, vs[0].w_a, vs[1].a, vs[1].w_a)
                 .add(blend2(vs[2].a, vs[2].w_a, vs[3].a, vs[3].w_a));
             (sum, sum)
@@ -651,7 +640,6 @@ pub fn shape_cast(input: &ShapeCastPairInput) -> CastOutput {
     output
 }
 
-// --- shape distance -------------------------------------------------------------------------
 
 /// Closest points between two convex proxies via GJK (b3ShapeDistance).
 ///
@@ -681,7 +669,6 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
         simplex.vertices[i].a = 0.0;
     }
 
-    // Flush the simplex if its metric drifted substantially from the cached one.
     if simplex.count > 0 {
         let metric1 = cache.metric;
         let metric2 = get_metric(&simplex);
@@ -831,7 +818,6 @@ pub fn shape_distance(input: &DistanceInput, cache: &mut SimplexCache) -> Distan
 
     normal = normal.normalize();
     if !normal.is_normalized() {
-        // Treat as overlap.
         return output;
     }
 

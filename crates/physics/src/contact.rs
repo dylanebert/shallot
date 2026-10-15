@@ -10,7 +10,7 @@ use crate::manifold_abi::{
 };
 use crate::math::{blend2, clampf, maxf, Mat2, Mat3, Quat, Vec2, Vec3, FLT_EPSILON};
 
-/// Sentinel body index for a static body (no solver state), mirroring box3d's `B3_NULL_INDEX`.
+/// B3_NULL_INDEX: a static body has no solver state.
 pub const NULL_INDEX: u32 = u32::MAX;
 const SPECULATIVE_DISTANCE: f32 = 0.02;
 const MIN_FRICTION_WEIGHT: f32 = 1.0e-10;
@@ -75,7 +75,6 @@ pub struct ContactConstraint {
     pub manifold_count: i32,
 }
 
-// --- column read/write helpers --------------------------------------------------------------
 
 // SAFETY: referenced manifolds belong to this constraint; graph coloring separates body writes,
 // and contact flag writes use atomics. All referenced storage stays put until workers join.
@@ -105,7 +104,6 @@ pub struct Columns<'a> {
     pub mc: Col<'a, ManifoldConstraint>,
 }
 
-// --- prepare --------------------------------------------------------------------------------
 
 pub fn prepare(
     cols: &Columns,
@@ -147,7 +145,6 @@ pub fn prepare(
             let (m_a, i_a, v_a, w_a) = body_terms(cols.sim, cols.state, index_a);
             let (m_b, i_b, v_b, w_b) = body_terms(cols.sim, cols.state, index_b);
 
-            // ContactConstraint record.
             let is_static = (contact_flags & CONTACT_STATIC_FLAG) != 0;
             let softness = if is_static {
                 static_softness
@@ -276,7 +273,6 @@ pub fn prepare(
     }
 }
 
-// --- warm start -----------------------------------------------------------------------------
 
 /// Seed body velocities from the prior step's impulses (b3WarmStartContacts_Mesh). Reads the
 /// transient constraints; mutates the velocity fields of the state column (dynamic bodies only).
@@ -316,7 +312,6 @@ pub fn warm_start(cols: &Columns, start: usize, count: usize) {
                     v_b = v_b.mul_add(m_b, impulse);
                 }
 
-                // Central friction at the manifold origin.
                 {
                     let r_a = (*mc).center_a;
                     let r_b = (*mc).center_b;
@@ -331,14 +326,12 @@ pub fn warm_start(cols: &Columns, start: usize, count: usize) {
                     v_b = v_b.mul_add(m_b, impulse);
                 }
 
-                // Central twist friction.
                 {
                     let impulse = normal.scale((*mc).twist_impulse);
                     w_a = w_a.sub(i_a.mul_v(impulse));
                     w_b = w_b.add(i_b.mul_v(impulse));
                 }
 
-                // Rolling resistance.
                 {
                     let impulse = (*mc).rolling_impulse;
                     w_a = w_a.sub(i_a.mul_v(impulse));
@@ -352,7 +345,6 @@ pub fn warm_start(cols: &Columns, start: usize, count: usize) {
     }
 }
 
-// --- solve / relax --------------------------------------------------------------------------
 
 /// Run one solve (bias) or relax (no bias) pass over the contacts (b3SolveContacts_Mesh). Mutates
 /// the accumulated impulses in the transient columns and the body velocities (dynamic bodies only).
@@ -446,7 +438,6 @@ pub fn solve(
                     continue;
                 }
 
-                // Central twist friction.
                 {
                     let twist_speed = normal.dot(w_b.sub(w_a));
                     let max_impulse = friction * total_twist_limit;
@@ -459,7 +450,6 @@ pub fn solve(
                     w_b = w_b.add(i_b.mul_v(normal.scale(applied)));
                 }
 
-                // Rolling resistance.
                 if rolling_resistance > 0.0 {
                     let delta = rolling_mass.mul_v(w_b.sub(w_a)).neg();
                     let old = (*mc).rolling_impulse;
@@ -477,7 +467,6 @@ pub fn solve(
                     w_b = w_b.add(i_b.mul_v(applied));
                 }
 
-                // Central friction.
                 {
                     let tangent1 = (*mc).tangent1;
                     let tangent2 = (*mc).tangent2;
@@ -529,7 +518,6 @@ pub fn solve(
     }
 }
 
-// --- restitution ----------------------------------------------------------------------------
 
 /// Apply restitution bounce to approaching contacts (b3ApplyRestitution_Mesh). Mutates the point
 /// normal impulses and the body velocities (dynamic bodies only).
@@ -598,7 +586,6 @@ pub fn restitution(cols: &Columns, start: usize, count: usize, threshold: f32) {
     }
 }
 
-// --- store ----------------------------------------------------------------------------------
 
 /// Write the solved impulses back into the persistent manifold pool and mark hit events
 /// (b3StoreImpulses_Mesh). The pool records are the persistent warm-start state the next step reads;

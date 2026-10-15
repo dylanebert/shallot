@@ -1,10 +1,5 @@
-//! Body integration: the two per-body phases of box3d's soft-step solver, ported op-for-op from
-//! `solver.c` (b3IntegrateVelocitiesTask / b3IntegratePositionsTask) via the TS port (`solver.ts`).
-//! Both read/write the shared body-state columns (`body.rs`); they are scalar per body (box3d runs
-//! integrate serially even in the SIMD build — only the contact constraints go wide).
-//!
-//! Every arithmetic op maps one-to-one to the C, same operand order, no FMA contraction — bit-exact
-//! with the frozen historical oracle vectors; current target evidence belongs to the standalone oracle.
+//! Box3D solver.c: b3IntegrateVelocitiesTask and b3IntegratePositionsTask.
+//! Preserve operand order and intermediate f32 rounding without FMA contraction.
 
 use crate::body::flags::{
     ALLOW_FAST_ROTATION, IS_SPEED_CAPPED, LOCK_ANGULAR_X, LOCK_ANGULAR_Y, LOCK_ANGULAR_Z,
@@ -14,8 +9,7 @@ use crate::body::{read_sim, read_state, write_state};
 use crate::col::Col;
 use crate::math::{blend2, Mat3, Vec3, PI};
 
-/// Maximum rotation per substep, a quarter turn (B3_MAX_ROTATION). `0.25` and `PI` are f32-exact so
-/// the product is bit-identical to the C constant.
+/// Maximum rotation per substep, a quarter turn (B3_MAX_ROTATION).
 const MAX_ROTATION: f32 = 0.25 * PI;
 
 /// Apply gravity, damping, and gyroscopic torque to the bodies in `[start, start+count)`
@@ -140,7 +134,6 @@ pub fn integrate_positions(
         let mut s = read_state(state_col, i);
         let mut flags = flags_col.get(i * crate::body::STATE_STRIDE);
 
-        // Motion locks — a constraint applied last, zeroing the locked components.
         let mut v = Vec3::new(
             if flags & LOCK_LINEAR_X != 0 {
                 0.0

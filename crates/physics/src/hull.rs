@@ -1,6 +1,5 @@
-//! Convex-hull data + support queries, ported from box3d's `hull.c`/`collision.h` (Erin Catto, MIT)
-//! via the upstream TS port (`src/hull.ts`). The narrowphase borrows topology here; hull_build owns
-//! construction. Native tests borrow owned vectors; the kernel borrows the native geometry image.
+//! Box3D hull.c/collision.h support queries (Erin Catto, MIT).
+//! Narrowphase borrows topology; hull_build owns construction.
 
 use crate::math::{Plane, Vec3, FLT_MAX, HUGE};
 use crate::simd::FloatW;
@@ -50,9 +49,7 @@ pub struct HullFace {
     pub edge: u8,
 }
 
-/// The read-side of a convex hull the narrowphase consumes (b3HullData), as a borrowed view over the
-/// geometry pools. Native gold borrows owned `Vec`s; the wasm kernel borrows slices reinterpreted over
-/// the static geometry columns (3c.2b) — same view type either way.
+/// Borrowed b3HullData view. The backing geometry must outlive this view.
 pub struct HullData<'a> {
     pub center: Vec3,
     pub bounds: [Vec3; 2],
