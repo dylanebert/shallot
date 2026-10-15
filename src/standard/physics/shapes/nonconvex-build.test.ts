@@ -32,6 +32,7 @@ for (const c of gold) {
                     weldVertices: !!a[1],
                     useMedianSplit: !!a[2],
                     identifyEdges: !!a[3],
+                    clockwiseWinding: !!a[4],
                 });
                 break;
             }

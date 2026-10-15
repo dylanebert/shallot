@@ -18,7 +18,7 @@ for (const heightField of [false, true]) {
             input.set(c.args);
             if (c.operation === 0) {
                 const flags = new Float32Array(new Uint32Array(c.args).buffer);
-                input[1] = Number(!!flags[1]); input[2] = Number(!!flags[2]); input[3] = Number(!!flags[3]);
+                input[1] = Number(!!flags[1]); input[2] = Number(!!flags[2]); input[3] = Number(!!flags[3]); input[7] = Number(!!flags[4]);
                 input[4] = vertices.length / 3; input[5] = indices.length; input[6] = Number(materials.length > 0);
                 input.set(vertices, 16); input.set(indices, 16 + vertices.length); input.set(materials, 16 + vertices.length + indices.length);
             } else if (c.operation === 10) {
