@@ -1,31 +1,15 @@
-//! The atomic block-claim parallel-for, ported from box3d's `parallel_for.c` (`b3ParallelForShared` /
-//! `b3ParallelForTrampoline` / `b3ParallelFor`). The outer phases — convex narrowphase dispatch and
-//! contact recycle — are flat sweeps of independent records, so they need none of the staged solver's
-//! machinery (`stages.rs`): no stage list, no barrier, no serial spill. Every thread races on one
-//! counter for the next block and runs it; a thread that finishes early steals the next block, so a
-//! slow chunk can't strand the others.
-//!
-//! **Determinism.** The partition (`block_size`, `block_count`) depends on the worker count, so eight
-//! threads sweep different ranges than two. That cannot change the result: each record's work reads only
-//! its own inputs and writes only its own outputs (a contact's manifold + cache slots),
-//! so the sweep order cannot affect the result bits.
-//!
-//! The claim loop ends when blocks run out; the scheduler finishes the trampoline handles.
-//!
-//! `core::sync::atomic`, not `std` — this compiles into the wasm artifact unchanged.
+//! Box3D parallel_for.c: b3ParallelForShared, b3ParallelForTrampoline and b3ParallelFor.
+//! Work must be independent of partition and execution order, which vary with
+//! worker count. The scheduler must finish every trampoline handle before reuse.
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-/// Target blocks per worker, so a worker that finishes early can steal (box3d `blocksPerWorker`). The
-/// block size grows once the item count passes `min_range * BLOCKS_PER_WORKER * workers`, which keeps the
-/// block count — and so the per-block claim overhead — bounded.
+/// Box3D blocksPerWorker: bounds claim overhead while allowing work stealing.
 const BLOCKS_PER_WORKER: usize = 32;
 
-/// Minimum items per collide block (box3d `physics_world.c`: "task should take at least 40us on a 4GHz
-/// CPU"). Both outer collide phases — recycle and convex dispatch — are per-contact sweeps.
+/// Box3D physics_world.c's minimum per-contact collide task range.
 pub const COLLIDE_MIN_RANGE: usize = 20;
 
-/// One parallel-for invocation: the block partition, plus the counter every thread claims from.
 pub struct ParFor {
     next_block: AtomicU32,
     block_count: usize,
@@ -34,8 +18,8 @@ pub struct ParFor {
 }
 
 impl ParFor {
-    /// Partition `[0, item_count)` into blocks of at least `min_range` items, at most
-    /// `BLOCKS_PER_WORKER * worker_count` of them (b3ParallelFor's sizing).
+    /// b3ParallelFor sizing: at most BLOCKS_PER_WORKER * worker_count blocks.
+    /// The final block may contain fewer than min_range items.
     pub fn new(item_count: usize, min_range: usize, worker_count: usize) -> ParFor {
         debug_assert!(min_range > 0);
         debug_assert!(worker_count >= 1);
@@ -63,9 +47,8 @@ impl ParFor {
         self.block_count
     }
 
-    /// One thread's claim loop: take the next block until they run out, running `f(start, end)` on each.
-    /// Every thread of the pool — the orchestrator included — calls this exactly once per invocation, and
-    /// the last one to leave has run every block.
+    /// Calls f with half-open ranges. All blocks have completed only after every
+    /// concurrent run call returns; one caller's return is not a barrier.
     pub fn run(&self, f: impl Fn(usize, usize)) {
         loop {
             let index = self.next_block.fetch_add(1, Ordering::SeqCst) as usize;

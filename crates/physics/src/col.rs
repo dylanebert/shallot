@@ -1,36 +1,15 @@
-//! `Col` — the shared-mutable column handle every solver phase indexes through.
+//! Shared-mutable columns use raw pointers: overlapping whole-column `&mut`
+//! references are undefined behavior even when workers write disjoint elements.
+//! Constructors establish the access invariant for every copy of the handle.
+//! Bounds are checked only in debug builds; callers must keep every index in range.
 //!
-//! A column is one contiguous run of linear memory (a body field, a constraint record, the manifold
-//! pool). The blocks of a solver stage are **write-disjoint** — within a graph color no two
-//! constraints share a body, and the flat stages touch only their own record (`stages.rs`) — so many
-//! threads may work one column at once and never write the same element.
-//!
-//! That is a property of the *data flow*, not of the reference. A `&mut [f32]` over the whole column
-//! is what the phases used to take, and two concurrent blocks would then each hold a live `&mut` to
-//! the same bytes. LLVM emits `noalias` for a `&mut`, so the optimizer is entitled to assume no other
-//! thread writes through it; disjoint writes do not rescue that — the UB is in the aliasing
-//! references, and its failure mode is a silent miscompile under optimization, not a fault. A raw
-//! base pointer makes no aliasing claim, so it is the one shape that can express "we alias, and we
-//! promise our writes don't overlap".
-//!
-//! **The handle is the unsafe token.** Both constructors are `unsafe`; `get`/`set` are not. Once a
-//! `Col` exists, every phase is asserting nothing about disjointness — the thread that *minted* it
-//! did, on behalf of all of them. That is the only place the promise can be checked, since a column
-//! is `Copy` and travels into workers by value.
-//!
-//! Bounds live in `len` and are checked in debug only: the release path is an unchecked load/store,
-//! which is the same bounds-check elimination the wide gather already banks on (`physics.md`).
-//!
-//! The lifetime is real — a `Col<'a, T>` borrows its storage for `'a`, so the native harnesses get
-//! use-after-free protection for free. The wasm arena's `'static` columns are the exception, and they
-//! require stable addresses while workers are active: reallocating a column would invalidate its
-//! handles. Column reserves run before the fork. Collide can allocate disjoint manifold blocks under
-//! a lock because its block allocator never moves chunks; the contact directory is fixed during tasks.
+//! WASM's 'static handles require stable storage until workers join. Reserve
+//! columns before the fork. Collide may allocate disjoint manifold blocks under
+//! a lock because chunks never move; its contact directory stays fixed during tasks.
 
 use core::marker::PhantomData;
 
-/// A shared-mutable view of `len` `T`s. Copyable, thread-shareable, and it never forms a reference to
-/// the elements — see the module header for why that is the point.
+/// A shared-mutable view that never forms references to its elements.
 pub struct Col<'a, T> {
     ptr: *mut T,
     len: usize,
@@ -44,10 +23,8 @@ impl<T> Clone for Col<'_, T> {
 }
 impl<T> Copy for Col<'_, T> {}
 
-// SAFETY: a `Col` is a bare pointer + length; sharing one hands another thread write access, so
-// `Sync` needs the same bound as `Send`. The disjoint-write promise made at construction is what
-// makes the sharing sound. Both impls are needed for a `StageWork` holding columns to be `Sync`
-// (stages.rs) and for the handle to cross into a worker.
+// SAFETY: construction guarantees disjoint writes or atomic access across copies.
+// Sharing grants write access, so Sync requires T: Send just as Send does.
 unsafe impl<T: Send> Send for Col<'_, T> {}
 unsafe impl<T: Send> Sync for Col<'_, T> {}
 
@@ -91,13 +68,11 @@ impl<'a, T: Copy> Col<'a, T> {
         }
     }
 
-    /// A column over an owned slice — the native harnesses' constructor. The unique borrow is
-    /// consumed for `'a`, so nothing else can reach the storage while the column is alive.
+    /// Borrows the slice exclusively for 'a; copies of the returned handle can
+    /// still share its storage across threads.
     ///
     /// # Safety
-    /// As [`new`](Col::new): the disjoint-write promise. Unsafe *despite* the sound borrow, because
-    /// the handle it returns is `Copy + Sync` — two safe copies on two threads writing one element
-    /// would be a data race, and this is the seam where that is ruled out.
+    /// As [`new`](Col::new): all copies must obey its disjoint-write or atomic-access contract.
     #[inline]
     pub unsafe fn of(s: &'a mut [T]) -> Self {
         Col {

@@ -1,27 +1,13 @@
-//! The staged parallel solver machinery, ported from box3d's `solver.c` (`b3SolverStage` /
-//! `b3SolverBlock` / `b3SyncBlock`, `b3ExecuteBlock` / `b3ExecuteStage` / `b3ExecuteMainStage`, and
-//! the `b3SolverTask` orchestrator). Structure only — every block's arithmetic is the same phase
-//! function the serial path already calls, over the same columns.
+//! Box3D solver.c: b3SolverStage, b3SolverBlock, b3SyncBlock, b3ExecuteBlock,
+//! b3ExecuteStage, b3ExecuteMainStage and b3SolverTask.
 //!
-//! The model: the solve is a fixed list of **stages**, each an array of **blocks** (an index range
-//! of bodies / contacts / wide records). Worker 0 is the orchestrator: it walks the stage list, and
-//! for each stage publishes `syncBits = (syncIndex << 16) | stageIndex` into one atomic. Workers
-//! spin on that atomic, decode the stage, and CAS-claim blocks by bumping each block's `syncIndex`
-//! from `syncIndex - 1` to `syncIndex`. The orchestrator works the same stage itself, then spins
-//! until the stage's completion count reaches its block count — that spin is the barrier. The sync
-//! index grows monotonically so a delayed worker can never re-run a completed block (ABA).
+//! Parallel blocks must be write-disjoint: graph colors separate body writes;
+//! prepare/store blocks own their transient rows and persistent manifolds.
+//! Overflow constraints share bodies and run serially in creation order between
+//! stages. No reduction may depend on worker identity.
 //!
-//! **Determinism across worker counts.** Within a graph color no two constraints share a body, so
-//! the blocks of a color stage are write-disjoint and their execution order cannot change the
-//! result. Prepare/store blocks write only their own record's transient row (and their own contact's
-//! persistent manifold), so the flat stages are order-free too. The overflow color — where
-//! constraints *do* share bodies — never becomes blocks: the orchestrator runs it serially, in
-//! creation order, between stages while every worker is parked in its spin. No reduction depends on
-//! worker identity. Two threads give the same bits as eight.
-//!
-//! `core::sync::atomic` (not `std`) so this module compiles into the wasm artifact unchanged. On the
-//! single-thread artifact (no `+atomics`) these lower to plain loads and stores, which is correct:
-//! `worker_count == 1` means the orchestrator runs every block itself and nothing is ever contended.
+//! Without +atomics, worker_count must be one: atomic loads and stores lower to
+//! plain accesses in the single-thread artifact.
 
 use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 
@@ -78,9 +64,8 @@ pub struct Block {
     pub color: u8,
 }
 
-/// A block plus the atomic workers CAS to claim it (b3SyncBlock). The descriptor is written once at
-/// build and only ever read after; the atomic is the only mutable field, so the claim winner copies
-/// the descriptor out by value and never aliases what other workers are CAS-writing.
+/// b3SyncBlock's immutable work descriptor. Keep it separate from the mutable
+/// claim atomic so copying work never aliases concurrent atomic writes.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct SolverBlock {
@@ -114,8 +99,7 @@ pub struct SyncBlock {
 }
 
 impl SyncBlock {
-    /// The initializer for a caller's block buffer — a `const` so wasm can put that buffer in a
-    /// `static`. Each use constructs a fresh, unclaimed block; that is the point, not a hazard.
+    /// Each use creates a fresh claim atomic; const permits static WASM buffers.
     #[allow(clippy::declare_interior_mutable_const)]
     pub const EMPTY: SyncBlock = SyncBlock {
         block: SolverBlock::EMPTY,
@@ -172,9 +156,7 @@ impl ColorSpan {
     };
 }
 
-/// What the solve is over: the awake body count, the flat constraint ranges the order-free
-/// prepare/store stages sweep, and the active colors. The overflow color is deliberately absent —
-/// it never becomes blocks; the work impl owns its range and the orchestrator calls it serially.
+/// Excludes the overflow color; StageWork owns that range and runs it serially.
 #[derive(Clone, Copy, Debug)]
 pub struct Plan<'a> {
     pub body_count: usize,
@@ -190,17 +172,10 @@ pub struct Plan<'a> {
     pub worker_count: usize,
 }
 
-/// The per-block work, behind a seam so the same machinery drives owned columns natively and the
-/// linear-memory columns on wasm. Each method runs one phase over one block's index range; the impl
-/// owns the columns and the per-step scalars (softness, `h`, thresholds).
-///
-/// Blocks of a stage run **concurrently on different threads** — an impl must treat its columns as
-/// shared and rely on the write-disjointness this module's header states.
-/// The `_overflow` methods are the exception: the orchestrator calls them alone, between stages.
-///
-/// The columns are [`Col`](crate::col::Col)s, not `&mut [f32]`: every block of a stage holds the whole
-/// column and indexes it by body / record id, so a `&mut` would be live aliasing `&mut` on each worker
-/// even though the writes never overlap. `col.rs` carries the argument.
+/// Blocks run concurrently and must obey the module's write-disjointness contract.
+/// The `_overflow` methods run alone on the orchestrator between stages.
+/// Whole-column handles must permit aliasing, as [`Col`](crate::col::Col) does;
+/// disjoint writes do not make overlapping `&mut` column references sound.
 pub trait StageWork: Sync {
     fn ticks(&self) -> f64 {
         0.0
@@ -230,15 +205,12 @@ pub trait StageWork: Sync {
     fn restitution_overflow(&self);
     fn store_overflow(&self);
 
-    // Colored joint phases: the `PrepareJoints` flat stage sweeps every colored joint, then each
-    // color's `GraphJoint` block warm-starts + solves its joints (write-disjoint by coloring). A
-    // jointless plan builds no joint block, so these never run for it.
+    // Jointless plans invoke none of these methods.
     fn prepare_joints(&self, _block: Block) {}
     fn warm_start_joints(&self, _block: Block) {}
     fn solve_joints(&self, _block: Block, _use_bias: bool, _worker_index: usize) {}
 
-    // Overflow joint phases: joints the graph coloring could not separate (they share bodies), run
-    // serially on the orchestrator between stages, in creation order — box3d's `b3*Joints_Overflow`.
+    // Box3D b3*Joints_Overflow.
     fn prepare_overflow_joints(&self) {}
     fn warm_start_overflow_joints(&self) {}
     fn solve_overflow_joints(&self, _use_bias: bool) {}
@@ -259,8 +231,7 @@ struct BlockDim {
     count: usize,
 }
 
-/// b3ComputeBlockCount. Each worker gets at most `max_block_count / worker_count` blocks; below that
-/// the block size is the minimum, above it the size grows so the block count stays bounded.
+/// b3ComputeBlockCount. Caps the total block count at max_block_count.
 fn compute_block_count(item_count: usize, min_size: usize, max_block_count: usize) -> BlockDim {
     if item_count == 0 {
         return BlockDim::default();
@@ -278,9 +249,8 @@ fn compute_block_count(item_count: usize, min_size: usize, max_block_count: usiz
     }
 }
 
-/// b3InitBlocks. `base` is the block range's first flat column index (box3d's per-color arrays are
-/// our flat columns plus a color base). The claim counter is zeroed so the first stage over these
-/// blocks CASes 0 → 1.
+/// b3InitBlocks. `base` addresses a color's range in the flat columns.
+/// The first stage must claim these blocks with sync index 1.
 fn init_blocks(
     blocks: &mut [SyncBlock],
     dim: BlockDim,
@@ -350,10 +320,8 @@ pub struct Sizes {
     pub blocks: usize,
 }
 
-/// The storage any plan can ever need at `max_workers` threads, for a caller sizing a fixed buffer (the
-/// wasm path has no allocator — `physics.md`). Every dim's block count is capped at
-/// `BLOCKS_PER_WORKER * worker_count` by [`compute_block_count`], and a plan has 4 flat dims (body,
-/// wide, mesh, joint) plus 3 per color.
+/// Upper bound for fixed buffers with at most max_workers threads.
+/// Accounts for four flat dimensions and three per non-overflow color.
 pub const fn max_sizes(max_workers: usize) -> Sizes {
     let colors = MAX_COLORS - 1; // the last color is the serial overflow, which never becomes blocks
     Sizes {
@@ -375,15 +343,14 @@ pub fn sizes(plan: &Plan) -> Sizes {
 
 // --- build ------------------------------------------------------------------------------------
 
-/// The solve's stage list and its blocks, plus the one atomic the orchestrator publishes to.
-/// Everything but `sync_bits` is read-only once built.
+/// Stage descriptors and block ranges stay fixed until every worker has joined.
 pub struct Context<'a> {
     stages: &'a [Stage],
     blocks: core::marker::PhantomData<&'a [SyncBlock]>,
     colors: &'a [ColorSpan],
     sub_step_count: usize,
     worker_count: usize,
-    /// `(syncIndex << 16) | stageIndex`, monotone within a step. `u32::MAX` is the finish sentinel.
+    /// `(syncIndex << 16) | stageIndex`; `u32::MAX` is the finish sentinel.
     /// Keep the frequently read sync bits off the line containing the orchestrator claim.
     sync_bits: Line<AtomicU32>,
     /// The queued worker-zero task races the caller for orchestration, as in solver.c.
@@ -392,7 +359,7 @@ pub struct Context<'a> {
     fault: AtomicU32,
 }
 
-/// One cache line to itself.
+/// Separates fields by at least 64 bytes.
 #[repr(align(64))]
 struct Line<T>(T);
 
@@ -714,8 +681,7 @@ fn worker_start_index(
     Some(blocks_per_worker * worker_index + remainder.min(worker_index))
 }
 
-/// b3ExecuteStage: sweep the ring from this worker's home block, CAS-claiming whatever is still
-/// unclaimed at `previous_sync`, and report how many blocks this worker ran.
+/// b3ExecuteStage. Claims blocks at previous_sync and adds completed work to the barrier.
 fn execute_stage<W: StageWork>(
     ctx: &Context,
     work: &W,
@@ -738,8 +704,6 @@ fn execute_stage<W: StageWork>(
             .compare_exchange(previous_sync, sync, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            // Copy the descriptor out: the CAS winner owns this block, and the descriptor is
-            // immutable for the whole solve, so nothing here aliases the atomic others are writing.
             execute_block(work, stage.ty, sb.block.work(), worker_index);
             completed += 1;
         }
@@ -753,12 +717,9 @@ fn execute_stage<W: StageWork>(
     stage.completion.fetch_add(completed, Ordering::SeqCst);
 }
 
-/// b3ExecuteMainStage: run one stage on the orchestrator and barrier on the workers finishing it.
-/// A single-block stage skips publication entirely — the orchestrator just runs it (that block's
-/// sync index therefore stays 0 forever, which is consistent because a stage's block count never
-/// changes across its re-uses).
-///
-/// `None` when a worker faulted: the barrier's blocks will never all complete, so the solve unwinds.
+/// b3ExecuteMainStage. Single-block stages never publish or advance their block's
+/// sync index; their block count must stay fixed across reuse.
+/// Returns None on a worker fault because the barrier can no longer complete.
 fn execute_main_stage<W: StageWork>(
     ctx: &Context,
     work: &W,
@@ -787,8 +748,7 @@ fn execute_main_stage<W: StageWork>(
     debug_assert!(sync > 0);
     execute_stage(ctx, work, stage, sync - 1, sync, ORCHESTRATOR);
 
-    // Spin for the thieves. This is the stage barrier: past it, every block of this stage has run,
-    // so the orchestrator may safely run the serial overflow work and publish the next stage.
+    // Overflow work and the next stage require every block's writes to be complete.
     while stage.completion.load(Ordering::SeqCst) != block_count as i32 {
         if ctx.faulted() {
             return None;
@@ -811,15 +771,11 @@ const FINISH: u32 = u32::MAX;
 /// The orchestrator's worker index: the thread that drives the step.
 const ORCHESTRATOR: usize = 0;
 
-/// Run the solve as `worker_index`. Worker 0 is the orchestrator (the thread driving the step); it
-/// walks the stage list, runs the serial overflow color between stages, and publishes the sync bits.
-/// Every other worker spins on those bits and steals blocks until the finish sentinel.
-///
-/// Finish every scheduled handle before rebuilding the context: an old thief must never see reset
-/// block sync indices. The caller also enters worker zero; its CAS prevents double orchestration.
-///
-/// A `worker_index` at or past `worker_count` is a caller bug — its home block can land in another
-/// stage's range, which would silently run a block under the wrong stage type — so it faults instead.
+/// Worker zero orchestrates; the caller may also enter as worker zero, with only
+/// one entrant winning the orchestration claim. Other workers steal blocks.
+/// Finish every scheduled handle before rebuilding the context: an old thief
+/// must never see reset block sync indices.
+/// A worker_index at or past worker_count faults the solve.
 pub fn run<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
     if worker_index >= ctx.worker_count {
         ctx.fault();
@@ -845,7 +801,6 @@ fn orchestrate<W: StageWork>(ctx: &Context, work: &W) {
 
     ctx.sync_bits.0.store(FINISH, Ordering::SeqCst);
 
-    // The scheduler finishes every solver handle before its context can be rebuilt.
 }
 
 /// The stage list, in order. `None` if a worker faulted partway.
@@ -853,13 +808,9 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     let colors = ctx.colors.len();
     let mut stage_index = 0;
 
-    // Each group of stages that shares a block array carries its own sync index, so re-uses of that
-    // array CAS against a monotone sequence: bodies (integrate velocities/positions, finalize),
-    // joints, the flat convex range (prepare/store), the flat mesh range (prepare/store), and the
-    // graph colors.
+    // Each shared block array needs its own increasing claim sequence to prevent stale claims.
     let mut body_sync = 1;
-    // The joint block array is swept once (PrepareJoints); the colored joint work rides the graph
-    // blocks. So this one never advances.
+    // PrepareJoints uses this array once; colored joint work uses the graph blocks.
     let joint_sync = 1;
     let mut convex_sync = 1;
     let mut mesh_sync = 1;
@@ -877,16 +828,13 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
     stage_index += 1;
     mesh_sync += 1;
 
-    // The overflow color doesn't fit the graph coloring: its constraints share bodies, so it is
-    // solved serially here, on the orchestrator, with every worker parked in its spin. Joints before
-    // contacts, matching box3d's `b3PrepareJoints_Overflow` / `b3PrepareContacts_Overflow` order.
+    // b3PrepareJoints_Overflow must precede b3PrepareContacts_Overflow.
     work.prepare_overflow_joints();
     work.prepare_overflow();
     work.profile(6, start);
 
     for _ in 0..ctx.sub_step_count {
-        // The stage index restarts each sub-step (the stages are re-used); the sync bits still grow
-        // monotonically because the sync indices in the upper half do.
+        // Reused stages retain increasing per-array sync indices across substeps.
         let mut i = stage_index;
 
         let start = work.ticks();
@@ -986,9 +934,8 @@ fn steal<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
         let stage_index = (bits & 0xFFFF) as usize;
         let sync = ((bits >> 16) & 0xFFFF) as i32;
 
-        // A worker that arrives late may be publishing-stale: it runs the stage it just read while
-        // the orchestrator has already moved on. That is safe, not a race — the monotone sync index
-        // means every CAS against an already-advanced block fails, so the worker does nothing.
+        // A late worker may see an old stage. Increasing per-array sync indices
+        // make its claims against already-advanced blocks fail.
         execute_stage(
             ctx,
             work,
