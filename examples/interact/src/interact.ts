@@ -11,6 +11,7 @@ import {
     PointLight,
     resetInterpolation,
     Sprite,
+    SpriteBlend,
     SpriteFill,
     SpritePlugin,
     type System,
@@ -279,7 +280,12 @@ export function makePrompt(world: World, image: number, ringImage: number): numb
     const cap = world.create();
     world.add(cap, Transform);
     world.add(cap, NotShadowCaster);
-    world.add(cap, Sprite, { image, size: [0.28, 0.28], billboard: Billboard.Screen });
+    world.add(cap, Sprite, {
+        image,
+        size: [0.28, 0.28],
+        billboard: Billboard.Screen,
+        blend: SpriteBlend.Alpha,
+    });
     const key = world.create();
     world.add(key, Transform);
     world.add(key, Text, {
@@ -302,6 +308,7 @@ export function makePrompt(world: World, image: number, ringImage: number): numb
     world.add(ring, NotShadowCaster);
     world.add(ring, Sprite, {
         image: ringImage,
+        blend: SpriteBlend.Alpha,
         size: [0.36, 0.36],
         billboard: Billboard.Screen,
         fillMode: SpriteFill.Radial,

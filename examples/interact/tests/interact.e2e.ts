@@ -115,6 +115,9 @@ test("each prompt faces the player, with a half-filled ring during the one-secon
     });
     expect((await page.evaluate(() => window.state())).ticks).toBe(30);
     await capture(page, "hold-mid-fill");
+    if (!process.env.SHALLOT_CAPTURE_DIR) return;
+    await page.evaluate(() => window.aim(2, 1.8));
+    await capture(page, "hold-close-up");
     await page.evaluate(() => {
         window.key(false);
         window.advance();
