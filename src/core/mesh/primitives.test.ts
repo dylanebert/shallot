@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cube } from "./primitives";
+import { capsule, cube } from "./primitives";
 
 // Per-axis [min, max] of the interleaved positions (eight floats per vertex, xyz first).
 function bounds(vertices: Float32Array): [number, number][] {
@@ -28,4 +28,22 @@ test("the default cube spans one meter on each axis", () => {
         [-0.5, 0.5],
         [-0.5, 0.5],
     ]);
+});
+
+test("capsule takes radius and the mid-section's full length, centered on the origin", () => {
+    const [x, y, z] = bounds(capsule(0.25, 2).vertices);
+    expect(x[0]).toBeCloseTo(-0.25);
+    expect(x[1]).toBeCloseTo(0.25);
+    expect(y).toEqual([-1.25, 1.25]);
+    expect(z[0]).toBeCloseTo(-0.25);
+    expect(z[1]).toBeCloseTo(0.25);
+});
+
+test("the default capsule has radius 0.5 and total height 2", () => {
+    const [x, y, z] = bounds(capsule().vertices);
+    expect(x[0]).toBeCloseTo(-0.5);
+    expect(x[1]).toBeCloseTo(0.5);
+    expect(y).toEqual([-1, 1]);
+    expect(z[0]).toBeCloseTo(-0.5);
+    expect(z[1]).toBeCloseTo(0.5);
 });
