@@ -55,15 +55,12 @@ export const Player = component(
         hover: f32,
         /** camera height above the capsule centre (the eye offset) */
         eyeHeight: f32,
-        /** camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding) */
+        /** camera pull-back from the eye: 0 = first-person, > 0 = third-person */
         distance: f32,
         /** The linked camera: an entity with a Transform. Without a valid link, Player writes no camera pose. */
         camera: entity,
     },
     {
-        // Minecraft Java's walk and sprint speeds and its 1.2522 m jump peaking at 0.3 s, with full speed in
-        // about 0.1 s and a stop in about 0.15 s, snappier than its ground spin-up; a 0.05 m hover puts the eye
-        // about 1.6 m above ground with the 1.8 m capsule, near Minecraft's 1.62.
         defaults: () => ({
             yaw: 0,
             pitch: 0,
@@ -316,7 +313,6 @@ const SnapshotPlayerPositionSystem: System = {
             current[offset + 2] = z;
             follow.current.markChanged(eid);
         }
-        // drop the follow state when a player is gone (mirrors the derived-state cleanup in orbit)
         for (const eid of world.query(ORPHAN_FOLLOWS)) world.remove(eid, PlayerFollow);
     },
 };
@@ -344,8 +340,7 @@ function followPos(world: World, eid: number, out: [number, number, number]): vo
 function findCamera(world: World, eid: number): number {
     const cam = world.storage(Player).camera.get(eid);
     if (!cam || !world.has(cam, Transform)) {
-        // warn once, latched on the derived PlayerFollow (added by the snapshot system); if it isn't up yet
-        // (the character hasn't registered), skip — the next frame with GlobalTransform warns.
+        // Warning requires the snapshot's PlayerFollow latch; earlier calls silently skip the missing camera.
         if (
             world.has(eid, PlayerFollow) &&
             !world.storage(PlayerFollow).missingCameraWarned.get(eid)

@@ -1,10 +1,7 @@
 import { u8, vec4 } from "../../engine";
 
-// PlayerFollow holds camera interpolation state — the two most recent fixed-tick swept GlobalTransform positions (the
-// camera renders lerp(previous, current, fixedAlpha)) — plus the once-only missing-camera warn latch. Added on a
-// player's first snapshot; that membership doubles as the "first placement captured" flag, so a fresh player
-// starts at its spawn placement, not the origin. Derived state: never authored or serialized, re-created on every
-// rebuild, so a reload can't desync it from the Body. Internal — a sibling for the systems, never on the barrel.
+// Membership marks the first captured placement, preventing interpolation from the origin.
+// Derived camera history and warning state are not authored or serialized.
 export const PlayerFollow = {
     previous: vec4,
     current: vec4,
