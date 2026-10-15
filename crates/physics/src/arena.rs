@@ -285,8 +285,8 @@ pub(crate) unsafe fn body_count() -> usize {
     BODY_COUNT
 }
 
-/// The active colors' spans, as written by TS `writeColorSpans`: `COLOR_COUNT` records of
-/// `COLOR_SPAN_STRIDE` u32s.
+/// Active-color span storage populated by physics_world before solve construction.
+/// Returns COLOR_COUNT records of COLOR_SPAN_STRIDE u32s and the record count.
 pub(crate) unsafe fn color_span_column() -> (Col<'static, u32>, usize) {
     let c = COLOR_COUNT;
     (u32s(COLOR_SPAN, c * COLOR_SPAN_STRIDE), c)

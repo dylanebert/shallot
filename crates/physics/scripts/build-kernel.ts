@@ -4,17 +4,11 @@
 // generated files are committed so tests and package consumers run without a Rust toolchain;
 // `bun run build` regenerates them only when their input stamps are stale, while this command forces it.
 //
-// Two artifacts, from the same source:
-//
-//   engine/kernel.wasm.ts        the single-thread default. Pinned stable toolchain, exported memory. Every
-//                                host gets this; it is the shipping path and must never move.
-//   engine/kernel.shared.wasm.ts the multithreaded artifact. Needs +atomics, which
-//                                LLD only accepts alongside --shared-memory, and a shared memory can
-//                                only be instantiated under cross-origin isolation — so one module
-//                                genuinely cannot serve both. std is rebuilt with atomics (nightly
-//                                -Zbuild-std, on the dated NIGHTLY); the kernel touches no std API, so this is a toolchain
-//                                switch, not a code change. Loaded behind a dynamic import
-//                                (engine/kernel.ts), so single-thread consumers never parse it.
+// kernel.wasm.ts is the single-thread default, with exported memory and the pinned stable toolchain.
+// kernel.shared.wasm.ts imports shared memory and rebuilds std with atomics using
+// -Zbuild-std on the dated NIGHTLY. Keep its import dynamic so single-thread consumers never parse it.
+// The shared artifact needs +atomics, which LLD only accepts alongside --shared-memory,
+// and shared memory can only be instantiated under cross-origin isolation.
 //
 // The shared build exports the two globals + the TLS initializer each worker needs to bootstrap its own
 // stack slice (LLD's start function only assigns __tls_base on the CAS winner). It gets its own

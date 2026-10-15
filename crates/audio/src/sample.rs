@@ -11,8 +11,11 @@ pub struct SampleBuffer {
 
 /// Position is in samples. Keep f64 position precision: f32 loses fractional
 /// positions in long buffers and cannot resolve adjacent indices past 2²⁴ samples.
-/// Returns silence outside the buffer; holds the last value through its final
-/// fractional interval. Interpolation taps clamp at the buffer ends.
+/// Empty buffers and negative positions return silence. For nonempty buffers,
+/// positions that cast to usize::MAX panic; other positions at or beyond the
+/// buffer length return silence. NaN is not validated.
+/// Holds the last value through its final fractional interval; interpolation
+/// taps clamp at the buffer ends.
 pub fn sample_read(buffer: &[f32], position: f64) -> f32 {
     let len = buffer.len();
     if len == 0 || position < 0.0 {

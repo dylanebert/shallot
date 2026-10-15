@@ -1,7 +1,5 @@
-// macOS CEF subprocess entry. CEF launches renderer/GPU/etc. as separate helper .app bundles, each
-// running this binary: load the framework (helper layout), then hand off to execute_process, which
-// runs the subprocess loop and returns when it exits. Empty on every other config — only the macOS
-// portable (CEF) build uses separate helper bundles; Windows/Linux CEF re-exec the main binary.
+// Only the macOS portable (CEF) build uses separate helper .app bundles;
+// Windows/Linux CEF re-exec the main binary.
 #[cfg(all(target_os = "macos", feature = "portable"))]
 fn main() {
     use cef::args::Args;
