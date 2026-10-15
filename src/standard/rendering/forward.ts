@@ -292,8 +292,6 @@ type FrameDraw = { draw: Draw; r: Recorded };
  * required streams/attributes, mismatched attribute schemas, unpublished bindings and failed on-demand
  * compiles warn once per warning key. Binding-override validation errors still throw.
  * Missing/stale compiled pipelines are compiled synchronously, not silently skipped.
- * Group-2 resources are camera-independent and cached per draw; group 0 is cached per view slot
- * and shared by draws using the same quant buffer. Resource identity changes rebuild the groups.
  */
 function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
     const type = world.resource(MaterialTypes).types[draw.materialType];
