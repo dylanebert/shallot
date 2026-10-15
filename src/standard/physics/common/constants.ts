@@ -76,3 +76,6 @@ export const SetType = {
     FirstSleeping: 3,
 } as const;
 export type SetType = (typeof SetType)[keyof typeof SetType];
+
+/// Most vertices a convex hull keeps (B3_MAX_HULL_VERTICES).
+export const MAX_HULL_VERTICES = 128;

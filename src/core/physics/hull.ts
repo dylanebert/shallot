@@ -1,61 +1,35 @@
-// Convex-hull authoring geometry — the registry of convex hulls a `Shape` references by id. A solver
-// builds its colliders from it (marshal-shape.ts). Authored hulls come from explicit geometry.
+// Convex-hull authoring geometry — the registry of convex hulls a `Shape` references by id. It holds
+// Box3D's hull input (`b3CreateHull`'s points and vertex budget); a solver builds its own hull from it
+// (marshal-shape.ts).
 
 import { Registry, type Resource } from "../../engine";
 
-type Vec3 = [number, number, number];
-
-/** one polygonal hull face: outward unit normal + plane offset (`dot(normal, v) = offset` on the face) + CCW vertex indices. */
-export interface HullFace {
-    normal: Vec3;
-    offset: number;
-    verts: number[];
-}
-
-/** convex hull geometry: local vertices, polygonal faces, the unique edge directions for the SAT, and a registry name. */
+/**
+ * A convex hull's input: the hull is the convex hull of `points`. Interior points drop and coplanar
+ * faces merge when a solver builds it, and a solver refuses fewer than four points. Replace a hull
+ * by registering its name again rather than mutating a registered one.
+ */
 export interface Hull {
     name: string;
-    verts: Vec3[];
-    faces: HullFace[];
-    edges: Vec3[];
+    /** Flat xyz points in shape-local meters, before `Shape.scale`. */
+    points: Float32Array;
+    /** Most vertices the built hull keeps, clamped to [4, 128]; default 128 (`B3_MAX_HULL_VERTICES`). */
+    maxVertexCount?: number;
 }
 
 /** World-owned convex hulls. Register geometry through `world.resource(Hulls)`; re-registering a name reuses its id. A `Shape` references an id in its own World's registry. */
 export const Hulls: Resource<Registry<Hull>> = {
     create: () => {
         const hulls = new Registry<Hull>();
-        hulls.register({ name: "__unit_cube__", ...structuredClone(UNIT_CUBE) });
+        hulls.register({ name: "__unit_cube__", points: UNIT_CUBE_POINTS.slice() });
         return hulls;
     },
 };
 
-// The built-in unit cube (full-size 2, verts ±1) reserved at id 0. A box collider is this hull scaled by
-// Shape.scale, so the kernel reads boxes and other hulls through one path. Vertex/face/edge order is
-// the canonical `boxHull([2,2,2])` layout.
-const UNIT_CUBE: Omit<Hull, "name"> = {
-    verts: [
-        [-1, -1, -1],
-        [1, -1, -1],
-        [1, 1, -1],
-        [-1, 1, -1],
-        [-1, -1, 1],
-        [1, -1, 1],
-        [1, 1, 1],
-        [-1, 1, 1],
-    ],
-    faces: [
-        { normal: [1, 0, 0], offset: 1, verts: [1, 2, 6, 5] },
-        { normal: [-1, 0, 0], offset: 1, verts: [0, 4, 7, 3] },
-        { normal: [0, 1, 0], offset: 1, verts: [2, 3, 7, 6] },
-        { normal: [0, -1, 0], offset: 1, verts: [0, 1, 5, 4] },
-        { normal: [0, 0, 1], offset: 1, verts: [4, 5, 6, 7] },
-        { normal: [0, 0, -1], offset: 1, verts: [0, 3, 2, 1] },
-    ],
-    edges: [
-        [1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 1],
-    ],
-};
+// The built-in unit cube (full-size 2, points ±1) reserved at id 0. A box collider is this hull
+// scaled by Shape.scale, so the kernel reads boxes and other hulls through one path.
+const UNIT_CUBE_POINTS = new Float32Array([
+    -1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1,
+]);
 /** Reserved hull id of the built-in unit cube; `Shape.scale` supplies its half-extents. */
 export const UNIT_CUBE_ID = 0;

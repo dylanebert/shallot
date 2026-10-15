@@ -143,6 +143,22 @@ Replace `Hulls.register(...)` and other registry calls with
 Hull ids belong to that world; register geometry in each world that uses it.
 Every world's registry starts with the unit cube at `UNIT_CUBE_ID` (0).
 
+## Hulls hold points
+
+A 0.9.5 `Hull` registered `verts`, `faces` and `edges`. A 0.10 `Hull` holds Box3D's hull input:
+`points`, flat xyz in shape-local meters as a `Float32Array`, and an optional `maxVertexCount`
+(default 128). Standard physics builds the faces and edges itself, and `HullFace` is removed.
+The hull is the convex hull of the points: interior points drop, coplanar faces merge, and the
+built hull keeps at most `maxVertexCount` vertices.
+
+```ts
+// 0.9.5
+Hulls.register({ name: "wedge", verts, faces, edges });
+
+// 0.10
+world.resource(Hulls).register({ name: "wedge", points: new Float32Array(verts.flat()) });
+```
+
 ## Glaze becomes camera grading and effect passes
 
 Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/glaze` imports. `CorePipelinePlugin` presents views and registers `Tonemapping` and `ColorGrading`, exported from `/rendering` and the root. Default plugins already include it. Add `VignettePlugin` from `/vignette` (or the root) for cameras carrying `Vignette`.
@@ -822,7 +838,7 @@ and `ConstraintSystem` and `ComposeSystem` are internal to the plugin.
 In 0.9.5, `Tumble.world` exposed a `TumbleWorld` and `Tumble.body(eid)` returned a `TumbleBody`
 handle after the body was marshaled. Those handles, `Shape` and `Joint` handles, and `BodyState`
 are removed. The ECS `World` is the only physics world: author components and call
-functions that take the `World` first. Import `Body`, `Shape`, `ShapeKind`, `BodyType`, `Hulls`, `Hull`, `HullFace` and
+functions that take the `World` first. Import `Body`, `Shape`, `ShapeKind`, `BodyType`, `Hulls`, `Hull` and
 `UNIT_CUBE_ID` from `/physics`; import `StandardPhysicsPlugin`, `StepPhysicsSystem`, `hashPhysics`,
 `PhysicsWorldDefinition`, `PhysicsEvents`, the state-write and query functions, and `drawPhysics`
 from `/standard/physics`. Import `GlobalTransform` from the root or `/transform`.

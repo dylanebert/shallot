@@ -169,4 +169,4 @@ export const PhysicsPlugin: Plugin = {
         WheelJoint,
     ],
 };
-export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
+export { type Hull, Hulls, UNIT_CUBE_ID } from "./hull";

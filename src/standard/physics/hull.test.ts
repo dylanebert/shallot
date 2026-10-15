@@ -27,7 +27,7 @@ test("two worlds marshal their own hull registered under the same name", () => {
             const id = hulls.register({
                 ...cube,
                 name: "shared-name",
-                verts: cube.verts.map(([x, y, z]) => [x * scale, y * scale, z * scale]),
+                points: cube.points.map((coordinate) => coordinate * scale),
             });
             expect(id).toBe(1);
             const eid = world.create();

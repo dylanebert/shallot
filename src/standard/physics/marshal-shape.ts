@@ -9,6 +9,7 @@ import {
 } from "../../core/physics";
 import type { World } from "../../engine";
 import { makeShapeId } from "./api/config";
+import { MAX_HULL_VERTICES } from "./common/constants";
 import type { EntityId } from "./common/ids";
 import { defaultShapeDef, type Filter, type ShapeDef, type SurfaceMaterial } from "./common/types";
 import { createHull } from "./shapes/build-hull";
@@ -110,13 +111,14 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
     const name = hulls.name(id);
     const hull = name === undefined ? undefined : hulls.get(name);
     if (!hull) throw new Error(`physics: Shape ${eid} names missing hull ${id}`);
-    const scale = shape.scale;
-    const points = hull.verts.map(([x, y, z]) => ({
-        x: x * scale.x.get(eid),
-        y: y * scale.y.get(eid),
-        z: z * scale.z.get(eid),
-    }));
-    const built = createHull(points, points.length, world);
+    const sx = shape.scale.x.get(eid);
+    const sy = shape.scale.y.get(eid);
+    const sz = shape.scale.z.get(eid);
+    const source = hull.points;
+    const points = new Array(Math.trunc(source.length / 3));
+    for (let i = 0; i < points.length; i++)
+        points[i] = { x: source[3 * i] * sx, y: source[3 * i + 1] * sy, z: source[3 * i + 2] * sz };
+    const built = createHull(points, hull.maxVertexCount ?? MAX_HULL_VERTICES, world);
     if (!built) throw new Error(`physics: hull for Shape ${eid} could not be built`);
     return built;
 }
