@@ -2,7 +2,6 @@ import { type Plugin, type System, Viewports, type World } from "../../engine";
 
 /** Keyboard facts owned by one {@link World}. `pressed`/`released` are the frame latches. */
 export interface Keys {
-    /** keys currently held */
     readonly held: Set<string>;
     /** keys pressed since the last draw boundary */
     readonly pressed: Set<string>;
@@ -29,11 +28,8 @@ export interface Pointer {
     deltaY: number;
     /** wheel movement accumulated this frame; positive scrolls down/away */
     scroll: number;
-    /** left button held */
     left: boolean;
-    /** right button held */
     right: boolean;
-    /** middle button held */
     middle: boolean;
     /** pointer is over a bound canvas, or a drag is active */
     hover: boolean;
@@ -47,7 +43,6 @@ export interface Pointer {
     readonly normalizedY: number;
 }
 
-/** live multi-touch state in one device record. */
 export interface Touch {
     /** number of touch pointers currently held on a bound canvas */
     count: number;
@@ -76,7 +71,6 @@ export interface AudioDevice {
 export interface Devices {
     readonly keys: Keys;
     readonly audio: AudioDevice;
-    /** pointer facts for the same record */
     readonly pointer: Pointer;
     readonly touch: Touch;
     /** false while {@link setInputEnabled} suspends the device producers; reads are then neutral */
@@ -98,8 +92,7 @@ interface DeviceRecord extends Devices {
     pointerCanvasIndex: number;
 }
 
-/** The host effects used by the browser producer. Controlled callers can provide a declared fixture with the
- * same operations; the default host is created only when the browser producer is composed. */
+/** Host effects for the browser producer; the default host is created only when that producer is composed. */
 export interface InputHost {
     readonly window: Window;
     readonly document: Document;
@@ -284,7 +277,6 @@ export function pressKey(world: World, code: string): void {
     d.keys.pressed.add(code);
 }
 
-/** Produce a keyboard release. */
 export function releaseKey(world: World, code: string): void {
     const d = record(world);
     if (!d.enabled || !d.keys.held.has(code)) return;
@@ -292,8 +284,7 @@ export function releaseKey(world: World, code: string): void {
     d.keys.released.add(code);
 }
 
-/** Produce a pointer position update. The object form is used by the DOM producer; the numeric form is
- * convenient for a replay or a headless test. */
+/** Set the position in CSS pixels and accumulate movement deltas until the draw boundary. */
 export function pointerMove(
     world: World,
     x:
@@ -346,7 +337,6 @@ export function pressButton(world: World, button: PointerButton): void {
     setButton(world, button, true);
 }
 
-/** Produce a pointer-button release. */
 export function releaseButton(world: World, button: PointerButton): void {
     setButton(world, button, false);
 }
@@ -358,7 +348,7 @@ export function pointerButtons(world: World, buttons: number): void {
     setButton(world, "middle", (buttons & 4) !== 0);
 }
 
-/** Produce wheel movement. */
+/** Accumulate wheel movement until the draw boundary; positive scrolls down/away. */
 export function pointerWheel(world: World, delta: number): void {
     const d = record(world);
     if (d.enabled) d.pointer.scroll += delta;
@@ -381,8 +371,7 @@ function updatePinchBaseline(d: DeviceRecord): void {
     }
 }
 
-/** Produce a touch-point update. `active=false` removes the point. Two-finger centroid and pinch deltas are
- * accumulated in the same record as DOM touch events. */
+/** `active=false` removes the point. Two-finger centroid and pinch deltas accumulate until the draw boundary. */
 export function touchPoint(
     world: World,
     pointerId: number,
@@ -880,7 +869,7 @@ const InputSystem: System = {
     name: "input",
     group: "simulation",
     setup(world: World) {
-        // The data owner has no host boundary. Producers may be absent even when a DOM is present.
+        // Producers may be absent even when a DOM is present.
         record(world);
     },
     update() {},
@@ -951,5 +940,5 @@ export const InputPlugin: Plugin = {
     systems: [InputSystem, ResetFrameInputSystem],
 };
 
-/** Optional browser producer. It is composed separately from the plain-data input owner. */
+/** Optional browser producer, separate from {@link InputPlugin}. */
 export const BrowserInputPlugin: Plugin = createBrowserInputPlugin();
