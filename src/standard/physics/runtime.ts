@@ -1,6 +1,6 @@
 /// <reference types="@webgpu/types" />
 
-import { Body, BodyType, Hulls, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
+import { Body, BodyType, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
 import { GlobalTransform, resetInterpolation, Transform } from "../../core/transform";
 import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
 import { clamp } from "../../engine/utils";
@@ -139,11 +139,7 @@ interface PhysicsRuntime {
     physicsWorld: WorldState | null;
     bodies: Map<number, BoundBodyId>;
     placementWarnings: Map<number, EntityRef>;
-    failed: Map<number, { stamp: EntityRef; hulls: number }>;
     constraints: ConstraintCache;
-
-    // whether a body's marshal failed, so the constraint uploads defer its joints; made once per runtime
-    isFailed: (eid: number) => boolean;
     stale: StaleScan;
     counters: PhysicsCounters;
     // eids whose Body membership, or a Body's Transform, changed since the last sync, as 32-bit words
@@ -151,7 +147,6 @@ interface PhysicsRuntime {
     anyChanged: boolean;
     // only warm sets this to make the next sync walk every Body
     full: boolean;
-    hulls: number;
     observing: boolean;
     // each hit record's material-id words (A low, A high, B low, B high), so fillHitRecords rebuilds a
     // record's bigint only when its words change
@@ -207,7 +202,6 @@ function newShapeEntityMap(): ShapeEntityMap {
 const physicsRuntimeKey = { create: newRuntime };
 
 function newRuntime(): PhysicsRuntime {
-    const failed: PhysicsRuntime["failed"] = new Map();
     const runtime: PhysicsRuntime = {
         initialized: false,
         bodyCandidates: createFieldCandidates(),
@@ -226,16 +220,12 @@ function newRuntime(): PhysicsRuntime {
         physicsWorld: null,
         bodies: new Map(),
         placementWarnings: new Map(),
-        failed,
         constraints: createConstraintCache(),
-
-        isFailed: (eid) => failed.has(eid),
         stale: { world: null, eids: [], count: 0 },
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
         changed: new Uint32Array(64),
         anyChanged: false,
         full: true,
-        hulls: 0,
         observing: false,
         hitMaterialWords: new Uint32Array(64),
     };
@@ -566,7 +556,6 @@ function clearBodies(runtime: PhysicsRuntime): void {
     runtime.shapeRecreationState.clear();
     runtime.warnedShapes.clear();
     clearFieldCandidates(runtime.shapeCandidates);
-    runtime.failed.clear();
     runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
     runtime.warnedBodyFields.clear();
     runtime.full = true;
@@ -1016,15 +1005,12 @@ interface Bindings {
     shapeRecreationState: [number, Float64Array][];
     /** pending shape field candidates as [eid, field mask] pairs */
     shapeCandidates: [number, number][];
-    /** eid, EntityRef, hull count */
-    failed: number[];
     constraints: ConstraintIds;
     /** pending sync words, copied so later marks cannot mutate the image */
     changed: Uint32Array | null;
     /** pending body field candidates as [eid, field mask] pairs */
     bodyCandidates: [number, number][];
     full: boolean;
-    hulls: number;
     /** geometry builds by registry id, re-paired with core's restored definitions */
     geometry: GeometryBuilds;
 }
@@ -1057,8 +1043,6 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
             runtime.shapeBodies.get(eid)!,
             runtime.shapeStamps.get(eid)!,
         );
-    const failed: number[] = [];
-    for (const [eid, f] of runtime.failed) failed.push(eid, f.stamp, f.hulls);
     return {
         worldDefinition: copyPhysicsWorldDefinition(world.resource(PhysicsWorldDefinition)),
         bodies,
@@ -1068,12 +1052,10 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
             eid,
             values.slice(),
         ]),
-        failed,
         constraints: captureConstraints(runtime.constraints, warmWorld(runtime)),
         bodyCandidates: captureBodyCandidates(runtime.bodyCandidates),
         changed: runtime.anyChanged ? runtime.changed.slice() : null,
         full: runtime.full,
-        hulls: runtime.hulls,
         geometry: captureGeometryBuilds(world),
     };
 }
@@ -1118,12 +1100,6 @@ function restoreBindings(
     }
     for (const [eid, values] of b.shapeRecreationState)
         runtime.shapeRecreationState.set(eid, values.slice());
-    runtime.failed.clear();
-    for (let i = 0; i < b.failed.length; i += 3)
-        runtime.failed.set(b.failed[i], {
-            stamp: b.failed[i + 1] as EntityRef,
-            hulls: b.failed[i + 2],
-        });
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
     restoreGeometryBuilds(world, b.geometry);
     clearFieldCandidates(runtime.bodyCandidates);
@@ -1151,7 +1127,6 @@ function restoreBindings(
         }
     }
     runtime.full = b.full;
-    runtime.hulls = b.hulls;
 }
 
 function solverWorldDefinition(def: PhysicsWorldDefinitionConfig): Partial<WorldDef> {
@@ -1518,14 +1493,7 @@ export const SyncPhysicsConstraintsSystem: System = {
         if (!physicsWorld) return;
         const bindings = jointBindings(world);
         captureFieldCandidates(world, runtime.constraints.candidates, bindings);
-        syncJoints(
-            runtime.constraints,
-            physicsWorld,
-            runtime.bodies,
-            world,
-            bindings,
-            runtime.isFailed,
-        );
+        syncJoints(runtime.constraints, physicsWorld, runtime.bodies, world, bindings);
     },
 };
 
@@ -1567,16 +1535,7 @@ interface StaleScan {
     count: number;
 }
 
-// the sync's map walks, given the World as `this`, so a steady sync mints no iterator.
-function dropDespawnedFailure(
-    this: World,
-    _failure: unknown,
-    eid: number,
-    failed: Map<number, unknown>,
-): void {
-    if (!this.has(eid, Body)) failed.delete(eid);
-}
-
+// the sync's map walk, given its scan as `this`, so a steady sync mints no iterator.
 function collectStale(this: StaleScan, _body: unknown, eid: number): void {
     if (!this.world!.has(eid, Body)) this.eids[this.count++] = eid;
 }
@@ -1606,14 +1565,7 @@ function visitBody(
         if (world.resolve(bound.stamp)) return false;
         forget(runtime, eid); // recycled to a new Body in one update
     }
-    const f = runtime.failed.get(eid);
-    if (f && world.resolve(f.stamp) && f.hulls === world.resource(Hulls).size) return false;
     const tb = marshalBody(world, physicsWorld, eid);
-    if (!tb) {
-        runtime.failed.set(eid, { stamp, hulls: world.resource(Hulls).size });
-        return false;
-    }
-    runtime.failed.delete(eid);
     kernel(world).bodySetEntity(tb.world0, tb.index1 - 1, eid);
     runtime.bodies.set(eid, { ...tb, stamp });
     clearFieldCandidate(runtime.bodyCandidates, eid);
@@ -1731,10 +1683,6 @@ function syncShapes(world: World, runtime: PhysicsRuntime): void {
     candidates.count = pending;
 }
 
-function markFailed(this: PhysicsRuntime, _failure: unknown, eid: number): void {
-    markChanged(this, eid);
-}
-
 const SyncSystem: System = {
     name: "physics-sync",
     group: "fixed",
@@ -1747,7 +1695,6 @@ const SyncSystem: System = {
         captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
         let bodySetChanged = false;
         let ended = false;
-        const hulls = world.resource(Hulls).size;
         if (runtime.full) {
             runtime.full = false;
             runtime.changed.fill(0);
@@ -1758,9 +1705,8 @@ const SyncSystem: System = {
                 if (runtime.bodies.has(eid)) bound++;
             }
             // every bound body was visited live, so none is stale
-            ended = bound !== runtime.bodies.size || runtime.failed.size !== 0;
+            ended = bound !== runtime.bodies.size;
         } else {
-            if (hulls !== runtime.hulls) runtime.failed.forEach(markFailed, runtime);
             if (runtime.anyChanged) {
                 runtime.anyChanged = false;
                 const changed = runtime.changed;
@@ -1774,14 +1720,12 @@ const SyncSystem: System = {
                         const eid = (w << 5) | (31 - Math.clz32(low));
                         if (world.has(eid, Body)) {
                             if (visitBody(world, runtime, physicsWorld, eid)) bodySetChanged = true;
-                        } else if (runtime.bodies.has(eid) || runtime.failed.has(eid)) ended = true;
+                        } else if (runtime.bodies.has(eid)) ended = true;
                     }
                 }
             }
         }
-        runtime.hulls = hulls;
         if (ended) {
-            runtime.failed.forEach(dropDespawnedFailure, world);
             const stale = runtime.stale;
             stale.world = world;
             stale.count = 0;
@@ -1803,7 +1747,7 @@ const SyncSystem: System = {
         if (bodySetChanged) markAllShapeCandidates(world, runtime);
         syncShapes(world, runtime);
         clearFieldCandidates(runtime.bodyCandidates);
-        runtime.counters.bodiesVisited = runtime.bodies.size + runtime.failed.size;
+        runtime.counters.bodiesVisited = runtime.bodies.size;
         if (bodySetChanged)
             markAllJointCandidates(world, runtime.constraints, jointBindings(world));
     },

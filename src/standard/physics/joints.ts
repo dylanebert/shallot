@@ -130,17 +130,13 @@ function clearFieldWarning(
 function endpoints(
     bodies: ReadonlyMap<number, EntityId>,
     def: JointDef,
-    isDeferred: (eid: number) => boolean,
     warned: Set<number>,
     key: number,
 ): [EntityId, EntityId] | null {
     const a = bodies.get(def.a);
     const b = bodies.get(def.b);
     if (a && b) return [a, b];
-    const cause = (label: string, eid: number) =>
-        isDeferred(eid)
-            ? `${label}: ${eid} is a deferred body (marshal pending, will retry)`
-            : `${label}: ${eid} is not a Body (skipped)`;
+    const cause = (label: string, eid: number) => `${label}: ${eid} is not a Body (skipped)`;
     const parts: string[] = [];
     if (!a) parts.push(cause("a", def.a));
     if (!b) parts.push(cause("b", def.b));
@@ -205,11 +201,10 @@ function createJoint(
     state: WorldState,
     bodies: ReadonlyMap<number, EntityId>,
     def: JointDef,
-    isDeferred: (eid: number) => boolean,
     warned: Set<number>,
     key: number,
 ): EntityId | null {
-    const pair = endpoints(bodies, def, isDeferred, warned, key);
+    const pair = endpoints(bodies, def, warned, key);
     if (!pair) return null;
     const invalid = invalidJointField(state, def);
     if (invalid) {
@@ -996,7 +991,6 @@ export function syncJoints(
     bodies: ReadonlyMap<number, EntityId>,
     ecs: World,
     bindings: readonly JointBinding[],
-    isDeferred: (eid: number) => boolean,
 ): void {
     for (let i = 0; i < bindings.length; i++) {
         const binding = bindings[i];
@@ -1035,7 +1029,7 @@ export function syncJoints(
                 destroyJointInternal(state, joint.index1 - 1, true);
             live?.delete(eid);
             const def = jointDef(ecs, binding, eid);
-            const created = createJoint(state, bodies, def, isDeferred, cache.warnedJoints, key);
+            const created = createJoint(state, bodies, def, cache.warnedJoints, key);
             if (created) {
                 live ??= new Map();
                 live.set(eid, created);
