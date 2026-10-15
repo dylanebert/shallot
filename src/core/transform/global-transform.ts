@@ -96,20 +96,20 @@ export function deriveTransforms(world: World): void {
     const spd = world.fieldStorage(Transform, "translation").dirty,
         sqd = world.fieldStorage(Transform, "rotation").dirty,
         ssd = world.fieldStorage(Transform, "scale").dirty;
+    const pp = source.translation.column,
+        pq = source.rotation.column,
+        ps = source.scale.column;
+    const op = global.translation.column,
+        oq = global.rotation.column,
+        os = global.scale.column;
+    const pd = world.fieldStorage(GlobalTransform, "translation").dirty,
+        qd = world.fieldStorage(GlobalTransform, "rotation").dirty,
+        sd = world.fieldStorage(GlobalTransform, "scale").dirty;
     const words = Math.max(spd.length, sqd.length, ssd.length);
     for (let word = 0; word < words; word++) {
         const claims = word < runtime.poseClaims.length ? runtime.poseClaims[word] : 0;
         let bits = ((spd[word] | sqd[word]) & ~claims) | ssd[word];
         if (bits === 0) continue;
-        const pp = source.translation.column,
-            pq = source.rotation.column,
-            ps = source.scale.column;
-        const op = global.translation.column,
-            oq = global.rotation.column,
-            os = global.scale.column;
-        const pd = world.fieldStorage(GlobalTransform, "translation").dirty,
-            qd = world.fieldStorage(GlobalTransform, "rotation").dirty,
-            sd = world.fieldStorage(GlobalTransform, "scale").dirty;
         while (bits !== 0) {
             const mask = bits & -bits;
             bits ^= mask;
