@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import type { WorldSnapshot } from "@dylanebert/shallot";
+import { Transform, type WorldSnapshot } from "@dylanebert/shallot";
 import { Body, BodyType, DistanceJoint } from "@dylanebert/shallot/physics";
 import {
     hashPhysics,
@@ -22,17 +22,21 @@ for (const mutation of ["spawn", "despawn", "joint"] as const) {
         const world = app.world;
         try {
             const anchor = world.create();
-            world.add(anchor, Body, { type: BodyType.Static, position: [0, 3, 0, 0] });
+            world.add(anchor, Transform, { translation: [0, 3, 0] });
+            world.add(anchor, Body, { type: BodyType.Static });
             const bob = world.create();
-            world.add(bob, Body, { position: [0, 1, 0, 0] });
+            world.add(bob, Transform, { translation: [0, 1, 0] });
+            world.add(bob, Body);
             world.tick();
             const saved = world.snapshot();
             const expected = hashPhysics(world);
             if (mutation === "despawn") world.destroy(bob);
             else {
                 const eid = world.create();
-                if (mutation === "spawn") world.add(eid, Body, { position: [3, 2, 0, 0] });
-                else
+                if (mutation === "spawn") {
+                    world.add(eid, Transform, { translation: [3, 2, 0] });
+                    world.add(eid, Body);
+                } else
                     world.add(eid, DistanceJoint, {
                         a: anchor,
                         b: bob,
@@ -62,7 +66,8 @@ test("kinematic targets replay the same physics hashes after world recovery", as
         const platform = world.create();
         world.add(platform, Body, { type: BodyType.Kinematic });
         const bob = world.create();
-        world.add(bob, Body, { position: [0.2, 1, 0, 0] });
+        world.add(bob, Transform, { translation: [0.2, 1, 0] });
+        world.add(bob, Body);
         const place = (tick: number) =>
             setTargetTransform(world, platform, [tick * 0.05, 0, 0], [0, 0, 0, 1]);
         for (let tick = 0; tick < 5; tick++) {

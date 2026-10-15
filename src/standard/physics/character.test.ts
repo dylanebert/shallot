@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
+import { Transform } from "../../core/transform";
 import { Time, World } from "../../engine";
 import {
     BodyType,
@@ -185,10 +186,10 @@ for (const item of lane.cases) {
                         expect(center1).toEqual({ x: 0, y: -0.5, z: 0 });
                         expect(center2).toEqual({ x: 0, y: 0.5, z: 0 });
                         const eid = world.create();
-                        world.add(eid, Body, {
-                            type: BodyType.Kinematic,
-                            position: [position.x, position.y, position.z, 0],
+                        world.add(eid, Transform, {
+                            translation: [position.x, position.y, position.z],
                         });
+                        world.add(eid, Body, { type: BodyType.Kinematic });
                         world.add(eid, Shape, { kind: ShapeKind.Capsule });
                         world.storage(Shape).capsuleCenter1.set(eid, 0, -0.5, 0, 0);
                         world.storage(Shape).capsuleCenter2.set(eid, 0, 0.5, 0, 0);
@@ -217,7 +218,7 @@ for (const item of lane.cases) {
                                         expected.solverIterations,
                                     );
                                     expect(scratch.impulseCount).toBe(expected.impulses.length);
-                                    const pose = world.storage(Body).position;
+                                    const pose = world.storage(Transform).translation;
                                     const character = world.storage(Character);
                                     expect([
                                         bits(pose.x.get(eid)),
@@ -329,7 +330,7 @@ for (const item of lane.cases) {
                         // World steps report system errors rather than throwing them to the test runner.
                         if (failure !== undefined) throw failure;
                         expect(observed).toBe(true);
-                        const finalPose = world.storage(Body).position;
+                        const finalPose = world.storage(Transform).translation;
                         expect([
                             bits(finalPose.x.get(eid)),
                             bits(finalPose.y.get(eid)),

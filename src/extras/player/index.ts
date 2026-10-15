@@ -322,7 +322,7 @@ const SnapshotPlayerPositionSystem: System = {
 };
 
 // the player's render position: lerp between the two most recent fixed-tick GlobalTransform positions by `fixedAlpha`.
-// Falls back to the authored Body spawn position until the first snapshot lands, so the first frames aren't at the origin.
+// Falls back to Transform until the first snapshot lands, so the first frames aren't at the origin.
 function followPos(world: World, eid: number, out: [number, number, number]): void {
     const offset = eid * 4;
     if (world.has(eid, PlayerFollow)) {
@@ -335,7 +335,7 @@ function followPos(world: World, eid: number, out: [number, number, number]): vo
         out[2] = lerp(previous[offset + 2], current[offset + 2], a);
         return;
     }
-    const position = world.storage(Body).position.column;
+    const position = world.storage(Transform).translation.column;
     out[0] = position[offset];
     out[1] = position[offset + 1];
     out[2] = position[offset + 2];

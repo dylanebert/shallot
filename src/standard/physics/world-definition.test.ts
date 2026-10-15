@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
-import { GlobalTransform } from "../../core/transform";
+import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp, type EntityRef, Time } from "../../engine";
 import { hashPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
 import { physicsState } from "./runtime";
@@ -10,7 +10,8 @@ test("a world gravity write after warm changes acceleration on the next tick", a
     try {
         const { world } = app;
         const eid = world.create();
-        world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 10, 0, 0] });
+        world.add(eid, Transform, { translation: [0, 10, 0] });
+        world.add(eid, Body, { type: BodyType.Dynamic });
         world.add(eid, Shape);
 
         world.tick();
@@ -81,7 +82,8 @@ test("world callbacks receive the owning World and its ECS Shape EntityRefs", as
             enablePreSolveEvents: 1,
         });
         const moving = world.create();
-        world.add(moving, Body, { type: BodyType.Dynamic, position: [0.5, 0, 0, 0] });
+        world.add(moving, Transform, { translation: [0.5, 0, 0] });
+        world.add(moving, Body, { type: BodyType.Dynamic });
         world.add(moving, Shape, {
             kind: ShapeKind.Sphere,
             sphereCenter: [0, 0, 0],
@@ -142,7 +144,8 @@ test("snapshot restore restores the world definition with the solver", async () 
     try {
         const { world } = app;
         const eid = world.create();
-        world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 10, 0, 0] });
+        world.add(eid, Transform, { translation: [0, 10, 0] });
+        world.add(eid, Body, { type: BodyType.Dynamic });
         world.add(eid, Shape);
         const definition = world.resource(PhysicsWorldDefinition);
         definition.gravity = { x: 0, y: -2, z: 0 };

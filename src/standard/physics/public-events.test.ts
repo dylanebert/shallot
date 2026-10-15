@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Time, World } from "@dylanebert/shallot";
+import { Time, Transform, World } from "@dylanebert/shallot";
 import {
     Body,
     BodyType,
@@ -97,10 +97,8 @@ test("a sensor Shape reports its entering body's entity", async () => {
             enableSensorEvents: 1,
         });
         const disabledSensorBody = world.create();
-        world.add(disabledSensorBody, Body, {
-            type: BodyType.Static,
-            position: [10, 0, 0, 0],
-        });
+        world.add(disabledSensorBody, Transform, { translation: [10, 0, 0] });
+        world.add(disabledSensorBody, Body, { type: BodyType.Static });
         const disabledSensor = world.create();
         world.add(disabledSensor, Shape, {
             body: disabledSensorBody,
@@ -108,10 +106,8 @@ test("a sensor Shape reports its entering body's entity", async () => {
             isSensor: 1,
         });
         const disabledVisitorBody = world.create();
-        world.add(disabledVisitorBody, Body, {
-            type: BodyType.Dynamic,
-            position: [10, 0, 0, 0],
-        });
+        world.add(disabledVisitorBody, Transform, { translation: [10, 0, 0] });
+        world.add(disabledVisitorBody, Body, { type: BodyType.Dynamic });
         const disabledVisitor = world.create();
         world.add(disabledVisitor, Shape, {
             body: disabledVisitorBody,
@@ -290,7 +286,8 @@ test("contact, hit and joint events retain ECS identity and Box3D payloads", asy
         world.step(Time.FIXED_DT);
 
         const groundBody = world.create();
-        world.add(groundBody, Body, { type: BodyType.Static, position: [0, -0.5, 0, 0] });
+        world.add(groundBody, Transform, { translation: [0, -0.5, 0] });
+        world.add(groundBody, Body, { type: BodyType.Static });
         const groundShape = world.create();
         world.add(groundShape, Shape, {
             body: groundBody,
@@ -298,9 +295,9 @@ test("contact, hit and joint events retain ECS identity and Box3D payloads", asy
             userMaterialIdHigh: 0x01234567,
         });
         const fallingBody = world.create();
+        world.add(fallingBody, Transform, { translation: [0, 2, 0] });
         world.add(fallingBody, Body, {
             type: BodyType.Dynamic,
-            position: [0, 2, 0, 0],
             linearVelocity: [0, -8, 0, 0],
         });
         const fallingShape = world.create();
@@ -316,28 +313,25 @@ test("contact, hit and joint events retain ECS identity and Box3D payloads", asy
             userMaterialIdHigh: 0xfedcba98,
         });
         const quietGround = world.create();
-        world.add(quietGround, Body, {
-            type: BodyType.Static,
-            position: [10, -0.5, 0, 0],
-        });
+        world.add(quietGround, Transform, { translation: [10, -0.5, 0] });
+        world.add(quietGround, Body, { type: BodyType.Static });
         const quietGroundShape = world.create();
         world.add(quietGroundShape, Shape, { body: quietGround });
         const quietBody = world.create();
+        world.add(quietBody, Transform, { translation: [10, 2, 0] });
         world.add(quietBody, Body, {
             type: BodyType.Dynamic,
-            position: [10, 2, 0, 0],
             linearVelocity: [0, -8, 0, 0],
         });
         const quietShape = world.create();
         world.add(quietShape, Shape, { body: quietBody, kind: ShapeKind.Sphere, density: 1 });
 
         const anchor = world.create();
-        world.add(anchor, Body, { type: BodyType.Static, position: [20, 5, 0, 0] });
+        world.add(anchor, Transform, { translation: [20, 5, 0] });
+        world.add(anchor, Body, { type: BodyType.Static });
         const bob = world.create();
-        world.add(bob, Body, {
-            type: BodyType.Dynamic,
-            position: [20, 5, 0, 0],
-        });
+        world.add(bob, Transform, { translation: [20, 5, 0] });
+        world.add(bob, Body, { type: BodyType.Dynamic });
         world.add(bob, Shape, { kind: ShapeKind.Sphere, density: 1 });
         const joint = world.create();
         world.add(joint, RevoluteJoint, {

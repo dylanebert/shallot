@@ -16,6 +16,7 @@ import {
 } from "../../src/core/physics";
 import { Time, World } from "../../src/engine";
 import { quaternion, vector } from "../../src/standard/physics/kernel/math";
+import { Transform } from "../../src/core/transform";
 import { BodyType, defaultSurfaceMaterial } from "../../src/standard/physics/common/types";
 import { createBoxMesh } from "../../src/standard/physics/shapes/mesh";
 import { createCompound } from "../../src/standard/physics/shapes/compound";
@@ -459,11 +460,11 @@ async function runEntityQuery(input: Input): Promise<string[]> {
         world.resource(PhysicsWorldDefinition).gravity = zero;
         world.step(Time.FIXED_DT);
         const body = world.create();
-        world.add(body, EcsBody, {
-            type: EcsBodyType.Static,
-            position: [values[11], values[12], values[13], 0],
+        world.add(body, Transform, {
+            translation: [values[11], values[12], values[13]],
             rotation: [values[14], values[15], values[16], values[17]],
         });
+        world.add(body, EcsBody, { type: EcsBodyType.Static });
         let kind: number;
         let geometry = 0;
         let sphereCenter: [number, number, number] = [0, 0, 0];

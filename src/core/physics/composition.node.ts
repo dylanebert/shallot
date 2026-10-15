@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { GlobalTransform } from "../transform";
+import { GlobalTransform, Transform } from "../transform";
 import {
     Body,
     DistanceJoint,
@@ -27,14 +27,15 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         world.add(body, Body);
         world.add(body, Shape);
         expect(world.has(body, GlobalTransform)).toBe(true);
-        const b = world.storage(Body);
+        expect(world.has(body, Transform)).toBe(true);
+        const b = world.storage(Transform);
         const shape = world.storage(Shape);
         expect(shape.kind.get(body)).toBe(ShapeKind.Hull);
         expect([
-            b.position.x.get(body),
-            b.position.y.get(body),
-            b.position.z.get(body),
-            b.position.w.get(body),
+            b.translation.x.get(body),
+            b.translation.y.get(body),
+            b.translation.z.get(body),
+            b.translation.w.get(body),
         ]).toEqual([0, 0, 0, 0]);
         expect([
             b.rotation.x.get(body),

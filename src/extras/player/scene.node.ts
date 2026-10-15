@@ -32,10 +32,8 @@ test("a Player capsule retains its collider geometry and rests above the floor",
             world.add(eye, Camera);
             world.add(eye, Transform, { translation: [0, 1.5, 5, 0] });
             const player = world.create();
-            world.add(player, Body, {
-                position: [0, 2, 0, 0],
-                type: BodyType.Kinematic,
-            });
+            world.add(player, Transform, { translation: [0, 2, 0] });
+            world.add(player, Body, { type: BodyType.Kinematic });
             world.add(player, Shape, { kind: ShapeKind.Capsule });
             world.storage(Shape).capsuleCenter1.set(player, 0, -0.6, 0, 0);
             world.storage(Shape).capsuleCenter2.set(player, 0, 0.6, 0, 0);
@@ -43,7 +41,8 @@ test("a Player capsule retains its collider geometry and rests above the floor",
             world.add(player, Character);
             world.add(player, Player, { camera: eye });
             const floor = world.create();
-            world.add(floor, Body, { position: [0, 0, 0, 0] });
+            world.add(floor, Transform, { translation: [0, 0, 0] });
+            world.add(floor, Body);
             world.add(floor, Shape, { scale: [20, 1, 20, 0] });
         },
     });

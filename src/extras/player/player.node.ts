@@ -54,10 +54,8 @@ async function scene(localPlayers: readonly number[] = [], count = 1): Promise<S
                 cameras.push(camera);
 
                 const player = world.create();
-                world.add(player, Body, {
-                    type: BodyType.Kinematic,
-                    position: [index * 4, 1.3, 0, 0],
-                });
+                world.add(player, Transform, { translation: [index * 4, 1.3, 0] });
+                world.add(player, Body, { type: BodyType.Kinematic });
                 world.add(player, Shape, { kind: ShapeKind.Capsule });
                 world.storage(Shape).capsuleCenter1.set(player, 0, -0.5, 0, 0);
                 world.storage(Shape).capsuleCenter2.set(player, 0, 0.5, 0, 0);

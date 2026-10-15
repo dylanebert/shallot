@@ -17,6 +17,7 @@ import {
     WeldJoint,
     WheelJoint,
 } from "../../../core/physics";
+import { Transform } from "../../../core/transform";
 import { createApp, Time } from "../../../engine";
 import { DEFAULT_MASK_BITS } from "../common/constants";
 import type { AABB, WorldTransform } from "../common/records";
@@ -38,7 +39,8 @@ test("drawPhysics preserves ECS-authored sphere geometry and placement", async (
         const { world } = app;
         world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
         const body = world.create();
-        world.add(body, Body, { type: BodyType.Dynamic, position: [1, 2, 3, 0] });
+        world.add(body, Transform, { translation: [1, 2, 3] });
+        world.add(body, Body, { type: BodyType.Dynamic });
         const shape = world.create();
         world.add(shape, Shape, {
             body,
@@ -120,7 +122,8 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
             rotation: [number, number, number, number] = [0, 0, 0, 1],
         ) => {
             const eid = world.create();
-            world.add(eid, Body, { type, position: [x, 0, 0, 0], rotation });
+            world.add(eid, Transform, { translation: [x, 0, 0], rotation });
+            world.add(eid, Body, { type });
             return eid;
         };
         const shape = (bodyEid: number, definition: Record<string, unknown>) => {
@@ -292,12 +295,15 @@ test("drawPhysics reports the deleted golden's exact stepped ECS joint reactions
         const rotation = quaternion.fromAxisAngle({ x: 0, y: 1, z: 0 }, 0.4);
         for (let i = 0; i < joints.length; i++) {
             const anchor = world.create();
-            world.add(anchor, Body, { position: [i * 5 - 15, 0, 0, 0] });
+            world.add(anchor, Transform, { translation: [i * 5 - 15, 0, 0] });
+            world.add(anchor, Body);
             const bob = world.create();
+            world.add(bob, Transform, {
+                translation: [i * 5 - 14, 2, 0],
+                rotation: [rotation.v.x, rotation.v.y, rotation.v.z, rotation.s],
+            });
             world.add(bob, Body, {
                 type: BodyType.Dynamic,
-                position: [i * 5 - 14, 2, 0, 0],
-                rotation: [rotation.v.x, rotation.v.y, rotation.v.z, rotation.s],
                 angularVelocity: [1, 2, 3, 0],
             });
             world.add(bob, Shape, {

@@ -11,6 +11,7 @@ import {
     GroundState,
     PlayerInput,
     Shape,
+    Transform,
 } from "@dylanebert/shallot";
 import { attachTexture, Camera, type Capture, captureTexture } from "@dylanebert/shallot/rendering";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
@@ -52,7 +53,7 @@ const GOALS: readonly Goal[] = [
 const MAX_TICKS = 700;
 
 function goalEntity(world: Awaited<ReturnType<typeof createApp>>["world"], goal: Goal): number {
-    const positions = world.storage(Body).position;
+    const positions = world.storage(Transform).translation;
     for (const eid of world.query([Body])) {
         if (Math.abs(positions.z.get(eid) - goal.z) < 0.0001) return eid;
     }
@@ -92,7 +93,7 @@ test("tick-addressed PlayerInput clears the route goals and captures the resulti
         if (!world.has(player, PlayerInput)) world.add(player, PlayerInput);
         const input = world.storage(PlayerInput);
         const frames = world.storage(GlobalTransform).translation;
-        const liftBase = world.storage(Body).position.y.get(route.lift);
+        const liftBase = world.storage(Transform).translation.y.get(route.lift);
         const reached: { name: string; tick: number }[] = [];
         let goalIndex = 0;
         let tick = 0;

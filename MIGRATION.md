@@ -417,7 +417,7 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `Compute` | `world.gpu` |
 | `Single`, `Pair`, `Quad`, field `Type` | `ScalarField`, `Vector2Field`, `Vector4Field`, `FieldType` |
 | `Transform.pos`, `.rot` | `translation`, `rotation` |
-| `Body.pos`, `.quat` | `position`, `rotation` |
+| `Body.pos`, `.quat` | `Transform.translation`, `.rotation` |
 | Moving `Body` with positive `mass` | Write `type: BodyType.Dynamic`; `mass` is the dynamic body's mass. |
 | `Body` with `mass: 0` | Omit `type` for static geometry, or write `type: BodyType.Kinematic` for caller-driven motion. |
 | Root `Part` | `MeshInstance` |
@@ -643,7 +643,7 @@ world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
 
 ## Authored Transform and world GlobalTransform are separate
 
-`Transform` remains authored placement. Replace `TransformsPlugin` with `TransformPlugin` from `@dylanebert/shallot/transform` (also exported at the root). Physics and rendering include it as a dependency; add it explicitly to placement-only compositions. It derives `GlobalTransform` for each `Transform` entity; physics publishes a body's placement. Each producer uses `requires: [GlobalTransform]` to add it when missing; removing a producer leaves it attached. Component pairs are no longer refused. Physics warns once per entity carrying both `Body` and `Transform`, since both write its `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is derived world placement, never authored, and has no hierarchy. Physics publishes rigid pose and velocity, not collider-derived scale. Register a sized mesh with `cube([x, y, z])`, `sphere(radius)` or `capsule(radius, length)` from `/mesh`, lengths in full (a capsule's is its mid-section's), when the visual should match the collider; these builders default to the built-in sizes. `Transform.translation` and `.scale` and `GlobalTransform.translation`, `.scale` and `.linearVelocity` are `vec3` fields, written `[x, y, z]`; `rotation` stays a four-value quaternion.
+`Transform` remains authored placement. Replace `TransformsPlugin` with `TransformPlugin` from `@dylanebert/shallot/transform` (also exported at the root). Physics and rendering include it as a dependency; add it explicitly to placement-only compositions. It derives `GlobalTransform` from `Transform`; for a body, physics publishes pose while Transform derivation still supplies scale. `Body` requires `Transform`, which requires `GlobalTransform`; removing a producer leaves placement attached. A body's `Transform` holds its spawn pose and receives physics' pose after each step. Writing its translation or rotation teleports the body at the next step (before character movement for a Character), without resetting interpolation. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is derived world placement, never authored, and has no hierarchy. Physics publishes rigid pose and velocity, not collider-derived scale. Register a sized mesh with `cube([x, y, z])`, `sphere(radius)` or `capsule(radius, length)` from `/mesh`, lengths in full (a capsule's is its mid-section's), when the visual should match the collider; these builders default to the built-in sizes. `Transform.translation` and `.scale` and `GlobalTransform.translation`, `.scale` and `.linearVelocity` are `vec3` fields, written `[x, y, z]`; `rotation` stays a four-value quaternion.
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 
@@ -750,7 +750,7 @@ Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallo
 - Replace `jump` with your input policy's velocity write. The local producer counts Space presses; `Player` buffers each new count once, and jump tuning belongs to `Player.jumpSpeed`.
 - Replace `globalTransform` with `world.storage(GlobalTransform).translation`; test membership with `world.has(eid, GlobalTransform)` when placement may not yet exist.
 - Replace `grounded` with `world.storage(Character).groundState.get(eid) === GroundState.OnGround`; steep ground is a separate state.
-- Replace the 0.9.5 character helper `teleport(eid, x, y, z)` with `setTransform(world, eid, position, rotation)` from `/standard/physics`, then clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn. To move an entity without a body, write its `Transform` in a fixed system and call `resetInterpolation(world, eid)` from `/transform`, so rendering does not blend from the old placement.
+- Replace the 0.9.5 character helper `teleport(eid, x, y, z)` with `setTransform(world, eid, position, rotation)` from `/standard/physics` for an immediate teleport with interpolation reset, or write `Transform.translation` and `.rotation` to teleport before the next character movement without resetting interpolation; clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn. To move an entity without a body, write its `Transform` in a fixed system and call `resetInterpolation(world, eid)` from `/transform`, so rendering does not blend from the old placement.
 - `PlayerPlugin` no longer installs `RenderingPlugin`: it authors the linked camera's pose without presentation. Keep rendering in the app's composition when presenting that camera.
 - Move gravity and jump tuning to `Player.gravity` (positive downward acceleration) and `Player.jumpSpeed`. Player owns acceleration, friction, sprint, coyote time (0.1 seconds), jump buffering (0.1 seconds) and platform carry. Its defaults follow Minecraft Java's speeds and jump: speed 4.317 m/s, sprint multiplier 1.3, acceleration 20/s, friction 16/s, jump speed 8.85 m/s and gravity 29.5 m/s². `Player.hover` (0.05 m) sets `Character.pogoRest`, whose default of 3 radii is Box3D's mover sample, and Player turns on `Character.steepWalls`, off by default as in that sample.
 
@@ -950,8 +950,12 @@ from `/standard/physics`. Import `GlobalTransform` from the root or `/transform`
 
 ### Bodies and shapes
 
-The 0.9.5 `Body.pos` and `Body.quat` become spawn-only `position` and `rotation`; scene-authored
-Euler degrees in `quat` must become an `(x, y, z, w)` quaternion. The new `type` field
+The 0.9.5 `Body.pos` and `Body.quat` become `Transform.translation` and `Transform.rotation`;
+scene-authored Euler degrees in `quat` must become an `(x, y, z, w)` quaternion. `Body` requires
+`Transform`; physics reads its spawn pose and writes it back after each step. Writing Transform's
+translation or rotation teleports the body at the next step, before movement for a Character,
+without resetting interpolation. Use `setTransform` for an immediate teleport with interpolation reset;
+`setTargetTransform` and velocity setters remain calls. The new `type` field
 replaces the old mass-based motion choice. 0.9.5's default `mass` was 1,
 while 0.10 `Body` defaults to static, so author `type` explicitly. The other new Box3D body
 fields are `linearVelocity`, `angularVelocity`, `linearDamping`, `angularDamping`, `gravityScale`,
@@ -981,14 +985,15 @@ Body.friction.set(eid, 0.5);
 ```ts
 // 0.10
 const eid = world.create();
-world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 5, 0] });
+world.add(eid, Transform, { translation: [0, 5, 0] });
+world.add(eid, Body, { type: BodyType.Dynamic });
 world.add(eid, Shape, {
     kind: ShapeKind.Hull, geometry: UNIT_CUBE_ID, scale: [1, 1, 1],
     density: 1, friction: 0.5,
 });
 ```
 
-`Body.position`, `.linearVelocity` and `.angularVelocity`, `Shape.sphereCenter`, `.capsuleCenter1`, `.capsuleCenter2`, `.scale` and `.tangentVelocity`, the joints' `localAnchorA`/`localAnchorB` and velocities, and `Character`'s `velocity`, `groundNormal`, `groundVelocity` and `up` are `vec3` fields, written `[x, y, z]`. Rotations stay four-value quaternions.
+`Transform.translation`, `Body.linearVelocity` and `.angularVelocity`, `Shape.sphereCenter`, `.capsuleCenter1`, `.capsuleCenter2`, `.scale` and `.tangentVelocity`, the joints' `localAnchorA`/`localAnchorB` and velocities, and `Character`'s `velocity`, `groundNormal`, `groundVelocity` and `up` are `vec3` fields, written `[x, y, z]`. Rotations stay four-value quaternions.
 
 0.9.5 `TumbleBody` could create several shapes directly; author each as a `Shape` entity instead:
 

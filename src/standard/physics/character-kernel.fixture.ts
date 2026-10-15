@@ -1,5 +1,6 @@
 import gold from "../../../crates/physics/tests/character.gold.json";
 import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
+import { Transform } from "../../core/transform";
 import { Time, World } from "../../engine";
 import { Character, CharacterPlugin, characterScratch } from "./character";
 import { BodyType, defaultBodyDef } from "./common/types";
@@ -75,11 +76,11 @@ export async function visitCharacterGold(
                 }
                 const input = row.input.map(f);
                 const eid = world.create();
-                world.add(eid, Body, {
-                    type: BodyType.Kinematic,
-                    position: [input[0], input[1], input[2]],
+                world.add(eid, Transform, {
+                    translation: [input[0], input[1], input[2]],
                     rotation: [input[25], input[26], input[27], input[28]],
                 });
+                world.add(eid, Body, { type: BodyType.Kinematic });
                 world.add(eid, Shape, { kind: ShapeKind.Capsule });
                 world.storage(Shape).capsuleCenter1.set(eid, input[9], input[10], input[11]);
                 world.storage(Shape).capsuleCenter2.set(eid, input[12], input[13], input[14]);

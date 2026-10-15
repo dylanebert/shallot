@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Body, BodyType, Shape } from "../../core/physics";
-import { GlobalTransform } from "../../core/transform";
+import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp, Time } from "../../engine";
 import { StandardPhysicsPlugin, setTargetTransform } from ".";
 
@@ -9,10 +9,12 @@ test("a dynamic box turns with a rotating kinematic platform", async () => {
     try {
         const world = app.world;
         const platform = world.create();
-        world.add(platform, Body, { type: BodyType.Kinematic, position: [0, 0, 0, 0] });
+        world.add(platform, Transform, { translation: [0, 0, 0] });
+        world.add(platform, Body, { type: BodyType.Kinematic });
         world.add(platform, Shape, { scale: [10, 0.5, 10, 0], friction: 1 });
         const rider = world.create();
-        world.add(rider, Body, { type: BodyType.Dynamic, position: [0.5, 0.75, 0, 0] });
+        world.add(rider, Transform, { translation: [0.5, 0.75, 0] });
+        world.add(rider, Body, { type: BodyType.Dynamic });
         world.add(rider, Shape, { scale: [1, 1, 1, 0], friction: 1 });
         world.tick();
 

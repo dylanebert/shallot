@@ -8,7 +8,7 @@ import {
     ShapeKind,
     WeldJoint,
 } from "../../../core/physics";
-import { GlobalTransform } from "../../../core/transform";
+import { GlobalTransform, Transform } from "../../../core/transform";
 import { type EntityRef, Time, World } from "../../../engine";
 import { PhysicsEvents, PhysicsWorldDefinition, StandardPhysicsPlugin, setAwake } from "../index";
 
@@ -38,7 +38,9 @@ function sphere(
     shape: Record<string, unknown> = {},
 ): number {
     const eid = world.create();
-    world.add(eid, Body, body as never);
+    const { position, rotation, ...definition } = body;
+    world.add(eid, Transform, { translation: position, rotation } as never);
+    world.add(eid, Body, definition as never);
     world.add(eid, Shape, {
         kind: ShapeKind.Sphere,
         sphereCenter: [0, 0, 0],

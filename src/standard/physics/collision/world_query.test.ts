@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Time, World } from "@dylanebert/shallot";
+import { Time, Transform, World } from "@dylanebert/shallot";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "@dylanebert/shallot/physics";
 import type { QueryFilter } from "../common/types";
 import { castRay, castShape, overlapAABB, overlapShape, StandardPhysicsPlugin } from "../runtime";
@@ -24,7 +24,8 @@ async function queryWorld() {
         [BodyType.Dynamic, 8],
     ] as const) {
         const body = world.create();
-        world.add(body, Body, { type, position: [x, 0, 0, 0] });
+        world.add(body, Transform, { translation: [x, 0, 0] });
+        world.add(body, Body, { type });
         world.add(body, Shape, { kind: ShapeKind.Sphere, sphereCenter: [0, 0, 0], radius: 0.5 });
     }
     world.step(Time.FIXED_DT);

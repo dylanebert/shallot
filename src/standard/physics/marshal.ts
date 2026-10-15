@@ -1,4 +1,5 @@
 import { Body, BodyMotionLock, type BodyType } from "../../core/physics";
+import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
 import type { EntityId } from "./common/ids";
 import { defaultBodyDef } from "./common/types";
@@ -8,22 +9,23 @@ import type { WorldState } from "./world/world";
 /** The sole ECS-to-Box3D conversion for authored body definitions. */
 export function marshalBody(world: World, state: WorldState, eid: number): EntityId {
     const body = world.storage(Body);
+    const pose = world.storage(Transform);
     const locks = body.motionLocks.get(eid);
     const bodyId = createBody(state, {
         ...defaultBodyDef(),
         type: body.type.get(eid) as BodyType,
         position: {
-            x: body.position.x.get(eid),
-            y: body.position.y.get(eid),
-            z: body.position.z.get(eid),
+            x: pose.translation.x.get(eid),
+            y: pose.translation.y.get(eid),
+            z: pose.translation.z.get(eid),
         },
         rotation: {
             v: {
-                x: body.rotation.x.get(eid),
-                y: body.rotation.y.get(eid),
-                z: body.rotation.z.get(eid),
+                x: pose.rotation.x.get(eid),
+                y: pose.rotation.y.get(eid),
+                z: pose.rotation.z.get(eid),
             },
-            s: body.rotation.w.get(eid),
+            s: pose.rotation.w.get(eid),
         },
         linearVelocity: {
             x: body.linearVelocity.x.get(eid),

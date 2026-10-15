@@ -1,5 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { GlobalTransform, type Plugin, type Resource, type World } from "@dylanebert/shallot";
+import {
+    GlobalTransform,
+    type Plugin,
+    type Resource,
+    Transform,
+    type World,
+} from "@dylanebert/shallot";
 import {
     Devices,
     InputPlugin,
@@ -52,18 +58,21 @@ test("world recovery includes gameplay, identity, allocation, clock and physics 
     const world = app.world;
     try {
         const body = world.create();
-        world.add(body, Body, { position: [0, 3, 0, 0] });
+        world.add(body, Transform, { translation: [0, 3, 0] });
+        world.add(body, Body);
         const ref = world.ref(body);
-        const storage = world.storage(Body);
+        const storage = world.storage(Transform);
         world.tick();
         const saved = world.snapshot();
         const capturedScore = world.resource(Score).value;
         const advance = () => {
             world.destroy(body);
             const reused = world.create();
-            world.add(reused, Body, { position: [0, 5, 0, 0] });
+            world.add(reused, Transform, { translation: [0, 5, 0] });
+            world.add(reused, Body);
             const spawned = world.create();
-            world.add(spawned, Body, { position: [2, 4, 0, 0] });
+            world.add(spawned, Transform, { translation: [2, 4, 0] });
+            world.add(spawned, Body);
             world.tick();
             world.tick();
             return {
@@ -71,7 +80,7 @@ test("world recovery includes gameplay, identity, allocation, clock and physics 
                 spawned,
                 ref: world.ref(reused),
                 old: world.resolve(ref),
-                y: storage.position.y.get(reused),
+                y: storage.translation.y.get(reused),
                 placement: world.storage(GlobalTransform).translation.y.get(reused),
                 members: [...world.query([Body])],
                 entities: world.entities(),

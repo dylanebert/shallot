@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { World } from "@dylanebert/shallot";
+import { Transform, World } from "@dylanebert/shallot";
 import { Body, PhysicsPlugin, Shape } from "@dylanebert/shallot/physics";
 import {
     type Capsule,
@@ -83,10 +83,12 @@ test("internal mover queries land a falling capsule on an authored floor sliding
     for (const system of StandardPhysicsPlugin.systems!) world.addSystem(system);
     try {
         const floor = world.create();
-        world.add(floor, Body, { position: [0, -0.5, 0, 0], isEnabled: 1 });
+        world.add(floor, Transform, { translation: [0, -0.5, 0] });
+        world.add(floor, Body, { isEnabled: 1 });
         world.add(floor, Shape, { scale: [20, 1, 20, 0] });
         const wall = world.create();
-        world.add(wall, Body, { position: [1.5, 2, 0, 0], isEnabled: 1 });
+        world.add(wall, Transform, { translation: [1.5, 2, 0] });
+        world.add(wall, Body, { isEnabled: 1 });
         world.add(wall, Shape, { scale: [1, 4, 20, 0] });
         world.step(1 / 60);
         const capsule: Capsule = {

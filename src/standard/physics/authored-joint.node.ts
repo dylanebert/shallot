@@ -3,7 +3,7 @@ import { Time } from "@dylanebert/shallot";
 import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { GlobalTransform } from "@dylanebert/shallot/transform";
+import { GlobalTransform, Transform } from "@dylanebert/shallot/transform";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { defaultJointDef } from "./solver/joint";
@@ -20,13 +20,16 @@ test("the solver world's entity lookup lets a revolute joint constrain two autho
     try {
         const world = app.world;
         const anchor = world.create();
-        world.add(anchor, Body, { position: [0, 3, 0, 0] });
+        world.add(anchor, Transform, { translation: [0, 3, 0] });
+        world.add(anchor, Body);
         world.add(anchor, Shape);
         const bob = world.create();
-        world.add(bob, Body, { type: BodyType.Dynamic, position: [0, 1, 0, 0] });
+        world.add(bob, Transform, { translation: [0, 1, 0] });
+        world.add(bob, Body, { type: BodyType.Dynamic });
         world.add(bob, Shape);
         const free = world.create();
-        world.add(free, Body, { type: BodyType.Dynamic, position: [4, 1, 0, 0] });
+        world.add(free, Transform, { translation: [4, 1, 0] });
+        world.add(free, Body, { type: BodyType.Dynamic });
         world.add(free, Shape);
         const empty = world.create();
         expect(physicsBodyIndex(world, bob)).toBe(-1);

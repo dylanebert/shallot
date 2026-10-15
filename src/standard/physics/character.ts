@@ -1,4 +1,5 @@
 import { Body, Shape as ShapeComponent, ShapeKind } from "../../core/physics";
+import { Transform } from "../../core/transform";
 import {
     component,
     f32 as field,
@@ -13,6 +14,7 @@ import { BodyType } from "./common/types";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { queryColumns } from "./kernel/querycolumns";
 import {
+    applyTransformPose,
     physicsBodyIndex,
     physicsState,
     StandardPhysicsPlugin,
@@ -101,6 +103,7 @@ function moveCharacter(world: World, eid: number): void {
         body.type.column[eid] !== BodyType.Kinematic
     )
         throw new Error(`Character entity ${eid} requires a kinematic capsule Body`);
+    applyTransformPose(world, eid);
     const character = world.storage(Character);
     const s = world.resource(characterScratch);
     // Pose-driven kinematics must stay in the solver's live publish set, without periodic wake/clone churn.
@@ -161,7 +164,8 @@ function moveCharacter(world: World, eid: number): void {
     position.z = result[2];
     const normals = character.groundNormal.column;
     const groundVelocity = character.groundVelocity.column;
-    const positions = body.position.column;
+    const pose = world.storage(Transform);
+    const positions = pose.translation.column;
     for (let i = 0; i < 3; ++i) {
         velocity[offset + i] = result[3 + i];
         normals[offset + i] = result[8 + i];
@@ -175,7 +179,7 @@ function moveCharacter(world: World, eid: number): void {
     character.velocity.markChanged(eid);
     character.groundNormal.markChanged(eid);
     character.groundVelocity.markChanged(eid);
-    body.position.markChanged(eid);
+    pose.translation.markChanged(eid);
     character.pogoVelocity.column[eid] = result[6];
     character.pogoVelocity.markChanged(eid);
     character.groundState.set(eid, words[7]);

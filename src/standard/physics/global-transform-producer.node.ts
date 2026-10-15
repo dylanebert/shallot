@@ -1,8 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
-import { expectWarning } from "../../../scripts/test-console";
-import { Body, BodyType } from "../../core/physics";
+import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { Time } from "../../engine";
 import { PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
@@ -57,21 +56,27 @@ test("a body falling asleep publishes zero ECS velocity, and waking publishes it
     }
 });
 
-test("physics warns once per entity carrying Body and Transform, not for either alone", async () => {
+test("a falling body spawns from Transform and writes its pose back each step", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const world = app.world;
         const body = world.create();
-        world.add(body, Body);
-        const transform = world.create();
-        world.add(transform, Transform);
-        world.step(Time.FIXED_DT);
-        const both = world.create();
-        world.add(both, Body);
-        world.add(both, Transform);
-        expectWarning(new RegExp(`physics-sync: entity ${both} carries both Body and Transform`));
-        world.step(Time.FIXED_DT);
-        world.step(Time.FIXED_DT);
+        world.add(body, Transform, { translation: [3, 10, 4], rotation: [0, 0, 1, 0] });
+        world.add(body, Body, { type: BodyType.Dynamic });
+        world.add(body, Shape);
+        const pose = world.storage(Transform);
+        const global = world.storage(GlobalTransform);
+        let previousY = 10;
+        for (let tick = 0; tick < 3; tick++) {
+            world.tick();
+            expect(pose.translation.x.get(body)).toBe(3);
+            expect(pose.translation.z.get(body)).toBe(4);
+            expect(pose.rotation.z.get(body)).toBe(1);
+            expect(pose.translation.y.get(body)).toBeLessThan(previousY);
+            expect(pose.translation.y.get(body)).toBe(global.translation.y.get(body));
+            expect(pose.rotation.z.get(body)).toBe(global.rotation.z.get(body));
+            previousY = pose.translation.y.get(body);
+        }
     } finally {
         app.dispose();
     }

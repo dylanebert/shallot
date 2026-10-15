@@ -5,7 +5,7 @@ import { expectError, expectWarning } from "../../../scripts/test-console";
 setDefaultTimeout(TIMEOUT.node);
 
 import { Body, BodyType, Shape } from "../../core/physics";
-import { GlobalTransform } from "../../core/transform";
+import { GlobalTransform, Transform } from "../../core/transform";
 import { hashPhysics, StandardPhysicsPlugin } from "../../standard/physics";
 import "../../standard";
 
@@ -246,13 +246,12 @@ test("StandardPhysicsPlugin builds and steps without navigator.gpu", async () =>
     }
 });
 
-test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
+test("live Physics apps keep their component values and solver worlds isolated", async () => {
     const author = (world: World, y: number) => {
         const eid = world.create();
+        world.add(eid, Transform, { translation: [0, y, 0] });
         world.add(eid, Body, { type: BodyType.Dynamic });
         world.add(eid, Shape);
-        const body = world.storage(Body);
-        body.position.set(eid, 0, y, 0, 0);
         return eid;
     };
     const first = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
@@ -263,10 +262,10 @@ test("live Physics apps keep their authored component values and solver worlds i
 
     const second = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const secondEid = author(second.world, 20);
-    expect(second.world.storage(Body).position.y.get(secondEid)).toBe(20);
-    expect(first.world.storage(Body).position.y.get(firstEid)).toBe(2);
-    expect(first.world.storage(Body).position.column).not.toBe(
-        second.world.storage(Body).position.column,
+    expect(second.world.storage(Transform).translation.y.get(secondEid)).toBe(20);
+    expect(first.world.storage(Transform).translation.y.get(firstEid)).toBeLessThan(2);
+    expect(first.world.storage(Transform).translation.column).not.toBe(
+        second.world.storage(Transform).translation.column,
     );
     expect(() => globalTransformTable(first.world)).toThrow("RenderingPlugin");
     expect(() => globalTransformTable(second.world)).toThrow("RenderingPlugin");
@@ -280,10 +279,9 @@ test("live Physics apps keep their authored component values and solver worlds i
 test("two live Physics apps keep sibling bodies and hash unchanged when only one steps", async () => {
     const author = (world: World, y: number) => {
         const eid = world.create();
+        world.add(eid, Transform, { translation: [0, y, 0] });
         world.add(eid, Body, { type: BodyType.Dynamic });
         world.add(eid, Shape);
-        const body = world.storage(Body);
-        body.position.set(eid, 0, y, 0, 0);
         return eid;
     };
     let first: Awaited<ReturnType<typeof createApp>> | undefined;
@@ -340,7 +338,7 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
         const eid = world.create();
         world.add(eid, Body);
         world.add(eid, Shape);
-        world.storage(Body).position.set(eid, 0, 2, 0, 0);
+        world.storage(Transform).translation.set(eid, 0, 2, 0);
         world.storage(Body).type.set(eid, BodyType.Dynamic);
         return eid;
     };

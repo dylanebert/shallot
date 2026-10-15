@@ -1,4 +1,4 @@
-import { Body, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { Body, createApp, Shape, StandardPhysicsPlugin, Transform } from "@dylanebert/shallot";
 import { BodyType } from "../common/types";
 import { PhysicsEvents } from "../events";
 import { setLinearVelocity } from "../runtime";
@@ -18,7 +18,8 @@ export default async function create(input: string) {
     const world = app.world;
     world.resource(PhysicsWorldDefinition).enableSleep = false;
     const ground = world.create();
-    world.add(ground, Body, { type: BodyType.Static, position: [0, -0.5, 0] });
+    world.add(ground, Transform, { translation: [0, -0.5, 0] });
+    world.add(ground, Body, { type: BodyType.Static });
     world.add(ground, Shape, {
         scale: [200, 1, 200],
         enableHitEvents: 1,
@@ -29,10 +30,10 @@ export default async function create(input: string) {
     const boxes: number[] = [];
     for (let i = 0; i < count; i++) {
         const box = world.create();
-        world.add(box, Body, {
-            type: BodyType.Dynamic,
-            position: [(i % side) * 3 - side * 1.5, 0.5, Math.floor(i / side) * 3 - side * 1.5],
+        world.add(box, Transform, {
+            translation: [(i % side) * 3 - side * 1.5, 0.5, Math.floor(i / side) * 3 - side * 1.5],
         });
+        world.add(box, Body, { type: BodyType.Dynamic });
         world.add(box, Shape, {
             enableHitEvents: 1,
             userMaterialIdLow: i + 1,

@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { createApp } from "../../src/engine";
 import { Body, BodyType, Shape, ShapeKind } from "../../src/core/physics";
+import { Transform } from "../../src/core/transform";
 import { GlobalTransform } from "../../src/core/transform";
 import { hashPhysics, StandardPhysicsPlugin } from "../../src/standard/physics";
 import { nativeSseOutput } from "./native-evidence";
@@ -19,11 +20,13 @@ test("two ECS Shape entities form one Box3D body with native compound collision 
     try {
         const world = app.world;
         const floor = world.create();
-        world.add(floor, Body, { position: [0, -0.5, 0, 0] });
+        world.add(floor, Transform, { translation: [0, -0.5, 0] });
+        world.add(floor, Body);
         world.add(floor, Shape, { scale: [10, 1, 10, 0] });
 
         const body = world.create();
-        world.add(body, Body, { type: BodyType.Dynamic, position: [0, 0.4, 0, 0] });
+        world.add(body, Transform, { translation: [0, 0.4, 0] });
+        world.add(body, Body, { type: BodyType.Dynamic });
         const left = world.create();
         world.add(left, Shape, { body, kind: ShapeKind.Hull, scale: [1, 1, 1, 0] });
         const right = world.create();

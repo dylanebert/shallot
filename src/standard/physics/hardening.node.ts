@@ -11,6 +11,7 @@ import {
     StandardPhysicsPlugin,
     setLinearVelocity,
 } from "@dylanebert/shallot/standard/physics";
+import { Transform } from "@dylanebert/shallot/transform";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import type { PhysicsSnapshot } from "./api";
@@ -37,8 +38,8 @@ function addBody(
         density: data.density,
         friction: data.friction ?? 0.5,
     });
-    world.storage(Body).position.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
-    world.storage(Body).rotation.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
+    world.storage(Transform).translation.set(eid, data.pos[0], data.pos[1], data.pos[2]);
+    world.storage(Transform).rotation.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
     world.storage(Body).type.set(eid, BodyType.Dynamic);
     return eid;
 }

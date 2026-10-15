@@ -50,7 +50,7 @@ test("placement interpolation uploads one GlobalTransform range and preserves un
         const eid = world.create();
         world.add(eid, Body);
         world.add(eid, Shape);
-        body.position.set(eid, 0, y, 0, 0);
+        world.storage(Transform).translation.set(eid, 0, y, 0);
         body.type.set(eid, BodyType.Dynamic);
         return eid;
     }

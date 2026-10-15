@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Time, World } from "@dylanebert/shallot";
+import { Time, Transform, World } from "@dylanebert/shallot";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "@dylanebert/shallot/physics";
 import type { Pos, Vec3 } from "../common/records";
 import { castRay, castRayClosest, StandardPhysicsPlugin } from "../runtime";
@@ -17,7 +17,8 @@ async function spheres(...positions: number[]): Promise<World> {
         world.addSystem(system, StandardPhysicsPlugin.name);
     for (const x of positions) {
         const body = world.create();
-        world.add(body, Body, { type: BodyType.Static, position: [x, 0, 0, 0] });
+        world.add(body, Transform, { translation: [x, 0, 0] });
+        world.add(body, Body, { type: BodyType.Static });
         world.add(body, Shape, { kind: ShapeKind.Sphere, sphereCenter: [0, 0, 0], radius: 0.5 });
     }
     world.step(Time.FIXED_DT);

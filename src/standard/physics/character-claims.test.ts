@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
-import { GlobalTransform } from "../../core/transform";
+import { GlobalTransform, Transform } from "../../core/transform";
 import { Time, World } from "../../engine";
 import { characterScratch } from "./character";
 import {
@@ -22,10 +22,8 @@ async function scene() {
     for (const system of [...StandardPhysicsPlugin.systems!, ...CharacterPlugin.systems!])
         world.addSystem(system);
     const eid = world.create();
-    world.add(eid, Body, {
-        type: BodyType.Kinematic,
-        position: [0, 0.9, 0, 0],
-    });
+    world.add(eid, Transform, { translation: [0, 0.9, 0] });
+    world.add(eid, Body, { type: BodyType.Kinematic });
     world.add(eid, Shape, { kind: ShapeKind.Capsule });
     world.storage(Shape).capsuleCenter1.set(eid, 0, -0.5, 0, 0);
     world.storage(Shape).capsuleCenter2.set(eid, 0, 0.5, 0, 0);
@@ -44,12 +42,12 @@ async function scene() {
 test("the kinematic capsule mirrors the resolved endpoint without a second move or the rigid solver's speed cap", async () => {
     const { world, eid, dispose } = await scene();
     try {
-        world.storage(Body).position.set(eid, 0, 100, 0, 0);
+        world.storage(Transform).translation.set(eid, 0, 100, 0);
         const c = world.storage(Character);
         c.velocity.set(eid, 1200, 0, 0, 0);
         world.step(Time.FIXED_DT);
         const endpoint = Math.fround(1200 * Math.fround(Time.FIXED_DT));
-        expect(world.storage(Body).position.x.get(eid)).toBe(endpoint);
+        expect(world.storage(Transform).translation.x.get(eid)).toBe(endpoint);
         expect(world.storage(Body).type.get(eid)).toBe(BodyType.Kinematic);
         const position = world.storage(GlobalTransform).translation;
         expect([position.x.get(eid), position.y.get(eid), position.z.get(eid)]).toEqual([
@@ -63,7 +61,7 @@ test("the kinematic capsule mirrors the resolved endpoint without a second move 
             c.velocity.set(eid, 3, 0, 0, 0);
             world.step(Time.FIXED_DT);
             expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(
-                world.storage(Body).position.x.get(eid),
+                world.storage(Transform).translation.x.get(eid),
             );
         }
     } finally {
@@ -94,7 +92,8 @@ test("ascending platform carry stays grounded, but a jump relative to that platf
 
 const floor = (world: World, type: BodyType = BodyType.Static) => {
     const eid = world.create();
-    world.add(eid, Body, { type, position: [0, -0.5, 0, 0] });
+    world.add(eid, Transform, { translation: [0, -0.5, 0] });
+    world.add(eid, Body, { type });
     world.add(eid, Shape, { scale: [40, 1, 40, 0] });
     return eid;
 };
@@ -124,7 +123,7 @@ test("a stepped character excludes every shape on its own body from planes and i
         expect(s.count).toBeGreaterThan(0);
         for (let i = 0; i < s.count; ++i) expect(shapeBodyId(state, s.shapes[i])).not.toBe(own);
         expect(world.storage(Character).groundNormal.y.get(eid)).toBe(1);
-        expect(world.storage(Body).position.x.get(eid)).toBeCloseTo(0.6, 6);
+        expect(world.storage(Transform).translation.x.get(eid)).toBeCloseTo(0.6, 6);
     } finally {
         dispose();
     }
@@ -134,11 +133,12 @@ test("ground above maxSlope reports steep ground and its normal", async () => {
     const { world, eid, dispose } = await scene();
     try {
         const slope = world.create();
-        world.add(slope, Body, {
+        world.add(slope, Transform, {
             rotation: [0, 0, Math.sin(0.25), Math.cos(0.25)],
         });
+        world.add(slope, Body);
         world.add(slope, Shape, { scale: [40, 0.2, 40, 0] });
-        world.storage(Body).position.set(eid, 0, 1.8, 0, 0);
+        world.storage(Transform).translation.set(eid, 0, 1.8, 0);
         const c = world.storage(Character);
         c.maxSlope.set(eid, 0.1);
         c.velocity.set(eid, 3, -3, 1, 0);
@@ -171,7 +171,7 @@ test("a sideways-moving kinematic platform reports velocity but does not carry t
                 c.groundVelocity.y.get(eid),
                 c.groundVelocity.z.get(eid),
             ]).toEqual([2, 0, 0]);
-            expect(world.storage(Body).position.x.get(eid)).toBe(0);
+            expect(world.storage(Transform).translation.x.get(eid)).toBe(0);
             expect(c.velocity.x.get(eid)).toBe(0);
         }
         expect(world.storage(GlobalTransform).translation.x.get(platform)).toBeGreaterThan(0);
@@ -185,7 +185,8 @@ async function walkInto(stepHeight: number, steepWalls: number): Promise<number>
     try {
         floor(world);
         const step = world.create();
-        world.add(step, Body, { type: BodyType.Static, position: [0, stepHeight / 2, -3, 0] });
+        world.add(step, Transform, { translation: [0, stepHeight / 2, -3] });
+        world.add(step, Body, { type: BodyType.Static });
         world.add(step, Shape, { scale: [8, stepHeight, 2, 0] });
         const c = world.storage(Character);
         c.pogoRest.set(eid, 1 + 0.05 / 0.3);

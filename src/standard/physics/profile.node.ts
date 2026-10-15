@@ -3,6 +3,7 @@ import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
 import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { Transform } from "@dylanebert/shallot/transform";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { cpuTotal } from "../../extras/profile/cpu";
 
@@ -24,8 +25,8 @@ test("composed physics records phases as parts of its scheduler timing", async (
     world.add(eid, Body);
     world.add(eid, Shape);
     const bodies = world.storage(Body);
-    bodies.position.set(eid, 0, 5, 0, 0);
-    bodies.rotation.set(eid, 0, 0, 0, 1);
+    world.storage(Transform).translation.set(eid, 0, 5, 0);
+    world.storage(Transform).rotation.set(eid, 0, 0, 0, 1);
     bodies.type.set(eid, BodyType.Dynamic);
     // A phase with no work can read 0 ms on a real clock and go unrecorded; each read advances 1 ms here.
     let clock = 0;

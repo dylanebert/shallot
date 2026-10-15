@@ -114,8 +114,6 @@ test("a post-spawn awake write survives the spawn-time Body mark", async () => {
         const eid = world.create();
         world.add(eid, Body, {
             type: BodyType.Dynamic,
-            position: [0, 0, 0, 0],
-            rotation: [0, 0, 0, 1],
             linearVelocity: [0, 0, 0, 0],
             angularVelocity: [0, 0, 0, 0],
             linearDamping: 0,
@@ -387,9 +385,11 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
 test("changing Shape.body reattaches the collider to its new Body entity", async () => {
     await withPhysics((world) => {
         const firstBody = world.create();
-        world.add(firstBody, Body, { position: [1, 0, 0, 0] });
+        world.add(firstBody, Transform, { translation: [1, 0, 0] });
+        world.add(firstBody, Body);
         const secondBody = world.create();
-        world.add(secondBody, Body, { position: [2, 0, 0, 0] });
+        world.add(secondBody, Transform, { translation: [2, 0, 0] });
+        world.add(secondBody, Body);
         const shapeEntity = world.create();
         world.add(shapeEntity, Shape, { body: firstBody });
         world.tick();
@@ -532,8 +532,6 @@ test("Body definition writes reach Box3D through its setters after spawn", async
         const eid = world.create();
         world.add(eid, Body, {
             type: BodyType.Dynamic,
-            position: [0, 0, 0, 0],
-            rotation: [0, 0, 0, 1],
             linearVelocity: [0, 0, 0, 0],
             angularVelocity: [0, 0, 0, 0],
             linearDamping: 0,
@@ -611,8 +609,6 @@ test("unchanged Body definition writes call no Box3D body setter", async () => {
         const eid = world.create();
         world.add(eid, Body, {
             type: BodyType.Dynamic,
-            position: [0, 0, 0, 0],
-            rotation: [0, 0, 0, 1],
             linearVelocity: [0, 0, 0, 0],
             angularVelocity: [0, 0, 0, 0],
             linearDamping: 0,
@@ -667,8 +663,6 @@ test("Body.isAwake is spawn-only", async () => {
         const eid = world.create();
         world.add(eid, Body, {
             type: BodyType.Dynamic,
-            position: [0, 0, 0, 0],
-            rotation: [0, 0, 0, 1],
             linearVelocity: [0, 0, 0, 0],
             angularVelocity: [0, 0, 0, 0],
             linearDamping: 0,
@@ -705,8 +699,6 @@ test("a Body field edit survives frame mark clearing and snapshot restore", asyn
         const eid = world.create();
         world.add(eid, Body, {
             type: BodyType.Dynamic,
-            position: [0, 0, 0, 0],
-            rotation: [0, 0, 0, 1],
             linearVelocity: [0, 0, 0, 0],
             angularVelocity: [0, 0, 0, 0],
             gravityScale: 1,
@@ -739,10 +731,12 @@ test("a Body field edit survives frame mark clearing and snapshot restore", asyn
 test("a corrected dynamic body's published velocity agrees with its solver body after one tick", async () => {
     await withPhysics((world) => {
         const floor = world.create();
-        world.add(floor, Body, { position: [0, -0.5, 0, 0] });
+        world.add(floor, Transform, { translation: [0, -0.5, 0] });
+        world.add(floor, Body);
         world.add(floor, Shape, { scale: [20, 1, 20, 0] });
         const eid = world.create();
-        world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 0.5, 0, 0] });
+        world.add(eid, Transform, { translation: [0, 0.5, 0] });
+        world.add(eid, Body, { type: BodyType.Dynamic });
         world.tick();
         setLinearVelocity(world, eid, { x: 4, y: 0, z: 0 });
         const saved = world.snapshot();
@@ -816,9 +810,9 @@ function addDynamicMotorPair(world: World): [number, number] {
         [a, -1],
         [b, 1],
     ] as const) {
+        world.add(eid, Transform, { translation: [x, 0, 0] });
         world.add(eid, Body, {
             type: BodyType.Dynamic,
-            position: [x, 0, 0, 0],
             gravityScale: 0,
             linearDamping: 0,
             angularDamping: 0,
@@ -1141,16 +1135,21 @@ test("joint endpoint changes recreate the solver joint", async () => {
     });
 });
 
-test("physics sync warns when Transform is added to a bound Body", async () => {
+test("a bound static Body applies a marked Transform pose on the next step", async () => {
     await withPhysics((world) => {
         const eid = world.create();
         world.add(eid, Body);
         world.tick();
-        expect(physicsBodyIndex(world, eid) >= 0).toBe(true);
-
-        world.add(eid, Transform);
-        expectWarning(new RegExp(`physics-sync: entity ${eid} carries both Body and Transform`));
+        expect(world.has(eid, Transform)).toBe(true);
+        world.storage(Transform).translation.set(eid, 4, 5, 6);
         world.tick();
+        expect(
+            bodyGetTransform(stateFor(world), bodyIndex(world, eid), {
+                p: { x: 0, y: 0, z: 0 },
+                q: { v: { x: 0, y: 0, z: 0 }, s: 1 },
+            }).p,
+        ).toEqual({ x: 4, y: 5, z: 6 });
+        expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(4);
     });
 });
 

@@ -40,16 +40,12 @@ async function scene(y = 2, offset = 0) {
             world.add(camera, Camera);
             world.add(camera, Transform);
             floor = world.create();
-            world.add(floor, Body, {
-                type: BodyType.Kinematic,
-                position: [offset, offset, 0, 0],
-            });
+            world.add(floor, Transform, { translation: [offset, offset, 0] });
+            world.add(floor, Body, { type: BodyType.Kinematic });
             world.add(floor, Shape, { scale: [8, 1, 8, 0] });
             player = world.create();
-            world.add(player, Body, {
-                type: BodyType.Kinematic,
-                position: [offset, offset + y, 0, 0],
-            });
+            world.add(player, Transform, { translation: [offset, offset + y, 0] });
+            world.add(player, Body, { type: BodyType.Kinematic });
             world.add(player, Shape, { kind: ShapeKind.Capsule });
             world.storage(Shape).capsuleCenter1.set(player, 0, -0.6, 0, 0);
             world.storage(Shape).capsuleCenter2.set(player, 0, 0.6, 0, 0);
@@ -207,13 +203,12 @@ async function walkAtStep(height: number): Promise<boolean> {
             world.add(floor, Body, { type: BodyType.Static });
             world.add(floor, Shape, { scale: [40, 1, 40, 0] });
             const step = world.create();
-            world.add(step, Body, {
-                type: BodyType.Static,
-                position: [0, 0.5 + height / 2, -3, 0],
-            });
+            world.add(step, Transform, { translation: [0, 0.5 + height / 2, -3] });
+            world.add(step, Body, { type: BodyType.Static });
             world.add(step, Shape, { scale: [8, height, 2, 0] });
             player = world.create();
-            world.add(player, Body, { type: BodyType.Kinematic, position: [0, 2, 0, 0] });
+            world.add(player, Transform, { translation: [0, 2, 0] });
+            world.add(player, Body, { type: BodyType.Kinematic });
             world.add(player, Shape, { kind: ShapeKind.Capsule });
             world.storage(Shape).capsuleCenter1.set(player, 0, -0.6, 0, 0);
             world.storage(Shape).capsuleCenter2.set(player, 0, 0.6, 0, 0);

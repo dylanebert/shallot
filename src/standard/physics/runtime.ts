@@ -1,7 +1,13 @@
 /// <reference types="@webgpu/types" />
 
 import { Body, BodyType, PhysicsPlugin, Shape as ShapeComponent } from "../../core/physics";
-import { GlobalTransform, resetInterpolation, Transform } from "../../core/transform";
+import {
+    claimTransformPose,
+    GlobalTransform,
+    releaseTransformPose,
+    resetInterpolation,
+    Transform,
+} from "../../core/transform";
 import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
 import { clamp } from "../../engine/utils";
 import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
@@ -124,6 +130,7 @@ export interface PhysicsCounters {
 interface PhysicsRuntime {
     initialized: boolean;
     bodyCandidates: FieldCandidates;
+    poseCandidates: FieldCandidates;
     shapeCandidates: FieldCandidates;
     warnedBodyFields: Set<number>;
     shapes: Map<number, EntityId>;
@@ -138,7 +145,6 @@ interface PhysicsRuntime {
     warnedShapes: Set<number>;
     physicsWorld: WorldState | null;
     bodies: Map<number, BoundBodyId>;
-    placementWarnings: Map<number, EntityRef>;
     constraints: ConstraintCache;
     stale: StaleScan;
     counters: PhysicsCounters;
@@ -205,6 +211,7 @@ function newRuntime(): PhysicsRuntime {
     const runtime: PhysicsRuntime = {
         initialized: false,
         bodyCandidates: createFieldCandidates(),
+        poseCandidates: createFieldCandidates(),
         shapeCandidates: createFieldCandidates(),
         warnedBodyFields: new Set(),
         shapes: new Map(),
@@ -219,7 +226,6 @@ function newRuntime(): PhysicsRuntime {
         warnedShapes: new Set(),
         physicsWorld: null,
         bodies: new Map(),
-        placementWarnings: new Map(),
         constraints: createConstraintCache(),
         stale: { world: null, eids: [], count: 0 },
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
@@ -523,7 +529,8 @@ function seedGlobalTransform(world: World, eid: number, state: WorldState, body:
     );
 }
 
-function forget(runtime: PhysicsRuntime, eid: number): void {
+function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
+    releaseTransformPose(world, eid);
     for (const [shapeEid, bodyEid] of runtime.shapeBodies)
         if (bodyEid === eid) retireShapeEntity(runtime, runtime.shapes.get(shapeEid));
     const body = runtime.bodies.get(eid);
@@ -543,7 +550,8 @@ function forget(runtime: PhysicsRuntime, eid: number): void {
         runtime.warnedBodyFields.delete(eid * 32 + fieldIndex);
 }
 
-function clearBodies(runtime: PhysicsRuntime): void {
+function clearBodies(world: World, runtime: PhysicsRuntime): void {
+    for (const eid of runtime.bodies.keys()) releaseTransformPose(world, eid);
     const state = runtime.physicsWorld;
     if (state)
         for (const body of runtime.bodies.values())
@@ -554,6 +562,7 @@ function clearBodies(runtime: PhysicsRuntime): void {
     clearShapeEntities(runtime);
     runtime.shapeStamps.clear();
     runtime.shapeRecreationState.clear();
+    clearFieldCandidates(runtime.poseCandidates);
     runtime.warnedShapes.clear();
     clearFieldCandidates(runtime.shapeCandidates);
     runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
@@ -862,6 +871,9 @@ export function setTransform(
     stateVelocityTuple[1] = stateVelocity.y;
     stateVelocityTuple[2] = stateVelocity.z;
     writeGlobalTransform(world, eid, position, rotation, stateVelocityTuple);
+    const pose = world.storage(Transform);
+    pose.translation.set(eid, position[0], position[1], position[2]);
+    pose.rotation.set(eid, rotation[0], rotation[1], rotation[2], rotation[3]);
     resetInterpolation(world, eid);
 }
 
@@ -1010,6 +1022,7 @@ interface Bindings {
     changed: Uint32Array | null;
     /** pending body field candidates as [eid, field mask] pairs */
     bodyCandidates: [number, number][];
+    poseCandidates: [number, number][];
     full: boolean;
     /** geometry builds by registry id, re-paired with core's restored definitions */
     geometry: GeometryBuilds;
@@ -1054,6 +1067,7 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
         ]),
         constraints: captureConstraints(runtime.constraints, warmWorld(runtime)),
         bodyCandidates: captureBodyCandidates(runtime.bodyCandidates),
+        poseCandidates: captureBodyCandidates(runtime.poseCandidates),
         changed: runtime.anyChanged ? runtime.changed.slice() : null,
         full: runtime.full,
         geometry: captureGeometryBuilds(world),
@@ -1071,6 +1085,7 @@ function restoreBindings(
         copyPhysicsWorldDefinition(b.worldDefinition),
     );
     const state = physicsWorld;
+    for (const eid of runtime.bodies.keys()) releaseTransformPose(world, eid);
     runtime.bodies.clear();
     runtime.shapes.clear();
     runtime.shapeBodies.clear();
@@ -1079,6 +1094,7 @@ function restoreBindings(
     runtime.shapeRecreationState.clear();
     for (let i = 0; i < b.bodies.length; i += 4) {
         const eid = b.bodies[i];
+        claimTransformPose(world, eid);
         runtime.bodies.set(eid, {
             index1: b.bodies[i + 1],
             world0: state.worldId,
@@ -1106,6 +1122,11 @@ function restoreBindings(
     for (const [eid, fieldMask] of b.bodyCandidates) {
         markFieldCandidate(runtime.bodyCandidates, eid);
         runtime.bodyCandidates.fieldMarks[eid] = fieldMask;
+    }
+    clearFieldCandidates(runtime.poseCandidates);
+    for (const [eid, fieldMask] of b.poseCandidates) {
+        markFieldCandidate(runtime.poseCandidates, eid);
+        runtime.poseCandidates.fieldMarks[eid] = fieldMask;
     }
     clearFieldCandidates(runtime.shapeCandidates);
     for (const [eid, fieldMask] of b.shapeCandidates) {
@@ -1450,6 +1471,69 @@ function rebuildPhysicsEvents(world: World, runtime: PhysicsRuntime): void {
     pruneShapeEntities(runtime);
 }
 
+/** @internal Applies a marked teleport before a pose producer consumes the body's pose. */
+export function applyTransformPose(world: World, eid: number): void {
+    const positions = world.fieldStorage(Transform, "translation").dirty;
+    const rotations = world.fieldStorage(Transform, "rotation").dirty;
+    const runtime = runtimeFor(world);
+    if (
+        ((positions[eid >>> 5] | rotations[eid >>> 5]) & (1 << (eid & 31))) === 0 &&
+        !runtime.poseCandidates.fieldMarks[eid]
+    )
+        return;
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return;
+    const pose = world.storage(Transform);
+    const p = pose.translation.column;
+    const q = pose.rotation.column;
+    const current = bodyGetTransform(state, body.index1 - 1, spawnTransform);
+    const offset = eid * 4;
+    if (
+        Object.is(p[offset], current.p.x) &&
+        Object.is(p[offset + 1], current.p.y) &&
+        Object.is(p[offset + 2], current.p.z) &&
+        Object.is(q[offset], current.q.v.x) &&
+        Object.is(q[offset + 1], current.q.v.y) &&
+        Object.is(q[offset + 2], current.q.v.z) &&
+        Object.is(q[offset + 3], current.q.s)
+    )
+        return;
+    statePos.x = p[offset];
+    statePos.y = p[offset + 1];
+    statePos.z = p[offset + 2];
+    stateQuat.v.x = q[offset];
+    stateQuat.v.y = q[offset + 1];
+    stateQuat.v.z = q[offset + 2];
+    stateQuat.s = q[offset + 3];
+    bodySetTransform(state, body.index1 - 1, statePos, stateQuat);
+    const global = world.storage(GlobalTransform);
+    global.translation.set(eid, statePos.x, statePos.y, statePos.z);
+    global.rotation.set(eid, stateQuat.v.x, stateQuat.v.y, stateQuat.v.z, stateQuat.s);
+}
+
+function capturePoseCandidates(world: World, runtime: PhysicsRuntime): void {
+    const positions = world.fieldStorage(Transform, "translation").dirty;
+    const rotations = world.fieldStorage(Transform, "rotation").dirty;
+    const words = Math.max(positions.length, rotations.length);
+    for (let word = 0; word < words; word++) {
+        let bits = positions[word] | rotations[word];
+        while (bits !== 0) {
+            const mask = bits & -bits;
+            bits ^= mask;
+            const eid = (word << 5) | (31 - Math.clz32(mask));
+            if (runtime.bodies.has(eid)) markFieldCandidate(runtime.poseCandidates, eid, 0);
+        }
+    }
+}
+
+function applyTransformPoses(world: World, runtime: PhysicsRuntime): void {
+    capturePoseCandidates(world, runtime);
+    const candidates = runtime.poseCandidates;
+    for (let i = 0; i < candidates.count; i++) applyTransformPose(world, candidates.eids[i]);
+    clearFieldCandidates(candidates);
+}
+
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
 export const StepPhysicsSystem: System = {
     name: "step",
@@ -1458,6 +1542,7 @@ export const StepPhysicsSystem: System = {
         const runtime = runtimeFor(world);
         const physicsWorld = runtime.physicsWorld;
         if (!physicsWorld) return;
+        applyTransformPoses(world, runtime);
         stepWorld(
             physicsWorld,
             fixedDeltaTime,
@@ -1479,6 +1564,9 @@ export const StepPhysicsSystem: System = {
         global.translation.writeEncoded(rows.eids, rows.pos);
         global.rotation.writeEncoded(rows.eids, rows.quat);
         global.linearVelocity.writeEncoded(rows.eids, rows.vel);
+        const pose = world.storage(Transform);
+        pose.translation.writeEncoded(rows.eids, rows.pos);
+        pose.rotation.writeEncoded(rows.eids, rows.quat);
     },
 };
 
@@ -1504,6 +1592,7 @@ export const CollectPhysicsFieldCandidatesSystem: System = {
     boundary: "after",
     update(world) {
         const runtime = runtimeFor(world);
+        capturePoseCandidates(world, runtime);
         captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
         captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
         captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
@@ -1517,6 +1606,7 @@ export const CollectDrawPhysicsFieldCandidatesSystem: System = {
     boundary: "after",
     update(world) {
         const runtime = runtimeFor(world);
+        capturePoseCandidates(world, runtime);
         captureFieldCandidate(world, runtime.bodyCandidates, bodyBinding(world));
         captureFieldCandidate(world, runtime.shapeCandidates, shapeBinding(world));
         captureFieldCandidates(world, runtime.constraints.candidates, jointBindings(world));
@@ -1551,23 +1641,18 @@ function visitBody(
     eid: number,
 ): boolean {
     const stamp = world.ref(eid);
-    if (world.has(eid, Transform)) {
-        const warning = runtime.placementWarnings.get(eid);
-        if (!warning || !world.resolve(warning)) {
-            console.warn(
-                `physics-sync: entity ${eid} carries both Body and Transform; both write GlobalTransform`,
-            );
-            runtime.placementWarnings.set(eid, stamp);
-        }
-    }
     const bound = runtime.bodies.get(eid);
     if (bound) {
-        if (world.resolve(bound.stamp)) return false;
-        forget(runtime, eid); // recycled to a new Body in one update
+        if (world.resolve(bound.stamp)) {
+            claimTransformPose(world, eid);
+            return false;
+        }
+        forget(world, runtime, eid); // recycled to a new Body in one update
     }
     const tb = marshalBody(world, physicsWorld, eid);
     kernel(world).bodySetEntity(tb.world0, tb.index1 - 1, eid);
     runtime.bodies.set(eid, { ...tb, stamp });
+    claimTransformPose(world, eid);
     clearFieldCandidate(runtime.bodyCandidates, eid);
     seedGlobalTransform(world, eid, physicsWorld, tb);
     resetInterpolation(world, eid);
@@ -1733,7 +1818,7 @@ const SyncSystem: System = {
             stale.world = null;
             for (let i = 0; i < stale.count; i++) {
                 const eid = stale.eids[i];
-                forget(runtime, eid);
+                forget(world, runtime, eid);
                 bodySetChanged = true;
             }
         }
@@ -1797,7 +1882,12 @@ export const StandardPhysicsPlugin: Plugin = {
         runtime.initialized = true;
         if (!runtime.observing) {
             runtime.observing = true;
-            world.onDispose(world.observeMembership(Body, (eid) => markChanged(runtime, eid)));
+            world.onDispose(
+                world.observeMembership(Body, (eid, present) => {
+                    if (!present) releaseTransformPose(world, eid);
+                    markChanged(runtime, eid);
+                }),
+            );
             world.onDispose(
                 world.observeMembership(ShapeComponent, (eid) =>
                     markFieldCandidate(runtime.shapeCandidates, eid),
@@ -1811,11 +1901,6 @@ export const StandardPhysicsPlugin: Plugin = {
                     ),
                 );
             }
-            world.onDispose(
-                world.observeMembership(Transform, (eid, present) => {
-                    if (present && world.has(eid, Body)) markChanged(runtime, eid);
-                }),
-            );
         }
     },
 
@@ -1830,13 +1915,13 @@ export const StandardPhysicsPlugin: Plugin = {
         });
         runtime.physicsWorld = getWorld(id)!;
         syncWorldDefinition(runtime.physicsWorld, definition);
-        clearBodies(runtime);
+        clearBodies(world, runtime);
         clearPhysicsEvents(world.resource(PhysicsEvents));
     },
 
     dispose(world) {
         const runtime = runtimeFor(world);
-        clearBodies(runtime);
+        clearBodies(world, runtime);
         clearPhysicsEvents(world.resource(PhysicsEvents));
         if (runtime.physicsWorld) destroyWorld(runtime.physicsWorld);
         runtime.physicsWorld = null;

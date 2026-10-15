@@ -3,7 +3,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import { Body, BodyType } from "../../core/physics";
-import { GlobalTransform } from "../../core/transform";
+import { GlobalTransform, Transform } from "../../core/transform";
 import { Time } from "../../engine";
 import { hashPhysics, StandardPhysicsPlugin } from ".";
 
@@ -18,7 +18,8 @@ test("exact ticks then draw match frame ticks in physics hash and published fiel
     try {
         for (const app of [a, b]) {
             const eid = app.world.create();
-            app.world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 10, 0, 0] });
+            app.world.add(eid, Transform, { translation: [0, 10, 0] });
+            app.world.add(eid, Body, { type: BodyType.Dynamic });
         }
         for (let i = 0; i < 120; i++) {
             a.world.tick();

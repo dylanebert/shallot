@@ -70,7 +70,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - `GlobalTransform` is derived world placement, never authored.
 - Gameplay and physics read its fixed-tick columns; rendering owns `globalTransformTable(world)` in `core/rendering`, its GPU history and interpolation. Placement without rendering allocates no placement GPU buffers or pipelines.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
-- A body's simulation writes its `GlobalTransform` translation, rotation and velocity, not scale.
+- A body's `Transform` holds its pose, which physics writes back each step.
+- A body's pose and linear velocity reach `GlobalTransform` through physics, not Transform pose derivation; scale still derives from `Transform`.
 - Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
 - Hierarchy belongs to the domain deriving placement. A general attachment relation enters core only when two examples need the same one.
 
@@ -121,9 +122,10 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - The ECS `World` is the only public physics world; the kernel world is an internal resource of it.
 - Box3D is the correctness authority: world hashes equal its native reference with no tolerance, and authoring takes its definitions whole, with their defaults. Hashes see only simulation state; allocation, published ECS values and events need their own tests.
 - A definition field with a Box3D setter applies through that setter at the next fixed sync; a field without one applies at spawn, and its JSDoc says so.
-- A state write is a function over the `World` that maps to one Box3D call.
-- A read is the published column: pose and linear velocity are `GlobalTransform`'s. A read function exists only for state not yet published.
-- A marked field stays a candidate until physics' next fixed sync, which compares it with the kernel's current value; physics keeps no copy of ECS values.
+- A marked body `Transform.translation` or `.rotation` compares with the kernel's pose and applies any difference through Box3D's set-transform at the top of the next step, or before character movement consumes its pose.
+- Velocity writes and immediate teleports or targets stay calls over the `World`: velocity setters, `setTransform` and `setTargetTransform`; immediate teleports use `setTransform` to reset interpolation.
+- Live pose and linear velocity are read from `GlobalTransform`; a read function exists only for state not yet published.
+- A marked definition field stays a candidate until physics' next fixed sync, which compares it with the kernel's current value; physics keeps no copy of ECS values.
 - Event records and world callbacks name entities by `EntityRef`, which outlives a recycled eid; a query reports the eids of shapes and bodies live when it runs.
 - The kernel's free functions are the internal Box3D-shaped API; the parity oracles call them as their native C files call Box3D, call for call.
 - Each phase has one implementation, in the kernel, built into the shared and single-thread artifacts from one source, since a page without cross-origin isolation has no shared memory; the worker count schedules it and is not a code path. TypeScript only coordinates: the public API, the ECS and `GlobalTransform` bridge, pool dispatch, and user callbacks at serial points.

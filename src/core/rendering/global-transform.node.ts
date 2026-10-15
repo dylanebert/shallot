@@ -153,7 +153,7 @@ test("a Body publishes unit scale to fixed-tick GlobalTransform and renderer row
         const world = app.world;
         const eid = world.create();
         world.add(eid, Body);
-        world.storage(Body).position.set(eid, 12, 7, -3, 0);
+        world.storage(Transform).translation.set(eid, 12, 7, -3);
         attachTestCamera(world);
         world.step(Time.FIXED_DT);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(12);
@@ -172,7 +172,7 @@ test("a Body publishes unit scale to fixed-tick GlobalTransform and renderer row
     }
 });
 
-test("viewportToWorld reads a body camera's fixed-tick GlobalTransform without requiring Transform", async () => {
+test("viewportToWorld reads a body camera's fixed-tick GlobalTransform", async () => {
     const app = await createApp({
         defaults: false,
         plugins: [StandardPhysicsPlugin, RenderingPlugin],
@@ -182,9 +182,9 @@ test("viewportToWorld reads a body camera's fixed-tick GlobalTransform without r
         const eid = world.create();
         world.add(eid, Body);
         world.add(eid, Camera);
-        world.storage(Body).position.set(eid, 12, 7, -3, 0);
+        world.storage(Transform).translation.set(eid, 12, 7, -3);
         world.step(Time.FIXED_DT);
-        expect(world.has(eid, Transform)).toBe(false);
+        expect(world.has(eid, Transform)).toBe(true);
         const bound = attachTestCamera(world, eid);
         const viewport = world
             .resource(engine.Viewports)
@@ -201,11 +201,11 @@ test("viewportToWorld reads a body camera's fixed-tick GlobalTransform without r
 
 function addStaticBody(world: engine.World, eid: number, x: number): void {
     world.add(eid, Body);
-    world.storage(Body).position.set(eid, x, 0, 0, 0);
+    world.storage(Transform).translation.set(eid, x, 0, 0);
 }
 
 function addTransform(world: engine.World, eid: number, x: number): void {
-    world.add(eid, Transform);
+    if (!world.has(eid, Transform)) world.add(eid, Transform);
     world.storage(Transform).translation.set(eid, x, 0, 0, 0);
 }
 

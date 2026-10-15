@@ -425,7 +425,7 @@ function addBody(world: World, y: number): number {
     world.add(eid, Body);
     world.add(eid, Shape);
     const body = world.storage(Body);
-    body.position.set(eid, 0, y, 0, 0);
+    world.storage(Transform).translation.set(eid, 0, y, 0);
     body.type.set(eid, BodyType.Dynamic);
     return eid;
 }
@@ -616,7 +616,7 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(actor, Shape, { kind: ShapeKind.Capsule });
             world.add(actor, Character);
             world.add(actor, Player);
-            world.storage(Body).position.set(actor, 0, 2, 2, 0);
+            world.storage(Transform).translation.set(actor, 0, 2, 2);
             world.storage(Shape).capsuleCenter1.set(actor, 0, -0.6, 0, 0);
             world.storage(Shape).capsuleCenter2.set(actor, 0, 0.6, 0, 0);
             world.storage(Shape).radius.set(actor, 0.35);
@@ -666,7 +666,7 @@ function authorIsolationContent(
     addSpring(world, a, b);
     addJoint(world, a, b);
     (() => {
-        world.storage(Body).position.y.set(resources.actor, content.actorY);
+        world.storage(Transform).translation.y.set(resources.actor, content.actorY);
         world.storage(Camera).clearColor.set(resources.camera, content.clearColor);
         world.storage(Sky).zenith.set(resources.sky, content.skyZenith);
         world.storage(Sky).horizon.set(resources.sky, content.skyHorizon);

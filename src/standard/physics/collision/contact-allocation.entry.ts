@@ -1,4 +1,4 @@
-import { Body, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { Body, createApp, Shape, StandardPhysicsPlugin, Transform } from "@dylanebert/shallot";
 import { awakeContactCount } from "../collision/contact";
 import { SetType } from "../common/constants";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
@@ -23,10 +23,8 @@ export default async function create(input: string) {
     const world = app.world;
     const state = physicsState(world)!;
     const platform = world.create();
-    world.add(platform, Body, {
-        type: BodyType.Kinematic,
-        position: [0, -0.5, 0, 0],
-    });
+    world.add(platform, Transform, { translation: [0, -0.5, 0] });
+    world.add(platform, Body, { type: BodyType.Kinematic });
     world.add(platform, Shape, { scale: [200, 1, 200, 0] });
     const hull = makeBoxHull(0.5, 0.5, 0.5);
     const side = Math.ceil(Math.sqrt(count));

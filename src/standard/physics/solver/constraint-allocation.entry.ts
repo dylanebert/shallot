@@ -6,6 +6,7 @@ import {
     SphericalJoint,
     StandardPhysicsPlugin,
 } from "@dylanebert/shallot";
+import { Transform } from "../../../core/transform";
 import { BodyType } from "../common/types";
 import { init, shutdown } from "../kernel/kernel";
 import { quaternion } from "../kernel/math";
@@ -186,10 +187,12 @@ async function authored() {
     const bobs: number[] = [];
     for (let i = 0; i < COUNT; i++) {
         const anchor = world.create();
-        world.add(anchor, Body, { position: [i * SPACING, 10, 0, 0] });
+        world.add(anchor, Transform, { translation: [i * SPACING, 10, 0] });
+        world.add(anchor, Body);
         world.add(anchor, Shape);
         const bob = world.create();
-        world.add(bob, Body, { type: BodyType.Dynamic, position: [i * SPACING + 2.5, 10, 0, 0] });
+        world.add(bob, Transform, { translation: [i * SPACING + 2.5, 10, 0] });
+        world.add(bob, Body, { type: BodyType.Dynamic });
         world.add(bob, Shape);
         bobs.push(bob);
         if (i % 2 === 0)

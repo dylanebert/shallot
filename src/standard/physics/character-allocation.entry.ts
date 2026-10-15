@@ -1,4 +1,4 @@
-import { Body, createApp, Shape, ShapeKind } from "@dylanebert/shallot";
+import { Body, createApp, Shape, ShapeKind, Transform } from "@dylanebert/shallot";
 import {
     Character,
     CharacterPlugin,
@@ -33,16 +33,12 @@ export default async function create(input: string) {
         });
     }
     const platform = world.create();
-    world.add(platform, Body, {
-        type: BodyType.Kinematic,
-        position: [0, -0.5, 0, 0],
-    });
+    world.add(platform, Transform, { translation: [0, -0.5, 0] });
+    world.add(platform, Body, { type: BodyType.Kinematic });
     world.add(platform, Shape, { scale: [2000, 1, 2000, 0] });
     const eid = world.create();
-    world.add(eid, Body, {
-        type: BodyType.Kinematic,
-        position: [0, pushing ? 2 : 1.3, 0, 0],
-    });
+    world.add(eid, Transform, { translation: [0, pushing ? 2 : 1.3, 0] });
+    world.add(eid, Body, { type: BodyType.Kinematic });
     world.add(eid, Shape, { kind: ShapeKind.Capsule });
     world.storage(Shape).capsuleCenter1.set(eid, 0, -0.5, 0);
     world.storage(Shape).capsuleCenter2.set(eid, 0, 0.5, 0);

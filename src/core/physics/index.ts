@@ -1,14 +1,5 @@
-import {
-    component,
-    f32,
-    type Plugin,
-    Registry,
-    type Resource,
-    u32,
-    vec3,
-    vec4,
-} from "../../engine";
-import { GlobalTransform, TransformPlugin } from "../transform";
+import { component, f32, type Plugin, Registry, type Resource, u32, vec3 } from "../../engine";
+import { Transform, TransformPlugin } from "../transform";
 import { Compounds } from "./compound";
 import { HeightFields } from "./height-field";
 import { Hulls } from "./hull";
@@ -66,18 +57,15 @@ export const BodyMotionLock = {
 
 /**
  * Shared rigid-body authoring data. Standard physics uses Box3D's body-definition defaults;
- * definition fields with setters apply at the next fixed sync, while spawn pose and initial
- * velocities are read only when the body is created. Physics owns pose and velocity after spawn.
+ * definition fields with setters apply at the next fixed sync; initial velocities are spawn-only.
+ * Pose lives in Transform, which physics writes back after each step. A marked translation or
+ * rotation write teleports the body at the next step.
  */
 export const Body = component(
     "Body",
     {
         /** Box3D motion type; changing it applies at the next fixed sync. */
         type: u32,
-        /** Initial world position in meters; spawn-only. */
-        position: vec3,
-        /** Initial world rotation as `(x, y, z, w)`; spawn-only. */
-        rotation: vec4,
         /** Initial linear velocity in meters per second; spawn-only. */
         linearVelocity: vec3,
         /** Initial angular velocity in radians per second; spawn-only. */
@@ -108,8 +96,6 @@ export const Body = component(
     {
         defaults: () => ({
             type: BodyType.Static,
-            position: [0, 0, 0],
-            rotation: [0, 0, 0, 1],
             linearVelocity: [0, 0, 0],
             angularVelocity: [0, 0, 0],
             linearDamping: 0,
@@ -124,7 +110,7 @@ export const Body = component(
             allowFastRotation: 0,
             enableContactRecycling: 1,
         }),
-        requires: [GlobalTransform],
+        requires: [Transform],
     },
 );
 

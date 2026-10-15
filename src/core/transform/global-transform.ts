@@ -46,6 +46,7 @@ export const TransformRuntime: Resource<{
     placement: ComponentStorage<typeof Transform>;
     global: ComponentStorage<typeof GlobalTransform>;
     discontinuities: Uint32Array;
+    poseClaims: Uint32Array;
 }> = {
     key: Symbol.for("@dylanebert/shallot/transform/runtime"),
     create(world) {
@@ -53,9 +54,27 @@ export const TransformRuntime: Resource<{
             placement: world.storage(Transform),
             global: world.storage(GlobalTransform),
             discontinuities: new Uint32Array(1),
+            poseClaims: new Uint32Array(1),
         };
     },
 };
+/** @internal Assigns pose publication to a domain producer; scale still derives from Transform. */
+export function claimTransformPose(world: World, eid: number): void {
+    const runtime = world.resource(TransformRuntime);
+    const word = eid >>> 5;
+    if (word >= runtime.poseClaims.length) {
+        const next = new Uint32Array(Math.max(word + 1, runtime.poseClaims.length * 2));
+        next.set(runtime.poseClaims);
+        runtime.poseClaims = next;
+    }
+    runtime.poseClaims[word] |= 1 << (eid & 31);
+}
+/** @internal Returns pose publication to Transform derivation. */
+export function releaseTransformPose(world: World, eid: number): void {
+    const claims = world.resource(TransformRuntime).poseClaims;
+    const word = eid >>> 5;
+    if (word < claims.length) claims[word] &= ~(1 << (eid & 31));
+}
 /** Marks a placement discontinuity, so a presentation reader discards interpolation across the change.
  * Requires TransformPlugin; an entity without derived placement has nothing to mark. */
 export function resetInterpolation(world: World, eid: number): void {
@@ -74,37 +93,40 @@ export function deriveTransforms(world: World): void {
     const runtime = world.resource(TransformRuntime);
     const global = runtime.global,
         source = runtime.placement;
-    const pp = source.translation.column,
-        pq = source.rotation.column,
-        ps = source.scale.column;
-    const op = global.translation.column,
-        oq = global.rotation.column,
-        os = global.scale.column;
-    const pd = world.fieldStorage(GlobalTransform, "translation").dirty,
-        qd = world.fieldStorage(GlobalTransform, "rotation").dirty,
-        sd = world.fieldStorage(GlobalTransform, "scale").dirty;
     const spd = world.fieldStorage(Transform, "translation").dirty,
         sqd = world.fieldStorage(Transform, "rotation").dirty,
         ssd = world.fieldStorage(Transform, "scale").dirty;
     const words = Math.max(spd.length, sqd.length, ssd.length);
     for (let word = 0; word < words; word++) {
-        let bits = spd[word] | sqd[word] | ssd[word];
+        const claims = word < runtime.poseClaims.length ? runtime.poseClaims[word] : 0;
+        let bits = ((spd[word] | sqd[word]) & ~claims) | ssd[word];
+        if (bits === 0) continue;
+        const pp = source.translation.column,
+            pq = source.rotation.column,
+            ps = source.scale.column;
+        const op = global.translation.column,
+            oq = global.rotation.column,
+            os = global.scale.column;
+        const pd = world.fieldStorage(GlobalTransform, "translation").dirty,
+            qd = world.fieldStorage(GlobalTransform, "rotation").dirty,
+            sd = world.fieldStorage(GlobalTransform, "scale").dirty;
         while (bits !== 0) {
             const mask = bits & -bits;
             bits ^= mask;
             const eid = (word << 5) | (31 - Math.clz32(mask));
             if (!world.has(eid, Transform)) continue;
             const offset = eid * 4;
+            const claimed = (claims & mask) !== 0;
             let posChanged = false,
                 quatChanged = false,
                 scaleChanged = false;
             for (let lane = 0; lane < 4; lane++) {
                 const j = offset + lane;
-                if (!Object.is(op[j], pp[j])) {
+                if (!claimed && !Object.is(op[j], pp[j])) {
                     op[j] = pp[j];
                     posChanged = true;
                 }
-                if (!Object.is(oq[j], pq[j])) {
+                if (!claimed && !Object.is(oq[j], pq[j])) {
                     oq[j] = pq[j];
                     quatChanged = true;
                 }

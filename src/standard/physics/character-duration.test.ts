@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
+import { Transform } from "../../core/transform";
 import { Time, World } from "../../engine";
 import { Character, CharacterPlugin } from "./character";
 import gold from "./character-duration.gold.json";
@@ -27,7 +28,7 @@ test("Character's production fixed duration matches native mover free flight", a
         world.storage(Shape).radius.set(eid, 0.3);
         world.add(eid, Character, { velocity: [3, 0, 0] });
         world.step(Time.FIXED_DT);
-        const position = world.storage(Body).position;
+        const position = world.storage(Transform).translation;
         values.set([position.x.get(eid), position.y.get(eid), position.z.get(eid)]);
         console.log("character-duration", {
             position: [...words],

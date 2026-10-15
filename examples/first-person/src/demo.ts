@@ -49,7 +49,8 @@ function block(
     type: BodyType = BodyType.Static,
 ): number {
     const eid = world.create();
-    world.add(eid, Body, { type, position: at });
+    world.add(eid, Transform, { translation: at });
+    world.add(eid, Body, { type });
     world.add(eid, Shape, { scale: size });
     const mesh = world.resource(Meshes).add({
         name: `block-${eid}`,
@@ -85,8 +86,8 @@ export function route(world: World) {
     world.add(eye, StandardRenderer);
     world.add(eye, Transform, { translation: [0, 2.7, 12] });
     const player = world.create();
+    world.add(player, Transform, { translation: [0, 2, 12] });
     world.add(player, Body, {
-        position: [0, 2, 12],
         type: BodyType.Kinematic,
     });
     world.add(player, Shape, {
@@ -275,9 +276,9 @@ export const Demo = {
         for (const eid of world.query([Lift, Body])) {
             const base = bag.liftCount * 3;
             bag.liftEids[bag.liftCount] = eid;
-            bag.liftBases[base] = world.storage(Body).position.x.get(eid);
-            bag.liftBases[base + 1] = world.storage(Body).position.y.get(eid);
-            bag.liftBases[base + 2] = world.storage(Body).position.z.get(eid);
+            bag.liftBases[base] = world.storage(Transform).translation.x.get(eid);
+            bag.liftBases[base + 1] = world.storage(Transform).translation.y.get(eid);
+            bag.liftBases[base + 2] = world.storage(Transform).translation.z.get(eid);
             bag.liftCount++;
         }
     },
