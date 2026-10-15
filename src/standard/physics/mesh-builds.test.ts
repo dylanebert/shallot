@@ -137,6 +137,24 @@ test("a restored World keeps its mesh builds, so a Shape spawned after restore a
     });
 });
 
+test("a deleted mesh's build is released when it is next looked up or captured", async () => {
+    await withPhysics((world) => {
+        const meshes = world.resource(PhysicsMeshes);
+        const builds = ["looked-up", "captured"].map((name) => {
+            const id = meshes.register(quad(name));
+            const build = new WeakRef(meshBuild(world, id)!);
+            meshes.delete(name);
+            return { id, build };
+        });
+        expect(meshBuild(world, builds[0]!.id)).toBeUndefined();
+        Bun.gc(true);
+        expect(builds.map(({ build }) => build.deref() === undefined)).toEqual([true, false]);
+        world.snapshot();
+        Bun.gc(true);
+        expect(builds.map(({ build }) => build.deref() === undefined)).toEqual([true, true]);
+    });
+});
+
 test("each PhysicsMesh build option reaches Box3D's mesh build", async () => {
     await withPhysics((world) => {
         const { vertices, indices } = grid(4);

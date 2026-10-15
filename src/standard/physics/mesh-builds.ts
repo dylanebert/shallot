@@ -62,8 +62,12 @@ export function meshBuild(world: World, id: number): MeshData | undefined {
     const meshes = world.resource(PhysicsMeshes);
     const name = meshes.name(id);
     const def = name === undefined ? undefined : meshes.get(name);
-    if (!def) return undefined;
     const builds = world.resource(MeshBuilds);
+    if (!def) {
+        // A deleted mesh's input and build stay collectable instead of living until dispose.
+        builds[id] = undefined;
+        return undefined;
+    }
     const slot = builds[id];
     if (slot?.def === def) return slot.built;
     const built = build(world, def);
@@ -71,7 +75,7 @@ export function meshBuild(world: World, id: number): MeshData | undefined {
     return built;
 }
 
-/** Current builds by registry id, by reference; MeshData is immutable. */
+/** Current builds by registry id, by reference; MeshData is immutable. Releases builds whose definition was deleted or replaced. */
 export function captureMeshBuilds(world: World): [number, MeshData][] {
     const meshes = world.resource(PhysicsMeshes);
     const builds = world.resource(MeshBuilds);
@@ -79,8 +83,9 @@ export function captureMeshBuilds(world: World): [number, MeshData][] {
     for (let id = 0; id < builds.length; id++) {
         const slot = builds[id];
         const name = meshes.name(id);
-        if (slot && name !== undefined && meshes.get(name) === slot.def)
-            captured.push([id, slot.built]);
+        if (!slot) continue;
+        if (name !== undefined && meshes.get(name) === slot.def) captured.push([id, slot.built]);
+        else builds[id] = undefined;
     }
     return captured;
 }
