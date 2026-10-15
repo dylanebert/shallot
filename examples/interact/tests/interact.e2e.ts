@@ -36,7 +36,7 @@ async function capture(page: Page, name: string) {
     return data;
 }
 
-test("aiming within reach frames the outlined lamp and prompt; E lights the wall; beyond reach clears both", async ({
+test("aim is sampled before E; in-reach lamp and prompt render, E lights the wall, and far aim clears both", async ({
     page,
 }) => {
     const errors: string[] = [];
@@ -45,6 +45,17 @@ test("aiming within reach frames the outlined lamp and prompt; E lights the wall
     await page.waitForFunction(() => window.ready);
     console.log("interact adapter", await page.evaluate(() => window.adapter));
     await page.evaluate(() => {
+        window.aim(0);
+        window.turnAway();
+        window.key(true);
+        window.advance();
+    });
+    const turned = await page.evaluate(() => window.state());
+    expect(turned.prompt).toBe(0);
+    expect(turned.targets[0]!.active).toBe(0);
+    await page.evaluate(() => {
+        window.key(false);
+        window.advance();
         window.aim(0);
     });
     const focused = await page.evaluate(() => window.state());
@@ -68,23 +79,11 @@ test("aiming within reach frames the outlined lamp and prompt; E lights the wall
     const far = await page.evaluate(() => window.state());
     expect(far.prompt).toBe(0);
     expect(far.targets.every((t) => !t.outlined)).toBe(true);
-    await page.evaluate(() => window.overview());
-    await capture(page, "room-unfocused");
+    if (process.env.SHALLOT_CAPTURE_DIR) {
+        await page.evaluate(() => window.overview());
+        await capture(page, "room-unfocused");
+    }
     expect(errors).toEqual([]);
-});
-
-test("a fast turn samples the new aim before E's fixed action", async ({ page }) => {
-    await page.goto(STEPPED);
-    await page.waitForFunction(() => window.ready);
-    await page.evaluate(() => {
-        window.aim(0);
-        window.turnAway();
-        window.key(true);
-        window.advance();
-    });
-    const state = await page.evaluate(() => window.state());
-    expect(state.prompt).toBe(0);
-    expect(state.targets[0]!.active).toBe(0);
 });
 
 test("each prompt faces the player, with a half-filled ring during the one-second hold", async ({
