@@ -4,9 +4,6 @@ function invalidDelta(): never {
     throw new Error("step deltaTime must be a finite, non-negative number");
 }
 
-/**
- * frame timing constants and per-frame data
- */
 export const Time = {
     FIXED_DT: 1 / 60,
     DEFAULT_DT: 1 / 60,
@@ -18,8 +15,7 @@ export interface Time {
     deltaTime: number;
     /** seconds since last frame, raw rAF interval before clamping or scaling */
     rawDeltaTime: number;
-    /** real seconds since last frame: clamped, never scaled. the escape hatch for presentation that must run
-     * through a pause/slow-mo (camera juice, UI, input) */
+    /** Clamped real seconds since last frame, unaffected by pause or scale. */
     realDeltaTime: number;
     /** fixed timestep interval (1/60), constant; slow-mo reduces tick frequency, not per-tick dt */
     fixedDeltaTime: number;
@@ -43,7 +39,6 @@ export interface Time {
 
 export type SystemGroup = "setup" | "fixed" | "simulation" | "draw";
 
-/** unit of behavior: update, setup, dispose, scheduling */
 export interface System {
     readonly update?: (world: World) => void;
     readonly setup?: (world: World) => void;
@@ -150,8 +145,6 @@ export class Scheduler {
     register(system: System, pluginName?: string): void {
         this._systems.add(system);
         this._systemsVersion++;
-        // a system's own `name` labels its profiler row legibly (`StandardRenderer/forward`); without
-        // one, fall back to the registration index (`StandardRenderer/1`)
         if (system.name !== undefined) {
             this._names.set(system, pluginName ? `${pluginName}/${system.name}` : system.name);
         } else if (pluginName !== undefined) {
@@ -189,13 +182,11 @@ export class Scheduler {
         const maxDt = fixedDt * Time.MAX_FIXED_STEPS;
 
         this._time.rawDeltaTime = deltaTime;
-        // clamp on the real dt — the spiral-of-death gate, before scaling (a large scale must not reintroduce it)
+        // Bound catch-up work after a long real frame.
         const real = Math.min(deltaTime, maxDt);
         this._time.realDeltaTime = real;
         this._time.realElapsed += real;
 
-        // the virtual clock the sim reads — paused freezes it, scale slows/speeds it. the fixed accumulator
-        // follows it, so pause/slow-mo reach physics for free (fewer ticks, never a shorter per-tick dt).
         const scaled = this._time.paused ? 0 : real * this._time.scale;
         this._time.deltaTime = scaled;
         this._time.elapsed += scaled;
@@ -203,16 +194,13 @@ export class Scheduler {
 
         this.runGroup(world, "setup");
 
-        // the cap runs on the post-scale accumulator — timescale must not reintroduce the spiral it clamps
-        // out of `real` above. Past the cap, drop the backlog rather than carry debt into future frames.
+        // Scale must not bypass the catch-up cap; drop excess backlog instead of carrying frame debt.
         let steps = 0;
         while (this._accumulator >= fixedDt && steps < Time.MAX_FIXED_STEPS) {
             this.tick(world);
             this._accumulator -= fixedDt;
             steps++;
         }
-        // throttled if either clock overran its budget: the pre-scale clamp discarded raw frame time
-        // (moot while paused — no virtual work was owed), or the scaled accumulator outran the step cap.
         const postScaleOverrun = this._accumulator >= fixedDt;
         if (postScaleOverrun) this._accumulator %= fixedDt;
         this._time.throttled = (!this._time.paused && deltaTime > maxDt) || postScaleOverrun;

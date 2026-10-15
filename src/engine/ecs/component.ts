@@ -47,9 +47,7 @@ export type TypedArray =
     | Uint8Array;
 
 /**
- * typed-array storage descriptor. Shared between {@link ScalarField}/{@link Vector2Field}/{@link Vector4Field}
- * fields so a consumer can change the type without
- * changing the type spelling. Metadata only. Descriptors don't carry state.
+ * Shared CPU storage metadata; descriptors carry no entity state.
  */
 export interface FieldType<TArray extends TypedArray = TypedArray> {
     /** typed-array constructor used to back CPU storage */
@@ -135,8 +133,7 @@ export const u16: FieldType<Uint16Array> & { readonly lanes: 1 } = {
     name: "u16",
 };
 
-// IEEE 754 binary16 codec — scratch buffer aliases an f32 over a u32 for the
-// bit-pattern extraction. Module-scoped to avoid per-call allocation.
+// Shared codec scratch avoids per-call allocation.
 const F16_BUF = new ArrayBuffer(4);
 const F16_F32 = new Float32Array(F16_BUF);
 const F16_U32 = new Uint32Array(F16_BUF);
@@ -216,11 +213,9 @@ export const vec4: FieldType<Float32Array> & { readonly lanes: 4 } = {
 };
 
 /**
- * per-entity scalar storage. one value per entity, read/written by eid.
- * Component fields expose this instead of a bare typed array so writes
- * publish change marks and survive storage growth. `world.add`
- * writes defaults through `.set`, so defaults publish marks too. GPU
- * consumers declare record tables separately.
+ * World-owned scalar accessors remain valid across storage growth; raw column arrays do not.
+ * Setters, bulk writes and `world.add` defaults publish frame-scoped change marks.
+ * GPU consumers declare record tables separately.
  */
 export interface ScalarField {
     /** Copy encoded typed rows in eid order; source must match this lane's element type. */
@@ -235,11 +230,8 @@ export interface ScalarField {
 }
 
 /**
- * per-entity 2-lane storage. one vec2 per entity. `set` writes both lanes at
- * once (AoS), the perf-friendly path. `x` and `y` are per-lane
- * {@link ScalarField} accessors sharing the master's storage; partial writes go
- * through them and dirty the whole slot. `read` copies both lanes into an
- * out param without allocation
+ * World-owned two-lane accessors. Lane writes mark the whole entity slot changed.
+ * `read` copies into the caller's output without allocation.
  */
 export interface Vector2Field {
     /** Copy encoded two-lane typed rows in eid order and mark each entity changed. */
@@ -262,10 +254,8 @@ export interface Vector3Field extends Omit<Vector4Field, "set"> {
     set(eid: number, x: number, y: number, z: number, w?: number): void;
 }
 
-/**
- * per-entity 4-lane storage. one vec4 per entity. shape matches {@link Vector2Field}
- * with two more lanes
- */
+/** World-owned four-lane accessors. Lane writes mark the whole entity slot changed.
+ * `read` copies into the caller's output without allocation. */
 export interface Vector4Field {
     /** Copy encoded four-lane typed rows in eid order and mark each entity changed. */
     writeEncoded(eids: Uint32Array, source: TypedArray): void;
@@ -282,11 +272,8 @@ export interface Vector4Field {
 }
 
 /**
- * structural lane-count detector. Returns 1 / 2 / 4 for a {@link ScalarField} /
- * {@link Vector2Field} / {@link Vector4Field}; 0 for anything else (TypedArray, plain Array,
- * non-storage object, primitive, null). Discriminates by shape so lane
- * `ScalarField`s of a parent Vector4Field (which inherit the parent's `type.lanes`)
- * report as `ScalarField` (1), not their parent's lane count
+ * Lane count of a bare storage descriptor or structurally recognized field handle; 0 otherwise.
+ * A vector's scalar lane handle reports 1, not its parent's `type.lanes`.
  */
 export function lanes(value: unknown): 0 | 1 | 2 | 4 {
     if (isType(value)) return value.lanes;
@@ -399,10 +386,8 @@ export function idOf(component: object): number {
 }
 
 /**
- * intern the stable id for `name` on `component`: first sight assigns one
- * (adopting an id the component auto-minted while bare), and re-registration
- * under the same name resolves to it, the reload contract that re-attaches a
- * fresh module object. Called by `component`.
+ * Bind a record to the name's stable id, adopting its anonymous id when the name is new.
+ * Fresh records under the same name resolve to that id.
  */
 export function intern(component: object, name: string): number {
     let id = _idByName.get(name);
@@ -420,8 +405,7 @@ const BITS_PER_GEN = 31;
 export class Components {
     private _nextBit = 0;
     private _gen = 0;
-    // keyed by component id (idOf), not the object — a reloaded component handle
-    // re-attaches by id. Array-by-id, since ids are small and monotonic.
+    // Stable ids let reloaded component records retain their membership bits.
     private _meta: ({ gen: number; bit: number } | undefined)[] = [];
     private _masks: number[][] = [[]];
     // component id by generation and bit index, the inverse of _meta

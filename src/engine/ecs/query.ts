@@ -12,9 +12,7 @@ function isOp(x: unknown): x is QueryOp {
     return x != null && typeof x === "object" && $op in x;
 }
 
-// op-interning + query-hash key off the same stable component id as membership
-// (idOf, from component.ts) — one id system, and a reloaded component handle
-// hashes identically so a re-run query resolves to its already-populated set.
+// Stable component ids let reloaded records resolve to already-populated query sets.
 const _opCache = new Map<string, QueryOp>();
 function opKey(kind: string, components: any[]): string {
     const ids: number[] = new Array(components.length);
@@ -22,11 +20,7 @@ function opKey(kind: string, components: any[]): string {
     return kind + ":" + ids.sort((a, b) => a - b).join(",");
 }
 
-// Interned op factory — `not(C)` returns the same QueryOp object on every call
-// for the same C. Stable identity lets `Queries` resolve by terms-array element
-// walk instead of recomputing the structural hash per query call. Single-arg
-// path (the hot one) hits a per-kind WeakMap; multi-arg falls through to the
-// shared structural-key Map.
+// Interned operator identity avoids structural hashing on repeated query calls.
 function makeOp(kind: "not" | "and" | "or") {
     const cache1 = new WeakMap<object, QueryOp>();
     return (...components: any[]): QueryOp => {
@@ -94,9 +88,7 @@ class QueryIterator implements Iterator<number> {
         return r;
     }
 
-    // for…of calls return() on an early break/throw — reclaim there too so a broken-out loop's
-    // iterator returns to the pool. The _active guard makes reclaim idempotent (a manual caller that
-    // calls next() past done, or return() after a completed loop, can't double-push the same state).
+    // for…of calls return() on early break or throw; those iterators must rejoin the pool too.
     return(): IteratorResult<number> {
         this.reclaim();
         return this._r;
@@ -244,9 +236,7 @@ export class RegisteredQuery implements Iterable<number> {
     }
 }
 
-// Multi-level term-cache node. Each `terms` array element addresses one Map
-// hop; the leaf carries the RegisteredQuery on a Symbol key. Walk by element
-// identity skips parse + hash + string allocation on hot-path calls.
+// Element identity avoids parsing, hashing and string allocation on repeated query calls.
 const $leaf = Symbol("leaf");
 type TermNode = Map<unknown, TermNode> & { [$leaf]?: RegisteredQuery };
 
@@ -268,17 +258,11 @@ export class Queries {
     private _all: RegisteredQuery[] = [];
     private _byHash = new Map<string, RegisteredQuery>();
     private _byTerms: TermNode = new Map() as TermNode;
-    // keyed by component id (idOf), not the object — array-by-id, like membership
     private _byComponent: RegisteredQuery[][] = [];
     // Queries without a required or `or` term match every new entity.
     private _unbounded: RegisteredQuery[] = [];
 
-    /**
-     * resolve `terms` to a registered query, registering on first sight.
-     * fast path — interned ops give terms stable element identity, so a
-     * previously registered query resolves via a Map walk with no parse,
-     * hash, or string allocation.
-     */
+    /** Repeated terms resolve without allocation; structurally equivalent terms share membership. */
     find(terms: readonly unknown[], components: Components, entities: Entities): RegisteredQuery {
         let node: TermNode | undefined = this._byTerms;
         for (let i = 0; i < terms.length; i++) {

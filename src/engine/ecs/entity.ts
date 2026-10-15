@@ -10,8 +10,7 @@ export type Entity = number;
 export type EntityRef = number & { readonly __entityRef: unique symbol };
 
 /**
- * world entity allocator. sparse-set membership + freelist for ID reuse.
- * iterate alive entities via `dense` up to `count`.
+ * Reuses freed IDs. Only `dense[0..count)` contains live entities.
  */
 export class Entities {
     private _dense: number[] = [];
@@ -20,8 +19,7 @@ export class Entities {
     private _count = 0;
     private _warnedWrap = false;
     private _nextId = 1;
-    // freed ids in the first `_freeCount` slots; a pop or `length` write would release the backing store
-    // and the next free would allocate it again, so the list keeps its high-water capacity.
+    // Retain high-water backing capacity to avoid reallocating during entity churn.
     private _freelist: number[] = [];
     private _freeCount = 0;
 

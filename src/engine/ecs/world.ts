@@ -192,7 +192,7 @@ export class World {
         return value;
     }
 
-    /** own a raw GPU allocation until this world is disposed. */
+    /** Own an allocation until disposal or explicit destruction; destroy immediately if already disposed. */
     own(resource: { destroy(): void }): void {
         if (this._disposed) {
             resource.destroy();
@@ -691,8 +691,8 @@ export class World {
         this._scheduler.resume();
     }
 
-    /** set the virtual timescale: 1 real time, <1 slow-mo, >1 fast-forward, 0 freeze (negative clamps to 0).
-     * Applies to step's virtual clock and tick frequency, never to explicit {@link tick}. Read via `time.scale`. */
+    /** Set virtual timescale: 1 real time, <1 slow-mo, >1 fast-forward, 0 freeze; negatives clamp to 0.
+     * Refuses non-finite values. Applies to step's virtual clock and tick frequency, never explicit {@link tick}. */
     setTimeScale(scale: number): void {
         this._scheduler.setScale(scale);
     }
@@ -782,7 +782,7 @@ export class World {
      * Attach a component with optional field values (vectors are arrays).
      * Missing fields keep the declared defaults when this world registers the component, and
      * required companions are added only then. Defaults and starting values go through
-     * field setters, publishing changes. An already attached component is unchanged.
+     * field setters, publishing changes. An already attached component is unchanged and warns.
      */
     add<T>(eid: number, component: T, values?: ComponentValues<NoInfer<T>>): void {
         const storage = this.storage(component as Component);
@@ -917,19 +917,15 @@ export class World {
     }
 
     /**
-     * true once {@link dispose} has run. An async plugin step that awaits across a teardown (a glTF decode
-     * resolving after a scene switch) checks this before touching the World, so a late result no-ops instead
-     * of mutating a dead world.
+     * True once disposal starts. Async work must check this after awaiting before mutating the World.
      */
     get disposed(): boolean {
         return this._disposed;
     }
 
     /**
-     * register a teardown callback tied to this World's lifetime. Callbacks run in LIFO order (last
-     * registered, first run) at {@link dispose}, so a DOM mount, listener, or rAF loop keeps its cleanup
-     * beside its creation site. A callback registered after dispose has already run fires immediately
-     * (paired with {@link signal}, already aborted), so a late async step never leaks silently.
+     * Callbacks run last-registered first at {@link dispose}. A callback registered after disposal
+     * starts runs immediately; {@link signal} is already aborted.
      */
     onDispose(fn: () => void): void {
         if (this._disposed) {
@@ -940,9 +936,7 @@ export class World {
     }
 
     /**
-     * an {@link AbortSignal} tied to this World's lifetime, aborted when {@link dispose} runs (already
-     * aborted if read afterward). Pass it as `{ signal }` to `addEventListener`, `fetch`, or any
-     * abortable API to detach on teardown with zero removal code. Lazily created on first read.
+     * Lazily created lifetime signal, aborted when {@link dispose} starts; already aborted if read afterward.
      */
     get signal(): AbortSignal {
         if (!this._controller) this._controller = new AbortController();
@@ -957,9 +951,7 @@ export class World {
         this._controller?.abort();
         this._readback?.dispose();
         this._readback = undefined;
-        // the list carries user cleanups (a Svelte unmount, an app rAF stop) that throw more readily
-        // than engine hooks, and LIFO runs them first — a throw must not skip the remaining callbacks or
-        // the scheduler/query teardown below, or their resources leak. Report, never mask.
+        // A user cleanup failure must not skip remaining callbacks or engine teardown.
         for (let i = this._disposals.length - 1; i >= 0; i--) {
             try {
                 this._disposals[i]();

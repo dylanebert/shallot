@@ -128,7 +128,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return this._capacity;
     }
 
-    /** Highest dense row touched by this table. */
+    /** Highest reserved row count; at least one, and never decreases. */
     get highWater(): number {
         return this._highWater;
     }
@@ -181,7 +181,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return this._mapTyped;
     }
 
-    /** Dense active row indices, compacted independently of stable row slots. */
+    /** Compact (eid, row) u32 pairs, independent of stable row slots; read only the first `count` pairs. */
     get activeRowsBuffer(): GPUBuffer | undefined {
         return this._activeBuffer;
     }
@@ -195,7 +195,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return this._lastUploadPath;
     }
 
-    /** Ensure at least `rows` dense slots are allocated. */
+    /** Ensure at least `rows` dense slots. Refuses negative or non-safe-integer counts and device-limit overflow. */
     reserveSlots(rows: number): void {
         if (!Number.isSafeInteger(rows) || rows < 0) {
             throw new RangeError(
@@ -454,7 +454,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return eid < this._eidToRow.length ? this._eidToRow[eid] - 1 : -1;
     }
 
-    /** Subscribe to the record buffer; growth invokes consumers with its new generation. */
+    /** Invoke immediately with the current record buffer, then on growth with its new generation; returns unsubscribe. */
     subscribe(consumer: Consumer): () => void {
         this._consumers.push(consumer);
         consumer(this._buffer, this._generation);
