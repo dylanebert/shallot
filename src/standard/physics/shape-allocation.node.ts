@@ -242,6 +242,13 @@ test("warmed geometry uploads on the hull database miss path allocate no transie
     if (failure !== undefined) throw new Error(failure);
 });
 
+test("a warm PhysicsMeshes build lookup allocates no JavaScript heap", async () => {
+    const sample = await sampleAllocation(entry, { warm: 1200, frames: 600, input: "mesh-lookup" });
+    expect(sample.control.length).toBeGreaterThan(0);
+    const failure = allocationFailure(sample);
+    if (failure !== undefined) throw new Error(failure);
+});
+
 test("the shape allocation assertion rejects deliberate JavaScript allocation", async () => {
     const sample = await sampleAllocation(entry, { warm: 1200, frames: 600, input: "allocating" });
     expect(sample.control.length).toBeGreaterThan(0);

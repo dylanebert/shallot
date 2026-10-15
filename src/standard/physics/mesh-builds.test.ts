@@ -137,21 +137,24 @@ test("a restored World keeps its mesh builds, so a Shape spawned after restore a
     });
 });
 
-test("a deleted mesh's build is released when it is next looked up or captured", async () => {
+test("deleted meshes are collectable with their builds, with no later lookup or snapshot", async () => {
     await withPhysics((world) => {
         const meshes = world.resource(PhysicsMeshes);
-        const builds = ["looked-up", "captured"].map((name) => {
-            const id = meshes.register(quad(name));
-            const build = new WeakRef(meshBuild(world, id)!);
-            meshes.delete(name);
-            return { id, build };
-        });
-        expect(meshBuild(world, builds[0]!.id)).toBeUndefined();
+        // Cycles run in their own frame, so the conservative stack scan cannot pin their values.
+        const cycle = (i: number) => {
+            const def = quad(`cycle-${i}`);
+            const build = meshBuild(world, meshes.register(def))!;
+            meshes.delete(def.name);
+            return { def: new WeakRef(def), build: new WeakRef(build) };
+        };
+        const cycles = Array.from({ length: 100 }, (_, i) => cycle(i));
         Bun.gc(true);
-        expect(builds.map(({ build }) => build.deref() === undefined)).toEqual([true, false]);
-        world.snapshot();
-        Bun.gc(true);
-        expect(builds.map(({ build }) => build.deref() === undefined)).toEqual([true, true]);
+        const alive = (key: "def" | "build") =>
+            cycles.flatMap((refs, i) => (refs[key].deref() ? [i] : []));
+        // A build lives exactly as long as its definition, and the cache keeps no definition alive;
+        // outside the cache, the engine may still pin an odd deleted definition until a later GC.
+        expect(alive("build")).toEqual(alive("def"));
+        expect(alive("def").length).toBeLessThan(5);
     });
 });
 

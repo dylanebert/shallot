@@ -1,17 +1,12 @@
-// Built meshes for a World's PhysicsMeshes. A build is kept per registry id with the definition it was
-// built from, so every Shape naming that id shares one MeshData and one geometry-database entry. A
-// definition replaced by name rebuilds when a Shape next asks for it.
+// Built meshes for a World's PhysicsMeshes, keyed weakly by the definition each was built from. Every
+// Shape naming a definition shares one MeshData and one geometry-database entry; a definition replaced
+// by name is a new key, and a deleted one the game no longer holds is collected with its build.
 
 import { type PhysicsMesh, PhysicsMeshes } from "../../core/physics";
 import type { Resource, World } from "../../engine";
 import { createMesh, type MeshData } from "./shapes/mesh";
 
-interface MeshBuild {
-    def: PhysicsMesh;
-    built: MeshData;
-}
-
-const MeshBuilds: Resource<(MeshBuild | undefined)[]> = { create: () => [] };
+const MeshBuilds: Resource<WeakMap<PhysicsMesh, MeshData>> = { create: () => new WeakMap() };
 
 function build(world: World, def: PhysicsMesh): MeshData {
     const stride = def.stride || 3;
@@ -62,42 +57,35 @@ export function meshBuild(world: World, id: number): MeshData | undefined {
     const meshes = world.resource(PhysicsMeshes);
     const name = meshes.name(id);
     const def = name === undefined ? undefined : meshes.get(name);
+    if (!def) return undefined;
     const builds = world.resource(MeshBuilds);
-    if (!def) {
-        // A deleted mesh's input and build stay collectable instead of living until dispose.
-        builds[id] = undefined;
-        return undefined;
+    let built = builds.get(def);
+    if (!built) {
+        built = build(world, def);
+        builds.set(def, built);
     }
-    const slot = builds[id];
-    if (slot?.def === def) return slot.built;
-    const built = build(world, def);
-    builds[id] = { def, built };
     return built;
 }
 
-/** Current builds by registry id, by reference; MeshData is immutable. Releases builds whose definition was deleted or replaced. */
+/** Builds of the registered definitions by registry id, by reference; MeshData is immutable. */
 export function captureMeshBuilds(world: World): [number, MeshData][] {
     const meshes = world.resource(PhysicsMeshes);
     const builds = world.resource(MeshBuilds);
     const captured: [number, MeshData][] = [];
-    for (let id = 0; id < builds.length; id++) {
-        const slot = builds[id];
-        const name = meshes.name(id);
-        if (!slot) continue;
-        if (name !== undefined && meshes.get(name) === slot.def) captured.push([id, slot.built]);
-        else builds[id] = undefined;
+    for (const def of meshes) {
+        const built = builds.get(def);
+        if (built) captured.push([meshes.id(def.name)!, built]);
     }
     return captured;
 }
 
-/** Re-pairs captured builds with the definitions core physics restored, so restored Shapes keep their mesh identity. */
+/** Pairs captured builds with the definitions core physics restored, so restored Shapes keep their mesh identity. */
 export function restoreMeshBuilds(world: World, captured: [number, MeshData][]): void {
     const meshes = world.resource(PhysicsMeshes);
     const builds = world.resource(MeshBuilds);
-    builds.length = 0;
     for (const [id, built] of captured) {
         const name = meshes.name(id);
         const def = name === undefined ? undefined : meshes.get(name);
-        if (def) builds[id] = { def, built };
+        if (def) builds.set(def, built);
     }
 }
