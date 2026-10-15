@@ -3,9 +3,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
- * Fingerprints tree inputs, not machine-local toolchains or build outputs. Of `Cargo.lock`, only the
- * locked packages `lockRoot` reaches are inputs, as Cargo fingerprints a package by its own resolved
- * dependencies.
+ * Fingerprints tree inputs, not machine-local toolchains or build outputs.
+ * Cargo.lock contributes only the locked packages reachable from lockRoot.
  */
 export function buildInputHash(
     root: string,
