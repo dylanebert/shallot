@@ -17,7 +17,7 @@ import { chunk } from "./tgsl";
 
 // WGSL chunks resolve independently with strict names; each includes its own dependencies.
 
-// snorm16 represents 0 and ±1 exactly, avoiding biased axis-aligned contact normals.
+// snorm16 avoids biased axis-aligned contact normals.
 
 /** octahedral-encode a unit normal to an snorm16x2 `u32` (the storage normal, 12 B → 4 B;
  *  Cigolle et al. 2014). Not for interpolated or filtered normals: the octahedral seam breaks
@@ -54,8 +54,6 @@ export const octDecodeNormal = tgpu.fn(
 /** WGSL `octEncodeNormal(n) -> u32` + `octDecodeNormal(enc) -> vec3<f32>`: the snorm16x2 storage-normal
  *  codec, resolved from the CPU-callable TGSL functions. */
 export const octEncodeWgsl = chunk("octEncodeWgsl", [octEncodeNormal, octDecodeNormal]);
-
-// snorm16x4 has per-component error at most 1/32767 across [-1, 1]; 0 and ±1 are exact.
 
 /** pack a quaternion into two snorm16x2 `u32` lanes (xy, zw), 16 B → 8 B. */
 export const packQuatSnorm16x4 = tgpu.fn(
@@ -138,7 +136,7 @@ export const ldrColorUnpackWgsl = chunk("ldrColorUnpackWgsl", [unpackLdrColor]);
  *  from {@link ldrColorUnpackWgsl} so a reader shader doesn't drag in the encode helpers. */
 export const ldrColorPackWgsl = chunk("ldrColorPackWgsl", [packLdrColor]);
 
-// Khronos GL_EXT_packed_float layout shares f16's exponent bias (15), allowing mantissa-bit drops.
+// Khronos GL_EXT_packed_float layout shares f16's exponent bias, allowing mantissa-bit drops.
 // Clamp below f16's maximum so conversion cannot round an f11 channel to infinity.
 
 /** decode an r11g11b10ufloat-packed HDR color. */
@@ -174,10 +172,9 @@ export const hdrColorUnpackWgsl = chunk("hdrColorUnpackWgsl", [unpackHdrColor]);
  *  so a reader shader doesn't drag in the encode helpers. */
 export const hdrColorPackWgsl = chunk("hdrColorPackWgsl", [packHdrColor]);
 
-// Smallest-3 uses 4 bytes with ~0.1° max error, suitable for reads without compounding.
-// Not for iter-mutated state that is later finite-differenced.
-
-/** pack a quaternion as smallest-3 (10-10-10-2 in one `u32`). */
+/** Pack a quaternion as smallest-3 (10-10-10-2 in one `u32`). Retained components are
+ *  scaled by 511 / 1.41421356, rounded and clamped to [-511, 511] in signed 10-bit lanes.
+ *  Not for iter-mutated state that is later finite-differenced. */
 export const packQuatSmallest3 = tgpu.fn(
     [d.vec4f],
     d.u32,
@@ -233,7 +230,6 @@ export const unpackQuatSmallest3 = tgpu.fn(
 export const smallest3Wgsl = chunk("smallest3Wgsl", [packQuatSmallest3, unpackQuatSmallest3]);
 
 // Plain-JS mirrors avoid TypeGPU CPU dispatch and vector-allocation costs in mesh baking and uploads.
-// encode.test.ts checks their packed words against the TGSL functions.
 
 /** {@link octEncodeNormal} over three loose lanes — the mesh builder's per-vertex form. */
 export function octEncode(x: number, y: number, z: number): number {

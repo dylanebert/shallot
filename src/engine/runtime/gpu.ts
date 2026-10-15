@@ -846,8 +846,6 @@ interface Forcer {
     owner?: string;
 }
 
-// pipelines queued for a forced compile at the end of warm, and whether that drain has already run for
-// this build (see `precompile`)
 export const precompileState = {
     create: () => ({
         precompile: [] as Forcer[],
