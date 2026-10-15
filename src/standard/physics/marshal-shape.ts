@@ -11,7 +11,7 @@ import { makeShapeId } from "./api/config";
 import { MAX_HULL_VERTICES } from "./common/constants";
 import type { EntityId } from "./common/ids";
 import { defaultShapeDef, type Filter, type ShapeDef, type SurfaceMaterial } from "./common/types";
-import { meshBuild } from "./mesh-builds";
+import { meshBuild } from "./geometry-builds";
 import { createHull } from "./shapes/build-hull";
 import type { CompoundData } from "./shapes/compound";
 import type { HeightFieldData } from "./shapes/heightfield";

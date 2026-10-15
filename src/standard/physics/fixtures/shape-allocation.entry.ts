@@ -1,5 +1,5 @@
 import { createApp, PhysicsMeshes, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { meshBuild } from "../mesh-builds";
+import { meshBuild } from "../geometry-builds";
 import { physicsState } from "../runtime";
 import { shapeAllocationSubject } from "../shape-allocation.fixture";
 

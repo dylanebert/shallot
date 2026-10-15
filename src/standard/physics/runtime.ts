@@ -39,6 +39,11 @@ import {
     markFieldCandidate,
 } from "./field-candidates";
 import {
+    captureGeometryBuilds,
+    type GeometryBuilds,
+    restoreGeometryBuilds,
+} from "./geometry-builds";
+import {
     type ConstraintCache,
     type ConstraintIds,
     captureConstraints,
@@ -66,9 +71,7 @@ import {
 } from "./kernel/solversetcolumns";
 import { marshalBody } from "./marshal";
 import { marshalShape } from "./marshal-shape";
-import { captureMeshBuilds, restoreMeshBuilds } from "./mesh-builds";
 import { captureShapeRecreationState, shapeNeedsRecreation, syncShapeFields } from "./shape-sync";
-import type { MeshData } from "./shapes/mesh";
 import { destroyShape, shapeIsValid } from "./shapes/shape";
 import { step as stepWorld } from "./solver/step";
 import {
@@ -1022,8 +1025,8 @@ interface Bindings {
     bodyCandidates: [number, number][];
     full: boolean;
     hulls: number;
-    /** built meshes by PhysicsMeshes id, re-paired with core's restored definitions */
-    meshes: [number, MeshData][];
+    /** geometry builds by registry id, re-paired with core's restored definitions */
+    geometry: GeometryBuilds;
 }
 
 function warmWorld(runtime: PhysicsRuntime): WorldState {
@@ -1071,7 +1074,7 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
         changed: runtime.anyChanged ? runtime.changed.slice() : null,
         full: runtime.full,
         hulls: runtime.hulls,
-        meshes: captureMeshBuilds(world),
+        geometry: captureGeometryBuilds(world),
     };
 }
 
@@ -1122,7 +1125,7 @@ function restoreBindings(
             hulls: b.failed[i + 2],
         });
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
-    restoreMeshBuilds(world, b.meshes);
+    restoreGeometryBuilds(world, b.geometry);
     clearFieldCandidates(runtime.bodyCandidates);
     for (const [eid, fieldMask] of b.bodyCandidates) {
         markFieldCandidate(runtime.bodyCandidates, eid);

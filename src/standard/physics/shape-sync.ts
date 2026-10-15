@@ -3,6 +3,7 @@ import type { World } from "../../engine";
 import type { ShapeBinding } from "./authoring";
 import type { EntityId } from "./common/ids";
 import type { Filter, SurfaceMaterial } from "./common/types";
+import { meshBuild } from "./geometry-builds";
 import { geometryIdentity, hullDatabaseIndex } from "./kernel/geocolumns";
 import { kernel } from "./kernel/kernel";
 import { ShapeFlags, setShapeFlag, shapeFlag } from "./kernel/shaperecords";
@@ -12,7 +13,6 @@ import {
     shapeGeometry,
     shapeHullGeometry,
 } from "./marshal-shape";
-import { meshBuild } from "./mesh-builds";
 import {
     getShapeDensity,
     getShapeFilter,

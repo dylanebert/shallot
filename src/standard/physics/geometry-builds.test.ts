@@ -10,8 +10,8 @@ import {
 } from "@dylanebert/shallot/physics";
 import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { expectWarning } from "../../../scripts/test-console";
+import { meshBuild } from "./geometry-builds";
 import { kernel } from "./kernel/kernel";
-import { meshBuild } from "./mesh-builds";
 import { physicsState } from "./runtime";
 import { createMesh } from "./shapes/mesh";
 import { getShapeGeometryReference } from "./shapes/shape";
