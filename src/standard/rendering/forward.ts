@@ -350,9 +350,7 @@ function layoutResources(
     return { values, resources, names, registries };
 }
 
-// whether a cached entry still binds this frame's live resources: the identities in `resources` order (the
-// four mesh streams, the layout's own bindings looked up by their held names, then the atlas lists),
-// compared in place so a steady frame neither re-validates nor builds a list
+// Compare resource identities in place so an unchanged frame needs no new list or binding revalidation.
 function sameResources(
     world: World,
     g: MaterialGroupEntry,
@@ -410,10 +408,10 @@ function surfaceGroup(
 }
 
 /**
- * {@link record}'s material path: compiled pipelines + the per-draw group-2 state cached by
- * layout name — `color` against `layout`; opaque depth-side groups against `layout.depthVariant`; clip
- * depth-side groups against the full layout so cutoff sees material UVs — plus the atlas `eids` swaps
- * used by the atlas passes. Their slot-0 engine group resolves through the same live cache as each view.
+ * Resolves compiled pipelines and caches group-2 state by draw name. Reuses the groups while the
+ * material type, layout and bound resource identities are unchanged.
+ * Group 0 is cached per view slot and shared by draws using the same quant buffer; atlas passes
+ * use that cache's unread slot-zero view placeholder.
  */
 function recordMaterial(
     world: World,

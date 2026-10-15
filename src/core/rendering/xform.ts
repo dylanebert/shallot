@@ -3,9 +3,8 @@ import * as d from "typegpu/data";
 import { cross, select } from "typegpu/std";
 import { chunk } from "../../engine/utils";
 
-/** Decomposed placement record (48 B AoS: pos, quat,
- *  scale), reconstructed on read rather than stored as a matrix — the VS reads it scattered per
- *  instance, so AoS is one cache line per instance. */
+/** 48-byte AoS placement record (position, quaternion, scale) for scattered per-instance vertex reads.
+ * Transforms are reconstructed on read rather than stored as matrices. */
 export const Xform = d.struct({
     pos: d.vec3f,
     quat: d.vec4f,
