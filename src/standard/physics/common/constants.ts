@@ -1,16 +1,10 @@
-// World-scoped physical constants and the length-unit base. Ported from Box3D's constants.h /
-// core.h (Erin Catto, MIT). fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
-//
-// Box3D scales its length-based constants by a settable length-unit (b3SetLengthUnitsPerMeter).
-// The port fixes the unit at the default 1.0 — every fixture is generated at 1.0, and existing
-// modules already bake `0.005` etc. as literals. A settable unit is a scoped follow-on: it would have to
-// sweep every module's constant at once, and no implementation exercises a non-unit world. So the derived
-// constants below are the final, correct values for the locked scope, not a lesser stopgap.
+// Box3D constants.h / core.h (Erin Catto, MIT). Length units are fixed at one per meter;
+// changing this constant alone is insufficient because other modules contain length literals.
 
 const f32 = Math.fround;
 export const FLT_MAX = 3.4028234663852886e38;
 
-/** Length units per meter. Fixed at 1.0 for the port; see the file header. */
+/** Length units per meter; not runtime-configurable. */
 export const LENGTH_UNITS_PER_METER = f32(1.0);
 
 /// A small length used as a collision and constraint tolerance (B3_LINEAR_SLOP).
@@ -34,8 +28,7 @@ export const AABB_MARGIN_FRACTION = f32(0.125);
 /// (B3_CONTACT_RECYCLE_DISTANCE).
 export const CONTACT_RECYCLE_DISTANCE = f32(10.0 * LINEAR_SLOP);
 
-/// A large sanity bound on coordinates (B3_HUGE), 100 km at the default length unit. Single-precision
-/// value; large-world double mode would widen it, but the port is single precision.
+/// Coordinate sanity bound (B3_HUGE), 100 km at one length unit per meter.
 export const HUGE = f32(1.0e5 * LENGTH_UNITS_PER_METER);
 
 /// An island falls asleep once every body in it stays below its sleep threshold for this long, in

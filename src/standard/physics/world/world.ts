@@ -14,12 +14,8 @@ import type {
     WorldPreSolveCallback,
 } from "../world-definition";
 
-// The simulation world: the root that owns every entity pool and the broad-phase. Ported from
-// Box3D's physics_world.c (Erin Catto, MIT). Each entity type has an id pool paired with a sparse
-// array of records; the hot payload lives in solver sets. Worlds live in a fixed registry so a
-// stale world id (to a destroyed, possibly recycled, world) is detected by a generation mismatch.
-//
-// fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
+// Box3D physics_world.c (Erin Catto, MIT). World ids include a generation so a recycled
+// registry slot cannot validate a destroyed world's handle.
 
 import { clamp } from "../../../engine/utils";
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
@@ -62,7 +58,7 @@ export type Counters = {
     islandCount: number;
 };
 
-/** The simulation world state (b3World), trimmed to the lifecycle subset the port implements. */
+/** Simulation world state (b3World). */
 export type WorldState = {
     /** ECS owner; undefined only for the standalone solver API. */
     ecsState: import("../../../engine").World | undefined;
@@ -83,15 +79,8 @@ export type WorldState = {
     shapeDefInput: ShapeDef;
 
     geometryUploadScratch?: import("../kernel/geocolumns").GeometryUploadScratch;
-    // Persistent contact-manifold columns (warm-start state, column-resident): the allocator + wasm
-    // region for the manifolds keyed by contactId. Slots are tracked on contact create/destroy.
     manifoldStore: ManifoldStore;
-    // Resident body-state columns (velocity/delta/flags of awake bodies), held across steps in the
-    // body region. BodyStore binds typed views over the solver sets' columns.
     bodyStore: BodyStore;
-    // Resident shape column (type code + local geometry + nextShapeId, one record per shapeId), held
-    // across steps so the in-kernel finalize refit walks a body's shape list without a marshal. Written
-    // at shape create/destroy — no dirty set (shapecolumns.ts).
     shapeStore: ShapeStore;
 
     queryColumns: QueryColumns | null;

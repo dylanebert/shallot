@@ -1,16 +1,7 @@
-// Loader for the wasm-simd128 physics kernel (kernel/, inlined by scripts/build-kernel.ts).
-//
-// The kernel is ~tens of KB, too large for a synchronous main-thread compile, so instantiation is
-// async: call `init(world)` once before the first `step()`. `step()` itself stays synchronous. Each owning
-// engine World owns one kernel instance, memory and worker pool; the SoA columns and their TypeScript
-// views therefore cannot overlap another StandardPhysicsPlugin world's memory. Standalone solver calls passing
-// undefined retain one process-local kernel for the low-level World API.
-//
-// Two artifacts (scripts/build-kernel.ts). `init(world)` resolves threading itself: standalone (bun/node) and a
-// cross-origin-isolated browser get the multithreaded artifact, which needs a shared `WebAssembly.Memory`;
-// a browser without that isolation runs single-thread after one plain log naming the COOP/COEP headers the
-// host is missing. `init(world, { threads })` is the advanced escape — 0 forces single-thread, n overrides the
-// auto count. The MT artifact loads behind a dynamic `import()`, so a single-thread consumer never parses it.
+// Each engine World owns its kernel instance, memory and worker pool. Explicit undefined selects
+// one process-local kernel for the standalone API. Initialization is asynchronous; stepping stays
+// synchronous. init() owns threading and startup contracts. The shared artifact loads dynamically
+// so single-thread consumers never parse it.
 
 import type { World } from "../../../engine";
 import { makeShapeId } from "../api/config";
@@ -19,7 +10,7 @@ import type { WorldState } from "../world/world";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, type Pool, solverPause } from "./pool";
 
-/** The kernel's exported surface — grows as each solver phase ports to wasm. */
+/** Physics kernel ABI. */
 export type Kernel = {
     memory: WebAssembly.Memory;
     hullBuildInputPtr(count: number): number;
@@ -1305,11 +1296,9 @@ export type Threading = { want: number; warn: boolean };
 export type Host = { browser: boolean; shared: boolean; cores: number };
 
 /**
- * Resolve the threading plan from the caller's request and the host — the pure decision table (the seam a
- * unit test fakes). Standalone always multithreads (`SharedArrayBuffer` is unconditional in bun/node); a
- * browser multithreads when cross-origin isolated and otherwise runs single-thread with a warning; an
- * explicit `0` forces single-thread with no warning; `n` overrides the auto count (the pool clamps it to
- * the link bound). The warning fires only when a browser wanted threads and couldn't have them.
+ * An explicit zero requests single-threading without a warning. Otherwise shared-memory hosts
+ * use the requested count; the automatic count is half the logical cores, clamped to 1–8. Non-shared hosts use
+ * single-threading; only a browser gets the header warning. The pool applies the link-time ceiling.
  */
 export function resolve(threads: number | undefined, host: Host): Threading {
     if (threads === 0) return { want: 0, warn: false };
@@ -1319,8 +1308,7 @@ export function resolve(threads: number | undefined, host: Host): Threading {
     return { want: 0, warn: host.browser };
 }
 
-/** Emit the one-time COOP/COEP log for a browser that blocked threads. Split from {@link resolve} so the
- * decision table stays pure. */
+/** Logs the COOP/COEP hint when the plan requests it; the caller owns one-time emission. */
 export function announce(plan: Threading): void {
     if (plan.warn) console.log(COOP_COEP_HINT);
 }
@@ -1422,10 +1410,7 @@ async function boot(runtime: KernelState, threads: number | undefined): Promise<
             await multi(runtime, plan.want);
             return;
         } catch (e) {
-            // A host with shared memory can still refuse the workers themselves (a CSP that blocks blob:
-            // URLs, a worker-count limit). Fall back to single-thread rather than leaving the caller with
-            // no physics at all — but never silently: an invisible perf cliff between deployments is what
-            // the default-on design exists to avoid.
+            // Worker startup can fail despite shared-memory support; log the fallback's performance cost.
             console.log(
                 `physics: running single-threaded. The host blocked the worker pool: ${e instanceof Error ? e.message : String(e)}`,
             );
@@ -1451,12 +1436,6 @@ async function boot(runtime: KernelState, threads: number | undefined): Promise<
  * {@link InitOptions.threads} only to force single-thread (`0`) or override the count. the worker pool
  * never holds the process open — a standalone script exits when its own work is done, no `shutdown(state)`
  * needed.
- *
- * @example
- * await init(state); // multithreaded wherever the host allows it
- * console.log(threads(state)); // what the host actually gave
- * @example
- * await init(state, { threads: 0 }); // force single-thread
  */
 export function init(world: World | undefined, options?: InitOptions): Promise<void> {
     const runtime = kernelState(world);
@@ -1477,9 +1456,7 @@ export function threads(world: World | undefined): number {
     return kernelState(world).resolved;
 }
 
-/** Stop the worker pool; the kernel keeps stepping, single-threaded. Optional: the pooled workers are
- * `unref`'d at boot, so a script that inits, steps, and ends exits on its own without this (pool.ts). Call
- * it to release the worker threads deterministically — at a test suite's teardown, say. */
+/** Releases the worker pool deterministically; the kernel keeps stepping single-threaded. */
 export async function shutdown(world: World | undefined): Promise<void> {
     const runtime = kernelState(world);
     await runtime.pool?.terminate();

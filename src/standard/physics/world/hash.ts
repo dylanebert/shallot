@@ -5,13 +5,8 @@ import {
 } from "../kernel/bodycolumns";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { kernel } from "../kernel/kernel";
-// The deterministic world-state hash — Box3D's b3HashWorldState (recording.c/recording.h, Erin
-// Catto, MIT). This is the bit-exact regression contract: the fixture generator emits this FNV-1a
-// hash after every step, and the port asserts equality. It walks live bodies in id order, mixing
-// each body's transform (position + rotation) and, for awake bodies, its linear/angular velocity.
-//
-// The hash is a real u64 (wrapping multiply), so it runs in BigInt. Each f32 is mixed as its raw
-// IEEE-754 bit pattern (zero-extended to u64), exactly as the C `memcpy(&bits, &f, 4)`.
+// Box3D b3HashWorldState (recording.c/recording.h, Erin Catto, MIT).
+// Hash raw f32 bits with wrapping u64 multiplication; numeric float conversion would change parity.
 
 import { getBodySim, getBodyState } from "./body";
 import type { WorldState } from "./world";
@@ -30,7 +25,8 @@ function mixFloat(hash: bigint, value: number): bigint {
     return ((hash ^ bits) * FNV_PRIME) & U64_MASK;
 }
 
-/** @returns the FNV-1a hash of every live body's transform + velocity (b3HashWorldState). */
+/** FNV-1a over live bodies in id order: every pose, plus velocities for bodies with an awake state
+ * (b3HashWorldState). */
 export function hashWorldState(world: WorldState): bigint {
     return hashWorldStateWithSeed(world, FNV_INIT);
 }
@@ -54,7 +50,6 @@ function hashWorldStateWithSeed(world: WorldState, initial: bigint): bigint {
     for (let i = 0; i < bodyCount; ++i) {
         const body = i;
         if (bodyField(world, body, BodyField.id) !== i) {
-            // Free or never-used slot
             continue;
         }
 

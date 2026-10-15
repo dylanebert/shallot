@@ -1618,12 +1618,11 @@ export const CollectDrawPhysicsFieldCandidatesSystem: System = {
     },
 };
 
-// query terms, held once so a steady sync mints none.
+// Retain query terms to avoid steady-sync allocations.
 const BODY_TERMS = [Body];
 const SHAPE_TERMS = [ShapeComponent];
 
-// the stale walk's context, one per runtime: the eids of despawned bodies in the first `count` slots of a
-// list that keeps its high-water capacity (truncating it releases the backing store; the next push regrows it).
+// Only the first count eids are live; retain the array's high-water capacity between scans.
 interface StaleScan {
     world: World | null;
     eids: number[];
@@ -1635,10 +1634,8 @@ function collectStale(this: StaleScan, _body: unknown, eid: number): void {
     if (!this.world!.has(eid, Body)) this.eids[this.count++] = eid;
 }
 
-// membership-driven create/destroy, ascending eid order (world.query's natural order — creation order is
-// load-bearing for solver determinism). Runs every fixed tick before the solve so a body spawned this frame
-// joins THIS tick's step.
-// one Body's reconciliation; true when it bound a new solver body
+// Body creation order affects solver determinism; callers visit in ascending eid order.
+// Returns true when a new solver body was bound.
 function visitBody(
     world: World,
     runtime: PhysicsRuntime,
@@ -1891,14 +1888,8 @@ export const SyncPhysicsWorldDefinitionSystem: System = {
 };
 
 /**
- * Rigid-body physics over shared bodies and the nine joint kinds, with a CPU solver (Rust/WASM kernel, no GPU device
- * needed to step). Opt-in — add it to a scene to run physics (it's not in the default plugins).
- * Mesh/heightfield/compound colliders, sensors, CCD and sleeping ride {@link physicsWorld}.
- *
- * @example
- * ```
- * export const config: AppConfig = { plugins: [StandardPhysicsPlugin] };
- * ```
+ * Opt-in rigid-body simulation; not in the default plugins. Steps the Rust/WASM kernel without
+ * a GPU device, synchronizing core physics authoring and publishing placement and events.
  */
 export const StandardPhysicsPlugin: Plugin = {
     name: "StandardPhysics",

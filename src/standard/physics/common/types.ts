@@ -1,8 +1,5 @@
-// Public data types for world / body / shape creation, ported from Box3D's types.h + the
-// b3Default* factories in types.c (Erin Catto, MIT). Pure data — the def structs bundle creation
-// parameters and are safe to reuse. Default values are bit-exact with the C reference (length unit
-// fixed at 1.0, see common/constants.ts). Single-threaded port: the threading and debug-draw fields of the C
-// defs (workerCount, enqueueTask, createDebugShape, ...) and the internalValue cookie are dropped.
+// Box3D types.h and b3Default* factories in types.c (Erin Catto, MIT).
+// Definitions are reusable creation data; length units are fixed at one per meter.
 
 import type { SurfaceMaterial } from "../../../core/physics";
 import { hi32, lo32 } from "./bits";
@@ -90,7 +87,6 @@ export type QueryFilterBits = {
     maskLo: number;
 };
 
-/** @returns the split form of a user-supplied shape filter. */
 export function toFilterBits(filter: Filter): FilterBits {
     return {
         categoryHi: hi32(filter.categoryBits),
@@ -101,7 +97,6 @@ export function toFilterBits(filter: Filter): FilterBits {
     };
 }
 
-/** @returns the split form of a user-supplied query filter. */
 export function toQueryFilterBits(filter: QueryFilter): QueryFilterBits {
     return {
         categoryHi: hi32(filter.categoryBits),
@@ -164,7 +159,7 @@ export type MixCallback = (
 
 /**
  * World creation parameters (b3WorldDef). Reusable pure data. Threading, task-system, and
- * debug-draw fields of the C def are dropped (single-threaded port); friction/restitution mixing
+ * debug-draw fields of the C def are omitted; friction/restitution mixing
  * callbacks default to the built-in mix functions when left undefined.
  */
 export type WorldDef = {
@@ -193,7 +188,6 @@ export function defaultWorldDef(): WorldDef {
         contactHertz: f32(30.0),
         contactDampingRatio: f32(10.0),
         contactSpeed: f32(3.0 * lu),
-        // 400 m/s, faster than the speed of sound
         maximumLinearSpeed: f32(400.0 * lu),
         enableSleep: true,
         enableContinuous: true,

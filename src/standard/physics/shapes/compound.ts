@@ -1,19 +1,6 @@
-// Compound shapes — a static container of child shapes (capsule/hull/mesh/sphere) baked into one
-// broad-phase proxy with an inner dynamic tree. Ported from Box3D's compound.c (Erin Catto, MIT).
-//
-// The C packs the whole compound into one byte blob accessed through offsets; the port models it as a
-// plain struct of arrays (mirroring the mesh/height-field batches). Safe because the raw compound
-// bytes are never hashed by the sim — only the inner-tree build order (→ child query order → contact
-// ids → solver order), the child transforms, and the per-child material indices are load-bearing, all
-// preserved here. So `byteCount`/`version`/the offset machinery are dropped; `sharedHullCount` and
-// `sharedMeshCount` are kept as the diagnostics the create tests assert.
-//
-// Materials are de-duplicated in first-seen order across all child types (capsules, then hulls, then
-// meshes, then spheres) — a linear find-or-append that yields the same integer indices as the C's
-// hash map. Shared hulls de-dup by content hash (b3HashHullData analogue); shared meshes de-dup by
-// structural content (b3CompareMeshes, which memcmp's the mesh blob — a deep field compare here, since
-// this port dropped the mesh's serialization hash). The shared counts are diagnostics the create tests
-// assert; the child instances keep their own geometry references either way.
+// Box3D compound.c (Erin Catto, MIT). Inner-tree build order determines child query order,
+// contact ids and solver order. Material indices follow first-seen order across child types.
+// sharedHullCount and sharedMeshCount are diagnostics; children retain their geometry references.
 
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
 import type { Transform, Vec3 } from "../common/records";
@@ -50,7 +37,8 @@ export type CompoundMeshDef = {
 };
 export type CompoundSphereDef = { sphere: Sphere; material: SurfaceMaterial };
 
-/** Definition for a compound shape. All data is cloned into the runtime compound (b3CompoundDef). */
+/** Compound definition (b3CompoundDef). Materials and sphere/capsule values are copied;
+ * hulls, mesh data and child transforms remain caller-owned references. */
 export type CompoundDef = {
     capsules?: CompoundCapsuleDef[];
     hulls?: CompoundHullDef[];
@@ -112,9 +100,7 @@ function materialsEqual(a: SurfaceMaterial, b: SurfaceMaterial): boolean {
 
 const vec3Equal = (a: Vec3, b: Vec3): boolean => a.x === b.x && a.y === b.y && a.z === b.z;
 
-// Structural content equality of two baked meshes (b3CompareMeshes, which memcmp's the whole blob). Two
-// meshes built from identical input are bit-identical field for field, so a deep compare reproduces the
-// C's dedup outcome without the dropped serialization hash. Used only for the diagnostic sharedMeshCount.
+// b3CompareMeshes uses serialized bytes; this representation compares fields for sharedMeshCount.
 function meshesEqual(a: MeshData, b: MeshData): boolean {
     if (a === b) {
         return true;
@@ -229,10 +215,8 @@ export function getCompoundMaterials(compound: CompoundData): SurfaceMaterial[] 
 }
 
 /**
- * Bake a compound shape from its definition (b3CreateCompound): de-dup materials + shared hulls/meshes,
- * build the inner dynamic tree over every child, then full-rebuild it. Returns null if the child count
- * exceeds B3_MAX_CHILD_SHAPES. The child order (and thus tree leaf user data) is capsules, hulls,
- * meshes, spheres.
+ * Bake a compound shape (b3CreateCompound). Returns null when the child count is at least
+ * B3_MAX_CHILD_SHAPES. Child indices and tree leaf user data follow capsules, hulls, meshes, spheres.
  */
 export function createCompound(def: CompoundDef): CompoundData | null {
     const capsuleDefs = def.capsules ?? [];
@@ -249,7 +233,6 @@ export function createCompound(def: CompoundDef): CompoundData | null {
     const t = tree.createTree(shapeCount);
     let childIndex = 0;
 
-    // First-seen material de-dup: linear find-or-append, yielding the same indices as the C hash map.
     const materials: SurfaceMaterial[] = [];
     const getOrInsertMaterial = (mat: SurfaceMaterial): number => {
         for (let i = 0; i < materials.length; ++i) {
@@ -261,7 +244,6 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         return materials.length - 1;
     };
 
-    // Capsules
     const capsules: CompoundCapsule[] = [];
     for (const cd of capsuleDefs) {
         const materialIndex = getOrInsertMaterial(cd.material);
@@ -275,7 +257,6 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         childIndex += 1;
     }
 
-    // Hulls — proxy first (matching the C loop order), then material + shared-hull de-dup by content hash.
     const hulls: CompoundHull[] = [];
     const sharedHullHashes = new Set<bigint>();
     for (const hd of hullDefs) {
@@ -288,7 +269,6 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         sharedHullHashes.add(hd.hull.hash);
     }
 
-    // Meshes — one material index per mesh material slot; shared meshes de-dup by content (b3CompareMeshes).
     const meshes: CompoundMesh[] = [];
     const sharedMeshes: MeshData[] = [];
     for (const md of meshDefs) {
@@ -311,7 +291,6 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         }
     }
 
-    // Spheres
     const spheres: CompoundSphere[] = [];
     for (const sd of sphereDefs) {
         const materialIndex = getOrInsertMaterial(sd.material);

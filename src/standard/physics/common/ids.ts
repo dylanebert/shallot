@@ -1,6 +1,4 @@
-// Non-body entity bookkeeping, ported from Box3D's id_pool.c. Public body handles are backed by the
-// kernel-owned body record pool; this small TypeScript pool remains for shapes, joints, contacts and
-// solver-set/island organization until their own ownership stages.
+// Box3D id_pool.c.
 
 /** A public opaque handle. Index and generation are owned by the corresponding kernel pool. */
 export type EntityId = { index1: number; world0: number; generation: number };
@@ -24,8 +22,7 @@ export function allocId(pool: IdPool): number {
 }
 
 export function freeId(pool: IdPool, id: number): void {
-    // Mirrors b3FreeId verbatim. id === nextIndex never holds (id < nextIndex always), so this
-    // branch is dead — a known quirk in the C, kept for a faithful behavioral match.
+    // b3FreeId retains this branch even though allocated ids are strictly below nextIndex.
     if (id === pool.nextIndex) {
         pool.nextIndex -= 1;
         return;
@@ -33,7 +30,6 @@ export function freeId(pool: IdPool, id: number): void {
     pool.freeArray.push(id);
 }
 
-/** Number of ids currently handed out. */
 export function idCount(pool: IdPool): number {
     return pool.nextIndex - pool.freeArray.length;
 }

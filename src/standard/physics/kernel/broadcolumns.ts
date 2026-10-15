@@ -1,14 +1,6 @@
 import type { World } from "../../../engine";
-// The persistent broad-phase region (kernel/src/broad.rs) — three dynamic-tree node pools, shape-pair
-// membership arrays. The kernel queries them without a per-step marshal.
-// This store owns views of the resident tree headers, pools, pairs and moves.
-// Tree, pair-table and move operations run in the kernel.
-//
-// A region grow (or any `memory.grow` elsewhere) detaches every typed-array view, so the store follows
-// the shared-memory view-refresh discipline: it re-derives the views from the kernel layout header
-// and writes them straight back into the DynamicTree structs, so every tree op reads a
-// current view. `refreshViews` is called at the top of the pair-finding pass and after every grow —
-// never per-iteration (that would reintroduce churn).
+// crates/physics/src/broad.rs owns the resident broad phase. Reserves can move its columns;
+// refresh tree views after grow-capable calls, not per iteration.
 
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
@@ -53,7 +45,6 @@ export class BroadStore extends KernelViews {
         Object.assign(this.initialization, state);
     }
 
-    /** Initialize this World's native broad-phase metadata on first use. */
     initialize(): void {
         const world = this.world;
         if (this.initialization.claimed || world === null) return;
@@ -67,8 +58,7 @@ export class BroadStore extends KernelViews {
         this.ensureViews();
     }
 
-    /** Re-derive the column views over the current region and write them into the tree structs.
-     * Cheap — a handful of typed-array constructions, no copy. */
+    /** Rebinds tree views without copying column contents. */
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);

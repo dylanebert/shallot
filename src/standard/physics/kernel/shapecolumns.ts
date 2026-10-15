@@ -4,16 +4,8 @@ import type { ShapeDef, ShapeType, SurfaceMaterial } from "../common/types";
 import type { Shape } from "../shapes/shape";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
-// The persistent shape region (kernel/src/shapes.rs) — one record per shapeId (type code, local
-// geometry, nextShapeId), held resident in the kernel's linear memory so the in-kernel finalize refit
-// can walk a body's shape list and compute its AABBs without a per-step marshal. Each World owns
-// its columns; a shape's slot is fixed for its life.
-//
-// The write sites are the shape lifecycle itself: `createShape` writes the whole record (a recycled
-// shapeId inherits nothing), `destroyShape` patches the predecessor's `next` slot. There is no lazy
-// dirty set — a stale record is invisible to TS and would silently feed the kernel garbage, so the
-// column is written where the shape record is.
-//
+// crates/physics/src/shapes.rs owns World-local shape records; a slot is fixed for its life.
+// Lifecycle writes must reach the resident record immediately: finalize reads it without a marshal.
 // Reserves can reallocate columns or grow memory; callers refresh views afterward.
 
 import { KernelViews } from "./views";
@@ -58,9 +50,7 @@ export function createShapeSlot(
 }
 
 /**
- * Typed-array views over the resident shape column plus the shapeId-keyed writes. One per world. The
- * column is what the in-kernel finalize refit reads; TS writes it at shape create/destroy. Re-derives
- * its views when the shared kernel key changes.
+ * World-owned shape views. Re-derives views when the shared kernel key changes.
  */
 export class ShapeStore extends KernelViews {
     private readonly _worldId: number;
@@ -83,7 +73,6 @@ export class ShapeStore extends KernelViews {
     private _materialData = new DataView(new ArrayBuffer(0));
     // BigInts are reused while a material address holds the same user-id words.
     private readonly _ids = new Map<number, { low: number; high: number; value: bigint }>();
-    // The held layout header views are derived from.
     private _layout = new Uint32Array(0);
 
     // Shape/material lifecycle metadata and contents are entirely native region data.
@@ -121,7 +110,6 @@ export class ShapeStore extends KernelViews {
         }
     }
 
-    /** Refresh a shape's pool reference without touching its material or finalize lanes. */
     /** Copy authored materials into the shape's inline material or owned contiguous array. */
     writeMaterials(
         world: WorldState,

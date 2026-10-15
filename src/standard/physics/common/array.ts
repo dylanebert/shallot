@@ -1,11 +1,4 @@
-// A growable typed-array vector — the port's analogue of Box3D's b3Array(T) macro for numeric
-// element types, and the pool every SoA column (bodies, contacts, joints) is built from.
-//
-// Typed arrays are fixed-length, so growth reallocates and copies, mirroring the C realloc. The
-// growth constants (push doubles from 8, emplace from 16) match container.h so capacity tracks
-// the reference; nothing here is arithmetic, so no fround discipline applies. removeSwap returns
-// the moved element's old index, or NULL_INDEX (-1) when the tail was removed — the b3Array
-// contract the solver relies on.
+// Numeric b3Array(T) from Box3D container.h. Growth replaces data; callers must not retain its view.
 
 export const NULL_INDEX = -1;
 
@@ -92,11 +85,8 @@ export class GrowVec<T extends NumericArray> {
 }
 
 /**
- * Swap-remove from a plain array, mirroring `b3Array_RemoveSwap` for the lifecycle columns (body
- * sims, contact indices, island links) that the scalar port stores as object/number arrays rather
- * than typed-array pools. Moves the last element into `index` and pops. Returns the moved element's
- * old index (the new length), or NULL_INDEX if `index` was the last element — the same contract
- * callers use to fix the moved element's back-index.
+ * Swap-remove from a plain array (b3Array_RemoveSwap). Returns the moved element's old index
+ * (the new length), or NULL_INDEX if `index` was the last element, so callers can fix back-indices.
  */
 export function swapRemove<T>(arr: T[], index: number): number {
     const last = arr.length - 1;
@@ -134,9 +124,8 @@ function sort3(
 }
 
 /**
- * In-place quicksort operating purely on indices through `less`/`swap` callbacks — a faithful port
- * of Box3D's QSORT macro (qsort.h, Alexey Tourbin): median-of-3 pivot with an insertion-sort cutoff
- * at 16. It keeps the C's comparison and swap sequence, so equal keys land where the C leaves them.
+ * In-place index sort (Box3D QSORT, qsort.h, Alexey Tourbin). Comparison and swap sequence
+ * determines equal-key order; keep it aligned with the source.
  * Not reentrant: `less` and `swap` must not sort.
  */
 export function qsort(
@@ -174,7 +163,6 @@ export function qsort(
             swap(l, j);
             j--;
 
-            // Two subfiles [l, j] and [i, r]; recurse on the smaller, stack the larger.
             let l1: number;
             let r1: number;
             let l2: number;
@@ -214,6 +202,5 @@ export function qsort(
     }
 }
 
-/** An int32-backed growable vector — the common index/id column. */
 export const intVec = (capacity = 0): GrowVec<Int32Array> =>
     new GrowVec((n) => new Int32Array(n), capacity);
