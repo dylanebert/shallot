@@ -80,10 +80,23 @@ function computeGlyphMetrics(atlas: GlyphAtlas, char: string): PendingGlyphEntry
     const bounds = atlas.font.glyphBounds(char);
     const advance = atlas.font.advance(char);
 
-    if (!path || !bounds) return null;
+    const unitsPerEm = atlas.font.unitsPerEm;
+    if (!path || !bounds) {
+        atlas.glyphs.set(char, {
+            glyphWidth: 0,
+            glyphHeight: 0,
+            glyphTop: 0,
+            glyphLeft: 0,
+            advance: advance / unitsPerEm,
+            u0: 0,
+            v0: 0,
+            u1: 0,
+            v1: 0,
+        });
+        return null;
+    }
 
     const [xMin, yMin, xMax, yMax] = bounds;
-    const unitsPerEm = atlas.font.unitsPerEm;
 
     const padding = unitsPerEm * 0.1;
     const paddedBounds: [number, number, number, number] = [
@@ -196,16 +209,18 @@ export function layoutText(text: string, atlas: GlyphAtlas, fontSize: number): L
         const x = cursorX + metrics.glyphLeft * scale;
         const y = (metrics.glyphTop - metrics.glyphHeight) * scale;
 
-        glyphs.push({
-            x,
-            y,
-            width: glyphW,
-            height: glyphH,
-            u0: metrics.u0,
-            v0: metrics.v0,
-            u1: metrics.u1,
-            v1: metrics.v1,
-        });
+        if (glyphW > 0 && glyphH > 0) {
+            glyphs.push({
+                x,
+                y,
+                width: glyphW,
+                height: glyphH,
+                u0: metrics.u0,
+                v0: metrics.v0,
+                u1: metrics.u1,
+                v1: metrics.v1,
+            });
+        }
 
         cursorX += advance;
         maxHeight = Math.max(maxHeight, glyphH);
