@@ -90,7 +90,7 @@ export function resetInterpolation(world: World, eid: number): void {
     }
     runtime.discontinuities[word] |= 1 << (eid & 31);
 }
-/** @internal Gather authored placement into fixed world columns without per-row callbacks. */
+/** @internal Derive marked Transform fields; claimed poses are left to their domain producer. */
 export function deriveTransforms(world: World): void {
     const runtime = world.resource(TransformRuntime);
     const global = runtime.global,
@@ -184,7 +184,7 @@ export const TransformPlugin: Plugin = {
         };
     },
 };
-/** Compose this World's fixed-tick GlobalTransform for CPU camera and query readers. */
+/** Write a column-major matrix from fixed-tick placement into caller-owned `out` and return it. */
 export function composeGlobalTransform(world: World, eid: number, out: Float32Array): Float32Array {
     const { translation: pos, rotation: rot, scale } = world.storage(GlobalTransform);
     const px = pos.x.get(eid),
