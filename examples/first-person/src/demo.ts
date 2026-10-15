@@ -75,7 +75,6 @@ export function route(world: World) {
     });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const eye = world.create();
-    // Minecraft Java's default vertical field of view.
     world.add(eye, Camera, { fov: 70, clearColor: 0x1c1917 });
     world.add(eye, StandardRenderer);
     world.add(eye, Transform, { translation: [0, 2.7, 12] });
@@ -121,16 +120,14 @@ export function route(world: World) {
     return { player, eye, lift };
 }
 
-// The route owns the lift's size and starting height. This role only gives the small trajectory system a
-// declarative target; the lift is the sole moving object in the recipe.
+// Marks route entities driven by the lift system; their authored positions become trajectory bases.
 export const Lift = component("Lift", {});
 
 const TRAVEL = 1.5;
 const RATE = 0.65;
 const RECIPE_STATE: Resource<DemoBag> = { create: createBag };
 type DemoBag = {
-    // one slot per lift: its body eid, and its authored base at `slot * 3`. Two held arrays rather than a
-    // Map, so the per-tick walk indexes instead of iterating and the base reads stay unboxed doubles.
+    // Each lift eid has a base position at slot * 3 in liftBases.
     liftEids: number[];
     liftBases: number[];
     liftCount: number;
@@ -152,7 +149,6 @@ function createBag(world: World): DemoBag {
         look: null,
     };
     world.onDispose(() => {
-        // the slot arrays keep their capacity; the count is what empties them
         bag.liftCount = 0;
         bag.panel = null;
         bag.look = null;
@@ -168,8 +164,6 @@ const lift: System = {
     name: "lift",
     group: "fixed",
     before: CharacterPlugin.systems,
-    // Every lift shares one trajectory, so the phase and rise are the tick's, not each lift's: they are
-    // computed once here and the slot walk only adds each lift's base to them.
     update(world: World): void {
         const bag = stateBag(world);
         const phase = 2 * (world.time.elapsed * RATE);
@@ -218,9 +212,6 @@ function mountControls(world: World): void {
     bag.panel = panel;
 }
 
-// Pointer look states itself on the control it governs, never as a sentence: the MOUSE row is dim until the
-// pointer locks and brightens when it does, so the affordance and its outcome are one mark. A refusal reads
-// as a struck row, with the browser's reason kept on the title so the cause stays recoverable without copy.
 const controls: System = {
     name: "first-person-controls",
     group: "draw",
@@ -255,7 +246,7 @@ export const Demo = {
             bag.liftEids = saved.liftEids.slice();
             bag.liftBases = saved.liftBases.slice();
             bag.liftCount = saved.liftCount;
-            // DOM handles are presentation; liftPos and liftVel are overwritten per call.
+            // DOM handles are presentation; liftPos is overwritten per call.
         },
     }),
     components: [Lift],
