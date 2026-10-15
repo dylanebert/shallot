@@ -1,7 +1,6 @@
 //! Box3D broad_phase.c: parallel pair queries and the serial tree rebuild.
-//! Each moved proxy owns a prepended survivor list. TypeScript creates contacts after the join,
-//! walking proxies in move-buffer order and each list in place. Allocation order across tasks
-//! does not affect contact creation order.
+//! After the join, create contacts in move-buffer order, walking each proxy's
+//! prepended survivor list in place. Task allocation order must not affect that order.
 
 use crate::broad;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -349,9 +348,8 @@ fn shapes_collide(a: &[u32], b: &[u32]) -> bool {
     ((a[41] & b[39]) | (a[40] & b[38])) != 0 && ((a[39] & b[41]) | (a[38] & b[40])) != 0
 }
 
-/// Each task owns its moved-proxy heads and traversal stack. The shared candidate allocator only
-/// assigns storage; TS walks heads in move-buffer order, as Box3D's b3UpdateBroadPhasePairs walks
-/// its prepended pair lists.
+/// b3UpdateBroadPhasePairs. Each task exclusively owns its moved-proxy heads
+/// and traversal stack; the candidate allocator assigns shared storage.
 ///
 /// # Safety
 /// reservePairs must precede the round; trees, shapes and membership stay fixed until its join.

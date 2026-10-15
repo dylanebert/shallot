@@ -49,8 +49,8 @@ struct Work {
     wide_idx: Col<'static, u32>,
     wide_spans: Col<'static, crate::contact_spans::WidePrepareSpan>,
 
-    /// The serial spill: contact records the graph coloring could not separate. Never becomes blocks —
-    /// the orchestrator runs it alone, in creation order, between stages.
+    /// Overflow contacts share bodies and run alone on the orchestrator,
+    /// in their stored order between stages.
     overflow_count: usize,
 
     /// Active graph-color arrays and their joint-prepare spans (b3JointPrepareSpan).
@@ -417,7 +417,7 @@ impl StageWork for Work {
 }
 
 /// Call once per solve on the main thread, before waking the pool.
-/// The colorSpan column, including joint spans, must already be populated.
+/// Previous solver handles must be finished before their storage is reused.
 #[allow(clippy::too_many_arguments)]
 #[export_name = "solveBuild"]
 pub extern "C" fn solve_build(
@@ -518,8 +518,6 @@ pub extern "C" fn solve_build_in_world(
     unsafe {
         arena::reset_hit_events(world_index, thread_count);
         arena::reset_joint_states(world_index);
-        // All previous solver handles must be finished before dropping the context
-        // and reborrowing its buffers.
         STEP = core::ptr::null_mut();
         arena::free_solve(world_index);
         SPLIT_ID = crate::island::split_candidate_in_world(world_index);

@@ -3,8 +3,8 @@
 //!
 //! Parallel blocks must be write-disjoint: graph colors separate body writes;
 //! prepare/store blocks own their transient rows and persistent manifolds.
-//! Overflow constraints share bodies and run serially in creation order between
-//! stages. No reduction may depend on worker identity.
+//! Overflow constraints share bodies and run serially in their stored order
+//! between stages. No reduction may depend on worker identity.
 //!
 //! Without +atomics, worker_count must be one: atomic loads and stores lower to
 //! plain accesses in the single-thread artifact.
@@ -195,8 +195,7 @@ pub trait StageWork: Sync {
     fn store_wide(&self, block: Block, worker_index: usize);
     fn store_mesh(&self, block: Block, worker_index: usize);
 
-    /// The pose finalize, the solve's terminal stage over the body blocks.
-    /// Per-body write-disjoint, like every body stage.
+    /// Finalizes poses in per-body write-disjoint blocks after the staged solve.
     fn finalize(&self, block: Block, worker: usize);
 
     fn prepare_overflow(&self);
@@ -216,7 +215,6 @@ pub trait StageWork: Sync {
     fn solve_overflow_joints(&self, _use_bias: bool) {}
 }
 
-// --- block sizing -----------------------------------------------------------------------------
 
 /// Blocks per worker, so a worker that finishes early can steal without unbounded per-block sync overhead.
 const BLOCKS_PER_WORKER: usize = 4;
@@ -341,7 +339,6 @@ pub fn sizes(plan: &Plan) -> Sizes {
     }
 }
 
-// --- build ------------------------------------------------------------------------------------
 
 /// Stage descriptors and block ranges stay fixed until every worker has joined.
 pub struct Context<'a> {
@@ -436,7 +433,6 @@ pub fn build<'a>(
 
     let d = dims(plan);
 
-    // Block array: body | wide | mesh | joint | per-color (joint, wide, mesh).
     let body_at = 0;
     let wide_at = body_at + d.body.count;
     let mesh_at = wide_at + d.wide.count;
@@ -476,8 +472,7 @@ pub fn build<'a>(
         NULL_COLOR,
     );
 
-    // Each color's blocks are contiguous: joints, then wide contacts, then mesh contacts.
-    // A color stage points at the whole run, so all three kinds run concurrently.
+    // A color stage shares one contiguous run across all three constraint kinds.
     let mut color_at = [0usize; MAX_COLORS];
     let mut color_blocks = [0usize; MAX_COLORS];
     let mut at = graph_at;
@@ -629,7 +624,6 @@ pub fn build<'a>(
     }
 }
 
-// --- execution --------------------------------------------------------------------------------
 
 /// b3ExecuteBlock: stage type + block type → phase.
 fn execute_block<W: StageWork>(work: &W, ty: StageType, block: Block, worker_index: usize) {
@@ -885,7 +879,6 @@ fn walk<W: StageWork>(ctx: &Context, work: &W) -> Option<()> {
         work.profile(11, start);
     }
 
-    // integrate velocities + warm start + solve + integrate positions + relax
     stage_index += 2 + colors * (1 + ITERATIONS + RELAX_ITERATIONS);
 
     let start = work.ticks();

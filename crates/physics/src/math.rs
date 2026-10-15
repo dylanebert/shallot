@@ -16,7 +16,6 @@ pub const HUGE: f32 = 1.0e5 * LENGTH_UNITS_PER_METER;
 
 const TWO_PI: f32 = 2.0 * PI;
 
-// --- scalar helpers -------------------------------------------------------------------------
 
 #[inline]
 pub fn absf(a: f32) -> f32 {
@@ -57,7 +56,6 @@ pub fn clampf(a: f32, lo: f32, hi: f32) -> f32 {
     }
 }
 
-// --- transcendentals ------------------------------------------------------------------------
 
 // Reducing modulo two periods retains the even-quotient tie rule without forming a
 // rounded large quotient. The bounded subtractions are exact for f32 operands in f64.
@@ -169,10 +167,8 @@ pub fn compute_cos_sin(radians: f32) -> CosSin {
     }
 }
 
-// --- vec3 -----------------------------------------------------------------------------------
 
-// repr(C) fixes the field layout so a hull's point pool in wasm linear memory can be reinterpreted as
-// `&[Vec3]` (kernel/src/hull.rs, 3c.2 geometry columns).
+// repr(C) permits hull point pools in WASM memory to be reinterpreted as &[Vec3].
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Vec3 {
@@ -205,17 +201,14 @@ impl Vec3 {
     pub fn neg(self) -> Vec3 {
         Vec3::new(-self.x, -self.y, -self.z)
     }
-    /// s * self
     #[inline]
     pub fn scale(self, s: f32) -> Vec3 {
         Vec3::new(s * self.x, s * self.y, s * self.z)
     }
-    /// self + s * b
     #[inline]
     pub fn mul_add(self, s: f32, b: Vec3) -> Vec3 {
         Vec3::new(self.x + s * b.x, self.y + s * b.y, self.z + s * b.z)
     }
-    /// self - s * b
     #[inline]
     pub fn mul_sub(self, s: f32, b: Vec3) -> Vec3 {
         Vec3::new(self.x - s * b.x, self.y - s * b.y, self.z - s * b.z)
@@ -334,7 +327,6 @@ pub fn arbitrary_perp(v: Vec3) -> Vec3 {
     p.normalize()
 }
 
-// --- vec2 -----------------------------------------------------------------------------------
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -367,7 +359,6 @@ impl Vec2 {
     }
 }
 
-// --- quat -----------------------------------------------------------------------------------
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -387,7 +378,6 @@ impl Quat {
         self.v.x * o.v.x + self.v.y * o.v.y + self.v.z * o.v.z + self.s * o.s
     }
 
-    /// self * o
     pub fn mul(self, o: Quat) -> Quat {
         let t1 = self.v.cross(o.v);
         let t2 = t1.mul_add(self.s, o.v);
@@ -398,7 +388,6 @@ impl Quat {
         }
     }
 
-    /// inv(self) * o
     pub fn inv_mul(self, o: Quat) -> Quat {
         let t1 = o.v.cross(self.v);
         let t2 = t1.mul_add(self.s, o.v);
@@ -607,7 +596,6 @@ pub fn make_quat_from_matrix(m: &Mat3) -> Quat {
     q.normalize()
 }
 
-// --- mat3 -----------------------------------------------------------------------------------
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -624,7 +612,6 @@ impl Mat3 {
         cz: Vec3::ZERO,
     };
 
-    /// self * a, matrix times column vector.
     #[inline]
     pub fn mul_v(self, a: Vec3) -> Vec3 {
         Vec3::new(
@@ -634,7 +621,6 @@ impl Mat3 {
         )
     }
 
-    /// self * b
     pub fn mul(self, b: Mat3) -> Mat3 {
         Mat3 {
             cx: self.mul_v(b.cx),
@@ -747,7 +733,6 @@ impl Mat3 {
     }
 }
 
-// --- mat2 -----------------------------------------------------------------------------------
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -802,7 +787,6 @@ impl Mat2 {
     }
 }
 
-// --- transform ------------------------------------------------------------------------------
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -817,7 +801,6 @@ impl Transform {
         q: Quat::IDENTITY,
     };
 
-    /// Apply transform to a point: q rotates, then translate by p.
     pub fn point(self, v: Vec3) -> Vec3 {
         self.q.rotate(v).add(self.p)
     }
@@ -828,7 +811,6 @@ impl Transform {
             q: self.q.conjugate(),
         }
     }
-    /// Inverse of `point`.
     pub fn inv_point(self, v: Vec3) -> Vec3 {
         self.q.inv_rotate(v.sub(self.p))
     }
@@ -848,7 +830,6 @@ impl Transform {
     }
 }
 
-// --- plane ----------------------------------------------------------------------------------
 
 // repr(C) so a hull's plane pool in wasm linear memory reinterprets as `&[Plane]` (kernel/src/hull.rs).
 #[repr(C)]
@@ -890,7 +871,6 @@ impl Plane {
     }
 }
 
-// --- segment / line distance ----------------------------------------------------------------
 
 /// Normalize `a` and return its length; zero vector if `a` is tiny (b3GetLengthAndNormalize).
 pub fn get_length_and_normalize(a: Vec3) -> (Vec3, f32) {
@@ -959,7 +939,6 @@ pub fn segment_distance(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> SegmentDistan
         };
     }
 
-    // Non-degenerate case.
     let denom = a * e - b * b;
     let mut s1 = if denom > 1000.0 * FLT_MIN {
         clampf((b * f - c * e) / denom, 0.0, 1.0)
@@ -968,7 +947,6 @@ pub fn segment_distance(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> SegmentDistan
     };
     let mut s2 = (b * s1 + f) / e;
 
-    // Clamp s2 and recompute s1 if necessary.
     if s2 < 0.0 {
         s1 = clampf(-c / a, 0.0, 1.0);
         s2 = 0.0;
@@ -1002,7 +980,6 @@ pub fn point_to_segment_distance(a: Vec3, b: Vec3, q: Vec3) -> Vec3 {
 
 /// Closest points on the two infinite lines p1+s1*d1 and p2+s2*d2 (b3LineDistance).
 pub fn line_distance(p1: Vec3, d1: Vec3, p2: Vec3, d2: Vec3) -> SegmentDistanceResult {
-    // Solve A*x = b
     let a11 = d1.dot(d1);
     let a12 = -d1.dot(d2);
     let a21 = d2.dot(d1);

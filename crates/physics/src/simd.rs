@@ -1,11 +1,6 @@
-//! 4-wide f32 lane type, a direct port of box3d's `b3FloatW` (contact_solver.c).
-//!
-//! Two implementations, cfg-selected: wasm `simd128` intrinsics for the shipping build, and a
-//! scalar `[f32; 4]` fallback for native `cargo test`. The fallback is bit-identical to the wasm
-//! path because both preserve per-lane IEEE f32 operations and operand order without fusion.
-//!
-//! `mul_add(a, b, c)` = `a + b*c`, non-fused. `min`/`max` use ordered comparisons and select
-//! the second operand on equality or unordered inputs, via compare→bitselect.
+//! Box3D contact_solver.c b3FloatW.
+//! Both targets must preserve per-lane f32 rounding and operand order without fusion.
+//! min/max select the second operand on equality or unordered inputs.
 
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32::*;
@@ -308,12 +303,12 @@ impl FloatW {
         );
         FloatW(v128_or(v128_and(self.0, mask), indices))
     }
-    /// Wrap a raw lane vector (4c's record-transpose gather builds lanes as `v128` directly).
+    /// Accepts the record-transpose gather's raw v128 lanes.
     #[inline]
     pub fn from_v128(v: v128) -> Self {
         FloatW(v)
     }
-    /// The raw lane vector (4c's scatter transposes it back into the record).
+    /// Exposes raw lanes for record-transpose scatter.
     #[inline]
     pub fn v128(self) -> v128 {
         self.0

@@ -1,9 +1,6 @@
-//! Wide (4-lane) vector/matrix layer over `FloatW` — a direct port of the `b3Vec3W`/`b3QuatW`/
-//! `b3SymMatrix*W` types and their ops in box3d's `contact_solver.c`. The wide contact solver
-//! (`contact_wide`) gathers four contacts into these SoA lanes and solves them together.
-//!
-//! Every op mirrors the C expression tree operand-for-operand (associativity included) so the lanes
-//! stay bit-identical to the reference. `mul_add(a, b, c)` is `a + b*c`, never fused.
+//! Box3D contact_solver.c b3Vec3W, b3QuatW and b3SymMatrix*W operations.
+//! Preserve operand order and associativity for bit parity.
+//! mul_add(a, b, c) means a + b*c, without fusion.
 
 use crate::simd::FloatW;
 
