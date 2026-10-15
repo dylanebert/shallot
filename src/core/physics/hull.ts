@@ -6,8 +6,9 @@ import { Registry, type Resource } from "../../engine";
 
 /**
  * A convex hull's input: the hull is the convex hull of `points`. Interior points drop and coplanar
- * faces merge when a solver builds it, and a solver refuses fewer than four points. Replace a hull
- * by registering its name again rather than mutating a registered one.
+ * faces merge when a solver builds it. A solver refuses fewer than four points, or a `points` length
+ * that is not a multiple of 3. Replace a hull by registering its name again rather than mutating a
+ * registered one.
  */
 export interface Hull {
     name: string;

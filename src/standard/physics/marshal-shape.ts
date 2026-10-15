@@ -111,11 +111,15 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
     const name = hulls.name(id);
     const hull = name === undefined ? undefined : hulls.get(name);
     if (!hull) throw new Error(`physics: Shape ${eid} names missing hull ${id}`);
+    if (hull.points.length % 3 !== 0)
+        throw new Error(
+            `physics: hull "${name}" has ${hull.points.length} point coordinates, not a multiple of 3`,
+        );
     const sx = shape.scale.x.get(eid);
     const sy = shape.scale.y.get(eid);
     const sz = shape.scale.z.get(eid);
     const source = hull.points;
-    const points = new Array(Math.trunc(source.length / 3));
+    const points = new Array(source.length / 3);
     for (let i = 0; i < points.length; i++)
         points[i] = { x: source[3 * i] * sx, y: source[3 * i + 1] * sy, z: source[3 * i + 2] * sz };
     const built = createHull(points, hull.maxVertexCount ?? MAX_HULL_VERTICES, world);
