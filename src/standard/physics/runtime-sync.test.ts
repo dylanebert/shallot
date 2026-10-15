@@ -1206,6 +1206,25 @@ test("physics sync retries a missing Shape hull when the registry grows", async 
     });
 });
 
+test("physics sync refuses a hull whose points length is not a multiple of 3", async () => {
+    expectWarning(
+        /Shape 1 was not attached:.*hull "ragged" has 25 point coordinates, not a multiple of 3/,
+    );
+    await withPhysics((world) => {
+        const hulls = world.resource(Hulls);
+        const cube = hulls.get(hulls.name(0)!)!.points;
+        const points = new Float32Array(cube.length + 1);
+        points.set(cube);
+        const geometry = hulls.register({ name: "ragged", points });
+        const eid = world.create();
+        world.add(eid, Body);
+        world.add(eid, Shape, { kind: ShapeKind.Hull, geometry, scale: [1, 1, 1] });
+        world.tick();
+        expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
+        expect(worldCounters(stateFor(world)).shapeCount).toBe(0);
+    });
+});
+
 test("physics sync visits changed Bodies beyond the first eid word", async () => {
     await withPhysics((world) => {
         world.tick();
