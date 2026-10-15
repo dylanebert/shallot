@@ -201,7 +201,7 @@ function isPathRelative(node: AstNode, bindings: PathBindings): boolean {
     );
 }
 
-// These are the producers and separator spellings used by hosted Windows reds that compared slash paths.
+// These host-path producers need normalization before slash-path comparisons.
 function producer(node: AstNode, bindings: PathBindings): string | undefined {
     if (node.type !== "CallExpression") return;
     const callee = node.callee;

@@ -11,10 +11,7 @@ import { PROJECT_OUTPUT } from "../src/cli/create";
 import { normalizePath } from "../src/project/paths";
 import { importsIn, resolveRelative } from "./example-imports";
 
-// The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
-// native-window crate, the icon and recipes; never a path the `files` negations name, nor build
-// output. Asserted against the real `bun pm pack` output, not the `files`
-// allowlist in isolation, so a negation the packer ignores still reds.
+// Check actual pack output so ignored manifest negations cannot pass.
 test("the npm package contains only declared files and required consumers", async () => {
     const pkgDir = resolve(import.meta.dir, "..");
     const packageManifest = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8"));
@@ -32,8 +29,7 @@ test("the npm package contains only declared files and required consumers", asyn
 
     if (exitCode !== 0) throw new Error(`bun pm pack --dry-run failed:\n${stderr}`);
 
-    // bun colors `packed` when the ambient env asks for it (FORCE_COLOR, a TTY), and the SGR codes sit
-    // between `^` and the word — a gate whose verdict depends on ambient color config is a latent red.
+    // Strip ambient SGR coloring before matching packed-file lines.
     // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is the SGR introducer — matching it is the point.
     const output = `${stdout}\n${stderr}`.replaceAll(/\x1b\[[0-9;]*m/g, "");
     const files = [...output.matchAll(/^packed\s+\S+\s+(.+)$/gm)].map((m) => m[1]);

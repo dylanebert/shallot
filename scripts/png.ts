@@ -1,8 +1,7 @@
 import { deflateSync } from "node:zlib";
 import type { Grid, Palette } from "../src/standard/loading/brand";
 
-// Minimal PNG writer for pixel-art exports: 8-bit RGBA, no filtering, one IDAT. Enough for a
-// few-kilobyte mark; a general encoder would be a dependency for nothing.
+// Pixel-art exports use unfiltered RGBA in one IDAT.
 
 const CRC_TABLE = (() => {
     const table = new Uint32Array(256);
