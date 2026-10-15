@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Transform, World } from "@dylanebert/shallot";
+import { Transform, TransformPlugin, World } from "@dylanebert/shallot";
 import { Body, PhysicsPlugin, Shape } from "@dylanebert/shallot/physics";
 import {
     type Capsule,
@@ -76,7 +76,7 @@ function castMover(
 
 test("internal mover queries land a falling capsule on an authored floor sliding along a wall", async () => {
     const world = new World();
-    for (const component of PhysicsPlugin.components!)
+    for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
         world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);

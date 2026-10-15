@@ -22,7 +22,7 @@ import {
     setLinearVelocity,
     setTransform,
 } from "@dylanebert/shallot/standard/physics";
-import { GlobalTransform, Transform } from "@dylanebert/shallot/transform";
+import { GlobalTransform, Transform, TransformPlugin } from "@dylanebert/shallot/transform";
 import { expectWarning } from "../../../scripts/test-console";
 import { makeShapeId } from "./api/config";
 import { BodyField, bodyField } from "./kernel/bodyrecords";
@@ -58,7 +58,7 @@ import { worldCounters } from "./world/world";
 
 async function createPhysicsWorld(): Promise<World> {
     const world = new World();
-    for (const component of PhysicsPlugin.components!)
+    for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
         world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);

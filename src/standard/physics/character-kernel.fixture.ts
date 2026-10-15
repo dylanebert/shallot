@@ -1,6 +1,6 @@
 import gold from "../../../crates/physics/tests/character.gold.json";
 import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
-import { Transform } from "../../core/transform";
+import { Transform, TransformPlugin } from "../../core/transform";
 import { Time, World } from "../../engine";
 import { Character, CharacterPlugin, characterScratch } from "./character";
 import { BodyType, defaultBodyDef } from "./common/types";
@@ -28,7 +28,7 @@ export async function visitCharacterGold(
             const world = new World();
             await StandardPhysicsPlugin.initialize!(world);
             await StandardPhysicsPlugin.warm!(world);
-            for (const plugin of [PhysicsPlugin, CharacterPlugin])
+            for (const plugin of [TransformPlugin, PhysicsPlugin, CharacterPlugin])
                 for (const c of plugin.components!) world.registry.register(c);
             for (const s of [...StandardPhysicsPlugin.systems!, ...CharacterPlugin.systems!])
                 world.addSystem(s);

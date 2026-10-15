@@ -8,6 +8,7 @@ import {
     ShapeKind,
     UNIT_CUBE_ID,
 } from "../../core/physics";
+import { Transform, TransformPlugin } from "../../core/transform";
 import { World } from "../../engine";
 import { marshalShape, shapeHullGeometry } from "./marshal-shape";
 import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "./testing";
@@ -19,7 +20,7 @@ test("two worlds marshal their own hull registered under the same name", () => {
     const solvers = worlds.map((world) => createTestWorld({}, world));
     try {
         const bodies = worlds.map((world, i) => {
-            for (const component of PhysicsPlugin.components!)
+            for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
                 world.registry.register(component, PhysicsPlugin.name);
             const hulls = world.resource(Hulls);
             expect(hulls.id("__unit_cube__")).toBe(UNIT_CUBE_ID);
@@ -62,7 +63,7 @@ test("the unit cube at scale 2h builds the hull and world hash of a registered Â
         const world = new World();
         const state = createTestWorld({}, world);
         try {
-            for (const component of PhysicsPlugin.components!)
+            for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
                 world.registry.register(component, PhysicsPlugin.name);
             const geometry = unitCube
                 ? UNIT_CUBE_ID
@@ -72,6 +73,7 @@ test("the unit cube at scale 2h builds the hull and world hash of a registered Â
                   });
             const shape = (h: readonly number[], body: number) => {
                 const eid = world.create();
+                world.add(eid, Transform);
                 const k = unitCube ? 2 : 1;
                 world.add(eid, Shape, {
                     kind: ShapeKind.Hull,
@@ -115,7 +117,7 @@ test("the unit cube at scale 2h builds the hull and world hash of a registered Â
 test("a hull's maxVertexCount bounds the vertices its built hull keeps, and its absence keeps every extreme point", () => {
     const world = new World();
     try {
-        for (const component of PhysicsPlugin.components!)
+        for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
             world.registry.register(component, PhysicsPlugin.name);
         const points = new Float32Array(48);
         for (let i = 0; i < 16; i++) {
@@ -125,6 +127,7 @@ test("a hull's maxVertexCount bounds the vertices its built hull keeps, and its 
         const hulls = world.resource(Hulls);
         const vertexCount = (geometry: number) => {
             const eid = world.create();
+            world.add(eid, Transform);
             world.add(eid, Shape, { kind: ShapeKind.Hull, geometry, scale: [1, 1, 1] });
             return shapeHullGeometry(world, eid).vertexCount;
         };

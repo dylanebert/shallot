@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Body, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
-import { Transform } from "../../core/transform";
+import { Transform, TransformPlugin } from "../../core/transform";
 import { Time, World } from "../../engine";
 import { Character, CharacterPlugin } from "./character";
 import gold from "./character-duration.gold.json";
@@ -15,7 +15,7 @@ test("Character's production fixed duration matches native mover free flight", a
     const world = new World();
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);
-    for (const plugin of [PhysicsPlugin, CharacterPlugin])
+    for (const plugin of [TransformPlugin, PhysicsPlugin, CharacterPlugin])
         for (const component of plugin.components!) world.registry.register(component);
     for (const system of [...StandardPhysicsPlugin.systems!, ...CharacterPlugin.systems!])
         world.addSystem(system);

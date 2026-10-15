@@ -8,7 +8,7 @@ import {
     ShapeKind,
     WeldJoint,
 } from "../../../core/physics";
-import { GlobalTransform, Transform } from "../../../core/transform";
+import { GlobalTransform, Transform, TransformPlugin } from "../../../core/transform";
 import { type EntityRef, Time, World } from "../../../engine";
 import { PhysicsEvents, PhysicsWorldDefinition, StandardPhysicsPlugin, setAwake } from "../index";
 
@@ -17,7 +17,7 @@ const zero = { x: 0, y: 0, z: 0 };
 
 async function physicsWorld(): Promise<World> {
     const world = new World();
-    for (const component of PhysicsPlugin.components!)
+    for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
         world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type Registry, type Resource, Time, World } from "@dylanebert/shallot";
+import { type Registry, type Resource, Time, TransformPlugin, World } from "@dylanebert/shallot";
 import {
     Body,
     type Compound,
@@ -30,7 +30,7 @@ import { worldCounters } from "./world/world";
 
 async function withPhysics(run: (world: World) => void): Promise<void> {
     const world = new World();
-    for (const component of PhysicsPlugin.components!)
+    for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
         world.registry.register(component, PhysicsPlugin.name);
     for (const plugin of [PhysicsPlugin, StandardPhysicsPlugin]) {
         const recovery = plugin.recovery;

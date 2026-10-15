@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Time, Transform, World } from "@dylanebert/shallot";
+import { Time, Transform, TransformPlugin, World } from "@dylanebert/shallot";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "@dylanebert/shallot/physics";
 import type { QueryFilter } from "../common/types";
 import { castRay, castShape, overlapAABB, overlapShape, StandardPhysicsPlugin } from "../runtime";
@@ -11,7 +11,7 @@ const filter: QueryFilter = { categoryBits: 0xffffffffffffffffn, maskBits: 0xfff
 
 async function queryWorld() {
     const world = new World();
-    for (const component of PhysicsPlugin.components!)
+    for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
         world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);

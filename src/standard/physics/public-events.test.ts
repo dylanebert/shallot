@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Time, Transform, World } from "@dylanebert/shallot";
+import { Time, Transform, TransformPlugin, World } from "@dylanebert/shallot";
 import {
     Body,
     BodyType,
@@ -26,7 +26,7 @@ import { expectWarning } from "../../../scripts/test-console";
 
 async function physicsWorldForTest(): Promise<World> {
     const world = new World();
-    for (const component of PhysicsPlugin.components!)
+    for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
         world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);

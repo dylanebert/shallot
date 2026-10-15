@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Time, Transform, World } from "@dylanebert/shallot";
+import { Time, Transform, TransformPlugin, World } from "@dylanebert/shallot";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "@dylanebert/shallot/physics";
 import type { Pos, Vec3 } from "../common/records";
 import { castRay, castRayClosest, StandardPhysicsPlugin } from "../runtime";
@@ -9,7 +9,7 @@ const translation = { x: 10, y: 0, z: 0 };
 
 async function spheres(...positions: number[]): Promise<World> {
     const world = new World();
-    for (const component of PhysicsPlugin.components!)
+    for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
         world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);

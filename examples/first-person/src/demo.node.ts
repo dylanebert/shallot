@@ -1,4 +1,4 @@
-import { setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 
@@ -10,6 +10,8 @@ import {
     Devices,
     GlobalTransform,
     LocalPlayer,
+    Meshes,
+    MeshInstance,
     Player,
     Shape,
     ShapeKind,
@@ -22,7 +24,11 @@ import { Route } from "./demo";
 import { APP_PLUGINS } from "./plugins";
 
 async function ascent() {
-    return openGpuApp({ defaults: false, plugins: APP_PLUGINS });
+    const app = await openGpuApp({ defaults: false, plugins: APP_PLUGINS });
+    expect(app.world.resource(Meshes).size).toBe(1);
+    for (const eid of app.world.query([MeshInstance]))
+        expect(app.world.storage(MeshInstance).mesh.get(eid)).toBe(0);
+    return app;
 }
 
 type Ascent = Awaited<ReturnType<typeof ascent>>;
@@ -72,7 +78,9 @@ function halfExtent(world: World, eid: number, axis: "x" | "y" | "z"): number {
               ) + radius
             : radius;
     }
-    return shape.scale[axis].get(eid) / 2;
+    return (
+        (shape.scale[axis].get(eid) * Math.abs(world.storage(Transform).scale[axis].get(eid))) / 2
+    );
 }
 
 function placeRiderOnActualLift(world: World, player: number, lift: number): void {

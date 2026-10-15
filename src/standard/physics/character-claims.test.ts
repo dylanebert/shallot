@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
-import { GlobalTransform, Transform } from "../../core/transform";
+import { GlobalTransform, Transform, TransformPlugin } from "../../core/transform";
 import { Time, World } from "../../engine";
 import { characterScratch } from "./character";
 import {
@@ -15,7 +15,7 @@ import { physicsBodyIndex, physicsState } from "./runtime";
 
 async function scene() {
     const world = new World();
-    for (const plugin of [PhysicsPlugin, CharacterPlugin])
+    for (const plugin of [TransformPlugin, PhysicsPlugin, CharacterPlugin])
         for (const registration of plugin.components!) world.registry.register(registration);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);

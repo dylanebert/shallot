@@ -16,7 +16,7 @@ import {
 } from "../../src/core/physics";
 import { Time, World } from "../../src/engine";
 import { quaternion, vector } from "../../src/standard/physics/kernel/math";
-import { Transform } from "../../src/core/transform";
+import { Transform, TransformPlugin } from "../../src/core/transform";
 import { BodyType, defaultSurfaceMaterial } from "../../src/standard/physics/common/types";
 import { createBoxMesh } from "../../src/standard/physics/shapes/mesh";
 import { createCompound } from "../../src/standard/physics/shapes/compound";
@@ -446,7 +446,7 @@ function runPublic(input: Input, bridgeMetadata = false): string[] {
 async function runEntityQuery(input: Input): Promise<string[]> {
     const values = input.words.map((word) => new Float32Array(new Uint32Array([word]).buffer)[0]);
     const world = new World();
-    for (const component of CorePhysicsPlugin.components!)
+    for (const component of [...TransformPlugin.components!, ...CorePhysicsPlugin.components!])
         world.registry.register(component, CorePhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
     await StandardPhysicsPlugin.warm!(world);
