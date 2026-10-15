@@ -1,5 +1,15 @@
 import { expect, test } from "bun:test";
-import { composeMat4, invertMat4, lookAt, lookAtRotation, multiplyMat4, perspective } from "./math";
+import {
+    composeMat4,
+    eulerToQuat,
+    invertMat4,
+    lookAt,
+    lookAtRotation,
+    multiplyMat4,
+    perspective,
+    quatToEuler,
+    rotateQuatByEuler,
+} from "./math";
 
 // `lookAtRotation` and `lookAt` are two readings of one orientation: `lookAtRotation` returns it as a quaternion an entity is
 // posed with, `lookAt` as the view matrix a projection multiplies. StandardRenderer poses each shadow light camera with
@@ -102,4 +112,52 @@ test("the view matrix an aimed camera implies does not place the eye at the view
         expect(composed[13]).toBeCloseTo(0, 4);
         expect(composed[14]).toBeCloseTo(0, 4);
     }
+});
+
+// Euler helpers follow three.js and Bevy: radians, intrinsic XYZ order. The expected values are three.js's own output
+// (reference/three.js 1e7e3cff30, `new Quaternion().setFromEuler(new Euler(x, y, z))`, `Euler.setFromQuaternion` and
+// `Quaternion.multiply`), not this file's formula.
+const THREE_EULER: { euler: [number, number, number]; quat: [number, number, number, number] }[] = [
+    {
+        euler: [1.0, 0.9, 2.1],
+        quat: [0.5459113007037496, -0.18453238783560397, 0.789212571726169, 0.21230206365694462],
+    },
+    {
+        euler: [-0.4, 0.3, 1.2],
+        quat: [-0.07943052840097997, 0.23179560612167038, 0.5226700723191405, 0.8165645006014729],
+    },
+];
+
+function expectClose(actual: readonly number[], expected: readonly number[]): void {
+    expect(actual.length).toBe(expected.length);
+    for (let i = 0; i < expected.length; i++) expect(actual[i]).toBeCloseTo(expected[i], 12);
+}
+
+test("eulerToQuat takes radians in XYZ order, as three.js setFromEuler", () => {
+    for (const { euler, quat } of THREE_EULER) expectClose(eulerToQuat(...euler), quat);
+});
+
+test("quatToEuler returns radians in XYZ order, as three.js setFromQuaternion", () => {
+    for (const { euler, quat } of THREE_EULER) expectClose(quatToEuler(...quat), euler);
+});
+
+test("quatToEuler at the y = pi/2 pole folds the rotation into x, as three.js does", () => {
+    // three.js: setFromEuler(new Euler(0.7, Math.PI / 2, 0)), then setFromQuaternion
+    const pole: [number, number, number, number] = [
+        0.24246536490574874, 0.664236815315985, 0.24246536490574871, 0.6642368153159851,
+    ];
+    const [x, y, z] = quatToEuler(...pole);
+    expect(x).toBeCloseTo(0.7, 12);
+    expect(y).toBeCloseTo(1.5707963118937354, 12);
+    expect(z).toBe(0);
+});
+
+test("rotateQuatByEuler applies a radian delta in the quaternion's local frame, as three.js q.multiply", () => {
+    const [a, b] = THREE_EULER;
+    expectClose(rotateQuatByEuler(0, 0, 0, 1, ...b.euler), b.quat);
+    // three.js: setFromEuler(new Euler(1.0, 0.9, 2.1)).multiply(setFromEuler(new Euler(-0.4, 0.3, 1.2)))
+    expectClose(
+        rotateQuatByEuler(...a.quat, ...b.euler),
+        [0.14952296061759973, -0.4494909822031051, 0.8672892402274799, -0.15300364359019847],
+    );
 });
