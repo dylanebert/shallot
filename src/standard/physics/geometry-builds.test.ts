@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import { Time, World } from "@dylanebert/shallot";
+import { type Registry, type Resource, Time, World } from "@dylanebert/shallot";
 import {
     Body,
+    type HeightField,
+    HeightFields,
     type PhysicsMesh,
     PhysicsMeshes,
     PhysicsPlugin,
@@ -10,9 +12,10 @@ import {
 } from "@dylanebert/shallot/physics";
 import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { expectWarning } from "../../../scripts/test-console";
-import { meshBuild } from "./geometry-builds";
+import { heightFieldBuild, meshBuild } from "./geometry-builds";
 import { kernel } from "./kernel/kernel";
 import { physicsState } from "./runtime";
+import { createHeightField } from "./shapes/heightfield";
 import { createMesh } from "./shapes/mesh";
 import { getShapeGeometryReference } from "./shapes/shape";
 import { worldCounters } from "./world/world";
@@ -48,10 +51,10 @@ function databaseCount(world: World): number {
     return kernel(world).geometryDatabaseCount(state(world).worldId);
 }
 
-function meshShape(world: World, geometry: number): number {
+function geometryShape(world: World, kind: ShapeKind, geometry: number): number {
     const eid = world.create();
     world.add(eid, Body);
-    world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry, scale: [1, 1, 1] });
+    world.add(eid, Shape, { kind, geometry, scale: [1, 1, 1] });
     return eid;
 }
 
@@ -66,6 +69,51 @@ const quad = (name: string, size = 1): PhysicsMesh => ({
     vertices: new Float32Array([0, 0, 0, size, 0, 0, size, 0, size, 0, 0, size]),
     indices: new Uint32Array([0, 2, 1, 0, 3, 2]),
 });
+
+const field = (name: string, size = 1): HeightField => ({
+    name,
+    heights: new Float32Array([0, 0.25, 0.5, 1]),
+    scale: [size, 1, 1],
+    countX: 2,
+    countZ: 2,
+    globalMinimumHeight: 0,
+    globalMaximumHeight: 1,
+});
+
+interface Geometry<Def extends { name: string }> {
+    noun: string;
+    plural: string;
+    registry: Resource<Registry<Def>>;
+    registryName: string;
+    kind: ShapeKind;
+    /** A definition `size` meters along x. */
+    define(name: string, size?: number): Def;
+    lookup(world: World, id: number): object | undefined;
+    /** Its build's upper x bound. */
+    upperX(world: World, id: number): number;
+}
+
+const mesh: Geometry<PhysicsMesh> = {
+    noun: "mesh",
+    plural: "meshes",
+    registry: PhysicsMeshes,
+    registryName: "PhysicsMeshes",
+    kind: ShapeKind.Mesh,
+    define: quad,
+    lookup: meshBuild,
+    upperX: (world, id) => meshBuild(world, id)!.bounds.upperBound.x,
+};
+
+const heightField: Geometry<HeightField> = {
+    noun: "height field",
+    plural: "height fields",
+    registry: HeightFields,
+    registryName: "HeightFields",
+    kind: ShapeKind.HeightField,
+    define: field,
+    lookup: heightFieldBuild,
+    upperX: (world, id) => heightFieldBuild(world, id)!.aabb.upperBound.x,
+};
 
 // A bumpy n-by-n grid of quads, two triangles each, so every build option changes its MeshData.
 function grid(n: number): { vertices: Float32Array; indices: Uint32Array } {
@@ -85,78 +133,86 @@ function grid(n: number): { vertices: Float32Array; indices: Uint32Array } {
     return { vertices, indices };
 }
 
-test("Shapes naming one PhysicsMeshes id share one build and one geometry database entry", async () => {
-    await withPhysics((world) => {
-        const geometry = world.resource(PhysicsMeshes).register(quad("shared"));
-        const before = databaseCount(world);
-        meshShape(world, geometry);
-        meshShape(world, geometry);
-        world.tick();
-        expect(worldCounters(state(world)).shapeCount).toBe(2);
-        expect(databaseCount(world) - before).toBe(1);
-        const [first, second] = geometryReferences(world);
-        expect(second).toBe(first);
-    });
-});
+function buildTests<Def extends { name: string }>(geometry: Geometry<Def>): void {
+    const { noun, plural, registryName, kind } = geometry;
+    const register = (world: World, name: string, size?: number) =>
+        world.resource(geometry.registry).register(geometry.define(name, size));
 
-test("a mesh registered again under its name builds anew for the next Shape, and earlier Shapes keep theirs", async () => {
-    await withPhysics((world) => {
-        const meshes = world.resource(PhysicsMeshes);
-        const geometry = meshes.register(quad("replaced", 1));
-        meshShape(world, geometry);
-        // A marked Shape compares against the registry at each sync; the second frame's sync is its last.
-        world.step(Time.FIXED_DT);
-        world.step(Time.FIXED_DT);
-        expect(meshes.register(quad("replaced", 2))).toBe(geometry);
-        meshShape(world, geometry);
-        world.tick();
-        const [first, second] = geometryReferences(world);
-        expect(second).not.toBe(first);
-        expect(meshBuild(world, geometry)!.bounds.upperBound.x).toBe(2);
+    test(`Shapes naming one ${registryName} id share one build and one geometry database entry`, async () => {
+        await withPhysics((world) => {
+            const id = register(world, "shared");
+            const before = databaseCount(world);
+            geometryShape(world, kind, id);
+            geometryShape(world, kind, id);
+            world.tick();
+            expect(worldCounters(state(world)).shapeCount).toBe(2);
+            expect(databaseCount(world) - before).toBe(1);
+            const [first, second] = geometryReferences(world);
+            expect(second).toBe(first);
+        });
     });
-});
 
-test("a restored World keeps its mesh builds, so a Shape spawned after restore adds no geometry and hashes alike", async () => {
-    await withPhysics((world) => {
-        const geometry = world.resource(PhysicsMeshes).register(quad("restored"));
-        meshShape(world, geometry);
-        // Two frames settle the spawn, so the restored Shape is not compared against the registry again.
-        world.step(Time.FIXED_DT);
-        world.step(Time.FIXED_DT);
-        const saved = world.snapshot();
-        meshShape(world, geometry);
-        world.tick();
-        const count = databaseCount(world);
-        const hash = hashPhysics(world);
-        world.restore(saved);
-        meshShape(world, geometry);
-        world.tick();
-        expect(worldCounters(state(world)).shapeCount).toBe(2);
-        expect(databaseCount(world)).toBe(count);
-        expect(hashPhysics(world)).toBe(hash);
+    test(`a ${noun} registered again under its name builds anew for the next Shape, and earlier Shapes keep theirs`, async () => {
+        await withPhysics((world) => {
+            const id = register(world, "replaced", 1);
+            geometryShape(world, kind, id);
+            // A marked Shape compares against the registry at each sync; the second frame's sync is its last.
+            world.step(Time.FIXED_DT);
+            world.step(Time.FIXED_DT);
+            expect(register(world, "replaced", 2)).toBe(id);
+            geometryShape(world, kind, id);
+            world.tick();
+            const [first, second] = geometryReferences(world);
+            expect(second).not.toBe(first);
+            expect(geometry.upperX(world, id)).toBe(2);
+        });
     });
-});
 
-test("deleted meshes are collectable with their builds, with no later lookup or snapshot", async () => {
-    await withPhysics((world) => {
-        const meshes = world.resource(PhysicsMeshes);
-        // Cycles run in their own frame, so the conservative stack scan cannot pin their values.
-        const cycle = (i: number) => {
-            const def = quad(`cycle-${i}`);
-            const build = meshBuild(world, meshes.register(def))!;
-            meshes.delete(def.name);
-            return { def: new WeakRef(def), build: new WeakRef(build) };
-        };
-        const cycles = Array.from({ length: 100 }, (_, i) => cycle(i));
-        Bun.gc(true);
-        const alive = (key: "def" | "build") =>
-            cycles.flatMap((refs, i) => (refs[key].deref() ? [i] : []));
-        // A build lives exactly as long as its definition, and the cache keeps no definition alive;
-        // outside the cache, the engine may still pin an odd deleted definition until a later GC.
-        expect(alive("build")).toEqual(alive("def"));
-        expect(alive("def").length).toBeLessThan(5);
+    test(`a restored World keeps its ${noun} builds, so a Shape spawned after restore adds no geometry and hashes alike`, async () => {
+        await withPhysics((world) => {
+            const id = register(world, "restored");
+            geometryShape(world, kind, id);
+            // Two frames settle the spawn, so the restored Shape is not compared against the registry again.
+            world.step(Time.FIXED_DT);
+            world.step(Time.FIXED_DT);
+            const saved = world.snapshot();
+            geometryShape(world, kind, id);
+            world.tick();
+            const count = databaseCount(world);
+            const hash = hashPhysics(world);
+            world.restore(saved);
+            geometryShape(world, kind, id);
+            world.tick();
+            expect(worldCounters(state(world)).shapeCount).toBe(2);
+            expect(databaseCount(world)).toBe(count);
+            expect(hashPhysics(world)).toBe(hash);
+        });
     });
-});
+
+    test(`deleted ${plural} are collectable with their builds, with no later lookup or snapshot`, async () => {
+        await withPhysics((world) => {
+            const registry = world.resource(geometry.registry);
+            // Cycles run in their own frame, so the conservative stack scan cannot pin their values.
+            const cycle = (i: number) => {
+                const def = geometry.define(`cycle-${i}`);
+                const build = geometry.lookup(world, registry.register(def))!;
+                registry.delete(def.name);
+                return { def: new WeakRef(def), build: new WeakRef(build) };
+            };
+            const cycles = Array.from({ length: 100 }, (_, i) => cycle(i));
+            Bun.gc(true);
+            const alive = (key: "def" | "build") =>
+                cycles.flatMap((refs, i) => (refs[key].deref() ? [i] : []));
+            // A build lives exactly as long as its definition, and the cache keeps no definition alive;
+            // outside the cache, the engine may still pin an odd deleted definition until a later GC.
+            expect(alive("build")).toEqual(alive("def"));
+            expect(alive("def").length).toBeLessThan(5);
+        });
+    });
+}
+
+buildTests(mesh);
+buildTests(heightField);
 
 test("each PhysicsMesh build option reaches Box3D's mesh build", async () => {
     await withPhysics((world) => {
@@ -279,6 +335,109 @@ test("a PhysicsMesh Box3D cannot build leaves its Shape unattached with a warnin
                 body,
                 kind: ShapeKind.Mesh,
                 geometry: meshes.register({ name: `bad-${i}`, ...def }),
+            });
+        }
+        world.tick();
+        expect(worldCounters(state(world)).bodyCount).toBe(1);
+        expect(worldCounters(state(world)).shapeCount).toBe(0);
+    });
+});
+
+test("each HeightField field reaches Box3D's height-field build", async () => {
+    await withPhysics((world) => {
+        const fields = world.resource(HeightFields);
+        const built = (def: Omit<HeightField, "name">) =>
+            heightFieldBuild(world, fields.register({ name: JSON.stringify(def), ...def }))!;
+        // Four points along x by three along z, so swapping the counts reorders the grid.
+        const heights = new Float32Array([0, 0.5, 0.2, 0.8, 0.7, 1, 0.3, 0.6, 0.1, 0.4, 0.9, 0.35]);
+        const base: Omit<HeightField, "name"> = {
+            heights,
+            scale: [1, 2, 3],
+            countX: 4,
+            countZ: 3,
+            globalMinimumHeight: 0,
+            globalMaximumHeight: 1,
+        };
+        const expected: Parameters<typeof createHeightField>[0] = {
+            heights,
+            materialIndices: null,
+            scale: { x: 1, y: 2, z: 3 },
+            countX: 4,
+            countZ: 3,
+            globalMinimumHeight: 0,
+            globalMaximumHeight: 1,
+            clockwiseWinding: false,
+        };
+        const plain = built(base);
+        expect(plain).toEqual(createHeightField(expected));
+
+        const materialIndices = new Uint8Array([0, 1, 255, 2, 0, 1]);
+        const other = heights.map((h) => 1 - h);
+        const variants: [string, Partial<HeightField>, Partial<typeof expected>][] = [
+            ["heights", { heights: other }, { heights: other }],
+            ["materialIndices", { materialIndices }, { materialIndices }],
+            ["scale", { scale: [2, 1, 0.5] }, { scale: { x: 2, y: 1, z: 0.5 } }],
+            ["counts", { countX: 3, countZ: 4 }, { countX: 3, countZ: 4 }],
+            ["globalMinimumHeight", { globalMinimumHeight: -1 }, { globalMinimumHeight: -1 }],
+            ["globalMaximumHeight", { globalMaximumHeight: 2 }, { globalMaximumHeight: 2 }],
+            ["clockwiseWinding", { clockwiseWinding: true }, { clockwiseWinding: true }],
+        ];
+        for (const [option, change, expectedChange] of variants) {
+            const field = built({ ...base, ...change });
+            expect({ option, field }).toEqual({
+                option,
+                field: createHeightField({ ...expected, ...expectedChange }),
+            });
+            expect({ option, differs: !Bun.deepEquals(field, plain) }).toEqual({
+                option,
+                differs: true,
+            });
+        }
+    });
+});
+
+test("a HeightField Box3D cannot build leaves its Shape unattached with a warning naming it", async () => {
+    const square = {
+        heights: new Float32Array(4),
+        scale: [1, 1, 1] as [number, number, number],
+        countX: 2,
+        countZ: 2,
+        globalMinimumHeight: 0,
+        globalMaximumHeight: 1,
+    };
+    const cases: [Omit<HeightField, "name">, RegExp][] = [
+        [
+            { ...square, heights: new Float32Array(2), countX: 1 },
+            /is 1 by 2 points, not integers of at least 2/,
+        ],
+        [
+            { ...square, heights: new Float32Array(5), countX: 2.5 },
+            /is 2.5 by 2 points, not integers of at least 2/,
+        ],
+        [{ ...square, heights: new Float32Array(3) }, /has 3 heights for 4 points/],
+        [{ ...square, materialIndices: new Uint8Array(2) }, /has 2 material indices for 1 cells/],
+        [{ ...square, scale: [1, 0, 1] }, /has scale \[1, 0, 1\], not positive/],
+        [
+            { ...square, globalMinimumHeight: 1, globalMaximumHeight: 0 },
+            /has globalMinimumHeight 1 above globalMaximumHeight 0/,
+        ],
+    ];
+    for (const [i, [, message]] of cases.entries())
+        expectWarning(
+            new RegExp(
+                `Shape ${i + 2} was not attached:.*height field "bad-${i}" ${message.source}`,
+            ),
+        );
+    await withPhysics((world) => {
+        const fields = world.resource(HeightFields);
+        const body = world.create();
+        world.add(body, Body);
+        for (const [i, [def]] of cases.entries()) {
+            const eid = world.create();
+            world.add(eid, Shape, {
+                body,
+                kind: ShapeKind.HeightField,
+                geometry: fields.register({ name: `bad-${i}`, ...def }),
             });
         }
         world.tick();
