@@ -42,8 +42,6 @@ import {
     OrbitPlugin,
     Outline,
     OutlinePlugin,
-    Player,
-    PlayerPlugin,
     ProfilePlugin,
     registerFont,
     Sky,
@@ -94,7 +92,6 @@ const everyPlugin: readonly Plugin[] = [
     StandardPhysicsPlugin,
     OrbitPlugin,
     OutlinePlugin,
-    PlayerPlugin,
     ProfilePlugin,
     SkyPlugin,
     SpritePlugin,
@@ -615,13 +612,11 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(actor, Body);
             world.add(actor, Shape, { kind: ShapeKind.Capsule });
             world.add(actor, Character);
-            world.add(actor, Player);
             world.storage(Transform).translation.set(actor, 0, 2, 2);
             world.storage(Shape).capsuleCenter1.set(actor, 0, -0.6, 0, 0);
             world.storage(Shape).capsuleCenter2.set(actor, 0, 0.6, 0, 0);
             world.storage(Shape).radius.set(actor, 0.35);
             world.storage(Body).type.set(actor, BodyType.Kinematic);
-            world.storage(Player).camera.set(actor, camera);
 
             const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
             if (!globalTransforms)

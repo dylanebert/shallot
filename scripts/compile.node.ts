@@ -13,7 +13,6 @@ const pipelineCounts: Record<string, number> = {
     Physics: 0,
     "Physics with core rendering": 1, // Stage 6 moved the three clustered-light pipelines to standard.
     "Character gameplay": 0,
-    "Player gameplay": 0, // Player authors a camera pose; presenting it belongs to the app's rendering composition.
     "Physics profiling": 0,
     Orbit: 0,
     profiling: 0,

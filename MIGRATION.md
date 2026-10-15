@@ -744,6 +744,8 @@ These helpers use the owning World:
 
 ## Character movement and player feel
 
+`extras/player` is no longer shipped. Copy the controller (`player.ts`, `motion.ts` and `follow.ts`) from `examples/first-person/src` into your game and import its `PlayerPlugin`, components and systems locally instead of from Shallot. Movement feel and input policy belong to your game; `CharacterPlugin` remains in `@dylanebert/shallot` as the physics mechanism. The Player changes below apply to that copied controller when migrating from 0.9.5.
+
 Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallot/standard/physics` (also re-exported from the root). `/character` and `/character/core` are removed. `Character` requires a capsule `Body` with `type: BodyType.Kinematic`; its pogo spring floats the lower sphere centre three radii above ground. Retune spawn and camera heights for that float.
 
 - Replace `move` with a fixed-tick write to `world.storage(Character).velocity`, ordered before `CharacterPlugin.systems`. Standard physics resolves that velocity, without gravity or acceleration.

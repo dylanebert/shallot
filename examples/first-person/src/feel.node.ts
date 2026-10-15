@@ -5,12 +5,8 @@ import {
     Camera,
     Character,
     CharacterPlugin,
-    DrivePlayerSystem,
     GlobalTransform,
     GroundState,
-    LocalPlayer,
-    Player,
-    PlayerPlugin,
     pressKey,
     releaseKey,
     Shape,
@@ -21,7 +17,8 @@ import {
     Transform,
 } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { openGpuApp as createApp } from "../tests/gpu-app";
+import { DrivePlayerSystem, LocalPlayer, Player, PlayerPlugin } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);
 

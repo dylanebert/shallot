@@ -261,35 +261,6 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
     });
 });
 
-test("Player imports standard physics only through its published barrel, and a deep import is rejected", () => {
-    expect(repositoryFindings.filter((red) => red.startsWith("src/extras/player/"))).toEqual([]);
-    withFixture((root) => {
-        writeFileSync(
-            resolve(root, "tsconfig.json"),
-            JSON.stringify({
-                compilerOptions: { module: "ESNext", moduleResolution: "Bundler", noEmit: true },
-                include: ["src"],
-            }),
-        );
-        put(root, "standard/physics/index.ts", 'export { Character } from "./character";\n');
-        put(root, "standard/physics/character.ts", "export const Character = {};\n");
-        put(
-            root,
-            "extras/player/index.ts",
-            'import { Character } from "../../standard/physics/character";\nvoid Character;\n',
-        );
-        expect(checkImports(root)).toEqual([
-            "src/extras/player/index.ts:1: import past standard/physics/index.ts → standard/physics/character.ts",
-        ]);
-        put(
-            root,
-            "extras/player/index.ts",
-            'import { Character } from "../../standard/physics";\nvoid Character;\n',
-        );
-        expect(checkImports(root)).toEqual([]);
-    });
-});
-
 test("the repository engine runtime does not import past the ECS barrel", () => {
     expect(
         repositoryFindings.filter((red) => red.startsWith("src/engine/runtime/gpu.ts:")),

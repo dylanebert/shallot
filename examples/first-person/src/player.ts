@@ -1,21 +1,29 @@
-import { Devices, InputPlugin, releasePointerLock, requirePointerLock } from "../../core/input";
-import { Body, Shape } from "../../core/physics";
-import { GlobalTransform, Transform } from "../../core/transform";
 import {
+    Body,
+    Character,
+    CharacterPlugin,
+    clamp,
     component,
+    Devices,
     entity,
     f32,
+    GlobalTransform,
+    GroundState,
+    InputPlugin,
+    lerp,
     not,
     type Plugin,
+    releasePointerLock,
+    requirePointerLock,
+    Shape,
     type System,
     Time,
+    Transform,
     u8,
     u32,
     vec2,
     type World,
-} from "../../engine";
-import { clamp, lerp } from "../../engine/utils";
-import { Character, CharacterPlugin, GroundState } from "../../standard/physics";
+} from "@dylanebert/shallot";
 import { PlayerFollow } from "./follow";
 import { PlayerMotion } from "./motion";
 
@@ -81,7 +89,7 @@ export const Player = component(
 );
 
 /** Pointer-lock reads are World-scoped. */
-export type { PointerLockStatus } from "../../core/input";
+export type { PointerLockStatus } from "@dylanebert/shallot";
 
 function setupPointerLock(world: World): void {
     requirePointerLock(world, true);

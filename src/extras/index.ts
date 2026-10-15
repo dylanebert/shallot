@@ -22,15 +22,6 @@ export {
     OutlinePlugin,
 } from "./outline";
 export {
-    DrivePlayerSystem,
-    LocalPlayer,
-    Player,
-    PlayerInput,
-    PlayerPlugin,
-    type PointerLockStatus,
-    UpdatePlayerControlSystem,
-} from "./player";
-export {
     Profile,
     ProfilePlugin,
     showProfiler,

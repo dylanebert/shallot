@@ -18,10 +18,10 @@ import {
     requestPointerLock,
     requirePointerLock,
     resizeViewport,
+    type System,
     setInputEnabled,
     Time,
     touchPoint,
-    UpdatePlayerControlSystem,
     Viewports,
     World,
 } from "@dylanebert/shallot";
@@ -524,9 +524,19 @@ test("releasing a retired adapter's late pointer-lock grant releases a replaceme
     if (Number(fixture.releaseCount) !== 1) throw new Error("replacement lock did not release");
 });
 
-test("non-Player browser input requires lock, or Player lock behavior depends on direct DOM access", () => {
+const LockControlSystem: System = {
+    name: "lock-control",
+    group: "simulation",
+    setup(world) {
+        requirePointerLock(world, true);
+        world.onDispose(() => releasePointerLock(world));
+    },
+    update() {},
+};
+
+test("a controller's lock intent works without browser globals and releases through the host adapter", () => {
     const controlled = inputState();
-    controlled.addSystem(UpdatePlayerControlSystem, "Player");
+    controlled.addSystem(LockControlSystem, "Controller");
     controlled.step(0);
     const controlledDevices = controlled.resource(Devices);
     if (!controlledDevices.requireLock)
@@ -540,7 +550,7 @@ test("non-Player browser input requires lock, or Player lock behavior depends on
     const _devices = world.resource(Devices);
     const plugin = createBrowserInputPlugin(fixture.host);
     for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
-    world.addSystem(UpdatePlayerControlSystem, "Player");
+    world.addSystem(LockControlSystem, "Controller");
     world.step(0);
     pressButton(world, "left");
     if (_devices.pointer.left) throw new Error("Player lock gate did not hold before engagement");

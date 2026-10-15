@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { openGpuApp as createApp } from "../tests/gpu-app";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -10,13 +10,8 @@ import {
     Character,
     CharacterPlugin,
     Devices,
-    DrivePlayerSystem,
     GlobalTransform,
     GroundState,
-    LocalPlayer,
-    Player,
-    PlayerInput,
-    PlayerPlugin,
     pointerLockChanged,
     pointerMove,
     pressKey,
@@ -28,6 +23,7 @@ import {
 } from "@dylanebert/shallot";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { PlayerMotion } from "./motion";
+import { DrivePlayerSystem, LocalPlayer, Player, PlayerInput, PlayerPlugin } from "./player";
 
 await setupGlobals();
 

@@ -9,15 +9,12 @@ import {
     DirectionalLight,
     GlobalAmbientLight,
     InputPlugin,
-    LocalPlayer,
     lookAtRotation,
     Materials,
     MeshInstance,
     MeshMaterial,
     MeshPlugin,
     mountOverlay,
-    Player,
-    PlayerPlugin,
     type Plugin,
     type Resource,
     Shape,
@@ -30,6 +27,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
+import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 type Vec3 = readonly [number, number, number];
 type Vec4 = readonly [number, number, number, number];

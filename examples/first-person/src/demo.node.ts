@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { LocalPlayer, Player } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -9,10 +9,8 @@ import {
     BodyType,
     Devices,
     GlobalTransform,
-    LocalPlayer,
     Meshes,
     MeshInstance,
-    Player,
     Shape,
     ShapeKind,
     Time,

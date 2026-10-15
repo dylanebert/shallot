@@ -132,7 +132,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - The kernel's free functions are the internal Box3D-shaped API; the parity oracles call them as their native C files call Box3D, call for call.
 - Each phase has one implementation, in the kernel, built into the shared and single-thread artifacts from one source, since a page without cross-origin isolation has no shared memory; the worker count schedules it and is not a code path. TypeScript only coordinates: the public API, the ECS and `GlobalTransform` bridge, pool dispatch, and user callbacks at serial points.
 - Every host Shallot owns serves cross-origin isolation: `shallot()`'s `dev` and `preview`, the native shell and every publish target. Elsewhere the kernel steps the single-thread artifact after one log naming the missing headers, and no game branches on which.
-- Standard physics publishes the mover queries and `CharacterPlugin`; movement feel belongs to `extras/player`, over published names only.
+- Standard physics publishes the mover queries and `CharacterPlugin`; movement feel belongs to the game, as in `examples/first-person/src/player.ts`, over published names only.
 
 ### Audio
 
@@ -240,7 +240,7 @@ bun run format                  # biome
 | Kernel behavior or native boundary | Kernel; the affected `diagnostics/box3d-parity` oracles |
 | TypeScript API, ECS bridge, world or pool ownership | Common; the non-allocation `*.node.ts` under `src/core/physics` and `src/standard/physics`; `src/engine/app/{plugins,device}.node.ts`; `src/core/transform/{recovery,composition}.node.ts`; `src/core/rendering/{global-transform,physics-interpolation}.node.ts` |
 | Allocation or lifecycle | Common; the affected `*allocation.node.ts` under `src/standard/physics` |
-| Character or Player | Common; `src/standard/physics/character-allocation.node.ts`; `src/extras/player/*.node.ts`; `examples/first-person/src/*.node.ts` |
+| Character or Player | Common; `src/standard/physics/character-allocation.node.ts`; `examples/first-person/src/*.node.ts` |
 | Checks or documentation only | The changed checks; `bun check`; `bun run lint` |
 
 - A speed claim names its scene, thread count and phase before the A/B; only that phase's verdict decides it, and no difference is not equivalence.

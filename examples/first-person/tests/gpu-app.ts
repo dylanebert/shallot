@@ -20,9 +20,9 @@ export async function openGpuApp(config: Parameters<typeof createApp>[0]): Promi
     } finally {
         console.warn = warn;
     }
-    const { adapter } = app.world.gpu;
+    const adapter = app.world.gpuIfAvailable?.adapter;
     expect(notices).toEqual(
-        adapter.class === "real"
+        !adapter || adapter.class === "real"
             ? []
             : [`[shallot] ${adapter.reason ?? `${adapter.class} adapter: ${adapter.identity}`}`],
     );

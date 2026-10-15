@@ -1,4 +1,4 @@
-import { component, f32, u32, vec4 } from "../../engine";
+import { component, f32, u32, vec4 } from "@dylanebert/shallot";
 
 /** Fixed-tick movement history, including the latest jump press count consumed. */
 export const PlayerMotion = component("PlayerMotion", {

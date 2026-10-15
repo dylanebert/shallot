@@ -6,7 +6,6 @@ import {
     InputPlugin,
     OrbitPlugin,
     OutlinePlugin,
-    PlayerPlugin,
     ProfilePlugin,
     RenderingPlugin,
     StandardPhysicsPlugin,
@@ -26,13 +25,6 @@ export const compileSubjects = [
     {
         name: "Character gameplay",
         config: { defaults: false, plugins: [StandardPhysicsPlugin, CharacterPlugin, InputPlugin] },
-    },
-    {
-        name: "Player gameplay",
-        config: {
-            defaults: false,
-            plugins: [StandardPhysicsPlugin, CharacterPlugin, PlayerPlugin],
-        },
     },
     {
         name: "Physics profiling",

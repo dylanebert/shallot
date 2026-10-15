@@ -9,13 +9,13 @@ import {
     type createApp,
     GlobalTransform,
     GroundState,
-    PlayerInput,
     Shape,
     Transform,
 } from "@dylanebert/shallot";
 import { attachTexture, Camera, type Capture, captureTexture } from "@dylanebert/shallot/rendering";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { Route } from "../src/demo";
+import { PlayerInput } from "../src/player";
 import { APP_PLUGINS } from "../src/plugins";
 import { openGpuApp } from "./gpu-app";
 

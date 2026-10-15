@@ -1,6 +1,4 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
 import {
     Body,
     BodyType,
@@ -8,14 +6,15 @@ import {
     Character,
     CharacterPlugin,
     GlobalTransform,
-    Player,
-    PlayerPlugin,
     Shape,
     ShapeKind,
     StandardPhysicsPlugin,
     Time,
     Transform,
-} from "../../index";
+} from "@dylanebert/shallot";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { openGpuApp as createApp } from "../tests/gpu-app";
+import { Player, PlayerPlugin } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);
 
