@@ -86,6 +86,10 @@ describe("escape leaves — CPU arm", () => {
         expect(std.bitcastU32toF32(std.bitcastF32toU32(1.5))).toBe(1.5);
     });
 
+    test("idiv truncates an inexact quotient", () => {
+        expect(idiv(7, 2)).toBe(3);
+    });
+
     test("idiv stays exact past 2²⁴, where a float divide has already lost the operand", () => {
         // TGSL emits `/` as a float division, and f32 cannot hold an integer past 2²⁴: 4294967295/3
         // comes back 43 too high through f32.
