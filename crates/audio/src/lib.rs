@@ -84,7 +84,6 @@ fn distance_gain(distance: f32) -> f32 {
     }
 }
 
-/// Dual dot product of one HRTF window against the left and right reversed HRIRs.
 #[cfg(target_feature = "simd128")]
 #[inline]
 fn dot2(window: &[f32], left_rev: &[f32; HRTF_TAPS], right_rev: &[f32; HRTF_TAPS]) -> (f32, f32) {
@@ -600,7 +599,6 @@ impl AudioEngine {
         self.output.as_ptr()
     }
 
-    /// Process one block and apply the master limiter.
     pub fn process(&mut self) -> *const f32 {
         let output = self.process_pre_limiter();
         for sample in &mut self.output {
