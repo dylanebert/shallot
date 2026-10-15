@@ -16,13 +16,12 @@ export interface Profile {
      * another recorded name past a `/` is part of that timing; totals count only outermost timings.
      */
     readonly cpu: ReadonlyMap<string, number>;
-    /** per-pass GPU timings (most recent fully-resolved frame), in milliseconds. Greedy-held for
-     *  display: a fixed-group pass keeps its last value across frames it doesn't fire (see the
-     *  drain hold). For exact per-occurrence accounting, use {@link gpuTime} / {@link gpuFires}. */
+    /** Per-pass GPU milliseconds summed within a drained frame, held across absent frames for display
+     * until eviction. {@link gpuTime} accumulates durations; {@link gpuFires} counts frames containing a pass. */
     readonly gpu: ReadonlyMap<string, number>;
     /** cumulative GPU time per pass since attach, in milliseconds, summed over every occurrence. */
     readonly gpuTime: ReadonlyMap<string, number>;
-    /** cumulative occurrence count per pass since attach: how many times the pass actually fired. */
+    /** Number of drained frames containing each pass since attach; repeated occurrences in a frame count once. */
     readonly gpuFires: ReadonlyMap<string, number>;
     /** Per-pipeline compile durations from app startup, in milliseconds, keyed by descriptor label.
      *  A repeated named label overwrites. TypeGPU's synchronous constructors return before the driver
@@ -56,13 +55,8 @@ interface ReadSlot {
     count: number;
 }
 
-// A fixed-group GPU pass (physics solve) fires 0..N times per draw frame — the accumulator batches fixed
-// steps unevenly (render commonly outruns the 60Hz fixed rate, so most draw frames take 0 steps).
-// Reporting the display `gpu` map per frame then oscillates: 0 on a step-less frame, N× on a multi-step
-// one. So drain HOLDS a pass's last value across frames it doesn't fire (shown as if it ran every frame),
-// stacking when it fires multiple times — a steady readout. A pass absent this many drained frames is
-// evicted after a genuinely one-shot pass stops firing, while a fixed-group pass remains held. The hold
-// is display smoothing only; gpuTime and gpuFires retain the exact per-occurrence totals.
+// Hold absent passes' last durations to smooth uneven fixed-step scheduling.
+// Eviction counts drained frames, not display frames; cumulative totals are unaffected.
 const GPU_HOLD_DRAINS = 8;
 
 // Bound the number of timestamp requests in flight. Metadata returns after the result is drained;
@@ -76,8 +70,6 @@ export const Profile: import("../../engine").Resource<Profile> = {
     create: () => new ProfileImpl(),
 };
 
-// timestamp queries + pipeline-compile timing + live allocation tracking. Each World owns its query set,
-// timestamp results, counters and device hooks; staging belongs to the world pool.
 class ProfileImpl implements Profile {
     gpuTiming: Profile["gpuTiming"] = "requires timestamp-query";
     readonly cpu = new Map<string, number>();
@@ -89,9 +81,7 @@ class ProfileImpl implements Profile {
     readonly compile = new Map<string, number>();
     compileMs = 0;
     fenceWaitMs = 0;
-    // bumps each time drain repopulates `gpu` so the overlay can integrate
-    // new gpu samples once per readback (the map is sticky between drains;
-    // sampling it every display frame would multiply-count).
+    // The gpu map persists between drains; this prevents the overlay from counting a sample again.
     drainCount = 0;
 
     readonly sizes = new Map<object, ResourceAlloc>();
@@ -326,8 +316,6 @@ class ProfileImpl implements Profile {
         while (this._mapped.length > 0) {
             const slot = this._mapped.shift()!;
             const data = new BigUint64Array(slot.bytes);
-            // sum this frame's occurrences per pass — a fixed-group pass fires once per fixed step, so
-            // multiple steps in one draw frame stack here (their real combined per-frame GPU cost).
             const fired = this._fired;
             fired.clear();
             for (let i = 0; i < slot.count; i++) {
@@ -338,14 +326,11 @@ class ProfileImpl implements Profile {
                 );
             }
             this._free.push(slot);
-            // exact per-occurrence accounting — cumulative time + fire count, one fire per drained
-            // frame the pass appears in. Untouched by the display hold below.
+            // Count each pass once per drained frame, independently of the display hold.
             for (const [name, ms] of fired) {
                 this.gpuTime.set(name, (this.gpuTime.get(name) ?? 0) + ms);
                 this.gpuFires.set(name, (this.gpuFires.get(name) ?? 0) + 1);
             }
-            // greedy hold (see GPU_HOLD_DRAINS): a fired pass takes this frame's value; an absent pass
-            // keeps its last value (held, as if it ran) until absent past the hold window, then evicts.
             for (const [name, ms] of fired) {
                 this.gpu.set(name, ms);
                 this._gpuMiss.set(name, 0);
@@ -420,8 +405,6 @@ interface ViewportData {
     fullscreen: boolean;
 }
 
-// the heavy display snapshot, built only on a throttled render (not per frame). The cpu/gpu
-// rows aren't here — they're ticked into the pools from the live Maps each frame (tickPool)
 interface OverlayData {
     fps: number;
     frameTime: number;
@@ -506,9 +489,7 @@ interface RowPool {
     accum: Map<string, number>;
     // number of frames sampled into accum since last flush.
     frames: number;
-    // EMA across refresh windows of (window_sum / window_frames). This is
-    // what gets displayed — gives a stable time-average for sparse signals
-    // (fixed-tick passes that fire every Nth frame).
+    // EMA of window means, so sparse timings retain their time-average.
     smoothed: Map<string, number>;
     // refresh windows since each name last fired, used to evict dead entries.
     misses: Map<string, number>;
@@ -534,20 +515,15 @@ function createRowPool(parent: HTMLElement, initial: number): RowPool {
     };
 }
 
-// Cross-window EMA — smooths flush-to-flush variation for sparse signals
-// (e.g. a pass that fires 1× per refresh window). For high-frequency signals
-// the per-window mean is already stable, so this layer is mostly cosmetic.
+// Smooth refresh-window means so sparse signals do not flicker.
 const WINDOW_ALPHA = 0.4;
 // max consecutive refresh windows with no fire before the row is dropped.
 const MAX_MISS_WINDOWS = 12;
 // rounds to "0.00 ms" at this magnitude — safe to evict without visible flicker.
 const EVICT_BELOW = 0.001;
-// per-frame EMA for the FPS / frame-time hero readouts — both are scalars
-// sampled fresh every frame, so the windowing layer isn't needed.
 const HERO_ALPHA = 0.15;
 
-// accumulate this frame's samples into the pool. Called every frame — takes the live
-// Map directly (it's an Iterable<[name, ms]>) so the per-frame path allocates nothing.
+// Consume live maps without copying on the frame path.
 function tickPool(pool: RowPool, entries: Iterable<[string, number]>): void {
     for (const [name, raw] of entries) {
         pool.accum.set(name, (pool.accum.get(name) ?? 0) + raw);
@@ -555,9 +531,6 @@ function tickPool(pool: RowPool, entries: Iterable<[string, number]>): void {
     pool.frames++;
 }
 
-// fold the current window's accumulator into the cross-window EMA, evict
-// long-dead rows, sort with hysteresis, and return sorted display rows + the
-// sum of all live smoothed values (== visible row sum). Called per refresh.
 function flushPool(
     pool: RowPool,
     fmt: (v: number) => string,
@@ -700,8 +673,7 @@ function pad(v: string, len: number): string {
 
 function createOverlay(opts?: OverlayOptions): Overlay {
     const pos = opts?.position ?? "top-left";
-    // the stats HUD lives in the engine's sandboxed overlay (canvas-bounded, can't spill into an
-    // embedding host page), the same surface `config.ui` hands an app
+    // Bound the profiler to the canvas so it cannot spill into an embedding host page.
     const parent = mountOverlay(document.querySelector("canvas"));
 
     const root = el("div", {
@@ -764,9 +736,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
 
     const frameGroup = el("div", { paddingTop: "2px" });
     const fenceRow = makeRow(frameGroup);
-    // GPU-bound signal, EMA-smoothed. Per-frame fence is a pipelined residual (GPU frame time minus the
-    // CPU/GPU overlap, beating against vsync/rAF pacing), so the raw value swings 0→budget frame to frame —
-    // the trend is what reads, not the instantaneous sample
+    // Fence wait is a pipelined residual affected by CPU/GPU overlap and vsync/rAF pacing.
     fenceRow.label.textContent = "fence wait";
     const gapRow = makeRow(frameGroup);
     gapRow.label.textContent = "gap (vsync/throttle)";
@@ -788,10 +758,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
 
     const gpu = section(root, "gpu");
     const gpuPool = createRowPool(gpu.body, 16);
-    // the untimed GPU cost the profiler can predict: Dawn's injected indirect-draw validation
-    // (#drawIndexedIndirect × INDIRECT_FLOOR_US). Per-pass below + a Σ on the caption. It lives in
-    // the gpu section because it's a GPU cost — NOT under fence wait, which is a pipelined residual it
-    // doesn't sum into (fence can read below the floor when the frame isn't GPU-bound)
+    // Dawn's indirect-draw validation estimate is GPU work, not additive to the pipelined fence wait.
     const indirectCaption = el("div", {
         display: "flex",
         alignItems: "baseline",
@@ -844,19 +811,15 @@ function createOverlay(opts?: OverlayOptions): Overlay {
 
     return {
         update(world: World, profile: ProfileImpl) {
-            // per-frame: tick the pools straight from the live Maps (no allocation, no layout).
-            // The heavy snapshot (getBoundingClientRect, map spreads, mem sort) is deferred to
-            // the throttled render below, so the profiler's own per-frame CPU cost stays minimal
+            // Defer layout reads and allocating snapshots to the throttled render.
             tickPool(cpuPool, profile.cpu);
-            // indirect counts are synchronous per-frame data (CPU-counted at draw time, no readback), so
-            // tick every frame straight from the live map like cpu — not gated on the GPU drain
+            // CPU-counted indirect draws are current-frame data, independent of GPU readback.
             tickPool(indirectPool, profile.indirect);
             if (profile.drainCount !== lastDrainCount) {
                 lastDrainCount = profile.drainCount;
                 tickPool(gpuPool, profile.gpu);
             }
-            // fence is sampled every frame and averaged over the render window (then EMA'd) — a single
-            // throttled sample of the swinging residual is noise; the windowed mean is the signal
+            // Average fence wait across the window to avoid aliasing a single throttled sample.
             fenceSum += profile.fenceWaitMs;
             fenceCount++;
 
@@ -985,9 +948,6 @@ const profileUi = {
         visible: false,
     }),
 };
-// the overlay is a convenience HUD, off by default and toggled with F3 (owned here, not per-consumer).
-// it lives inside the canvas's container so it sits within the view, not over the whole window — a
-// fullscreen example reads the same; an embedded canvas stays inside its host container. Each World owns it.
 
 /**
  * show or hide the profiler overlay — the same HUD F3 toggles, driven from code. Off by default; call
@@ -1004,11 +964,8 @@ export function showProfiler(world: World, show = true): void {
     }
 }
 
-// runs FIRST in setup group, before any of the new frame's GPU work: drain every ring slot whose async
-// map has resolved (each carries one past frame's timestamps), resolve the just-completed prior frame's
-// queries (every submit settled — coherent timeline; see resolve()), then zero the per-frame query
-// counter for the new frame. resolve reads `_nextSlot` (the prior frame's pass count) so it must run
-// before reset zeroes it. The map is kicked here, so draining trails by 1–2 frames.
+// Resolve prior-frame queries before reset clears their count, and before new GPU work overwrites them.
+// Drain only completed readbacks; arrival may trail the sampled frame.
 const ProfileFrameBeginSystem: System = {
     group: "setup",
     first: true,
@@ -1061,15 +1018,13 @@ export const ProfilePlugin: Plugin = {
             profiler.fenceWaitMs = ms;
         };
 
-        // the overlay is a DOM mount; its removal rides the World's lifetime, so a host that calls
-        // world.dispose() directly (not App.dispose) still tears it down — the leak class this closes.
+        // World disposal must remove the DOM mount even without App.dispose().
         world.onDispose(() => {
             ui.overlay?.destroy();
             ui.overlay = null;
         });
 
         if (typeof window !== "undefined") {
-            // F3 toggle rides `world.signal` — no manual removal, no module-scoped handler ref.
             window.addEventListener(
                 "keydown",
                 (e: KeyboardEvent) => {
@@ -1082,8 +1037,6 @@ export const ProfilePlugin: Plugin = {
         }
     },
 
-    // Clear the active state.gpu hooks; the DOM overlay + F3 listener ride the World (initialize above),
-    // and the profiler releases its own resources below.
     dispose(world: World) {
         const profiler = world.resource(Profile) as ProfileImpl;
         const compute = world.gpu;
