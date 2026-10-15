@@ -1,4 +1,3 @@
-
 export type { Manifold, ManifoldPoint } from "../collision/contact";
 export type { ShapeProxy } from "../collision/distance";
 export {

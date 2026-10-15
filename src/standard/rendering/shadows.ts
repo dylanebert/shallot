@@ -319,7 +319,6 @@ export function orthoFootprintFit(
     return placeFromCenter(cenX, cenY, cenZ, cover, dir, resolution, margin, out);
 }
 
-
 /** the atlas-UV tile rect `[u0, v0, du, dv]` for cascade `k` of `n` in the fixed cascade grid, written into
  * `out` at `at`. Cascades are equal-resolution, so a deterministic `ceil(√n)`-per-side grid packs them (n=1 →
  * the whole atlas; n=2 → side-by-side; n∈{3,4} → 2×2): no importance allocator. Otherwise pure. */

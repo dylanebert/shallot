@@ -1,4 +1,3 @@
-
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { DEPTH_FORMAT, Views } from "../../core/rendering";
@@ -210,14 +209,6 @@ export function initializeShadowAtlasState(world: World): void {
 
 // Cascade cameras and fits live in ./shadows.
 
-
-
-
-
-
-
-
-
 // Caster data is not a cleared-buffer flag. Update pointCleared on every params-buffer write
 // so a data value cannot suppress a needed clear.
 
@@ -328,7 +319,6 @@ export function setPointFrames(world: World, frames: PointShadowFrame[], count: 
     _atlasState.pointFrameCount = count;
 }
 
-
 /** the point/spot atlas's re-gather instance ({@link createRegather} "point") — `forward.ts`'s
  * `record`/`ShadowCameraSystem` reach it directly for the `eids` lane swap + the alloc trigger. */
 export const pointRegather: import("../../engine").Resource<Regather> = {
@@ -337,10 +327,6 @@ export const pointRegather: import("../../engine").Resource<Regather> = {
 
 // Point re-gather accepts only the first indirect source and warns once while other sources are
 // dropped, resetting on a clean frame. Cascades instead batch every distinct indirect source.
-
-
-
-
 
 function compactVPScratch(world: World, count: number): Float32Array {
     const _atlasState = world.resource(atlasStateKey);
@@ -398,8 +384,6 @@ export function comboViewSlots(
     }
     return count;
 }
-
-
 
 /** the CSM cascade atlas's re-gather instance ({@link createRegather} "cascade") — the point atlas's twin. */
 export const cascadeRegather: import("../../engine").Resource<Regather> = {

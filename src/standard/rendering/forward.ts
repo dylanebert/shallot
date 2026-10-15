@@ -1,29 +1,3 @@
-import {
-    CorePipelinePlugin,
-    MainPassSystem,
-    PrepassSystem,
-    RenderPhases,
-    type TransparentPhase,
-} from "../../core/rendering";
-import { component } from "../../engine";
-import { executeRenderBundles, withPipelineOwner } from "../../engine/runtime";
-import {
-    CullLightsSystem,
-    initializeClusterState,
-    UpdateLightClustersSystem,
-    warmClusters,
-    warmLightCull,
-} from "./cluster";
-import { initializeBackgroundState } from "./contract";
-import { initializeIndirectLightSources, sealIndirectLightSources } from "./indirect";
-import {
-    initializeLightingState,
-    LIGHTING_UNIFORM_SIZE,
-    Lighting,
-    writeLighting,
-} from "./lighting";
-import { initializeDrawState } from "./registry";
-
 import type { TgpuBindGroupLayout, TgpuBuffer, TgpuRenderPipeline } from "typegpu";
 import { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
 import type { AnyData } from "typegpu/data";
@@ -40,16 +14,22 @@ import type { View } from "../../core/rendering";
 import {
     BeginFrameSystem,
     Camera,
+    CorePipelinePlugin,
     CULL_FRUSTUM,
     CULL_VOLUME_FLOATS,
     DEPTH_FORMAT,
     globalTransformTable,
+    MainPassSystem,
+    PrepassSystem,
     RenderContext,
+    RenderPhases,
     SAMPLE_COUNT,
+    type TransparentPhase,
 } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
-import { u32 } from "../../engine";
+import { component, u32 } from "../../engine";
+import { executeRenderBundles, withPipelineOwner } from "../../engine/runtime";
 import {
     cascadeRegather,
     disposeShadowAtlas,
@@ -68,8 +48,22 @@ import {
 import { boundPipeline } from "./bound";
 import type { BundleDraw, PassBundle } from "./bundle";
 import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
-import { type Background, Backgrounds } from "./contract";
+import {
+    CullLightsSystem,
+    initializeClusterState,
+    UpdateLightClustersSystem,
+    warmClusters,
+    warmLightCull,
+} from "./cluster";
+import { type Background, Backgrounds, initializeBackgroundState } from "./contract";
 import { engineLayout } from "./engine";
+import { initializeIndirectLightSources, sealIndirectLightSources } from "./indirect";
+import {
+    initializeLightingState,
+    LIGHTING_UNIFORM_SIZE,
+    Lighting,
+    writeLighting,
+} from "./lighting";
 import { MeshMaterial } from "./material-data";
 import {
     ALPHA_PIPELINE_KEY_COUNT,
@@ -102,7 +96,7 @@ import {
 } from "./pipelines";
 import { MeshDrawBuffers, MeshPreprocessSystem, meshInstanceTable } from "./preprocess";
 import { initializeRegatherState, prepareRegather } from "./regather";
-import { type Draw, DrawIndexedIndirect, Draws } from "./registry";
+import { type Draw, DrawIndexedIndirect, Draws, initializeDrawState } from "./registry";
 import {
     cascadeCount,
     destroyCascades,
@@ -538,7 +532,6 @@ function recordMaterial(
     setGroup(world, draw.name, entry);
     return entry.item;
 }
-
 
 // Resolve camera-independent resources once so prepass, atlas and color passes reuse the same draw list.
 function resolveDraws(world: World, capacity: number): void {

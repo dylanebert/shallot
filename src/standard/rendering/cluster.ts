@@ -635,7 +635,6 @@ export function warmClusters(world: World): void {
     });
 }
 
-
 /** per-cluster light index pool: 32 × CLUSTER_COUNT entries shared across views */
 export const LIGHT_POOL = CLUSTER_COUNT * 32;
 

@@ -509,7 +509,6 @@ function pruneView(this: World, view: View, eid: number): void {
     if (!this.resolve(view.camera) || !this.has(eid, Camera)) detachView(this, eid);
 }
 
-
 /** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: the main pass's
  * MSAA resolve and the `Custom` single-sample draw both target it; {@link BeginFrameSystem} sets it on
  * `view.framebuffer` each frame. Stored per camera so views never overwrite one shared target.
