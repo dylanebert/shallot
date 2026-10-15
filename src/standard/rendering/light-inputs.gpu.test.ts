@@ -58,8 +58,8 @@ test("a standalone spot light owns and updates a dense row, then releases it on 
         intensity: 3,
         range: 8,
         radius: 0.2,
-        innerAngle: 20,
-        outerAngle: 40,
+        innerAngle: (20 * Math.PI) / 180,
+        outerAngle: (40 * Math.PI) / 180,
     });
     expect(world.has(eid, PointLight)).toBe(false);
     const table = world.resource(lightInputKey);
@@ -79,17 +79,17 @@ test("a standalone spot light owns and updates a dense row, then releases it on 
     expect(initial.getFloat32(4, true)).toBe(3);
     expect(initial.getFloat32(8, true)).toBe(8);
     expect(initial.getFloat32(12, true)).toBe(Math.fround(0.2));
-    expect(initial.getFloat32(16, true)).toBe(20);
-    expect(initial.getFloat32(20, true)).toBe(40);
+    expect(initial.getFloat32(16, true)).toBe(Math.fround((20 * Math.PI) / 180));
+    expect(initial.getFloat32(20, true)).toBe(Math.fround((40 * Math.PI) / 180));
     expect(initial.getUint32(24, true)).toBe(1);
     world.add(eid, PointLight, { intensity: 99 });
     expect((await record()).getFloat32(4, true)).toBe(3);
     expect(table.count).toBe(1);
     world.remove(eid, PointLight);
-    world.storage(SpotLight).outerAngle.set(eid, 45);
+    world.storage(SpotLight).outerAngle.set(eid, Math.PI / 4);
     world.add(eid, VolumetricLight);
     const changed = await record();
-    expect(changed.getFloat32(20, true)).toBe(45);
+    expect(changed.getFloat32(20, true)).toBe(Math.fround(Math.PI / 4));
     expect(changed.getUint32(24, true)).toBe(3);
     world.remove(eid, SpotLight);
     world.step(0);

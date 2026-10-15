@@ -72,7 +72,11 @@ function addScene(
         world.add(light, Transform, { translation: [-3, 5, 2, 0] });
         if (kind === "spot") {
             world.storage(Transform).rotation.set(light, ...lookAtRotation(-3, 5, 2, 0, 0, 0));
-            world.add(light, SpotLight, { intensity: 900000, range: 20, outerAngle: 55 });
+            world.add(light, SpotLight, {
+                intensity: 900000,
+                range: 20,
+                outerAngle: (55 * Math.PI) / 180,
+            });
             world.storage(SpotLight).shadowMapsEnabled.set(light, 1);
         } else {
             world.add(light, PointLight, { intensity: 900000, range: 20 });

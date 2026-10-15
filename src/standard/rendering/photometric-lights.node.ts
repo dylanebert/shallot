@@ -176,8 +176,8 @@ test("spot lumens preserve the former linear-light frame after recalibration", a
         intensity: 7880.648,
         range: 10,
         radius: 0.1,
-        innerAngle: 20,
-        outerAngle: 30,
+        innerAngle: (20 * Math.PI) / 180,
+        outerAngle: (30 * Math.PI) / 180,
     });
 
     const pixel = await center(world, camera);
@@ -237,7 +237,7 @@ test("default light values match Bevy's photometric and shadow defaults", () => 
     expect(spot.range.get(spotEid)).toBe(20);
     expect(spot.radius.get(spotEid)).toBe(0);
     expect(spot.innerAngle.get(spotEid)).toBe(0);
-    expect(spot.outerAngle.get(spotEid)).toBe(45);
+    expect(spot.outerAngle.get(spotEid)).toBe(Math.fround(Math.PI / 4));
     expect(spot.shadowMapsEnabled.get(spotEid)).toBe(0);
     expect(spot.depthBias.get(spotEid)).toBeCloseTo(0.02, 6);
     expect(spot.shadowNormalBias.get(spotEid)).toBeCloseTo(1.8, 6);
