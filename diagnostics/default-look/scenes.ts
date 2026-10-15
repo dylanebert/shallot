@@ -148,7 +148,7 @@ function primitivesAndGreybox(world: World, palette: LookPalette): void {
     const sphereMesh = world.resource(Meshes).add({ name: "default-look/sphere", ...sphere() });
     const capsuleMesh = world.resource(Meshes).add({
         name: "default-look/capsule",
-        ...capsule(0.5, 0.42),
+        ...capsule(0.42, 1),
     });
 
     scene.box("greyboxGround", [0, -0.38, 0], [7, 0.25, 7]);

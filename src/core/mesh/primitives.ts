@@ -173,19 +173,20 @@ export function sphere(
 }
 
 /**
- * Capsule with the supplied cylinder half-height and radius (both default 0.5):
- * two hemispherical caps over a cylindrical mid-section, smooth-shaded.
+ * Capsule with the supplied radius (default 0.5) and cylindrical mid-section full length
+ * (default 1): two hemispherical caps over the mid-section, smooth-shaded.
  * `segments` divisions around the axis, `rings` from cap pole to cap pole
  * (rounded down to an even count). The bottom cap winds the opposite direction
  * from the top because its rings run pole→equator (the top runs equator→pole),
  * keeping every triangle CCW outward
  */
 export function capsule(
-    halfHeight = 0.5,
     radius = 0.5,
+    length = 1,
     segments = 32,
     rings = 16,
 ): { vertices: Float32Array; indices: Uint32Array } {
+    const halfHeight = length / 2;
     const verts: Vert[] = [];
     const indices: number[] = [];
     const halfRings = Math.floor(rings / 2);
