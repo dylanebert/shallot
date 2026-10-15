@@ -38,7 +38,7 @@ export const Transform = component(
         defaults: () => ({
             translation: [0, 0, 0],
             rotation: [0, 0, 0, 1],
-            scale: [1, 1, 1, 1],
+            scale: [1, 1, 1],
         }),
         requires: [GlobalTransform],
     },
