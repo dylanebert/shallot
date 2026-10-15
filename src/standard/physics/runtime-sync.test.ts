@@ -4,6 +4,8 @@ import {
     Body,
     BodyMotionLock,
     BodyType,
+    Compounds,
+    HeightFields,
     Hulls,
     PhysicsMeshes,
     PhysicsPlugin,
@@ -1196,6 +1198,56 @@ test("physics sync retries a missing Shape hull when the registry grows", async 
         expect(physicsBodyIndex(world, eid) >= 0).toBe(true);
     });
 });
+
+for (const [kind, label, register] of [
+    [
+        ShapeKind.Mesh,
+        "mesh",
+        (world: World) =>
+            world.resource(PhysicsMeshes).register({
+                name: "late-mesh",
+                vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]),
+                indices: new Uint32Array([0, 2, 1]),
+            }),
+    ],
+    [
+        ShapeKind.HeightField,
+        "height-field",
+        (world: World) =>
+            world.resource(HeightFields).register({
+                name: "late-height-field",
+                heights: new Float32Array(4),
+                scale: [1, 1, 1],
+                countX: 2,
+                countZ: 2,
+                globalMinimumHeight: 0,
+                globalMaximumHeight: 0,
+            }),
+    ],
+    [
+        ShapeKind.Compound,
+        "compound",
+        (world: World) =>
+            world.resource(Compounds).register({
+                name: "late-compound",
+                spheres: [{ center: [0, 0, 0], radius: 0.5 }],
+            }),
+    ],
+] as const) {
+    test(`physics sync retries a missing Shape ${label} when the registry gains it`, async () => {
+        expectWarning(new RegExp(`Shape 1 was not attached:.*missing ${label} 0`));
+        await withPhysics((world) => {
+            const eid = world.create();
+            world.add(eid, Body);
+            world.add(eid, Shape, { kind, geometry: 0 });
+            world.tick();
+            expect(worldCounters(stateFor(world)).shapeCount).toBe(0);
+            expect(register(world)).toBe(0);
+            world.tick();
+            expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
+        });
+    });
+}
 
 test("physics sync refuses a hull whose points length is not a multiple of 3", async () => {
     expectWarning(
