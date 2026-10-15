@@ -7,7 +7,6 @@ declare const Bun: {
 
 const isBun = typeof Bun !== "undefined";
 
-/** the execution environment: `"web"` in a browser, `"headless"` under Bun (tests, tooling). */
 export type Runtime = "web" | "headless";
 /** the execution environment: `"web"` in a browser, `"headless"` under Bun (tests, tooling). */
 export const Runtime: Runtime = isBun ? "headless" : "web";
@@ -16,9 +15,8 @@ export const Runtime: Runtime = isBun ? "headless" : "web";
 export const now = (): number => performance.now();
 
 /**
- * schedule `callback` for the next frame: `requestAnimationFrame` on web, a `setTimeout(0)` when
- * headless. The web path forwards rAF's frame-start timestamp; the headless path calls with no argument,
- * so consumers treat it as the sim timebase either way.
+ * Schedule with rAF's millisecond frame-start timestamp on web, or `setTimeout(0)` without a
+ * timestamp under Bun. Callers needing a headless clock must sample it themselves.
  */
 export const requestFrame: (callback: (timestamp?: number) => void) => void = isBun
     ? (cb) => setTimeout(cb, 0)

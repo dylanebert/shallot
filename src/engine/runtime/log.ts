@@ -29,14 +29,9 @@ function text(args: unknown[]): string {
 /**
  * tee GPU-side log lines into `globalThis.__gpuLog`, so a harness can read what a kernel printed.
  *
- * Opt-in by presence: the host creates `__gpuLog` before the page's own scripts run (a browser driver
- * does it in an init script), and without it this is a no-op — an engine that always wrapped `console`
- * would be taxing every app for a debugging affordance.
- *
- * **Call it before any pipeline resolves.** typegpu captures the `console` method *at shader-generation
- * time* and calls that captured reference at readback, so a patch installed after a logging kernel
- * resolves never sees its lines. `requestGPU` calls this first thing, which is early enough for
- * every engine pipeline.
+ * The host must create `__gpuLog` before calling; without it this is a no-op.
+ * Call before any logging pipeline resolves: TypeGPU captures the console method at shader-generation
+ * time and uses that reference at readback. `requestGPU` installs capture before resolving pipelines.
  * @internal
  */
 export function captureGpuLog(): void {
@@ -93,7 +88,7 @@ async function drain(trigger: () => void, timeoutMs: number): Promise<string[]> 
  *
  * A timeout rejects and permanently poisons this page's capture session. Every queued or later call then
  * rejects before its trigger, so a late callback can never be returned as a trustworthy later batch. A
- * fresh page/module instance is the recovery boundary; there is deliberately no in-page reset.
+ * fresh page/module instance is the recovery boundary; there is no in-page reset.
  * @internal
  */
 export function drainLog(trigger: () => void, timeoutMs = 1000): Promise<string[]> {

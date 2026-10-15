@@ -161,12 +161,8 @@ export class GpuDiagnosticError extends Error {
 const mb = (bytes: number): string => `${(bytes / (1 << 20)).toFixed(0)} MB`;
 
 /**
- * pre-flight a large/fixed-cap storage buffer against the device's per-binding limit. A heavy scene
- * grows several of these (including the physics contact store); past `maxStorageBufferBindingSize`
- * the bare allocation OOMs silently or surfaces an opaque bind-group validation error, so this throws a
- * named {@link UnsupportedError} first: the buffer, the needed-vs-available MB, and a remedy. Pure
- * (bytes + limit), so a unit test exercises it with no device. `label` names the buffer; `remedy` says
- * how to fit under the limit.
+ * Refuse bytes above `maxStorageBufferBindingSize` with an {@link UnsupportedError} naming
+ * the buffer, required and available MB, and the caller-supplied remedy. Also refuses non-finite bytes.
  */
 export function checkStorageBinding(
     label: string,
@@ -186,12 +182,9 @@ export function checkStorageBinding(
 }
 
 /**
- * pre-flight a texture (or texture array) against the device's dimension + array-layer limits. A texture
- * whose width/height exceeds `maxTextureDimension2D` or whose layer count exceeds `maxTextureArrayLayers`
- * (a VAT keyed by a huge vertex/frame count, a glTF baseColor / sprite array unioning many sources) fails
- * at an opaque `createTexture` validation error; this throws a named {@link UnsupportedError} first: the
- * extent, the needed-vs-available, and a remedy. Pure (extents + limits), so a unit test exercises it with
- * no device. `layers` defaults to 1 (a plain 2D texture).
+ * Refuse width or height above `maxTextureDimension2D`, or layers above `maxTextureArrayLayers`,
+ * with an {@link UnsupportedError} naming the extent, limits and caller-supplied remedy.
+ * `layers` defaults to 1. Refuses non-finite extents or layer counts.
  */
 export function checkTextureLimits(
     label: string,
@@ -237,9 +230,9 @@ export interface WorldGpu {
      * its own; the World releases the GPU resources created through it.
      */
     readonly root: TgpuRoot;
-    /** monotonically incremented per frame */
+    /** Increments after each successful World.step, including steps that submit no commands. */
     frame: number;
-    /** frames submitted but not yet retired by the GPU */
+    /** Issued sync fences not yet settled; either fulfillment or rejection retires one. */
     pending(): number;
     /** Register a completion fence after submitted queue work; tracks {@link pending}, returns the fence. */
     sync(): Promise<void>;
@@ -247,30 +240,21 @@ export interface WorldGpu {
      * A resource used before the next sync may recycle when that fence completes. */
     readonly fences: { readonly issued: number; readonly completed: number };
     /**
-     * named GPU buffers published for cross-system lookup. GPU tables
-     * self-register; producers register their static buffers (cube vertices,
-     * placement rows, …). Consumers (renderers) resolve binding names
-     * to buffers at bind-group build time
+     * World-local raw buffers published for cross-system binding lookup. GPU tables self-register;
+     * other producers publish their buffers here.
      */
     readonly buffers: Map<string, GPUBuffer>;
     /**
-     * named GPU textures published for cross-system lookup, mirroring
-     * {@link buffers}. Producers register loaded / rendered textures;
-     * material or background layouts declaring a `texture-2d` / `texture-depth-2d` binding resolve
-     * the name here at bind-group build time
+     * World-local textures published for cross-system binding lookup.
      */
     readonly textures: Map<string, GPUTexture>;
     /**
-     * named GPU samplers published for cross-system lookup, mirroring
-     * {@link buffers}. Material or background layouts declaring a `sampler` / `sampler-comparison`
-     * binding resolve the name here at bind-group build time
+     * World-local samplers published for cross-system binding lookup.
      */
     readonly samplers: Map<string, GPUSampler>;
     /**
-     * typed twins of {@link buffers}, keyed by the same names: a producer that owns a schema
-     * publishes the {@link TgpuBuffer} here beside the raw handle, so a typed consumer binds it
-     * without re-declaring the layout and a raw consumer keeps reading `buffers`. Wiped with the
-     * raw maps on every {@link requestGPU}, so a producer re-publishes each build
+     * Typed twins of {@link buffers}, published under the same names so consumers need not redeclare
+     * layouts. Registries are fresh per GPU context; producers must republish each build.
      */
     readonly typed: Map<string, TgpuBuffer<AnyData>>;
     /** optional GPU timestamp slot allocator hook; returns writes for a pass descriptor */
@@ -278,21 +262,14 @@ export interface WorldGpu {
         name: string,
     ) => GPUComputePassTimestampWrites | GPURenderPassTimestampWrites | undefined;
     /**
-     * optional indirect-draw tally hook installed by `ProfilePlugin`. A pass reports the
-     * `drawIndexedIndirect` commands it issues (the honest count, post the skip), and the profiler
-     * derives Dawn's injected indirect-draw validation floor (`#draws × ~1µs`, untimed by
-     * `timestampWrites` because it runs before the pass). A `?.`
-     * no-op without the plugin, mirroring {@link span}. A bundle reports its *recorded* draw count;
-     * the injected validation runs the same for a replay
+     * Optional indirect-draw tally hook installed by `ProfilePlugin`. Report issued commands after
+     * skips; a bundle reports its recorded draw count on replay.
+     * Dawn's injected indirect-draw validation runs before the pass, outside `timestampWrites`.
      */
     indirect?: (name: string, count: number) => void;
     /**
-     * optional pipeline-compile timing hook installed by `ProfilePlugin`, mirroring {@link span} /
-     * {@link indirect}. {@link precompileAll} measures each forcer's own `initAsync()` await and
-     * reports the resolved span here, called only when at least one element actually awaited an
-     * `initAsync` — an array with none (the standard renderer's already-unwrapped raw pipelines, or `[]`)
-     * never calls this, since reporting a span for a skip would read like a compile that never ran; a
-     * `?.` no-op without the plugin means only timing attribution is conditional.
+     * Optional pipeline-compile timing hook. Reports a forcer's own span only when at least one
+     * returned pipeline awaited `initAsync`; excludes shared validation-scope push and pop.
      */
     precompiled?: (label: string, start: number, end: number) => void;
 }
@@ -781,7 +758,7 @@ export interface NamedGpuRequirements extends GpuRequirements {
 /**
  * split required and preferred features against what an adapter offers: return absent required features
  * and grant only available preferred features not already required. The caller decides how to report any
- * missing requirements. Pure over the adapter's feature set, so a unit test exercises it with no device.
+ * missing requirements.
  */
 export function resolveFeatures(
     available: { has(feature: GPUFeatureName): boolean },
@@ -794,10 +771,8 @@ export function resolveFeatures(
 }
 
 /**
- * the TGSL build-metadata canary. A TGSL function body is transpiled at **build** time by
- * `unplugin-typegpu` (typegpu parses nothing at runtime), so a bundle built without the plugin carries
- * no metadata at all — resolution throws deep inside a pipeline and CPU-called kernels silently return
- * NaN. Resolve it to prove your build ran the transform; {@link checkTgsl} does exactly that.
+ * TGSL resolution canary used by {@link checkTgsl}; resolution alone does not prove the build ran
+ * the transform, because TypeGPU can fall back to parsing a plain function body.
  */
 export const tgslCanary = tgpu.fn(
     [u32],
@@ -807,11 +782,8 @@ export const tgslCanary = tgpu.fn(
     return x + 1;
 });
 
-// Two copies in one bundle share the `__TYPEGPU_META__` global and delete from it, so they race.
-// typegpu's module top level writes `__TYPEGPU_VERSION__` on every evaluation, a same-version
-// duplicate included, so comparing values cannot see two copies of one version. Counting writes can:
-// the key becomes an accessor, and any later evaluation, whatever version it stamps, pushes the count
-// past 1. A write that lands before this block runs is folded into the baseline and goes unseen.
+// TypeGPU copies share and delete from __TYPEGPU_META__, so duplicate evaluations race.
+// Count version writes to detect same-version duplicates too; earlier writes remain invisible.
 const _globals = globalThis as unknown as Record<string, unknown>;
 const _typegpuVersion = _globals.__TYPEGPU_VERSION__ as string | undefined;
 if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
@@ -833,8 +805,7 @@ if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
  * {@link tgslCanary} fails to resolve because the bundle skipped the typegpu transform.
  * {@link requestGPU} calls it before touching the adapter.
  *
- * It proves only that the engine's own modules went through the transform, not the caller's: source
- * outside the transform's file filter still fails at its own kernel.
+ * It does not check caller source outside the transform's file filter; that source still fails at its own kernel.
  *
  * It does not refuse:
  *
@@ -843,10 +814,7 @@ if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
  * - a bundle without metadata whose canary still resolves. typegpu's runtime fallback derives WGSL
  *   from the canary's plain function body, and a plain `tgpu.fn` lacks the entry-point output-struct
  *   cast that the fallback gets wrong, so the failure surfaces only when a real pipeline compiles.
- *
- * The first is invisible to any counter this module installs, and the second needs a compiled
- * pipeline, which a check that runs before the adapter cannot create. Only booting an installed
- * project on a real device observes them.
+ * These cases require an installed-project pipeline check on a real device.
  */
 export function checkTgsl(): void {
     const writes = _globals.__SHALLOT_TYPEGPU_WRITES__ as number;
@@ -899,8 +867,7 @@ function compile({ label, force }: Forcer): unknown {
     } catch (cause) {
         throw new Error(`precompile "${label}" failed — its pipeline did not compile`, { cause });
     }
-    // a forcer that returns nothing has no pipeline to init, so the compile silently falls through to
-    // the first frame — the exact stall the queue exists to prevent, and invisible without this
+    // Missing pipelines would silently defer compilation to the first frame.
     if (!forced)
         throw new Error(
             `precompile "${label}" returned nothing — its pipeline would compile on the first frame instead`,
@@ -909,28 +876,17 @@ function compile({ label, force }: Forcer): unknown {
 }
 
 /**
- * force a pipeline to compile before the first frame. A typegpu pipeline is created synchronously
- * (`root.unwrap` calls the synchronous `create*Pipeline`), and Dawn can defer the real compile to the
- * first dispatch (measured ~3 s of first-frame drain at engine scale). A pipeline owner registers its
- * pipeline from `warm`; `createApp` drains the queue once every plugin has warmed, awaiting
- * `initAsync()` on each returned pipeline, so the compile is paid under the loading screen. Registered
- * *after* that drain (a lazily-built pipeline, a post-warm producer), the drain runs on arrival and the
- * returned promise must be awaited — late is better than silently dropped, but it still owes the same
- * validation.
- *
- * `force` **returns the pipeline** — never dispatch from the callback: a zero-workgroup dispatch
- * trips Dawn's `DispatchWorkgroups with a workgroup count of 0 is unusual` warning in your own code.
- * Bindings do not matter: `initAsync` compiles the pipeline core every `.with()` shares. A pipeline
- * already unwrapped (`root.unwrap`, a dispatch or a draw) was created synchronously, so the drain has
- * nothing left to await for it. The drain classifies the return exhaustively: a typegpu pipeline
- * (compute / render / guarded) is awaited via its `initAsync`; an **array** is awaited element-wise —
- * each entry exposing `initAsync` is awaited, each that doesn't (the standard renderer's
- * already-unwrapped raw pipelines) is skipped, and `[]` (nothing specializes) awaits nothing;
- * anything else truthy is a labelled throw. A nullish return also throws, since it would hand the
- * compile back to frame one without a word. `label` names the pipeline in either failure and must be
- * unique within the build. `options.after` names other queued labels that must drain first. Unknown
- * labels are ignored because the plugin that owns a predecessor may be absent. `options.owner` attributes
- * pipeline-limit refusals when registration happens after an async warm boundary.
+ * Queue pipeline compilation during `warm`; `createApp` drains after all plugins warm.
+ * After that drain, compilation is serialized on arrival and the returned promise must be awaited.
+ * Dawn can defer synchronous pipeline compilation until first dispatch; `force` must return pipelines,
+ * not dispatch them. A zero-workgroup dispatch trips Dawn's unusual-workgroup-count warning.
+ * `initAsync` compiles the pipeline core shared by its `.with()` bindings. Already-unwrapped pipelines
+ * were created synchronously and have nothing left to await.
+ * A single return must expose `initAsync`. Arrays await each entry exposing `initAsync` and silently
+ * skip other entries; an empty array awaits nothing. Falsy returns and other single values throw by label.
+ * Labels must be unique within the build. `options.after` orders queued labels; absent labels are silently
+ * ignored because their plugin may be absent. `options.owner` attributes pipeline-limit refusals after
+ * an async warm boundary.
  */
 export function precompile(
     world: World,
@@ -966,14 +922,9 @@ export function precompile(
 }
 
 /**
- * a unique {@link precompile} label prefix for a factory an app can instantiate more than once (for
- * example, separate scene and physics acceleration structures). The first instance keeps the bare
- * `prefix`, so a single-instance app's labels — and their profiler rows — read unchanged; every
- * later one gets `prefix-2`, `prefix-3`, … Counts and labels belong to the supplied World.
- *
- * A scoped label is therefore not a fixed string, so it can't be named by another forcer's `after`
- * (which would silently degrade to the missing-predecessor case). Scope only a factory nothing
- * orders against.
+ * World-local {@link precompile} label prefix: first use returns `prefix`, then `prefix-2`, `prefix-3`, …
+ * Use only for factories nothing orders against; another forcer's fixed `after` label would silently
+ * miss dynamically scoped instances.
  */
 export function precompileScope(world: World, prefix: string): string {
     const _precompileState = world.resource(precompileState);
@@ -1039,21 +990,12 @@ async function compileBody(
     const start = now();
     let warmed = false;
     const pipeline = withPipelineOwner(world.gpu.device, forcer.owner, () => compile(forcer));
-    // the drain classifies a forcer's return exhaustively:
-    // (a) a typegpu pipeline (compute / render / guarded) exposes initAsync → await it
     if (typeof (pipeline as { initAsync?: unknown }).initAsync === "function") {
         await withPipelineOwner(world.gpu.device, forcer.owner, () =>
             (pipeline as { initAsync(): Promise<void> }).initAsync(),
         );
         warmed = true;
     } else if (Array.isArray(pipeline)) {
-        // (b) an array is awaited element-wise — the natural generalization of the standard renderer's
-        // shape is an array of typegpu pipelines, and skipping the whole array unconditionally
-        // would silently warm nothing for that caller. Each entry exposing initAsync is awaited;
-        // the standard renderer's (standard/rendering/forward.ts) own already-unwrapped raw pipelines expose
-        // none, so they're skipped element-wise too, same as `[]` when nothing specializes. `warmed`
-        // tracks whether any entry actually did — an all-skip array must not report a compile span
-        // below, since that's the one still-unwarmed path and the profiler must not call it warm
         const awaited = await Promise.all(
             pipeline.map((entry) =>
                 typeof (entry as { initAsync?: unknown })?.initAsync === "function"
@@ -1065,7 +1007,6 @@ async function compileBody(
         );
         warmed = awaited.some(Boolean);
     } else {
-        // (c) anything else truthy is a forcer that returned the wrong shape — name the site
         throw new Error(
             `precompile "${forcer.label}" returned a value that is neither a pipeline with initAsync nor an array of raw pipelines`,
         );
@@ -1075,17 +1016,10 @@ async function compileBody(
 }
 
 /**
- * User Timing measure-name prefix for a compiled forcer's `pipeline_compile` vital
- * (`{@link PIPELINE_COMPILE_MEASURE_PREFIX}${forcer.label}`). A page-side RUM script can't reach
- * this bundle's world-owned GPU hooks — each demo bundles the engine itself, so `performance.measure`
- * is the cross-bundle wire; the constant is exported so a site-side script can filter on it without
- * a second engine copy. Stable string contract: the deployed demos run the published engine while
- * an importer builds from workspace source, so renaming this silently breaks that wire.
- *
- * Async-only coverage: a measure is emitted only when a forcer actually awaited `initAsync`
- * ({@link compileBody}'s `warmed`), the same gate `world.gpu.precompiled` reports through — a
- * non-forced sync pipeline records a near-zero stub (TypeGPU returns before the driver compiles),
- * so no vital is emitted for it.
+ * Stable User Timing measure-name prefix: `${PIPELINE_COMPILE_MEASURE_PREFIX}${forcer.label}`.
+ * Cross-bundle observers filter this string without sharing World-owned GPU hooks.
+ * Measures cover only forcers that awaited `initAsync`, matching `world.gpu.precompiled`;
+ * synchronous pipeline creation emits no measure.
  * @internal
  */
 export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
@@ -1107,9 +1041,6 @@ function reportCompile(
 ): void {
     if (!warmed) return;
     world.gpu.precompiled?.(forcer.label, start, end);
-    // telemetry must never throw into the validation path — a User Timing entry is a nice-to-have
-    // for the site's RUM script, not a build-breaking dependency, so a missing or throwing
-    // `performance.measure` (an older runtime, a locked-down embedder) is swallowed.
     try {
         if (typeof performance?.measure === "function") {
             performance.measure(`${PIPELINE_COMPILE_MEASURE_PREFIX}${forcer.label}`, {
@@ -1152,8 +1083,8 @@ function removeForcers(world: World, drained: readonly Forcer[]): void {
  *
  * A multi-member level compiles concurrently under one shared validation scope. Error scopes are a
  * per-device stack, so a failed shared scope cannot say which member failed: the level then
- * re-drains serially from its start, so the throw names a forcer, and each member of a failing level
- * compiles twice. The serial re-drain stops at the first throw; the rest of the level and every
+ * re-drains serially from its start to attribute the throw. Members reached in the serial retry
+ * compile again. The serial re-drain stops at the first throw; the rest of the level and every
  * later level stay queued for a later call.
  * @internal
  */
