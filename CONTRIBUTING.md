@@ -78,7 +78,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ## Layout
 
 - Layers run from `engine` outward through `core`, `standard` and `extras`; dependencies point inward, and outer layers make more choices a game can replace.
-- Extras admit features after a stable release cycle as external packages.
+- An extra is a mechanism that carries no game's choices, that the field's engines ship in-engine or as official add-ons, and that a game cannot write well over public seams. A new one first spends a stable release cycle as an external package.
+- A game's choices, what the player may do and how it feels, live in the game: an example writes its own gameplay over published mechanisms.
 - Each module owns one useful responsibility completely; split, fix or remove one that doesn't.
 - Game modules never import tooling (`project`, `cli`, `native`, `types`).
 - A core, standard or extras module imports a sibling in its layer only along an edge the import gate declares, and the declared edges form no cycle. Core physics and rendering depend on core transform. Physics never imports rendering or input.
@@ -280,10 +281,10 @@ A choice the pillars leave open is taste, and goes to the person.
 
 ## Examples
 
-- Examples are the outer loop: a user's problem exposes an engine gap, and the owning module fixes and proves it, never the example.
+- Examples are the outer loop: a user's problem exposes a missing mechanism, and the owning module fixes and proves it, never the example.
 - Each example lives in its promise's repository, under `examples/<name>`, in the shape of a copied user project, and its `index.html` carries one `<meta name="description">` describing it.
 - One problem per example; only `first-person` composes many.
-- An example puts the player in its world, in first person, unless its problem needs another view.
+- An example takes the view its problem needs.
 - Every public promise is owed an example whose answer depends on it.
 - There are no duplicate demonstrations; the one showing the engine at its best stays.
 - Each example has a check that fails when its answer breaks, or the example is removed.
