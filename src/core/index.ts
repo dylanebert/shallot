@@ -29,7 +29,18 @@ export {
     type Touch,
     touchPoint,
 } from "./input";
-export * from "./mesh";
+export {
+    capsule,
+    cube,
+    type Mesh,
+    type MeshBinding,
+    Meshes,
+    type MeshHandle,
+    type MeshIndex,
+    MeshInstance,
+    MeshPlugin,
+    sphere,
+} from "./mesh";
 export * from "./physics";
 export {
     AmbientLight,

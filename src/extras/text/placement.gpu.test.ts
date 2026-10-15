@@ -3,6 +3,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { encodePos } from "../../core/mesh";
 import { globalTransformTable, RenderingPlugin } from "../../core/rendering";
 import {
     prepareGlobalTransformFrame,
@@ -11,7 +12,6 @@ import {
 import { VIEW_BYTES } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
 import { probeTexture } from "../../engine/runtime";
-import { encodePos } from "../../engine/utils";
 import { maskLayoutPlain, maskVertex } from "../outline/passes";
 import { TextVertex } from "./pipeline";
 

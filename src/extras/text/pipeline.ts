@@ -1,8 +1,9 @@
 import tgpu, { type TgpuRoot } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { decodePos, MeshQuant, meshIdOf } from "../../core/mesh";
 import { DEPTH_FORMAT, ViewUniforms } from "../../core/rendering";
-import { decodePos, MeshQuant, meshIdOf, Xform, xformPoint } from "../../engine/utils";
+import { Xform, xformPoint } from "../../engine/utils";
 import { Glyph, sdfToSignedDistance, textSrgbToLinear } from "./glyph";
 
 const viewLayout = tgpu

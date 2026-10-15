@@ -3,6 +3,16 @@ import { MeshInstance } from "./instance";
 
 export { MeshInstance } from "./instance";
 export { capsule, cube, sphere } from "./primitives";
+export {
+    decodePos,
+    decodeUv,
+    encodePos,
+    encodeUv,
+    MeshQuant,
+    meshIdOf,
+    posQuantPackWgsl,
+    posQuantWgsl,
+} from "./vertex";
 
 import {
     clearMeshes,

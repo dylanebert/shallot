@@ -8,18 +8,10 @@ import tgpu from "typegpu";
 import type { AnyData, AnyWgslData, AnyWgslStruct } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { decodePos, decodeUv, MeshQuant, meshIdOf } from "../../core/mesh";
 import { DEPTH_FORMAT, Frame, RenderContext, SAMPLE_COUNT } from "../../core/rendering";
 import type { World } from "../../engine";
-import {
-    decodePos,
-    decodeUv,
-    MeshQuant,
-    meshIdOf,
-    octDecodeNormal,
-    Xform,
-    xformNormal,
-    xformPoint,
-} from "../../engine/utils";
+import { octDecodeNormal, Xform, xformNormal, xformPoint } from "../../engine/utils";
 import { cascadeLayout, pointLayout, shadowLayout } from "./atlas";
 import { LightCull } from "./cluster";
 import type { Background, BackgroundLayout } from "./contract";
