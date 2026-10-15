@@ -22,7 +22,7 @@ type Placement = { position: Vec3; rotation: [number, number, number, number] };
 export interface Compound {
     name: string;
     capsules?: { center1: Vec3; center2: Vec3; radius: number; material?: SurfaceMaterial }[];
-    /** `Hulls` ids, each built at its registered size. */
+    /** `Hulls` ids, each built at its registered size; `UNIT_CUBE_ID` is a 1 m cube. */
     hulls?: { hull: number; transform: Placement; material?: SurfaceMaterial }[];
     /**
      * `PhysicsMeshes` ids. `scale` is non-uniform in the child's space and may be negative.

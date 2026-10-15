@@ -84,10 +84,10 @@ test("internal mover queries land a falling capsule on an authored floor sliding
     try {
         const floor = world.create();
         world.add(floor, Body, { position: [0, -0.5, 0, 0], isEnabled: 1 });
-        world.add(floor, Shape, { scale: [10, 0.5, 10, 0] });
+        world.add(floor, Shape, { scale: [20, 1, 20, 0] });
         const wall = world.create();
         world.add(wall, Body, { position: [1.5, 2, 0, 0], isEnabled: 1 });
-        world.add(wall, Shape, { scale: [0.5, 2, 10, 0] });
+        world.add(wall, Shape, { scale: [1, 4, 20, 0] });
         world.step(1 / 60);
         const capsule: Capsule = {
             center1: { x: 0, y: -0.5, z: 0 },

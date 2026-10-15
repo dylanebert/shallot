@@ -95,7 +95,7 @@ test("ascending platform carry stays grounded, but a jump relative to that platf
 const floor = (world: World, type: BodyType = BodyType.Static) => {
     const eid = world.create();
     world.add(eid, Body, { type, position: [0, -0.5, 0, 0] });
-    world.add(eid, Shape, { scale: [20, 0.5, 20, 0] });
+    world.add(eid, Shape, { scale: [40, 1, 40, 0] });
     return eid;
 };
 
@@ -137,7 +137,7 @@ test("ground above maxSlope reports steep ground and its normal", async () => {
         world.add(slope, Body, {
             rotation: [0, 0, Math.sin(0.25), Math.cos(0.25)],
         });
-        world.add(slope, Shape, { scale: [20, 0.1, 20, 0] });
+        world.add(slope, Shape, { scale: [40, 0.2, 40, 0] });
         world.storage(Body).position.set(eid, 0, 1.8, 0, 0);
         const c = world.storage(Character);
         c.maxSlope.set(eid, 0.1);
@@ -186,7 +186,7 @@ async function walkInto(stepHeight: number, steepWalls: number): Promise<number>
         floor(world);
         const step = world.create();
         world.add(step, Body, { type: BodyType.Static, position: [0, stepHeight / 2, -3, 0] });
-        world.add(step, Shape, { scale: [4, stepHeight / 2, 1, 0] });
+        world.add(step, Shape, { scale: [8, stepHeight, 2, 0] });
         const c = world.storage(Character);
         c.pogoRest.set(eid, 1 + 0.05 / 0.3);
         c.steepWalls.set(eid, steepWalls);

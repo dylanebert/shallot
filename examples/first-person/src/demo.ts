@@ -53,7 +53,7 @@ function block(
     world.add(eid, Shape, { scale: size });
     const mesh = world.resource(Meshes).add({
         name: `block-${eid}`,
-        ...cube([2 * size[0], 2 * size[1], 2 * size[2]]),
+        ...cube(size),
     });
     world.add(eid, MeshInstance, { mesh });
     const material = world.resource(Materials).add(StandardMaterial({ baseColor: rgba }));
@@ -99,28 +99,28 @@ export function route(world: World) {
     world.add(player, Character);
     world.add(player, Player, { camera: eye });
     world.add(player, LocalPlayer);
-    block(world, [0, 0, -5], [16, 0.5, 26], GROUND_COLOR);
+    block(world, [0, 0, -5], [32, 1, 52], GROUND_COLOR);
     const steps = [
         [
             [0, 0.75, 3],
-            [3, 0.25, 1.5],
+            [6, 0.5, 3],
         ],
         [
             [0, 1.25, 0],
-            [3, 0.25, 1.5],
+            [6, 0.5, 3],
         ],
         [
             [0, 1.75, -3],
-            [3, 0.25, 1.5],
+            [6, 0.5, 3],
         ],
     ] as const satisfies readonly (readonly [Vec3, Vec3])[];
     for (const [at, size] of steps) block(world, at, size, STEP_COLOR);
-    const lift = block(world, [0, 1.75, -6.5], [3, 0.25, 2], LIFT_COLOR, BodyType.Kinematic);
+    const lift = block(world, [0, 1.75, -6.5], [6, 0.5, 4], LIFT_COLOR, BodyType.Kinematic);
     world.add(lift, Lift);
     const tower = [
-        [[0.7, 2.5, -10], [2.2, 0.5, 1.2], TOWER_COLOR],
-        [[-0.7, 3.5, -12.3], [1.8, 0.5, 1.2], TOWER_COLOR],
-        [[0.7, 4.5, -14.5], [2.2, 0.5, 1.5], PERCH_COLOR],
+        [[0.7, 2.5, -10], [4.4, 1, 2.4], TOWER_COLOR],
+        [[-0.7, 3.5, -12.3], [3.6, 1, 2.4], TOWER_COLOR],
+        [[0.7, 4.5, -14.5], [4.4, 1, 3], PERCH_COLOR],
     ] as const satisfies readonly (readonly [Vec3, Vec3, Vec4])[];
     for (const [at, size, rgba] of tower) block(world, at, size, rgba);
     return { player, eye, lift };

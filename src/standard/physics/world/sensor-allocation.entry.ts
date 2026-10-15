@@ -28,7 +28,7 @@ export default async function create(input: string) {
         type: BodyType.Kinematic,
         position: [0, -0.5, 0, 0],
     });
-    world.add(platform, Shape, { scale: [100, 0.5, 100, 0] });
+    world.add(platform, Shape, { scale: [200, 1, 200, 0] });
     const hull = makeBoxHull(0.5, 0.5, 0.5);
     const side = Math.ceil(Math.sqrt(count));
     for (let i = 0; i < count; i++) {

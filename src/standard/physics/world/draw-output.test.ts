@@ -139,7 +139,7 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
         const hullShape = shape(hullBody, {
             kind: ShapeKind.Hull,
             geometry: UNIT_CUBE_ID,
-            scale: [0.5, 0.7, 0.9, 0],
+            scale: [1, 1.4, 1.8, 0],
         });
         const meshBody = body(0);
         shape(meshBody, { kind: ShapeKind.Mesh, geometry: meshId, scale: [1, 1, 1, 0] });

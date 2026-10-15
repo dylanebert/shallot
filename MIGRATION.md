@@ -141,7 +141,8 @@ the old literal.
 Replace `Hulls.register(...)` and other registry calls with
 `world.resource(Hulls).register(...)` (or the corresponding registry method).
 Hull ids belong to that world; register geometry in each world that uses it.
-Every world's registry starts with the unit cube at `UNIT_CUBE_ID` (0).
+Every world's registry starts with the unit cube at `UNIT_CUBE_ID` (0), 1 m on a side.
+`Shape.scale` multiplies a registered hull or mesh and defaults to `[1, 1, 1]`.
 
 ## Hulls hold points
 
@@ -180,7 +181,7 @@ const geometry = world.resource(PhysicsMeshes).register({
     indices: new Uint32Array(indices),
     identifyEdges: true,
 });
-world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry, scale: [1, 1, 1] });
+world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry });
 ```
 
 ## Height fields hold Box3D's height-field input
@@ -959,7 +960,7 @@ fields are `linearVelocity`, `angularVelocity`, `linearDamping`, `angularDamping
 fields with Box3D setters apply at the next fixed sync.
 
 Move the 0.9.5 `Body.shape`, `halfExtents`, `mass` and `friction` fields to `Shape`: `shape` becomes
-`Shape.kind`, `halfExtents.xyz` becomes `Shape.scale` for hulls, `mass` becomes per-shape density,
+`Shape.kind`, `halfExtents.xyz` doubled becomes `Shape.scale` for hulls, `mass` becomes per-shape density,
 and `friction` becomes `Shape.friction`. The old `.w` radius becomes `Shape.radius`, shared by spheres and
 capsules; a sphere's center is `Shape.sphereCenter` and a capsule's hemisphere centers are
 `Shape.capsuleCenter1` and `Shape.capsuleCenter2`; a hull id moves to `Shape.geometry`. `ShapeKind.Box` becomes a scaled
@@ -982,7 +983,7 @@ Body.friction.set(eid, 0.5);
 const eid = world.create();
 world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 5, 0] });
 world.add(eid, Shape, {
-    kind: ShapeKind.Hull, geometry: UNIT_CUBE_ID, scale: [0.5, 0.5, 0.5],
+    kind: ShapeKind.Hull, geometry: UNIT_CUBE_ID, scale: [1, 1, 1],
     density: 1, friction: 0.5,
 });
 ```

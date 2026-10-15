@@ -70,10 +70,10 @@ function goalReached(
     const radius = shape.radius.get(player);
     const dx = Math.abs(placement.x.get(player) - placement.x.get(target));
     const dz = Math.abs(placement.z.get(player) - placement.z.get(target));
-    const top = placement.y.get(target) + shape.scale.y.get(target);
+    const top = placement.y.get(target) + shape.scale.y.get(target) / 2;
     return (
-        dx <= shape.scale.x.get(target) + radius &&
-        dz <= shape.scale.z.get(target) + radius &&
+        dx <= shape.scale.x.get(target) / 2 + radius &&
+        dz <= shape.scale.z.get(target) / 2 + radius &&
         placement.y.get(player) >= top + 0.6
     );
 }

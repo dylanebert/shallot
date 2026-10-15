@@ -293,7 +293,7 @@ test("a hull scale edit reaches b3Shape_SetHull without replacing the ECS-bound 
         const previousGeometry = getShapeGeometryReference(stateFor(world), shape.index1 - 1);
         const setHull = spyOn(kernel(world), "shapeSetHull");
         try {
-            world.storage(Shape).scale.x.set(eid, 1);
+            world.storage(Shape).scale.x.set(eid, 2);
             world.tick();
 
             expect(shapeIsValid(stateFor(world), shape)).toBe(true);
@@ -738,7 +738,7 @@ test("a corrected dynamic body's published velocity agrees with its solver body 
     await withPhysics((world) => {
         const floor = world.create();
         world.add(floor, Body, { position: [0, -0.5, 0, 0] });
-        world.add(floor, Shape, { scale: [10, 0.5, 10, 0] });
+        world.add(floor, Shape, { scale: [20, 1, 20, 0] });
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic, position: [0, 0.5, 0, 0] });
         world.tick();

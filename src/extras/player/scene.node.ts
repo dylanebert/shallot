@@ -44,7 +44,7 @@ test("a Player capsule retains its collider geometry and rests above the floor",
             world.add(player, Player, { camera: eye });
             const floor = world.create();
             world.add(floor, Body, { position: [0, 0, 0, 0] });
-            world.add(floor, Shape, { scale: [10, 0.5, 10, 0] });
+            world.add(floor, Shape, { scale: [20, 1, 20, 0] });
         },
     });
     try {

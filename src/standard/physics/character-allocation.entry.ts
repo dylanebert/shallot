@@ -37,7 +37,7 @@ export default async function create(input: string) {
         type: BodyType.Kinematic,
         position: [0, -0.5, 0, 0],
     });
-    world.add(platform, Shape, { scale: [1000, 0.5, 1000, 0] });
+    world.add(platform, Shape, { scale: [2000, 1, 2000, 0] });
     const eid = world.create();
     world.add(eid, Body, {
         type: BodyType.Kinematic,

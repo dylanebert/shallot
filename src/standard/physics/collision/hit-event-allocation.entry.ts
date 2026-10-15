@@ -20,7 +20,7 @@ export default async function create(input: string) {
     const ground = world.create();
     world.add(ground, Body, { type: BodyType.Static, position: [0, -0.5, 0] });
     world.add(ground, Shape, {
-        scale: [100, 0.5, 100],
+        scale: [200, 1, 200],
         enableHitEvents: 1,
         userMaterialIdLow: 0x89abcdef,
         userMaterialIdHigh: 0x01234567,

@@ -44,7 +44,7 @@ async function scene(y = 2, offset = 0) {
                 type: BodyType.Kinematic,
                 position: [offset, offset, 0, 0],
             });
-            world.add(floor, Shape, { scale: [4, 0.5, 4, 0] });
+            world.add(floor, Shape, { scale: [8, 1, 8, 0] });
             player = world.create();
             world.add(player, Body, {
                 type: BodyType.Kinematic,
@@ -205,13 +205,13 @@ async function walkAtStep(height: number): Promise<boolean> {
             world.add(camera, Transform);
             const floor = world.create();
             world.add(floor, Body, { type: BodyType.Static });
-            world.add(floor, Shape, { scale: [20, 0.5, 20, 0] });
+            world.add(floor, Shape, { scale: [40, 1, 40, 0] });
             const step = world.create();
             world.add(step, Body, {
                 type: BodyType.Static,
                 position: [0, 0.5 + height / 2, -3, 0],
             });
-            world.add(step, Shape, { scale: [4, height / 2, 1, 0] });
+            world.add(step, Shape, { scale: [8, height, 2, 0] });
             player = world.create();
             world.add(player, Body, { type: BodyType.Kinematic, position: [0, 2, 0, 0] });
             world.add(player, Shape, { kind: ShapeKind.Capsule });

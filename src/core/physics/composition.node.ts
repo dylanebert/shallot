@@ -47,7 +47,7 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
             shape.scale.y.get(body),
             shape.scale.z.get(body),
             shape.scale.w.get(body),
-        ]).toEqual([0.5, 0.5, 0.5, 0]);
+        ]).toEqual([1, 1, 1, 0]);
         expect(shape.body.get(body)).toBe(0);
         expect(shape.geometry.get(body)).toBe(0);
         expect([

@@ -470,7 +470,7 @@ async function runEntityQuery(input: Input): Promise<string[]> {
         let capsuleCenter1: [number, number, number] = [0, -0.5, 0];
         let capsuleCenter2: [number, number, number] = [0, 0.5, 0];
         let radius = 0.5;
-        let scale: [number, number, number, number] = [0.5, 0.5, 0.5, 0];
+        let scale: [number, number, number, number] = [1, 1, 1, 0];
         if (input.kind === 0) {
             kind = ShapeKind.Sphere;
             sphereCenter = [0, -1, 0];
@@ -482,7 +482,7 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             radius = 0.35;
         } else if (input.kind === 2) {
             kind = ShapeKind.Hull;
-            scale = [1, 0.75, 0.6, 0];
+            scale = [2, 1.5, 1.2, 0];
         } else if (input.kind === 3) {
             kind = ShapeKind.Mesh;
             // b3CreateBoxMesh({ 0, -0.75, 0 }, { 1, 0.75, 0.6 }, true)'s definition.

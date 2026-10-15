@@ -47,7 +47,7 @@ async function cleanState() {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     const body = addBody(app.world, {
         pos: [0, 2, 0],
-        scale: [0.5, 0.5, 0.5, 0],
+        scale: [1, 1, 1, 0],
         density: 1,
     });
     return { app, world: app.world, body };
@@ -200,7 +200,7 @@ test("physics reports the same body visit count for every scene, so a body-conte
 
         const second = addBody(one.world, {
             pos: [2, 2, 0],
-            scale: [0.5, 0.5, 0.5, 0],
+            scale: [1, 1, 1, 0],
             density: 1,
         });
         one.world.step(Time.FIXED_DT);

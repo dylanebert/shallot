@@ -69,7 +69,7 @@ function halfExtent(world: World, eid: number, axis: "x" | "y" | "z"): number {
               ) + radius
             : radius;
     }
-    return shape.scale[axis].get(eid);
+    return shape.scale[axis].get(eid) / 2;
 }
 
 function placeRiderOnActualLift(world: World, player: number, lift: number): void {

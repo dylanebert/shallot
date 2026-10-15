@@ -20,14 +20,14 @@ test("two ECS Shape entities form one Box3D body with native compound collision 
         const world = app.world;
         const floor = world.create();
         world.add(floor, Body, { position: [0, -0.5, 0, 0] });
-        world.add(floor, Shape, { scale: [5, 0.5, 5, 0] });
+        world.add(floor, Shape, { scale: [10, 1, 10, 0] });
 
         const body = world.create();
         world.add(body, Body, { type: BodyType.Dynamic, position: [0, 0.4, 0, 0] });
         const left = world.create();
-        world.add(left, Shape, { body, kind: ShapeKind.Hull, scale: [0.5, 0.5, 0.5, 0] });
+        world.add(left, Shape, { body, kind: ShapeKind.Hull, scale: [1, 1, 1, 0] });
         const right = world.create();
-        world.add(right, Shape, { body, kind: ShapeKind.Hull, scale: [0.5, 0.5, 0.5, 0] });
+        world.add(right, Shape, { body, kind: ShapeKind.Hull, scale: [1, 1, 1, 0] });
 
         world.tick();
 

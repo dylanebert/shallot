@@ -47,7 +47,7 @@ async function scene(localPlayers: readonly number[] = [], count = 1): Promise<S
         setup(world) {
             const floor = world.create();
             world.add(floor, Body, { type: BodyType.Static });
-            world.add(floor, Shape, { scale: [20, 0.5, 20, 0] });
+            world.add(floor, Shape, { scale: [40, 1, 40, 0] });
             for (let index = 0; index < count; index++) {
                 const camera = world.create();
                 world.add(camera, Transform);

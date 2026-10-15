@@ -27,10 +27,11 @@ export const Hulls: Resource<Registry<Hull>> = {
     },
 };
 
-// The built-in unit cube (full-size 2, points ±1) reserved at id 0. A box collider is this hull
+// The built-in unit cube (1 m, points ±0.5) reserved at id 0. A box collider is this hull
 // scaled by Shape.scale, so the kernel reads boxes and other hulls through one path.
 const UNIT_CUBE_POINTS = new Float32Array([
-    -1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1,
+    -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5,
+    0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
 ]);
-/** Reserved hull id of the built-in unit cube; `Shape.scale` supplies its half-extents. */
+/** Reserved hull id of the built-in 1 m unit cube; `Shape.scale` supplies its full lengths. */
 export const UNIT_CUBE_ID = 0;
