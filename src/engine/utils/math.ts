@@ -1,4 +1,4 @@
-/** a world-space ray. `dir` MUST be normalized; the returned `distance` is then world units along it. */
+/** World-space ray. `dir` must be normalized so distances along it are in world units. */
 export interface Ray {
     origin: readonly [number, number, number];
     dir: readonly [number, number, number];
@@ -236,8 +236,7 @@ export function orthographic(
     out[7] = 0;
     out[8] = 0;
     out[9] = 0;
-    // reverse-Z: the depth row with near/far swapped, so near→1 and far→0 — the convention the
-    // perspective path uses, kept uniform so the sun's ortho shadow map matches the receivers
+    // Match perspective's reverse-Z convention so shadow maps and receivers agree.
     out[10] = -nf;
     out[11] = 0;
     out[12] = 0;
@@ -303,7 +302,6 @@ export function composeMat4(
  */
 export function decomposeMat4(m: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(10);
-    // basis column lengths are the scale; flip sx on a mirrored (det < 0) frame to keep R proper
     let sx = Math.hypot(m[0], m[1], m[2]);
     const sy = Math.hypot(m[4], m[5], m[6]);
     const sz = Math.hypot(m[8], m[9], m[10]);
@@ -454,7 +452,6 @@ export function invertMat4(m: Float32Array, out?: Float32Array): Float32Array {
     return out;
 }
 
-/** shared finite-guard for lookAtRotation and lookAt's nine numeric params (eye, target, up) */
 function assertFiniteAimLookAtParams(
     name: string,
     eyeX: number,

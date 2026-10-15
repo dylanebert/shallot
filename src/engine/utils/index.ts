@@ -1,7 +1,3 @@
-// The ./utils subpath: the GPU storage codecs — TGSL functions callable on the CPU and resolvable into a
-// shader, except the GPU-only smallest-3 pair — the lazily resolved WGSL chunks a raw-WGSL producer or
-// surface splices, the escape vocabulary for the WGSL constructs TGSL has no binding for, and the author
-// math, color helpers and Registry, most of which the main barrel also exports.
 export {
     linearToOklabWgsl,
     linearToSrgb,

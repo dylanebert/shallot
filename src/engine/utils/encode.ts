@@ -15,23 +15,12 @@ import {
 } from "typegpu/std";
 import { chunk } from "./tgsl";
 
-// The GPU storage codecs, each a single TGSL function: one source that runs on the CPU
-// (a `bun test` calls it directly) and resolves to the WGSL a shader splices. Lattice drift between a
-// CPU packer and a GPU unpacker is the failure this shape makes unrepresentable: a CPU oct encoder on
-// a unorm16 lattice against a GPU decoder on snorm16 puts a steady torque on settled stacks.
-//
-// The `*Wgsl()` chunks below are the splice surface for a raw-WGSL shader, resolved with `names:
-// "strict"` so the emitted function names are the ones documented here. Each chunk is self-contained
-// (its own resolve, its own dependencies) and shares none with another, so any of them splice together.
+// WGSL chunks resolve independently with strict names; each includes its own dependencies.
 
-// snorm16 mapping (pack2x16snorm): (-1, 1) ↔ (-32767, 32767), with 0 ↔ 0 exact. A unorm16 mapping
-// (-1, 1) ↔ (0, 65535) puts 0 between two integer rails, so axis-aligned vectors decoded as (0, ±1, 0)
-// round-trip to (0, 1, ±1.5e-5). For contact normals on a flat ground, that asymmetric z-bias gives a
-// non-cancelling residual torque on the four corner contacts and a steady quaternion drift on settled
-// boxes. snorm16 makes ±1 and 0 round-trip exactly.
+// snorm16 represents 0 and ±1 exactly, avoiding biased axis-aligned contact normals.
 
 /** octahedral-encode a unit normal to an snorm16x2 `u32` (the storage normal, 12 B → 4 B;
- *  Cigolle et al. 2014). **Never for an interpolated or filtered normal** — the octahedral seam breaks
+ *  Cigolle et al. 2014). Not for interpolated or filtered normals: the octahedral seam breaks
  *  under interpolation; cross those as a plain `vec3` and renormalize. */
 export const octEncodeNormal = tgpu.fn(
     [d.vec3f],
@@ -63,15 +52,10 @@ export const octDecodeNormal = tgpu.fn(
 });
 
 /** WGSL `octEncodeNormal(n) -> u32` + `octDecodeNormal(enc) -> vec3<f32>`: the snorm16x2 storage-normal
- *  codec. Splice into a producer that packs a normal or a reader that unpacks one; bit-identical to the
- *  CPU-callable {@link octEncodeNormal}, since it *is* that function. */
+ *  codec, resolved from the CPU-callable TGSL functions. */
 export const octEncodeWgsl = chunk("octEncodeWgsl", [octEncodeNormal, octDecodeNormal]);
 
-// snorm16x4 quaternion: 4 components packed into 2 u32 via pack2x16snorm. Per-component error bound
-// 1/32767 ≈ 3.05e-5 (uniform across [-1, 1]). Identity (0,0,0,1) and the six 180° axis-aligned rotations
-// are bit-exact: 0 ↔ 0 and ±1 ↔ ±32767 sit on lattice rails. Decode renormalizes to absorb per-component
-// quantization into a unit quat — downstream quatMul/quatRotate expect unit input. Cardinal exactness
-// plus the per-component and worst-case angular bounds are validated in encode.test.ts.
+// snorm16x4 has per-component error at most 1/32767 across [-1, 1]; 0 and ±1 are exact.
 
 /** pack a quaternion into two snorm16x2 `u32` lanes (xy, zw), 16 B → 8 B. */
 export const packQuatSnorm16x4 = tgpu.fn(
@@ -154,13 +138,8 @@ export const ldrColorUnpackWgsl = chunk("ldrColorUnpackWgsl", [unpackLdrColor]);
  *  from {@link ldrColorUnpackWgsl} so a reader shader doesn't drag in the encode helpers. */
 export const ldrColorPackWgsl = chunk("ldrColorPackWgsl", [packLdrColor]);
 
-// HDR colors store as r11g11b10ufloat manual u32 pack — Khronos GL_EXT_packed_float bit layout: R 11-bit
-// at 0..10 (5-bit exp + 6-bit mantissa), G 11-bit at 11..21, B 10-bit at 22..31 (5-bit exp + 5-bit
-// mantissa). All three share f16's exponent bias (15) and unsigned semantics, so the encode collapses to
-// a half-float pack followed by mantissa-bit drops: f11 = (f16 >> 4) & 0x7FF; f10 = (f16 >> 5) & 0x3FF.
-// Inputs clamp to [0, 65024] (max f11 normal) so f16's wider 65504 range never produces an f11 inf via
-// mantissa overflow. ~3% relative precision per channel — well below the visible threshold for additive
-// HDR emission.
+// Khronos GL_EXT_packed_float layout shares f16's exponent bias (15), allowing mantissa-bit drops.
+// Clamp below f16's maximum so conversion cannot round an f11 channel to infinity.
 
 /** decode an r11g11b10ufloat-packed HDR color. */
 export const unpackHdrColor = tgpu.fn(
@@ -188,17 +167,15 @@ export const packHdrColor = tgpu.fn(
     return ((rg >>> 4) & 0x7ff) | (((rg >>> 20) & 0x7ff) << 11) | (((bb >>> 5) & 0x3ff) << 22);
 });
 
-/** WGSL `unpackHdrColor(p: u32) -> vec3<f32>`: the HDR color read side (`rgb9e5ufloat`
- *  is read-only in WebGPU, so the pack is manual). */
+/** WGSL `unpackHdrColor(p: u32) -> vec3<f32>`: the r11g11b10ufloat color read side. */
 export const hdrColorUnpackWgsl = chunk("hdrColorUnpackWgsl", [unpackHdrColor]);
 
 /** WGSL `packHdrColor(rgb) -> u32`: the HDR color write side, split from {@link hdrColorUnpackWgsl}
  *  so a reader shader doesn't drag in the encode helpers. */
 export const hdrColorPackWgsl = chunk("hdrColorPackWgsl", [packHdrColor]);
 
-// smallest-3 quaternion: drop the largest component and store the other three as 10-bit snorm plus a
-// 2-bit index, 16 B → 4 B, ~0.1° max error. Fine for narrowphase + per-pair neighbour reads (no
-// compounding); NOT for iter-mutated state a downstream pass finite-differences.
+// Smallest-3 uses 4 bytes with ~0.1° max error, suitable for reads without compounding.
+// Not for iter-mutated state that is later finite-differenced.
 
 /** pack a quaternion as smallest-3 (10-10-10-2 in one `u32`). */
 export const packQuatSmallest3 = tgpu.fn(
@@ -251,20 +228,12 @@ export const unpackQuatSmallest3 = tgpu.fn(
 }`);
 
 /** WGSL `packQuatSmallest3(q) -> u32` + `unpackQuatSmallest3(p) -> vec4<f32>`: the compact quaternion
- *  storage codec. The one codec here whose bodies stay WGSL text — smallest-3 dynamically indexes a
- *  vector (`q[largest]`) and switches on the result, neither of which TGSL expresses — so it is
- *  GPU-only, with no CPU twin to keep in step. */
+ *  storage codec. GPU-only: its WGSL bodies dynamically index vectors and switch on the result,
+ *  neither of which TGSL expresses. */
 export const smallest3Wgsl = chunk("smallest3Wgsl", [packQuatSmallest3, unpackQuatSmallest3]);
 
-// The hot-path mirrors. Everything above is authored once as TGSL and callable on the CPU, but a
-// typegpu CPU call costs ~270 ns of dispatch plus ~365 ns per vector it builds — ~5 µs for the oct
-// encoder, against ~30 ns hand-written. That is the right price for a unit test and the wrong one for a
-// per-vertex mesh bake or a GPU table upload.
-//
-// So the hot packers get a plain-JS mirror, over the same lattice primitives, and encode.test.ts
-// pins each against the TGSL function it mirrors across a sweep — bit-identical on the packed word.
-// That differential is the point: a hand-paired CPU/WGSL twin is held in step only by a comment, and
-// these are held in step by a gate.
+// Plain-JS mirrors avoid TypeGPU CPU dispatch and vector-allocation costs in mesh baking and uploads.
+// encode.test.ts checks their packed words against the TGSL functions.
 
 /** {@link octEncodeNormal} over three loose lanes — the mesh builder's per-vertex form. */
 export function octEncode(x: number, y: number, z: number): number {
@@ -274,10 +243,8 @@ export function octEncode(x: number, y: number, z: number): number {
     const ny = Math.fround(y);
     const nz = Math.fround(z);
     const denom = Math.abs(nx) + Math.abs(ny) + Math.abs(nz);
-    // `denom <= 0`, not `denom > 0`: the two differ on a NaN component, and the TGSL source's `select`
-    // takes the reciprocal there (the NaN policy: compute through, don't wallpaper). Untestable
-    // through the differential: a typegpu schema refuses a non-finite value, so only a shader (or this
-    // mirror) ever sees one.
+    // Preserve the TGSL select's NaN branch: a NaN denominator takes the reciprocal.
+    // A TypeGPU schema refuses non-finite CPU inputs, so the differential cannot cover this case.
     const inv = denom <= 0 ? 0 : 1 / denom;
     const px = Math.fround(nx * inv);
     const py = Math.fround(ny * inv);

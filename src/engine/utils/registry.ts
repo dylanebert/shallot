@@ -1,9 +1,6 @@
 /**
- * named-thing registry with stable numeric IDs. Each entry has a unique
- * `name`; the registry assigns a monotonic ID by registration order. IDs stay
- * stable for the lifetime of the registry (re-registering reuses the prior
- * ID; deleting an entry keeps the ID slot reserved). Producers consume IDs
- * for compact GPU-side routing; consumers reference entries by name
+ * Names receive monotonic IDs in first-registration order. Deleting or overwriting an entry
+ * preserves its ID; {@link clear} resets the ID space and {@link restore} replaces it.
  */
 export class Registry<T extends { name: string }> {
     private readonly _ids = new Map<string, number>();
@@ -45,10 +42,7 @@ export class Registry<T extends { name: string }> {
     }
 
     /**
-     * wipe every entry and reset the ID space. The reload seam — a rebuild re-registers from a clean
-     * registry, so a plugin toggled off leaves no stale entry
-     * (a draw against torn-down buffers). Unlike {@link delete}, this frees the ID slots too; IDs are
-     * stable only within one build generation.
+     * Remove every entry and reset the ID space, including slots reserved by {@link delete}.
      */
     clear(): void {
         this._ids.clear();
@@ -79,7 +73,7 @@ export class Registry<T extends { name: string }> {
         return this._values.size;
     }
 
-    /** visit every live entry in registration order without an iterator, for a per-frame walk */
+    /** Visit live entries without an iterator, in Map insertion order, not numeric-ID order. */
     forEach(callback: (value: T) => void): void {
         this._values.forEach(callback);
     }
