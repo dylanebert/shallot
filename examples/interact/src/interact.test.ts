@@ -87,6 +87,11 @@ test("the billboard cap, key and ring have distinct view depths and both texts s
     const key = p.key.get(prompt),
         label = p.label.get(prompt),
         ring = p.ring.get(prompt);
+    const sprites = w.storage(Sprite);
+    expect(sprites.anchor.x.get(ring)).toBe(sprites.anchor.x.get(prompt));
+    expect(sprites.anchor.y.get(ring)).toBe(sprites.anchor.y.get(prompt));
+    expect(sprites.size.x.get(ring)).toBe(sprites.size.x.get(prompt));
+    expect(sprites.size.y.get(ring)).toBe(sprites.size.y.get(prompt));
     for (const side of [false, true]) {
         if (side) {
             t.translation.set(camera, 2, 1.4, -3.8);
@@ -96,6 +101,17 @@ test("the billboard cap, key and ring have distinct view depths and both texts s
         const depth = side ? t.translation.x : t.translation.z;
         expect(depth.get(key) - depth.get(prompt)).toBeCloseTo(0.01);
         expect(depth.get(ring) - depth.get(prompt)).toBeCloseTo(0.02);
+        const horizontal = side ? t.translation.z : t.translation.x;
+        const capDepth = depth.get(camera) - depth.get(prompt);
+        const ringDepth = depth.get(camera) - depth.get(ring);
+        expect((horizontal.get(ring) - horizontal.get(camera)) / ringDepth).toBeCloseTo(
+            (horizontal.get(prompt) - horizontal.get(camera)) / capDepth,
+            5,
+        );
+        expect((t.translation.y.get(ring) - t.translation.y.get(camera)) / ringDepth).toBeCloseTo(
+            (t.translation.y.get(prompt) - t.translation.y.get(camera)) / capDepth,
+            5,
+        );
         expect(t.translation.y.get(key)).toBeCloseTo(t.translation.y.get(label));
         expect(w.storage(Text).anchor.y.get(key)).toBe(0);
         expect(w.storage(Text).anchor.y.get(label)).toBe(0);

@@ -118,7 +118,7 @@ function room(world: World): void {
             fontSize: 0.2,
             anchor: [0.5, 0],
             billboard: Billboard.Screen,
-            color: 0xefe3cf,
+            color: 0x1c1917,
         });
     }
     const image = registerImage(world, "/key.png");

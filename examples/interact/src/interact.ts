@@ -252,7 +252,17 @@ const ShowInteraction: System = {
                 y + backY * 0.01 - upY * 0.065,
                 z + backZ * 0.01 - upZ * 0.065,
             );
-            t.translation.set(ring, x + backX * 0.02, y + backY * 0.02, z + backZ * 0.02);
+            // Move toward the eye along the cap's sightline, so depth separation does not shift its projected centre.
+            const eyeX = t.translation.x.get(camera) - x;
+            const eyeY = t.translation.y.get(camera) - y;
+            const eyeZ = t.translation.z.get(camera) - z;
+            const towardEye = 0.02 / (eyeX * backX + eyeY * backY + eyeZ * backZ);
+            t.translation.set(
+                ring,
+                x + eyeX * towardEye,
+                y + eyeY * towardEye,
+                z + eyeZ * towardEye,
+            );
             t.translation.set(
                 label,
                 x + rightX * 0.23 + backX * 0.01 - upX * 0.065,
@@ -283,6 +293,7 @@ export function makePrompt(world: World, image: number, ringImage: number): numb
     world.add(cap, Sprite, {
         image,
         size: [0.28, 0.28],
+        anchor: [0.5, 0.5],
         billboard: Billboard.Screen,
         blend: SpriteBlend.Alpha,
     });
@@ -309,7 +320,8 @@ export function makePrompt(world: World, image: number, ringImage: number): numb
     world.add(ring, Sprite, {
         image: ringImage,
         blend: SpriteBlend.Alpha,
-        size: [0.36, 0.36],
+        size: [0.28, 0.28],
+        anchor: [0.5, 0.5],
         billboard: Billboard.Screen,
         fillMode: SpriteFill.Radial,
         fill: 0,
