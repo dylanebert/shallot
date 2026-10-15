@@ -183,7 +183,7 @@ test("Shape material, filter and event writes reach Box3D setters only when valu
             expect(material.friction).toBe(0.25);
             expect(material.restitution).toBeCloseTo(0.4);
             expect(material.rollingResistance).toBeCloseTo(0.2);
-            expect(material.tangentVelocity).toEqual({ x: 1, y: 2, z: 3 });
+            expect(material.tangentVelocity).toEqual([1, 2, 3]);
             expect(material.userMaterialId).toBe(0x9abcdef012345678n);
             expect(material.customColor).toBe(0xff00ff);
             expect(getShapeFilter(state, shapeSlot)).toEqual({
@@ -338,7 +338,7 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
                     friction: 0.15,
                     restitution: 0.35,
                     rollingResistance: 0.1,
-                    tangentVelocity: { x: 1, y: 0, z: -1 },
+                    tangentVelocity: [1, 0, -1],
                     userMaterialId: 23n,
                     customColor: 0x336699,
                 },
@@ -373,7 +373,7 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
                     friction: Math.fround(0.15),
                     restitution: Math.fround(0.35),
                     rollingResistance: Math.fround(0.1),
-                    tangentVelocity: { x: 1, y: 0, z: -1 },
+                    tangentVelocity: [1, 0, -1],
                     userMaterialId: 23n,
                     customColor: 0x336699,
                 },

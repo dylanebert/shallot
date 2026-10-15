@@ -102,9 +102,9 @@ function materialsEqual(a: SurfaceMaterial, b: SurfaceMaterial): boolean {
         a.friction === b.friction &&
         a.restitution === b.restitution &&
         a.rollingResistance === b.rollingResistance &&
-        a.tangentVelocity.x === b.tangentVelocity.x &&
-        a.tangentVelocity.y === b.tangentVelocity.y &&
-        a.tangentVelocity.z === b.tangentVelocity.z &&
+        a.tangentVelocity[0] === b.tangentVelocity[0] &&
+        a.tangentVelocity[1] === b.tangentVelocity[1] &&
+        a.tangentVelocity[2] === b.tangentVelocity[2] &&
         a.userMaterialId === b.userMaterialId &&
         a.customColor === b.customColor
     );

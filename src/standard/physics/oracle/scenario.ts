@@ -296,7 +296,7 @@ export function runScenario(
             friction: f32(String(source.friction ?? "0x3f19999a")),
             restitution: f32(String(source.restitution ?? "0x00000000")),
             rollingResistance: f32(String(source.rollingResistance ?? "0x00000000")),
-            tangentVelocity: tangent,
+            tangentVelocity: [tangent.x, tangent.y, tangent.z],
             userMaterialId: BigInt(String(source.userMaterialId ?? "0x0000000000000000")),
             customColor: Number(source.customColor ?? 0),
         };

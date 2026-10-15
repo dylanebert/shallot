@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import gold from "../../../../crates/physics/tests/reader_regressions.gold.json";
-import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { BodyType, defaultSurfaceMaterial, type SurfaceMaterial } from "../common/types";
 import { kernel } from "../kernel/kernel";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
@@ -107,12 +107,12 @@ test("kernel default mixing equals callback mixing for convex, flipped compound 
         try {
             for (const world of worlds) {
                 world.contactRecycleDistance = 0;
-                const material = {
+                const material: SurfaceMaterial = {
                     ...defaultSurfaceMaterial(),
                     friction: 0.7,
                     restitution: 0.2,
                     rollingResistance: 0.3,
-                    tangentVelocity: { x: 0.4, y: 0.2, z: 0.3 },
+                    tangentVelocity: [0.4, 0.2, 0.3],
                 };
                 const hull = makeBoxHull(0.5, 0.5, 0.5);
                 const meshData = mesh();
@@ -170,7 +170,7 @@ test("kernel default mixing equals callback mixing for convex, flipped compound 
                             friction: 0.4,
                             restitution: 0.5,
                             rollingResistance: 0.6,
-                            tangentVelocity: { x: -0.1, y: 0.3, z: 0.2 },
+                            tangentVelocity: [-0.1, 0.3, 0.2],
                         },
                     }),
                     hull,

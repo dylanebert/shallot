@@ -121,15 +121,22 @@ export interface ShapeGeometry<T = unknown> {
     data: T;
 }
 
+/** A Box3D surface material (`b3SurfaceMaterial`), as a mesh triangle or height-field cell uses it. */
+export interface SurfaceMaterial {
+    /** Coulomb friction. */
+    friction: number;
+    restitution: number;
+    rollingResistance: number;
+    /** Conveyor velocity in shape-local m/s. */
+    tangentVelocity: [number, number, number];
+    /** Application material id, passed to queries and material mixing. */
+    userMaterialId: bigint;
+    /** Debug color, low 24 bits RGB; zero disables custom coloring. */
+    customColor: number;
+}
+
 /** Optional per-triangle surface materials referenced by Shape.materialSet (id + 1). */
 export interface ShapeMaterialSet {
     name: string;
-    materials: {
-        friction: number;
-        restitution: number;
-        rollingResistance: number;
-        tangentVelocity: { x: number; y: number; z: number };
-        userMaterialId: bigint;
-        customColor: number;
-    }[];
+    materials: SurfaceMaterial[];
 }

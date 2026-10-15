@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { BodyType, defaultSurfaceMaterial, type SurfaceMaterial } from "../common/types";
 import { EventKind, eventCount, eventId } from "../kernel/eventbuffers";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
@@ -48,21 +48,21 @@ test("compound convex children mix their mapped material for callbacks, rolling 
                 },
             });
             try {
-                const wrong = {
+                const wrong: SurfaceMaterial = {
                     ...defaultSurfaceMaterial(),
                     userMaterialId: 1n,
                     friction: 0.1,
                     restitution: 0.2,
                     rollingResistance: 0.3,
-                    tangentVelocity: { x: 0.1, y: 0, z: 0 },
+                    tangentVelocity: [0.1, 0, 0],
                 };
-                const selected = {
+                const selected: SurfaceMaterial = {
                     ...defaultSurfaceMaterial(),
                     userMaterialId: 9n,
                     friction: 0.9,
                     restitution: 0.8,
                     rollingResistance: 0.7,
-                    tangentVelocity: { x: 0.4, y: 0.2, z: 0.3 },
+                    tangentVelocity: [0.4, 0.2, 0.3],
                 };
                 const hull = makeBoxHull(0.5, 0.5, 0.5);
                 const materials = [wrong, selected];

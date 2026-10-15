@@ -141,7 +141,7 @@ test("core physics recovery restores every Shape geometry and material registry"
                     friction: 0.25,
                     restitution: 0.5,
                     rollingResistance: 0.1,
-                    tangentVelocity: { x: 1, y: 2, z: 3 },
+                    tangentVelocity: [1, 2, 3],
                     userMaterialId: 44n,
                     customColor: 0x123456,
                 },

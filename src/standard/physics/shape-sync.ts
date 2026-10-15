@@ -112,7 +112,7 @@ const shapeMaterialScratch: SurfaceMaterial = {
     friction: 0,
     restitution: 0,
     rollingResistance: 0,
-    tangentVelocity: { x: 0, y: 0, z: 0 },
+    tangentVelocity: [0, 0, 0],
     userMaterialId: 0n,
     customColor: 0,
 };
@@ -129,9 +129,9 @@ function equalMaterial(a: SurfaceMaterial, b: SurfaceMaterial): boolean {
         Math.fround(a.friction) === Math.fround(b.friction) &&
         Math.fround(a.restitution) === Math.fround(b.restitution) &&
         Math.fround(a.rollingResistance) === Math.fround(b.rollingResistance) &&
-        Math.fround(a.tangentVelocity.x) === Math.fround(b.tangentVelocity.x) &&
-        Math.fround(a.tangentVelocity.y) === Math.fround(b.tangentVelocity.y) &&
-        Math.fround(a.tangentVelocity.z) === Math.fround(b.tangentVelocity.z) &&
+        Math.fround(a.tangentVelocity[0]) === Math.fround(b.tangentVelocity[0]) &&
+        Math.fround(a.tangentVelocity[1]) === Math.fround(b.tangentVelocity[1]) &&
+        Math.fround(a.tangentVelocity[2]) === Math.fround(b.tangentVelocity[2]) &&
         BigInt.asUintN(64, a.userMaterialId) === BigInt.asUintN(64, b.userMaterialId) &&
         a.customColor >>> 0 === b.customColor >>> 0
     );

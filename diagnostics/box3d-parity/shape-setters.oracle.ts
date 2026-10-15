@@ -54,9 +54,9 @@ function material(name: string, value: SurfaceMaterial): void {
         value.friction,
         value.restitution,
         value.rollingResistance,
-        value.tangentVelocity.x,
-        value.tangentVelocity.y,
-        value.tangentVelocity.z,
+        value.tangentVelocity[0],
+        value.tangentVelocity[1],
+        value.tangentVelocity[2],
     ]);
     expect(value.userMaterialId).toBe(BigInt(row[6]!));
     expect(value.customColor >>> 0).toBe(Number(row[7]) >>> 0);
@@ -81,7 +81,7 @@ function emptyMaterial(): SurfaceMaterial {
         friction: 0,
         restitution: 0,
         rollingResistance: 0,
-        tangentVelocity: { x: 0, y: 0, z: 0 },
+        tangentVelocity: [0, 0, 0],
         userMaterialId: 0n,
         customColor: 0,
     };
@@ -124,7 +124,7 @@ test("Shape.setSurfaceMaterial/getSurfaceMaterial matches Box3D", () => {
             friction: 0.23,
             restitution: 0.34,
             rollingResistance: 0.45,
-            tangentVelocity: { x: 1.25, y: -2.5, z: 3.75 },
+            tangentVelocity: [1.25, -2.5, 3.75],
             userMaterialId: 0x123456789abcdef0n,
             customColor: 0x9a654321,
         };
@@ -270,7 +270,7 @@ test("Shape.setMeshMaterial/getMaterials matches Box3D", () => {
             friction: 0.78,
             restitution: 0.19,
             rollingResistance: 0.28,
-            tangentVelocity: { x: -1, y: 2, z: -3 },
+            tangentVelocity: [-1, 2, -3],
             userMaterialId: 0x0fedcba987654321n,
             customColor: 0x87654321,
         };

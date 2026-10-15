@@ -101,9 +101,9 @@ export function writeContactMaterial(
     dirF[o + DIR_FRICTION] = material.friction;
     dirF[o + DIR_RESTITUTION] = material.restitution;
     dirF[o + DIR_ROLLING_RESISTANCE] = material.rollingResistance;
-    dirF[o + DIR_TANGENT_VELOCITY] = material.tangentVelocity.x;
-    dirF[o + DIR_TANGENT_VELOCITY + 1] = material.tangentVelocity.y;
-    dirF[o + DIR_TANGENT_VELOCITY + 2] = material.tangentVelocity.z;
+    dirF[o + DIR_TANGENT_VELOCITY] = material.tangentVelocity[0];
+    dirF[o + DIR_TANGENT_VELOCITY + 1] = material.tangentVelocity[1];
+    dirF[o + DIR_TANGENT_VELOCITY + 2] = material.tangentVelocity[2];
 }
 /** Independent snapshot of a contact's mixed material. */
 export function readContactMaterial(dirF: Float32Array, id: number) {

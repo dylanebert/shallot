@@ -43,7 +43,7 @@ test("a single-material compound owns its array through replacement, restore and
             expect(k.shapeMaterialPtr(state.worldId, id)).toBe(owned());
             expect(getShapeMaterial(state, id, out)).toEqual(material);
             const fresh = getShapeMaterials(state, id);
-            fresh[0].tangentVelocity.x = 1;
+            fresh[0].tangentVelocity[0] = 1;
             expect(getShapeMaterials(state, id)[0]).toEqual(material);
         }
         state.shapeStore.destroyMaterials(state, id);

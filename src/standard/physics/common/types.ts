@@ -4,6 +4,7 @@
 // fixed at 1.0, see common/constants.ts). Single-threaded port: the threading and debug-draw fields of the C
 // defs (workerCount, enqueueTask, createDebugShape, ...) and the internalValue cookie are dropped.
 
+import type { SurfaceMaterial } from "../../../core/physics";
 import { hi32, lo32 } from "./bits";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS, LENGTH_UNITS_PER_METER } from "./constants";
 import type { Pos, Quat, Vec3 } from "./records";
@@ -118,17 +119,7 @@ export function shouldQueryCollide(shape: FilterBits, query: QueryFilterBits): b
     );
 }
 
-/** Surface material properties (b3SurfaceMaterial). Per-triangle on meshes/height fields. */
-export type SurfaceMaterial = {
-    friction: number;
-    restitution: number;
-    rollingResistance: number;
-    tangentVelocity: Vec3;
-    /** Application material id; passed to queries and mixing callbacks. Real u64 → bigint. */
-    userMaterialId: bigint;
-    /** Debug color, low 24 bits RGB; 0 = ignored. */
-    customColor: number;
-};
+export type { SurfaceMaterial };
 
 /** @returns the default surface material: friction 0.6, everything else zero (b3DefaultSurfaceMaterial). */
 export function defaultSurfaceMaterial(): SurfaceMaterial {
@@ -136,7 +127,7 @@ export function defaultSurfaceMaterial(): SurfaceMaterial {
         friction: f32(0.6),
         restitution: 0,
         rollingResistance: 0,
-        tangentVelocity: { x: 0, y: 0, z: 0 },
+        tangentVelocity: [0, 0, 0],
         userMaterialId: 0n,
         customColor: 0,
     };
@@ -148,7 +139,7 @@ export function cloneMaterial(m: SurfaceMaterial): SurfaceMaterial {
         friction: m.friction,
         restitution: m.restitution,
         rollingResistance: m.rollingResistance,
-        tangentVelocity: { x: m.tangentVelocity.x, y: m.tangentVelocity.y, z: m.tangentVelocity.z },
+        tangentVelocity: [m.tangentVelocity[0], m.tangentVelocity[1], m.tangentVelocity[2]],
         userMaterialId: m.userMaterialId,
         customColor: m.customColor,
     };

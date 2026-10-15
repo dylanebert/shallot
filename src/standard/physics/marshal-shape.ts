@@ -45,11 +45,11 @@ export function authoredShapeMaterial(world: World, eid: number): SurfaceMateria
         friction: shape.friction.get(eid),
         restitution: shape.restitution.get(eid),
         rollingResistance: shape.rollingResistance.get(eid),
-        tangentVelocity: {
-            x: shape.tangentVelocity.x.get(eid),
-            y: shape.tangentVelocity.y.get(eid),
-            z: shape.tangentVelocity.z.get(eid),
-        },
+        tangentVelocity: [
+            shape.tangentVelocity.x.get(eid),
+            shape.tangentVelocity.y.get(eid),
+            shape.tangentVelocity.z.get(eid),
+        ],
         userMaterialId:
             (BigInt(shape.userMaterialIdHigh.get(eid) >>> 0) << 32n) |
             BigInt(shape.userMaterialIdLow.get(eid) >>> 0),

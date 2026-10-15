@@ -35,7 +35,13 @@ export {
     WheelJoint,
 } from "./joints";
 
-export { Shape, type ShapeGeometry, ShapeKind, type ShapeMaterialSet } from "./shape";
+export {
+    Shape,
+    type ShapeGeometry,
+    ShapeKind,
+    type ShapeMaterialSet,
+    type SurfaceMaterial,
+} from "./shape";
 
 /** Named mesh geometry referenced by a Shape of kind Mesh. */
 export const PhysicsMeshes: Resource<Registry<ShapeGeometry>> = {

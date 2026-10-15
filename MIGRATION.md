@@ -159,6 +159,19 @@ Hulls.register({ name: "wedge", verts, faces, edges });
 world.resource(Hulls).register({ name: "wedge", points: new Float32Array(verts.flat()) });
 ```
 
+## Surface materials come from `/physics`
+
+Import `SurfaceMaterial` from `/physics` instead of `/tumble/core`. Its `tangentVelocity` is
+`[x, y, z]` rather than `{ x, y, z }`. `ShapeMaterials` sets hold `SurfaceMaterial` lists.
+
+```ts
+// 0.9.5
+const material: SurfaceMaterial = { ...base, tangentVelocity: { x: 1, y: 0, z: 0 } };
+
+// 0.10
+const material: SurfaceMaterial = { ...base, tangentVelocity: [1, 0, 0] };
+```
+
 ## Glaze becomes camera grading and effect passes
 
 Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/glaze` imports. `CorePipelinePlugin` presents views and registers `Tonemapping` and `ColorGrading`, exported from `/rendering` and the root. Default plugins already include it. Add `VignettePlugin` from `/vignette` (or the root) for cameras carrying `Vignette`.

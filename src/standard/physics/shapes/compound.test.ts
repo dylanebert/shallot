@@ -127,7 +127,11 @@ function assertCompound(c: CompoundData, g: CompoundGold) {
             gm.rollingResistance,
             `${g.name} mat[${i}].rollingResistance`,
         );
-        vecEqual(m.tangentVelocity, gm.tangentVelocity, `${g.name} mat[${i}].tangentVelocity`);
+        vecEqual(
+            { x: m.tangentVelocity[0], y: m.tangentVelocity[1], z: m.tangentVelocity[2] },
+            gm.tangentVelocity,
+            `${g.name} mat[${i}].tangentVelocity`,
+        );
         expect(m.userMaterialId).toBe(BigInt(gm.userMaterialId));
         expect(m.customColor).toBe(gm.customColor);
     }

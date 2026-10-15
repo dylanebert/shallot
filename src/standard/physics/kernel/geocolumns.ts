@@ -205,9 +205,9 @@ function materialImage(material: SurfaceMaterial): Uint8Array {
         material.friction,
         material.restitution,
         material.rollingResistance,
-        material.tangentVelocity.x,
-        material.tangentVelocity.y,
-        material.tangentVelocity.z,
+        material.tangentVelocity[0],
+        material.tangentVelocity[1],
+        material.tangentVelocity[2],
     ];
     for (let i = 0; i < values.length; ++i) v.setFloat32(i * 4, values[i], true);
     v.setBigUint64(24, material.userMaterialId, true);

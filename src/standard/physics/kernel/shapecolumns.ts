@@ -145,9 +145,9 @@ export class ShapeStore extends KernelViews {
                 m.friction,
                 m.restitution,
                 m.rollingResistance,
-                m.tangentVelocity.x,
-                m.tangentVelocity.y,
-                m.tangentVelocity.z,
+                m.tangentVelocity[0],
+                m.tangentVelocity[1],
+                m.tangentVelocity[2],
                 this.materialU[o + 6],
                 this.materialU[o + 7],
                 m.customColor,
@@ -191,9 +191,9 @@ export class ShapeStore extends KernelViews {
         out.friction = f[o];
         out.restitution = f[o + 1];
         out.rollingResistance = f[o + 2];
-        out.tangentVelocity.x = f[o + 3];
-        out.tangentVelocity.y = f[o + 4];
-        out.tangentVelocity.z = f[o + 5];
+        out.tangentVelocity[0] = f[o + 3];
+        out.tangentVelocity[1] = f[o + 4];
+        out.tangentVelocity[2] = f[o + 5];
         out.userMaterialId = this.userMaterialId(o);
         out.customColor = this.materialU[o + 8];
         return out;
@@ -251,7 +251,7 @@ export function readShapeMaterials(world: WorldState, shape: Shape): SurfaceMate
             friction: f[o],
             restitution: f[o + 1],
             rollingResistance: f[o + 2],
-            tangentVelocity: { x: f[o + 3], y: f[o + 4], z: f[o + 5] },
+            tangentVelocity: [f[o + 3], f[o + 4], f[o + 5]],
             userMaterialId: BigInt.asUintN(64, bits),
             customColor: u[o + 8],
         });
