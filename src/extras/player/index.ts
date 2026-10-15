@@ -414,14 +414,10 @@ export const UpdatePlayerControlSystem: System = {
             const fy = Math.sin(pitch);
             const fz = -cp * cy;
             const dist = world.storage(Player).distance.column[eid];
-            const translation = world.storage(Transform).translation;
-            const offset = cam * 4;
-            translation.column[offset] = _pos[0] - fx * dist;
-            translation.column[offset + 1] =
-                _pos[1] + world.storage(Player).eyeHeight.column[eid] - fy * dist;
-            translation.column[offset + 2] = _pos[2] - fz * dist;
-            translation.column[offset + 3] = 1;
-            translation.markChanged(cam);
+            const eyeY = _pos[1] + world.storage(Player).eyeHeight.column[eid];
+            world
+                .storage(Transform)
+                .translation.set(cam, _pos[0] - fx * dist, eyeY - fy * dist, _pos[2] - fz * dist);
             setLook(world, cam, yaw, pitch);
         }
     },
