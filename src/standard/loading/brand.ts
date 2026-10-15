@@ -4,7 +4,6 @@ import { DARK, FONT, LIGHT, MARK, NAME } from "./brand-data";
 
 export { DARK, LIGHT };
 
-/** A pixel color role. Palettes map roles to hex per theme. */
 type Tone = "gold" | "dim" | "ink";
 
 /** Rows of pixels; `null` is transparent. */
@@ -48,7 +47,8 @@ function word(text: string = NAME, tone: Tone = "ink"): Grid {
 /** A placed bitmap. `x` in pixels, `y` in pixels. */
 type Layer = { grid: Grid; x: number; y: number };
 
-/** Stamp layers onto a blank grid, later layers over earlier. Pixel rows must be even for half blocks. */
+/** Later layers cover earlier ones; transparent pixels do not erase them. Clips to width/height.
+ * Pixel rows must be even for half blocks. */
 export function compose(width: number, height: number, layers: readonly Layer[]): Grid {
     const out: Grid = Array.from({ length: height }, () => Array<Tone | null>(width).fill(null));
     for (const { grid, x, y } of layers) {
@@ -83,12 +83,6 @@ export function toSvg(grid: Grid, palette: Palette, scale: number = 1): string {
 }
 
 // --- splash ---------------------------------------------------------------------------------
-//
-// Doubling: pixels switch on in place in ordered-dither (Bayer) sequence, in beats that shorten,
-// centre outwards within each dither level. Each pixel lands dim and goes full a tick later. On
-// the hit the name types a letter every two ticks; the cursor stays six ticks after the last
-// letter and goes out. Thirty-five ticks a second. Every frame is a grid, so the same function drives
-// the default loading screen.
 
 const TICK_RATE = 35;
 const TICK_MS = 1000 / TICK_RATE;
@@ -115,7 +109,6 @@ type Point = { x: number; y: number };
 const beatStart = (k: number): number =>
     ANTICIPATION + BEATS.slice(0, k).reduce<number>((a, b) => a + b, 0);
 
-/** Deterministic tiebreak within a Bayer level, so the order is stable across runs. */
 function lcg(seed: number): () => number {
     let s = seed;
     return () => {
@@ -134,8 +127,7 @@ function landing(grid: Grid): Map<Point, number> {
     const rnd = lcg(5);
     const jitter = new Map(pixels.map((p) => [p, rnd()]));
     const key = (p: Point) => (BAYER[p.y % 4] as readonly number[])[p.x % 4] as number;
-    // centre of mass of the lit pixels: within one dither level the nearest cells land first, so
-    // the sparse early beats read as one cluster growing outwards rather than scattered dust
+    // Centre-first ordering makes sparse early beats read as one growing cluster.
     const cx = pixels.reduce((a, p) => a + p.x, 0) / pixels.length;
     const cy = pixels.reduce((a, p) => a + p.y, 0) / pixels.length;
     const radius = (p: Point) => (p.x - cx) ** 2 + (p.y - cy) ** 2;
@@ -192,7 +184,6 @@ function splashFrame(tick: number): Grid {
     return out;
 }
 
-/** A mounted splash: `seek` draws one tick, `play` runs the clock from a tick to the lockup. */
 export interface Splash {
     seek(tick: number): void;
     play(from?: number): Promise<void>;
@@ -200,10 +191,10 @@ export interface Splash {
 }
 
 /**
- * Mounts the splash in `el`: `render` turns each frame's grid into markup, and every frame is a
- * grid, so no surface draws its own. `seek` draws a tick and skips a repeat; `play` runs from
- * `from` at {@link TICK_RATE} ticks a second and resolves once the lockup is drawn. `cancel` stops
- * a pending play and resolves it without drawing another frame. Reduced motion rests on the lockup
+ * Replaces `el`'s contents with `render` output. `seek` draws a tick and skips a repeat;
+ * `play` cancels any pending play, runs from `from` at 35 ticks a second and resolves once
+ * the lockup is drawn. `cancel` stops a pending play and resolves it without drawing another frame.
+ * Reduced motion rests on the lockup
  * for any tick and resolves at once.
  */
 export function splash(el: Element, render: (grid: Grid) => string, reduced = false): Splash {

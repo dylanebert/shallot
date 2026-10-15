@@ -45,7 +45,6 @@ interface Theme {
     muted: string;
     amber: string;
     red: string;
-    /** The mark palette the splash draws its pixels with. */
     mark: Palette;
 }
 
@@ -113,9 +112,6 @@ function createOverlay(bg: string, container?: HTMLElement): HTMLDivElement | nu
     return overlay;
 }
 
-// the single centered column every overlay state fills. `margin: auto` centers it in both axes when
-// it fits and resolves to the scroll start when it doesn't (see createOverlay). `align` is `center`
-// for the loading splash/bar, `stretch` for the left-aligned error cards.
 function panel(maxWidth: number, align: string): HTMLDivElement {
     const el = document.createElement("div");
     el.style.cssText = `
@@ -171,9 +167,7 @@ function prefersReducedMotion(): boolean {
     );
 }
 
-// The canonical splash runs on the shared brand clock after its profile allows it to appear. The
-// progress bar remains independent and reports only build progress. At 4px a square the 52-pixel
-// lockup is 208px wide, just inside the 228px track below it.
+// Splash timing is independent of the bar, which reports only build progress.
 function createSplash(theme: Theme): { el: HTMLDivElement; driver: Splash; reduced: boolean } {
     const el = document.createElement("div");
     el.style.cssText = "width: 208px; max-width: 100%;";
