@@ -118,13 +118,13 @@ test("report production frame GPU time for first-person and a 10k-instance scene
         world.add(camera, Camera, { clearColor: 0x1c1917 });
         world.add(camera, AmbientLight, { color: 0xd8e4ff, brightness: 798.4766 });
         world.add(camera, StandardRenderer);
-        world.add(camera, Transform, { translation: [0, 0, 90, 0] });
+        world.add(camera, Transform, { translation: [0, 0, 90] });
         for (let i = 0; i < 10000; i++) {
             const eid = world.create();
             world.add(eid, MeshInstance);
             world.add(eid, Transform, {
-                translation: [((i % 100) - 50) * 0.4, Math.floor(i / 100 - 50) * 0.4, 0, 0],
-                scale: [0.15, 0.15, 0.15, 1],
+                translation: [((i % 100) - 50) * 0.4, Math.floor(i / 100 - 50) * 0.4, 0],
+                scale: [0.15, 0.15, 0.15],
             });
             const material = world
                 .resource(Materials)
