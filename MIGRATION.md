@@ -910,6 +910,10 @@ Custom mesh material types register with `MaterialPlugin` and use `MeshRenderPlu
 
 Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. `StandardRenderingPlugin` and `MeshRenderPlugin` include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
 
+### Primitive tessellation counts
+
+`sphere(radius, segments, rings)` and `capsule(radius, length, segments, rings)` now throw a `RangeError` unless `segments` is an integer >= 3 and `rings` is an integer >= 2. Pass counts in those ranges instead of fractional or smaller values. Capsule still rounds odd integer ring counts down to an even count. Pole triangles with zero area are no longer emitted; do not rely on the previous index counts.
+
 ### `/bvh/core`
 
 Removed. Shallot no longer provides a GPU BVH builder or traversal helpers; there is no replacement subpath. Keep or vendor the acceleration structure in the package that consumes it.

@@ -131,16 +131,25 @@ export function cube(size: readonly [number, number, number] = [1, 1, 1]): {
     return { vertices: pack(verts), indices: new Uint32Array(indices) };
 }
 
+function requireCount(parameter: string, value: number, minimum: number): void {
+    if (!Number.isInteger(value) || value < minimum) {
+        throw new RangeError(`${parameter} must be an integer >= ${minimum}; received ${value}`);
+    }
+}
+
 /**
  * UV sphere with the supplied radius (default 0.5), smooth-shaded (vertex normal = surface direction).
- * `segments` divisions around the axis, `rings` from pole to pole. Winding is
- * CCW outward, matching standard's back-face cull
+ * `segments` divisions around the axis, `rings` from pole to pole.
+ * Throws unless segments is an integer >= 3 and rings is an integer >= 2.
+ * For positive radius, every triangle is CCW outward, matching standard's back-face cull.
  */
 export function sphere(
     radius = 0.5,
     segments = 32,
     rings = 16,
 ): { vertices: Float32Array; indices: Uint32Array } {
+    requireCount("segments", segments, 3);
+    requireCount("rings", rings, 2);
     const verts: Vert[] = [];
     const indices: number[] = [];
 
@@ -162,7 +171,8 @@ export function sphere(
         for (let x = 0; x < segments; x++) {
             const a = y * stride + x;
             const b = a + stride;
-            indices.push(a, a + 1, b, a + 1, b + 1, b);
+            if (y > 0) indices.push(a, a + 1, b);
+            if (y < rings - 1) indices.push(a + 1, b + 1, b);
         }
     }
 
@@ -174,6 +184,9 @@ export function sphere(
  * (default 1): two hemispherical caps over the mid-section, smooth-shaded.
  * `segments` divisions around the axis, `rings` from cap pole to cap pole
  * (rounded down to an even count).
+ * Throws unless segments is an integer >= 3 and rings is an integer >= 2.
+ * For positive radius and mid-section length, every triangle is CCW outward,
+ * matching standard's back-face cull.
  */
 export function capsule(
     radius = 0.5,
@@ -181,6 +194,8 @@ export function capsule(
     segments = 32,
     rings = 16,
 ): { vertices: Float32Array; indices: Uint32Array } {
+    requireCount("segments", segments, 3);
+    requireCount("rings", rings, 2);
     const halfHeight = length / 2;
     const verts: Vert[] = [];
     const indices: number[] = [];
@@ -259,7 +274,8 @@ export function capsule(
         for (let x = 0; x < segments; x++) {
             const a = y * stride + x;
             const b = a + stride;
-            indices.push(a, a + 1, b, a + 1, b + 1, b);
+            if (y > 0) indices.push(a, a + 1, b);
+            indices.push(a + 1, b + 1, b);
         }
     }
 
@@ -277,7 +293,8 @@ export function capsule(
             const a = botStart + y * stride + x;
             const b = a + stride;
             // The bottom cap faces down, so its winding is reversed relative to the top cap.
-            indices.push(a, b, a + 1, a + 1, b, b + 1);
+            if (y > 0) indices.push(a, b, a + 1);
+            indices.push(a + 1, b, b + 1);
         }
     }
 
