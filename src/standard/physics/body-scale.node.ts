@@ -386,8 +386,17 @@ for (const kind of [ShapeKind.HeightField, ShapeKind.Compound])
                 }
             }
             for (let i = 0; i < 10; i++) cycle(i);
-            for (let i = 0; i < 5; i++) Bun.gc(true);
-            expect(refs.filter((ref) => ref.deref() !== undefined)).toHaveLength(0);
+            // The job that made the refs, or a stack slot the conservative scan reads, may keep a target
+            // alive through one collection; yielding around each collection leaves only real retention.
+            const alive = () => refs.filter((ref) => ref.deref() !== undefined).length;
+            const deadline = Date.now() + 1_000;
+            while (Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                Bun.gc(true);
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                if (alive() === 0) break;
+            }
+            expect(alive()).toBe(0);
         } finally {
             a.dispose();
         }
