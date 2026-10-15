@@ -284,7 +284,7 @@ export function releaseKey(world: World, code: string): void {
     d.keys.released.add(code);
 }
 
-/** Set the position in CSS pixels and accumulate movement deltas until the draw boundary. */
+/** Set the position in CSS pixels and accumulate movement deltas. */
 export function pointerMove(
     world: World,
     x:
@@ -348,7 +348,7 @@ export function pointerButtons(world: World, buttons: number): void {
     setButton(world, "middle", (buttons & 4) !== 0);
 }
 
-/** Accumulate wheel movement until the draw boundary; positive scrolls down/away. */
+/** Accumulate wheel movement; positive scrolls down/away. */
 export function pointerWheel(world: World, delta: number): void {
     const d = record(world);
     if (d.enabled) d.pointer.scroll += delta;
@@ -371,7 +371,7 @@ function updatePinchBaseline(d: DeviceRecord): void {
     }
 }
 
-/** `active=false` removes the point. Two-finger centroid and pinch deltas accumulate until the draw boundary. */
+/** `active=false` removes the point. Accumulates two-finger centroid and pinch deltas. */
 export function touchPoint(
     world: World,
     pointerId: number,

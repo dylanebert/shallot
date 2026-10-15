@@ -173,7 +173,7 @@ export function sphere(
  * Capsule with the supplied radius (default 0.5) and cylindrical mid-section full length
  * (default 1): two hemispherical caps over the mid-section, smooth-shaded.
  * `segments` divisions around the axis, `rings` from cap pole to cap pole
- * (rounded down to an even count). For positive dimensions, outward faces use CCW winding.
+ * (rounded down to an even count).
  */
 export function capsule(
     radius = 0.5,

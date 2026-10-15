@@ -41,7 +41,7 @@ export interface Mesh {
     /** `true` while `Meshes.add`'s data waits for its pack, which replaces the entry before the next frame's draw */
     pending?: true;
     /**
-     * per-mesh binding overrides: resources scoped to *this* mesh's draws, keyed by the surface's binding
+     * per-mesh binding overrides: resources scoped to this mesh's draws, keyed by the surface's binding
      * name. A surface binding resolves to `mesh.bindings?.[name]` when present, else the published global
      * (`world.gpu.*`). Per-mesh resources are shared by that mesh's draws.
      */
@@ -216,7 +216,7 @@ function meshAabb(vertices: Float32Array): {
         if (y > maxY) maxY = y;
         if (z > maxZ) maxZ = z;
     }
-    if (!Number.isFinite(minX)) return { min: [0, 0, 0], max: [0, 0, 0] }; // no vertices
+    if (!Number.isFinite(minX)) return { min: [0, 0, 0], max: [0, 0, 0] };
     return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
 }
 
