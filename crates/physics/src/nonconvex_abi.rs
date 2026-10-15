@@ -35,6 +35,7 @@ pub unsafe extern "C" fn build(operation: u32) -> *const u64 {
                 weld: r[1] != 0,
                 median: r[2] != 0,
                 edges: r[3] != 0,
+                clockwise: r[7] != 0,
             })
         }
         1 => mesh_build::create_box(v(0), v(3), f(6) != 0.0, false),

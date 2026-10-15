@@ -65,6 +65,7 @@ export type MeshDef = {
     weldVertices?: boolean;
     useMedianSplit?: boolean;
     identifyEdges?: boolean;
+    clockwiseWinding?: boolean;
 };
 
 /** A single scaled mesh triangle in mesh space (b3Triangle): world-scaled vertices, vertex indices,

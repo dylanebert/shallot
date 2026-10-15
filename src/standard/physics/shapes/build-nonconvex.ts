@@ -49,6 +49,7 @@ export function createMesh(def: MeshDef, world?: World): MeshData | null {
     s.words[4] = nv;
     s.words[5] = ni;
     s.words[6] = Number(hasMaterials);
+    s.words[7] = Number(def.clockwiseWinding ?? false);
     for (let i = 0; i < nv; ++i) {
         s.floats[16 + 3 * i] = def.vertices[i].x;
         s.floats[17 + 3 * i] = def.vertices[i].y;

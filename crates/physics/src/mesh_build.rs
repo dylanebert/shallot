@@ -10,6 +10,8 @@ pub struct Definition<'a> {
     pub weld: bool,
     pub median: bool,
     pub edges: bool,
+    /// Input triangles wind clockwise (b3MeshDef::clockWiseWinding).
+    pub clockwise: bool,
 }
 #[derive(Clone, Copy)]
 struct Bounds {
@@ -432,9 +434,14 @@ pub fn create_mesh(d: &Definition<'_>) -> Option<Image> {
     let triangles: Vec<[u32; 3]> = primitives
         .iter()
         .map(|p| {
-            indices[3 * p.triangle..3 * p.triangle + 3]
+            let [a, b, c] = indices[3 * p.triangle..3 * p.triangle + 3]
                 .try_into()
-                .unwrap()
+                .unwrap();
+            if d.clockwise {
+                [a, c, b]
+            } else {
+                [a, b, c]
+            }
         })
         .collect();
     let materials: Vec<u8> = primitives
@@ -546,6 +553,7 @@ pub fn create_box(center: Vec3, extent: Vec3, edges: bool, hollow: bool) -> Opti
         weld: false,
         median: false,
         edges: edges || hollow,
+        clockwise: false,
     })
 }
 pub fn create_grid(
@@ -629,6 +637,7 @@ fn grid(
         weld: false,
         median: true,
         edges,
+        clockwise: false,
     })
 }
 pub fn create_torus(radial: usize, tubular: usize, radius: f32, thickness: f32) -> Option<Image> {
@@ -667,5 +676,6 @@ pub fn create_torus(radial: usize, tubular: usize, radius: f32, thickness: f32) 
         weld: false,
         median: false,
         edges: true,
+        clockwise: false,
     })
 }

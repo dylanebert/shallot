@@ -76,6 +76,7 @@ fn check(height_field: bool) {
                     weld: a[1] != 0.0,
                     median: a[2] != 0.0,
                     edges: a[3] != 0.0,
+                    clockwise: false,
                 })
             }
             1 => mesh_build::create_box(v(0), v(3), a[6] != 0.0, false),
