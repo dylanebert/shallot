@@ -36,7 +36,7 @@ async function capture(page: Page, name: string) {
     return data;
 }
 
-test("aiming within reach frames the outlined lamp and prompt; E switches it; beyond reach clears both", async ({
+test("aiming within reach frames the outlined lamp and prompt; E lights the wall; beyond reach clears both", async ({
     page,
 }) => {
     const errors: string[] = [];
@@ -54,10 +54,10 @@ test("aiming within reach frames the outlined lamp and prompt; E switches it; be
     expect(evidence.outline).toBeGreaterThan(15);
     expect(evidence.prompt).toBeGreaterThan(15);
     await capture(page, "lamp-focused");
-    await page.evaluate(() => {
-        window.key(true);
-        window.advance();
-    });
+    const lighting = await page.evaluate(() => window.lampEvidence());
+    console.log("lamp wall", lighting);
+    expect(lighting.changed).toBeGreaterThan(0.14);
+    expect(lighting.increase).toBeGreaterThan(8);
     const switched = (await page.evaluate(() => window.state())).targets[0]!;
     expect(switched.active).toBe(1);
     await page.evaluate(() => {
@@ -71,16 +71,6 @@ test("aiming within reach frames the outlined lamp and prompt; E switches it; be
     await page.evaluate(() => window.overview());
     await capture(page, "room-unfocused");
     expect(errors).toEqual([]);
-});
-
-test("switching the lamp visibly lights the bare back wall", async ({ page }) => {
-    await page.goto(STEPPED);
-    await page.waitForFunction(() => window.ready);
-    await page.evaluate(() => window.aim(0));
-    const evidence = await page.evaluate(() => window.lampEvidence());
-    console.log("lamp wall", evidence);
-    expect(evidence.changed).toBeGreaterThan(0.14);
-    expect(evidence.increase).toBeGreaterThan(8);
 });
 
 test("a fast turn samples the new aim before E's fixed action", async ({ page }) => {
