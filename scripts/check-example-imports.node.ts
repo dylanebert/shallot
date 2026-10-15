@@ -32,6 +32,14 @@ function sourceFiles(directory: string): string[] {
     });
 }
 
+test("interact carries unchanged copies of first-person's controller over published imports", () => {
+    for (const file of ["player.ts", "motion.ts", "follow.ts"]) {
+        expect(readFileSync(resolve(EXAMPLES, "interact/src", file), "utf8")).toBe(
+            readFileSync(resolve(EXAMPLES, "first-person/src", file), "utf8"),
+        );
+    }
+});
+
 function moduleScripts(source: string): string[] {
     const scripts = source.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
     return [...scripts]
