@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { xformMat } from "../../core/rendering";
+import { Billboard, billboardCorner, xformMat } from "../../core/rendering";
 import {
     engineLayout,
     MaterialVertexInput,
@@ -10,8 +10,6 @@ import {
     materialType,
     materialVertexOutput,
 } from "../../standard/rendering";
-import { screenCorner, worldCorner, yLockedCorner } from "./billboard";
-import { SpriteBillboard } from "./pack";
 
 /** One type-local material row: image, tint and fill are data, never shader registrations. */
 export const SpriteMaterialInput = d
@@ -74,24 +72,14 @@ const spriteVertex = tgpu
         const sprite = SpriteMaterialInput(layout.$.materialParameters[input.eid]);
         const local = std.add(sprite.offset, std.mul(input.localPos.xy, sprite.size));
         const transform = xformMat(input.xform);
-        let corner = worldCorner(transform, local.x, local.y);
-        if (sprite.billboard === SpriteBillboard.Screen) {
-            corner = screenCorner(
-                transform,
-                engineLayout.$.view.right.xyz,
-                engineLayout.$.view.up.xyz,
-                local.x,
-                local.y,
-            );
-        } else if (sprite.billboard === SpriteBillboard.YLocked) {
-            corner = yLockedCorner(
-                transform,
-                engineLayout.$.view.right.xyz,
-                engineLayout.$.view.up.xyz,
-                local.x,
-                local.y,
-            );
-        }
+        const corner = billboardCorner(
+            sprite.billboard,
+            transform,
+            engineLayout.$.view.right.xyz,
+            engineLayout.$.view.up.xyz,
+            local.x,
+            local.y,
+        );
         return SpriteVertexOutput({
             world: d.vec4f(corner, 1),
             worldNormal: input.worldNormal,
@@ -129,7 +117,7 @@ const defaults = {
     layer: 0,
     color: 0xffffffff,
     fill: 0,
-    billboard: SpriteBillboard.Screen,
+    billboard: Billboard.Screen,
 };
 
 /** Sprite parameters occupy one table; each row supplies its own AlphaMode. */

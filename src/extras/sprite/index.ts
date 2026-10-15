@@ -22,7 +22,7 @@ import { SpriteMaterialType } from "./material";
 import { packSpriteFill, Sprite, SpriteBlend } from "./pack";
 
 export { SpriteMaterialInput, SpriteMaterialType } from "./material";
-export { Sprite, SpriteBillboard, SpriteBlend, SpriteFill } from "./pack";
+export { Sprite, SpriteBlend, SpriteFill } from "./pack";
 
 const SPRITE_QUERY = [Sprite];
 

@@ -5,9 +5,19 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
+/** Orientation of a local xy quad, preserving translation and per-axis scale. */
+export const Billboard = {
+    /** Camera-plane aligned: camera right and up replace the entity's rotation. */
+    Screen: 0,
+    /** Upright along world Y, yawing toward the viewer. */
+    YLocked: 1,
+    /** Plain entity transform, with no camera-facing rotation substitution. */
+    World: 2,
+} as const;
+
 /** world-aligned: the plain instanced transform applied to the quad-local corner, no rotation
  *  substitution — `world * vec4(lx, ly, 0, 1)` collapsed to its xyz. */
-export const worldCorner = tgpu
+const worldCorner = tgpu
     .fn(
         [d.mat4x4f, d.f32, d.f32],
         d.vec3f,
@@ -23,7 +33,7 @@ export const worldCorner = tgpu
 /** screen-aligned: camera right/up replace the model rotation; per-axis scale re-applied from the
  *  model columns' own length (rotation preserves length, so this recovers the authored scale without
  *  reading it separately). */
-export const screenCorner = tgpu
+const screenCorner = tgpu
     .fn(
         [d.mat4x4f, d.vec3f, d.vec3f, d.f32, d.f32],
         d.vec3f,
@@ -41,7 +51,7 @@ export const screenCorner = tgpu
  * straight-down camera collapses that projection, so the camera up's xz projection (screen-up on the
  * ground plane) takes over; the quad is edge-on there anyway, the fallback only keeps the basis finite.
  */
-export const yLockedCorner = tgpu
+const yLockedCorner = tgpu
     .fn(
         [d.mat4x4f, d.vec3f, d.vec3f, d.f32, d.f32],
         d.vec3f,
@@ -69,3 +79,14 @@ export const yLockedCorner = tgpu
         );
     })
     .$name("yLockedCorner");
+
+/** Applies quad orientation using normalized world-space camera right/up axes. */
+export const billboardCorner = tgpu.fn(
+    [d.u32, d.mat4x4f, d.vec3f, d.vec3f, d.f32, d.f32],
+    d.vec3f,
+)((mode, world, right, up, lx, ly) => {
+    "use gpu";
+    if (mode === Billboard.Screen) return screenCorner(world, right, up, lx, ly);
+    if (mode === Billboard.YLocked) return yLockedCorner(world, right, up, lx, ly);
+    return worldCorner(world, lx, ly);
+});

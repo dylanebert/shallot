@@ -4,7 +4,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { encodePos } from "../../core/mesh";
-import { globalTransformTable, RenderingPlugin } from "../../core/rendering";
+import { Billboard, globalTransformTable, RenderingPlugin } from "../../core/rendering";
 import {
     prepareGlobalTransformFrame,
     GlobalTransformHistory as TransformRuntime,
@@ -63,6 +63,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     }
     const glyph = new ArrayBuffer(48);
     new Uint32Array(glyph)[3] = eid;
+    new Uint32Array(glyph)[11] = Billboard.World;
     new Float32Array(glyph).set([0.5, 0.5], 8);
     buffer("glyphs", new Uint8Array(glyph));
     buffer("maskEids", new Uint32Array([eid]));

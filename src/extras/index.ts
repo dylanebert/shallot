@@ -43,7 +43,6 @@ export {
     Images,
     registerImage,
     Sprite,
-    SpriteBillboard,
     SpriteBlend,
     SpriteFill,
     SpritePlugin,

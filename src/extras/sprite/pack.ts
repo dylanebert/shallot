@@ -1,14 +1,5 @@
+import { Billboard } from "../../core/rendering";
 import { component, f32, u32, vec2 } from "../../engine";
-
-/** how a sprite quad orients toward the camera */
-export const SpriteBillboard = {
-    /** camera-plane aligned (the default for icons) */
-    Screen: 0,
-    /** upright, yawing toward the viewer (foliage, standees) */
-    YLocked: 1,
-    /** plain transform: the quad lives in the entity's local xy plane (decals, ground markers) */
-    World: 2,
-} as const;
 
 /** Sprite material alpha mode: Clip maps to Mask(0.5), Alpha maps to Blend. */
 export const SpriteBlend = {
@@ -46,7 +37,7 @@ export const Sprite = component(
         opacity: f32,
         /** drawn when nonzero */
         visible: f32,
-        /** billboard orientation */
+        /** {@link Billboard} orientation; defaults to Screen. */
         billboard: u32,
         /** compositing route */
         blend: u32,
@@ -63,7 +54,7 @@ export const Sprite = component(
             color: 0xffffff,
             opacity: 1,
             visible: 1,
-            billboard: SpriteBillboard.Screen,
+            billboard: Billboard.Screen,
             blend: SpriteBlend.Clip,
             fill: 1,
             fillMode: SpriteFill.None,

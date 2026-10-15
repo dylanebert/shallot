@@ -1,3 +1,4 @@
+export { Billboard, billboardCorner } from "./billboard";
 export { GlobalTransformHistory, globalTransformTable } from "./global-transform";
 export {
     CorePipelinePlugin,

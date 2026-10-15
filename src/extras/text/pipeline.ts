@@ -2,7 +2,7 @@ import tgpu, { type TgpuRoot } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { decodePos, MeshQuant, meshIdOf } from "../../core/mesh";
-import { DEPTH_FORMAT, ViewUniforms, Xform, xformPoint } from "../../core/rendering";
+import { billboardCorner, DEPTH_FORMAT, ViewUniforms, Xform, xformMat } from "../../core/rendering";
 import { Glyph, sdfToSignedDistance, textSrgbToLinear } from "./glyph";
 
 const viewLayout = tgpu
@@ -57,7 +57,14 @@ export const TextVertex = tgpu.vertexFn({
         glyph.pos.z,
     );
     const uv = std.mix(glyph.uvRect.xy, glyph.uvRect.zw, corner);
-    const world = xformPoint(transform, local);
+    const world = billboardCorner(
+        glyph.billboard,
+        xformMat(transform),
+        viewLayout.$.view.right.xyz,
+        viewLayout.$.view.up.xyz,
+        local.x,
+        local.y,
+    );
     return {
         position: std.mul(viewLayout.$.view.viewProj, d.vec4f(world, 1)),
         uvSize: d.vec4f(uv, glyph.size),

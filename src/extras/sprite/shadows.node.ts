@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
-import { attachTexture, Camera, DirectionalLight } from "../../core/rendering";
+import { attachTexture, Billboard, Camera, DirectionalLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { lookAtRotation } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
@@ -11,7 +11,7 @@ import {
     StandardRenderer,
     sunShadowView,
 } from "../../standard/rendering";
-import { Sprite, SpriteBillboard, SpriteFill, SpritePlugin } from "./index";
+import { Sprite, SpriteFill, SpritePlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [SpritePlugin] }]);
@@ -111,7 +111,7 @@ test("clip Sprite leaves its alpha hole out of the directional shadow map", asyn
         size: [2, 2],
         fill: 0.5,
         fillMode: SpriteFill.Horizontal,
-        billboard: SpriteBillboard.World,
+        billboard: Billboard.World,
     });
     world.step(0);
     world.step(0);

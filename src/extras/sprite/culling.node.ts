@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
-import { attachTexture, Camera } from "../../core/rendering";
+import { attachTexture, Billboard, Camera } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import {
@@ -11,7 +11,7 @@ import {
     materialTypeId,
     StandardRenderer,
 } from "../../standard/rendering";
-import { Sprite, SpriteBillboard, SpriteMaterialType, SpritePlugin } from "./index";
+import { Sprite, SpriteMaterialType, SpritePlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
@@ -32,7 +32,7 @@ test("a large anchored world Sprite stays in the camera draw when its quad reach
     world.add(sprite, Sprite, {
         size: [10, 10],
         anchor: [0.5, 0.5],
-        billboard: SpriteBillboard.World,
+        billboard: Billboard.World,
     });
 
     world.step(0);

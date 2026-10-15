@@ -679,6 +679,8 @@ const TintPlugin = MaterialPlugin(Tint);
 
 Add parameter values with `world.resource(Tint).add(...)`; the returned material handle goes directly into `MeshMaterial`. Partial updates use `world.resource(Tint).update(handle, values)`. Material rows and type ids belong to their World. The renderer supports typed mesh attributes declared by `materialLayout` and validates their element schemas against the registered mesh.
 
+`SpriteBillboard` is now `Billboard`, shared by `Sprite.billboard` and `Text.billboard`; import it from the root or `/rendering`, not `/extras`. Its `Screen`, `YLocked` and `World` values are unchanged. Text defaults to `Billboard.World`, preserving existing label placement.
+
 Sprite carries image layer, tint, fill and billboard data in one material type's table, with rows indexed by entity id; it does not allocate a material row per tint. `SpriteBlend.Clip` selects `AlphaMode.Mask(0.5)` and retains depth/shadow participation; `SpriteBlend.Alpha` selects `AlphaMode.Blend` on the same type. The former separate `SpriteAlphaMaterialType` is removed. Sprite remains on the standard mesh path. Its `MeshInstance.cullBounds` is a conservative local-space sphere derived from the size and anchor, so camera- and shadow-view culling includes the expanded quad for every billboard mode. Text and lines own their renderer pipelines and use core's `RenderPhases.transparent` seam; their transparency is not selected by mesh-material `AlphaMode` and they do not enter the opaque depth prepass or cast shadows.
 
 ## Material alpha modes belong to each material row

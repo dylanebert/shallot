@@ -6,6 +6,7 @@ import * as d from "typegpu/data";
 import { Meshes, type MeshHandle, MeshPlugin } from "../../core/mesh";
 import {
     BeginFrameSystem,
+    Billboard,
     Camera,
     CorePipelinePlugin,
     globalTransformTable,
@@ -70,6 +71,8 @@ export const Text = component(
         content: u32,
         /** registered font id (see {@link registerFont}); 0 is the default face */
         font: u32,
+        /** {@link Billboard} orientation; defaults to World (plain entity transform). */
+        billboard: u32,
         /** world height of one em */
         fontSize: f32,
         /** 0..1 opacity multiplier */
@@ -85,6 +88,7 @@ export const Text = component(
         defaults: () => ({
             content: 0,
             font: 0,
+            billboard: Billboard.World,
             fontSize: 1,
             opacity: 1,
             visible: 1,
@@ -210,6 +214,7 @@ function signature(world: World): number {
         h = fold(h, eid);
         h = fold(h, text.content.get(eid));
         h = fold(h, text.font.get(eid));
+        h = fold(h, text.billboard.get(eid));
         h = fold(h, fbits(text.fontSize.get(eid), scratch));
         h = fold(h, fbits(text.anchor.x.get(eid), scratch));
         h = fold(h, fbits(text.anchor.y.get(eid), scratch));
@@ -306,6 +311,7 @@ function rebuild(world: World, device: GPUDevice): void {
             _textState.f32[o + GLYPH_AT.size] = g.w;
             _textState.f32[o + GLYPH_AT.size + 1] = g.h;
             _textState.u32[o + GLYPH_AT.color] = g.color;
+            _textState.u32[o + GLYPH_AT.billboard] = world.storage(Text).billboard.get(g.eid);
             n++;
         }
     }
