@@ -54,15 +54,4 @@ export {
     slerp,
 } from "./math";
 export { Registry } from "./registry";
-export {
-    bitcastF32toU32,
-    chunk,
-    idiv,
-    packSnorm2x16,
-    packUnorm2x16,
-    packUnorm4x8,
-    spliceNs,
-    uniformLoad,
-    unpackSnorm2x16,
-    unpackUnorm2x16,
-} from "./tgsl";
+export { chunk, idiv, uniformLoad } from "./tgsl";

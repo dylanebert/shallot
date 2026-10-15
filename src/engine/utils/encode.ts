@@ -5,22 +5,15 @@ import {
     max,
     normalize,
     pack2x16float,
+    pack2x16snorm,
+    pack4x8unorm,
     pow,
     select,
     unpack2x16float,
+    unpack2x16snorm,
     unpack4x8unorm,
 } from "typegpu/std";
-import {
-    chunk,
-    packSnorm2x16,
-    packUnorm2x16,
-    packUnorm4x8,
-    snorm16,
-    spliceNs,
-    unorm8,
-    unorm16,
-    unpackSnorm2x16,
-} from "./tgsl";
+import { chunk } from "./tgsl";
 
 // The GPU storage codecs, each a single TGSL function: one source that runs on the CPU
 // (a `bun test` calls it directly) and resolves to the WGSL a shader splices. Lattice drift between a
@@ -28,14 +21,8 @@ import {
 // a unorm16 lattice against a GPU decoder on snorm16 puts a steady torque on settled stacks.
 //
 // The `*Wgsl()` chunks below are the splice surface for a raw-WGSL shader, resolved with `names:
-// "strict"` so the emitted function names are the ones documented here. Two rules govern them:
-//
-//   - A chunk is self-contained (its own resolve, its own dependencies) — EXCEPT the two snorm16 codecs,
-//     which share the engine-wide `spliceNs` so the snorm pack/unpack leaves are emitted exactly once,
-//     into octEncodeWgsl(). The quaternion half resolves the oct half first, so the strings are the same
-//     whatever order a consumer asks in — and it is spliced after the oct half.
-//   - Splicing two chunks that share a dependency would otherwise define it twice, which is a WGSL
-//     error.
+// "strict"` so the emitted function names are the ones documented here. Each chunk is self-contained
+// (its own resolve, its own dependencies) and shares none with another, so any of them splice together.
 
 // snorm16 mapping (pack2x16snorm): (-1, 1) ↔ (-32767, 32767), with 0 ↔ 0 exact. A unorm16 mapping
 // (-1, 1) ↔ (0, 65535) puts 0 between two integer rails, so axis-aligned vectors decoded as (0, ±1, 0)
@@ -57,7 +44,7 @@ export const octEncodeNormal = tgpu.fn(
     const signX = select(d.f32(-1), d.f32(1), p.x >= 0);
     const signY = select(d.f32(-1), d.f32(1), p.y >= 0);
     const folded = d.vec2f((1 - Math.abs(p.y)) * signX, (1 - Math.abs(p.x)) * signY);
-    return packSnorm2x16(select(p, folded, n.z < 0));
+    return pack2x16snorm(select(p, folded, n.z < 0));
 });
 
 /** decode an snorm16x2 `u32` back to a unit normal: the inverse of {@link octEncodeNormal}. Cardinals
@@ -67,7 +54,7 @@ export const octDecodeNormal = tgpu.fn(
     d.vec3f,
 )((enc) => {
     "use gpu";
-    const p = unpackSnorm2x16(enc);
+    const p = unpack2x16snorm(enc);
     const z = 1 - Math.abs(p.x) - Math.abs(p.y);
     const signX = select(d.f32(-1), d.f32(1), p.x >= 0);
     const signY = select(d.f32(-1), d.f32(1), p.y >= 0);
@@ -78,7 +65,7 @@ export const octDecodeNormal = tgpu.fn(
 /** WGSL `octEncodeNormal(n) -> u32` + `octDecodeNormal(enc) -> vec3<f32>`: the snorm16x2 storage-normal
  *  codec. Splice into a producer that packs a normal or a reader that unpacks one; bit-identical to the
  *  CPU-callable {@link octEncodeNormal}, since it *is* that function. */
-export const octEncodeWgsl = chunk("octEncodeWgsl", [octEncodeNormal, octDecodeNormal], spliceNs);
+export const octEncodeWgsl = chunk("octEncodeWgsl", [octEncodeNormal, octDecodeNormal]);
 
 // snorm16x4 quaternion: 4 components packed into 2 u32 via pack2x16snorm. Per-component error bound
 // 1/32767 ≈ 3.05e-5 (uniform across [-1, 1]). Identity (0,0,0,1) and the six 180° axis-aligned rotations
@@ -92,7 +79,7 @@ export const packQuatSnorm16x4 = tgpu.fn(
     d.vec2u,
 )((q) => {
     "use gpu";
-    return d.vec2u(packSnorm2x16(d.vec2f(q.x, q.y)), packSnorm2x16(d.vec2f(q.z, q.w)));
+    return d.vec2u(pack2x16snorm(d.vec2f(q.x, q.y)), pack2x16snorm(d.vec2f(q.z, q.w)));
 });
 
 /** unpack two snorm16x2 `u32` lanes back to a unit quaternion, renormalizing to absorb the per-component
@@ -102,25 +89,19 @@ export const unpackQuatSnorm16x4 = tgpu.fn(
     d.vec4f,
 )((p) => {
     "use gpu";
-    const xy = unpackSnorm2x16(p.x);
-    const zw = unpackSnorm2x16(p.y);
+    const xy = unpack2x16snorm(p.x);
+    const zw = unpack2x16snorm(p.y);
     return normalize(d.vec4f(xy.x, xy.y, zw.x, zw.y));
 });
-
-const quatChunk = chunk("quatSnorm16x4Wgsl", [packQuatSnorm16x4, unpackQuatSnorm16x4], spliceNs);
 
 /** WGSL `packQuatSnorm16x4(q) -> vec2<u32>` + `unpackQuatSnorm16x4(p) -> vec4<f32>`: the quaternion
  *  storage codec for a field whose precision feeds a finite-difference downstream (a body quat read
  *  back as angular velocity, an iter-mutated-state case). Worst-case angular error
- *  < 0.06° per round-trip. Splice **after** {@link octEncodeWgsl} — the two share the snorm pack/unpack
- *  leaves, and that chunk defines them. */
-export function quatSnorm16x4Wgsl(): string {
-    // resolve the oct half first, unconditionally: the shared snorm leaves land in whichever chunk
-    // resolves first, and pinning that to the oct half (the one every live splice already carries)
-    // keeps both chunks the same text whatever order a consumer asks for them in.
-    octEncodeWgsl();
-    return quatChunk();
-}
+ *  < 0.06° per round-trip. */
+export const quatSnorm16x4Wgsl = chunk("quatSnorm16x4Wgsl", [
+    packQuatSnorm16x4,
+    unpackQuatSnorm16x4,
+]);
 
 // LDR colors store sRGB-encoded RGB + linear alpha as a `pack4x8unorm` u32. sRGB encoding gives uniform
 // perceptual precision across the range and lets hex inputs (`0xRRGGBB`) round-trip exactly
@@ -160,7 +141,7 @@ export const packLdrColor = tgpu.fn(
     d.u32,
 )((rgb, alpha) => {
     "use gpu";
-    return packUnorm4x8(
+    return pack4x8unorm(
         d.vec4f(linearToSrgb1(rgb.x), linearToSrgb1(rgb.y), linearToSrgb1(rgb.z), alpha),
     );
 });
@@ -308,7 +289,17 @@ export function octEncode(x: number, y: number, z: number): number {
     return packSnorm2(px, py);
 }
 
-/** {@link packUnorm2x16} over two loose lanes — the mesh builder's per-vertex form. */
+// The plain-JS mirrors' lattice steps: one f32-input, f64-scaling construction. WGSL packing has its
+// own floor-based conversion and intermediate accuracy contract, so agreement at ambiguous inputs is
+// not guaranteed by the CPU rounding choice.
+const snorm16 = (v: number): number =>
+    Math.round(Math.max(-1, Math.min(1, Math.fround(v))) * 32767) & 0xffff;
+const unorm16 = (v: number): number =>
+    Math.round(Math.max(0, Math.min(1, Math.fround(v))) * 65535) & 0xffff;
+const unorm8 = (v: number): number =>
+    Math.round(Math.max(0, Math.min(1, Math.fround(v))) * 255) & 0xff;
+
+/** `pack2x16unorm` over two loose lanes — the mesh builder's per-vertex form. */
 export function packUnorm2(x: number, y: number): number {
     return ((unorm16(y) << 16) | unorm16(x)) >>> 0;
 }

@@ -812,6 +812,17 @@ import { Xform } from "@dylanebert/shallot/rendering";
 
 The placement record and its decode moved from `/utils/core` to `/rendering`: `Xform`, `xformQuat`, `xformPoint`, `xformNormal`, `xformMat` and `xformWgsl`. The quantized vertex codec moved from `/utils/core` to `/mesh`: `MeshQuant`, `meshIdOf`, `decodePos`, `decodeUv`, `encodePos`, `encodeUv`, `posQuantWgsl` and `posQuantPackWgsl`.
 
+The WGSL pack and bitcast functions are removed from `/utils/core`; import TypeGPU's from `typegpu/std`, which take the same arguments:
+
+| v0.9.5 `/utils/core` | `typegpu/std` |
+|---|---|
+| `packSnorm2x16`, `unpackSnorm2x16` | `pack2x16snorm`, `unpack2x16snorm` |
+| `packUnorm2x16`, `unpackUnorm2x16` | `pack2x16unorm`, `unpack2x16unorm` |
+| `packUnorm4x8` | `pack4x8unorm` |
+| `bitcastF32toU32` | `bitcastF32toU32` |
+
+The spliced chunks no longer define these functions: raw WGSL that called `packSnorm2x16`, `unpackSnorm2x16`, `packUnorm2x16`, `unpackUnorm2x16` or `packUnorm4x8` from `octEncodeWgsl`, `posQuantWgsl`, `posQuantPackWgsl` or `ldrColorPackWgsl` calls the WGSL builtin named in the table. `spliceNs` is removed; `octEncodeWgsl` and `quatSnorm16x4Wgsl` share no function and splice in either order.
+
 `MeshInstance` stores `mesh` and an optional local-space culling sphere; ordinary meshes need only set `mesh`, while Sprite maintains the sphere for its billboard quad. Add StandardMaterial values with `const handle = world.resource(Materials).add(StandardMaterial(values))`, then add `MeshMaterial` with that `{ type, material }` handle. Retain the handle to share or update a material; there is no material name or name lookup. Meshes without `MeshMaterial` draw with StandardMaterial type 0, row 0. `VertexMaterialType`, exported at the root and from `/standard/rendering`, is the built-in per-vertex-lit alternative and accepts the same `StandardMaterial` parameter schema.
 
 | v0.9.5 export or field (path) | 0.10 replacement |

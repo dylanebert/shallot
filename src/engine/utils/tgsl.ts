@@ -2,149 +2,24 @@ import tgpu, { type Namespace, type TgpuVar } from "typegpu";
 import * as d from "typegpu/data";
 import { isBeingTranspiled } from "typegpu/std";
 
-// The escape vocabulary: WGSL constructs TGSL has no binding for. Each is a typed leaf — the smallest
-// function that reaches the construct — so a call site stays one idiom and never splices WGSL text.
+// The escape vocabulary: WGSL constructs neither TGSL nor `typegpu/std` binds. Each is a typed leaf, the
+// smallest function that reaches the construct, so a call site stays one idiom and never splices WGSL
+// text. A construct `typegpu/std` binds, such as the pack builtins or `bitcastF32toU32`, is imported
+// from there.
 //
 // Two shapes, and the choice is forced by whether the leaf can run on the CPU:
 //
 //   1. **Dual.** `isBeingTranspiled() ? <raw leaf>(args) : <plain JS>` — the condition folds at
 //      shader-gen time and ONLY the taken arm is transpiled, so the CPU arm may use anything JS
-//      (`Math.round`, `&`, `<<`), and the GPU arm emits the native intrinsic.
-//   2. **GPU-only.** A `tgpu.fn` whose implementation is a WGSL string. Not callable on the CPU (typegpu
-//      throws), which is correct for a construct with no CPU meaning — a workgroup pointer, an atomic.
-//
-// The raw arms are named `*Wgsl` and stay module-private: both they and their dual wrapper are emitted
-// into the resolved WGSL, and the wrapper owns the public name.
-//
-// `typegpu/std` 0.12.6 binds the 2×16 packs, `pack4x8unorm` and `bitcastF32toU32`, rounding and
-// clamping as the intrinsics do; a leaf `typegpu/std` binds can give way to its import.
-
-const packSnorm2x16Wgsl = tgpu.fn(
-    [d.vec2f],
-    d.u32,
-)(/* wgsl */ `(v: vec2f) -> u32 { return pack2x16snorm(v); }`);
-
-const unpackSnorm2x16Wgsl = tgpu.fn(
-    [d.u32],
-    d.vec2f,
-)(/* wgsl */ `(e: u32) -> vec2f { return unpack2x16snorm(e); }`);
-
-const packUnorm2x16Wgsl = tgpu.fn(
-    [d.vec2f],
-    d.u32,
-)(/* wgsl */ `(v: vec2f) -> u32 { return pack2x16unorm(v); }`);
-
-const unpackUnorm2x16Wgsl = tgpu.fn(
-    [d.u32],
-    d.vec2f,
-)(/* wgsl */ `(e: u32) -> vec2f { return unpack2x16unorm(e); }`);
-
-const packUnorm4x8Wgsl = tgpu.fn(
-    [d.vec4f],
-    d.u32,
-)(/* wgsl */ `(v: vec4f) -> u32 { return pack4x8unorm(v); }`);
-
-const bitcastF32toU32Wgsl = tgpu.fn(
-    [d.f32],
-    d.u32,
-)(/* wgsl */ `(v: f32) -> u32 { return bitcast<u32>(v); }`);
+//      (`Math.floor`), and the GPU arm emits the native construct. The raw arm is named `*Wgsl` and
+//      stays module-private: both it and its dual wrapper are emitted into the resolved WGSL, and the
+//      wrapper owns the public name.
+//   2. **GPU-only.** Raw WGSL with no CPU meaning, such as a workgroup pointer. Not callable on the CPU.
 
 const idivWgsl = tgpu.fn(
     [d.u32, d.u32],
     d.u32,
 )(/* wgsl */ `(a: u32, b: u32) -> u32 { return a / b; }`);
-
-// Shared by the CPU leaves and encode.ts mirrors: one f32-input, f64-scaling
-// construction. WGSL packing has its own floor-based conversion and intermediate
-// accuracy contract, so agreement at ambiguous inputs is not guaranteed by the
-// CPU rounding choice.
-/** @internal */
-export const snorm16 = (v: number): number =>
-    Math.round(Math.max(-1, Math.min(1, Math.fround(v))) * 32767) & 0xffff;
-/** @internal */
-export const unorm16 = (v: number): number =>
-    Math.round(Math.max(0, Math.min(1, Math.fround(v))) * 65535) & 0xffff;
-/** @internal */
-export const unorm8 = (v: number): number =>
-    Math.round(Math.max(0, Math.min(1, Math.fround(v))) * 255) & 0xff;
-
-const _bits = new ArrayBuffer(4);
-const _f32 = new Float32Array(_bits);
-const _u32 = new Uint32Array(_bits);
-
-function f32Bits(v: number): number {
-    _f32[0] = v;
-    return _u32[0];
-}
-
-/** pack two [-1,1] lanes into an snorm16x2 `u32` (lane x → low 16 bits): WGSL `pack2x16snorm`.
- *  The (-1,1) ↔ (-32767,32767) lattice puts 0 ↔ 0 and ±1 ↔ ±32767 on exact rails. */
-export const packSnorm2x16 = tgpu.fn(
-    [d.vec2f],
-    d.u32,
-)((v) => {
-    "use gpu";
-    return isBeingTranspiled() ? packSnorm2x16Wgsl(v) : ((snorm16(v.y) << 16) | snorm16(v.x)) >>> 0;
-});
-
-/** unpack an snorm16x2 `u32` to two [-1,1] lanes (low 16 bits → x): WGSL `unpack2x16snorm`, the inverse
- *  of {@link packSnorm2x16}. */
-export const unpackSnorm2x16 = tgpu.fn(
-    [d.u32],
-    d.vec2f,
-)((e) => {
-    "use gpu";
-    return isBeingTranspiled()
-        ? unpackSnorm2x16Wgsl(e)
-        : d.vec2f(Math.max(-1, ((e << 16) >> 16) / 32767), Math.max(-1, (e >> 16) / 32767));
-});
-
-/** pack two [0,1] lanes into a unorm16x2 `u32` (lane x → low 16 bits): WGSL `pack2x16unorm`. Uniform
- *  1.5e-5 spacing across the range, so it beats f16 in any bounded range. */
-export const packUnorm2x16 = tgpu.fn(
-    [d.vec2f],
-    d.u32,
-)((v) => {
-    "use gpu";
-    return isBeingTranspiled() ? packUnorm2x16Wgsl(v) : ((unorm16(v.y) << 16) | unorm16(v.x)) >>> 0;
-});
-
-/** unpack a unorm16x2 `u32` to two [0,1] lanes (low 16 bits → x): WGSL `unpack2x16unorm`, the inverse
- *  of {@link packUnorm2x16}. */
-export const unpackUnorm2x16 = tgpu.fn(
-    [d.u32],
-    d.vec2f,
-)((e) => {
-    "use gpu";
-    return isBeingTranspiled()
-        ? unpackUnorm2x16Wgsl(e)
-        : d.vec2f((e & 0xffff) / 65535, (e >>> 16) / 65535);
-});
-
-/** pack four [0,1] lanes into a `u32` of four unorm8 bytes (lane x → byte 0): WGSL `pack4x8unorm`.
- *  Rounds and clamps, exactly like the intrinsic. Named lane-count-first like its 2×16 siblings, and
- *  **not** `pack4x8unorm`: an authored name that collides with a WGSL builtin resolves to
- *  `pack4x8unorm_1` even under strict naming, so a raw splice site could not call it (asserted in
- *  tgsl.test.ts). */
-export const packUnorm4x8 = tgpu.fn(
-    [d.vec4f],
-    d.u32,
-)((v) => {
-    "use gpu";
-    return isBeingTranspiled()
-        ? packUnorm4x8Wgsl(v)
-        : (unorm8(v.x) | (unorm8(v.y) << 8) | (unorm8(v.z) << 16) | (unorm8(v.w) << 24)) >>> 0;
-});
-
-/** reinterpret an `f32`'s bits as a `u32`: WGSL `bitcast<u32>(e)`. The f32→u32 direction only;
- *  `typegpu/std` binds the u32→f32 one as `bitcastU32toF32`. */
-export const bitcastF32toU32 = tgpu.fn(
-    [d.f32],
-    d.u32,
-)((v) => {
-    "use gpu";
-    return isBeingTranspiled() ? bitcastF32toU32Wgsl(v) : f32Bits(v);
-});
 
 /** integer division — the only correct way to divide integers in TGSL. `a / b` on integer operands
  *  transpiles to `f32(a) / f32(b)`: a *fractional* quotient, so it is wrong for any inexact division
@@ -175,18 +50,6 @@ export const uniformLoad = (flag: TgpuVar<"workgroup", d.U32>) =>
         .$uses({ flag });
 
 /**
- * the shared dedup scope for the chunks a raw-WGSL consumer splices *together*: the storage codecs
- * (`octEncodeWgsl` / `quatSnorm16x4Wgsl`) and the standard renderer's shadow-caster chunk. A shared
- * dependency is emitted into whichever
- * chunk resolves first, so every chunk in here **forces its base chunks first** — then a dependency
- * always lands in the lowest chunk of the dependency order, and a consumer splicing a chunk already
- * splices the base that carries the dependency. Without the shared scope each chunk would re-emit the
- * dependency and the two splices would define it twice (a WGSL error).
- * @internal
- */
-export const spliceNs = tgpu["~unstable"].namespace({ names: "strict" });
-
-/**
  * a lazily-resolved, memoized WGSL chunk: `chunk(...)` returns the thunk, and the first call resolves
  * the given TGSL resources under `names: "strict"` so the emitted function names are the authored ones
  * and a raw-WGSL splice site can call them.
@@ -196,7 +59,7 @@ export const spliceNs = tgpu["~unstable"].namespace({ names: "strict" });
  * schema's shape depends on a config value that is only
  * final after this module loads (the standard renderer's caster-count-sized uniforms). Pass a shared `ns` when two
  * chunks are always spliced together and must not both emit a shared dependency — the namespace emits
- * it into whichever chunk resolves first ({@link spliceNs} is the engine-wide one).
+ * it into whichever chunk resolves first.
  *
  * The rethrow names the likely cause: without the plugin the failure is otherwise an opaque resolution
  * error from deep inside typegpu.

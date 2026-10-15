@@ -15,12 +15,12 @@
 //     takes its struct parameters from the schemas below, so the layout has one source of truth even
 //     where the body doesn't.
 //
-// The one raw-WGSL chunk, `casterWgsl`, is a lazily-resolved thunk (`chunk`) in the engine-wide `spliceNs`.
+// The one raw-WGSL chunk, `casterWgsl`, is a lazily-resolved thunk (`chunk`).
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, spliceNs } from "../../engine/utils";
+import { chunk } from "../../engine/utils";
 import { PointLightGpu } from "./lighting";
 import { EDGE_TEXELS, MAX_CASCADES, MAX_POINT_CASTERS } from "./shadows";
 
@@ -278,13 +278,9 @@ export const pointReceiver = tgpu.fn(
 
 /** returns the point/spot caster WGSL: the {@link PointCaster} / `PointCasters` / `TileRects` structs a
  *  consumer declares its group-1 shadow bindings over. Splice **before** those declarations. */
-export const casterWgsl = chunk(
-    "casterWgsl",
-    () => {
-        return [pointCastersSchema(), tileRectsSchema(MAX_POINT_CASTERS * 6)];
-    },
-    spliceNs,
-);
+export const casterWgsl = chunk("casterWgsl", () => {
+    return [pointCastersSchema(), tileRectsSchema(MAX_POINT_CASTERS * 6)];
+});
 
 // Bevy's fixed 2×2 and Castaño 13-tap map filters, expressed over one atlas tile. `rect` keeps
 // comparison taps inside the selected tile; map-space offsets are measured in that tile's pixels.

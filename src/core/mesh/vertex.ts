@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { clamp, round, select } from "typegpu/std";
-import { chunk, packUnorm2x16, unpackUnorm2x16 } from "../../engine/utils";
+import { clamp, pack2x16unorm, round, select, unpack2x16unorm } from "typegpu/std";
+import { chunk } from "../../engine/utils";
 
 // The quantized vertex codec: each a TGSL function that runs on the CPU and resolves to the WGSL a
 // vertex-pull shader splices, so the lattice cannot drift between the packer and the decode. The decode
@@ -38,7 +38,7 @@ export const decodePos = tgpu.fn(
     d.vec3f,
 )((w0, w1, q) => {
     "use gpu";
-    const xy = unpackUnorm2x16(w0);
+    const xy = unpack2x16unorm(w0);
     const z = d.f32(w1 & 0xffff) / 65535;
     return d.vec3f(
         q.posOffset.x + xy.x * q.posScale.x,
@@ -53,7 +53,7 @@ export const decodeUv = tgpu.fn(
     d.vec2f,
 )((w3, q) => {
     "use gpu";
-    const uv = unpackUnorm2x16(w3);
+    const uv = unpack2x16unorm(w3);
     return d.vec2f(q.posOffset.w + uv.x * q.uvScale.x, q.posScale.w + uv.y * q.uvScale.y);
 });
 
@@ -76,7 +76,7 @@ export const encodePos = tgpu.fn(
     const ny = select((p.y - o.y) / s.y, 0, s.y === 0);
     const nz = select((p.z - o.z) / s.z, 0, s.z === 0);
     const z16 = d.u32(round(clamp(nz, 0, 1) * 65535));
-    return d.vec2u(packUnorm2x16(d.vec2f(clamp(nx, 0, 1), clamp(ny, 0, 1))), z16 | (meshId << 16));
+    return d.vec2u(pack2x16unorm(d.vec2f(clamp(nx, 0, 1), clamp(ny, 0, 1))), z16 | (meshId << 16));
 });
 
 /** encode a uv into the quantized vertex's `w3` word, against the mesh's uv AABB. */
@@ -87,7 +87,7 @@ export const encodeUv = tgpu.fn(
     "use gpu";
     const nu = select((uv.x - q.posOffset.w) / q.uvScale.x, 0, q.uvScale.x === 0);
     const nv = select((uv.y - q.posScale.w) / q.uvScale.y, 0, q.uvScale.y === 0);
-    return packUnorm2x16(d.vec2f(clamp(nu, 0, 1), clamp(nv, 0, 1)));
+    return pack2x16unorm(d.vec2f(clamp(nu, 0, 1), clamp(nv, 0, 1)));
 });
 
 const packChunk = chunk("posQuantPackWgsl", [encodePos, encodeUv], quantNs);

@@ -11,7 +11,7 @@ import {
 import { GlobalTransform } from "../../core/transform";
 import type { World } from "../../engine";
 import { unpackColor } from "../../engine";
-import { bitcastF32toU32, octDecodeNormal } from "../../engine/utils";
+import { octDecodeNormal } from "../../engine/utils";
 
 /** Ten directional records fit in the camera-independent uniform; its consumers size the same binding. */
 export const MAX_DIRECTIONAL_LIGHTS = 10;
@@ -285,7 +285,7 @@ export const spotFactor = tgpu.fn(
 )((light, L) => {
     "use gpu";
     if (light.params.z === 0) return 1;
-    const axis = octDecodeNormal(bitcastF32toU32(light.params.y));
+    const axis = octDecodeNormal(std.bitcastF32toU32(light.params.y));
     const cd = -std.dot(axis, L);
     const a = std.saturate(cd * light.params.z + light.params.w);
     return a * a;
