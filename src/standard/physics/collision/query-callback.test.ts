@@ -18,7 +18,7 @@ async function spheres(...positions: number[]): Promise<World> {
     for (const x of positions) {
         const body = world.create();
         world.add(body, Body, { type: BodyType.Static, position: [x, 0, 0, 0] });
-        world.add(body, Shape, { kind: ShapeKind.Sphere, sphere: [0, 0, 0, 0.5] });
+        world.add(body, Shape, { kind: ShapeKind.Sphere, sphereCenter: [0, 0, 0], radius: 0.5 });
     }
     world.step(Time.FIXED_DT);
     return world;

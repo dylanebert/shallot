@@ -75,7 +75,8 @@ test("world callbacks receive the owning World and its ECS Shape EntityRefs", as
         world.add(anchor, Body, { type: BodyType.Static });
         world.add(anchor, Shape, {
             kind: ShapeKind.Sphere,
-            sphere: [0, 0, 0, 1],
+            sphereCenter: [0, 0, 0],
+            radius: 1,
             enableCustomFiltering: 1,
             enablePreSolveEvents: 1,
         });
@@ -83,7 +84,8 @@ test("world callbacks receive the owning World and its ECS Shape EntityRefs", as
         world.add(moving, Body, { type: BodyType.Dynamic, position: [0.5, 0, 0, 0] });
         world.add(moving, Shape, {
             kind: ShapeKind.Sphere,
-            sphere: [0, 0, 0, 1],
+            sphereCenter: [0, 0, 0],
+            radius: 1,
             enablePreSolveEvents: 1,
         });
         const checkPair = (shapeA: EntityRef, shapeB: EntityRef) =>

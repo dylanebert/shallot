@@ -51,22 +51,22 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         expect(shape.body.get(body)).toBe(0);
         expect(shape.geometry.get(body)).toBe(0);
         expect([
-            shape.sphere.x.get(body),
-            shape.sphere.y.get(body),
-            shape.sphere.z.get(body),
-            shape.sphere.w.get(body),
+            shape.sphereCenter.x.get(body),
+            shape.sphereCenter.y.get(body),
+            shape.sphereCenter.z.get(body),
+            shape.radius.get(body),
         ]).toEqual([0, 0, 0, 0.5]);
         expect([
-            shape.capsuleA.x.get(body),
-            shape.capsuleA.y.get(body),
-            shape.capsuleA.z.get(body),
-            shape.capsuleA.w.get(body),
+            shape.capsuleCenter1.x.get(body),
+            shape.capsuleCenter1.y.get(body),
+            shape.capsuleCenter1.z.get(body),
+            shape.capsuleCenter1.w.get(body),
         ]).toEqual([0, -0.5, 0, 0]);
         expect([
-            shape.capsuleB.x.get(body),
-            shape.capsuleB.y.get(body),
-            shape.capsuleB.z.get(body),
-            shape.capsuleB.w.get(body),
+            shape.capsuleCenter2.x.get(body),
+            shape.capsuleCenter2.y.get(body),
+            shape.capsuleCenter2.z.get(body),
+            shape.radius.get(body),
         ]).toEqual([0, 0.5, 0, 0.5]);
         expect(shape.density.get(body)).toBe(1000);
         expect(shape.explosionScale.get(body)).toBe(1);

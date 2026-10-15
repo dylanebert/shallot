@@ -207,7 +207,7 @@ export const DrivePlayerSystem: System = {
                     pitch: players.pitch.get(eid),
                 });
             }
-            const pogoRest = 1 + players.hover.column[eid] / shapes.capsuleB.column[eid * 4 + 3];
+            const pogoRest = 1 + players.hover.column[eid] / shapes.radius.column[eid];
             if (characters.pogoRest.column[eid] !== Math.fround(pogoRest))
                 characters.pogoRest.set(eid, pogoRest);
             if (characters.steepWalls.column[eid] !== 1) characters.steepWalls.set(eid, 1);

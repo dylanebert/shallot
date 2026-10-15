@@ -89,9 +89,12 @@ export function route(world: World) {
         position: [0, 2, 12],
         type: BodyType.Kinematic,
     });
-    world.add(player, Shape, { kind: ShapeKind.Capsule });
-    world.storage(Shape).capsuleA.set(player, 0, -0.6, 0, 0);
-    world.storage(Shape).capsuleB.set(player, 0, 0.6, 0, 0.3);
+    world.add(player, Shape, {
+        kind: ShapeKind.Capsule,
+        capsuleCenter1: [0, -0.6, 0],
+        capsuleCenter2: [0, 0.6, 0],
+        radius: 0.3,
+    });
     // Pogo placement floats two radii above contact.
     world.add(player, Character);
     world.add(player, Player, { camera: eye });

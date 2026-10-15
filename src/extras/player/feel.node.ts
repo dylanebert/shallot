@@ -51,8 +51,9 @@ async function scene(y = 2, offset = 0) {
                 position: [offset, offset + y, 0, 0],
             });
             world.add(player, Shape, { kind: ShapeKind.Capsule });
-            world.storage(Shape).capsuleA.set(player, 0, -0.6, 0, 0);
-            world.storage(Shape).capsuleB.set(player, 0, 0.6, 0, 0.3);
+            world.storage(Shape).capsuleCenter1.set(player, 0, -0.6, 0, 0);
+            world.storage(Shape).capsuleCenter2.set(player, 0, 0.6, 0, 0);
+            world.storage(Shape).radius.set(player, 0.3);
             world.add(player, Character);
             world.add(player, Player, { camera });
             world.add(player, LocalPlayer);
@@ -214,8 +215,9 @@ async function walkAtStep(height: number): Promise<boolean> {
             player = world.create();
             world.add(player, Body, { type: BodyType.Kinematic, position: [0, 2, 0, 0] });
             world.add(player, Shape, { kind: ShapeKind.Capsule });
-            world.storage(Shape).capsuleA.set(player, 0, -0.6, 0, 0);
-            world.storage(Shape).capsuleB.set(player, 0, 0.6, 0, 0.3);
+            world.storage(Shape).capsuleCenter1.set(player, 0, -0.6, 0, 0);
+            world.storage(Shape).capsuleCenter2.set(player, 0, 0.6, 0, 0);
+            world.storage(Shape).radius.set(player, 0.3);
             world.add(player, Character);
             world.add(player, Player, { camera });
             world.add(player, LocalPlayer);

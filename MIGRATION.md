@@ -840,8 +840,9 @@ fields with Box3D setters apply at the next fixed sync.
 
 Move the 0.9.5 `Body.shape`, `halfExtents`, `mass` and `friction` fields to `Shape`: `shape` becomes
 `Shape.kind`, `halfExtents.xyz` becomes `Shape.scale` for hulls, `mass` becomes per-shape density,
-and `friction` becomes `Shape.friction`. The old `.w` radius becomes `Shape.sphere.w` or
-`Shape.capsuleB.w`; a hull id moves to `Shape.geometry`. `ShapeKind.Box` becomes a scaled
+and `friction` becomes `Shape.friction`. The old `.w` radius becomes `Shape.radius`, shared by spheres and
+capsules; a sphere's center is `Shape.sphereCenter` and a capsule's hemisphere centers are
+`Shape.capsuleCenter1` and `Shape.capsuleCenter2`; a hull id moves to `Shape.geometry`. `ShapeKind.Box` becomes a scaled
 `ShapeKind.Hull`. Box3D computes mass from shape density and geometry, so do not copy total mass
 straight into density.
 
@@ -866,7 +867,7 @@ world.add(eid, Shape, {
 });
 ```
 
-`Body.position`, `.linearVelocity` and `.angularVelocity`, `Shape.capsuleA`, `.scale` and `.tangentVelocity`, the joints' `localAnchorA`/`localAnchorB` and velocities, and `Character`'s `velocity`, `groundNormal`, `groundVelocity` and `up` are `vec3` fields, written `[x, y, z]`. Rotations stay four-value quaternions, and `Shape.sphere` and `Shape.capsuleB` carry their radius in the fourth value.
+`Body.position`, `.linearVelocity` and `.angularVelocity`, `Shape.sphereCenter`, `.capsuleCenter1`, `.capsuleCenter2`, `.scale` and `.tangentVelocity`, the joints' `localAnchorA`/`localAnchorB` and velocities, and `Character`'s `velocity`, `groundNormal`, `groundVelocity` and `up` are `vec3` fields, written `[x, y, z]`. Rotations stay four-value quaternions.
 
 0.9.5 `TumbleBody` could create several shapes directly; author each as a `Shape` entity instead:
 

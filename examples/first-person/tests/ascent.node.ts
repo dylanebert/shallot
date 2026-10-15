@@ -67,7 +67,7 @@ function goalReached(
     if (world.storage(Character).groundState.get(player) !== GroundState.OnGround) return false;
     const placement = world.storage(GlobalTransform).translation;
     const shape = world.storage(Shape);
-    const radius = shape.capsuleB.w.get(player);
+    const radius = shape.radius.get(player);
     const dx = Math.abs(placement.x.get(player) - placement.x.get(target));
     const dz = Math.abs(placement.z.get(player) - placement.z.get(target));
     const top = placement.y.get(target) + shape.scale.y.get(target);

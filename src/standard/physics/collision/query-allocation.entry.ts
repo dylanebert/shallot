@@ -85,7 +85,8 @@ export default async function create() {
     entityWorld.add(shape, Shape, {
         body,
         kind: ShapeKind.Sphere,
-        sphere: [0, 0, 0, 1],
+        sphereCenter: [0, 0, 0],
+        radius: 1,
     });
     entityWorld.step(1 / 60);
     const queryOrigin = { x: -3, y: 0, z: 0 };

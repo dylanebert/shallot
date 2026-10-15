@@ -61,10 +61,12 @@ function horizontalSpeed(velocity: readonly [number, number, number]): number {
 function halfExtent(world: World, eid: number, axis: "x" | "y" | "z"): number {
     const shape = world.storage(Shape);
     if (shape.kind.get(eid) === ShapeKind.Capsule) {
-        const radius = shape.capsuleB.w.get(eid);
+        const radius = shape.radius.get(eid);
         return axis === "y"
-            ? Math.max(Math.abs(shape.capsuleA.y.get(eid)), Math.abs(shape.capsuleB.y.get(eid))) +
-                  radius
+            ? Math.max(
+                  Math.abs(shape.capsuleCenter1.y.get(eid)),
+                  Math.abs(shape.capsuleCenter2.y.get(eid)),
+              ) + radius
             : radius;
     }
     return shape.scale[axis].get(eid);
@@ -124,14 +126,14 @@ test("the actual first-person scene gives the player a pogo-rest spawn, a contai
             app.world.storage(Body).position.y.get(ground) + halfExtent(app.world, ground, "y");
         const playerBottom =
             app.world.storage(Body).position.y.get(player) - halfExtent(app.world, player, "y");
-        const float = 2 * app.world.storage(Shape).capsuleB.w.get(player);
+        const float = 2 * app.world.storage(Shape).radius.get(player);
         if (Math.abs(playerBottom - groundTop - float) > 0.0001)
             throw new Error(
                 `player was not at pogo rest: bottom=${playerBottom} top=${groundTop} float=${float}`,
             );
         const spawnGap =
             app.world.storage(Body).position.z.get(player) -
-            app.world.storage(Shape).capsuleB.w.get(player) -
+            app.world.storage(Shape).radius.get(player) -
             (app.world.storage(Body).position.z.get(step1) + halfExtent(app.world, step1, "z"));
         if (!(spawnGap > 0)) throw new Error(`spawn-to-first-step gap was ${spawnGap}`);
         const route = [
@@ -147,7 +149,7 @@ test("the actual first-person scene gives the player a pogo-rest spawn, a contai
         for (const routeEntity of route) {
             for (const axis of ["x", "z"] as const) {
                 const radius =
-                    routeEntity === player ? app.world.storage(Shape).capsuleB.w.get(player) : 0;
+                    routeEntity === player ? app.world.storage(Shape).radius.get(player) : 0;
                 const [min, max] = extent(app.world, routeEntity, axis, radius);
                 const [groundMin, groundMax] = extent(app.world, ground, axis);
                 if (min < groundMin || max > groundMax)

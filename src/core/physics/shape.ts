@@ -1,4 +1,4 @@
-import { component, entity, f32, i32, u32, vec3, vec4 } from "../../engine";
+import { component, entity, f32, i32, u32, vec3 } from "../../engine";
 
 /** Box3D collision-shape kinds. A box is a scaled hull. */
 export const ShapeKind = {
@@ -21,12 +21,14 @@ export const Shape = component(
         kind: u32,
         /** Geometry registry id: Hulls, PhysicsMeshes, HeightFields or Compounds, selected by kind. */
         geometry: u32,
-        /** Sphere center and radius in body-local meters. */
-        sphere: vec4,
-        /** First capsule endpoint in body-local meters. */
-        capsuleA: vec3,
-        /** Second capsule endpoint and radius in body-local meters. */
-        capsuleB: vec4,
+        /** Sphere center in body-local meters. */
+        sphereCenter: vec3,
+        /** First capsule hemisphere center in body-local meters. */
+        capsuleCenter1: vec3,
+        /** Second capsule hemisphere center in body-local meters. */
+        capsuleCenter2: vec3,
+        /** Sphere or capsule radius in meters. */
+        radius: f32,
         /** Hull half-scale or mesh scale. */
         scale: vec3,
         /** Shape density in kg/m³; changes apply at the next fixed sync. */
@@ -80,9 +82,10 @@ export const Shape = component(
             body: 0,
             kind: ShapeKind.Hull,
             geometry: 0,
-            sphere: [0, 0, 0, 0.5],
-            capsuleA: [0, -0.5, 0],
-            capsuleB: [0, 0.5, 0, 0.5],
+            sphereCenter: [0, 0, 0],
+            capsuleCenter1: [0, -0.5, 0],
+            capsuleCenter2: [0, 0.5, 0],
+            radius: 0.5,
             scale: [0.5, 0.5, 0.5],
             density: 1000,
             explosionScale: 1,

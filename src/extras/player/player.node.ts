@@ -59,8 +59,9 @@ async function scene(localPlayers: readonly number[] = [], count = 1): Promise<S
                     position: [index * 4, 1.3, 0, 0],
                 });
                 world.add(player, Shape, { kind: ShapeKind.Capsule });
-                world.storage(Shape).capsuleA.set(player, 0, -0.5, 0, 0);
-                world.storage(Shape).capsuleB.set(player, 0, 0.5, 0, 0.3);
+                world.storage(Shape).capsuleCenter1.set(player, 0, -0.5, 0, 0);
+                world.storage(Shape).capsuleCenter2.set(player, 0, 0.5, 0, 0);
+                world.storage(Shape).radius.set(player, 0.3);
                 world.add(player, Character);
                 world.add(player, Player, {
                     camera,

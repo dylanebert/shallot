@@ -465,17 +465,20 @@ async function runEntityQuery(input: Input): Promise<string[]> {
         });
         let kind: number;
         let geometry = 0;
-        let sphere: [number, number, number, number] = [0, 0, 0, 0.5];
-        let capsuleA: [number, number, number, number] = [0, -0.5, 0, 0];
-        let capsuleB: [number, number, number, number] = [0, 0.5, 0, 0.5];
+        let sphereCenter: [number, number, number] = [0, 0, 0];
+        let capsuleCenter1: [number, number, number] = [0, -0.5, 0];
+        let capsuleCenter2: [number, number, number] = [0, 0.5, 0];
+        let radius = 0.5;
         let scale: [number, number, number, number] = [0.5, 0.5, 0.5, 0];
         if (input.kind === 0) {
             kind = ShapeKind.Sphere;
-            sphere = [0, -1, 0, 1];
+            sphereCenter = [0, -1, 0];
+            radius = 1;
         } else if (input.kind === 1) {
             kind = ShapeKind.Capsule;
-            capsuleA = [0, -1.65, 0, 0];
-            capsuleB = [0, -0.35, 0, 0.35];
+            capsuleCenter1 = [0, -1.65, 0];
+            capsuleCenter2 = [0, -0.35, 0];
+            radius = 0.35;
         } else if (input.kind === 2) {
             kind = ShapeKind.Hull;
             scale = [1, 0.75, 0.6, 0];
@@ -515,9 +518,10 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             body,
             kind,
             geometry,
-            sphere,
-            capsuleA,
-            capsuleB,
+            sphereCenter,
+            capsuleCenter1,
+            capsuleCenter2,
+            radius,
             scale,
             userMaterialIdLow: input.kind + 1,
             userMaterialIdHigh: 1,

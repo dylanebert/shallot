@@ -37,8 +37,9 @@ test("a Player capsule retains its collider geometry and rests above the floor",
                 type: BodyType.Kinematic,
             });
             world.add(player, Shape, { kind: ShapeKind.Capsule });
-            world.storage(Shape).capsuleA.set(player, 0, -0.6, 0, 0);
-            world.storage(Shape).capsuleB.set(player, 0, 0.6, 0, 0.3);
+            world.storage(Shape).capsuleCenter1.set(player, 0, -0.6, 0, 0);
+            world.storage(Shape).capsuleCenter2.set(player, 0, 0.6, 0, 0);
+            world.storage(Shape).radius.set(player, 0.3);
             world.add(player, Character);
             world.add(player, Player, { camera: eye });
             const floor = world.create();
@@ -49,8 +50,8 @@ test("a Player capsule retains its collider geometry and rests above the floor",
     try {
         const eid = app.world.only([Character]);
         const shape = app.world.storage(Shape);
-        expect(shape.capsuleB.y.get(eid)).toBeCloseTo(0.6);
-        expect(shape.capsuleB.w.get(eid)).toBeCloseTo(0.3);
+        expect(shape.capsuleCenter2.y.get(eid)).toBeCloseTo(0.6);
+        expect(shape.radius.get(eid)).toBeCloseTo(0.3);
         for (let i = 0; i < 120; i++) app.world.step(Time.FIXED_DT);
         // Gravity's per-tick displacement balances the spring slightly below its rest length.
         const omega = 2 * Math.PI * 4;

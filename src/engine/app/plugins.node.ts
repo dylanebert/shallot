@@ -617,8 +617,9 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(actor, Character);
             world.add(actor, Player);
             world.storage(Body).position.set(actor, 0, 2, 2, 0);
-            world.storage(Shape).capsuleA.set(actor, 0, -0.6, 0, 0);
-            world.storage(Shape).capsuleB.set(actor, 0, 0.6, 0, 0.35);
+            world.storage(Shape).capsuleCenter1.set(actor, 0, -0.6, 0, 0);
+            world.storage(Shape).capsuleCenter2.set(actor, 0, 0.6, 0, 0);
+            world.storage(Shape).radius.set(actor, 0.35);
             world.storage(Body).type.set(actor, BodyType.Kinematic);
             world.storage(Player).camera.set(actor, camera);
 

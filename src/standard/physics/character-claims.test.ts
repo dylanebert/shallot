@@ -27,8 +27,9 @@ async function scene() {
         position: [0, 0.9, 0, 0],
     });
     world.add(eid, Shape, { kind: ShapeKind.Capsule });
-    world.storage(Shape).capsuleA.set(eid, 0, -0.5, 0, 0);
-    world.storage(Shape).capsuleB.set(eid, 0, 0.5, 0, 0.3);
+    world.storage(Shape).capsuleCenter1.set(eid, 0, -0.5, 0, 0);
+    world.storage(Shape).capsuleCenter2.set(eid, 0, 0.5, 0, 0);
+    world.storage(Shape).radius.set(eid, 0.3);
     world.add(eid, Character);
     return {
         world,
@@ -110,7 +111,8 @@ test("a stepped character excludes every shape on its own body from planes and i
         ]) {
             const shape = world.create();
             world.add(shape, Shape, { body: eid, kind: ShapeKind.Sphere });
-            world.storage(Shape).sphere.set(shape, x, y, 0, 0.1);
+            world.storage(Shape).sphereCenter.set(shape, x, y, 0, 0);
+            world.storage(Shape).radius.set(shape, 0.1);
         }
         world.storage(Character).velocity.set(eid, 36, -12, 0, 0);
         world.step(Time.FIXED_DT);

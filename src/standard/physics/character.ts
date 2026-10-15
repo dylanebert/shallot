@@ -124,8 +124,8 @@ function moveCharacter(world: World, eid: number): void {
     const offset = eid * 4;
     const velocity = character.velocity.column;
     const up = character.up.column;
-    const a = shape.capsuleA.column;
-    const b = shape.capsuleB.column;
+    const a = shape.capsuleCenter1.column;
+    const b = shape.capsuleCenter2.column;
     input[0] = position.x;
     input[1] = position.y;
     input[2] = position.z;
@@ -135,7 +135,7 @@ function moveCharacter(world: World, eid: number): void {
         input[9 + i] = a[offset + i];
         input[12 + i] = b[offset + i];
     }
-    input[15] = b[offset + 3];
+    input[15] = shape.radius.column[eid];
     input[16] = Time.FIXED_DT;
     input[17] = character.pogoVelocity.column[eid];
     input[18] = character.pogoRest.column[eid];

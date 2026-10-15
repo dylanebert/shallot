@@ -307,7 +307,8 @@ test("contact, hit and joint events retain ECS identity and Box3D payloads", asy
         world.add(fallingShape, Shape, {
             body: fallingBody,
             kind: ShapeKind.Sphere,
-            sphere: [0, 0, 0, 0.5],
+            sphereCenter: [0, 0, 0],
+            radius: 0.5,
             density: 1,
             enableContactEvents: 1,
             enableHitEvents: 1,
@@ -432,7 +433,8 @@ test("ray queries skip a recycled Shape eid before the next physics sync", async
         world.add(shape, Shape, {
             body,
             kind: ShapeKind.Sphere,
-            sphere: [0, 0, 0, 0.5],
+            sphereCenter: [0, 0, 0],
+            radius: 0.5,
         });
         world.step(Time.FIXED_DT);
 
@@ -498,7 +500,8 @@ test("ray, shape-cast and overlap queries return the authored Shape and Body ent
         world.add(shape, Shape, {
             body,
             kind: ShapeKind.Sphere,
-            sphere: [0, 0, 0, 0.5],
+            sphereCenter: [0, 0, 0],
+            radius: 0.5,
         });
         world.step(Time.FIXED_DT);
 

@@ -44,7 +44,8 @@ test("drawPhysics preserves ECS-authored sphere geometry and placement", async (
         world.add(shape, Shape, {
             body,
             kind: ShapeKind.Sphere,
-            sphere: [0.2, 0, 0, 0.5],
+            sphereCenter: [0.2, 0, 0],
+            radius: 0.5,
             density: 2,
         });
         world.step(Time.FIXED_DT);
@@ -124,8 +125,9 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
         const capsuleBody = body(-8);
         shape(capsuleBody, {
             kind: ShapeKind.Capsule,
-            capsuleA: [-1, 0, 0, 0],
-            capsuleB: [1, 0, 0, 0.3],
+            capsuleCenter1: [-1, 0, 0],
+            capsuleCenter2: [1, 0, 0],
+            radius: 0.3,
         });
         const hullBody = body(-4);
         const hullShape = shape(hullBody, {
@@ -140,7 +142,12 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
         const compoundBody = body(8);
         shape(compoundBody, { kind: ShapeKind.Compound, geometry: compoundId });
         const massBody = body(12, BodyType.Dynamic);
-        shape(massBody, { kind: ShapeKind.Sphere, sphere: [0.2, 0, 0, 0.5], density: 2 });
+        shape(massBody, {
+            kind: ShapeKind.Sphere,
+            sphereCenter: [0.2, 0, 0],
+            radius: 0.5,
+            density: 2,
+        });
         const frameA = body(16);
         const frameB = body(18, BodyType.Kinematic, [0, 0, Math.SQRT1_2, Math.SQRT1_2]);
         const joint = world.create();
@@ -289,7 +296,8 @@ test("drawPhysics reports the deleted golden's exact stepped ECS joint reactions
             });
             world.add(bob, Shape, {
                 kind: ShapeKind.Sphere,
-                sphere: [0.2, 0, 0, 0.5],
+                sphereCenter: [0.2, 0, 0],
+                radius: 0.5,
                 density: 2,
             });
             const joint = world.create();

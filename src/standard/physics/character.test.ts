@@ -190,8 +190,9 @@ for (const item of lane.cases) {
                             position: [position.x, position.y, position.z, 0],
                         });
                         world.add(eid, Shape, { kind: ShapeKind.Capsule });
-                        world.storage(Shape).capsuleA.set(eid, 0, -0.5, 0, 0);
-                        world.storage(Shape).capsuleB.set(eid, 0, 0.5, 0, f32(command.radius));
+                        world.storage(Shape).capsuleCenter1.set(eid, 0, -0.5, 0, 0);
+                        world.storage(Shape).capsuleCenter2.set(eid, 0, 0.5, 0, 0);
+                        world.storage(Shape).radius.set(eid, f32(command.radius));
                         world.add(eid, Character, {
                             velocity: [velocity.x, velocity.y, velocity.z, 0],
                             pogoVelocity: f32(command.pogoVelocity),

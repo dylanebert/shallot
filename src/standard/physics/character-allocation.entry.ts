@@ -44,8 +44,9 @@ export default async function create(input: string) {
         position: [0, pushing ? 2 : 1.3, 0, 0],
     });
     world.add(eid, Shape, { kind: ShapeKind.Capsule });
-    world.storage(Shape).capsuleA.set(eid, 0, -0.5, 0, 0);
-    world.storage(Shape).capsuleB.set(eid, 0, 0.5, 0, 0.3);
+    world.storage(Shape).capsuleCenter1.set(eid, 0, -0.5, 0, 0);
+    world.storage(Shape).capsuleCenter2.set(eid, 0, 0.5, 0, 0);
+    world.storage(Shape).radius.set(eid, 0.3);
     world.add(eid, Character);
     world.step(1 / 60);
     if (!pushing) {

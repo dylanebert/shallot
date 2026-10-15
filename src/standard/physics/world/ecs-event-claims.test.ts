@@ -41,7 +41,8 @@ function sphere(
     world.add(eid, Body, body as never);
     world.add(eid, Shape, {
         kind: ShapeKind.Sphere,
-        sphere: [0, 0, 0, 1],
+        sphereCenter: [0, 0, 0],
+        radius: 1,
         ...shape,
     } as never);
     names.set(world.ref(eid), name);
@@ -170,7 +171,8 @@ test("PhysicsEvents preserve contact and sensor output across filter and event-f
         world.add(sensor, Shape, {
             body: ground,
             kind: ShapeKind.Sphere,
-            sphere: [0, 0, 0, 3],
+            sphereCenter: [0, 0, 0],
+            radius: 3,
             isSensor: 1,
             enableSensorEvents: 1,
         });
@@ -295,7 +297,7 @@ test("PhysicsEvents and GlobalTransform preserve the ordered contact, hit, joint
             names,
             "ground",
             { type: BodyType.Static, position: [0, -0.5, 0, 0] },
-            { sphere: [0, 0, 0, 0.5], enableContactEvents: 1 },
+            { sphereCenter: [0, 0, 0], radius: 0.5, enableContactEvents: 1 },
         );
         const falling = sphere(
             world,
@@ -303,7 +305,8 @@ test("PhysicsEvents and GlobalTransform preserve the ordered contact, hit, joint
             "falling",
             { type: BodyType.Dynamic, position: [0, 0.8, 0, 0], linearVelocity: [0, -10, 0, 0] },
             {
-                sphere: [0, 0, 0, 0.5],
+                sphereCenter: [0, 0, 0],
+                radius: 0.5,
                 density: 1,
                 enableContactEvents: 1,
                 enableHitEvents: 1,
@@ -316,14 +319,14 @@ test("PhysicsEvents and GlobalTransform preserve the ordered contact, hit, joint
             names,
             "anchor",
             { type: BodyType.Static, position: [5, 2, 0, 0] },
-            { sphere: [0, 0, 0, 0.5] },
+            { sphereCenter: [0, 0, 0], radius: 0.5 },
         );
         const bob = sphere(
             world,
             names,
             "bob",
             { type: BodyType.Dynamic, position: [5, 2, 0, 0] },
-            { sphere: [0, 0, 0, 0.5], density: 1 },
+            { sphereCenter: [0, 0, 0], radius: 0.5, density: 1 },
         );
         const joint = world.create();
         world.add(joint, WeldJoint, { a: anchor, b: bob, forceThreshold: 0, torqueThreshold: 0 });
@@ -417,21 +420,21 @@ test("PhysicsEvents order moving, sleeping, destroyed and continuous sensor visi
             names,
             "sensor",
             { type: BodyType.Static },
-            { sphere: [0, 0, 0, 2], isSensor: 1, enableSensorEvents: 1 },
+            { sphereCenter: [0, 0, 0], radius: 2, isSensor: 1, enableSensorEvents: 1 },
         );
         const moving = sphere(
             world,
             names,
             "moving",
             { type: BodyType.Dynamic, position: [-4, 0, 0, 0], linearVelocity: [2, 0, 0, 0] },
-            { sphere: [0, 0, 0, 0.5], density: 1, enableSensorEvents: 1 },
+            { sphereCenter: [0, 0, 0], radius: 0.5, density: 1, enableSensorEvents: 1 },
         );
         const sleeping = sphere(
             world,
             names,
             "sleeping",
             { type: BodyType.Dynamic, position: [0, 1, 0, 0], isAwake: 0 },
-            { sphere: [0, 0, 0, 0.25], density: 1, enableSensorEvents: 1 },
+            { sphereCenter: [0, 0, 0], radius: 0.25, density: 1, enableSensorEvents: 1 },
         );
         const bullet = sphere(
             world,
@@ -443,7 +446,7 @@ test("PhysicsEvents order moving, sleeping, destroyed and continuous sensor visi
                 linearVelocity: [1200, 0, 0, 0],
                 isBullet: 1,
             },
-            { sphere: [0, 0, 0, 0.1], density: 1, enableSensorEvents: 1 },
+            { sphereCenter: [0, 0, 0], radius: 0.1, density: 1, enableSensorEvents: 1 },
         );
         const sequence: unknown[] = [];
         const events = world.resource(PhysicsEvents);
@@ -493,14 +496,14 @@ test("PhysicsEvents retain the solved begin impulse after contact destruction be
             names,
             "ground",
             { type: BodyType.Static, position: [0, -0.5, 0, 0] },
-            { sphere: [0, 0, 0, 0.5] },
+            { sphereCenter: [0, 0, 0], radius: 0.5 },
         );
         const falling = sphere(
             world,
             names,
             "falling",
             { type: BodyType.Dynamic, position: [0, 3, 0, 0] },
-            { sphere: [0, 0, 0, 0.5], enableContactEvents: 1 },
+            { sphereCenter: [0, 0, 0], radius: 0.5, enableContactEvents: 1 },
         );
         const events = world.resource(PhysicsEvents);
         let tick = 0;

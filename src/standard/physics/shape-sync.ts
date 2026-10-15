@@ -284,7 +284,10 @@ export function syncShapeFields(
             setShapeFlag(state, shape, ShapeFlags.enablePreSolveEvents, next);
     }
 
-    if (kind === ShapeKind.Sphere && changed(binding, mask, "sphere")) {
+    if (
+        kind === ShapeKind.Sphere &&
+        (changed(binding, mask, "sphereCenter") || changed(binding, mask, "radius"))
+    ) {
         const sphere = shapeGeometry(world, eid).sphere;
         const current = readShapeSphere(state, shape);
         if (
@@ -297,7 +300,9 @@ export function syncShapeFields(
     }
     if (
         kind === ShapeKind.Capsule &&
-        (changed(binding, mask, "capsuleA") || changed(binding, mask, "capsuleB"))
+        (changed(binding, mask, "capsuleCenter1") ||
+            changed(binding, mask, "capsuleCenter2") ||
+            changed(binding, mask, "radius"))
     ) {
         const capsule = shapeGeometry(world, eid).capsule;
         const current = readShapeCapsule(state, shape);

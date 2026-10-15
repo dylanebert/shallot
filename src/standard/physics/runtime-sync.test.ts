@@ -223,9 +223,11 @@ test("Sphere and capsule Shape geometry writes use Box3D setters and getters", a
         const setSphere = spyOn(k, "shapeSetSphere");
         const setCapsule = spyOn(k, "shapeSetCapsule");
         try {
-            world.storage(Shape).sphere.set(sphereBody, 0.25, -0.5, 0.75, 0.8);
-            world.storage(Shape).capsuleA.set(capsuleBody, -1, 0, 0, 0);
-            world.storage(Shape).capsuleB.set(capsuleBody, 1, 0, 0, 0.4);
+            world.storage(Shape).sphereCenter.set(sphereBody, 0.25, -0.5, 0.75, 0);
+            world.storage(Shape).radius.set(sphereBody, 0.8);
+            world.storage(Shape).capsuleCenter1.set(capsuleBody, -1, 0, 0, 0);
+            world.storage(Shape).capsuleCenter2.set(capsuleBody, 1, 0, 0, 0);
+            world.storage(Shape).radius.set(capsuleBody, 0.4);
             world.tick();
 
             const state = stateFor(world);
@@ -808,7 +810,8 @@ function addDynamicMotorPair(world: World): [number, number] {
         });
         world.add(eid, Shape, {
             kind: ShapeKind.Sphere,
-            sphere: [0, 0, 0, 0.25],
+            sphereCenter: [0, 0, 0],
+            radius: 0.25,
             density: 1,
             friction: 0,
         });

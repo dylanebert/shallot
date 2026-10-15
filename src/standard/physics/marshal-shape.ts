@@ -122,10 +122,11 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
 }
 
 function localSphere(world: World, eid: number) {
-    const field = world.storage(ShapeComponent).sphere;
+    const shape = world.storage(ShapeComponent);
+    const center = shape.sphereCenter;
     return {
-        center: { x: field.x.get(eid), y: field.y.get(eid), z: field.z.get(eid) },
-        radius: field.w.get(eid),
+        center: { x: center.x.get(eid), y: center.y.get(eid), z: center.z.get(eid) },
+        radius: shape.radius.get(eid),
     };
 }
 
@@ -133,16 +134,16 @@ function localCapsule(world: World, eid: number) {
     const shape = world.storage(ShapeComponent);
     return {
         center1: {
-            x: shape.capsuleA.x.get(eid),
-            y: shape.capsuleA.y.get(eid),
-            z: shape.capsuleA.z.get(eid),
+            x: shape.capsuleCenter1.x.get(eid),
+            y: shape.capsuleCenter1.y.get(eid),
+            z: shape.capsuleCenter1.z.get(eid),
         },
         center2: {
-            x: shape.capsuleB.x.get(eid),
-            y: shape.capsuleB.y.get(eid),
-            z: shape.capsuleB.z.get(eid),
+            x: shape.capsuleCenter2.x.get(eid),
+            y: shape.capsuleCenter2.y.get(eid),
+            z: shape.capsuleCenter2.z.get(eid),
         },
-        radius: shape.capsuleB.w.get(eid),
+        radius: shape.radius.get(eid),
     };
 }
 
