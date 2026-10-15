@@ -71,7 +71,6 @@
         "examples/loading-screen",
         "examples/embedded-scene",
         "examples/hud",
-        "examples/interact",
         "!examples/*/node_modules",
         "!examples/*/dist",
         "!examples/*/build",

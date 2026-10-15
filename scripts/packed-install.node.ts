@@ -239,14 +239,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort();
-    expect(recipes).toEqual([
-        "embedded-scene",
-        "first-person",
-        "hud",
-        "interact",
-        "loading-screen",
-        "minimal",
-    ]);
+    expect(recipes).toEqual(["embedded-scene", "first-person", "hud", "loading-screen", "minimal"]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
     // By file name from its directory: GNU tar, which Git Bash puts first on Windows, reads `C:` as a host.
@@ -260,7 +253,6 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).toContain("examples/minimal/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/minimal/src/welcome/welcome.test.ts");
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/interact/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/embedded-scene/tsconfig.json");
     expect(packed.stdout.toString()).not.toContain("examples/minimal/package.json");
@@ -269,13 +261,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).not.toContain("examples/embedded-scene/package.json");
 });
 
-type Example =
-    | "minimal"
-    | "first-person"
-    | "loading-screen"
-    | "embedded-scene"
-    | "hud"
-    | "interact";
+type Example = "minimal" | "first-person" | "loading-screen" | "embedded-scene" | "hud";
 
 const created = new Map<Example, { manifest: Record<string, any>; installOutput: string }>();
 
@@ -351,7 +337,6 @@ for (const name of [
     "loading-screen",
     "embedded-scene",
     "hud",
-    "interact",
 ] as const) {
     describe(name, () => {
         beforeAll(() => createExample(name), TIMEOUT.startup);

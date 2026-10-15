@@ -308,7 +308,6 @@ test("an unknown template names installed examples and their descriptions", () =
     expect(existsSync(destination)).toBe(false);
     expect(output.join("\n")).toContain("minimal");
     expect(output.join("\n")).toContain("first-person");
-    expect(output.join("\n")).toMatch(/interact.*—.*Aim at objects/);
     expect(output.join("\n")).toContain(
         "loading-screen — A game's own title card, held until its intro and minimum dwell end.",
     );
