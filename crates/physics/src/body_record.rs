@@ -555,7 +555,11 @@ pub(crate) mod runtime {
             s: qs,
         };
         let rotated = q.rotate(fin.local_center);
-        let center = crate::math::offset_world_position([tx, ty, tz], rotated);
+        let center = Vec3::new(
+            (rotated.x as f64 + tx) as f32,
+            (rotated.y as f64 + ty) as f32,
+            (rotated.z as f64 + tz) as f32,
+        );
         let inv_dt = (1.0 / time_step) as f32;
         let linear = center.sub(fin.center).scale(inv_dt);
         let sign = if pose.q.dot(q) < 0.0 { -1.0 } else { 1.0 };

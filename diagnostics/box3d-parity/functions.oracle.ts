@@ -18,7 +18,14 @@ const k = instance.exports as unknown as {
     box3dOracleInput(): number;
     box3dOracleOutput(): number;
     box3dOracleRun(operation: number): number;
+    mathNormalizeQuat(x: number, y: number, z: number, s: number): number;
+    mathInputPtr(): number;
+    mathRead(operation: number): number;
 };
+function normalizedRotation(values: number[]): number[] {
+    const ptr = k.mathNormalizeQuat(values[0], values[1], values[2], values[3]);
+    return Array.from(new Float32Array(k.memory.buffer, ptr, 4));
+}
 const hex = (v: number) => (v >>> 0).toString(16).padStart(8, "0");
 const bits = (v: number) => new Uint32Array(new Float32Array([v]).buffer)[0];
 let seed = 0x47d7f7cc;
@@ -139,8 +146,7 @@ for (let operation = 10; operation <= 18; ++operation) {
         const random = () => (next() / 0x100000000) * 4 - 2;
         words[0] = 32;
         const rotation = [random(), random(), random(), random()];
-        const length = Math.hypot(...rotation);
-        put(4, [random(), random(), random(), ...rotation.map((v) => v / length)]);
+        put(4, [random(), random(), random(), ...normalizedRotation(rotation)]);
         if (operation < 16) {
             words[2] = 8;
             words[3] = bits(13.5);
@@ -167,19 +173,13 @@ for (let operation = 10; operation <= 18; ++operation) {
             const value = (word: number) => new Float32Array(new Uint32Array([word]).buffer)[0];
             const q = words.slice(7, 11).map(value),
                 p = words.slice(4, 7).map(value);
-            const cross = (a: number[], b: number[]) => [
-                a[1] * b[2] - a[2] * b[1],
-                a[2] * b[0] - a[0] * b[2],
-                a[0] * b[1] - a[1] * b[0],
-            ];
             const transformed = [
                 [-2, 0, -2],
                 [0, 0, 2],
                 [2, 0, -2],
             ].flatMap((v) => {
-                const t = cross(q, v).map((n) => 2 * n);
-                const u = cross(q, t);
-                return v.map((n, j) => n + q[3] * t[j] + u[j] + p[j]);
+                new Float32Array(k.memory.buffer, k.mathInputPtr(), 10).set([...p, ...q, ...v]);
+                return Array.from(new Float32Array(k.memory.buffer, k.mathRead(14), 3));
             });
             put(34, transformed);
         }
@@ -341,8 +341,7 @@ for (let i = 0; i < cases.length && warm.length < 64; ++i) {
     const words = [...cases[i].words];
     words.splice(44, 5, ...native[i].slice(-5).map((h) => Number.parseInt(h, 16)));
     const rotation = Array.from({ length: 4 }, () => (next() / 0x100000000) * 2 - 1);
-    const length = Math.hypot(...rotation);
-    words.splice(4, 7, ...[10, 0, 0, ...rotation.map((v) => v / length)].map(bits));
+    words.splice(4, 7, ...[10, 0, 0, ...normalizedRotation(rotation)].map(bits));
     warm.push({ operation: 15, words, label: `cached-edge-${cases[i].label}` });
 }
 const warmRows = nativeSseOutput(

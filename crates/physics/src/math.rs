@@ -426,6 +426,19 @@ impl Quat {
         }
     }
 
+    /// Finite and normalized, as required by Box3D's authoring assertions (b3IsValidQuat).
+    pub fn is_valid(self) -> bool {
+        if !self.v.x.is_finite()
+            || !self.v.y.is_finite()
+            || !self.v.z.is_finite()
+            || !self.s.is_finite()
+        {
+            return false;
+        }
+        let length_squared = self.dot(self);
+        1.0 - 20.0 * FLT_EPSILON < length_squared && length_squared < 1.0 + 20.0 * FLT_EPSILON
+    }
+
     pub fn normalize(self) -> Quat {
         let length_sq = self.dot(self);
         if length_sq > 1000.0 * FLT_MIN {
@@ -970,15 +983,6 @@ pub fn segment_distance(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> SegmentDistan
         point2: p2.mul_add(s2, d2),
         fraction2: s2,
     }
-}
-
-/// Store a host-authored world position plus an f32 offset at the position-column boundary.
-pub fn offset_world_position(position: [f64; 3], offset: Vec3) -> Vec3 {
-    Vec3::new(
-        (offset.x as f64 + position[0]) as f32,
-        (offset.y as f64 + position[1]) as f32,
-        (offset.z as f64 + position[2]) as f32,
-    )
 }
 
 /// Closest point on segment a-b to query point q (b3PointToSegmentDistance).

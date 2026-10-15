@@ -1,10 +1,6 @@
 import { readJointEventUserData } from "../kernel/jointcolumns";
 import { assertKernelEntry, kernel, rethrowQueryError, threads } from "../kernel/kernel";
-import {
-    defaultFrictionCallback,
-    defaultRestitutionCallback,
-    type WorldState,
-} from "../world/world";
+import type { WorldState } from "../world/world";
 import { solve } from "./solver";
 
 /** Advance the kernel world; TypeScript supplies settings and drives its yields. */
@@ -35,8 +31,8 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
             world.enableWarmStarting,
             world.enableContinuous,
             world.enableSleep,
-            world.frictionCallback === defaultFrictionCallback &&
-                world.restitutionCallback === defaultRestitutionCallback &&
+            world.frictionCallback === null &&
+                world.restitutionCallback === null &&
                 world.worldFrictionCallback === null &&
                 world.worldRestitutionCallback === null,
         );

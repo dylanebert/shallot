@@ -1,15 +1,14 @@
 // Direct-state joint behavior checks. Wrapper-specific accessor tests left with the removed handle API;
 // kernel creation, ordering, filtering, solver response and output are exercised over state and IDs.
 import { expect, test } from "bun:test";
+import gold from "../../../../crates/physics/tests/reader_regressions.gold.json";
 import { froundConfig } from "../common/config";
 import type { Vec3 } from "../common/records";
-import { quaternion, vector } from "../kernel/math";
-
-const f32 = Math.fround;
 
 import { BodyType, type WorldDef } from "../common/types";
-import { readSimCenter, readStateAngularVelocity } from "../kernel/bodycolumns";
+import { readStateAngularVelocity } from "../kernel/bodycolumns";
 import { JointField, jointField, setJointField } from "../kernel/jointrecords";
+import { quaternion, vector } from "../kernel/math";
 import { makeBoxHull, makeCubeHull } from "../shapes/build-hull";
 import { createHullShape, createSphereShape } from "../shapes/shape";
 import { createDistanceJoint, defaultDistanceJointDef } from "../solver/distanceJoint";
@@ -41,18 +40,11 @@ import {
     stepTestWorld,
     testShapeDef,
 } from "../testing";
-import {
-    bodyGetLinearVelocity,
-    bodyIsAwake,
-    getBodySim,
-    getBodyState,
-    getMassData,
-    readBodyTransform,
-} from "../world/body";
+import { bodyIsAwake, getBodyState, readBodyTransform } from "../world/body";
 import type { WorldState } from "../world/world";
 import { worldCounters } from "../world/world";
 
-const len = (v: Vec3): number => Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+const len = (v: Vec3): number => Math.hypot(v.x, v.y, v.z);
 const frame = (x = 0, y = 0, z = 0) => ({ p: { x, y, z }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } });
 const identityPose = () => ({ p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } });
 const baseDef = (a: number, b: number, fields: Partial<JointDef> = {}): JointDef => ({
@@ -224,25 +216,7 @@ test("prismatic speed uses f32 anchors, center offsets and rotating-axis terms",
         });
         const localFrameB = froundConfig(frame(0.9, 1.1, 1.2));
         const joint = prismatic(world, a, b, { localFrameA, localFrameB });
-        const poseA = readBodyTransform(world, a, identityPose());
-        const poseB = readBodyTransform(world, b, identityPose());
-        const centerA = getMassData(world, a).center;
-        const centerB = getMassData(world, b).center;
-        const axis = quaternion.rotate(poseA.q, quaternion.rotate(localFrameA.q, vector.axisX()));
-        const rA = quaternion.rotate(poseA.q, vector.sub(localFrameA.p, centerA));
-        const rB = quaternion.rotate(poseB.q, vector.sub(localFrameB.p, centerB));
-        const centerAWorld = readSimCenter(world, getBodySim(world, a), vector.zero());
-        const centerBWorld = readSimCenter(world, getBodySim(world, b), vector.zero());
-        const d = vector.add(vector.sub(centerBWorld, centerAWorld), vector.sub(rB, rA));
-        const wA = angularVelocity(world, a);
-        const wB = angularVelocity(world, b);
-        const vA = bodyGetLinearVelocity(world, a, vector.zero());
-        const vB = bodyGetLinearVelocity(world, b, vector.zero());
-        const vRel = vector.sub(
-            vector.add(vB, vector.cross(wB, rB)),
-            vector.add(vA, vector.cross(wA, rA)),
-        );
-        const expected = f32(vector.dot(d, vector.cross(wA, axis)) + vector.dot(axis, vRel));
+        const expected = new Float32Array(new Uint32Array([gold.prismaticSpeed]).buffer)[0];
         expect(prismaticJointSpeed(world, joint)).toBe(expected);
     } finally {
         destroyTestWorld(world);

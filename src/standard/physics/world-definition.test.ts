@@ -103,15 +103,15 @@ test("world callbacks receive the owning World and its ECS Shape EntityRefs", as
             calls.preSolve++;
             return true;
         };
-        definition.frictionCallback = (owner, a, _idA, b) => {
+        definition.frictionCallback = (owner) => {
             expect(owner).toBe(world);
             calls.friction++;
-            return Math.sqrt(a * b);
+            return 0.25;
         };
-        definition.restitutionCallback = (owner, a, _idA, b) => {
+        definition.restitutionCallback = (owner) => {
             expect(owner).toBe(world);
             calls.restitution++;
-            return Math.max(a, b);
+            return 0.125;
         };
 
         world.tick();

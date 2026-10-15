@@ -28,13 +28,7 @@ function matrixResult(op: number, input: number[]): Mat3 {
 }
 export const vector = {
     zero: (): Vec3 => ({ x: 0, y: 0, z: 0 }),
-    axisX: (): Vec3 => ({ x: 1, y: 0, z: 0 }),
     axisZ: (): Vec3 => ({ x: 0, y: 0, z: 1 }),
-    add: (a: Vec3, b: Vec3) => vectorResult(0, [...v(a), ...v(b)]),
-    sub: (a: Vec3, b: Vec3) => vectorResult(1, [...v(a), ...v(b)]),
-    scale: (s: number, a: Vec3) => vectorResult(2, [s, ...v(a)]),
-    cross: (a: Vec3, b: Vec3) => vectorResult(3, [...v(a), ...v(b)]),
-    dot: (a: Vec3, b: Vec3) => read(4, [...v(a), ...v(b)])[0],
     normalize: (a: Vec3) => vectorResult(5, v(a)),
     isNormalized: (a: Vec3) => read(22, v(a))[0] !== 0,
 };
@@ -47,28 +41,16 @@ export const quaternion = {
         const out = new Float32Array(k.memory.buffer, ptr, 4);
         return { v: { x: out[0], y: out[1], z: out[2] }, s: out[3] };
     },
-    mul: (a: Quat, b: Quat) => quaternionResult(8, [...q(a), ...q(b)]),
     negate: (a: Quat) => quaternionResult(9, q(a)),
-    conjugate: (a: Quat) => quaternionResult(10, q(a)),
-    dot: (a: Quat, b: Quat) => read(11, [...q(a), ...q(b)])[0],
-    rotate: (a: Quat, b: Vec3) => vectorResult(12, [...q(a), ...v(b)]),
-    invRotate: (a: Quat, b: Vec3) => vectorResult(13, [...q(a), ...v(b)]),
 };
 export const transform = {
     identity: (): Transform => ({ p: vector.zero(), q: quaternion.identity() }),
 };
-export function transformWorldPoint(a: Transform, b: Vec3): Vec3 {
-    const k = kernel(undefined);
-    new Float32Array(k.memory.buffer, k.mathInputPtr(), 7).set([...q(a.q), ...v(b)]);
-    const out = new Float32Array(k.memory.buffer, k.mathWorldPoint(a.p.x, a.p.y, a.p.z), 3);
-    return { x: out[0], y: out[1], z: out[2] };
-}
 export const matrix = {
     zero: (): Mat3 => ({ cx: vector.zero(), cy: vector.zero(), cz: vector.zero() }),
     fromQuat: (a: Quat) => matrixResult(15, q(a)),
     mul: (a: Mat3, b: Mat3) => matrixResult(16, [...m(a), ...m(b)]),
     transpose: (a: Mat3) => matrixResult(17, m(a)),
-    mulV: (a: Mat3, b: Vec3) => vectorResult(18, [...m(a), ...v(b)]),
 };
 export function intersectRayTriangle(start: Vec3, delta: Vec3, a: Vec3, b: Vec3, c: Vec3): number {
     return read(20, [...v(start), ...v(delta), ...v(a), ...v(b), ...v(c)])[0];

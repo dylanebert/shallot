@@ -119,8 +119,8 @@ export type WorldState = {
     worldPreSolveCallback: WorldPreSolveCallback | null;
     worldFrictionCallback: WorldMixCallback | null;
     worldRestitutionCallback: WorldMixCallback | null;
-    frictionCallback: MixCallback;
-    restitutionCallback: MixCallback;
+    frictionCallback: MixCallback | null;
+    restitutionCallback: MixCallback | null;
 
     generation: number;
     maxCapacity: Capacity;
@@ -138,13 +138,6 @@ export type WorldState = {
     enableSpeculative: boolean;
     inUse: boolean;
 };
-
-/** Default friction mixing: geometric mean (b3DefaultFrictionCallback). */
-export const defaultFrictionCallback: MixCallback = (a, _idA, b, _idB) =>
-    f32(Math.sqrt(f32(a * b)));
-
-/** Default restitution mixing: the larger of the two (b3DefaultRestitutionCallback). */
-export const defaultRestitutionCallback: MixCallback = (a, _idA, b, _idB) => (a > b ? a : b);
 
 // --- hull database ---------------------------------------------------------------------------
 
@@ -218,8 +211,8 @@ function makeWorldState(
         worldPreSolveCallback: null,
         worldFrictionCallback: null,
         worldRestitutionCallback: null,
-        frictionCallback: def.frictionCallback ?? defaultFrictionCallback,
-        restitutionCallback: def.restitutionCallback ?? defaultRestitutionCallback,
+        frictionCallback: def.frictionCallback ?? null,
+        restitutionCallback: def.restitutionCallback ?? null,
         generation,
         maxCapacity: capacity,
         invH: 0,

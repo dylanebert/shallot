@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import gold from "../../../../crates/physics/tests/reader_regressions.gold.json";
 import { restore, snapshot } from "../api/snapshot";
 import { BodyType, ShapeType } from "../common/types";
 import {
@@ -78,8 +79,9 @@ test("shape records, links, proxies, filters, inline materials, u16 generations 
         const aMass = computeShapeMass(world, a).mass;
         const bMass = computeShapeMass(world, b).mass;
         const cMass = computeShapeMass(world, c).mass;
-        expect(getMassData(world, body).mass).toBe(Math.fround(Math.fround(cMass + bMass) + aMass));
-        expect(aMass + bMass + cMass).toBeGreaterThan(0);
+        const nativeMass = new Float32Array(new Uint32Array([gold.shapeMass]).buffer)[0];
+        expect(getMassData(world, body).mass).toBe(nativeMass);
+        for (const mass of [aMass, bMass, cMass]) expect(mass).toBeGreaterThan(0);
         const bId = shapeId(world, b);
         destroyShape(world, b, true);
         expect(field(ci, ShapeField.nextShapeId)).toBe(ai);

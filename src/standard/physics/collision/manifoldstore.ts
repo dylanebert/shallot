@@ -133,23 +133,6 @@ export function contactPointCount(
     for (let i = 0; i < count; ++i) points += poolU[base + i * MANIFOLD_STRIDE + M_POINT_COUNT];
     return points;
 }
-export function contactTotalImpulse(world: WorldState, id: number): number {
-    const store = world.manifoldStore,
-        u = store.dirU,
-        p = store.poolU,
-        f = store.poolF;
-    const count = u[id * DIR_STRIDE + DIR_COUNT];
-    const base = u[id * DIR_STRIDE + DIR_BLOCK] >>> 2;
-    let impulse = 0;
-    for (let m = 0; m < count; ++m) {
-        const o = base + m * MANIFOLD_STRIDE;
-        for (let point = 0; point < p[o + M_POINT_COUNT]; ++point)
-            impulse = Math.fround(
-                impulse + f[o + M_POINTS + point * POINT_STRIDE + P_TOTAL_NORMAL_IMPULSE],
-            );
-    }
-    return impulse;
-}
 /** Independent manifold snapshots; no object holds an address into kernel storage. */
 export function readContactManifolds(world: WorldState, id: number): Manifold[] {
     const store = world.manifoldStore;

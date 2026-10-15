@@ -6,6 +6,24 @@ use shallot_physics::math::*;
 const GOLD: &str = include_str!("math.gold.json");
 
 #[test]
+fn quaternion_validity_native_bits() {
+    let gold: Vec<[u32; 5]> =
+        serde_json::from_str(include_str!("math_validity.gold.json")).unwrap();
+    assert_eq!(gold.len(), 541);
+    for row in gold {
+        let q = Quat {
+            v: Vec3::new(
+                f32::from_bits(row[0]),
+                f32::from_bits(row[1]),
+                f32::from_bits(row[2]),
+            ),
+            s: f32::from_bits(row[3]),
+        };
+        assert_eq!(u32::from(q.is_valid()), row[4], "{row:?}");
+    }
+}
+
+#[test]
 fn point_to_segment_box3d_corpus() {
     let corpus: Value = serde_json::from_str(include_str!("../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6/cases.json")).unwrap();
     let mut count = 0;

@@ -1,6 +1,7 @@
 import { createApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import type { Vec3 } from "../common/records";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { kernel } from "../kernel/kernel";
 import { physicsState } from "../runtime";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
@@ -8,7 +9,6 @@ import { createMesh } from "../shapes/mesh";
 import { createCompoundShape, createHullShape, createMeshShape } from "../shapes/shape";
 import { createTestBody, testShapeDef } from "../testing";
 import { bodySetLinearVelocity, bodySetTransform } from "../world/body";
-import { defaultFrictionCallback, defaultRestitutionCallback } from "../world/world";
 import { PhysicsWorldDefinition } from "../world-definition";
 import { awakeContactCount } from "./contact";
 
@@ -27,13 +27,13 @@ export default async function create(input: string) {
     const definition = world.resource(PhysicsWorldDefinition);
     definition.enableSleep = false;
     definition.contactRecycleDistance = 0;
+    const k = kernel(state.ecsState);
     let mixes = 0;
-    definition.frictionCallback = (_world, a, ia, b, ib) => {
+    definition.frictionCallback = (_world, a, _ia, b, _ib) => {
         mixes++;
-        return defaultFrictionCallback(a, ia, b, ib);
+        return k.materialMixDefault(0, a, b);
     };
-    definition.restitutionCallback = (_world, a, ia, b, ib) =>
-        defaultRestitutionCallback(a, ia, b, ib);
+    definition.restitutionCallback = (_world, a, _ia, b, _ib) => k.materialMixDefault(1, a, b);
     const material = { ...defaultSurfaceMaterial(), userMaterialId: 0x123456789abcdef0n };
     const ground = createTestBody(state, { type: BodyType.Static });
     if (kind === "mesh") {

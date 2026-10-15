@@ -64,11 +64,12 @@ export type Kernel = {
     characterInputPtr(): number;
     characterOutputPtr(): number;
     characterMove(world: number, own: number): void;
+    materialMixDefault(kind: number, a: number, b: number): number;
     mathInputPtr(): number;
     mathRead(operation: number): number;
-    mathWorldPoint(tx: number, ty: number, tz: number): number;
     mathCosSin(radians: number): number;
     mathNormalizeQuat(x: number, y: number, z: number, s: number): number;
+    mathQuatIsValid(x: number, y: number, z: number, s: number): number;
     worldQueryHeaderPtr(): number;
     worldQueryResultPtr(): number;
     worldQuery(world: number, operation: number, callback: number): void;
@@ -1223,7 +1224,8 @@ function materialImport(runtime: KernelState) {
             runtime.queryWorld = world.worldId;
             const idA = world.shapeStore.userMaterialIdAt(shapeA, indexA);
             const idB = world.shapeStore.userMaterialIdAt(shapeB, indexB);
-            const memory = kernel(world.ecsState).memory.buffer;
+            const k = kernel(world.ecsState);
+            const memory = k.memory.buffer;
             if (values.buffer !== memory) values = new Float32Array(memory);
             const o = pointer >>> 2;
             runtime.stepCallback = true;
@@ -1232,12 +1234,16 @@ function materialImport(runtime: KernelState) {
                 values[o + 2] =
                     owner && world.worldFrictionCallback
                         ? world.worldFrictionCallback(owner, values[o], idA, values[o + 1], idB)
-                        : world.frictionCallback(values[o], idA, values[o + 1], idB);
+                        : world.frictionCallback
+                          ? world.frictionCallback(values[o], idA, values[o + 1], idB)
+                          : k.materialMixDefault(0, values[o], values[o + 1]);
             } else {
                 values[o + 2] =
                     owner && world.worldRestitutionCallback
                         ? world.worldRestitutionCallback(owner, values[o], idA, values[o + 1], idB)
-                        : world.restitutionCallback(values[o], idA, values[o + 1], idB);
+                        : world.restitutionCallback
+                          ? world.restitutionCallback(values[o], idA, values[o + 1], idB)
+                          : k.materialMixDefault(1, values[o], values[o + 1]);
             }
         } catch (error) {
             runtime.queryFailed = true;

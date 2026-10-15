@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import gold from "../../../../crates/physics/tests/reader_regressions.gold.json";
 import { BodyType, defaultSurfaceMaterial } from "../common/types";
+import { kernel } from "../kernel/kernel";
 import { makeBoxHull } from "../shapes/build-hull";
 import { createCompound } from "../shapes/compound";
 import { createMesh } from "../shapes/mesh";
@@ -17,9 +19,20 @@ import {
     testShapeDef,
 } from "../testing";
 import { hashWorldState } from "../world/hash";
-import { defaultFrictionCallback, defaultRestitutionCallback } from "../world/world";
 import { ContactField, contactField, contactIds } from "./contact";
 import { readContactMaterial } from "./manifoldstore";
+
+test("numeric default material mixing matches native Box3D callback bits", () => {
+    const k = kernel(undefined);
+    for (const [aBits, bBits, friction, restitution] of gold.materialDefaults) {
+        const [a, b] = new Float32Array(new Uint32Array([aBits, bBits]).buffer);
+        const result = new Float32Array([
+            k.materialMixDefault(0, a, b),
+            k.materialMixDefault(1, a, b),
+        ]);
+        expect(Array.from(new Uint32Array(result.buffer))).toEqual([friction, restitution]);
+    }
+});
 
 const identity = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 const transform = { p: { x: 0, y: 0, z: 0 }, q: identity };
@@ -39,12 +52,13 @@ function mesh() {
 }
 
 test("custom mixing reads only the active geometry after a mesh slot is recycled as a compound", () => {
+    const k = kernel(undefined);
     let mixes = 0;
     const world = createTestWorld({
         enableSleep: false,
-        frictionCallback: (a, ia, b, ib) => {
+        frictionCallback: (a, _ia, b, _ib) => {
             mixes++;
-            return defaultFrictionCallback(a, ia, b, ib);
+            return k.materialMixDefault(0, a, b);
         },
     });
     try {
@@ -72,18 +86,22 @@ test("custom mixing reads only the active geometry after a mesh slot is recycled
 });
 
 test("kernel default mixing equals callback mixing for convex, flipped compound and mesh materials", () => {
+    const k = kernel(undefined);
+    const frictionCallback = (a: number, _ia: bigint, b: number) => k.materialMixDefault(0, a, b);
+    const restitutionCallback = (a: number, _ia: bigint, b: number) =>
+        k.materialMixDefault(1, a, b);
     for (const kind of ["hull", "sphere", "capsule", "mesh"] as const) {
-        const worlds = [false, true].map((callbacks) =>
+        const worlds = [
+            {},
+            { frictionCallback },
+            { restitutionCallback },
+            { frictionCallback, restitutionCallback },
+        ].map((callbacks) =>
             createTestWorld({
                 gravity: { x: 0, y: 0, z: 0 },
                 enableSleep: false,
                 enableContinuous: false,
-                ...(callbacks
-                    ? {
-                          frictionCallback: defaultFrictionCallback,
-                          restitutionCallback: defaultRestitutionCallback,
-                      }
-                    : {}),
+                ...callbacks,
             }),
         );
         try {
@@ -160,14 +178,15 @@ test("kernel default mixing equals callback mixing for convex, flipped compound 
             }
             for (let step = 0; step < 4; ++step) {
                 for (const world of worlds) stepTestWorld(world, 1 / 60, 1);
-                expect(hashWorldState(worlds[0]!)).toBe(hashWorldState(worlds[1]!));
+                for (const world of worlds.slice(1))
+                    expect(hashWorldState(worlds[0]!)).toBe(hashWorldState(world));
                 const rows = worlds.map((world) =>
                     contactIds(world)
                         .filter((c) => contactField(world, c, ContactField.manifoldCount) > 0)
                         .map((c) => readContactMaterial(world.manifoldStore.dirF, c)),
                 );
                 expect(rows[0]!.length).toBeGreaterThan(0);
-                expect(rows[0]).toEqual(rows[1]);
+                for (const row of rows.slice(1)) expect(rows[0]).toEqual(row);
             }
         } finally {
             for (const world of worlds) destroyTestWorld(world);

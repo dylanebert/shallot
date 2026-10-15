@@ -858,10 +858,20 @@ unsafe fn mix_value(kind: u32, a: Surface, b: Surface, custom: bool) -> f32 {
             return values[2];
         }
     }
-    if kind == 0 {
-        (a.friction * b.friction).sqrt()
+    let (a, b) = if kind == 0 {
+        (a.friction, b.friction)
     } else {
-        a.restitution.max(b.restitution)
+        (a.restitution, b.restitution)
+    };
+    default_mix_value(kind, a, b)
+}
+
+#[export_name = "materialMixDefault"]
+pub extern "C" fn default_mix_value(kind: u32, a: f32, b: f32) -> f32 {
+    if kind == 0 {
+        (a * b).sqrt()
+    } else {
+        a.max(b)
     }
 }
 

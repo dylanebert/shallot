@@ -135,8 +135,8 @@ test("compound convex children mix their mapped material for callbacks, rolling 
                 const mixed = readContactMaterial(world.manifoldStore.dirF, contact);
                 expect(mixed.friction).toBe(Math.fround(0.9));
                 expect(mixed.restitution).toBe(Math.fround(0.8));
-                const radius = kind === "hull" && partner === "hull" ? 0.125 : 0.5;
-                expect(mixed.rollingResistance).toBe(Math.fround(Math.fround(0.7) * radius));
+                const rolling = kind === "hull" && partner === "hull" ? 0.0875 : 0.35;
+                expect(mixed.rollingResistance).toBe(Math.fround(rolling));
                 const sign = flipped ? -1 : 1;
                 expect(mixed.tangentVelocity).toEqual({
                     x: sign * Math.fround(0.4),

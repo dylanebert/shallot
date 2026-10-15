@@ -13,7 +13,7 @@ pub extern "C" fn input_ptr() -> *mut f32 {
 /// Parity harness operations over the existing scalar math; result lives until the next call.
 #[export_name = "mathRead"]
 pub unsafe extern "C" fn read(operation: u32) -> *const f32 {
-    use crate::math::Mat3;
+    use crate::math::{Mat3, Transform};
     let a = &*(&raw const INPUT);
     let v = |i: usize| Vec3::new(a[i], a[i + 1], a[i + 2]);
     let q = |i: usize| Quat {
@@ -32,22 +32,13 @@ pub unsafe extern "C" fn read(operation: u32) -> *const f32 {
     let mut matrix = None;
     match operation {
         0 => vector = Some(v(0).add(v(3))),
-        1 => vector = Some(v(0).sub(v(3))),
-        2 => vector = Some(v(1).scale(a[0])),
-        3 => vector = Some(v(0).cross(v(3))),
-        4 => result[0] = v(0).dot(v(3)),
         5 => vector = Some(v(0).normalize()),
         6 => quaternion = Some(Quat::from_axis_angle(v(0), a[3])),
-        8 => quaternion = Some(q(0).mul(q(4))),
         9 => quaternion = Some(q(0).negate()),
-        10 => quaternion = Some(q(0).conjugate()),
-        11 => result[0] = q(0).dot(q(4)),
-        12 => vector = Some(q(0).rotate(v(4))),
-        13 => vector = Some(q(0).inv_rotate(v(4))),
+        14 => vector = Some(Transform { p: v(0), q: q(3) }.point(v(7))),
         15 => matrix = Some(Mat3::from_quat(q(0))),
         16 => matrix = Some(m(0).mul(m(9))),
         17 => matrix = Some(m(0).transpose()),
-        18 => vector = Some(m(0).mul_v(v(9))),
         20 => {
             result[0] = crate::mesh_query::intersect_ray_triangle(v(0), v(3), [v(6), v(9), v(12)])
         }
@@ -74,23 +65,20 @@ pub unsafe extern "C" fn read(operation: u32) -> *const f32 {
     result.as_ptr()
 }
 
-#[export_name = "mathWorldPoint"]
-pub unsafe extern "C" fn world_point(tx: f64, ty: f64, tz: f64) -> *const f32 {
-    let a = &*(&raw const INPUT);
-    let q = Quat {
-        v: Vec3::new(a[0], a[1], a[2]),
-        s: a[3],
-    };
-    let p = crate::math::offset_world_position([tx, ty, tz], q.rotate(Vec3::new(a[4], a[5], a[6])));
-    OUTPUT = [p.x, p.y, p.z, 0.0];
-    (&raw const OUTPUT).cast()
-}
-
 #[export_name = "mathCosSin"]
 pub unsafe extern "C" fn cos_sin(radians: f32) -> *const f32 {
     let cs = compute_cos_sin(radians);
     OUTPUT = [cs.cosine, cs.sine, 0.0, 0.0];
     (&raw const OUTPUT).cast()
+}
+
+#[export_name = "mathQuatIsValid"]
+pub extern "C" fn quat_is_valid(x: f32, y: f32, z: f32, s: f32) -> bool {
+    Quat {
+        v: Vec3::new(x, y, z),
+        s,
+    }
+    .is_valid()
 }
 
 #[export_name = "mathNormalizeQuat"]

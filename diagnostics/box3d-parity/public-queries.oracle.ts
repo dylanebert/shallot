@@ -14,6 +14,7 @@ import {
     ShapeKind,
 } from "../../src/core/physics";
 import { Time, World } from "../../src/engine";
+import { quaternion, vector } from "../../src/standard/physics/kernel/math";
 import { BodyType, defaultSurfaceMaterial } from "../../src/standard/physics/common/types";
 import { createBoxMesh } from "../../src/standard/physics/shapes/mesh";
 import { createCompound } from "../../src/standard/physics/shapes/compound";
@@ -714,20 +715,15 @@ function identityPose(kind: number): Pose {
 
 function generatedPose(kind: number): Pose {
     const base = fixturePosition(kind);
-    const axis = [random() - 0.5, random() - 0.5, random() - 0.5];
-    const axisLength = Math.hypot(...axis);
-    const halfAngle = (random() - 0.5) * 0.45;
-    const scale = Math.sin(halfAngle) / axisLength;
+    const axis = { x: random() - 0.5, y: random() - 0.5, z: random() - 0.5 };
+    const rotation = quaternion.fromAxisAngle(vector.normalize(axis), (random() - 0.5) * 0.9);
     return {
         position: {
             x: f32(base.x + (random() - 0.5) * 0.24),
             y: f32(base.y + (random() - 0.5) * 0.12),
             z: f32(base.z + (random() - 0.5) * 0.24),
         },
-        rotation: {
-            v: { x: f32(axis[0] * scale), y: f32(axis[1] * scale), z: f32(axis[2] * scale) },
-            s: f32(Math.cos(halfAngle)),
-        },
+        rotation,
     };
 }
 

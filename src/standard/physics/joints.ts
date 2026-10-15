@@ -151,23 +151,16 @@ function endpoints(
     );
     return null;
 }
-const validQuat = (q: Quat): boolean => {
-    if (![q.v.x, q.v.y, q.v.z, q.s].every(Number.isFinite)) return false;
-    const f = Math.fround;
-    const lengthSquared = f(
-        f(f(f(q.v.x * q.v.x) + f(q.v.y * q.v.y)) + f(q.v.z * q.v.z)) + f(q.s * q.s),
-    );
-    const tolerance = 20 * 2 ** -23;
-    return 1 - tolerance < lengthSquared && lengthSquared < 1 + tolerance;
-};
-const validFrame = (frame: Transform): boolean =>
-    [frame.p.x, frame.p.y, frame.p.z].every(Number.isFinite) && validQuat(frame.q);
+const validQuat = (state: WorldState, q: Quat): boolean =>
+    kernel(state.ecsState).mathQuatIsValid(q.v.x, q.v.y, q.v.z, q.s) !== 0;
+const validFrame = (state: WorldState, frame: Transform): boolean =>
+    [frame.p.x, frame.p.y, frame.p.z].every(Number.isFinite) && validQuat(state, frame.q);
 
 /** Only the assertions in Box3D's create functions refuse authored values; solver clamping stays in the solver. */
-export function invalidJointField(def: JointDef): string | null {
+function invalidJointField(state: WorldState, def: JointDef): string | null {
     const c = def.config;
-    if (!validFrame(c.localFrameA)) return "localFrameA";
-    if (!validFrame(c.localFrameB)) return "localFrameB";
+    if (!validFrame(state, c.localFrameA)) return "localFrameA";
+    if (!validFrame(state, c.localFrameB)) return "localFrameB";
     switch (def.kind) {
         case "Distance":
             if (!Number.isFinite(c.length) || !(c.length! > 0)) return "length";
@@ -190,7 +183,7 @@ export function invalidJointField(def: JointDef): string | null {
                 )
             )
                 return "coneAngle";
-            if (!validQuat(c.targetRotation!)) return "targetRotation";
+            if (!validQuat(state, c.targetRotation!)) return "targetRotation";
             break;
         case "Weld":
             for (const name of [
@@ -218,7 +211,7 @@ function createJoint(
 ): EntityId | null {
     const pair = endpoints(bodies, def, isDeferred, warned, key);
     if (!pair) return null;
-    const invalid = invalidJointField(def);
+    const invalid = invalidJointField(state, def);
     if (invalid) {
         warnOnce(
             warned,
@@ -740,7 +733,7 @@ function applyLocalFrame(
     frame.q.v.y = qy;
     frame.q.v.z = qz;
     frame.q.s = qw;
-    if (!validFrame(frame)) {
+    if (!validFrame(state, frame)) {
         rejectFieldEdit(warned, key, binding, eid, localFrameName);
         return;
     }
@@ -861,7 +854,7 @@ function applyJointFields(
                 rotation.v.y = target.y.get(eid);
                 rotation.v.z = target.z.get(eid);
                 rotation.s = target.w.get(eid);
-                if (!validQuat(rotation)) {
+                if (!validQuat(state, rotation)) {
                     rejectFieldEdit(warned, key, binding, eid, "targetRotation");
                 } else {
                     clearFieldWarning(warned, binding, key, "targetRotation");
