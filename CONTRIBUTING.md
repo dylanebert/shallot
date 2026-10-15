@@ -268,8 +268,9 @@ A choice the pillars leave open is taste, and goes to the person.
 - A name means one thing across the tree, one act takes one verb and one shape, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
 - One fact has one name, one representation, one producer and one path, and one algorithm has one implementation; a second spelling, a second copy or a forwarding wrapper goes.
 - JSDoc states the contract the signature cannot: units, ownership, lifetime, frame timing and what is refused. It carries no `@example`; examples live in `examples/`.
-- A `//` comment says why the code is as it is.
-- Neither JSDoc nor a comment restates the code or its history ([Google TypeScript Style](https://google.github.io/styleguide/tsguide.html#comments-documentation), Comments and documentation).
+- A `//` comment says why the code is as it is, where the code cannot.
+- A comment states its fact plainly, all of it and no more. It does not restate the code, walk through it, or tell how it came to be: no history, how it was found, or alternatives rejected ([Google TypeScript Style](https://google.github.io/styleguide/tsguide.html#comments-documentation), Comments and documentation).
+- A comment names a precedent only where its reader acts on it: the source the code is read against, or a divergence and its reason. Following the referent goes unsaid; a precedent is not a reason, so the reason itself is written.
 
 ## Code-authored worlds
 
