@@ -7,13 +7,11 @@ import { type CollisionPlane, clipVector, solvePlanes } from "../collision/mover
 import { kernelRay } from "../collision/shape_query_gold";
 import {
     type AABB,
-    computeCosSin,
     type Vec3 as PhysicsVec3,
     pointToSegmentDistance,
     type Quat,
     type Transform,
     type Vec3,
-    vec3,
 } from "../common/math";
 import { BodyType, ShapeType } from "../common/types";
 import { readStateAngularVelocity } from "../kernel/bodycolumns";
@@ -288,20 +286,6 @@ function runJointCase(item: OracleCase): unknown {
 function runBaseCase(item: OracleCase): unknown {
     const input = item.input as Record<string, unknown>;
     switch (item.id) {
-        case "math.add.v1.scalar":
-        case "math.add.v1.simd": {
-            const a = vec(input.a);
-            const b = vec(input.b);
-            return { value: outVec(vec3.add(a, b)) };
-        }
-        case "math.dot.v1.scalar":
-        case "math.dot.v1.simd":
-            return { value: bits(vec3.dot(vec(input.a), vec(input.b))) };
-        case "math.cos-sin.v1.scalar":
-        case "math.cos-sin.v1.simd": {
-            const value = awaitableMath(input.radians);
-            return value;
-        }
         case "geometry.sphere-aabb.v1.scalar":
         case "geometry.sphere-aabb.v1.simd": {
             const shape: Sphere = { center: vec(input.center), radius: f32(String(input.radius)) };
@@ -669,12 +653,6 @@ function runBaseCase(item: OracleCase): unknown {
         default:
             throw new Error(`no common-input adapter for ${item.id}`);
     }
-}
-
-// Kept as a separate function so the vector dispatch has no inline output arithmetic.
-function awaitableMath(value: unknown): { cosine: string; sine: string } {
-    const result = computeCosSin(f32(String(value)));
-    return { cosine: bits(result.cosine), sine: bits(result.sine) };
 }
 
 export type ConsumerCorpus = { schema: string; cases: OracleCase[] };

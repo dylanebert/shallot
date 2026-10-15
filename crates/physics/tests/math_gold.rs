@@ -9,6 +9,49 @@ use shallot_physics::math::*;
 
 const GOLD: &str = include_str!("../../../src/standard/physics/common/math.gold.json");
 
+#[test]
+fn math_box3d_corpus() {
+    let corpus: Value = serde_json::from_str(include_str!("../../../src/standard/physics/oracle/box3d/47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6/cases.json")).unwrap();
+    let mut count = 0;
+    for case in corpus["cases"].as_array().unwrap() {
+        if case["family"] != "math" {
+            continue;
+        }
+        count += 1;
+        let input = &case["input"];
+        let output = &case["output"];
+        let label = case["id"].as_str().unwrap();
+        let vec = |name: &str| {
+            let a = input[name].as_array().unwrap();
+            Vec3::new(
+                from_bits(a[0].as_str().unwrap()),
+                from_bits(a[1].as_str().unwrap()),
+                from_bits(a[2].as_str().unwrap()),
+            )
+        };
+        match case["symbol"].as_str().unwrap() {
+            "b3Add" => {
+                let v = vec("a").add(vec("b"));
+                for (i, n) in [v.x, v.y, v.z].iter().enumerate() {
+                    assert_bits(*n, output["value"][i].as_str().unwrap(), label);
+                }
+            }
+            "b3Dot" => assert_bits(
+                vec("a").dot(vec("b")),
+                output["value"].as_str().unwrap(),
+                label,
+            ),
+            "b3ComputeCosSin" => {
+                let cs = compute_cos_sin(from_bits(input["radians"].as_str().unwrap()));
+                assert_bits(cs.cosine, output["cosine"].as_str().unwrap(), label);
+                assert_bits(cs.sine, output["sine"].as_str().unwrap(), label);
+            }
+            symbol => panic!("unmapped math symbol: {symbol}"),
+        }
+    }
+    assert_eq!(count, 6);
+}
+
 // Reconstruct an exact f32 from the raw hex bits the C generator emitted — no decimal round-trip.
 fn from_bits(hex: &str) -> f32 {
     let bits = u32::from_str_radix(hex.trim_start_matches("0x"), 16).expect("hex");

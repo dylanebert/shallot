@@ -11,7 +11,7 @@ import { World } from "../../src/engine";
 import { awakeContactCount, contactBodyId, contactCapacity, contactField, ContactField } from "../../src/standard/physics/collision/contact";
 import { OVERFLOW_INDEX } from "../../src/standard/physics/common/constants";
 import { BodyType, defaultBodyDef, defaultFilter, defaultShapeDef, defaultSurfaceMaterial, type BodyDef, type ShapeDef, type WorldDef } from "../../src/standard/physics/common/types";
-import { computeCosSin, DEG_TO_RAD, offsetPos, PI, quat } from "../../src/standard/physics/common/math";
+import { DEG_TO_RAD, offsetPos, PI } from "../../src/standard/physics/common/math";
 import { DIR_CACHE, DIR_STRIDE } from "../../src/standard/physics/kernel/contact-layout";
 import { kernel, init, shutdown } from "../../src/standard/physics/kernel/kernel";
 import { hashWorldState } from "../../src/standard/physics/world/hash";
@@ -98,10 +98,15 @@ function createHuman(
         );
         return body;
     });
-    const frame = (p: V3, q: Q4) => ({
-        p: { x: f(p[0]), y: f(p[1]), z: f(p[2]) },
-        q: quat.normalize({ v: { x: f(q[0]), y: f(q[1]), z: f(q[2]) }, s: f(q[3]) }),
-    });
+    const frame = (p: V3, q: Q4) => {
+        const k = kernel(w.ecsState);
+        const ptr = k.mathNormalizeQuat(q[0], q[1], q[2], q[3]);
+        const values = new Float32Array(k.memory.buffer, ptr, 4);
+        return {
+            p: { x: f(p[0]), y: f(p[1]), z: f(p[2]) },
+            q: { v: { x: values[0], y: values[1], z: values[2] }, s: values[3] },
+        };
+    };
     const joints: number[] = [];
     for (let i = 1; i < BONES.length; ++i) {
         const b = BONES[i];
@@ -245,8 +250,10 @@ function junk(rocks: V3[], def: Partial<WorldDef>): Scene {
         step(w) {
             const timeStep = f(1 / 60);
             degrees = f(degrees + f(-6.0 * timeStep));
-            const cs = computeCosSin(f(f(degrees * PI) / 180.0));
-            const p = { x: f(35 * cs.cosine), y: 0, z: f(35 * cs.sine) };
+            const k = kernel(w.ecsState);
+            const ptr = k.mathCosSin(f(f(degrees * PI) / 180.0));
+            const cs = new Float32Array(k.memory.buffer, ptr, 2);
+            const p = { x: f(35 * cs[0]), y: 0, z: f(35 * cs[1]) };
             bodySetTargetTransform(w, pusher, { p, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } }, timeStep, false);
         },
     };

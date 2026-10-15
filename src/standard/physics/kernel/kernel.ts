@@ -64,6 +64,8 @@ export type Kernel = {
     characterInputPtr(): number;
     characterOutputPtr(): number;
     characterMove(world: number, own: number): void;
+    mathCosSin(radians: number): number;
+    mathNormalizeQuat(x: number, y: number, z: number, s: number): number;
     worldQueryHeaderPtr(): number;
     worldQueryResultPtr(): number;
     worldQuery(world: number, operation: number, callback: number): void;

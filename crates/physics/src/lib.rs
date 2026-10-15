@@ -58,6 +58,7 @@ mod joints;
 pub mod manifold;
 pub mod manifold_abi;
 pub mod math;
+mod math_abi;
 pub mod mesh_build;
 pub mod mesh_contact;
 pub mod mesh_query;
