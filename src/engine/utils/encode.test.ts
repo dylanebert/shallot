@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { vec2f, vec3f, vec4f } from "typegpu/data";
+import { pack2x16unorm } from "typegpu/std";
 import {
     octEncode,
     octEncodeNormal,
@@ -9,7 +10,6 @@ import {
     packUnorm2,
     unpackQuatSnorm16x4,
 } from "./encode";
-import { packUnorm2x16 } from "./tgsl";
 
 // The plain-JS mirrors are the only duplicated logic in encode.ts, so each is pinned against the TGSL
 // function it mirrors: bit-identical on the packed word, over a sweep dense enough to reach both
@@ -47,17 +47,17 @@ describe("each plain-JS mirror packs the same word as its TGSL source", () => {
         }
     });
 
-    test("packUnorm2 matches packUnorm2x16", () => {
+    test("packUnorm2 matches pack2x16unorm", () => {
         for (const [x, y] of [
             [0, 0],
             [1, 1],
             [2, -1],
         ]) {
-            expect(packUnorm2(x, y)).toBe(packUnorm2x16(vec2f(x, y)));
+            expect(packUnorm2(x, y)).toBe(pack2x16unorm(vec2f(x, y)));
         }
         for (let i = 0; i < 4096; i++) {
             const [x, y] = [next(), next()];
-            expect(packUnorm2(x, y)).toBe(packUnorm2x16(vec2f(x, y)));
+            expect(packUnorm2(x, y)).toBe(pack2x16unorm(vec2f(x, y)));
         }
     });
 
