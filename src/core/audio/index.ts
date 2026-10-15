@@ -20,7 +20,6 @@ export interface Clip {
     readonly version: number;
 }
 
-/** The World's named clip IDs and their decoded PCM. */
 interface ClipStore {
     readonly registry: Registry<Clip>;
     nextId: number;
@@ -31,7 +30,7 @@ export const Clips: Resource<ClipStore> = {
     create: () => ({ registry: new Registry<Clip>(), nextId: 0, nextVersion: 1 }),
 };
 
-/** Playback data, with no voice or device state. `loop` is 0 for once and 1 for loop.
+/** Playback data, with no voice or device state.
  * On restore, a once Sound survives only when its same runtime voice is still playing; otherwise
  * it is discarded. A once Sound created after the restore plays normally.
  */
@@ -111,8 +110,7 @@ function downmix(channels: readonly Float32Array[], length: number): Float32Arra
 }
 
 /** Start a registered clip and return its entity ID, or -1 when the clip is unknown. `position`
- * adds a `Transform`; it is spatial when a `Listener` with derived placement exists. Once Sounds
- * restored without a matching live voice are discarded; a new once Sound played after restore starts.
+ * adds a `Transform`; it is spatial when a `Listener` with derived placement exists.
  */
 export function play(
     world: World,
