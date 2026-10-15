@@ -500,9 +500,15 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             scale = [1, 1, 1, 0];
         } else if (input.kind === 4) {
             kind = ShapeKind.HeightField;
+            // b3CreateGrid(4, 4, { 1, 1, 1 }, false)'s definition.
             geometry = world.resource(HeightFields).register({
                 name: "entity-query-heightfield",
-                data: createGrid(4, 4, { x: 1, y: 1, z: 1 }, false),
+                heights: new Float32Array(16),
+                scale: [1, 1, 1],
+                countX: 4,
+                countZ: 4,
+                globalMinimumHeight: -256,
+                globalMaximumHeight: 256,
             });
         } else {
             kind = ShapeKind.Compound;

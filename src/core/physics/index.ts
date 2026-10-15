@@ -9,6 +9,7 @@ import {
     vec4,
 } from "../../engine";
 import { GlobalTransform, TransformPlugin } from "../transform";
+import { HeightFields } from "./height-field";
 import { Hulls } from "./hull";
 import {
     DistanceJoint,
@@ -44,10 +45,6 @@ export {
     type SurfaceMaterial,
 } from "./shape";
 
-/** Named height-field geometry referenced by a Shape of kind HeightField. */
-export const HeightFields: Resource<Registry<ShapeGeometry>> = {
-    create: () => new Registry(),
-};
 /** Named compound geometry referenced by a Shape of kind Compound. */
 export const Compounds: Resource<Registry<ShapeGeometry>> = {
     create: () => new Registry(),
@@ -172,5 +169,6 @@ export const PhysicsPlugin: Plugin = {
         WheelJoint,
     ],
 };
+export { type HeightField, HeightFields } from "./height-field";
 export { type Hull, Hulls, UNIT_CUBE_ID } from "./hull";
 export { type PhysicsMesh, PhysicsMeshes } from "./mesh";

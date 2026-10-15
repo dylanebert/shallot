@@ -9,9 +9,9 @@ export const HEIGHT_FIELD_HOLE = 0xff;
 /** Data used to create a height field (b3HeightFieldDef). */
 export type HeightFieldDef = {
     /** Grid point heights, row-major, length = countX * countZ. */
-    heights: number[];
+    heights: ArrayLike<number>;
     /** Per-cell material index (0xFF = hole), length = (countX-1)*(countZ-1); null → all zero. */
-    materialIndices: number[] | null;
+    materialIndices: ArrayLike<number> | null;
     /** Overall scale; all components must be positive. */
     scale: Vec3;
     /** Number of grid lines along the x-axis (columns). */

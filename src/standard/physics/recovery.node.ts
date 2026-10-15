@@ -137,7 +137,16 @@ test("core physics recovery restores every Shape geometry and material registry"
             indices: new Uint32Array([0, 1, 2]),
         };
         const meshId = mesh.register(structuredClone(triangle));
-        const heightId = heightField.register({ name: "recovery-height", data: { version: 1 } });
+        const field = {
+            name: "recovery-height",
+            heights: new Float32Array([0, 0.25, 0.5, 1]),
+            scale: [1, 1, 1] as [number, number, number],
+            countX: 2,
+            countZ: 2,
+            globalMinimumHeight: 0,
+            globalMaximumHeight: 1,
+        };
+        const heightId = heightField.register(structuredClone(field));
         const compoundId = compound.register({ name: "recovery-compound", data: { version: 1 } });
         const materialId = materials.register({
             name: "recovery-materials",
@@ -162,7 +171,7 @@ test("core physics recovery restores every Shape geometry and material registry"
         expect(mesh.id("recovery-mesh")).toBe(meshId);
         expect(mesh.get("recovery-mesh")).toEqual(triangle);
         expect(heightField.id("recovery-height")).toBe(heightId);
-        expect(heightField.get("recovery-height")?.data).toEqual({ version: 1 });
+        expect(heightField.get("recovery-height")).toEqual(field);
         expect(compound.id("recovery-compound")).toBe(compoundId);
         expect(compound.get("recovery-compound")?.data).toEqual({ version: 1 });
         expect(materials.id("recovery-materials")).toBe(materialId);

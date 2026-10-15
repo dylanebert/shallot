@@ -183,6 +183,43 @@ const geometry = world.resource(PhysicsMeshes).register({
 world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry, scale: [1, 1, 1] });
 ```
 
+## Height fields hold Box3D's height-field input
+
+In 0.9.5, `createHeightField(def)` from `/tumble/core` built `HeightFieldData` for a `TumbleBody`
+height-field shape. In 0.10, register the definition as a `HeightField` in
+`world.resource(HeightFields)` and name its id in a `Shape` of kind `HeightField`; standard physics
+builds it once per World. `heights` is a `Float32Array`, `materialIndices` an optional `Uint8Array`,
+`scale` is `[x, y, z]`, and `clockwiseWinding` is optional. `createHeightField`, `createGrid`,
+`createWave`, `HeightFieldDef`, `HeightFieldData` and `HEIGHT_FIELD_HOLE` are removed; a
+material index of 255 still makes a cell a hole.
+
+```ts
+// 0.9.5
+const field = createHeightField({
+    heights,
+    materialIndices: null,
+    scale: { x: 1, y: 1, z: 1 },
+    countX: 8,
+    countZ: 8,
+    globalMinimumHeight: -10,
+    globalMaximumHeight: 10,
+    clockwiseWinding: false,
+});
+Tumble.body(eid)?.createHeightField({}, field);
+
+// 0.10
+const geometry = world.resource(HeightFields).register({
+    name: "terrain",
+    heights: new Float32Array(heights),
+    scale: [1, 1, 1],
+    countX: 8,
+    countZ: 8,
+    globalMinimumHeight: -10,
+    globalMaximumHeight: 10,
+});
+world.add(eid, Shape, { kind: ShapeKind.HeightField, geometry });
+```
+
 ## Surface materials come from `/physics`
 
 Import `SurfaceMaterial` from `/physics` instead of `/tumble/core`. Its `tangentVelocity` is

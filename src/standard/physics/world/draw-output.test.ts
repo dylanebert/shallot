@@ -81,7 +81,7 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
             useMedianSplit: true,
             identifyEdges: true,
         });
-        const heightField = createHeightField({
+        const heightExpected = createHeightField({
             heights: [0, 0.25, 0.5, 1],
             materialIndices: null,
             scale: { x: 1, y: 2, z: 3 },
@@ -91,10 +91,14 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
             globalMaximumHeight: 1,
             clockwiseWinding: false,
         });
-        const heightExpected = structuredClone(heightField);
         const heightId = world.resource(HeightFields).register({
             name: "draw-payload-height-field",
-            data: heightField,
+            heights: new Float32Array([0, 0.25, 0.5, 1]),
+            scale: [1, 2, 3],
+            countX: 2,
+            countZ: 2,
+            globalMinimumHeight: 0,
+            globalMaximumHeight: 1,
         });
         const childHull = makeBoxHull(0.25, 0.5, 0.75);
         const compound = createCompound({

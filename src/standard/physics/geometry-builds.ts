@@ -3,8 +3,14 @@
 // definition replaced by name is a new key, and a deleted one the game no longer holds is collected
 // with its build.
 
-import { type PhysicsMesh, PhysicsMeshes } from "../../core/physics";
+import {
+    type HeightField,
+    HeightFields,
+    type PhysicsMesh,
+    PhysicsMeshes,
+} from "../../core/physics";
 import type { Registry, Resource, World } from "../../engine";
+import { createHeightField, type HeightFieldData } from "./shapes/heightfield";
 import { createMesh, type MeshData } from "./shapes/mesh";
 
 interface Geometry<Def extends { name: string }, Built extends object> {
@@ -114,16 +120,62 @@ export function meshBuild(world: World, id: number): MeshData | undefined {
     return lookup(world, meshes, id);
 }
 
+function buildHeightField(world: World, def: HeightField): HeightFieldData {
+    const { heights, materialIndices, scale, countX, countZ } = def;
+    const label = `physics: height field "${def.name}"`;
+    if (!Number.isInteger(countX) || !Number.isInteger(countZ) || countX < 2 || countZ < 2)
+        throw new Error(`${label} is ${countX} by ${countZ} points, not integers of at least 2`);
+    if (heights.length !== countX * countZ)
+        throw new Error(`${label} has ${heights.length} heights for ${countX * countZ} points`);
+    const cells = (countX - 1) * (countZ - 1);
+    if (materialIndices && materialIndices.length !== cells)
+        throw new Error(
+            `${label} has ${materialIndices.length} material indices for ${cells} cells`,
+        );
+    if (!(scale[0] > 0 && scale[1] > 0 && scale[2] > 0))
+        throw new Error(`${label} has scale [${scale.join(", ")}], not positive`);
+    if (!(def.globalMinimumHeight <= def.globalMaximumHeight))
+        throw new Error(
+            `${label} has globalMinimumHeight ${def.globalMinimumHeight} above globalMaximumHeight ${def.globalMaximumHeight}`,
+        );
+    return createHeightField(
+        {
+            heights,
+            materialIndices: materialIndices ?? null,
+            scale: { x: scale[0], y: scale[1], z: scale[2] },
+            countX,
+            countZ,
+            globalMinimumHeight: def.globalMinimumHeight,
+            globalMaximumHeight: def.globalMaximumHeight,
+            clockwiseWinding: def.clockwiseWinding ?? false,
+        },
+        world,
+    );
+}
+
+const heightFields: Geometry<HeightField, HeightFieldData> = {
+    registry: HeightFields,
+    builds: { create: () => new WeakMap() },
+    build: buildHeightField,
+};
+
+/** The built height field for a HeightFields id, or undefined when none is registered; throws for a definition a solver refuses. */
+export function heightFieldBuild(world: World, id: number): HeightFieldData | undefined {
+    return lookup(world, heightFields, id);
+}
+
 /** Builds of the registered definitions by registry id, by reference; builds are immutable. */
 export interface GeometryBuilds {
     meshes: [number, MeshData][];
+    heightFields: [number, HeightFieldData][];
 }
 
 export function captureGeometryBuilds(world: World): GeometryBuilds {
-    return { meshes: capture(world, meshes) };
+    return { meshes: capture(world, meshes), heightFields: capture(world, heightFields) };
 }
 
 /** Pairs captured builds with the definitions core physics restored, so restored Shapes keep their geometry identity. */
 export function restoreGeometryBuilds(world: World, captured: GeometryBuilds): void {
     restore(world, meshes, captured.meshes);
+    restore(world, heightFields, captured.heightFields);
 }
