@@ -193,7 +193,7 @@ function removeResume(runtime: Runtime): void {
     runtime.resume = null;
 }
 
-/** Start the per-World context and compiled-kernel worklet. No browser host is required in Node. */
+/** Starts a World-owned context and worklet; silently does nothing without Web Audio globals. */
 export async function initializeAudio(world: World): Promise<void> {
     const runtime = world.resource(AudioRuntime);
     const Ctor = browserAudioContext();
@@ -569,7 +569,6 @@ function releaseFinished(world: World, runtime: Runtime, handle: number): void {
     }
 }
 
-/** Accept the worklet's returned command buffer and completed generation handles. */
 export function receiveAudioMessage(world: World, data: any, ownedRuntime?: Runtime): void {
     if (world.disposed) return;
     const runtime = ownedRuntime ?? world.resource(AudioRuntime);
@@ -625,7 +624,8 @@ export const StandardAudioPlugin: Plugin = {
     },
 };
 
-/** Decode a URL or Blob and register its PCM in this World's clip registry. */
+/** Registers decoded PCM in this World's clip registry. Rejects without an AudioContext or on
+ * fetch/decode failure; closes a temporary decoding context, never the World's output context. */
 export async function loadClip(world: World, name: string, source: string | Blob): Promise<number> {
     const output = world.resource(AudioOutput);
     const Ctor = browserAudioContext();
