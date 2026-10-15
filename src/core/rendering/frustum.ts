@@ -9,8 +9,9 @@ export const CULL_FRUSTUM = 0;
 
 /**
  * Writes six inward frustum planes from column-major viewProj into `out` at `base`, as xyz normal/w offset.
- * Nondegenerate planes are normalized: dot(n,p)+w is signed world distance. Infinite perspective leaves
- * the far plane degenerate; {@link frustumVolume} supplies the finite cull bound.
+ * Nondegenerate planes are normalized: dot(n,p)+w is signed world distance; a sphere of radius r is
+ * outside when that distance is below -r. WebGPU reverse-Z uses [0,1] depth. Infinite perspective
+ * leaves the far plane degenerate; {@link frustumVolume} supplies the finite cull bound.
  */
 export function frustumPlanes(viewProj: Float32Array, out: Float32Array, base = 0): Float32Array {
     const m = viewProj;
@@ -60,8 +61,9 @@ export function frustumPlanes(viewProj: Float32Array, out: Float32Array, base = 
 }
 
 /**
- * Writes a cull slot to `out`; header.y is one for depth-only views, zero for shading views.
- * Supplying cameraWorld and far replaces an infinite perspective's degenerate far plane with a finite bound.
+ * Writes a cull slot at `slot*CULL_VOLUME_FLOATS`: a header vec4 with x=CULL_FRUSTUM, then six planes.
+ * header.y is one for depth-only views, zero for shading views. Supplying cameraWorld and far
+ * replaces an infinite perspective's degenerate far plane with a finite bound.
  */
 export function frustumVolume(
     out: Float32Array,

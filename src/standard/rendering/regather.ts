@@ -1,4 +1,7 @@
-// Gathering culled combos into mesh-major runs lets an atlas draw each mesh once.
+// Gathering per-combo culled ranges into mesh-major runs lets an atlas draw each mesh once.
+// View-independent producers instead duplicate their direct range across combos. Every instance
+// retains its identity/transform payload and gains a combo index. Pipelines are shared per World;
+// each atlas owns its gathered list, indirect args and metadata.
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -6,7 +9,8 @@ import type { World } from "../../engine";
 import { dispatchWorkgroups, setComputeBindGroup, setComputePipeline } from "../../engine/runtime";
 import { DrawIndexedIndirect } from "./registry";
 
-// One indirect record per casting mesh; firstInstance addresses its gathered run.
+// One indirect record per casting mesh; instanceCount sums combo survivors and firstInstance
+// addresses its gathered run. Derive the byte stride from DrawIndexedIndirect to keep writers aligned.
 export const SHADOW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 
 interface RegatherState {
@@ -36,7 +40,7 @@ export function initializeRegatherState(world: World): void {
     world.resource(regatherStateKey);
 }
 
-/** Lazily generated Pass A WGSL source. */
+/** Pass A's actual compiled source, generated lazily for device-free indirect-record contract checks. */
 export const regatherArgsWgsl = (): string =>
     tgpu.resolve({
         names: "strict",
@@ -453,7 +457,8 @@ export function createRegather(world: World, label: string): Regather {
                 0,
                 _paramsStaging as Uint32Array<ArrayBuffer>,
             );
-            // Dispatch order makes prefix-sum output visible to scatter before atlas rendering.
+            // Both dispatches share one compute pass: dispatch order makes Pass A's prefix/args writes
+            // visible to Pass B's scatter. Later atlas rendering sees those writes by encoder order.
             setComputePipeline(cpass, regatherState(world).aPipe!);
             setComputeBindGroup(cpass, 0, aGroup(world, drawArgs, meta, runIndex));
             dispatchWorkgroups(cpass, 1);

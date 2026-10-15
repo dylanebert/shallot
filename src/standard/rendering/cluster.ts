@@ -301,7 +301,11 @@ export function zSlice(view: ClusterView, viewZ: number): number {
     return Math.min(Math.max(s, 0), CLUSTER_Z - 1);
 }
 
-/** View-space cluster AABB: camera looks down -Z, min.z is the far boundary; tile (0,0) starts at NDC (-1,-1). */
+/**
+ * View-space cluster AABB: camera looks down -Z, min.z is the far boundary; tile (0,0) starts at NDC (-1,-1).
+ * Perspective tile corners widen with depth, so bounds must include both slice boundaries.
+ * Keep this CPU calculation aligned with gridKernel's GPU calculation.
+ */
 export function clusterAabb(
     view: ClusterView,
     x: number,
@@ -323,7 +327,10 @@ export function clusterAabb(
     };
 }
 
-/** Clusters touched by the light's influence sphere; center and radius are in view space. */
+/**
+ * Clusters touched by the light's influence sphere; center and range are in view space.
+ * Uses the sphere-to-AABB distance predicate shared with GPU light culling.
+ */
 export function lightClusters(
     view: ClusterView,
     center: [number, number, number],

@@ -111,6 +111,7 @@ export class TransparentPhase {
         this.metrics.bindGroupChanges = 0;
     }
 
+    /** @internal Sets the renderer namespace for the producer callback currently adding items. */
     useRenderer(renderer: number): void {
         this._rendererValue = renderer;
     }

@@ -183,7 +183,14 @@ const SCAN_WG = 256;
 const temp = tgpu.workgroupVar(d.arrayOf(d.u32, SCAN_WG));
 const carry = tgpu.workgroupVar(d.u32);
 
-// Workgroup-local scanning avoids requiring subgroups and keeps each view's prefix sum independent.
+/**
+ * Exclusive prefix sum, one workgroup per view slot. Writes instanceCount and firstInstance;
+ * firstInstance addresses that slot's instance-capacity-sized region in packedEids.
+ * Leaves indexCount and firstIndex unchanged and clears count tallies for the next count pass.
+ * baseVertex temporarily holds the tally while scatter uses
+ * instanceCount as a cursor; scatter must restore both before drawing.
+ * Workgroup-local scanning needs no subgroups and keeps each view's prefix sum independent. @internal
+ */
 export function scanKernel() {
     return tgpu.computeFn({
         workgroupSize: [SCAN_WG],

@@ -51,7 +51,9 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
 
 /**
  * GPU draw publication. drawArgs is slot-major at `slot*pairCount+pair`, with 20-byte indirect records.
- * packedEids holds one row-capacity-sized region per slot, compacted into pair slices for instance_index.
+ * registerDraws seeds indexCount/firstIndex/baseVertex; the GPU pack writes instanceCount/firstInstance
+ * each frame. packedEids holds one row-capacity-sized region per slot, compacted into pair slices for
+ * instance_index. pairCount is material-type count * ALPHA_PIPELINE_KEY_COUNT * mesh count.
  * Buffers grow with mesh registration, table capacity and active views; Draw.args.viewStride selects a slot.
  */
 export interface MeshDrawBuffers {
@@ -391,8 +393,10 @@ function unbind(world: World): void {
     _meshPreprocess.scatterBound = null;
 }
 
-// Mesh growth changes pair strides, requiring draw-record republication. View/row capacity growth
-// replaces buffers without recompiling pipelines; submitted work retains old backing storage.
+// Mesh growth changes pair strides, requiring draw-record republication. drawArgs/counts scale with
+// view capacity * pairCount; packed lists with view capacity * row capacity; mesh bounds with mesh count.
+// Pipelines read cullParams/arrayLength, so growing any axis replaces buffers without recompilation.
+// Submitted work retains old backing storage.
 function syncBuffers(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
@@ -519,7 +523,6 @@ function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
     return buffer;
 }
 
-/** Publishes pairs for alpha keys ever held by each type; returns the required indirect-record count. @internal */
 type DrawRecord = {
     indexCount: number;
     instanceCount: number;
@@ -528,6 +531,11 @@ type DrawRecord = {
     firstInstance: number;
 };
 
+/**
+ * Publishes (material type, alpha pipeline key, mesh) draw pairs for keys each type's rows have held.
+ * Returns byte offsets and static indirect records for one view slot; the caller uploads them to
+ * every slot. Device-free with explicit registries so ordering checks can exercise this same path. @internal
+ */
 export function publishMeshInstanceDraws(
     world: World,
     drawArgs: DrawBuffer,
@@ -611,7 +619,9 @@ export function initMeshPreprocess(world: World): void {
     unbind(world);
 }
 
-// Material-type count is fixed at warm; mesh and view counts remain runtime shader inputs.
+// Warm runs after all initialize hooks, so the registered material-type count is final and can be
+// baked into shaders. Mesh/view counts are not final; defer their buffer sizing to syncBuffers and
+// read their dimensions from cullParams so later mesh registrations or cameras need no recompilation.
 export function warmMeshPreprocess(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
@@ -653,7 +663,9 @@ export function warmMeshPreprocess(world: World): void {
         .createComputePipeline({ compute: scatterKernel(_meshPreprocess.materialTypeCount) })
         .$name("shallot-mesh-preprocess-scatter");
 
-    // Defer allocation and binding until every plugin has warmed and published its input buffers.
+    // Warm hooks run concurrently under Promise.all. Defer allocation and binding to the precompile
+    // drain after all hooks resolve, when meshes, dense tables, transform lookup and cull volumes are
+    // published. Separate forcers give each pipeline its own compile-report row.
     precompile(world, "shallot-mesh-preprocess-count", () => {
         syncBuffers(world);
         const bound = bindCount(world);

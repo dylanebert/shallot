@@ -172,6 +172,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
         isPerspective ? camera.far.get(eid) : undefined,
     );
     _render.cullVolumeStaging[slot * CULL_VOLUME_FLOATS + 1] = shading ? 0 : 1;
+    // ViewUniforms.projection packs near, far, perspective flag and cull slot in xyzw.
     if (shading) {
         _render.viewStaging[offset + 28] = camera.near.get(eid);
         _render.viewStaging[offset + 29] = camera.far.get(eid);
@@ -426,8 +427,10 @@ async function initRender(world: World): Promise<void> {
     if (!world.gpu.device) return;
     const { device } = world.gpu;
 
-    // HDR preserves radiance above one for tonemapping; rg11b10 halves bandwidth relative to rgba16float.
-    // Over-blending needs no destination alpha.
+    // HDR preserves radiance above one for tonemapping. rg11b10ufloat uses 4 bytes rather than
+    // rgba16float's 8, halving MSAA target/resolve bandwidth at about 3% relative precision and no alpha.
+    // Over-blending needs no destination alpha. This is only the scene target format; the swapchain
+    // keeps the base canvas format and presentation encodes linear to sRGB.
     _render.format = "rg11b10ufloat";
 
     const uniform = (label: string, size: number) =>

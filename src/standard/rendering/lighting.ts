@@ -256,7 +256,9 @@ export const PointLightsRw = d.struct({
 
 /**
  * Inverse-square falloff (Bevy `getDistanceAttenuation`) with a smooth window to zero at the range.
- * Clamps to `1/radiusSq` inside the source sphere to bound intensity at the bulb.
+ * Clamps the squared-distance denominator to radiusSq to bound intensity inside the source sphere;
+ * radiusSq zero removes that bound and permits a singularity. Standard shading, fog and CPU checks
+ * call this same function.
  */
 export const distanceAttenuation = tgpu.fn(
     [d.f32, d.f32, d.f32],
@@ -289,7 +291,9 @@ export const spotFactor = tgpu.fn(
 
 /**
  * Frostbite `getAngleAtt` coefficients (Lagarde 2014) for inner/outer half-angles in radians.
- * Used as `saturate(cosAngle·scale + offset)²`; equal angles give a clamped hard edge, not NaN.
+ * Used as `saturate(cosAngle·scale + offset)²`, where cosAngle is the cosine between the cone axis
+ * and light-to-fragment direction: one inside the inner cone, zero at the outer cone.
+ * Equal angles use a narrow edge with a clamped denominator rather than producing NaN.
  */
 export function spotParams(inner: number, outer: number): { scale: number; offset: number } {
     const cosInner = Math.cos(inner);

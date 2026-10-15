@@ -33,7 +33,8 @@ export const MAX_CASCADES = 4;
  * World-owned directional tile size in pixels (default 2048), clamped to [256, 4096] and snapped to a power of two.
  * Changes reallocate before the next casting frame. Tiles share a depth32float atlas ceil(√numCascades) across;
  * 4096-pixel tiles with multiple cascades require an 8192² atlas (256 MiB).
- * Only the brightest enabled directional casts (ties by lower eid); conflicting requests warn once.
+ * Only the brightest enabled directional casts (ties by lower eid); other lights still illuminate
+ * without shadows, and conflicting requests warn once.
  * One caster bounds depth passes and atlas area. Cascade settings live on {@link DirectionalLight}.
  */
 export interface DirectionalLightShadowMap {
@@ -71,8 +72,10 @@ type LightFit = {
     extent: Float64Array;
 };
 
-// Texel snapping prevents shadow crawl. Extending the near plane toward the light captures occluders
-// above the fitted slice without changing the snap plane.
+// Texel snapping prevents shadow crawl. Extend the near plane toward the light to capture occluders
+// between the light and a tight fitted slice; otherwise receivers in the slice incorrectly appear lit.
+// Move the eye back by cover+margin, leaving the far edge fixed (depth 2*cover+margin). This shift
+// is perpendicular to the snap plane, so extending the occluder range does not change texel snapping.
 function placeFromCenter(
     cenX: number,
     cenY: number,
@@ -246,8 +249,10 @@ export function cascadeFit(
 
 /**
  * Fits an orthographic camera's visible y=0 footprint into one texel-snapped light box.
- * Uniform texel density needs no depth cascades. When `fwd.y ≥ −1e-3`, uses a forward-distance box
- * with half-extent `distance`. `margin` extends the near plane toward the light. Writes `out`.
+ * Uniform texel density needs no depth cascades; a distant orthographic camera's frustum slices may
+ * not reach its visible ground. Fit the longer footprint half-diagonal. When fwd.y >= -1e-3 there is
+ * no convergent ground footprint: use center=position+forward*distance and half-extent=distance.
+ * margin extends the near plane toward the light. Writes out.
  */
 export function orthoFootprintFit(
     camWorld: Float32Array,
@@ -559,8 +564,11 @@ export function resetCascades(world: World): void {
 }
 
 /**
- * Updates cascade cameras and borrowed atlas/receiver arrays before draw. Without a casting light or
- * main camera, publishes zero cascades. Perspective uses view-depth slices; orthographic uses one ground fit.
+ * Updates cascade cameras and borrowed atlas/receiver arrays in simulation, before BeginFrameSystem
+ * packs their view projections. Without a casting light or main camera, publishes zero cascades.
+ * Perspective splits [camera.near, DirectionalLight.maximumDistance] into numCascades view-depth slices;
+ * the receiver selects by view-z and blends overlaps. Orthographic uses one ground fit with a sentinel
+ * far bound, so every visible fragment selects it without blending. Each box texel-snaps to avoid crawl.
  * maximumDistance also extends the near plane toward the light to retain occluders above each slice.
  */
 export function updateCascades(world: World, main: number): void {
@@ -730,7 +738,9 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
 /**
  * World-owned point/spot shadow budget; changes apply on the next drawn frame.
  * `atlas` is the square atlas side in pixels, snapped to a power of two in [256, 4096] (default 2048).
- * `casters` is clamped to [1, {@link MAX_POINT_CASTERS}]. Excess or unpackable casters warn and cast no shadow.
+ * Changing atlas reallocates the texture; changing casters re-ranks the lights. Settings can be written
+ * during setup or plugin initialization. casters is clamped to [1, MAX_POINT_CASTERS].
+ * Excess or unpackable casters warn and cast no shadow, but their illumination remains.
  * Tile area follows `intensity·range²/dist²`; a point light uses six tiles, a spot one.
  * `hysteresis` is the fractional importance advantage required to displace an incumbent when over cap;
  * zero disables the incumbent margin.
@@ -832,7 +842,10 @@ export function createPacker(side: number, min: number): Packer {
 
 /**
  * Writes the spot's local -Z cone axis and lookAt basis into `out` for matching render/receiver projection.
- * `outer` is a half-angle in radians, clamped to [1°,80°]; `tilePx` sets the PCF projection margin.
+ * outer is a half-angle in radians, clamped to [1°,80°]; tilePx sets the PCF projection margin.
+ * coneTanHalf is tan(outer) widened for that tile's PCF footprint; coneFov is the resulting vertical
+ * FOV in degrees. fwd matches the local -Z direction oct-packed by light compaction; right/up
+ * form the orthonormal lookAt basis the receiver uses.
  */
 export function spotBasis(
     qx: number,
@@ -909,7 +922,10 @@ export const POINT_FACES: PointFaceBasis[] = [
 /**
  * Column-major clip-space transform for the atlas-UV rect `[u0, v0, du, dv]` at `at`.
  * Left-multiply the face viewProj to place it in the tile without changing z/w;
- * homogeneous coordinates preserve hardware near-plane clipping.
+ * homogeneous coordinates preserve hardware near-plane clipping. Do not divide a face clip-space
+ * position's xy by w in the VS: a vertex behind the face near plane (w <= 0) would divide before
+ * the hardware clips it.
+ * The receiver reconstructs the same tile UVs analytically from the rect.
  * Writes `out`, allocating only when omitted.
  */
 export function tileTransform(
@@ -932,8 +948,11 @@ export function tileTransform(
 }
 
 /**
- * Reused caster placement. `tilePx` is the resolved tile side in pixels; cone basis vectors match lookAt.
- * A point uses six combos and coneTanHalf zero; a spot uses one cone combo.
+ * Reused caster placement in a caller-owned pool. pos is world placement; near/far are range-derived
+ * clip/cull distances, score sizes tile area, and tilePx is the resolved tile side in pixels.
+ * Cone basis vectors match lookAt. A point uses six combos and coneTanHalf zero; a spot uses one combo
+ * with the widened cone tangent. updatePointShadows writes combo viewProjs into pointFaceVP and
+ * (caster slot, face) into pointComboMeta.
  */
 export interface PointShadowFrame {
     light: number;
@@ -1174,7 +1193,9 @@ export function commitPointCastersOnSubmit(world: World): void {
 /**
  * Packs the first `count` casters into a `side`-pixel atlas, with tile area proportional to score.
  * Writes pixel sides to `sizes` and square atlas-UV rects to `rects` at `(caster·6+face)·4`.
- * Mutates `packer`; returns false if even MIN_TILE faces cannot fit. Points use six tiles, spots one.
+ * Mutates packer, sizes and rects only; packer must cover a side-pixel atlas. Points use six equal-size
+ * tiles, spots one. Chooses the largest common base tile size that lets the whole set fit.
+ * Returns false if even MIN_TILE faces cannot fit; callers drop the lowest-ranked caster and retry.
  */
 export function packCasters(
     frames: PointShadowFrame[],
@@ -1222,10 +1243,15 @@ export function packCasters(
 }
 
 /**
- * Updates point/spot shadow selection and placement before draw. Writes the caller's reusable `frames`
- * pool and returns its live prefix length. Excess or unpackable casters warn and are dropped by rank.
- * Importance is `intensity·range²/dist²` at `main`; hysteresis favours the last submitted caster set.
- * Publishes combo-major viewProjs, sparse tile rects and lazily pooled depth-only cameras.
+ * Selects enabled point/spot shadow casters in simulation, before BeginFrameSystem packs their cameras.
+ * Writes/grows the caller's reusable frames pool and returns its live prefix length. Highest importance
+ * wins (ties by lower eid); hysteresis favours the last submitted caster set. Importance is
+ * intensity*range^2/dist^2 at main, with dist^2 floored at one (or one when no main camera exists).
+ * Excess, unpackable or cull-slot-overflow casters are dropped from the lowest rank, warning once per
+ * episode. Atlas overflow retries packing after each drop; dropped lights still illuminate unshadowed.
+ * Publishes combo-major tile-folded viewProjs and sparse tile rects. The perspective projections are
+ * infinite; far=range bounds caster culling. Each combo gets a lazily pooled depth-only camera with
+ * the same pre-tile projection, so it culls independently before re-gather.
  */
 export function updatePointShadows(world: World, main: number, frames: PointShadowFrame[]): number {
     const shadow = shadows(world);

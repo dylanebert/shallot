@@ -1,4 +1,6 @@
-// Uniform array-layer dimensions allow one draw to select tiled images by per-instance layer index.
+// Array textures support tiling and per-instance layer selection in one draw, but all layers must
+// share dimensions. Resize varied sources to a common capped square; use the default sRGB format
+// for color maps and pass a linear format for data maps so sampling does not corrupt their values.
 
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
@@ -126,7 +128,11 @@ export async function imageArray(
     return arrayFromBitmaps(world, device, native, cap, format);
 }
 
-/** Allocates an unfilled array texture; refuses layer counts and dimensions beyond device limits. */
+/**
+ * Allocates an unfilled array whose layers are `size` pixels square, with `levels` mip levels.
+ * Synchronous allocation is separate from uploadLayer so callers can stage uploads across frames.
+ * Refuses layer counts and dimensions beyond device limits before texture creation.
+ */
 export function allocArray(
     device: GPUDevice,
     size: number,
@@ -152,7 +158,10 @@ export function allocArray(
     });
 }
 
-/** Resizes a bitmap to `size` pixels square and uploads one array layer with its mip chain. */
+/**
+ * Resamples an already-decoded bitmap to `size` pixels square without decoding again, then uploads
+ * one array layer and its mip chain. A staged caller can budget one complete layer per frame.
+ */
 export async function uploadLayer(
     world: World,
     device: GPUDevice,
@@ -180,7 +189,12 @@ export async function uploadLayer(
     genMipmapsLayer(world, device, texture, layer, levels, format);
 }
 
-/** Uploads decoded bitmaps as common-size square sRGB array layers with a full mip chain; `cap` is in pixels. */
+/**
+ * Uploads already-decoded bitmaps sequentially as common-size square array layers with a full mip chain;
+ * `cap` is in pixels. Color defaults to sRGB; pass a linear format for data maps.
+ * Uploads every layer before returning rather than spreading the work across frames. Callers that need
+ * staged uploads use allocArray and uploadLayer; decoding remains the caller's choice.
+ */
 export async function arrayFromBitmaps(
     world: World,
     device: GPUDevice,

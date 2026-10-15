@@ -55,6 +55,7 @@ const pointShadowOf = pointShadowRef();
 
 // Vertex shading statically reaches the point receiver even when pointScale is zero.
 // Depth pipelines need a fully-lit stub to avoid binding or sampling the atlas they write.
+// Keep the real receiver's pointShadowOf name and signature so the emitted call site is unchanged.
 export const pointShadowStub = tgpu
     .fn(
         [PointLightGpu, d.vec3f, d.vec3f, d.u32],

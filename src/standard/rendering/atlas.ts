@@ -218,7 +218,8 @@ export function initializeShadowAtlasState(world: World): void {
 
 
 
-// Track clears separately: caster data cannot serve as a reliable cleared-buffer sentinel.
+// Caster data is not a cleared-buffer flag. Update pointCleared on every params-buffer write
+// so a data value cannot suppress a needed clear.
 
 /** the point-shadow atlas depth view a screen-space consumer (the fog volumetric march) binds to sample
  * the casters' shadows: the real atlas once a point/spot light casts, else the 1×1 fallback (whose empty
@@ -260,8 +261,12 @@ export function shadowReady(world: World): boolean {
     return world.resource(atlasStateKey).shadowReady;
 }
 
-// Per-vertex litPbr statically reaches the point receiver, so its bindings need vertex visibility.
-// Reuse schema instances within a resolve; combining separately named instances would suffix WGSL names.
+// Per-vertex litPbr statically reaches the point receiver even when pointScale is zero at runtime,
+// so its sampler/point bindings need vertex visibility. The sun receiver is scaffold-called only
+// from fragments, so sun bindings remain fragment-only.
+// Each schema factory call creates a distinct struct object. Reuse these instances within a resolve;
+// resolving a second same-named PointCasters/TileRects instance would suffix its WGSL name and break
+// free-name references. Fog resolves separately; consumers combined in one module must share instances.
 const _shadowCasters = pointCastersSchema();
 const _shadowRects = tileRectsSchema(MAX_POINT_CASTERS * 6);
 
@@ -282,8 +287,9 @@ export const shadowLayout = tgpu
     })
     .$idx(1);
 
-// Point and cascade schemas bake different slot counts and must resolve in separate pipelines
-// to avoid collisions between their shared WGSL type names.
+// A schema's slot count is fixed at first resolve: point arrays hold 6*MAX_POINT_CASTERS entries,
+// cascade arrays MAX_CASCADES. One layout cannot serve both sizes. Keep the two schema sets in
+// separate pipeline resolves as well, or their shared FaceVPs/ComboMeta/TileRects names collide.
 const _pointFaceVP = faceVPsSchema(MAX_POINT_CASTERS * 6);
 const _pointCombo = comboMetaSchema(MAX_POINT_CASTERS * 6);
 const _pointRects = tileRectsSchema(MAX_POINT_CASTERS * 6);
@@ -329,7 +335,8 @@ export const pointRegather: import("../../engine").Resource<Regather> = {
     create: (world) => world.resource(atlasStateKey).pointRegather,
 };
 
-// Point re-gather accepts only the first indirect source; warn once per episode for dropped casters.
+// Point re-gather accepts only the first indirect source and warns once while other sources are
+// dropped, resetting on a clean frame. Cascades instead batch every distinct indirect source.
 
 
 
@@ -355,7 +362,8 @@ function compactMetaScratch(world: World, count: number): Uint32Array {
 
 /**
  * Writes attached combo view slots and their original indices into `slots` and `indices`.
- * Missing views warn and are skipped. Returns the valid prefix length; callers must compact
+ * Missing views indicate a detached/recycled combo camera and warn once per episode until a clean
+ * frame; they are skipped rather than mapped to slot zero. Returns the valid prefix length; callers must compact
  * faceVP/comboMeta by the same indices to preserve dense combo addressing.
  */
 export function comboViewSlots(
@@ -508,7 +516,9 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     _atlasState.pointGroup1 = null;
     _atlasState.cascadeGroup1 = null;
     _atlasState.sunCasting = false;
-    // Reverse-Z receivers are lit when their depth is at least the stored occluder's.
+    // Reverse-Z receivers are lit when their depth is at least the stored occluder's. Linear
+    // comparison filtering makes each textureSampleCompareLevel tap a 2x2 hardware PCF footprint;
+    // both the fallback and real maps use this sampler.
     _atlasState.shadowSampler = device.createSampler({
         label: "standard-shadow-cmp",
         compare: "greater-equal",
@@ -667,7 +677,12 @@ export function disposeShadowAtlas(world: World): void {
     _atlasState.shadowReady = false;
 }
 
-/** Ensures point atlas size before draw binding; replacing a texture after binding invalidates submission. */
+/**
+ * Allocates the point atlas at pointAtlasSize on the first casting frame and replaces it on resize.
+ * Call only when casting: the no-caster path needs no atlas. ShadowCameraSystem calls before draw
+ * recording because the prepass binds the shadow group before the shadow pass; replacing a texture
+ * after that binding invalidates submission.
+ */
 export function ensurePointAtlas(world: World): void {
     const _atlasState = world.resource(atlasStateKey);
 
@@ -683,7 +698,12 @@ export function ensurePointAtlas(world: World): void {
     _atlasState.pointAtlasView = _atlasState.pointAtlas.createView();
 }
 
-/** Ensures cascade atlas size before draw binding; replacing a texture after binding invalidates submission. */
+/**
+ * Allocates the cascade atlas on the first casting frame and replaces it when tile resolution or
+ * cascade-grid size changes. Call only when casting so the disabled path allocates no atlas.
+ * ShadowCameraSystem calls before draw recording: the prepass binds the shadow group before the
+ * shadow pass, and replacing a texture after that binding invalidates submission.
+ */
 export function ensureCascadeAtlas(world: World): void {
     const _atlasState = world.resource(atlasStateKey);
 
@@ -700,8 +720,12 @@ export function ensureCascadeAtlas(world: World): void {
 }
 
 /**
- * Records point/spot atlas depth and publishes caster parameters. Consumes the first `frameCount`
- * resolved draws. Without casters, clears parameters and records no pass or atlas allocation.
+ * Records point/spot atlas depth and publishes caster parameters for the color/fog receivers.
+ * Consumes the first frameCount resolved draws, shared with the prepass and color pass.
+ * Each face/cone culls independently; re-gather concatenates those survivors with a combo index so
+ * one indirect draw per casting mesh covers all its combos in one atlas pass. The atlas eids lane
+ * must bind that gathered list, not the producer's original list.
+ * Without casters, clears parameters and records no pass or atlas allocation.
  */
 export function renderPointShadows(
     world: World,
@@ -905,8 +929,11 @@ export function renderPointShadows(
 }
 
 /**
- * Records cascade atlas depth and publishes {@link SunShadow} parameters for the first `frameCount` draws.
- * Without a casting sun or geometry, publishes the fully-lit fallback and allocates no atlas.
+ * Records cascade atlas depth, then publishes SunShadow parameters and the atlas for color/fog receivers.
+ * Consumes the first frameCount resolved draws, shared with the prepass and color pass. Each cascade
+ * culls independently; re-gather joins its survivors into one indirect draw per mesh/source batch.
+ * Without a casting sun, publishes the fully-lit fallback and allocates no atlas. Missing combo views
+ * or no casting geometry also select the fallback, but atlas allocation may already have occurred.
  */
 export function renderCascades(
     world: World,
@@ -1107,6 +1134,8 @@ export function renderCascades(
     world.gpu.indirect?.("standard:cascadeshadow", totalDraws);
 
     // Receiver params must use the same surviving cascade order as the atlas VP/meta arrays.
+    // Read original arrays through comboIndices; each cascade's normal-bias scale is its own
+    // world texel size (2*cover/resolution), not the atlas's combined pixel size.
     const recv = cascadeRecvVP(world);
     const tileRects = cascadeTileRects(world);
     const fars = cascadeFars(world);

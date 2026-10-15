@@ -27,8 +27,9 @@ export const Exposure = component(
 );
 
 /**
- * Camera looking down fixed-tick GlobalTransform's local -Z. A lone camera auto-binds the first canvas;
- * multi-view cameras bind explicitly with attachCanvas. `clearColor` is sRGB hex, decoded for rendering.
+ * Camera looking down TransformPlugin's fixed-tick GlobalTransform local -Z. A lone camera auto-binds
+ * the first canvas. Bind multi-view cameras explicitly with attachCanvas; a late-mounted canvas is
+ * retried each frame. `clearColor` is sRGB hex, decoded to linear when recording the render pass.
  */
 export const Camera = component(
     "Camera",

@@ -23,8 +23,10 @@ export type DrawIndirectBuffer = TgpuBuffer<
 // Geometry belongs to core/mesh; core rendering knows none of these registries.
 
 /**
- * GPU DrawIndexedIndirect record at byte `offset` (default zero).
- * Nonzero viewStride selects `offset + view.slot * viewStride`; omitted or zero is view-independent.
+ * GPU DrawIndexedIndirect record (20 bytes: indexCount, instanceCount, firstIndex, baseVertex,
+ * firstInstance) at byte offset (default zero). Even a CPU-known draw supplies a GPU record, not
+ * literal counts. Nonzero viewStride, in bytes, selects offset + view.slot*viewStride;
+ * omitted or zero is view-independent.
  */
 export interface DrawArgs {
     indirect: DrawIndirectBuffer;
@@ -32,7 +34,11 @@ export interface DrawArgs {
     viewStride?: number;
 }
 
-/** Registered mesh/material draw; non-mesh material bindings resolve by name in world.gpu.buffers. */
+/**
+ * materialType is a registered material-type id, alphaPipelineKey selects its phase/variant,
+ * mesh is a registered mesh handle, and args addresses its indirect record.
+ * Other material bindings resolve by name in world.gpu's typed-buffer, texture and sampler registries.
+ */
 export interface Draw {
     name: string;
     materialType: number;

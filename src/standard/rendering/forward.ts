@@ -286,7 +286,15 @@ export type Recorded = RecordedMaterial;
 // one resolved draw of the frame: the entry-owned record `record` rewrites in place
 type FrameDraw = { draw: Draw; r: Recorded };
 
-/** Returns null with a warning when the draw's material type, mesh or bindings are unavailable. */
+/**
+ * Resolves a draw's pipelines and cached bind groups, or returns null to skip it. A pending staged
+ * mesh skips silently until its streams are ready. Unregistered material types, missing meshes or
+ * required streams/attributes, mismatched attribute schemas, unpublished bindings and failed on-demand
+ * compiles warn once per warning key. Binding-override validation errors still throw.
+ * Missing/stale compiled pipelines are compiled synchronously, not silently skipped.
+ * Group-2 resources are camera-independent and cached per draw; group 0 is cached per view slot
+ * and shared by draws using the same quant buffer. Resource identity changes rebuild the groups.
+ */
 function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
     const type = world.resource(MaterialTypes).types[draw.materialType];
     if (!type)
@@ -700,8 +708,12 @@ function drawColor(
     step.offset = (draw.args.offset ?? 0) + slot * (draw.args.viewStride ?? 0);
 }
 
-// One HDR target limits bandwidth; opaque and transparent share a tile round-trip because
-// nothing reads scene color between them. The far-plane backdrop fills only uncovered pixels.
+// One HDR color target avoids paying MRT bandwidth on every pixel, especially on tile-based GPUs.
+// Opaque geometry and the far-plane background share a pass because nothing reads scene color between
+// them. The background depth-tests without writing depth, so only uncovered pixels receive it and
+// later transparent geometry composites over it. A missing background leaves the flat clear color;
+// even an empty draw list clears the framebuffer. Camera.antialias selects 4x MSAA with resolve or
+// single-sample rendering directly into the offscreen, using ensureSingle's lazy pipeline variants.
 function renderColor(
     world: World,
     eid: number,
@@ -1159,7 +1171,11 @@ const ShadowCameraSystem: System = {
         const casters = updatePointShadows(world, main, _standardRendererState.pointFrames);
         setPointFrames(world, _standardRendererState.pointFrames, casters);
         updateCascades(world, main);
-        // Allocate before record() caches bind groups; replacing an atlas after binding invalidates submission.
+        // Allocate re-gather lists before record() caches the groups that bind them. Allocation clears
+        // that cache, so the first casting frame binds the new list without a one-frame delay.
+        // Allocate/resize atlas textures here too: the prepass binds them before the shadow pass,
+        // and destroying an already-bound texture would invalidate submission. Later ensure calls
+        // are idempotent when dimensions are unchanged.
         if (casters > 0 && shadowReady(world)) {
             world.resource(pointRegather).ensure(pointCasters(world) * 6, world.entityHighWater);
             ensurePointAtlas(world);
@@ -1171,7 +1187,9 @@ const ShadowCameraSystem: System = {
     },
 };
 
-// Resolved producer draws must reach the atlases before the main pass samples them.
+// Run after PrepassSystem so position-writing producers have emitted and this frame's draws are
+// resolved; run before MainPassSystem so atlas depth and receiver parameters are ready for shading.
+// With no casting light, record no shadow pass and use the fully-lit fallback.
 const ShadowMapSystem: System = {
     name: "shadowmap",
     group: "draw",

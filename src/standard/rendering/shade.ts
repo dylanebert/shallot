@@ -26,8 +26,9 @@ export const Pbr = d.struct({
 const PI = Math.PI;
 
 /**
- * Valve half-Lambert (Mitton & McTaggart, GDC 2004): softens the diffuse terminator while retaining
- * midtone contrast. Not energy-conserving; does not change the specular cosine.
+ * Valve half-Lambert (Mitton & McTaggart, GDC 2004): remaps [-1,1] to [0,1] to soften the diffuse
+ * terminator, then squares the remap to retain midtone contrast rather than flatten the surface.
+ * Diffuse only: the specular cosine is unchanged. Deliberately not energy-conserving.
  */
 export const halfLambert = tgpu.fn(
     [d.f32],
@@ -103,8 +104,10 @@ export const brdf = tgpu.fn(
 
 /**
  * Sphere-source BRDF using Karis's representative point (Real Shading in UE4) for specular.
- * Diffuse uses the light centre `Lc`. Widening the specular lobe conserves its energy;
- * radius zero reduces to {@link brdf}. `dist` and `radius` use the same world units.
+ * Diffuse uses the normalized direction Lc to the light centre. The closest sphere point to the mirror
+ * ray softens the highlight; the sphere's solid angle widens roughness to aPrime and (a/aPrime)^2
+ * renormalizes the peak so spreading the lobe does not brighten it. Radius zero reduces exactly to brdf.
+ * dist and radius use the same world units.
  */
 export const brdfSphere = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f, d.vec3f, d.f32, d.f32],
@@ -377,7 +380,9 @@ const sampleShadowCubemapGaussian = tgpu
     .$uses({ ["sample_shadow_cubemap_hardware"]: sampleShadowCubemapHardware })
     .$name("sample_shadow_cubemap_gaussian");
 
-// Free bindings let each consumer supply its atlas layout; source entity ids match lights to caster slots.
+// Free bindings let each consumer supply its atlas layout. Match light.color.a (source eid) to caster
+// pos.w; empty slots use -1 so non-casting lights never match. Read atlas dimensions from the texture
+// and loop all caster slots so PointShadows settings need not be baked into WGSL.
 function pointShadowFn() {
     return tgpu
         .fn(
@@ -443,7 +448,11 @@ export function pointShadowRef() {
 
 // ---- sun (directional) shadows: the CSM params layout + the cascade sampler ----
 
-/** Cascade parameters: atlas-UV rect, linear view-z far bound, and world-space texel size for normal bias. */
+/**
+ * Cascade parameters: light viewProj, atlas-UV rect, linear view-z far bound for cascade selection,
+ * and world-space texel size for normal bias. The matrix imposes 16-byte alignment, so implicit tail
+ * padding rounds the struct/array stride to 96 bytes; no explicit trailing pad fields are needed.
+ */
 export const Cascade = d.struct({
     lightViewProj: d.mat4x4f,
     rect: d.vec4f,
@@ -545,7 +554,7 @@ export const viewDepth = tgpu.fn(
 });
 
 /**
- * Sun visibility with view-z cascade selection and overlap blending.
+ * Sun visibility with linear view-z cascade selection, camera-method filtering and overlap blending.
  * `normal` is a unit surface normal, or zero for a volume sample without normal bias.
  * Callers must force `view`, `shadowMap`, `shadowSamp` and `sunShadow` into scope.
  */
