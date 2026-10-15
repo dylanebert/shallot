@@ -63,14 +63,14 @@ function makeScene(world: World, kind: Kind): { camera: number; light: number } 
     const floor = world.create();
     world.add(floor, Transform, { translation: [0, -0.1, 0, 0] });
     world.add(floor, MeshInstance, {
-        mesh: world.resource(Meshes).add({ name: `${kind}-bias-floor`, ...cube([10, 0.2, 10]) }),
+        mesh: world.resource(Meshes).add({ name: `${kind}-bias-floor`, ...cube([20, 0.4, 20]) }),
     });
     world.add(floor, MeshMaterial, material);
 
     const blocker = world.create();
     world.add(blocker, Transform, { translation: [0, 0.75, 0, 0] });
     world.add(blocker, MeshInstance, {
-        mesh: world.resource(Meshes).add({ name: `${kind}-bias-blocker`, ...cube([1, 1.5, 1]) }),
+        mesh: world.resource(Meshes).add({ name: `${kind}-bias-blocker`, ...cube([2, 3, 2]) }),
     });
     world.add(blocker, MeshMaterial, material);
 

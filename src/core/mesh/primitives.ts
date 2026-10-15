@@ -40,11 +40,11 @@ function pack(verts: Vert[]): Float32Array {
 }
 
 /**
- * Box with the supplied xyz half-extents (default 0.5), flat-shaded: four vertices per face for
+ * Box with the supplied xyz full lengths (default 1), flat-shaded: four vertices per face for
  * per-face normals, each face's uv running (0,0)→(1,0)→(1,1)→(0,1) over its
  * BL→BR→TR→TL corners. Winding is CCW outward, matching standard's back-face cull
  */
-export function cube(halfExtents: readonly [number, number, number] = [0.5, 0.5, 0.5]): {
+export function cube(size: readonly [number, number, number] = [1, 1, 1]): {
     vertices: Float32Array;
     indices: Uint32Array;
 } {
@@ -118,9 +118,9 @@ export function cube(halfExtents: readonly [number, number, number] = [0.5, 0.5,
         const base = verts.length;
         for (let i = 0; i < 4; i++) {
             verts.push({
-                px: corners[i][0] * 2 * halfExtents[0],
-                py: corners[i][1] * 2 * halfExtents[1],
-                pz: corners[i][2] * 2 * halfExtents[2],
+                px: corners[i][0] * size[0],
+                py: corners[i][1] * size[1],
+                pz: corners[i][2] * size[2],
                 nx: normal[0],
                 ny: normal[1],
                 nz: normal[2],

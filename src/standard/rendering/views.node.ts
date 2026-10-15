@@ -418,7 +418,7 @@ test("adding a camera builds engine bind groups per mesh family and view slot, n
             const eid = world.create();
             world.add(eid, Transform, { translation: [i - 10, 0, 0, 0] });
             world.add(eid, MeshInstance, {
-                mesh: world.resource(Meshes).add({ name: `family-${i}`, ...cube([0.4, 0.4, 0.4]) }),
+                mesh: world.resource(Meshes).add({ name: `family-${i}`, ...cube([0.8, 0.8, 0.8]) }),
             });
             world.add(eid, MeshMaterial, material);
         }
