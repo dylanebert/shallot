@@ -1,4 +1,4 @@
-import { PhysicsMeshes, ShapeKind, ShapeMaterials } from "../../core/physics";
+import { ShapeKind, ShapeMaterials } from "../../core/physics";
 import type { World } from "../../engine";
 import type { ShapeBinding } from "./authoring";
 import type { EntityId } from "./common/ids";
@@ -12,6 +12,7 @@ import {
     shapeGeometry,
     shapeHullGeometry,
 } from "./marshal-shape";
+import { meshBuild } from "./mesh-builds";
 import {
     getShapeDensity,
     getShapeFilter,
@@ -339,12 +340,11 @@ export function syncShapeFields(
         (changed(binding, mask, "geometry") || changed(binding, mask, "scale"))
     ) {
         const id = scalar(binding, eid, "geometry");
-        const name = world.resource(PhysicsMeshes).name(id);
-        const mesh = name === undefined ? undefined : world.resource(PhysicsMeshes).get(name)?.data;
+        const mesh = meshBuild(world, id);
         if (!mesh) throw new Error(`physics: Shape ${eid} names missing mesh ${id}`);
         const expectedScale = expectedMeshScale(binding, eid);
         const currentScale = getShapeGeometryScale(state, shape);
-        const identity = geometryIdentity(mesh as object);
+        const identity = geometryIdentity(mesh);
         const reference = kernel(world).geometryDatabaseLookup(state.worldId, 4, identity) >>> 0;
         const currentReference = getShapeGeometryReference(state, shape);
         if (
@@ -353,7 +353,7 @@ export function syncShapeFields(
             expectedScale.y !== currentScale.y ||
             expectedScale.z !== currentScale.z
         )
-            setShapeMesh(state, shape, mesh as import("./shapes/mesh").MeshData, expectedScale);
+            setShapeMesh(state, shape, mesh, expectedScale);
     }
     if (materialSetChanged && hasMeshMaterials) {
         const materials = liveMaterials;

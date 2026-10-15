@@ -131,7 +131,12 @@ test("core physics recovery restores every Shape geometry and material registry"
         const heightField = world.resource(HeightFields);
         const compound = world.resource(Compounds);
         const materials = world.resource(ShapeMaterials);
-        const meshId = mesh.register({ name: "recovery-mesh", data: { version: 1 } });
+        const triangle = {
+            name: "recovery-mesh",
+            vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+            indices: new Uint32Array([0, 1, 2]),
+        };
+        const meshId = mesh.register(structuredClone(triangle));
         const heightId = heightField.register({ name: "recovery-height", data: { version: 1 } });
         const compoundId = compound.register({ name: "recovery-compound", data: { version: 1 } });
         const materialId = materials.register({
@@ -148,14 +153,14 @@ test("core physics recovery restores every Shape geometry and material registry"
             ],
         });
         const saved = world.snapshot();
-        mesh.register({ name: "recovery-mesh", data: { version: 2 } });
+        mesh.register({ ...triangle, vertices: new Float32Array([0, 0, 0, 2, 0, 0, 0, 2, 0]) });
         heightField.delete("recovery-height");
         compound.register({ name: "recovery-compound", data: { version: 2 } });
         materials.delete("recovery-materials");
         world.restore(saved);
 
         expect(mesh.id("recovery-mesh")).toBe(meshId);
-        expect(mesh.get("recovery-mesh")?.data).toEqual({ version: 1 });
+        expect(mesh.get("recovery-mesh")).toEqual(triangle);
         expect(heightField.id("recovery-height")).toBe(heightId);
         expect(heightField.get("recovery-height")?.data).toEqual({ version: 1 });
         expect(compound.id("recovery-compound")).toBe(compoundId);

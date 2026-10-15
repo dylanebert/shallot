@@ -30,7 +30,6 @@ import { JointField, jointField } from "./kernel/jointrecords";
 import { kernel } from "./kernel/kernel";
 import { ShapeField, ShapeFlags, shapeField, shapeFlag } from "./kernel/shaperecords";
 import { physicsBodyIndex, physicsState } from "./runtime";
-import { createMesh } from "./shapes/mesh";
 import {
     getShapeDensity,
     getShapeFilter,
@@ -312,25 +311,17 @@ test("a hull scale edit reaches b3Shape_SetHull without replacing the ECS-bound 
 
 test("mesh geometry and per-triangle material edits use Box3D setters and getters", async () => {
     await withPhysics((world) => {
-        const firstMesh = createMesh({
-            vertices: [
-                { x: 0, y: 0, z: 0 },
-                { x: 1, y: 0, z: 0 },
-                { x: 0, y: 1, z: 0 },
-            ],
-            indices: [0, 1, 2],
-        })!;
-        const secondMesh = createMesh({
-            vertices: [
-                { x: 0, y: 0, z: 0 },
-                { x: 2, y: 0, z: 0 },
-                { x: 0, y: 1, z: 0 },
-            ],
-            indices: [0, 1, 2],
-        })!;
         const meshes = world.resource(PhysicsMeshes);
-        const firstId = meshes.register({ name: "shape-sync-first-mesh", data: firstMesh });
-        const secondId = meshes.register({ name: "shape-sync-second-mesh", data: secondMesh });
+        const firstId = meshes.register({
+            name: "shape-sync-first-mesh",
+            vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+            indices: new Uint32Array([0, 1, 2]),
+        });
+        const secondId = meshes.register({
+            name: "shape-sync-second-mesh",
+            vertices: new Float32Array([0, 0, 0, 2, 0, 0, 0, 1, 0]),
+            indices: new Uint32Array([0, 1, 2]),
+        });
         world.resource(ShapeMaterials).register({
             name: "shape-sync-material-set",
             materials: [

@@ -484,9 +484,18 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             scale = [1, 0.75, 0.6, 0];
         } else if (input.kind === 3) {
             kind = ShapeKind.Mesh;
+            // b3CreateBoxMesh({ 0, -0.75, 0 }, { 1, 0.75, 0.6 }, true)'s definition.
             geometry = world.resource(PhysicsMeshes).register({
                 name: "entity-query-mesh",
-                data: createBoxMesh({ x: 0, y: -0.75, z: 0 }, { x: 1, y: 0.75, z: 0.6 }, true),
+                vertices: new Float32Array([
+                    1, 0, 0.6, -1, 0, 0.6, -1, -1.5, 0.6, 1, -1.5, 0.6, 1, 0, -0.6, -1, 0, -0.6, -1, -1.5,
+                    -0.6, 1, -1.5, -0.6,
+                ]),
+                indices: new Uint32Array([
+                    0, 1, 3, 1, 2, 3, 0, 4, 1, 1, 4, 5, 0, 3, 7, 4, 0, 7, 4, 7, 5, 6, 5, 7, 1, 5, 2, 6, 2, 5,
+                    3, 2, 7, 6, 7, 2,
+                ]),
+                identifyEdges: true,
             });
             scale = [1, 1, 1, 0];
         } else if (input.kind === 4) {

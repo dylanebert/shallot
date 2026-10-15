@@ -21,6 +21,7 @@ import {
     WeldJoint,
     WheelJoint,
 } from "./joints";
+import { PhysicsMeshes } from "./mesh";
 import { Shape, type ShapeGeometry, type ShapeMaterialSet } from "./shape";
 
 export {
@@ -43,10 +44,6 @@ export {
     type SurfaceMaterial,
 } from "./shape";
 
-/** Named mesh geometry referenced by a Shape of kind Mesh. */
-export const PhysicsMeshes: Resource<Registry<ShapeGeometry>> = {
-    create: () => new Registry(),
-};
 /** Named height-field geometry referenced by a Shape of kind HeightField. */
 export const HeightFields: Resource<Registry<ShapeGeometry>> = {
     create: () => new Registry(),
@@ -176,3 +173,4 @@ export const PhysicsPlugin: Plugin = {
     ],
 };
 export { type Hull, Hulls, UNIT_CUBE_ID } from "./hull";
+export { type PhysicsMesh, PhysicsMeshes } from "./mesh";

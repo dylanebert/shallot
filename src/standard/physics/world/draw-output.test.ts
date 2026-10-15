@@ -72,11 +72,15 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
     try {
         const { world } = app;
         world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
-        const mesh = createGridMesh(1, 1, 2, 0, true);
-        const meshExpected = structuredClone(mesh);
-        const meshId = world
-            .resource(PhysicsMeshes)
-            .register({ name: "draw-payload-mesh", data: mesh });
+        // b3CreateGridMesh(1, 1, 2, 0, true)'s definition.
+        const meshExpected = createGridMesh(1, 1, 2, 0, true);
+        const meshId = world.resource(PhysicsMeshes).register({
+            name: "draw-payload-mesh",
+            vertices: new Float32Array([-1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0, 1]),
+            indices: new Uint32Array([0, 1, 3, 3, 2, 0]),
+            useMedianSplit: true,
+            identifyEdges: true,
+        });
         const heightField = createHeightField({
             heights: [0, 0.25, 0.5, 1],
             materialIndices: null,

@@ -159,6 +159,30 @@ Hulls.register({ name: "wedge", verts, faces, edges });
 world.resource(Hulls).register({ name: "wedge", points: new Float32Array(verts.flat()) });
 ```
 
+## Meshes hold Box3D's mesh input
+
+In 0.9.5, `createMesh(def)` from `/tumble/core` built `MeshData` for a `TumbleBody` mesh shape.
+In 0.10, register the definition as a `PhysicsMesh` in `world.resource(PhysicsMeshes)` and name
+its id in a `Shape` of kind `Mesh`; standard physics builds it once per World. `vertices` is flat
+xyz as a `Float32Array`, with an optional `stride` in floats, `indices` is a `Uint32Array`,
+`materialIndices` a `Uint8Array`, and the build options keep their names, plus `clockwiseWinding`.
+`createMesh`, `MeshDef`, `MeshData` and the `create*Mesh` helpers are removed.
+
+```ts
+// 0.9.5
+const mesh = createMesh({ vertices, indices, identifyEdges: true })!;
+Tumble.body(eid)?.createMesh({}, mesh);
+
+// 0.10
+const geometry = world.resource(PhysicsMeshes).register({
+    name: "terrain",
+    vertices: new Float32Array(vertices.flatMap((v) => [v.x, v.y, v.z])),
+    indices: new Uint32Array(indices),
+    identifyEdges: true,
+});
+world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry, scale: [1, 1, 1] });
+```
+
 ## Surface materials come from `/physics`
 
 Import `SurfaceMaterial` from `/physics` instead of `/tumble/core`. Its `tangentVelocity` is

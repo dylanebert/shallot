@@ -59,8 +59,8 @@ export type Mesh = { data: MeshData; scale: Vec3 };
 /** Mesh construction input (b3MeshDef). */
 export type MeshDef = {
     vertices: Vec3[];
-    indices: number[];
-    materialIndices?: number[] | null;
+    indices: ArrayLike<number>;
+    materialIndices?: ArrayLike<number> | null;
     weldTolerance?: number;
     weldVertices?: boolean;
     useMedianSplit?: boolean;

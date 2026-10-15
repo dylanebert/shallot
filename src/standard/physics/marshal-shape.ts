@@ -2,7 +2,6 @@ import {
     Compounds,
     HeightFields,
     Hulls,
-    PhysicsMeshes,
     Shape as ShapeComponent,
     ShapeKind,
     ShapeMaterials,
@@ -12,11 +11,11 @@ import { makeShapeId } from "./api/config";
 import { MAX_HULL_VERTICES } from "./common/constants";
 import type { EntityId } from "./common/ids";
 import { defaultShapeDef, type Filter, type ShapeDef, type SurfaceMaterial } from "./common/types";
+import { meshBuild } from "./mesh-builds";
 import { createHull } from "./shapes/build-hull";
 import type { CompoundData } from "./shapes/compound";
 import type { HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
-import type { MeshData } from "./shapes/mesh";
 import {
     createCapsuleShape,
     createCompoundShape,
@@ -172,7 +171,7 @@ export function marshalShape(
     } else if (kind === ShapeKind.Hull) {
         shapeId = createHullShape(state, bodyIndex, def, shapeHullGeometry(world, eid));
     } else if (kind === ShapeKind.Mesh) {
-        const data = geometryData<MeshData>(world.resource(PhysicsMeshes), shape.geometry.get(eid));
+        const data = meshBuild(world, shape.geometry.get(eid));
         if (!data)
             throw new Error(`physics: Shape ${eid} names missing mesh ${shape.geometry.get(eid)}`);
         shapeId = createMeshShape(state, bodyIndex, def, data, {
