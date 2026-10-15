@@ -262,6 +262,28 @@ test("Sphere and capsule Shape geometry writes use Box3D setters and getters", a
     });
 });
 
+test("a Shape radius write alone reaches the sphere and capsule setters", async () => {
+    await withPhysics((world) => {
+        const sphereBody = world.create();
+        world.add(sphereBody, Body, { type: BodyType.Dynamic });
+        world.add(sphereBody, Shape, { kind: ShapeKind.Sphere });
+        const capsuleBody = world.create();
+        world.add(capsuleBody, Body, { type: BodyType.Dynamic });
+        world.add(capsuleBody, Shape, { kind: ShapeKind.Capsule });
+        world.tick();
+        // Clearing the spawn marks leaves the radius mark as the next sync's only one.
+        world.clearChanges();
+
+        world.storage(Shape).radius.set(sphereBody, 0.8);
+        world.storage(Shape).radius.set(capsuleBody, 0.4);
+        world.tick();
+
+        const state = stateFor(world);
+        expect(readShapeSphere(state, shapeId(world, 0).index1 - 1).radius).toBeCloseTo(0.8);
+        expect(readShapeCapsule(state, shapeId(world, 1).index1 - 1).radius).toBeCloseTo(0.4);
+    });
+});
+
 test("a hull scale edit reaches b3Shape_SetHull without replacing the ECS-bound shape", async () => {
     await withPhysics((world) => {
         const eid = world.create();
