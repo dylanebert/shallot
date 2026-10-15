@@ -81,10 +81,6 @@ const EXPOSURE_F32 = d.memoryLayoutOf(ViewUniforms, (view) => view.exposure).off
 const SHADOW_FILTERING_U32 =
     d.memoryLayoutOf(ViewUniforms, (view) => view.shadowFilteringMethod).offset / 4;
 
-// the public happy path: the component contract (camera + lights).
-// Everything else a renderer or producer touches — the RenderContext singleton, the
-// View contract, canvas binding and the frame
-// loop — is the extension API, exported below.
 export { Camera, CameraMode, Exposure, Resolution } from "./camera";
 export { CAPTURE_CONTRACT, type Capture, captureFrame, captureTexture } from "./capture";
 export {
@@ -110,7 +106,6 @@ export {
 const SLOT_FLOATS = VIEW_STRIDE / 4;
 const CAMERAS = [Camera];
 const GLOBAL_TRANSFORM_PASS: GPUComputePassDescriptor = {};
-// write a world-matrix column (base = column index * 4), normalized, into `out` at `at`
 function basisColumn(world: Float32Array, base: number, out: Float32Array, at: number): void {
     const x = world[base];
     const y = world[base + 1];
@@ -169,9 +164,6 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     // billboards face the light). Normalized: the camera Transform may scale
     basisColumn(_renderFrame.camWorld, 0, _render.viewStaging, offset + 20);
     basisColumn(_renderFrame.camWorld, 4, _render.viewStaging, offset + 24);
-    // pack this view's frustum cull volume — the pack tests each instance's bound against
-    // cullVolumes[slot]'s 6 planes. Every view culls by frustum: cameras, the sun, and each
-    // point/spot shadow combo (its own frustum-culled depth view)
     frustumVolume(
         _render.cullVolumeStaging,
         slot,
@@ -180,7 +172,6 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
         isPerspective ? camera.far.get(eid) : undefined,
     );
     _render.cullVolumeStaging[slot * CULL_VOLUME_FLOATS + 1] = shading ? 0 : 1;
-    // ViewUniforms.projection: near, far, perspective flag, slot.
     if (shading) {
         _render.viewStaging[offset + 28] = camera.near.get(eid);
         _render.viewStaging[offset + 29] = camera.far.get(eid);
@@ -191,17 +182,12 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
         _render.viewStaging[offset + 30] = 0;
     }
     _render.viewStaging[offset + 31] = slot;
-    // eye (floats 32-35): the camera's world-space position — viewProj's translation column —
-    // for view-dependent shading (specular V = normalize(eye - world))
+    // Specular shading needs the camera's world-space eye position.
     _render.viewStaging[offset + 32] = _renderFrame.camWorld[12];
     _render.viewStaging[offset + 33] = _renderFrame.camWorld[13];
     _render.viewStaging[offset + 34] = _renderFrame.camWorld[14];
     _render.viewStaging[offset + 35] = 1;
-    // invViewProj (floats 36-51): screen-space consumers reconstruct fog positions and background rays
-    // via ndc → invViewProj. Only a shading view (a presenting camera) runs such a pass, so a depth-only
-    // shadow view skips the 4×4 inverse — the costliest op in the pack — and zeroes the
-    // slot. invert reads viewProj fully into locals before writing, so inverting into a sibling
-    // view of the same staging never aliases
+    // Only shading views reconstruct screen-space positions; depth-only views need no inverse.
     if (shading) invertMat4(viewProj, _renderFrame.invViewProjs[slot]);
     else _render.viewStaging.fill(0, offset + 36, offset + 52);
 }
@@ -307,9 +293,7 @@ export const BeginFrameSystem: System = {
         const device = world.gpu.device;
         if (!device) return;
 
-        // auto-bind's inverse. A destroyed camera leaves a stale View whose eid, once recycled,
-        // could re-bind to the wrong canvas. Resolving the kept camera
-        // reference drops the old View even when the replacement also carries Camera.
+        // Prune before binding so recycled camera eids cannot inherit an old surface.
         pruneViews(world);
 
         prepareGlobalTransformFrame(world);
@@ -322,8 +306,6 @@ export const BeginFrameSystem: System = {
         // Presenting views own the low uniform slots; depth-only views stack above them in the
         // fixed cull-table tail. These scratch arrays are retained by renderFrameKey across frames.
         for (const eid of world.query(CAMERAS)) {
-            // auto-bind to the first <canvas> the frame it exists; an explicitly attachCanvas'd
-            // camera is already in Views, so this is a no-op for it. Retried each frame until mount
             const view = bindCamera(eid, world);
             if (!view) continue;
             view.framebuffer = null;
@@ -383,10 +365,7 @@ export const BeginFrameSystem: System = {
         const count = shadeCount + depthCount;
         _renderFrame.slotViews.length = count;
         _render.viewCount = count;
-        // per-slot writer: only shading slots ([0, shadeCount)) ever bind a real ViewUniforms buffer — the
-        // point/cascade atlas passes bind slot 0's buffer as an unread placeholder — so a depth-only slot
-        // gets no write at all (design lock). Each write sources VIEW_BYTES from the same
-        // per-slot viewStaging subrange the pack loop above always wrote
+        // Depth-only slots bind no ViewUniforms buffer; atlas pipelines use an unread slot-zero placeholder.
         const viewFloats = VIEW_BYTES / 4;
         for (let slot = 0; slot < _render.shadeCount; slot++) {
             device.queue.writeBuffer(
@@ -424,15 +403,7 @@ export const BeginFrameSystem: System = {
     },
 };
 
-/**
- * a no-op ordering anchor splitting the post-color seam: scene-space effects (fog) run `before` it,
- * screen-space overlays (outline) run `after` it, so an overlay composites on top of the transformed
- * scene. Both reference it by name, so neither imports the other (the scene-transform / overlay pair
- * stays decoupled). It carries no `update`: pure scheduling, invisible to the profiler. Sits in `draw`
- * with the rest of the seam. Scene color is complete before this anchor. Overlays run between
- * this anchor and PresentationSystem; presentation runs after PresentationSystem.
- * Renderers and presentation systems bound the seam without core importing either implementation.
- */
+/** Draw ordering anchor: scene effects run before it, overlays after it and before PresentationSystem. */
 export const OverlaySystem: System = {
     name: "overlay",
     group: "draw",
@@ -448,7 +419,6 @@ export const PresentationSystem: System = {
     after: [OverlaySystem],
 };
 
-/** allocates the device-shared substrate: format, view UBO, frame UBO */
 async function initRender(world: World): Promise<void> {
     const _render = world.resource(RenderContext);
     const _renderFrame = world.resource(renderFrameKey);
@@ -456,12 +426,8 @@ async function initRender(world: World): Promise<void> {
     if (!world.gpu.device) return;
     const { device } = world.gpu;
 
-    // the scene renders into an rg11b10ufloat HDR offscreen so tonemapping
-    // rolls off radiance >1 rather than clamping it to white at store. rg11b10 (4B) halves the MSAA
-    // color-target + resolve bandwidth vs rgba16float (8B) at 4× MSAA, for
-    // ~3% relative precision (no alpha; over-blending doesn't need dst alpha). Single path, no flag — the
-    // swapchain stays the base canvas format (tonemapping encodes linear→sRGB); this is the offscreen +
-    // main-pass color-target format only
+    // HDR preserves radiance above one for tonemapping; rg11b10 halves bandwidth relative to rgba16float.
+    // Over-blending needs no destination alpha.
     _render.format = "rg11b10ufloat";
 
     const uniform = (label: string, size: number) =>
@@ -507,12 +473,7 @@ async function initRender(world: World): Promise<void> {
     clearScratch(world);
 }
 
-/**
- * the renderer-agnostic substrate: frame loop, camera and Frame/ViewUniforms UBOs.
- * Producer and consumer plugins depend on this. Users
- * typically don't list it directly: `MeshRenderPlugin` pulls it transitively,
- * and either can become a default plugin
- */
+/** Camera/view state and frame scheduling without a renderer; included by MeshRenderPlugin. */
 export const RenderingPlugin: Plugin = {
     gpu: { features: ["rg11b10ufloat-renderable"] },
     dependencies: [TransformPlugin],
@@ -556,13 +517,7 @@ export const RenderingPlugin: Plugin = {
     },
 };
 
-// extension API for renderer + producer authors: the
-// per-frame uniform singletons + their WGSL structs,
-// canvas binding, and the frame-loop ordering anchor. The typical-user surface
-// (components, plugin, public types) lives in the index barrel. `MAX_VIEWS`
-// bounds the per-view uniforms; the buffer sizes and the cull-volume packer stay internal — a consumer reads
-// the packed `RenderContext.cullVolumes` buffer, never re-packs it. A producer that runs its own
-// cull (MeshInstance's pack) reads the per-slot layout constants below to index + dispatch on the tag.
+// Extension consumers read the packed cull table; they must not repack it independently.
 
 export { computeViewFromWorld, computeViewProj } from "./camera";
 export { Frame, FrameGpu } from "./frame";

@@ -7,7 +7,6 @@ import type { Plugin, Resource, System, World } from "../../engine";
 import type { ComponentStorage } from "../../engine/ecs";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 
-/** A shader-stage name understood by TypeGPU. */
 type ShaderStage = "vertex" | "fragment";
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
 
@@ -642,14 +641,13 @@ export function registerMaterialType(
     return id;
 }
 
-/** Resolve a material type's world-local numeric id. */
+/** World-local numeric id; refuses unregistered types. */
 export function materialTypeId(world: World, type: ErasedMaterialType): number {
     const id = world.resource(MaterialTypes).ids.get(type);
     if (id === undefined) throw new Error(`material type "${type.name}" is not registered`);
     return id;
 }
 
-/** Create the CPU-authored store and register the material type in this World. */
 export function MaterialPlugin<
     P extends AnyWgslStruct,
     B extends Record<string, MaterialBinding>,

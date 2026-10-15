@@ -3,15 +3,8 @@ import { isBuffer } from "typegpu";
 import type { World } from "../../engine";
 import type { Draw } from "./registry";
 
-// RenderContext bundles: every standard pass is a fixed program of draws over bind groups that change only at named
-// transitions (a draw joining or leaving the set, a bind-group identity change, an antialias toggle, a
-// target format change). WebGPU records such a program once as a `GPURenderBundle` and replays it with
-// `executeBundles`, which keeps a steady frame's pass free of per-draw work.
-// This module owns the recorded program, the transition test and the recording; the
-// passes own what goes into the program. It is a leaf like ./bound, so ./forward and ./atlas share it
-// without importing each other.
+// Bundles avoid per-draw recording on frames whose draws, resource identities and pass shape are unchanged.
 
-/** one recorded draw: the bound pipeline, its three groups, and either an indirect source or a vertex count */
 export interface BundleDraw {
     pipeline: TgpuRenderPipeline<never> | null;
     layout0: TgpuBindGroupLayout | null;
@@ -27,7 +20,6 @@ export interface BundleDraw {
     offset: number;
 }
 
-/** one pass's recorded bundle and the program it was recorded from */
 export interface PassBundle {
     bundle: GPURenderBundle | null;
     /** the program as recorded, a capacity pool rewritten in place */
@@ -73,7 +65,6 @@ export function bundleDraw(program: BundleDraw[], i: number): BundleDraw {
     return entry;
 }
 
-/** whether `next` differs from the recorded program or pass shape, so the bundle must be recorded again */
 export function bundleChanged(
     pass: PassBundle,
     next: readonly BundleDraw[],

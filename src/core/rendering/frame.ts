@@ -2,11 +2,7 @@ import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { GlobalTransformHistory } from "./global-transform";
 
-/** the per-frame `Frame` UBO schema — the single source of truth for both sides of the layout (the
- * `View`/`Step` precedent): the shader binding and the CPU staging write
- * ({@link writeFrame}, via `d.memoryLayoutOf`) both derive from it, so reordering a field can't leave one
- * side stamping the old offsets. Named `FrameGpu` (not `Frame`) because the CPU-side buffer + staging
- * singleton already owns that identifier ({@link Frame} below) — the `LightingGpu` precedent. */
+/** Per-frame uniform schema shared by GPU bindings and CPU staging offsets. */
 export const FrameGpu = d
     .struct({
         globalTransformParams: d.vec4f,
@@ -47,7 +43,6 @@ function createFrame(): Frame {
     };
 }
 
-/** Create this world's frame UBO state during RenderingPlugin initialization. */
 export function initializeFrameState(world: World): void {
     world.resource(frameKey);
 }
@@ -56,7 +51,6 @@ export const Frame: import("../../engine").Resource<Frame> = {
     create: (world) => world.resource(frameKey),
 };
 
-/** Pack interpolation parameters, time, and frame counter into the shared Frame UBO. */
 export function writeFrame(world: World): void {
     const _frame = world.resource(Frame);
 

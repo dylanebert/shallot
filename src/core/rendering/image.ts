@@ -1,14 +1,4 @@
-// The image→GPU path the engine otherwise lacks: decode a set of image blobs (browser-native via
-// `createImageBitmap`, free on web + webview), resize them onto one shared layer size, upload them as the
-// layers of a `texture_2d_array`, and fill the mip chain. The shared substrate two producers sample — glTF
-// baseColor (the surface samples `albedo[layer]`, one draw shades many materials) and the sprite atlas (one
-// layer per icon) — so it lives in render, inward of both, not in either extra.
-//
-// `texture_2d_array` (not a bindless `binding_array`, which WebGPU lacks, nor an atlas, which can't tile)
-// is the firehose-native choice: the per-instance layer index is just another GPU column, draws stay flat.
-// Its one constraint is uniform layer size, so varied sources resize to a common size (capped). Layers are
-// `rgba8unorm-srgb` by default, so sampling decodes sRGB→linear in hardware and the mip blit downsamples in
-// linear; a data-map caller passes a linear format instead.
+// Uniform array-layer dimensions allow one draw to select tiled images by per-instance layer index.
 
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
@@ -20,11 +10,7 @@ export function mipLevels(size: number): number {
     return Math.floor(Math.log2(size)) + 1;
 }
 
-/**
- * the common (square) layer size for an image array: the largest source dimension, capped at `cap`
- * (downscaling larger sources) and floored at 1. The size-uniformity decision in one function. Every
- * layer resizes to this, so the array's one-size constraint is satisfied without size-bucketing.
- */
+/** Square layer size in pixels: largest source dimension, capped at `cap` and floored at 1. */
 export function commonSize(dims: { w: number; h: number }[], cap = 2048): number {
     let max = 1;
     for (const dim of dims) max = Math.max(max, dim.w, dim.h);
@@ -33,11 +19,7 @@ export function commonSize(dims: { w: number; h: number }[], cap = 2048): number
 
 const ARRAY_FORMAT: GPUTextureFormat = "rgba8unorm-srgb";
 
-// the mipmap-blit kernel: a fullscreen triangle sampling the previous mip with a linear filter and
-// writing the next. `blitVs`/`blitFs` are format-independent (the target format only affects the
-// pipeline's color target, not the shading), so one kernel pair serves every format; `blitPipeline`
-// below compiles one pipeline per format — srgb for color slots (albedo, emissive), linear `rgba8unorm`
-// for data slots (normal, metallic-roughness, occlusion) where an sRGB decode would corrupt the values.
+// Color mips average in linear space through sRGB sampling/store conversion; data maps use linear formats.
 const blitLayout = tgpu.bindGroupLayout({
     src: { texture: d.texture2d(d.f32) },
     samp: { sampler: "filtering" },
@@ -48,7 +30,6 @@ const blitVs = tgpu.vertexFn({
     out: { pos: d.builtin.position, uv: d.vec2f },
 })((input) => {
     "use gpu";
-    // a single triangle covering the viewport; uv 0..1 across the covered quad
     const uv = d.vec2f(d.f32((input.vi << 1) & 2), d.f32(input.vi & 2));
     return {
         pos: d.vec4f(uv.x * 2 - 1, uv.y * 2 - 1, 0, 1),
@@ -64,16 +45,13 @@ const blitFs = tgpu.fragmentFn({
     return std.textureSample(blitLayout.$.src, blitLayout.$.samp, input.uv);
 });
 
-// pipelines bind to the root that created them (device-scoped, memoized — `engine/runtime/gpu.ts`), so a
-// stale entry from a torn-down device must not be reused; keyed like the pre-port cache, by format alone
-// (the per-device root memo means `world.gpu.root` always matches whichever device is currently adopted).
+// Pipeline caches are world-owned so a rebuilt world cannot reuse a torn-down device's pipelines.
 export const blitPipelinesKey = { create: () => new Map<string, TgpuRenderPipeline>() };
 
 function blitPipelines(world: World): Map<string, TgpuRenderPipeline> {
     return world.resource(blitPipelinesKey);
 }
 
-/** Create this world's image pipeline cache during RenderingPlugin initialization. */
 export function initializeImageState(world: World): void {
     world.resource(blitPipelinesKey);
 }
@@ -93,9 +71,7 @@ function blitPipeline(world: World, format: GPUTextureFormat): TgpuRenderPipelin
     return pipeline;
 }
 
-// fill mips 1..levels of ONE layer by blitting from the level above, one render pass per level, one submit.
-// Sampling decodes sRGB→linear and the store re-encodes, so the downsample averages in linear (gamma-correct).
-// Per-layer so a staged builder can budget a layer's blit chain as one frame's unit (the union upload spread).
+// Per-layer submissions let staged builders budget a complete mip chain per frame.
 function genMipmapsLayer(
     world: World,
     device: GPUDevice,
@@ -150,12 +126,7 @@ export async function imageArray(
     return arrayFromBitmaps(world, device, native, cap, format);
 }
 
-/**
- * allocate (but don't fill) a `texture_2d_array` for `layers` square `size`-px layers with a full mip chain:
- * the cheap, synchronous half of {@link arrayFromBitmaps}, split out so a staged builder uploads layers across
- * frames ({@link uploadLayer}). Fails loud + clear here (the array-layer / 2D-size limit) rather than at an
- * opaque createTexture validation error.
- */
+/** Allocates an unfilled array texture; refuses layer counts and dimensions beyond device limits. */
 export function allocArray(
     device: GPUDevice,
     size: number,
@@ -181,11 +152,7 @@ export function allocArray(
     });
 }
 
-/**
- * fill one layer of an array texture: resize the bitmap to the common `size` (re-samples, no second decode),
- * copy it into `layer`, and blit its mip chain. The per-layer upload unit a staged builder budgets one of per
- * frame; the synchronous-uploading {@link arrayFromBitmaps} loops it.
- */
+/** Resizes a bitmap to `size` pixels square and uploads one array layer with its mip chain. */
 export async function uploadLayer(
     world: World,
     device: GPUDevice,
@@ -213,12 +180,7 @@ export async function uploadLayer(
     genMipmapsLayer(world, device, texture, layer, levels, format);
 }
 
-/**
- * upload decoded `ImageBitmap`s as a `texture_2d_array`: resized to a common (capped) square, sRGB-encoded,
- * mip-filled. The shared core of {@link imageArray} (which decodes blobs first) and any caller with
- * already-decoded bitmaps (the glTF KTX2 RGBA-decode fallback). Takes already-decoded bitmaps so each caller
- * decodes its own way. Synchronous-uploading; the glTF union stages the same primitives across frames instead.
- */
+/** Uploads decoded bitmaps as common-size square sRGB array layers with a full mip chain; `cap` is in pixels. */
 export async function arrayFromBitmaps(
     world: World,
     device: GPUDevice,

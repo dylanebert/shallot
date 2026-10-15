@@ -246,7 +246,7 @@ export const PointLights = d.struct({
 /**
  * the compact pass's write view of {@link PointLights}: byte-identical, with the count header's first
  * word atomic so the membership scan can reserve slots. WGSL forbids `atomic` in a read-only binding, so
- * the reader and the writer need distinct schemas; `lighting.test.ts` pins their layouts equal.
+ * the reader and writer need distinct schemas with identical byte layouts.
  * @internal
  */
 export const PointLightsRw = d.struct({
@@ -255,12 +255,8 @@ export const PointLightsRw = d.struct({
 });
 
 /**
- * the point-light falloff (Bevy `getDistanceAttenuation`): inverse-square with a smooth
- * window (`smooth = saturate(1 − (d²/r²)²)`, attenuation `smooth² / max(d², radiusSq)`),
- * exactly zero at and past the range, and flat at `1/radiusSq` inside the source sphere
- * (Karis representative point: `radiusSq = 0` would spike toward ∞ at the bulb). One
- * function, both sides: standard's clustered loop and the fog march call it on the GPU, the CPU
- * oracles call it directly — there is no WGSL twin to drift from.
+ * Inverse-square falloff (Bevy `getDistanceAttenuation`) with a smooth window to zero at the range.
+ * Clamps to `1/radiusSq` inside the source sphere to bound intensity at the bulb.
  */
 export const distanceAttenuation = tgpu.fn(
     [d.f32, d.f32, d.f32],
@@ -292,11 +288,8 @@ export const spotFactor = tgpu.fn(
 });
 
 /**
- * the spot cone's angular-attenuation coefficients (Frostbite `getAngleAtt`, Lagarde 2014) from the
- * inner/outer half-angles (radians). The FS multiplies the light by `saturate(cd·scale + offset)²`, cd =
- * cos(angle between the cone axis and the light→fragment direction): 1 inside the inner cone, smoothly to
- * 0 at the outer. The GPU compact pass bakes these into the light's `params.zw`; the oracle its WGSL twin
- * is pinned to. `inner == outer` is a hard edge (the divide is clamped), never a NaN.
+ * Frostbite `getAngleAtt` coefficients (Lagarde 2014) for inner/outer half-angles in radians.
+ * Used as `saturate(cosAngle·scale + offset)²`; equal angles give a clamped hard edge, not NaN.
  */
 export function spotParams(inner: number, outer: number): { scale: number; offset: number } {
     const cosInner = Math.cos(inner);
@@ -308,12 +301,7 @@ export function spotParams(inner: number, outer: number): { scale: number; offse
 const POINT_LIGHT_TERMS = [PointLight, GlobalTransform];
 const SPOT_LIGHT_TERMS = [SpotLight, GlobalTransform];
 
-/**
- * warn once per episode when more PointLight entities exist than the list cap:
- * the GPU compact pass drops the excess (count beyond {@link MAX_POINT_LIGHTS}
- * never writes an entry), so the overflow is loud, not silent. A count, not a
- * pack: the light data itself flows GPU-side
- */
+/** Warns once per overflow episode; the GPU compact pass drops lights beyond MAX_POINT_LIGHTS. */
 export function warnLightOverflow(world: World): void {
     const resources = lightingResources(world);
     let count = 0;

@@ -151,9 +151,7 @@ export const tmAgx = tgpu.fn(
         d.vec3f(-0.11060664309660323, 1.157823702216272, -0.11060664309660294),
         d.vec3f(-0.016493938717834573, -0.016493938717834257, 1.2519364065950405),
     );
-    // `d.f32` types these f32 rather than WGSL abstract-float, so `maxEv - minEv` folds in f32 exactly as
-    // the shipped shader's f32 `let`s did. Folded at f64 instead it lands one f32 step low (16.499998
-    // against 16.5), which shifts every AgX log-range remap
+    // Explicit f32 constants keep the log-range difference at 16.5; f64 folding rounds one f32 step low.
     const minEv = d.f32(-12.47393);
     const maxEv = d.f32(4.026069);
     let c = std.mul(inset, std.mul(srgbToRec2020, cin));
@@ -174,7 +172,6 @@ export const tmRgbToYcbcr = tgpu.fn(
     return std.mul(c, m);
 });
 
-/** the `1 - exp(-v)` roll-off {@link tmSomewhatBoring} curves through. */
 export const tmSbCurve = tgpu.fn(
     [d.f32],
     d.f32,
@@ -183,7 +180,6 @@ export const tmSbCurve = tgpu.fn(
     return 1 - std.exp(-v);
 });
 
-/** {@link tmSbCurve} per channel. */
 export const tmSbCurve3 = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -192,7 +188,7 @@ export const tmSbCurve3 = tgpu.fn(
     return d.vec3f(tmSbCurve(v.x), tmSbCurve(v.y), tmSbCurve(v.z));
 });
 
-/** SomewhatBoringDisplayTransform (Stachowiak, via Bevy) — chroma-aware highlight desaturation. */
+/** SomewhatBoringDisplayTransform (Stachowiak): chroma-aware highlight desaturation. */
 export const tmSomewhatBoring = tgpu.fn(
     [d.vec3f],
     d.vec3f,

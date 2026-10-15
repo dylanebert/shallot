@@ -8,12 +8,7 @@ import { Camera, Resolution } from "./camera";
 import { CULL_VOLUME_FLOATS } from "./frustum";
 import { RenderContext } from "./render";
 
-/**
- * the per-camera `ViewUniforms` UBO schema — the single source of truth for both sides of the layout
- * (`d.sizeOf` / `d.memoryLayoutOf` size {@link VIEW_BYTES} and every CPU staging write, `view.test.ts`
- * red-proven against a field reorder, the `Step` precedent). One instance per shading slot lives in its
- * own static uniform buffer ({@link RenderContext.viewBuffers}).
- */
+/** Per-shading-slot uniform schema shared by GPU bindings and CPU staging offsets. */
 export const ViewUniforms = d
     .struct({
         viewProj: d.mat4x4f,
@@ -41,11 +36,7 @@ export const VIEW_STRIDE = 256;
 /** One initial slot keeps the common single-view path small; all per-view state grows on demand. */
 export const INITIAL_VIEW_CAPACITY = 1;
 
-/**
- * The cull table is one vec4 header plus six vec4 planes per slot. A uniform binding is limited to 64 KiB by
- * WebGPU's default `maxUniformBufferBindingSize`: floor(65,536 / (28 floats × 4 bytes)) = 585 slots
- * (65,520 bytes); 586 slots would exceed the limit. Allocate the table once at this hardware bound.
- */
+// WebGPU's default 64 KiB uniform binding fits 585 cull slots of 28 floats each.
 export const MAX_SLOTS = Math.floor(
     (64 * 1024) / (CULL_VOLUME_FLOATS * Float32Array.BYTES_PER_ELEMENT),
 );
@@ -66,20 +57,10 @@ export function presentingViewRefusal(eid: number): string {
     return `shallot: ${MAX_VIEWS} presenting-view cull limit reached; entity ${eid} skipped`;
 }
 
-/**
- * the byte size of the {@link ViewUniforms} uniform a surface statically reads, from the schema: projection,
- * camera basis, eye and inverse view-projection, followed by per-camera ambient radiance and exposure. Fog
- * reconstructs surface positions and backgrounds derive camera rays through `invViewProj`; each shading slot also
- * carries the camera's effective ambient override and EV100 factor. Each shading slot binds its own whole
- * {@link RenderContext.viewBuffers} buffer of exactly this size.
- */
+/** Byte size of each shading slot's whole ViewUniforms buffer. */
 export const VIEW_BYTES = d.sizeOf(ViewUniforms);
 
-/**
- * Linear→sRGB encode (IEC 61966-2-1) for presentation into a non-sRGB target.
- * Tonemapping and replacement passes encode exactly once. The per-channel scalar twin is
- * `linearToSrgb1` (`utils`), which the LDR color codec packs through.
- */
+/** Linear→sRGB (IEC 61966-2-1); presentation into a non-sRGB target must encode exactly once. */
 export const linearToSrgb3 = tgpu.fn(
     [d.vec3f],
     d.vec3f,
@@ -91,22 +72,11 @@ export const linearToSrgb3 = tgpu.fn(
 });
 
 /**
- * a camera's per-frame view state. `framebuffer` + `present` + `slot` are set by `BeginFrameSystem`
- * each frame and read by the renderers. `slot` is the camera's index into the packed ViewUniforms UBO; use it
- * to index {@link RenderContext.viewBuffers} (`RenderContext.viewBuffers[slot]`) when binding. `framebuffer` is the
- * per-camera **offscreen**
- * scene-color target the renderer draws into (core resolves its MSAA color into it; a custom renderer
- * draws straight into it single-sample): sampleable (`TEXTURE_BINDING`), in `RenderContext.format`, sized to
- * the view; a composite `textureLoad`s it and writes the result into `present`. `present` is the swapchain
- * backbuffer, as a render attachment in the base canvas format (not sRGB). The final pass
- * writes it, encoding linear→sRGB once. The split from `framebuffer` exists so postfx
- * has a rendered color to read: writing the swapchain in place leaves nothing to read back.
- * `depth` is the camera's stored depth lane, matching the main pass's sample count. Core publishes it only when
- * the camera carries `DepthPrepass` or a registered plugin requests it; otherwise it is null. A
- * canvas-bound view (`attachCanvas`) renders to that canvas; a canvas-less view (`attachView`) has
- * no `canvas` / `context` and a null `framebuffer` / `present`. It still takes a cull slot
- * (a shadow light's off-screen camera renders to its own target, not the screen). Every view
- * frustum-culls from its viewProj: cameras, the sun, and each point/spot shadow combo's depth view.
+ * Per-frame camera state populated by BeginFrameSystem. `slot` indexes {@link RenderContext.viewBuffers}.
+ * `framebuffer` is a view-sized, sampleable linear scene target in RenderContext.format; `present` is
+ * the final attachment in the base canvas format. Presentation encodes linear→sRGB once.
+ * `depth` matches the main pass sample count and is null unless DepthPrepass or a plugin requests it.
+ * A depth-only attachView registration takes a cull slot but has no canvas, context or color targets.
  */
 export interface View {
     canvas: HTMLCanvasElement | null;
@@ -126,14 +96,10 @@ export interface View {
     texture?: GPUTexture;
     /** True after a frame acquired this surface and submitted its encoder. */
     presented?: boolean;
-    // the render backing-store size (device px). Derived each frame by `sizeView` from the display size
-    // below + the camera's `Resolution` pin (or the world's pixelRatio). Every consumer — offscreen,
-    // Consumers read this view size, so a low-res pin flows through by sizing it here.
+    /** Backing-store dimensions in device pixels, including Resolution or pixelRatio. */
     width: number;
     height: number;
-    // the canvas CSS display size (px), mirrored from the World-scoped viewport row for compatibility.
-    // The backing above reads the row directly, so a runtime `Resolution` edit re-sizes the view without
-    // waiting on a resize event.
+    /** Canvas display dimensions in CSS pixels. */
     clientWidth: number;
     clientHeight: number;
     /** canvas.clientWidth / clientHeight and window.devicePixelRatio at the last display-size sample */
@@ -214,7 +180,6 @@ function createViewResources(world: World): ViewResources {
     return resources;
 }
 
-/** Create this world's view and target registries during RenderingPlugin initialization. */
 export function initializeViewState(world: World): void {
     world.resource(viewResourcesKey);
 }
@@ -257,10 +222,7 @@ function rejectFrameCaptures(view: View, error: Error): void {
     view.frameCaptures = undefined;
 }
 
-// read `import.meta.env.DEV` typeof-safely: the engine is bundled by arbitrary consumer bundlers, and a
-// bare `import.meta.env.DEV` throws where `import.meta.env` is undefined (non-vite). Optional-chained,
-// wrapped so an exotic `import.meta` shape can't take down attachCanvas. Exported as a test seam (pins the
-// false-not-throw contract off a vite build) — not on the rendering barrel.
+// Consumer bundlers may omit import.meta.env; missing or inaccessible DEV means production.
 export function devEnabled(): boolean {
     try {
         const env = import.meta.env as Record<string, unknown> | undefined;
@@ -270,12 +232,7 @@ export function devEnabled(): boolean {
     }
 }
 
-/**
- * dev-only rebuild guard, canvas-keyed: warn when `canvas` is still held by a live, undisposed *different*
- * World — an app rebuilt without disposing the prior one (the leak class `World.onDispose` closes), then
- * record the new owner. Two apps on distinct canvases stay silent; a proper dispose flips the prior owner's
- * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the rendering barrel.
- */
+/** Records canvas ownership; warns if a different live World still owns it. Call only in development. */
 export function trackCanvasOwner(canvas: HTMLCanvasElement, world: World): void {
     const prior = _canvasOwners.get(canvas);
     if (prior && prior !== world && !prior.disposed) {
@@ -343,11 +300,8 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
 }
 
 /**
- * resolve a view's backing-store size (device px) from its CSS display size. `resW`/`resH` are a
- * {@link Resolution} pin (0 = that axis unset); both unset → the display size × `ratio` (the pixelRatio
- * policy). A set axis is exact and the unset one follows the display aspect, so `resH = 360` alone renders
- * 360 lines tall. `pixelated` is true whenever the backing is below the display: the nearest-neighbor
- * upscale that keeps a pinned low resolution crisp (and the `ratio < 1` pixel-art case, unchanged).
+ * Backing dimensions in device pixels from CSS display dimensions. Zero resW/resH leaves an axis unset:
+ * both unset use display×ratio; one unset follows display aspect. pixelated marks backing below display size.
  */
 export function backingSize(
     resW: number,
@@ -374,19 +328,12 @@ export function backingSize(
     return { w, h, pixelated: w < clientW || h < clientH };
 }
 
-// the inputs each view's backing size was last resolved from: `[resW, resH, clientW, clientH, ratio]`. The
-// size is a pure function of them, so a frame that changes none keeps the sizes already on the view and the
-// canvas and resolves nothing. Keyed by the View object, so a re-attached camera's fresh view sizes on its
-// first frame.
+// Cache by View identity so reattached cameras resolve size even when display inputs are unchanged.
 const _sizeInputs = new WeakMap<View, Float64Array>();
 
 /**
- * size a canvas-bound view's backing store from its World-scoped viewport row + its {@link Resolution} pin
- * (the world's pixelRatio when absent), and set the nearest-neighbor upscale. {@link BeginFrameSystem} calls
- * it per camera each frame after binding. Sampling `clientWidth` here forces current layout; a changed display
- * box or DPR refreshes the viewport row from its rect and current DPR. A no-op for a canvas-less (off-screen)
- * view, which sizes its own target. The Resolution read is membership-gated: a recycled eid's stale field value
- * never leaks into a camera that carries no pin.
+ * Refreshes canvas display geometry and resolves backing size from Resolution or world pixelRatio.
+ * Called after binding each frame; sets nearest-neighbour upscaling when undersized. No-op without a canvas.
  */
 export function sizeView(world: World, eid: number, view: View): void {
     const canvas = view.canvas;
@@ -540,25 +487,15 @@ export function cameraView(world: World, eid: number): View | undefined {
     return undefined;
 }
 
-/**
- * drop the auto-bind's inverse: a View whose camera despawned, or whose eid was recycled to a new camera.
- * The kept camera reference prevents a recycled eid inheriting its canvas or texture,
- * including recycling before the first frame.
- * {@link BeginFrameSystem} calls it at frame start, before binding.
- */
+// Retained entity references prevent recycled camera eids from inheriting old surfaces.
 export function pruneViews(world: World): void {
     world.resource(Views).forEach(pruneView, world);
 }
 
-// one View's liveness check for the `pruneViews` walk; the walk passes the World as `this`
 function pruneView(this: World, view: View, eid: number): void {
     if (!this.resolve(view.camera) || !this.has(eid, Camera)) detachView(this, eid);
 }
 
-// per-camera offscreen scene-color target — the `view.framebuffer` a renderer draws (or resolves)
-// into and tonemapping presents. `RenderContext.format` is rg11b10ufloat (HDR): a renderer writes
-// linear and tonemapping reads it linear, keeping radiance >1 alive for the operator. Sized to
-// the view, recreated on resize; one per camera so multi-view never last-camera-wins a single shared texture
 
 /** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: the main pass's
  * MSAA resolve and the `Custom` single-sample draw both target it; {@link BeginFrameSystem} sets it on
@@ -589,7 +526,6 @@ export function offscreenTexture(world: World, eid: number): GPUTexture | undefi
     return world.resource(viewResourcesKey).offscreen.get(eid)?.texture;
 }
 
-// free one camera's offscreen target (on detach). Safe on cameras that never allocated one
 function releaseOffscreen(world: World, eid: number): void {
     const _viewResources = world.resource(viewResourcesKey);
 
@@ -597,13 +533,7 @@ function releaseOffscreen(world: World, eid: number): void {
     _viewResources.offscreen.delete(eid);
 }
 
-// the write half of a scene-transform postfx effect: a per-view **ping-pong pair** of scratches the
-// chained effects bounce the transformed scene between. Always rgba16float (a storage-capable, sampleable
-// HDR format): the framebuffer offscreen (rg11b10ufloat) isn't storage-capable, so a scratch must be its
-// own storage-writable format. One effect uses `a` alone; a second (fog → outline) writes `b`, reading
-// `a`; `b` allocates lazily so a fog-only scene keeps one scratch. **Ceiling: two effects per frame** — a
-// third in-frame consumer would alias `a` (read=b → write=a, overwriting the first effect's output mid-frame);
-// that's the trigger to grow a real ring buffer here, not a silent corruption to leave in place
+// rgba16float scratches support storage writes; the rg11b10ufloat scene target does not.
 interface Scratch {
     texture: GPUTexture;
     view: GPUTextureView;
@@ -625,16 +555,10 @@ function scratchTexture(world: World, eid: number, slot: "a" | "b", w: number, h
 }
 
 /**
- * the scene-transform seam: redirect a camera's scene color through a postfx compute effect. Returns
- * `read` (the current `view.framebuffer`: the renderer's resolved scene, or the prior effect's output) and
- * `write` (a lazily-allocated scratch, the *other* half of the ping-pong pair from `read`), and repoints
- * `view.framebuffer` at `write` so the next effect, or tonemapping, reads this
- * one's output. Call from a compute system in the post-color seam (`after: [MainPassSystem]`, scene effects
- * `before: [OverlaySystem]`, overlays `after: [OverlaySystem]`): bind `read` as input, `write` as the
- * storage output, dispatch once. `write` is always the pair slot `read` isn't, so two effects chain
- * (fog reads the offscreen → writes `a`; outline reads `a` → writes `b`) and `read` is never `write`. The
- * renderer resets `view.framebuffer` to the offscreen each frame, so the chain restarts every frame. The result
- * object is reused for this camera until its next call to `sceneTransform`.
+ * Redirects scene color through a compute effect: `read` is the current framebuffer, `write` is a
+ * non-aliasing storage scratch and becomes the framebuffer for the next effect or presentation.
+ * Call after MainPassSystem, before OverlaySystem for scene effects or after it for overlays.
+ * The chain resets each frame. The result object is reused until this camera's next call.
  */
 export function sceneTransform(world: World, view: View, eid: number): SceneTransformResult {
     const _viewResources = world.resource(viewResourcesKey);
@@ -654,7 +578,6 @@ export function sceneTransform(world: World, view: View, eid: number): SceneTran
         };
         _viewResources.scratch.set(eid, pair);
     }
-    // write to whichever slot isn't the current read (first call read=offscreen → `a`; second read=`a` → `b`)
     const slot: "a" | "b" = read === pair.a?.view ? "b" : "a";
     const scratch = (pair[slot] ??= scratchTexture(world, eid, slot, view.width, view.height));
     view.framebuffer = scratch.view;
@@ -664,7 +587,6 @@ export function sceneTransform(world: World, view: View, eid: number): SceneTran
     return pair.result;
 }
 
-// free one camera's scene-transform scratch pair (on detach). Safe on cameras that never allocated one
 function releaseScratch(world: World, eid: number): void {
     const _viewResources = world.resource(viewResourcesKey);
 
@@ -674,7 +596,6 @@ function releaseScratch(world: World, eid: number): void {
     _viewResources.scratch.delete(eid);
 }
 
-/** free every offscreen target (on render teardown / HMR re-init) */
 export function clearOffscreens(world: World): void {
     const _viewResources = world.resource(viewResourcesKey);
 
@@ -682,7 +603,6 @@ export function clearOffscreens(world: World): void {
     _viewResources.offscreen.clear();
 }
 
-/** free every scene-transform scratch pair (on render teardown / HMR re-init) */
 export function clearScratch(world: World): void {
     const _viewResources = world.resource(viewResourcesKey);
 
@@ -707,9 +627,7 @@ export function bindCamera(eid: number, world: World): View | undefined {
     if (typeof document === "undefined") return undefined;
     const canvas = document.querySelector("canvas");
     if (!(canvas instanceof HTMLCanvasElement)) return undefined;
-    // claim the canvas for exactly one camera. A second unbound camera (a multi-view scene's extra camera
-    // alongside an explicitly-attached viewport camera) must not also grab it — two cameras on one
-    // context each call getCurrentTexture per frame, and the second destroys the first's swapchain texture.
+    // Two cameras acquiring one canvas would invalidate the first camera's swapchain texture.
     for (const view of _views.values()) if (view.canvas === canvas) return undefined;
     attachCanvas(world, eid, canvas);
     return _views.get(eid);

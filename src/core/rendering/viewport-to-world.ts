@@ -64,11 +64,8 @@ export function viewportToWorld(world: World, camera: number, x: number, y: numb
 const DEG2RAD = Math.PI / 180;
 
 /**
- * a world-space pick ray through a normalized-device-coordinate point (`ndcX`/`ndcY` in [-1, 1], x right /
- * y up; (0, 0) is screen centre). Unprojects through the camera's vertical `fov` (degrees) + `aspect`,
- * rotates the camera-space ray into world by the camera `quat`, and offsets the origin to the `near` plane.
- * The returned `dir` is normalized, so a hit distance is world units. Pair with {@link screenToRay}
- * for pixel input.
+ * World-space ray through NDC [-1,1] (x right, y up). fov is vertical degrees; quat is world rotation.
+ * Origin lies on the near plane and dir is normalized, so hit distances are world units.
  */
 export function generateRay(
     ndcX: number,
@@ -99,11 +96,7 @@ export function generateRay(
     };
 }
 
-/**
- * a world-space pick ray through a canvas pixel (`screenX`/`screenY` in [0, width]×[0, height], origin
- * top-left). Converts the pixel to NDC + aspect and defers to {@link generateRay}: the cursor-driven pick
- * primitive (god-mode pick/drag). `origin`/`quat` are the camera's world pose, `fov`/`near` its params.
- */
+/** World-space pick ray through canvas pixels from top-left; origin/quat are world pose, fov is vertical degrees. */
 export function screenToRay(
     screenX: number,
     screenY: number,

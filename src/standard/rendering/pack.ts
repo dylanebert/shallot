@@ -11,12 +11,7 @@ import {
 import { MeshInstanceInput } from "./material-data";
 import { DrawIndexedIndirect } from "./registry";
 
-// The pack kernels: cull → count → scan → scatter, the compute half of the MeshInstance producer. Count and
-// scatter share the same cull inputs, so those are ONE bind group layout both kernels reference (and the
-// shared `visible` test closes over), and the prefix needs no re-declaration. The scan is a third pipeline
-// with no cull inputs at all. Each layout pins its group index with `$idx`: the dispatches are issued on a
-// raw compute pass, which addresses a bind group by index, so the index is declared here rather than left
-// to resolution order. This displaces the note that the group index is invisible to the CPU side.
+// Raw compute passes bind by index, so layouts pin their group indices rather than relying on resolve order.
 
 /** dense MeshInstance row counts and view/pair dimensions, written once per changed frame @internal */
 export const CullParams = d.struct({
@@ -69,7 +64,6 @@ export const scatterLayout = tgpu
     })
     .$idx(1);
 
-// header vec4 + the 6 frustum planes
 const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
 
 /**
@@ -96,7 +90,6 @@ export const visible = tgpu.fn(
     const base = slot * CULL_STRIDE;
     const header = cullLayout.$.cullVolumes[base];
     if (d.u32(header.x) !== CULL_FRUSTUM) return true;
-    // planes follow the header vec4 at base + 1
     let i = d.u32(0);
     while (i < 6) {
         const pl = cullLayout.$.cullVolumes[base + 1 + i];
@@ -190,17 +183,7 @@ const SCAN_WG = 256;
 const temp = tgpu.workgroupVar(d.arrayOf(d.u32, SCAN_WG));
 const carry = tgpu.workgroupVar(d.u32);
 
-/**
- * exclusive prefix sum, one workgroup per view slot. Each slot's row is scanned in parallel: a `SCAN_WG`-wide
- * LDS Hillis-Steele scan walks the row in tiles, a `carry` threading the running offset across tiles, so the
- * slot's packedEids region starts at `slot * instanceCapacity`. Writes instanceCount + the compacted firstInstance,
- * resets the tallies for the next count pass, and leaves indexCount / firstIndex (lanes 0, 2) alone.
- * baseVertex temporarily saves the tally; scatter restores it to zero and restores instanceCount.
- * Pure LDS (no subgroup ops) — the instance pack stays inside the base feature floor, so a
- * physics-free app never needs `subgroups`. One workgroup per slot keeps the pass independent of the
- * view-slot count. Compaction is this GPU prefix-sum scan, never a CPU gather.
- * @internal
- */
+// Workgroup-local scanning avoids requiring subgroups and keeps each view's prefix sum independent.
 export function scanKernel() {
     return tgpu.computeFn({
         workgroupSize: [SCAN_WG],
@@ -215,8 +198,7 @@ export function scanKernel() {
         if (local === 0) carry.$ = 0;
         std.workgroupBarrier();
 
-        // tile the row: each pass scans SCAN_WG counts, carry holds the prefix of all prior tiles. The outer
-        // condition is workgroup-uniform (a uniform field + constants), so the in-loop barriers are legal
+        // The loop condition is workgroup-uniform, so its barriers are legal.
         let tileBase = d.u32(0);
         while (tileBase < pairCount) {
             const p = tileBase + local;
@@ -225,7 +207,6 @@ export function scanKernel() {
             let c = d.u32(0);
             if (inRange) c = std.atomicLoad(scanLayout.$.counts[idx]);
 
-            // inclusive Hillis-Steele scan of c across the workgroup into temp
             temp.$[local] = c;
             std.workgroupBarrier();
             let offset = d.u32(1);

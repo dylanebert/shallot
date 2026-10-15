@@ -59,7 +59,7 @@ export const GradingConfig = d.struct({
     lift: d.vec4f,
 });
 
-/** Section weights, including the corrected lower crossover from Blender 3.6. */
+/** Shadow, midtone and highlight weights with continuous crossfades. */
 export const gradingWeights = tgpu.fn(
     [d.f32, d.vec2f],
     d.vec3f,

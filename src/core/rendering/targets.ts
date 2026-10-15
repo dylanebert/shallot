@@ -80,7 +80,6 @@ function createTargets() {
 }
 export const viewTargetsKey = { create: createTargets };
 
-/** Initialize this world's target caches. */
 export function initializeViewTargets(world: World): void {
     world.resource(viewTargetsKey);
 }

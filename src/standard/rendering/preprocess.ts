@@ -40,8 +40,6 @@ import {
 } from "./pack";
 import { type Draw, DrawIndexedIndirect, Draws } from "./registry";
 
-// stride derived from the schema (a second hand-authored stride is layout drift waiting to
-// happen).
 const DRAW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 type InstanceBuffer = TgpuBuffer<d.WgslArray<d.Vec4u>> & StorageFlag;
 type AtomicU32Buffer = TgpuBuffer<d.WgslArray<d.Atomic<d.U32>>> & StorageFlag;
@@ -49,33 +47,12 @@ type Vec4fBuffer = TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag;
 type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
     StorageFlag & { usableAsIndirect: true };
 
-// Pack is cull → count → scan → scatter, run per active view: count tallies the
-// frustum-visible instances per (view, pair), the single-thread scan turns counts
-// into each (view, pair)'s instanceCount + compacted firstInstance (written
-// into drawArgs), scatter appends each surviving eid into its slice of
-// packedEids. The cull test (instance bound vs the slot's `cullVolumes[slot]`) gates both
-// count and scatter, so off-screen instances never reach the indirect args — this
-// is niagara's cull → compact → drawIndirect spine. Output is slot-major: each
-// camera owns its own drawArgs records + packedEids region, so the four-up
-// example culls each view independently and the shadow pass reuses
-// the same pack against the sun's frustum as one more slot. registerDraws
-// writes the static indexCount + firstIndex; the per-view dimension grows
-// lazily with the active camera count, the pair dimension with mesh count.
-// Culling lives here, in the producer's per-view compaction, shadow slots
-// included, because a consumer that culled would already have paid for every
-// instance it never draws.
-// Per-world GPU pack state is created by MeshRenderPlugin.initialize below.
+// Culling during per-view compaction keeps invisible instances out of indirect draws.
 
 /**
- * GPU-resident MeshInstance draw publication. `drawArgs` holds `DrawIndexedIndirect` entries
- * (20 bytes) laid out slot-major (`slot * pairCount + pair`), so each camera
- * has its own per-pair records: static indexCount/firstIndex/baseVertex from
- * `registerDraws`, per-frame instanceCount/firstInstance from the pack. StandardRenderer
- * reads `slot`'s records via `Draw.args.viewStride`. `packedEids` is one list
- * partitioned into a `capacity`-sized region per slot, each region compacted
- * into per-pair slices, read by the VS at `instance_index`. The slot dimension
- * grows with the active camera count, the pair dimension (`MaterialTypes.size ×
- * ALPHA_PIPELINE_KEY_COUNT × Meshes.size`) with mesh registration: no fixed upper bound on either
+ * GPU draw publication. drawArgs is slot-major at `slot*pairCount+pair`, with 20-byte indirect records.
+ * packedEids holds one row-capacity-sized region per slot, compacted into pair slices for instance_index.
+ * Buffers grow with mesh registration, table capacity and active views; Draw.args.viewStride selects a slot.
  */
 export interface MeshDrawBuffers {
     /** `DrawIndexedIndirect` records, slot-major (`slot * pairCount + pair`); null until the first frame's `syncBuffers` */
@@ -210,14 +187,7 @@ export const MeshDrawBuffers: import("../../engine").Resource<MeshDrawBuffers> =
     create: (world) => world.resource(meshPreprocessKey).meshDraws,
 };
 
-/**
- * per-frame MeshInstance pack. Clears the counts, then cull → count → scan → scatter
- * over active MeshInstance table rows and view slots. No CPU iteration over
- * mesh instances: every thread culls an active row against the view's frustum. The
- * count + scatter dispatch a row of workgroups per active view (`gid.y` =
- * slot); the scan dispatches one workgroup per slot, each scanning its row in
- * parallel
- */
+// Count and scatter use the same visibility test so their per-pair ranges agree.
 export const MeshPreprocessSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
@@ -238,8 +208,6 @@ export const MeshPreprocessSystem: System = {
         // index its slot's slice; slot ≥ viewCount means no frustum (headless),
         // packed unculled. The engine submits after this pass.
         const views = Math.max(1, _render.viewCount);
-        // A small uniform written when its dimensions change; the "CPU truth stays typed arrays" law
-        // governs per-entity firehoses, not this dispatch description.
         const instanceCount = meshInstanceTable(world).count;
         if (
             _meshPreprocess.paramsTarget !== _meshPreprocess.cullParams ||
@@ -287,7 +255,6 @@ export const MeshPreprocessSystem: System = {
     },
 };
 
-// bind one pass's pipeline and its groups, each at the index its layout declares
 function setBound(
     pass: GPUComputePassEncoder,
     bound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] },
@@ -424,16 +391,8 @@ function unbind(world: World): void {
     _meshPreprocess.scatterBound = null;
 }
 
-/**
- * size the pack's buffers to the live mesh count (the pair dimension) and
- * active MeshInstance table row capacity and camera count, growing when any axis rises
- * after warm. `drawArgs` + `counts` scale with `viewDim × pairCount`; dense
- * output lists scale with `viewDim × rowCapacity`; mesh bounds scale with mesh count.
- * A pair's offset strides by mesh count, so pair growth moves existing records and
- * {@link registerDraws} rewrites them all; the pipelines read both dimensions from `cullParams` +
- * `arrayLength`, never recompiling. Old buffers free behind the submit fence: a prior frame may
- * still reference them
- */
+// Mesh growth changes pair strides, requiring draw-record republication. View/row capacity growth
+// replaces buffers without recompiling pipelines; submitted work retains old backing storage.
 function syncBuffers(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
@@ -447,14 +406,13 @@ function syncBuffers(world: World): void {
     const growRows = rowCapacity > _meshPreprocess.rowCapacity;
     const growKeys = syncAlphaKeys(world);
     if (!growMesh && !growView && !growRows && _meshDraws.drawArgs) {
-        // a key a type's rows newly hold registers its pairs; records and buffers stay where they are
         if (growKeys) registerDraws(world);
         return;
     }
 
     const device = world.gpu.device;
     _meshPreprocess.meshCount = Math.max(_meshPreprocess.meshCount, meshCount);
-    // doubles like the eid columns, so cameras added one at a time reallocate logarithmically
+    // Geometric growth bounds reallocations when cameras arrive one at a time.
     if (growView)
         _meshPreprocess.viewDim = Math.min(
             MAX_SLOTS,
@@ -524,7 +482,6 @@ function syncBuffers(world: World): void {
     staleTransparentArgs?.destroy();
 }
 
-// record each material type's alpha keys, returning whether any gained one since draws were registered
 function syncAlphaKeys(world: World): boolean {
     const known = world.resource(meshPreprocessKey).alphaKeys;
     const assets = world.resource(MaterialTypes).assets;
@@ -562,9 +519,7 @@ function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
     return buffer;
 }
 
-/** publish `(material type, alpha pipeline key, mesh)` draw pairs for the keys each type's rows have held, and return the indirect records the GPU buffer needs.
- * Device-free so ordering tests can exercise the production publication seam without an adapter.
- * @internal */
+/** Publishes pairs for alpha keys ever held by each type; returns the required indirect-record count. @internal */
 type DrawRecord = {
     indexCount: number;
     instanceCount: number;
@@ -607,8 +562,7 @@ export function publishMeshInstanceDraws(
                     (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) * meshes.size +
                     handle;
                 const offset = pair * DRAW_ARG_STRIDE;
-                // DrawIndexedIndirect: indexCount, instanceCount (pack), firstIndex, baseVertex (0 — indices
-                // are absolute vertex positions), firstInstance (pack)
+                // Indices are absolute vertex positions, so baseVertex remains zero.
                 const args = {
                     indexCount: m.indexCount,
                     instanceCount: 0,
@@ -653,21 +607,11 @@ function registerDraws(world: World): void {
         world.gpu.device.queue.writeBuffer(target, view * viewStride, slot);
 }
 
-/** Reset cached bind groups for a newly built world. */
 export function initMeshPreprocess(world: World): void {
     unbind(world);
 }
 
-/**
- * compile the pack pipelines + allocate `packedEids`'s first slot. Runs at warm
- * (after every `initialize`), so `MaterialTypes.size` is final: surfaces are WGSL
- * shading programs declared in code, never data-driven, so the surface count is
- * the one axis safe to bake into the shaders. The pair count + view count come
- * from `cullParams` each frame, so the pipelines never recompile when meshes
- * register or cameras attach. `drawArgs` + `counts` + `meshBounds` size lazily
- * (`syncBuffers`), not here: neither `Meshes.size` nor the camera count is
- * final at warm
- */
+// Material-type count is fixed at warm; mesh and view counts remain runtime shader inputs.
 export function warmMeshPreprocess(world: World): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshDraws = world.resource(MeshDrawBuffers);
@@ -709,11 +653,7 @@ export function warmMeshPreprocess(world: World): void {
         .createComputePipeline({ compute: scatterKernel(_meshPreprocess.materialTypeCount) })
         .$name("shallot-mesh-preprocess-scatter");
 
-    // both the allocation and the bind are deferred into the forcers, not done here. The drain runs
-    // after every plugin's warm has resolved (warm hooks run under `Promise.all`), which is the first
-    // moment meshes, dense table buffers, the transform lookup, and cull volumes are published — so
-    // `syncBuffers` can size the pack's buffers there, and the pipeline that forces the compile has
-    // something to bind. One forcer per pipeline, so each gets its own row in the compile table
+    // Defer allocation and binding until every plugin has warmed and published its input buffers.
     precompile(world, "shallot-mesh-preprocess-count", () => {
         syncBuffers(world);
         const bound = bindCount(world);

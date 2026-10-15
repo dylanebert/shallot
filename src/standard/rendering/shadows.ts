@@ -30,17 +30,11 @@ import { directionalTravelDirection, shadowDirectionalLight } from "./lighting";
 export const MAX_CASCADES = 4;
 
 /**
- * Shallot permits one directional shadow caster because every extra cascade set adds depth passes and atlas area. `shadowMapsEnabled` remains per light: the brightest enabled
- * light wins (ties by lower eid), other requests remain unshadowed, and a conflict warns once.
- *
- * The directional shadow map size: `size` is the side in pixels of each
- * cascade's square tile (default 2048), clamped to [256, 4096] and snapped to a power of two. The tiles share
- * one depth32float atlas `ceil(√numCascades)` tiles on a side, so 4096 with more than one cascade allocates
- * an 8192² atlas (256 MiB). It is read every frame the sun casts, and a change reallocates the atlas before
- * that frame draws, e.g. `world.resource(DirectionalLightShadowMap).size = 1024`. Each world owns its own.
- * The cascade split itself lives on the light ({@link DirectionalLight}'s `numCascades`,
- * `firstCascadeFarBound`, `overlapProportion` and `maximumDistance`); point and spot tiles are sized from
- * {@link PointShadows}.
+ * World-owned directional tile size in pixels (default 2048), clamped to [256, 4096] and snapped to a power of two.
+ * Changes reallocate before the next casting frame. Tiles share a depth32float atlas ceil(√numCascades) across;
+ * 4096-pixel tiles with multiple cascades require an 8192² atlas (256 MiB).
+ * Only the brightest enabled directional casts (ties by lower eid); conflicting requests warn once.
+ * One caster bounds depth passes and atlas area. Cascade settings live on {@link DirectionalLight}.
  */
 export interface DirectionalLightShadowMap {
     size: number;
@@ -77,14 +71,8 @@ type LightFit = {
     extent: Float64Array;
 };
 
-// from a fit center + ortho half-extent, place the light eye back toward the sun and snap it onto the light's
-// texel grid (the plane ⊥ the sun) so the shadow doesn't crawl as the box moves. `margin` extends the box's
-// near plane *toward the light* past the fit: a tight cascade's near plane would otherwise clip a caster's own occluder that sits between
-// the light and the slice, so its depth map never records it and the receiver reads "lit" (the boundary
-// bleed). The eye moves back by `cover + margin`, the far stays at `center + dir·cover`, so the box depth is
-// `2·cover + margin`. `margin` is along the sun, ⊥ the snap plane, so the texel snap is unaffected. Shared by
-// the per-cascade slice fit ({@link cascadeFit}) and the ortho footprint fit ({@link orthoFootprintFit}).
-// It writes the placement into `out`.
+// Texel snapping prevents shadow crawl. Extending the near plane toward the light captures occluders
+// above the fitted slice without changing the snap plane.
 function placeFromCenter(
     cenX: number,
     cenY: number,
@@ -172,15 +160,9 @@ export function cascadeSplits(
 }
 
 /**
- * the snapped light-camera placement for one CSM cascade: fit the main camera's frustum **slice** between
- * `nearSplit` and `farSplit` (not the ground footprint {@link orthoFootprintFit} uses) and place the ortho
- * light box around it, eye back toward the sun and texel-snapped per cascade. The box is a **bounding
- * sphere** of the symmetric slice (its two extreme corners are the far-plane diagonal or the whole-slice
- * diagonal, whichever is longer), so the `cover` is rotation-stable as the camera turns
- * (no per-frame size pumping). `margin` extends the box's near plane toward the light ({@link placeFromCenter})
- * so a tight cascade still captures occluders above its slice. Reads only the camera GlobalTransform + projection (the
- * perspective `fov` or the ortho `size`), never its own near/far. Writes the placement into `out`,
- * otherwise pure.
+ * Fits the camera slice `[nearSplit, farSplit]` into a texel-snapped light box.
+ * Its bounding-sphere half-extent stays constant as the camera rotates; `margin` captures occluders above it.
+ * Reads camera placement and projection (`fov` or `size`), not camera near/far. Writes `out`.
  */
 export function cascadeFit(
     camWorld: Float32Array,
@@ -263,15 +245,9 @@ export function cascadeFit(
 }
 
 /**
- * the single-box light placement for an **orthographic** main camera, fit to its visible ground (y=0)
- * footprint. An ortho camera has uniform texel density, so depth cascades buy nothing: one box covering the whole view beats N frustum slices, which for a camera
- * posed far from the scene don't even reach the ground its forward range targets. The center ray meets y=0 at
- * the look point; a screen-corner offset `v` slides its parallel ray's ground hit by `v − (v.y/fwd.y)·fwd`
- * (the extra travel as `v` changes the height it must fall), so the footprint corners are `center ± Kr ± Ku`
- * and the bounding radius is the longer half-diagonal. A camera not angled at the ground (`fwd.y ≥ −1e-3`)
- * has no convergent footprint, so it falls back to a forward-distance box (`center = pos + fwd·distance`,
- * `cover = distance`). `margin` extends the near plane toward the light ({@link placeFromCenter}). Writes
- * the placement into `out`, otherwise pure.
+ * Fits an orthographic camera's visible y=0 footprint into one texel-snapped light box.
+ * Uniform texel density needs no depth cascades. When `fwd.y ≥ −1e-3`, uses a forward-distance box
+ * with half-extent `distance`. `margin` extends the near plane toward the light. Writes `out`.
  */
 export function orthoFootprintFit(
     camWorld: Float32Array,
@@ -338,15 +314,6 @@ export function orthoFootprintFit(
     return placeFromCenter(cenX, cenY, cenZ, cover, dir, resolution, margin, out);
 }
 
-// ---- CSM: the cascade combo-camera pool (the sun's analogue of the point combo pool) ----
-//
-// The single sun box is split into N depth slices along the camera's view range, each its own
-// frustum-culled ortho depth view — a pooled off-screen camera the MeshInstance pack culls casters into through the
-// same `cull → count → scan → scatter` spine every view uses (the sun joining the unified culled-combo
-// path). Each cascade renders into a tile of a dedicated atlas (the fixed grid below — cascades are
-// equal-resolution, so no importance sizing), the tile placement folded into its viewProj (`tileTransform`).
-// standard re-gathers the per-cascade culled members into one indirect draw per casting mesh (the point path's
-// shared `Regather`), and the receiver selects a cascade by view-depth + blends across the overlap band.
 
 /** the atlas-UV tile rect `[u0, v0, du, dv]` for cascade `k` of `n` in the fixed cascade grid, written into
  * `out` at `at`. Cascades are equal-resolution, so a deterministic `ceil(√n)`-per-side grid packs them (n=1 →
@@ -464,10 +431,7 @@ const _fit: LightFit = {
 const _cascRecv = new Float32Array(16);
 const _cascFolded = new Float32Array(16);
 
-/** the pooled cascade cameras' eids, one per active cascade (the first {@link cascadeCount} valid). Each is a
- * depth-only frustum-culled view slot: the per-cascade cull. An oracle reads each one's
- * `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the pack's per-cascade survivor counts to a CPU
- * frustum test, the {@link pointComboEids} shape over cascade slots. */
+/** Borrowed depth-only camera eids; the first {@link cascadeCount} entries are active. */
 export function cascadeComboEids(world: World): number[] {
     return shadows(world).cascadeEids;
 }
@@ -478,14 +442,12 @@ export function cascadeCount(world: World): number {
     return shadows(world).cascadeCount;
 }
 
-/** the dense per-cascade **folded** tile viewProjs the atlas VS projects by (tile placement folded in via
- * {@link tileTransform}); the first {@link cascadeCount} mat4 valid. Filled by {@link updateCascades}. */
+/** Borrowed tile-folded viewProjs; the first cascadeCount matrices are valid after updateCascades. */
 export function cascadeFaceVP(world: World): Float32Array {
     return shadows(world).cascadeVP;
 }
 
-/** the dense per-cascade **unfolded** receiver viewProjs (ortho × lookAt, no tile) the receiver projects a
- * fragment by before remapping into its tile rect; the first {@link cascadeCount} mat4 valid. */
+/** Borrowed receiver viewProjs without tile placement; the first cascadeCount matrices are valid. */
 export function cascadeRecvVP(world: World): Float32Array {
     return shadows(world).cascadeRecv;
 }
@@ -534,9 +496,6 @@ export function sunTowardLight(world: World): Float64Array {
     return shadows(world).sunTowardLight;
 }
 
-// a pooled cascade camera: an off-screen ortho Camera (no canvas, `attachView`) posed per frame by
-// `poseCascade` — the single sun camera's shape, one per cascade. It takes a cull slot, so the pack culls
-// casters into it as one more depth-only view
 function createCascadeCamera(world: World): number {
     const eid = world.create();
     world.add(eid, Transform);
@@ -546,8 +505,6 @@ function createCascadeCamera(world: World): number {
     return eid;
 }
 
-// grow/shrink the cascade-camera pool to exactly `n` (the active cascade count), with no hysteresis: it
-// changes only when `numCascades` or the main camera's projection does
 function syncCascadePool(world: World, shadow: ShadowRuntime, n: number): void {
     if (shadow.cascadeEids.length !== n) shadow.cascKey.fill(Number.NaN);
     while (shadow.cascadeEids.length < n) shadow.cascadeEids.push(createCascadeCamera(world));
@@ -558,10 +515,7 @@ function syncCascadePool(world: World, shadow: ShadowRuntime, n: number): void {
     }
 }
 
-// pose a pooled cascade camera so render's `computeViewProj` reproduces this cascade's ortho projection — the
-// frustum the pack culls against. `lookAtRotation` returns the lookAt orientation as a quaternion, so
-// `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye→focus, up)` the atlas render's `_cascadeRecv` folds
-// the tile onto (the cull frustum and the render projection agree to f32 — the sun camera's guarantee)
+// Culling must use the same light-space projection as atlas rasterization.
 function poseCascade(world: World, eid: number, fit: LightFit): void {
     const { eye, focus, up } = fit;
     const q = lookAtRotation(
@@ -596,8 +550,7 @@ export function destroyCascades(world: World): void {
     shadow.cascKey.fill(Number.NaN);
 }
 
-/** forget the cached cascade camera eids on a (re)build: the prior World owns its own teardown, a fresh one
- * recreates lazily (the same lifecycle-reset as {@link resetPointShadows}). */
+/** Clears cached cascade state without destroying cameras; teardown belongs to destroyCascades. */
 export function resetCascades(world: World): void {
     const shadow = shadows(world);
     shadow.cascadeEids.length = 0;
@@ -606,20 +559,9 @@ export function resetCascades(world: World): void {
 }
 
 /**
- * pose the sun's cascade light cameras + fill the dense per-cascade viewProjs + meta + rects + far-bounds +
- * covers the atlas render + the receiver read. Runs in the `simulation` group, before the draw frame opens.
- * Casts nothing (sets `_cascadeCount = 0`) when the directional light has shadowMapsEnabled off or there's no
- * main camera. Two paths by main-camera projection:
- *
- * - **perspective** — split `[near, DirectionalLight.maximumDistance]` into the light's `numCascades` depth slices, fit one ortho box
- *   per slice ({@link cascadeFit}); the receiver selects a cascade by view-z and blends across the overlap band.
- * - **orthographic** — uniform texel density means depth cascades buy nothing, so a **single** box fit to the
- *   visible ground footprint ({@link orthoFootprintFit}); its far-bound is a sentinel so the receiver always
- *   selects it (count = 1, no blend). The frustum-slice fit doesn't reach an ortho camera's visible ground.
- *
- * `DirectionalLight.maximumDistance` is the CSM max shadow distance and doubles as the near-plane
- * margin every box extends toward the light ({@link placeFromCenter}), so a caster within shadow range above a
- * slice is captured, not clipped. The boxes texel-snap per cascade so the edges don't crawl.
+ * Updates cascade cameras and borrowed atlas/receiver arrays before draw. Without a casting light or
+ * main camera, publishes zero cascades. Perspective uses view-depth slices; orthographic uses one ground fit.
+ * maximumDistance also extends the near plane toward the light to retain occluders above each slice.
  */
 export function updateCascades(world: World, main: number): void {
     const shadow = shadows(world);
@@ -643,7 +585,6 @@ export function updateCascades(world: World, main: number): void {
     const fov = world.storage(Camera).fov.get(main);
     const size = world.storage(Camera).size.get(main);
     const near = Math.max(1e-3, world.storage(Camera).near.get(main));
-    // ortho cameras get one footprint box; perspective gets N depth slices
     const ortho = mode === CameraMode.Orthographic;
     const cascades = lightCascades(world, light);
     const n = ortho ? 1 : cascades;
@@ -767,25 +708,9 @@ export function updateCascades(world: World, main: number): void {
     shadow.cascadeCount = n;
 }
 
-// ---- point-light shadows: the CPU half of the importance-sized depth atlas ----
-//
-// Storage is one fixed **square** depth atlas sub-allocated by importance — the same `texture_depth_2d` + comparison-sampler binding shape the sun
-// shadow uses, so it needs no cube-array support and fits the integrated/WebGL floor. Each shadowed light
-// claims power-of-two square tiles sized from its apparent contribution (`intensity·range²/dist²`): a
-// point caster six face tiles, a `SpotLight` caster one cone tile. Tile *area* tracks the score (the hero light
-// large, distant lights small), and the tiles are buddy/quadtree-packed so power-of-two squares pack with
-// no fragmentation. Over-budget (the smallest uniform tiling still overflows the square) drops the least
-// important with a non-silent warn.
-//
-// Each combo (a point caster's cube face, a spot's cone) is its own **frustum-culled depth view** — a
-// pooled off-screen camera the MeshInstance pack culls casters into, the same `cull → count → scan → scatter` spine
-// every camera uses. So a member rasterizes only the faces it actually hits, not all six (no
-// over-amplification). The viewProjs are computed here CPU-side (one per combo, the tile placement folded
-// in — {@link tileTransform}); standard re-gathers the per-combo culled members into one contiguous run per
-// casting mesh + a per-instance combo index, so the atlas still renders in **one indirect draw per casting
-// mesh** (the Dawn ~1µs/indirect-draw floor), now reading per-combo
-// *culled* counts. The face/cone frustum is widened by a constant texel margin
-// and the receiver clamps its 3×3 PCF taps to the tile interior, so a sample never bleeds into a neighbour.
+// A 2D depth atlas avoids requiring cube-array support. Tile area tracks apparent light contribution.
+// Per-face culling limits rasterization; gathering faces per mesh limits indirect draws.
+// Widened frusta and tile-clamped PCF taps prevent seams and sampling neighbouring tiles.
 
 /** the shadowed-caster ceiling: the per-frame caster array + the combo buffers size to it; the combo
  * view-slot budget (each caster claims up to 6 depth slots) is {@link MAX_COMBO_SLOTS} below */
@@ -796,7 +721,6 @@ export const MAX_POINT_CASTERS = 8;
 const CASCADE_RESERVE = MAX_CASCADES;
 const MAX_COMBO_SLOTS = MAX_SLOTS - MAX_VIEWS - CASCADE_RESERVE;
 
-// the active combo count for the first `count` casters: a point spans six cube faces, a spot one cone
 function comboSlots(frames: PointShadowFrame[], count: number): number {
     let n = 0;
     for (let i = 0; i < count; i++) n += frames[i].spot ? 1 : 6;
@@ -804,20 +728,12 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
 }
 
 /**
- * the point-shadow budget, read each frame, so a change applies to the next frame drawn: `atlas` reallocates
- * the atlas texture and `casters` re-ranks the lights. Set them in `AppConfig.setup` or a plugin's
- * `initialize`, e.g. `world.resource(PointShadows).atlas = 1024`; each world owns its own settings. `atlas`
- * is the square depth atlas's side in pixels (snapped to a power of two in [256, 4096], default 2048 ≈ 16 MB
- * of depth), sub-allocated by importance. `casters` is how many shadowed point/spot
- * lights compete for the atlas (clamped to [1, {@link MAX_POINT_CASTERS}]); lights beyond it stay lit but
- * cast nothing, with a non-silent warn. A caster that won't fit the atlas budget is dropped the same
- * way. A point caster claims six power-of-two face tiles, a spot one, each tile sized so its **area** tracks
- * the light's apparent contribution (`intensity·range²/dist²`): the hero light renders large, distant lights
- * small, and a spot costs one tile rather than six.
- *
- * `hysteresis` is the over-cap incumbent margin: when more shadowed lights exist than `casters`, a light
- * that cast last frame keeps its slot unless a challenger's importance beats it by this fraction. It stops a light's shadow flickering on/off
- * as the camera moves and re-ranks the winners by distance (set 0 for the raw nearest-wins behavior).
+ * World-owned point/spot shadow budget; changes apply on the next drawn frame.
+ * `atlas` is the square atlas side in pixels, snapped to a power of two in [256, 4096] (default 2048).
+ * `casters` is clamped to [1, {@link MAX_POINT_CASTERS}]. Excess or unpackable casters warn and cast no shadow.
+ * Tile area follows `intensity·range²/dist²`; a point light uses six tiles, a spot one.
+ * `hysteresis` is the fractional importance advantage required to displace an incumbent when over cap;
+ * zero disables the incumbent margin.
  */
 export interface PointShadows {
     atlas: number;
@@ -844,10 +760,7 @@ export function pointAtlasSize(world: World): number {
     return Math.min(4096, 1 << Math.round(Math.log2(s)));
 }
 
-// the smallest face tile (matches the prior fixed-tile clamp floor) and the PCF seam margin in face texels
-// (how far past the 90° face / spot cone the projection must extend so the 3×3 footprint stays in the tile —
-// PlayCanvas shadow-renderer-local.js). EDGE_TEXELS is constant in *texels*, so a tile's widened tangent
-// scales with its own pixel size to keep the world margin the same fraction of every tile.
+// A texel-sized projection margin keeps the 3×3 PCF footprint inside each face or cone tile.
 const MIN_TILE = 64;
 /** the PCF seam margin in face texels: standard's FS recomputes the widened tangent (`1 + 2·EDGE/tilePx`)
  * per matched tile, so this is the one source for both the projection ({@link pointTanHalf}) and the receiver */
@@ -917,12 +830,10 @@ export function createPacker(side: number, min: number): Packer {
     return { side, reset, alloc };
 }
 
-/** a spot caster's cone basis for the atlas render + the FS reconstruct, from the light's Transform
- * rotation, written into `out`. `fwd` = the cone axis (the entity's local -Z, the same forward the compact
- * pass oct-packs); `right`/`up` = the `lookAt` basis (`right = normalize(fwd × up0)`, `up = right × fwd`) so
- * the FS's analytic receiver matches the rendered viewProj exactly. `coneTanHalf` is `tan(outer)` widened by
- * the PCF margin of the caster's allocated tile (`tilePx` pixels, the spot analogue of {@link pointTanHalf});
- * the perspective FOV `coneFov` derives from it. The oracle the spot's WGSL receiver reconstruct is pinned to. */
+/**
+ * Writes the spot's local -Z cone axis and lookAt basis into `out` for matching render/receiver projection.
+ * `outer` is a half-angle in radians, clamped to [1°,80°]; `tilePx` sets the PCF projection margin.
+ */
 export function spotBasis(
     qx: number,
     qy: number,
@@ -996,17 +907,10 @@ export const POINT_FACES: PointFaceBasis[] = [
 ];
 
 /**
- * the clip-space tile-placement matrix `D` for an atlas-UV rect `[u0, v0, du, dv]`: left-multiplying a
- * face's viewProj by it lands the face's projection inside that atlas tile, with the divide and the y-flip
- * baked into clip space so the **hardware** does the perspective divide + near-plane clip (a manual
- * `fc.xy/fc.w` in the VS can't: a vertex behind the face near plane, `fc.w ≤ 0`, divides to garbage).
- * The tile remap is a viewport transform, affine in clip space: `clip.x = du·fc.x + (2u0+du−1)·fc.w`,
- * `clip.y = dv·fc.y + (1−2v0−dv)·fc.w`, z/w untouched, so `tileVP = D · faceVP` and the VS is one matrix
- * multiply. The receiver (`pointShadowOf`) reconstructs the same tile uv analytically from its rect, so it
- * reads identical depth at identical pixels: `D` changes only what the render writes, not where it samples.
- * Column-major, the layout `multiplyMat4`/the shader expect. Reads the rect at `at` in `rect`. Writes into `out`
- * when given (so the per-frame loop reuses a scratch matrix, like `perspective`/`lookAt`/`multiplyMat4`), else
- * allocates. Pure; pinned to the receiver's uv by unit test.
+ * Column-major clip-space transform for the atlas-UV rect `[u0, v0, du, dv]` at `at`.
+ * Left-multiply the face viewProj to place it in the tile without changing z/w;
+ * homogeneous coordinates preserve hardware near-plane clipping.
+ * Writes `out`, allocating only when omitted.
  */
 export function tileTransform(
     rect: ArrayLike<number>,
@@ -1027,12 +931,10 @@ export function tileTransform(
     return out;
 }
 
-/** one shadowed caster's per-frame placement the renderer needs: the caster slot, the light's GlobalTransform +
- * range-derived clip planes, the bias knobs, and the importance fields the atlas allocator reads (`score`
- * sizes its tile; `tilePx` is the resolved face-tile pixel size). A point caster spans six cube-face combos;
- * a `spot` caster a single cone combo (the `cone*` basis the FS reconstructs the receiver from: `right`/
- * `up`/`fwd` the lookAt basis, `coneTanHalf` the widened cone tangent, 0 for a point). The combos' viewProjs
- * are computed CPU-side into {@link pointFaceVP} (no per-face cameras), one per entry of {@link pointComboMeta} */
+/**
+ * Reused caster placement. `tilePx` is the resolved tile side in pixels; cone basis vectors match lookAt.
+ * A point uses six combos and coneTanHalf zero; a spot uses one cone combo.
+ */
 export interface PointShadowFrame {
     light: number;
     slot: number;
@@ -1057,7 +959,6 @@ const SPOT_CASTER_TERMS = [SpotLight, GlobalTransform];
 const LIGHT_CASTER_TERMS = [POINT_CASTER_TERMS, SPOT_CASTER_TERMS];
 const _cands: { light: number; range: number; score: number; rank: number }[] = [];
 
-// one caster frame record for a caller's pool, written in place each frame by `updatePointShadows`
 function newPointFrame(): PointShadowFrame {
     return {
         light: 0,
@@ -1083,15 +984,10 @@ const _faceView = new Float32Array(16);
 // the proj·view product before the tile transform is folded on (the combo viewProj carries the tile
 // placement, so the VS emits `tileVP·world` directly — see {@link tileTransform})
 const _pv = new Float32Array(16);
-// scratch for the per-combo tile-placement matrix, reused across combos (no per-frame matrix alloc)
 const _tileMat = new Float32Array(16);
-// the tile-folded combo viewProj before it is copied into the dense faceVP upload
 const _tileVP = new Float32Array(16);
 
-/** the per-combo **tile** viewProjs the renderer uploads each shadowed frame, dense (one per active
- * combo, the first active-combo-count entries valid). Each carries its atlas tile placement folded in
- * ({@link tileTransform}), so the atlas VS emits `tileVP·world` with no manual divide. Filled by
- * {@link updatePointShadows} */
+/** Borrowed tile-folded viewProjs, one matrix per active combo, filled by updatePointShadows. */
 export function pointFaceVP(world: World): Float32Array {
     return shadows(world).faceVP;
 }
@@ -1110,18 +1006,11 @@ export function pointTileRects(world: World): Float32Array {
     return shadows(world).tileRects;
 }
 
-/** the pooled combo cameras' eids, one per active combo (combo-major: each caster's faces/cone in turn,
- * the first active-combo-count valid). Each is a depth-only frustum-culled view slot: the per-combo
- * cull. An oracle reads each combo's `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the
- * pack's per-combo survivor counts to a CPU frustum test (the combo's frustum is what the pack culls
- * against, == the pre-fold proj·view the atlas VS folds the tile into). */
+/** Borrowed depth-only camera eids in caster/face order; only the active combo prefix is valid. */
 export function pointComboEids(world: World): number[] {
     return shadows(world).comboEids;
 }
 
-// a pooled combo camera: an off-screen perspective Camera (no canvas, `attachView`) whose pose + fov are
-// set per frame by `poseCombo`. The sun camera's shape — it takes a cull slot and packs its viewProj
-// through the same `computeViewProj` as any camera, so the pack culls casters into it as one more view
 function createComboCamera(world: World): number {
     const eid = world.create();
     world.add(eid, Transform);
@@ -1131,10 +1020,6 @@ function createComboCamera(world: World): number {
     return eid;
 }
 
-// grow/shrink the combo-camera pool to exactly `n` (the active combo count), creating depth-only cameras
-// as casters appear and tearing the excess down as they leave. Only a count change drives create/destroy —
-// the per-frame path just reposes the live ones — and the caster set is hysteresis-stable, so this is
-// cold
 function syncComboPool(world: World, shadows: ShadowRuntime, n: number): void {
     while (shadows.comboEids.length < n) shadows.comboEids.push(createComboCamera(world));
     while (shadows.comboEids.length > n) {
@@ -1193,8 +1078,7 @@ for (let face = 0; face < 6; face++) {
     POINT_FACE_ROTATIONS.set(q, face * 4);
 }
 
-// write a spot combo camera's rotation from its frame's orthonormal cone basis: the camera's x, y and z axes
-// are `right`, `up` and `-fwd`, the basis `lookAtRotation` builds, converted to a quaternion as it does
+// Camera basis is right/up/-fwd; the receiver uses this same cone basis.
 function poseSpotRotation(world: World, eid: number, frame: PointShadowFrame): void {
     const xx = frame.right[0];
     const xy = frame.right[1];
@@ -1238,10 +1122,7 @@ function poseSpotRotation(world: World, eid: number, frame: PointShadowFrame): v
     world.storage(Transform).rotation.set(eid, qx, qy, qz, qw);
 }
 
-// pose a pooled combo camera so render's `computeViewProj` reproduces this combo's face/cone projection —
-// the frustum the pack culls against. The rotation is the lookAt orientation of the combo's basis, so
-// `invertMat4(composeMat4(pos, rot))` equals the `lookAt(eye, eye+fwd, up)` the atlas render's `_faceVP` folds
-// the tile placement onto — the cull frustum and the render projection agree (to f32).
+// Combo culling must match the face/cone projection before atlas tile placement.
 function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: number): void {
     world.storage(Transform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2]);
     if (frame.spot) poseSpotRotation(world, eid, frame);
@@ -1272,8 +1153,7 @@ export function destroyPointShadows(world: World): void {
     shadow.comboEids.length = 0;
 }
 
-/** forget the cached combo camera eids on a (re)build: the prior World owns its own teardown, a fresh
- * one recreates lazily */
+/** Clears cached point-shadow state without destroying cameras; teardown belongs to destroyPointShadows. */
 export function resetPointShadows(world: World): void {
     const shadow = shadows(world);
     shadow.comboEids.length = 0;
@@ -1291,13 +1171,11 @@ export function commitPointCastersOnSubmit(world: World): void {
     if (shadow.casterSelectionPending) world.onFrameSubmit(shadow.commitCasters);
 }
 
-/** size + place the first `count` casters' face tiles by importance: tile **area ∝ score** (side ∝ √score),
- * the most important the largest tile that still lets the whole set pack into the square atlas. A point
- * requests 6 same-size face tiles, a spot 1. Writes each (caster, face) atlas-UV rect `[u0, v0, du, dv]`
- * (square) into `rects` at `(frame·6 + face)·4` and returns true, or returns false when even the smallest
- * uniform tiling (every face MIN_TILE) overflows: the caller drops the least-important caster and retries.
- * `packer` covers a `side` atlas; `sizes` holds a tile size per caster. Reads only its args, writes only
- * `packer`, `sizes` and `rects`. */
+/**
+ * Packs the first `count` casters into a `side`-pixel atlas, with tile area proportional to score.
+ * Writes pixel sides to `sizes` and square atlas-UV rects to `rects` at `(caster·6+face)·4`.
+ * Mutates `packer`; returns false if even MIN_TILE faces cannot fit. Points use six tiles, spots one.
+ */
 export function packCasters(
     frames: PointShadowFrame[],
     count: number,
@@ -1308,8 +1186,7 @@ export function packCasters(
 ): boolean {
     let maxScore = 1e-9;
     for (let i = 0; i < count; i++) maxScore = Math.max(maxScore, frames[i].score);
-    // halve the hero's "base" tile until the whole set packs; area ∝ score so side drops one power of two
-    // per 4× score drop (0.5·log2). MIN_TILE is the floor; an over-budget set fails every base and returns false
+    // A fourfold score decrease halves tile side, preserving area proportionality.
     for (let base = side; base >= MIN_TILE; base >>= 1) {
         packer.reset();
         for (let i = 0; i < count; i++) {
@@ -1345,21 +1222,10 @@ export function packCasters(
 }
 
 /**
- * rank the shadowed point/spot lights, size + pack their atlas tiles by importance, and compute the
- * per-combo tile viewProjs + rects the atlas render projects by. Runs in the `simulation` group. Casters
- * are the PointLight and SpotLight entities with shadowMapsEnabled, capped at {@link pointCasters} with a non-silent
- * warn. Over the cap the **highest-importance** lights win (apparent contribution at the `main` camera,
- * `intensity · range² / dist²`, scale-invariant), so a far dim light never steals a slot from the hero by
- * query order; a hysteresis margin keeps an incumbent its slot so the set doesn't flicker. {@link packCasters}
- * then sizes each caster's tiles (area ∝ score) and buddy-packs them into the square atlas; a caster that
- * won't fit even at the smallest tiling is dropped (warn). Each combo's viewProj is `tileTransform(rect) ×
- * infinite `perspective([pointFov(tilePx), 1, near]) × lookAt(light, light+fwd, up)`; `far = range` bounds
- * caster culling. The matrix is written into the shared {@link pointFaceVP} buffer combo-major, with its rect in
- * {@link pointTileRects}.
- * Each combo also gets a pooled depth-only camera ({@link pointComboEids}) the pack frustum-culls casters
- * into (the per-combo cull), spawned lazily at the first casting frame. The frames are written into the
- * caller's `frames` pool (grown by one record per new high-water caster, reused in place after) and the
- * live caster count is returned.
+ * Updates point/spot shadow selection and placement before draw. Writes the caller's reusable `frames`
+ * pool and returns its live prefix length. Excess or unpackable casters warn and are dropped by rank.
+ * Importance is `intensity·range²/dist²` at `main`; hysteresis favours the last submitted caster set.
+ * Publishes combo-major viewProjs, sparse tile rects and lazily pooled depth-only cameras.
  */
 export function updatePointShadows(world: World, main: number, frames: PointShadowFrame[]): number {
     const shadow = shadows(world);
@@ -1384,8 +1250,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
             const dz = world.storage(GlobalTransform).translation.z.get(light) - cz;
             const distSq = main >= 0 ? Math.max(dx * dx + dy * dy + dz * dz, 1) : 1;
             const score = (source.intensity.get(light) * range * range) / distSq;
-            // an incumbent (cast last frame) ranks with the hysteresis margin so a sub-margin challenger can't
-            // evict it — the set stays put under small camera moves, killing the shadow flicker
+            // The incumbent margin prevents small camera moves from flickering the caster set.
             const rank = shadow.lastCasters.has(light) ? score * (1 + hysteresis) : score;
             let cand = _cands[candCount];
             if (!cand) {
@@ -1398,7 +1263,6 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
             cand.rank = rank;
             candCount++;
         }
-    // highest rank first, ties by light eid: an insertion sort over the pooled records
     for (let i = 1; i < candCount; i++) {
         const cand = _cands[i];
         let j = i;
@@ -1461,8 +1325,6 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         f.coneFov = 0;
     }
 
-    // size + pack by importance; on atlas overflow drop the least important (the tail, frames are rank-sorted)
-    // and retry, warning once per episode. No caster packs nothing
     if (shadow.packer?.side !== atlas) shadow.packer = createPacker(atlas, MIN_TILE);
     const { packer, packSizes, packRects: rects } = shadow;
     let dropped = 0;
@@ -1480,10 +1342,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
     } else {
         shadow.overflowWarned = false;
     }
-    // slot-budget: each combo is a depth-only cull view sharing the MAX_SLOTS pool with the shading
-    // cameras + the reserved cascades. Drop the least-important caster (the rank-sorted tail) while the
-    // active combos would overflow the pool — a loud warn, the shape of the atlas drop above. Unreachable
-    // at the default cap (8 point casters → 48 combos ≤ MAX_COMBO_SLOTS); the guard if the cap is raised.
+    // Combo views share the fixed cull table with presenting cameras and reserved cascade slots.
     let slotDropped = 0;
     while (comboSlots(frames, count) > MAX_COMBO_SLOTS && count > 0) {
         count--;
@@ -1517,7 +1376,6 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         shadow.casterSelectionPending = true;
     }
 
-    // resolve each caster's tile pixel size + (for spots) the cone basis, now that sizes are known
     for (let i = 0; i < count; i++) {
         const f = frames[i];
         f.tilePx = rects[f.slot * 6 * 4 + 2] * atlas;
@@ -1533,15 +1391,8 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
             );
     }
 
-    // size the combo-camera pool to the active combo count, so each cube face / spot cone is its own
-    // depth-only frustum-culled view this frame (the per-combo cull) — the pack culls casters into each
-    // independently. The loop below poses each from its face/cone basis, and an empty caster set tears
-    // the pool down
     syncComboPool(world, shadow, comboSlots(frames, count));
 
-    // fill the combo tile-viewProjs densely (a point caster's 6 cube faces, a spot's 1 cone), the per-combo
-    // (caster slot, face), and the per-(caster, face) rects. Each viewProj has its allocated atlas-UV rect
-    // folded in (tileTransform), so the VS projects straight into the tile. ci runs over combos, ≤ 6·cap.
     if (shadow.faceVP.length < cap * 6 * 16) shadow.faceVP = new Float32Array(cap * 6 * 16);
     if (shadow.comboMeta.length < cap * 6 * 4) shadow.comboMeta = new Uint32Array(cap * 6 * 4);
     if (shadow.tileRects.length < cap * 6 * 4) shadow.tileRects = new Float32Array(cap * 6 * 4);

@@ -10,10 +10,7 @@ import {
 } from "../../engine";
 import { composeGlobalTransform } from "../transform";
 
-/**
- * a camera's projection model: `Perspective` (fov-based, the default) or `Orthographic` (size-based).
- * Stored in {@link Camera} `mode`: `world.add(eid, Camera, { mode: CameraMode.Orthographic })`.
- */
+/** Camera projection mode; defaults to Perspective. */
 export const CameraMode = {
     Perspective: 0,
     Orthographic: 1,
@@ -30,11 +27,8 @@ export const Exposure = component(
 );
 
 /**
- * camera component. Placement comes from TransformPlugin's fixed-tick GlobalTransform (looks down its local -Z). A lone camera
- * auto-binds to the first `<canvas>` in the document, so the single-view case needs no wiring;
- * multi-view (or a dynamically-created canvas) binds each camera explicitly via `attachCanvas`
- * from the view. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); core unpacks to linear
- * when recording the camera's render pass
+ * Camera looking down fixed-tick GlobalTransform's local -Z. A lone camera auto-binds the first canvas;
+ * multi-view cameras bind explicitly with attachCanvas. `clearColor` is sRGB hex, decoded for rendering.
  */
 export const Camera = component(
     "Camera",
@@ -43,7 +37,7 @@ export const Camera = component(
         mode: u32,
         /** field of view in degrees (perspective mode) */
         fov: f32,
-        /** near plane distance */
+        /** Near-plane distance in world units. */
         near: f32,
         /** perspective frustum cull bound and clustered-light range; does not limit perspective depth precision */
         far: f32,
@@ -91,7 +85,7 @@ const _proj = new Float32Array(16);
 const _world = new Float32Array(16);
 const _view = new Float32Array(16);
 
-/** Compute the world→view matrix directly into reusable caller storage. */
+/** Writes the world→view matrix into caller-owned `out`. */
 export function computeViewFromWorld(world: World, eid: number, out: Float32Array): void {
     composeGlobalTransform(world, eid, _world);
     out.set(invertMat4(_world, _view));

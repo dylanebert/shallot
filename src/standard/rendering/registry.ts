@@ -23,17 +23,8 @@ export type DrawIndirectBuffer = TgpuBuffer<
 // Geometry belongs to core/mesh; core rendering knows none of these registries.
 
 /**
- * draw arguments: always indirect. `indirect` is a GPU buffer holding the
- * standard 20-byte `DrawIndexedIndirect` record (`{ indexCount, instanceCount,
- * firstIndex, baseVertex, firstInstance }`) at `offset`; the renderer binds the
- * mesh's index buffer and issues `pass.drawIndexedIndirect(indirect, offset)`. Everything is GPU-driven, so the draw
- * count lives in GPU memory: a CPU-known draw just `writeBuffer`s its record
- * into a small buffer rather than passing literals.
- *
- * `viewStride`, when set, makes the record per-view: a producer that culls into
- * a separate `DrawIndexedIndirect` per camera lays the records out `slot`-major, and
- * the renderer reads `offset + view.slot * viewStride` so each camera draws its
- * own culled instances. Omit it (or `0`) for a view-independent draw
+ * GPU DrawIndexedIndirect record at byte `offset` (default zero).
+ * Nonzero viewStride selects `offset + view.slot * viewStride`; omitted or zero is view-independent.
  */
 export interface DrawArgs {
     indirect: DrawIndirectBuffer;
@@ -41,12 +32,7 @@ export interface DrawArgs {
     viewStride?: number;
 }
 
-/**
- * one rendered draw group. `materialType` selects one registered mesh material type,
- * `alphaPipelineKey` selects its phase/variant, `mesh` references a registered Mesh by handle,
- * and `args` points at its indirect record.
- * Material bindings beyond mesh resolve by name against `world.gpu.buffers`.
- */
+/** Registered mesh/material draw; non-mesh material bindings resolve by name in world.gpu.buffers. */
 export interface Draw {
     name: string;
     materialType: number;
@@ -81,7 +67,6 @@ export const Draws: import("../../engine").Resource<Registry<Draw>> = {
     create: (world) => world.resource(drawsKey),
 };
 
-/** Create this world's draw registry during StandardRenderingPlugin initialization. */
 export function initializeDrawState(world: World): void {
     world.resource(drawsKey);
 }

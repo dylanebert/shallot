@@ -35,9 +35,7 @@ export const xformPoint = tgpu.fn(
     return d.vec3f(x.pos.x + r.x, x.pos.y + r.y, x.pos.z + r.z);
 });
 
-/** apply the inverse-transpose `R·S⁻¹` to a local-space normal — correct under non-uniform scale, where
- *  `(R·S)·n` tilts the normal wrong. A flattened (zero-scale) axis would divide 0/0 → NaN and poison every
- *  normal on the entity, so that lane drops to a finite 0 (a degenerate normal the oct codec tolerates). */
+/** Transforms a local normal by R·S⁻¹ for non-uniform scale; zero-scale lanes return zero instead of NaN. */
 export const xformNormal = tgpu.fn(
     [Xform, d.vec3f],
     d.vec3f,
@@ -51,8 +49,7 @@ export const xformNormal = tgpu.fn(
     return xformQuat(x.quat, inv);
 });
 
-/** rebuild the world matrix, for a reader that needs columns or a matmul (the billboard / glyph
- *  surfaces). Columns 0–2 are the rotated basis axes times `scale`, so column i has length `|scale[i]|`. */
+/** World matrix with rotated, scaled basis columns; column i has length |scale[i]|. */
 export const xformMat = tgpu.fn(
     [Xform],
     d.mat4x4f,
@@ -80,7 +77,5 @@ export const xformMat = tgpu.fn(
     );
 });
 
-/** WGSL `Xform` + `xformQuat` / `xformPoint` / `xformNormal` / `xformMat`: the decomposed transform
- *  firehose's format and decode. Splice at module scope; the standard renderer splices it for every surface, so a surface
- *  preamble must not redefine `Xform` / `xform*`. */
+/** Splice at module scope; standard surfaces already include Xform/xform* and must not redefine them. */
 export const xformWgsl = chunk("xformWgsl", [xformPoint, xformNormal, xformMat]);

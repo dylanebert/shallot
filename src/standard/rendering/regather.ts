@@ -1,11 +1,4 @@
-// The shadow-atlas re-gather: concatenate the per-combo *culled* regions the MeshInstance pack wrote (slot-major
-// `drawArgs` + the `packedEids` pool), or duplicate a view-independent producer's direct range, into one
-// contiguous, mesh-major run per casting mesh + a per-instance combo index. Each shadow atlas (the
-// point/spot tiles, the CSM cascade tiles) instantiates its own `Regather`; the two A/B compute pipelines
-// are geometry-blind (they read slot-major counts + the instance pool alone, with no projection or mesh
-// knowledge). Each World owns the shared pipeline pair; each atlas owns its output buffers. The re-gather is a consumer of standard's instance-cull output (the instance pack
-// feeds it); it knows standard-private concepts (the packing convention below, the atlas record shape, the
-// `eids`-lane swap), so it lives here, not in render (render stays renderer-agnostic).
+// Gathering culled combos into mesh-major runs lets an atlas draw each mesh once.
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -13,9 +6,7 @@ import type { World } from "../../engine";
 import { dispatchWorkgroups, setComputeBindGroup, setComputePipeline } from "../../engine/runtime";
 import { DrawIndexedIndirect } from "./registry";
 
-// one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
-// survivors, firstInstance = the mesh's base into the re-gathered list. Stride derived from the schema
-// (a second hand-authored stride is layout drift waiting to happen).
+// One indirect record per casting mesh; firstInstance addresses its gathered run.
 export const SHADOW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 
 interface RegatherState {
@@ -41,12 +32,11 @@ function regatherState(world: World): RegatherState {
     return world.resource(regatherStateKey);
 }
 
-/** Create this world's regather pipeline state during StandardRenderer initialization. */
 export function initializeRegatherState(world: World): void {
     world.resource(regatherStateKey);
 }
 
-/** Pass A's exact compiled source, exposed lazily for the device-free indirect-record contract test. */
+/** Lazily generated Pass A WGSL source. */
 export const regatherArgsWgsl = (): string =>
     tgpu.resolve({
         names: "strict",
@@ -146,10 +136,7 @@ export async function prepareRegather(
     regatherState(world).bLayout = null;
     regatherState(world).pipelineDevice = device;
     regatherState(world).pipelineCapacity = capacity;
-    // Pass A — one thread: for each casting mesh, sum its per-combo culled counts (the spine's drawArgs at
-    // each combo slot), exclusive-prefix the totals into per-mesh run bases, and write one DrawIndexedIndirect
-    // record (instanceCount = the sum, firstInstance = the base; the static indexCount/firstIndex from any
-    // combo slot, which the pack seeds per slot). D + C are tiny, so a serial single thread is free
+    // Small draw/combo counts permit a serial prefix sum without cross-workgroup synchronization.
     regatherState(world).aLayout = device.createBindGroupLayout({
         label: "standard-regather-a",
         entries: [
@@ -167,11 +154,6 @@ export async function prepareRegather(
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
         ],
     });
-    // Pass B — one thread per (casting mesh, combo): copy that combo's culled eids from the spine's
-    // packedEids region into the mesh's contiguous run at the combo's within-run offset (Σ earlier combos'
-    // counts), setting the payload's combo lane. The serial inner copy is the per-(mesh, combo)
-    // count; a per-instance dispatch is the deferred optimization if a mesh ever owns a large
-    // per-combo count
     regatherState(world).bLayout = device.createBindGroupLayout({
         label: "standard-regather-b",
         entries: [
@@ -299,8 +281,6 @@ export function createRegather(world: World, label: string): Regather {
     } | null)[] = [];
     let _onAlloc: () => void = () => {};
 
-    // (re)allocate the per-mesh indirect args (one DrawIndexedIndirect record per casting draw); grows as the
-    // casting-draw count rises, invalidating the bind groups on grow
     function ensureArgs(world: World, count: number): void {
         if (_args && _argsCap >= count) return;
         _args?.destroy();
@@ -314,7 +294,6 @@ export function createRegather(world: World, label: string): Regather {
         _bGroups.length = 0;
     }
 
-    // (re)allocate the meta buffer to hold `combos + draws` u32 (the combo slots then the draw pairs)
     function ensureMeta(world: World, n: number, runIndex: number): GPUBuffer {
         if (_meta[runIndex] && _metaCap[runIndex] >= n) return _meta[runIndex];
         _meta[runIndex]?.destroy();
@@ -375,7 +354,6 @@ export function createRegather(world: World, label: string): Regather {
         return group;
     }
 
-    // Pass B bind group (drawArgs + packedEids + args + meta → eids)
     function bGroup(
         world: World,
         drawArgs: GPUBuffer,
@@ -475,9 +453,7 @@ export function createRegather(world: World, label: string): Regather {
                 0,
                 _paramsStaging as Uint32Array<ArrayBuffer>,
             );
-            // Pass A (per-mesh args, 1 thread) → Pass B (scatter, one thread per (mesh, combo)) in one pass —
-            // the same intra-pass dispatch-ordering the MeshInstance pack relies on, so B sees A's args writes
-            //. The atlas render then sees the compute output by in-encoder ordering
+            // Dispatch order makes prefix-sum output visible to scatter before atlas rendering.
             setComputePipeline(cpass, regatherState(world).aPipe!);
             setComputeBindGroup(cpass, 0, aGroup(world, drawArgs, meta, runIndex));
             dispatchWorkgroups(cpass, 1);
@@ -487,8 +463,6 @@ export function createRegather(world: World, label: string): Regather {
         },
         reset(onAlloc: () => void): void {
             _onAlloc = onAlloc;
-            // the packed list + args + meta allocate lazily on the first casting frame; drop any a prior
-            // World left behind so a fresh World rebuilds its own
             _eids?.destroy();
             _eids = null;
             _eidCapacity = 0;

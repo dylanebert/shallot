@@ -88,7 +88,6 @@ export class TransparentPhase {
         return this._countValue;
     }
 
-    /** Prepare this view's view-space depth row and reset its reusable item queue. */
     begin(world: World, eid: number, view: View): void {
         if (view.viewFromWorld) this._viewFromWorld.set(view.viewFromWorld);
         else computeViewFromWorld(world, eid, this._viewFromWorld);
@@ -112,7 +111,6 @@ export class TransparentPhase {
         this.metrics.bindGroupChanges = 0;
     }
 
-    /** @internal Select the producer whose callback is currently contributing items. */
     useRenderer(renderer: number): void {
         this._rendererValue = renderer;
     }
@@ -174,7 +172,7 @@ export class TransparentPhase {
         return this._items[index];
     }
 
-    /** Stable bottom-up merge sort by view Z, renderer namespace, stable id and stable part. */
+    /** Stable order by view Z, renderer namespace, stable id and stable part. */
     sort(): void {
         const started = this.measureTimings ? performance.now() : 0;
         const count = this._countValue;

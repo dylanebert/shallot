@@ -1,15 +1,11 @@
 import type { World } from "../../engine";
 
 /**
- * World-owned GPU context shared by renderers. Frame passes record through
- * {@link World.frameEncoder}; the engine submits after the draw group.
- * `viewBuffers` holds one schema-sized ViewUniforms buffer per presenting slot; it starts with one and grows
- * only when a presenting camera needs a new slot, up to the hardware-derived MAX_VIEWS ceiling. Depth-only
- * slots have staging and cull volumes but no view buffer.
- * `cullVolumes`, published under that name in world.gpu.buffers, contains one
- * tagged six-plane frustum per active slot for producers to test their bounds.
- * `viewCount` is the populated slot count; `shadeCount` is its presenting prefix.
- * Depth-only views occupy [shadeCount, viewCount). No draw or light layout is assumed.
+ * World-owned renderer context. Record through World.frameEncoder; submission follows the draw group.
+ * viewBuffers grows from one to MAX_VIEWS, one ViewUniforms buffer per presenting slot.
+ * viewCount is the active cull-slot count; shadeCount is its presenting prefix. Depth-only slots
+ * [shadeCount, viewCount) have cull volumes and staging but no view buffer.
+ * world.gpu.buffers publishes cullVolumes as tagged six-plane frusta.
  */
 export interface RenderContext {
     format: GPUTextureFormat;
@@ -35,7 +31,6 @@ function createRender(): RenderContext {
     };
 }
 
-/** Create this world's render state during RenderingPlugin initialization. */
 export function initializeRenderState(world: World): void {
     world.resource(renderKey);
 }

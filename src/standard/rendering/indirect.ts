@@ -67,7 +67,6 @@ function sourceRegistry(world: World): SourceRegistry {
     return world.resource(sourceRegistryResource);
 }
 
-/** Create the world-owned source list during standard renderer initialization. */
 export function initializeIndirectLightSources(world: World): void {
     sourceRegistry(world);
 }

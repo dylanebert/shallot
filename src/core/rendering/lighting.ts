@@ -116,7 +116,7 @@ export const SpotLight = component(
     },
 );
 
-/** Bevy's apparent solar diameter used by `SunDisk.EARTH` (radians). */
+/** Apparent solar diameter in radians. */
 export const SUN_DISK_EARTH_ANGULAR_SIZE = 0.00930842;
 
 /** Visible disk attached to a directional light. Sky's angular size and glow are independent of illumination. */
@@ -127,7 +127,7 @@ export const SunDisk = component(
         angularSize: f32,
         /** Visual multiplier; does not change the light or its shadows. */
         intensity: f32,
-        /** Per-light sky glow, a Shallot extension to Bevy's SunDisk. */
+        /** Per-light sky glow, independent of illumination. */
         glow: f32,
     },
     {

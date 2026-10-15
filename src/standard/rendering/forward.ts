@@ -23,21 +23,6 @@ import {
     writeLighting,
 } from "./lighting";
 import { initializeDrawState } from "./registry";
-// StandardRenderer — the one shallot renderer. A GPU-driven raster *forward* pass (Aaltonen-Haar / niagara
-// submission spine, primary visibility only) with sun shadows sampled inline in the FS.
-// One renderer, one plugin (`StandardRenderingPlugin`), no layers behind seams: one color
-// pass (opaque draws then `blend` draws composited over them in a single `beginRenderPass`), an
-// shared depth prepass (requested by `DepthPrepass` or a depth consumer), and sun shadows (shadowMapsEnabled on a
-// directional light) are gated by camera and light data; core owns the view targets and depth requests —
-// not composed plugins coordinating through a singleton.
-//
-// Sun shadows: the CPU/ECS half (the off-screen light camera + placement) lives in ./shadows; the GPU half
-// (the shadow map, its render through standard's compiled prepass depth pipelines, and the group-1 binding the
-// FS samples) lives in ./atlas. This file owns the WGSL-scaffold-agnostic renderer plumbing: components +
-// registries, per-draw bind-group resolution, pass opening, the systems, and the plugin — the shading
-// functions live in ./shade, pipeline compilation in ./pipelines. StandardRenderer renders its own map and reads its
-// own shadow state directly — nothing publishes into it. Enable the sun's shadowMapsEnabled to cast; disable it for the
-// fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
 
 import type { TgpuBindGroupLayout, TgpuBuffer, TgpuRenderPipeline } from "typegpu";
 import { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
@@ -301,13 +286,7 @@ export type Recorded = RecordedMaterial;
 // one resolved draw of the frame: the entry-owned record `record` rewrites in place
 type FrameDraw = { draw: Draw; r: Recorded };
 
-/**
- * the color, transparent and depth prepass pipelines and the bind-group state standard records a draw
- * with, or null to skip it. All pipelines share one bind group (same group-0 layout). A material type with
- * no compiled pipeline isn't standard's (silent skip); a missing mesh or unpublished binding warns once.
- * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
- * are stable, so untracked
- */
+/** Returns null with a warning when the draw's material type, mesh or bindings are unavailable. */
 function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
     const type = world.resource(MaterialTypes).types[draw.materialType];
     if (!type)
@@ -556,17 +535,8 @@ function recordMaterial(
     return entry.item;
 }
 
-// the frame's resolved draws (the first `_standardRendererState.frameCount`), resolved once by ResolveDrawsSystem and shared across
-// the prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving
-// per pass would repeat the work
 
-/**
- * the frame's draw list: every registered {@link Draw} with a compiled material type + published
- * bindings, paired with its cached group-0 state. Camera-independent (the per-slot bind groups it builds
- * against are cached lazily by slot, not baked per camera), so {@link PrepassSystem}
- * resolves it once per frame into `_standardRendererState.frameDraws` and the prepass, shadow map, and color pass all
- * render every camera against that one list
- */
+// Resolve camera-independent resources once so prepass, atlas and color passes reuse the same draw list.
 function resolveDraws(world: World, capacity: number): void {
     const state = world.resource(standardRendererStateKey);
     const meshCount = world.resource(Meshes).size;
@@ -730,20 +700,8 @@ function drawColor(
     step.offset = (draw.args.offset ?? 0) + slot * (draw.args.viewStride ?? 0);
 }
 
-/**
- * Records standard's geometry bundles into core's main pass: shades every opaque draw,
- * then composites every `blend` draw over them (`less-equal` depth-tested against the opaque depth,
- * depth-write off) in core's targets: one HDR color target, no MRT,
- * because each extra target costs bandwidth on every pixel and tile-based GPUs pay it hardest. With
- * `Camera.antialias` on (the default) it's a 4× MSAA pass resolved into the offscreen; off, it renders
- * single-sample straight into the offscreen (and binds the material types' single-sample pipeline twins,
- * compiled lazily by {@link ensureSingle}). Opaque and transparent share one `beginRenderPass` (nothing
- * reads the color between them, so they fuse into one tile round-trip). Group 1 is the sun shadow seam:
- * standard's own shadow map + light params, or its 1×1 fallback (fully lit) when no light casts. An empty
- * draw list still clears the framebuffer. `bg` (the camera's {@link CameraBackground} selection) draws a fullscreen
- * backdrop between the opaque and blend draws: masked to far-plane pixels by the depth test, so geometry
- * overdraws it and blended draws composite over it; null leaves the flat clear color as the only backdrop
- */
+// One HDR target limits bandwidth; opaque and transparent share a tile round-trip because
+// nothing reads scene color between them. The far-plane backdrop fills only uncovered pixels.
 function renderColor(
     world: World,
     eid: number,
@@ -1155,16 +1113,7 @@ function drawTransparent(
 // `updatePointShadows` grows and rewrites in place)
 const STANDARD_RENDERER_CAMERAS = [Camera, StandardRenderer];
 
-/**
- * compile the forward pipelines for every registered material type, sharing one shader module: a 4× MSAA
- * single-target color pipeline (its own depth, `less` + write) that writes shaded color resolved into
- * the offscreen framebuffer, and a 1× depth pipeline (position-only except for clipped types).
- * Color is one camera-independent shape across opaque / `clip` / `alpha`, with no MRT, and samples the
- * sun shadow inline (group 1 = the map + comparison sampler + light params). StandardRenderer declares the vertex-pull bindings itself; each draw selects its mesh via
- * `Draw.mesh`. Uniform across surfaces: no "MeshInstance-shaped" detection. Also (re)creates the sun-shadow
- * GPU resources standard owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
- * params buffer — `./atlas`), surviving HMR re-warms
- */
+// Reset owned resources before compilation so layouts and buffers belong to this warm.
 async function prepareStandardRenderer(
     world: World,
     device: GPUDevice,
@@ -1195,13 +1144,7 @@ const ResolveDrawsSystem: System = {
     },
 };
 
-/**
- * pose the sun's CSM cascade cameras + the point/spot combo cameras from the casting lights + the main StandardRenderer
- * camera, so `BeginFrameSystem` packs their viewProjs this frame and the MeshInstance pack culls casters into each
- * slot as one more view (the unified culled-combo spine). `simulation` group, before the draw frame opens.
- * No-op for the sun when shadowMapsEnabled is off (the zero-cost off path): the atlas
- * pass is skipped and standard falls back to fully lit
- */
+// Shadow cameras must be posed before BeginFrameSystem packs this frame's view projections.
 const ShadowCameraSystem: System = {
     name: "shadow-camera",
     group: "simulation",
@@ -1216,10 +1159,7 @@ const ShadowCameraSystem: System = {
         const casters = updatePointShadows(world, main, _standardRendererState.pointFrames);
         setPointFrames(world, _standardRendererState.pointFrames, casters);
         updateCascades(world, main);
-        // allocate each atlas's re-gather list here, before record() (PrepassSystem) builds the cast bind
-        // groups that bind it — so the first casting frame's groups include it (the alloc clears the
-        // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
-        // again harmlessly. Both atlases (re)allocate here too, before the prepass binds the shadow group
+        // Allocate before record() caches bind groups; replacing an atlas after binding invalidates submission.
         if (casters > 0 && shadowReady(world)) {
             world.resource(pointRegather).ensure(pointCasters(world) * 6, world.entityHighWater);
             ensurePointAtlas(world);
@@ -1231,12 +1171,7 @@ const ShadowCameraSystem: System = {
     },
 };
 
-/**
- * render the casters' depth into the shadow atlases (the point/spot tiles + the CSM cascades) and publish the
- * seams for standard's color pass to sample inline. `after: [PrepassSystem]` so every position-writing producer
- * (pinned before the anchor) has emitted and `_standardRendererState.frameDraws` is resolved; `before: [MainPassSystem]` so the
- * atlases + seams are ready before standard shades. No casting light → no pass, standard falls back to fully lit.
- */
+// Resolved producer draws must reach the atlases before the main pass samples them.
 const ShadowMapSystem: System = {
     name: "shadowmap",
     group: "draw",

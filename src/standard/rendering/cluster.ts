@@ -181,7 +181,6 @@ function lightInputTable(world: World) {
     return world.resource(lightInputKey);
 }
 
-/** Create this world's cluster and dense light-input state during StandardRenderingPlugin initialization. */
 export function initializeClusterState(world: World): void {
     world.resource(clusterGpuKey);
     const table = lightInputTable(world);
@@ -205,14 +204,8 @@ export function initializeClusterState(world: World): void {
     table.bindPresence(VolumetricLight, "flags", LIGHT_VOLUMETRIC);
 }
 
-// The froxel cluster substrate: the grid (per-view view-space cluster AABBs)
-// and the per-frame light passes that bin into it (compact + cull, below) —
-// what standard's clustered loop reads and what volumetric fog / decals / probes
-// read later. 16×9×24 with logarithmic Z-slicing (DOOM 2016 / Olsson 2012):
-// log slicing counters NDC depth non-linearity, where linear slicing bands
-// everything near the camera into one slice. The view-space AABB per cluster
-// depends only on the projection (not the view position), so the GPU build runs only
-// on projection change.
+// Logarithmic depth slices distribute near-camera lights across clusters.
+// View-space AABBs depend only on projection, so camera motion alone needs no rebuild.
 
 /** cluster grid: horizontal screen-space tiles */
 export const CLUSTER_X = 16;
@@ -220,7 +213,6 @@ export const CLUSTER_X = 16;
 export const CLUSTER_Y = 9;
 /** cluster grid: logarithmic depth slices (DOOM 2016 / Olsson log-Z) */
 export const CLUSTER_Z = 24;
-/** total froxels per view: `CLUSTER_X * CLUSTER_Y * CLUSTER_Z` */
 export const CLUSTER_COUNT = CLUSTER_X * CLUSTER_Y * CLUSTER_Z;
 
 /**
@@ -280,12 +272,8 @@ export function sliceDepth(view: ClusterView, z: number): number {
 }
 
 /**
- * the slot-major froxel index for a pixel at `(fx, fy)` in `[0,1]` (y-down) and positive view depth
- * `viewZ`: the {@link zSlice} log slice, the screen tile, and the view's slot folded into the one index
- * the light cull binned into. Tile `(0, 0)` is NDC `(-1, -1)` — bottom-left — so the y tile flips from
- * the top-down screen y. StandardRenderer's color FS passes fragCoord-derived args; the fog march passes its pixel
- * plus the per-step view depth (the tile xy is fixed along the ray, the z slice moves per step).
- * One function for both: each calls it directly.
+ * Slot-major froxel index for normalized pixel coordinates [0,1] (y down) and positive view depth.
+ * Tile (0,0) is NDC (-1,-1), so screen y is flipped.
  */
 export const clusterCell = tgpu.fn(
     [d.f32, d.f32, d.f32, d.f32, d.f32, d.u32],
@@ -313,12 +301,7 @@ export function zSlice(view: ClusterView, viewZ: number): number {
     return Math.min(Math.max(s, 0), CLUSTER_Z - 1);
 }
 
-/**
- * cluster `(x, y, z)`'s view-space AABB (camera looks down −Z, so `min.z` is
- * the slice's far boundary). Tile `(0, 0)` spans NDC `(-1, -1)`; a perspective
- * frustum's tile corners scale with depth, so the AABB takes min/max across
- * the slice's two boundary depths. The GPU pass is the WGSL twin
- */
+/** View-space cluster AABB: camera looks down -Z, min.z is the far boundary; tile (0,0) starts at NDC (-1,-1). */
 export function clusterAabb(
     view: ClusterView,
     x: number,
@@ -340,12 +323,7 @@ export function clusterAabb(
     };
 }
 
-/**
- * the cluster indices a point light's influence sphere touches:
- * sphere-vs-AABB by squared distance from the view-space center to each
- * cluster's box. The TS twin of the light-cull WGSL test.
- * `center` is the light's view-space position
- */
+/** Clusters touched by the light's influence sphere; center and radius are in view space. */
 export function lightClusters(
     view: ClusterView,
     center: [number, number, number],
@@ -434,9 +412,7 @@ const gridLayout = tgpu
     })
     .$idx(0);
 
-// the TGSL twin of clusterAabb — one thread per (cluster, view slot). The grid dimensions are module
-// constants, so they fold to literals; `idiv` is the integer division (TGSL's `/` is float division —
-// `idiv` is not an over-2²⁴ precaution here, it's what makes the quotient integral at all)
+// TGSL's `/` divides as floats; idiv is required for integral grid coordinates.
 const gridKernel = tgpu.computeFn({
     workgroupSize: [64],
     in: { gid: d.builtin.globalInvocationId },
@@ -482,7 +458,7 @@ const gridKernel = tgpu.computeFn({
 function growClusterCapacity(world: World, shadeCount: number): void {
     const state = world.resource(clusterGpuKey);
     if (shadeCount <= state.viewCapacity) return;
-    // doubles like the eid columns, so cameras added one at a time reallocate logarithmically
+    // Geometric growth bounds reallocations when cameras arrive one at a time.
     const capacity = Math.min(MAX_VIEWS, Math.max(shadeCount, state.viewCapacity * 2));
     const clusters = world.resource(Clusters);
     const lightCull = world.resource(LightCull);
@@ -572,9 +548,7 @@ export const UpdateLightClustersSystem: System = {
 
 // Pass descriptors are part of the world's mutable dispatch state.
 
-// bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
-// this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
-// a wiring bug and throws, never a silently skipped frame
+// Precompile runs after all warm hooks; missing cluster inputs at that point are an error.
 function bindGrid(world: World): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     const _clusterGpu = world.resource(clusterGpuKey);
 
@@ -650,16 +624,10 @@ export function warmClusters(world: World): void {
     // the bind is deferred into the forcer: it runs after every plugin's warm
     // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
     precompile(world, "shallot-cluster-aabbs", () => {
-        // the raw pipeline, already unwrapped for the dispatch: the forcer's raw-pipeline shape, which
-        // Dawn compiles on the drain like any other
         return [bindGrid(world).pipeline];
     });
 }
 
-// The per-frame light passes: compact, z-slice, count rasterization, local/global allocation and populate
-// rasterization. Compact packs active PointLight rows once; each view's
-// z-slice records drive rasterized cluster candidates, which count and populate test against the existing
-// AABBs. Allocation writes the same slot-major grid and fixed index pool that shading and fog already read.
 
 /** per-cluster light index pool: 32 × CLUSTER_COUNT entries shared across views */
 export const LIGHT_POOL = CLUSTER_COUNT * 32;

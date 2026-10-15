@@ -1,21 +1,4 @@
-// StandardRenderer's shading substrate: the schemas that define its shadow-uniform layouts and the TGSL functions
-// its color FS shades with — the half of the renderer that is pure math over pure data, sitting beside
-// the ECS/system/registry code in `forward.ts` (the kernel-sibling convention).
-//
-// Two kinds live here, and the split is forced by what a function reaches for:
-//
-//   - **TGSL.** A function whose inputs are all parameters (the metallic-roughness BRDF set, the cube-face
-//     pick, the receiver remap) is one source that runs on the CPU and resolves to the WGSL a shader
-//     splices. That is what makes the invariants its comments claim testable — `brdfSphere` reducing to
-//     `brdf` at radius 0, `pointReceiver` matching the projection the atlas renders through.
-//   - **WGSL-bodied `tgpu.fn`.** The two shadow samplers read their atlas, sampler, and caster uniform as
-//     module-scope globals *the consumer declares by name* — that is the relocatable contract standard's color
-//     FS and the fog march share, and it has no TGSL spelling.
-//     A WGSL body still resolves under strict naming (the emitted name is the authored one) and still
-//     takes its struct parameters from the schemas below, so the layout has one source of truth even
-//     where the body doesn't.
-//
-// The one raw-WGSL chunk, `casterWgsl`, is a lazily-resolved thunk (`chunk`).
+// Shadow samplers use free WGSL bindings so color and fog consumers can supply their own layouts.
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -43,11 +26,8 @@ export const Pbr = d.struct({
 const PI = Math.PI;
 
 /**
- * Valve half-Lambert: remap the diffuse cosine from `[-1,1]` to `[0,1]` and square it, so the gradient
- * spans the whole surface and the terminator softens — the matte, non-plastic happy-path look (Mitton &
- * McTaggart, "Shading in Valve's Source Engine", GDC 2004). The square (not the bare remap) keeps form:
- * the remap alone flattens, squaring restores midtone contrast. Diffuse-only — the specular cosine stays
- * physical, so metals + glTF dielectrics are unchanged. Deliberately not energy-conserving.
+ * Valve half-Lambert (Mitton & McTaggart, GDC 2004): softens the diffuse terminator while retaining
+ * midtone contrast. Not energy-conserving; does not change the specular cosine.
  */
 export const halfLambert = tgpu.fn(
     [d.f32],
@@ -113,8 +93,7 @@ export const brdf = tgpu.fn(
     const a = std.max(s.roughness * s.roughness, 1e-3);
     const f0 = std.mix(d.vec3f(s.dielectric), s.albedo, s.metallic);
     const F = fresnelSchlick(vdh, f0);
-    // the operand order is the shipped shader's, term for term: reassociating a float product changes
-    // the last bits, and this lobe is what the bench's shaded probes compare against
+    // Reassociating this product changes f32 rounding.
     const spec = std.mul(distributionGGX(ndh, a) * visSmithGGX(ndl, ndv, a), F);
     const kd = std.mul(std.sub(d.vec3f(1), F), 1 - s.metallic);
     const diffuseCosine = std.mix(std.max(dNL, 0), halfLambert(dNL), s.diffuseWrap);
@@ -123,14 +102,9 @@ export const brdf = tgpu.fn(
 });
 
 /**
- * the sphere-source BRDF for a point light: diffuse on the light CENTER (`Lc`, half-Lambert, identical to
- * {@link brdf}), specular on Karis's representative point (Real Shading in UE4) — the closest point on the
- * source sphere to the mirror ray. A point source gives a pinpoint highlight a rough surface
- * barely catches; a sphere of radius `radius` gives a soft round highlight scaled to the source size. The
- * roughness widens to `aPrime` by the solid angle the sphere subtends and the peak is renormalized by
- * `(a/aPrime)²`, so total specular energy is conserved (the highlight spreads, it doesn't brighten). At
- * radius 0 the representative point is `Lc`, `aPrime = a`, norm = 1, so this reduces to `brdf(s, N, V, Lc)`
- * exactly (pinned by unit test).
+ * Sphere-source BRDF using Karis's representative point (Real Shading in UE4) for specular.
+ * Diffuse uses the light centre `Lc`. Widening the specular lobe conserves its energy;
+ * radius zero reduces to {@link brdf}. `dist` and `radius` use the same world units.
  */
 export const brdfSphere = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f, d.vec3f, d.f32, d.f32],
@@ -138,7 +112,6 @@ export const brdfSphere = tgpu.fn(
 )((s, N, V, Lc, dist, radius) => {
     "use gpu";
     const r = std.reflect(std.neg(V), N);
-    // the unnormalized light vector (Lc normalized, |Lvec| = dist)
     const Lvec = std.mul(dist, Lc);
     const centerToRay = std.sub(std.mul(std.dot(Lvec, r), r), Lvec);
     const closest = std.add(
@@ -232,12 +205,7 @@ export const PointFace = d.struct({
     face: d.u32,
 });
 
-/**
- * the cube face a light→fragment direction `dir` falls in, plus its face-camera coordinates. One source
- * for the receiver (standard's color FS, the fog march) and the CPU: the six face bases are axis-aligned, so
- * each dot product folds to a signed component pick. Pinned to the `POINT_FACES` table the atlas render's
- * viewProjs come from (`shadows.test.ts`), which is what keeps the two halves of the projection agreeing.
- */
+/** Cube face and face-camera coordinates for a light→fragment direction, matching `POINT_FACES`. */
 export const pointFaceOf = tgpu.fn(
     [d.vec3f],
     PointFace,
@@ -277,7 +245,7 @@ export const pointReceiver = tgpu.fn(
 });
 
 /** returns the point/spot caster WGSL: the {@link PointCaster} / `PointCasters` / `TileRects` structs a
- *  consumer declares its group-1 shadow bindings over. Splice **before** those declarations. */
+ *  consumer declares its group-1 shadow bindings over. Splice before those declarations. */
 export const casterWgsl = chunk("casterWgsl", () => {
     return [pointCastersSchema(), tileRectsSchema(MAX_POINT_CASTERS * 6)];
 });
@@ -409,12 +377,7 @@ const sampleShadowCubemapGaussian = tgpu
     .$uses({ ["sample_shadow_cubemap_hardware"]: sampleShadowCubemapHardware })
     .$name("sample_shadow_cubemap_gaussian");
 
-// the receiver — relocatable, so it takes the world position as a parameter and reads `pointAtlas` /
-// `shadowSamp` / `pointShadows` / `tileRects` as globals the consumer declares (standard's color group 1, the
-// fog march's). Match the light to a caster slot by source entity id (`color.a`, baked by the light
-// compact pass; `pos.w` is -1 for an empty slot, so a non-caster never matches), pick the cube face (or
-// spot tile) from the light→fragment direction, project into the atlas tile, and filter by camera method.
-// It reads the atlas size from the bound texture and loops every slot, so no `PointShadows` setting enters WGSL.
+// Free bindings let each consumer supply its atlas layout; source entity ids match lights to caster slots.
 function pointShadowFn() {
     return tgpu
         .fn(
@@ -470,24 +433,17 @@ function pointShadowFn() {
 // shares the exact same object.
 let _pointShadowOf: ReturnType<typeof pointShadowFn> | undefined;
 
-/** the point/spot shadow receiver as a real callable reference: `pointShadowOf(light, normal, fragWorld, method)`.
- * Its body still reads `pointAtlas` / `shadowSamp` / `pointShadows` / `tileRects` as free names (the
- * relocatable-global law) — a real-reference caller must force those bindings into scope itself (its own
- * layout's binding declarations are invisible to `tgpu.resolve`'s call-graph walk, same as the `hullData`
- * forcing touch), while `pointFaceOf`/`pointReceiver` resolve for free via the `$uses` above. */
+/**
+ * Shared point/spot receiver. Callers must force `pointAtlas`, `shadowSamp`, `pointShadows` and `tileRects`
+ * into scope; TypeGPU cannot discover free WGSL names through the call graph.
+ */
 export function pointShadowRef() {
     return (_pointShadowOf ??= pointShadowFn());
 }
 
 // ---- sun (directional) shadows: the CSM params layout + the cascade sampler ----
 
-/**
- * one CSM cascade's shadow params: its light viewProj, its atlas-UV `rect`, its `far` bound in linear
- * view-z (the receiver selects by these), and `texelWorld` — one shadow texel's world size for this
- * cascade, the normal-offset bias scale. The two trailing pad words the hand-written struct carried are
- * implicit: the `mat4x4f` sets the struct's 16-byte alignment, so its size rounds to 96 either way (and
- * `array<Cascade, N>` strides by that) — `shade.test.ts` pins the numbers the staging writer indexes by.
- */
+/** Cascade parameters: atlas-UV rect, linear view-z far bound, and world-space texel size for normal bias. */
 export const Cascade = d.struct({
     lightViewProj: d.mat4x4f,
     rect: d.vec4f,
@@ -517,8 +473,7 @@ export const SHADOW_PARAMS_BYTES = d.sizeOf(SunShadow);
 /** f32 stride of one {@link Cascade} row in the params staging. */
 export const CASCADE_FLOATS = d.sizeOf(Cascade) / 4;
 
-// the f32 index of one field, from the schema — the staging writer indexes a Float32Array, so the
-// schema stays the one source for where each value lands (a reordered struct moves the writes with it)
+// Deriving staging offsets from the schema keeps reordered fields aligned with WGSL.
 const at = <T extends d.BaseData>(schema: T, field: (p: d.Infer<T>) => unknown) =>
     d.memoryLayoutOf(schema, field).offset / 4;
 
@@ -590,13 +545,9 @@ export const viewDepth = tgpu.fn(
 });
 
 /**
- * The sun-shadow receiver as a real callable reference: `sampleSunShadow(worldPos, normal, method)`
- * selects a cascade by linear view-z (via {@link viewDepth}, reading `view` as a free name), filters it
- * by the camera's method (via {@link sampleCascade}, reading `shadowMap` / `shadowSamp` / `sunShadow`),
- * and blends across the overlap band.
- * `normal` is a unit surface normal, or zero for a volume sample with no normal bias.
- * A real-reference caller forces `view` / `shadowMap` / `shadowSamp` / `sunShadow` into scope itself
- * (the {@link pointShadowRef} law); `viewDepth` / `sampleCascade` resolve for free via `$uses`.
+ * Sun visibility with view-z cascade selection and overlap blending.
+ * `normal` is a unit surface normal, or zero for a volume sample without normal bias.
+ * Callers must force `view`, `shadowMap`, `shadowSamp` and `sunShadow` into scope.
  */
 export const sampleSunShadow = tgpu
     .fn(
@@ -606,7 +557,6 @@ export const sampleSunShadow = tgpu
     if (sunShadow.enabled == 0.0) { return 1.0; }
     let count = u32(sunShadow.count);
     let viewZ = viewDepth(view.right.xyz, view.up.xyz, view.eye.xyz, worldPos);
-    // the first cascade whose far-bound the fragment is within
     var ci = count;
     for (var i = 0u; i < count; i = i + 1u) {
         if (viewZ < sunShadow.cascades[i].far) { ci = i; break; }

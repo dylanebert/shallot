@@ -140,7 +140,6 @@ function pipelineState(world: World): PipelineState {
     return world.resource(pipelineStateKey);
 }
 
-/** Create this world's StandardRenderer pipeline caches during plugin initialization. */
 export function initializePipelineState(world: World): void {
     world.resource(pipelineStateKey);
 }
@@ -158,15 +157,6 @@ export function resetPipelineCaches(world: World): void {
     pipelineState(world).bgQuant = null;
 }
 
-// ---- The pipeline builder compiles a MaterialType's vertex and fragment functions against
-// `engineLayout` (group 0), the color/atlas shadow group (group 1), and its type-owned layout
-// (group 2). It produces color, transparent, prepass and point/cascade shadow pipelines; Forward and
-// Atlas record them through standard's shared mesh draws.
-//
-// Cached by name and spec identity. `preparePipelines` compiles every
-// `MaterialTypes` entry and force-unwraps it, so the resolve + the sync
-// `createRenderPipeline` validate against the real device at warm — a malformed group split, a name
-// collision, a binding-limit breach all throw there, not mid-frame at first draw.
 export interface CompiledMaterial {
     /** exact registry spec + layout this entry was compiled from; name alone cannot distinguish
      * a same-name replacement after warm (or an in-place layout swap). */
@@ -181,9 +171,7 @@ export interface CompiledMaterial {
     // the point/cascade shadow-atlas pipelines. `null` when the type opts out of that shadow route.
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
-    // the single-sample (AA-off) color twin, compiled lazily by `ensureSingle` the first frame a
-    // no-AA camera draws this surface — compiled here (typegpu pipeline
-    // wrappers are cheap; the real resolve+create defers to first draw regardless)
+    /** AA-off variant, created lazily by ensureSingle. */
     single: {
         color: TgpuRenderPipeline<{ color: d.Vec4f }> | null;
         transparent: TgpuRenderPipeline<{ color: d.Vec4f }> | null;
@@ -200,16 +188,11 @@ export interface CompiledMaterial {
     };
 }
 
-/** the per-draw group-2 state a draw binds.
- * `color` builds against `layout` (the 16 B main stream at the `vertices` slot); opaque depth/atlas
- * groups use the DISTINCT `layout.depthVariant` object (the 8 B position stream), while clipped groups
- * use the full layout/main stream because their fragment cutoff consumes material UVs. `point`/`cascade`
- * swap the `eids` lane to that atlas's re-gathered packed list. View rides group
- * 0 per slot, so this state is slot-independent — one
- * instance per draw. `engineCache` holds the engine group-0 instances per view slot for the draw's
- * mesh family, shared by every draw over that family's quant buffer ({@link engineCache}).
- * Shadow-atlas passes resolve slot 0 through this cache, using its ViewUniforms buffer as an unread
- * placeholder: the atlas VS projects by its own tile viewProj. */
+/**
+ * Slot-independent group-2 state. Color uses the 16-byte main stream; opaque depth uses the 8-byte
+ * depth layout, while clipped depth needs main-stream UVs. Atlas groups substitute re-gathered eids.
+ * engineCache is shared per quant buffer; atlas passes use its unread slot-zero view placeholder.
+ */
 export type MaterialGroupEntry = {
     /** exact registry spec this group was built for — resource identity alone is insufficient when a
      * same-name surface replacement carries a different layout with the same buffers. */
@@ -237,7 +220,6 @@ export type MaterialGroupEntry = {
     bound: Map<TgpuRenderPipeline<any>, TgpuRenderPipeline<any>>;
     /** the entry's frame-draw record, rewritten in place when a steady frame re-resolves the draw. */
     item: { draw: Draw; r: Recorded };
-    /** the material variant the entry's compiled surface was looked up at. */
 };
 
 /** the cached per-draw group-2 state for a Draw name, or `undefined` on a cache miss (`record`
@@ -312,9 +294,7 @@ export function engineGroup(
     return group;
 }
 
-// a background reads no mesh, but `engineLayout` (the shared group-0 instance the Backgrounds lock
-// names) still carries the `meshQuant` slot — a one-record placeholder buffer fills it, never read (the
-// slot-0 View placeholder precedent)
+// Backgrounds must fill engineLayout's meshQuant binding even though they read no mesh.
 
 /** the never-read `meshQuant` placeholder a background's engine group binds. */
 export function bgQuant(world: World): GPUBuffer {
@@ -346,8 +326,7 @@ const identityXform = tgpu
     })
     .$name("identityXform");
 
-// the first interstage location a custom varying pins to — after the five fixed non-builtin fields
-// (worldNormal/eid/world/uv/localPos at 0–4); the 4-slot custom budget keeps 5+ within the 16 cap
+// Reserve locations after the fixed fragment fields to prevent custom varying collisions.
 const VARYING_BASE = 7;
 
 // the hard budget: 4 custom interpolator slots per material type. The vs side is N-general (the
@@ -367,8 +346,6 @@ function materialPrimitive(): GPUPrimitiveState {
     return { topology: "triangle-list", cullMode: "back", frontFace: "ccw" };
 }
 
-/** whether a surface's own `layout` carries the `eids` + `globalTransforms` instancing convention —
- * mirrors `record()`'s test, run over the layout's `entries` instead. */
 function isInstanced(surface: AnyMaterialType): boolean {
     return "eids" in surface.layout.entries && "globalTransforms" in surface.layout.entries;
 }
@@ -567,14 +544,6 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
         .$name(name);
 }
 
-/**
- * the color-pass fragment entry: fills the four `standard/engine.ts` shading-seam privateVars
- * (`sunVisibility` via a real {@link sampleSunShadow} call, `fragWorld`, `fragCoord`, `pointScale`), builds the surface's
- * `fsCtxSchema` context (`uv`/`localPos` cross for real from the vs), and returns the surface's own
- * `fs` chunk's result verbatim (standard's `col` return,
- * unwrapped — a surface `fs` already returns `vec4f`, no lane locals: the depth prepass is a
- * separate pipeline, still unported).
- */
 function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     // Use the exact schema instance the author passed to `surface.fragment`. Re-minting `fsCtxSchema()` here
     // is structurally equal but makes TypeGPU insert and warn about an implicit struct conversion.
@@ -607,12 +576,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
             fragWorld.$ = d.vec3f(input.world);
             fragCoord.$ = d.vec4f(input.pos);
             pointScale.$ = 1;
-            // force `shadowLayout`'s group-1 bindings into scope: `sampleSunShadow`/the transitively
-            // pulled `pointShadowOf` (via `litPbr`) read `shadowMap`/`shadowSamp`/`sunShadow`/`pointAtlas`/
-            // `pointShadows`/`tileRects` as free names inside their own WGSL bodies, invisible to
-            // `tgpu.resolve`'s call-graph walk (the fog `fogKernel` forcedZero precedent) — folded into a
-            // value the return genuinely uses, not a discarded local (the JS→WGSL transpiler would prune
-            // a dead one)
+            // The call graph cannot discover free WGSL shadow bindings; a used zero fold retains them.
             const forcedZero =
                 (shadowLayout.$.pointShadows.casters[0].pos.x +
                     shadowLayout.$.tileRects.rects[0].x +
@@ -630,13 +594,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                         0,
                     )) *
                 0;
-            // `fsCtxSchema()`'s no-varyings default type param (`Record<string, never>`) carries a
-            // `[x: string]: never` index signature that a plain object literal's own known keys never
-            // structurally satisfy (a TS quirk over a generic-default index signature, not a real type
-            // error) — the escape is the same shape as the `layout.$` cast above.
-            //
-            // `uv`/`localPos` now cross for real — resolved from the vs's own interpolated output,
-            // not a zero-fill stand-in.
+            // The no-varyings Record<string, never> index signature requires a cast for these known fields.
             const ctx = CtxSchema({
                 eid: input.eid,
                 world: input.world,
@@ -665,15 +623,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
         .$name(`${surface.name}${alphaToCoverageFallback ? "Single" : ""}Fs`);
 }
 
-/**
- * the position-only prepass vertex entry (the shadow map's own shape too): pulls
- * the 8 B position-only vertex from the surface's `layout.depthVariant` (a DISTINCT `TgpuBindGroupLayout`
- * instance from `layout`), decodes position alone (normal defaults `+Z`, uv `0`), applies the
- * standard instance transform, then splices the surface's own `vs` chunk when present. Inlined rather than
- * factored through a shared helper (probed live: a plain function marked `"use gpu"` can't take a host
- * object like `surface` as an argument — "Shellless functions can only accept arguments representing WGSL
- * resources" — so this matches the color copier's vertex math).
- */
+// Host surface objects cannot cross a TGSL helper boundary; this entry closes over its depth layout.
 function prepassVs(surface: AnyMaterialType) {
     const instanced = isInstanced(surface);
     const hasVs = !!surface.vertex;
@@ -739,11 +689,7 @@ function prepassVs(surface: AnyMaterialType) {
                 worldNormal = d.vec3f(patched.worldNormal);
             }
             clip = d.vec4f(std.mul(engineLayout.$.view.viewProj, world));
-            // force ONE group-1 binding into scope: typegpu's pipeline layout is group-indexed
-            // (`usedBindGroupLayouts[idx]`), and a hole at 1 (groups 0 + 2 used, 1 untouched) emits a
-            // sparse layout Dawn rejects at createRenderPipeline — a real read, folded to zero, keeps
-            // the prepass pipelines' group set dense (`renderPrepass` binds `shadowGroup()` at 1,
-            // inert: the stub receiver means nothing samples it)
+            // Retain group 1 so groups 0 and 2 cannot leave a sparse pipeline layout.
             const forcedZero = shadowLayout.$.tileRects.rects[0].x * 0;
             return { pos: std.add(clip, d.vec4f(forcedZero)) };
         })
@@ -847,18 +793,7 @@ function varyingClipFs(surface: AnyMaterialType, alphaToCoverageFallback = false
         .$name(`${surface.name}ClipFs`);
 }
 
-/**
- * the varyings-carrying color/prepass vertex entry (the varyings mechanism): TGSL has
- * no object-spread and no dynamic-key struct construction, so a shared "use gpu" body can't vary its
- * return shape per surface — a surface declaring `varyings` gets its own **WGSL-bodied copier**, distinct
- * from a fixed shared body. The copier does the real vertex math (vertex pull, quantized decode,
- * instance transform, the surface's own `vs` chunk) AND constructs the whole per-surface out struct in one
- * raw fn, its `out.<varying> = patched.<varying>;` lines JS-string-templated from `Object.keys(surface.
- * varyings)` (never through the transpiler). The thin entry stays real TGSL (typegpu's own header/
- * location machinery) and only binds + returns the copier's result — `const r = copier(...); return r;`,
- * since a direct return hits "Cannot resolve struct cast" (probed live via
- * `tgpu.resolve` before this landed).
- */
+// TGSL cannot construct dynamically named varying fields; generate the per-surface WGSL entry.
 function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" : "") {
     const varyings = surface.varyings ?? {};
     const vsFn = surface.vertex;
@@ -876,28 +811,16 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
     const fragmentFields = fragmentInterstage(surface);
     const instanced = isInstanced(surface);
     const layout = surface.layout;
-    // explicit interstage locations from VARYING_BASE up: the fs entry carries the varying under the
-    // fixed internal name `v0`, which typegpu's pipeline connection can't match to the vs side's real
-    // name — an unmatched fs field auto-assigns from 0 and collides with the matched fixed fields.
-    // Pinning both sides to the same explicit slot makes the location, not the name, the contract
-    // (auto-assignment skips explicitly-taken locations)
+    // Explicit locations pair author-named VS fields with fixed FS names without location collisions.
     const located = Object.fromEntries(
         Object.entries(varyings).map(([k, s], i) => [k, d.location(VARYING_BASE + i, s)]),
     );
-    // one struct on the wire: the entry is the raw WGSL body itself, so its `Out` is the IO struct
-    // typegpu mints for `out` and there is no second struct to convert into. A thin TGSL entry that
-    // returned a separate copier's struct made typegpu convert one into the other at every resolve and
-    // warn (`[implicit-conversion] … r: struct:<surface>VsOut`), one line per surface on every
-    // boot. `pipelines.test.ts` spies the resolve for the warning.
+    // Construct TypeGPU's entry output directly to avoid implicit struct conversions.
     const assigns = Object.keys(varyings)
         .map((k) => `    out.${k} = patched.${k};`)
         .join("\n");
     const fragmentAssigns = `${surface.fragmentInputs?.uv ? "    out.uv = uv;\n" : ""}${surface.fragmentInputs?.localPos ? "    out.localPos = localPos;\n" : ""}`;
-    // 0.12 removed `layout.bound`: the dereferenced `layout.$.x` throws outside an actual TGSL body
-    // ("Direct access to buffer values..."), including inside a `tgpu.lazy` compute (it forces normal
-    // mode). The fix a raw-WGSL-string `uses` external needs is to defer the per-field property read
-    // to resolution time itself — pass the whole `layout.$` proxy as one external and let the WGSL
-    // text's own `bound.vertices`-style dot chain do the (codegen-mode-safe) lookup.
+    // Buffer fields can only be dereferenced during code generation; defer lookup through the proxy.
     const bound = layout.$;
     const engine = engineLayout.$;
     const shadowG = shadowLayout.$;
@@ -934,8 +857,7 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
                 alphaMode: d.interpolate("flat", d.u32),
                 alphaCutoff: d.interpolate("flat", d.f32),
                 ...fragmentFields,
-                // no type-directed `@interpolate(flat)` insertion — an INTEGER varying is unsupported
-                // and fails loudly at resolve/device compile; every shipped varying is float-typed.
+                // Integer varyings require flat interpolation and are unsupported here.
                 ...located,
             },
         })(/* wgsl */ `{
@@ -993,11 +915,8 @@ ${assigns}
         .$name(`${surface.name}${suffix}Vs`);
 }
 
-/** the group-1 forcing touch as one callable fold: `sampleSunShadow` and the transitively-pulled
- * `pointShadowOf` read `shadowMap`/`shadowSamp`/`sunShadow`/`pointAtlas`/`pointShadows`/`tileRects` as free
- * names inside their own WGSL bodies, invisible to `tgpu.resolve`'s call-graph walk (the fog `fogKernel`
- * forcedZero precedent). {@link colorFs} and {@link bgFs} inline the same expression; the
- * varyings-carrying fragment entry calls this instead so its four arity arms don't each carry a copy. */
+// Shadow receivers' free WGSL names are invisible to TypeGPU's call graph.
+// A used zero-valued fold retains their bindings in the pipeline layout.
 const shadowForce = tgpu
     .fn(
         [],
@@ -1025,31 +944,9 @@ const shadowForce = tgpu
     })
     .$name("shadowForce");
 
-/**
- * the varyings-carrying color-pass fragment entry — `colorFs`'s twin for a surface declaring
- * `varyings` ({@link varyingVs}'s matching half). typegpu's entry-input router can't cross a whole
- * `input` value into an ordinary function by value ("Cannot convert value of type 'entry-input-router'" —
- * probed live), and a real "use gpu" entry body can't read a per-surface dynamic field name either (the
- * same source-is-static constraint that forces the copier in the first place) — so the fs entry declares
- * its interstage varying slots under fixed internal names (`v0`…`v3`), independent of the surface's own
- * varying keys, and passes every field to the copier **positionally** (fixed base fields, then the slots in
- * declaration order). The copier's raw body constructs the real `fsCtxSchema`-shaped ctx via a
- * **positional** struct-constructor call (`Ctx(eid, world, worldNormal, uv, localPos, v0, …)` — WGSL struct
- * constructors are positional, so each slot's value lands in the ctx's real varying field with no name
- * matching needed) before calling the surface's own `fs` chunk (`$uses`).
- *
- * The entry body is transpiled TGSL, so it must *statically* name each `input.v<i>` — hence the bounded
- * per-count dispatch below: one explicit arm per count, 1 through {@link MAX_VARYINGS}, and a loud throw
- * past it (the hard 4-slot custom interpolator budget). Everything else — the copier's
- * signature, the interstage locations, the vs side — is already N-general.
- *
- * The `Ctx` the copier constructs must be the exact schema instance `surface.fragment` was declared against —
- * `fsCtxSchema(varyings)` mints a fresh struct object on every call (the `pointCastersSchema`/
- * `tileRectsSchema` precedent), so re-minting one here would pass a structurally-identical but
- * distinct-identity struct into `fs`'s call, which resolved clean device-free but is real risk at device
- * compile (WGSL struct-argument typing isn't purely structural) — reading it off `fsFn.shell.argTypes[0]`
- * (the schema the author's own `tgpu.fn([fsCtxSchema(...)], ...)` call recorded) is the one source of truth.
- */
+// TGSL requires static input field names and cannot pass its entry-input router by value.
+// Each arity therefore passes fields positionally to a WGSL context constructor.
+// Reuse the fragment's exact context schema to avoid implicit struct conversions.
 function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     const varyings = surface.varyings ?? {};
     const varyingKeys = Object.keys(varyings);
@@ -1078,12 +975,8 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
         .$uses({ Ctx: CtxSchema, fs: fsFn })
         .$name(`${surface.name}FsCopier`);
 
-    // a slot's schema is the widened `AnyWgslData` — real (any concrete vector/scalar schema at runtime),
-    // but too loose for `fragmentFn`'s `in:` constraint and the resulting `input`'s field types to
-    // type-check without a cast, the same escape the vertex copier's `layout.$` cast uses. The explicit
-    // location pairs with the vs side's (`VARYING_BASE + i` — see varyingVs's why: the internal
-    // `v<i>` names are unmatchable, the slot is the contract). No flat-interpolate insertion, so an
-    // integer varying is unsupported and fails loudly at resolve/device compile.
+    // The runtime schema is concrete, but its widened type cannot satisfy fragmentFn's input constraint.
+    // Locations pair fixed FS names with author-named VS fields; integer varyings remain unsupported.
     const slot = (i: number) => d.location(VARYING_BASE + i, schemas[i] as d.Vec3f);
     const base = {
         pos: d.builtin.position,
@@ -1344,11 +1237,7 @@ export function compileMaterial<
     return compiled;
 }
 
-/**
- * compile a surface's single-sample (AA-off) color twin, once, the first frame a no-AA camera
- * draws it (the wrapper is cheap; the real resolve+create lands at the twin's first draw). Reuses the compiled entry fns, so only
- * `multisample.count` differs.
- */
+/** Lazily creates the AA-off variant; deferred device compilation occurs at first use. */
 export function ensureSingle(world: World, t: CompiledMaterial): void {
     const _render = world.resource(RenderContext);
     if (t.single) {
@@ -1435,14 +1324,7 @@ function compilePrepass(
     return depthOnly;
 }
 
-/**
- * the shared point/cascade fragment entry: the tile-seam discard alone — clamped to
- * `layout.depthVariant` position + the `tileBox` varying its matching vs writes.
- * Atlas-size-independent (the vs bakes the atlas scale into `tileBox` already), so ONE instance serves every
- * surface's point pipeline AND every surface's cascade pipeline (the VS's rect-index formula
- * and atlas scale differ per atlas). A `clip` surface uses the wider per-surface
- * fragment below so the same material cutoff holes its atlas depth.
- */
+// Tile bounds arrive in pixel space, allowing one seam-discard fragment for both atlas types.
 const shadowFs = tgpu
     .fragmentFn({
         in: { pos: d.builtin.position, tileBox: d.interpolate("flat", d.vec4f) },
@@ -1458,18 +1340,8 @@ const shadowFs = tgpu
     })
     .$name("shadowAtlasFs");
 
-/**
- * the point/cascade shadow-atlas vertex entry: pulls the 8 B position-only vertex from `layout.depthVariant` (the
- * `prepassVs` shape), reads the re-gathered `(eid, globalTransformRow, encodedMeshInstanceSlot, combo)` instance at the
- * surface's `eids` lane, applies the instance transform, splices the surface's own `vs` chunk when present,
- * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
- * `tileBox` seam-discard bounds from `shadowLayout.$.tileRects` (indexed `slot·6+face` for the point atlas,
- * `slot` alone for the cascade atlas — indexed differently per atlas) scaled by the atlas's pixel size from
- * `comboMeta.z`, since `PointShadows.atlas` and the light's `numCascades` and `DirectionalLightShadowMap.size`
- * size the atlases live.
- * Only an **instanced** surface reaches here (only `eids`+`globalTransforms` gives a per-instance member to
- * re-gather against) — `compileShadow` gates the call, so this never runs for a non-instanced surface.
- */
+// Instanced surfaces supply the re-gathered combo index. Atlas dimensions come from comboMeta
+// so live shadow settings do not require pipeline recompilation.
 function shadowVs(
     surface: AnyMaterialType,
     shadowGroup: TgpuBindGroupLayout<any>,
@@ -2005,8 +1877,7 @@ function compileShadow(
         depthWriteEnabled: true,
         depthCompare: "greater",
     };
-    // the receiver stub, as in `compilePrepass` — doubly load-bearing here: the real receiver
-    // would sample the very atlas this pipeline renders into (a usage hazard)
+    // A real receiver would sample the atlas this pipeline is writing.
     const root = world.gpu.root
         .with(pointShadowSlot, pointShadowStub)
         .with(indirectLightSlot, indirectLightSources(world));
@@ -2056,26 +1927,14 @@ export function getCompiledMaterial(
     return pipelineState(world).compiledMaterials.get(`${name}:${alphaPipelineKey}`);
 }
 
-// ---- the `Backgrounds` contract's pipeline builder (the Backgrounds bindings lock):
-// the MaterialTypes contract minus mesh machinery, same group scheme. Group 0 = the shared `engineLayout`
-// instance (the color pass's own); group 1 = `shadowLayout`, declared-but-unused via
-// the `forcedZero` scope-forcing precedent (preserving `compileBackground`'s documented group-count-
-// compatibility reason: a bg pipeline with only group 0 would drop group 1 for the blend draws that follow
-// in the same pass); group 2 = the background's own bindings, through `contract.ts`'s `bgLayout` — the
-// SAME `layoutEntry` construction `layout()` uses for a surface, minus the `vertices` injection (no mesh).
+// Backgrounds retain group 1 so switching pipelines does not drop shadow bindings.
 
 /** the widest `Background` shape (any bindings) — the bare `Background` default pins `B` to
  *  `Record<string, Binding>` already, so this alias exists only to name the widened form at call
  *  boundaries, matching {@link AnyMaterialType}'s shape. */
 type AnyBackground = Background<Record<string, MaterialBinding>>;
 
-/**
- * the engine-owned fullscreen-triangle vertex entry every background shares — no per-background
- * variance (no mesh, no varyings, per the Backgrounds bindings lock), so ONE instance serves every
- * background's pipeline. The three corners come from `@builtin(vertex_index)` alone, emitted at the reverse-Z far plane (clip z = 0)
- * so {@link compileBackground}'s `depthCompare: "greater-equal"` + no-depth-write test admits only
- * un-rendered pixels.
- */
+// Reverse-Z far-plane depth lets the background fill only pixels without geometry.
 const bgVs = tgpu
     .vertexFn({ in: { vidx: d.builtin.vertexIndex }, out: { pos: d.builtin.position } })(
         (input) => {
@@ -2086,13 +1945,6 @@ const bgVs = tgpu
     )
     .$name("bgVs");
 
-/**
- * a background's fragment entry: reconstructs the normalized world-space view ray `dir` from
- * `@builtin(position)` + `engineLayout`'s `view.invViewProj`, not an interstage varying — forces
- * `shadowLayout`'s group-1 bindings into scope via the `forcedZero` fold (`colorFs`'s precedent, same
- * reason: `sampleSunShadow`/`pointShadowOf`'s free names are invisible to `tgpu.resolve`'s call-graph walk
- * otherwise), then calls the background's own `fs` chunk and wraps its `vec3f` result opaque (`vec4f(col, 1)`).
- */
 function bgFs(bg: AnyBackground) {
     return tgpu
         .fragmentFn({ in: { pos: d.builtin.position }, out: d.vec4f })((input) => {
@@ -2108,8 +1960,7 @@ function bgFs(bg: AnyBackground) {
                 // Orthographic depth 0 remains a finite point on the far projection plane.
                 dir = std.normalize(std.sub(std.div(far.xyz, far.w), engineLayout.$.view.eye.xyz));
             }
-            // see `colorFs`'s matching comment — the same forcing-touch precedent, folded into a
-            // value the return genuinely uses so the transpiler can't prune it as dead
+            // A used zero fold retains the free WGSL shadow bindings.
             const forcedZero =
                 (shadowLayout.$.pointShadows.casters[0].pos.x +
                     shadowLayout.$.tileRects.rects[0].x +
@@ -2150,12 +2001,8 @@ export interface CompiledBackground {
 }
 
 /**
- * compile one background's color pipelines — both the 4× MSAA + single-sample twins, eagerly
- * (`compileBackground`'s own reason: backgrounds are few, the camera's AA mode is known only at draw
- * time). `depthCompare: "greater-equal"` + no depth write: at clip z = 0 an un-rendered pixel (cleared
- * depth 0) passes `0 >= 0`, a geometry pixel (depth > 0) fails. Cached
- * by name plus exact source-spec/layout identity, so a same-name replacement cannot inherit pipelines
- * or layout-bound groups from its previous owner.
+ * Compiles both AA variants before draw, when a camera's AA selection is still unknown.
+ * Caches by name and exact spec/layout identity; replacing a recipe cannot inherit stale groups.
  */
 export function compileBackground(world: World, bg: AnyBackground): CompiledBackground {
     const _render = world.resource(RenderContext);
@@ -2218,13 +2065,7 @@ export function getBackground(
 
 /** Prepare every material parameter table, pipeline and background at warm, before the first draw. */
 export async function preparePipelines(world: World, capacity: number): Promise<void> {
-    // Create type-local tables at warm so their defaults are ready for the first frame. A material type
-    // can first acquire a draw from a draw-group system; creating its table during that draw would miss
-    // the frame's already-completed table upload.
-    // Force each pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
-    // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
-    // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm
-    // lock).
+    // Warm tables before frame upload and force deferred compilation before the first draw can fail.
     for (const type of world.resource(MaterialTypes).types) {
         if (!type) continue;
         world.resource(type).table;

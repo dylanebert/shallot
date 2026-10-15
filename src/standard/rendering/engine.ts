@@ -51,19 +51,10 @@ export const fragCoord = tgpu.privateVar(d.vec4f, d.vec4f(0));
  *  color fs. */
 export const pointScale = tgpu.privateVar(d.f32, 0);
 
-// `pointShadowRef()`/the shade.ts module memoize the real callable reference across every consumer
-// (the fog kernel's own `pointShadowOf` local is the precedent) — resolved once here, in ordinary
-// module-scope JS, so the scaffold bodies below close over the real `tgpu.fn` value directly.
 const pointShadowOf = pointShadowRef();
 
-/**
- * the depth-pipeline stub for the point/spot shadow receiver — bound via {@link pointShadowSlot}
- * in depth/prepass pipelines: same signature, fully lit. A surface's own `vs` chunk can reach {@link litPbr} /
- * {@link lightFactor} (per-vertex shading), which statically pull the real receiver — in a prepass /
- * shadow-atlas pipeline that would sample the very atlas being written (a usage hazard) and read
- * bindings those passes never bind. Named `pointShadowOf` so the emitted call site is identical either
- * way; `pointScale`'s 0 default already makes the real one dynamically dead in those stages.
- */
+// Vertex shading statically reaches the point receiver even when pointScale is zero.
+// Depth pipelines need a fully-lit stub to avoid binding or sampling the atlas they write.
 export const pointShadowStub = tgpu
     .fn(
         [PointLightGpu, d.vec3f, d.vec3f, d.u32],
@@ -183,8 +174,6 @@ export const lightFactor = tgpu.fn(
     return std.add(std.add(std.mul(indirect, exposure), direct), pointFactor(normal));
 });
 
-/** `baseColor * lightFactor(normal)`.
- */
 export const lit = tgpu.fn(
     [d.vec3f, d.vec3f],
     d.vec3f,
@@ -252,7 +241,7 @@ export const litPbr = tgpu.fn(
                     fragWorld.$,
                     d.u32(engineLayout.$.view.shadowFilteringMethod),
                 );
-            // (light.color.rgb * f) * brdfSphere(...), left-to-right like the shipped shader
+            // Preserve product order to retain f32 rounding.
             radiance = d.vec3f(
                 std.add(
                     radiance,
