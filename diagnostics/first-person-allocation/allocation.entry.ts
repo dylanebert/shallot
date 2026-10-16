@@ -4,8 +4,11 @@ import {
     GlobalTransform,
     InputPlugin,
     StandardPhysicsPlugin,
+    Transform,
 } from "@dylanebert/shallot";
+import { internText, Text, TextPlugin } from "@dylanebert/shallot/extras";
 
+import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 import { Demo } from "../../examples/first-person/src/demo";
 
 // A compile-time constant equal to Time.FIXED_DT: that one is an object property, so passing it
@@ -19,15 +22,23 @@ export const control = () => {
     controlSink = { frame: 0 };
 };
 
-// Bundled for Node by the allocation row. Same GPU composition as the demo rows.
-export default async function create() {
-    const app = await createApp({
-        defaults: false,
-        plugins: [StandardPhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
-    });
+// Bundled for Node by the allocation row. Same GPU composition as the demo rows; input "text" adds
+// one world label, whose core pipeline records and submits a GPU frame every step.
+export default async function create(input = "") {
+    const plugins = [StandardPhysicsPlugin, CharacterPlugin, InputPlugin, Demo];
+    if (input === "text") plugins.push(TextPlugin);
+    const app = await createApp({ defaults: false, plugins });
     const world = app.world;
+    if (input === "text") {
+        const label = world.create();
+        world.add(label, Transform, { translation: [0, 0.505, 7.5] });
+        world.add(label, Text, { content: internText(world, "Text") });
+    }
     let eid = 0;
     return {
+        allocationExpressions: gpuAllocationExpressions,
+        // Keep the frame fence visible so its WebGPU calls are not attributed to the step that inlines it.
+        allocationFunctions: [world.gpu.sync],
         step: () => world.step(FIXED_DT),
         wait: () => world.gpu.device.queue.onSubmittedWorkDone(),
         // The transition row's event frames, an ECS entity cycle with no Body: create an entity carrying the

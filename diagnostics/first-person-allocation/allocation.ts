@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DEFERRED_TURBOFAN_FLAGS, SAMPLE_RESULT } from "./allocation-sampler.mjs";
@@ -62,6 +62,7 @@ export interface TransitionSample extends AllocationSample {
 }
 
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
+const TEXT_FONT = resolve(import.meta.dir, "../../src/extras/text/Inter-Regular.ttf");
 
 /**
  * Lower thresholds only move compiles into warm-up; synchronous compilation keeps installation in its run.
@@ -229,6 +230,8 @@ async function buildAllocationBundle(entry: string): Promise<{ dir: string; path
         });
         if (!built.success)
             throw new Error(`allocation bundle failed: ${built.logs.map(String).join("\n")}`);
+        // Bun.build does not emit `new URL(asset, import.meta.url)` assets; Text's default font resolves beside the bundle.
+        copyFileSync(TEXT_FONT, join(dir, "Inter-Regular.ttf"));
         return { dir, path: join(dir, "subject.mjs") };
     } catch (error) {
         rmSync(dir, { recursive: true, force: true });
