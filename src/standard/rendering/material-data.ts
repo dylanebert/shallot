@@ -37,7 +37,6 @@ export const StandardMaterialInput = d
         perceptualRoughness: d.f32,
         emissive: d.vec3f,
         occlusion: d.f32,
-        diffuseWrap: d.f32,
         unlit: d.u32,
     })
     .$name("StandardMaterialInput");
@@ -51,12 +50,11 @@ type StandardMaterialOptions = {
     perceptualRoughness?: number;
     emissive?: readonly [number, number, number];
     occlusion?: number;
-    diffuseWrap?: number;
     unlit?: boolean;
 };
 
 /**
- * Linear colours; emissive is independent of baseColor. diffuseWrap defaults to Lambert (0); 1 selects squared half-Lambert.
+ * Linear colours; emissive is independent of baseColor.
  * baseColorTexture is an id from registerImage before warm; its sampled RGBA multiplies baseColor
  * at mesh UVs. Omit it to leave baseColor untextured, without sampling the image array.
  */
@@ -68,7 +66,6 @@ export function StandardMaterial(values: StandardMaterialOptions = {}): Standard
         perceptualRoughness: values.perceptualRoughness ?? 0.5,
         emissive: d.vec3f(...(values.emissive ?? [0, 0, 0])),
         occlusion: values.occlusion ?? 1,
-        diffuseWrap: values.diffuseWrap ?? 0,
         unlit: values.unlit ? 1 : 0,
     };
 }

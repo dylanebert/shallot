@@ -141,7 +141,6 @@ test("type-owned adds return distinct rows and partial updates preserve the othe
     materials.update(a, {
         baseColor: [0.75, 0.25, 0.5, 1],
         emissive: [0.5, 0.25, 0.125],
-        diffuseWrap: 0,
     });
     expect(() => materials.update(-1, {})).toThrow("unknown StandardMaterial row");
     expect(() => materials.update({ ...b, material: b.material + 1 }, {})).toThrow(
@@ -163,9 +162,7 @@ test("type-owned adds return distinct rows and partial updates preserve the othe
     expect(changed.perceptualRoughness).toBe(0.5);
     expect(changed.occlusion).toBe(0.75);
     expect(changed.emissive).toEqual(d.vec3f(0.5, 0.25, 0.125));
-    expect(changed.diffuseWrap).toBe(0);
     expect(unchanged.baseColor).toEqual(d.vec4f(1));
     expect(unchanged.emissive).toEqual(d.vec3f(0));
-    expect(unchanged.diffuseWrap).toBe(0);
     expect(await world.gpu.device.popErrorScope()).toBeNull();
 });

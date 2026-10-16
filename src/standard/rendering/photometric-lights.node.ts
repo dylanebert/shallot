@@ -67,7 +67,6 @@ function scene(world: World) {
             baseColor: [1, 1, 1, 1],
             metallic: 0,
             perceptualRoughness: 1,
-            diffuseWrap: 1,
         }),
     );
     const mesh = world.create();

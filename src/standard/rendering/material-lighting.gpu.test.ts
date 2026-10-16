@@ -103,7 +103,6 @@ test("VertexMaterialType applies the independently computed ambient light to its
             metallic: 0,
             perceptualRoughness: 1,
             occlusion: 1,
-            diffuseWrap: 1,
         }),
     );
     add(-0.7, material);
@@ -123,7 +122,6 @@ test("camera EV100 changes ambient exposure by one stop", async () => {
             baseColor: [1, 1, 1, 1],
             metallic: 0,
             perceptualRoughness: 1,
-            diffuseWrap: 1,
         }),
     );
     add(0, material);

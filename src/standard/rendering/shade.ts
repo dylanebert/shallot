@@ -19,25 +19,10 @@ export const Pbr = d.struct({
     roughness: d.f32,
     occlusion: d.f32,
     dielectric: d.f32,
-    diffuseWrap: d.f32,
 });
 
 // a captured constant folds to a literal in the emitted WGSL, so this is the shader's PI too
 const PI = Math.PI;
-
-/**
- * Valve half-Lambert (Mitton & McTaggart, GDC 2004): remaps [-1,1] to [0,1] to soften the diffuse
- * terminator, then squares the remap to retain midtone contrast rather than flatten the surface.
- * Diffuse only: the specular cosine is unchanged. Deliberately not energy-conserving.
- */
-export const halfLambert = tgpu.fn(
-    [d.f32],
-    d.f32,
-)((ndl) => {
-    "use gpu";
-    const h = ndl * 0.5 + 0.5;
-    return h * h;
-});
 
 /** the GGX / Trowbridge-Reitz normal distribution over the half-vector cosine `ndh` and the squared
  *  roughness `a`. */
@@ -78,15 +63,14 @@ export const fresnelSchlick = tgpu.fn(
 
 /**
  * one light's Cook-Torrance BRDF, unscaled by photometric radiance / attenuation (the caller scales).
- * Diffuse retains its physical `albedo/PI` normalization; half-Lambert remains the authored soft response.
+ * Diffuse retains its physical `albedo/PI` normalization.
  */
 export const brdf = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f, d.vec3f],
     d.vec3f,
 )((s, N, V, L) => {
     "use gpu";
-    const dNL = std.dot(N, L);
-    const ndl = std.max(dNL, 0);
+    const ndl = std.max(std.dot(N, L), 0);
     const H = std.normalize(std.add(V, L));
     const ndv = std.max(std.dot(N, V), 1e-4);
     const ndh = std.max(std.dot(N, H), 0);
@@ -97,8 +81,7 @@ export const brdf = tgpu.fn(
     // Reassociating this product changes f32 rounding.
     const spec = std.mul(distributionGGX(ndh, a) * visSmithGGX(ndl, ndv, a), F);
     const kd = std.mul(std.sub(d.vec3f(1), F), 1 - s.metallic);
-    const diffuseCosine = std.mix(std.max(dNL, 0), halfLambert(dNL), s.diffuseWrap);
-    const diffuse = std.mul(std.div(std.mul(kd, s.albedo), PI), diffuseCosine);
+    const diffuse = std.mul(std.div(std.mul(kd, s.albedo), PI), ndl);
     return std.add(diffuse, std.mul(spec, ndl));
 });
 
@@ -139,7 +122,7 @@ export const brdfSphere = tgpu.fn(
         norm,
     );
     const kd = std.mul(std.sub(d.vec3f(1), F), 1 - s.metallic);
-    const diffuseCosine = std.mix(std.max(dC, 0), halfLambert(dC), s.diffuseWrap);
+    const diffuseCosine = std.max(dC, 0);
     const diffuse = std.mul(std.div(std.mul(kd, s.albedo), PI), diffuseCosine);
     return std.add(diffuse, std.mul(spec, ndl));
 });

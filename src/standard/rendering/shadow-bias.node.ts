@@ -57,7 +57,6 @@ function makeScene(world: World, kind: Kind): { camera: number; light: number } 
             baseColor: [1, 1, 1, 1],
             metallic: 0,
             perceptualRoughness: 1,
-            diffuseWrap: 1,
         }),
     );
     const floor = world.create();

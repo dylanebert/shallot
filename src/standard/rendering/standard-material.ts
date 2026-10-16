@@ -46,7 +46,6 @@ export const Materials = materialType({
             roughness: material.perceptualRoughness,
             occlusion: material.occlusion,
             dielectric: 0,
-            diffuseWrap: material.diffuseWrap,
         });
         const emissive = material.emissive;
         return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), baseColor.a);
@@ -75,7 +74,6 @@ export const VertexMaterialType = materialType({
                 roughness: material.perceptualRoughness,
                 occlusion: material.occlusion,
                 dielectric: 0,
-                diffuseWrap: material.diffuseWrap,
             });
             litColor = d.vec4f(
                 std.add(

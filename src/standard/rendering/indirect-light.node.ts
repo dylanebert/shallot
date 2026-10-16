@@ -68,7 +68,6 @@ async function ambientFrame(world: World): Promise<Uint8ClampedArray> {
             metallic: 0,
             perceptualRoughness: 1,
             occlusion: 1,
-            diffuseWrap: 1,
         }),
     );
     const mesh = world.create();
@@ -107,7 +106,6 @@ test("a registered indirect source adds to material light and receives occlusion
         metallic: 0,
         perceptualRoughness: 1,
         occlusion: 1,
-        diffuseWrap: 1,
     });
     const standardMaterial = world.resource(Materials).add(parameters);
     const vertexMaterial = world.resource(VertexMaterialType).add(parameters);

@@ -27,7 +27,7 @@ const subjects = gpuApps(import.meta.path, [
     },
 ]);
 
-test("default diffuse rejects a shadowed point light behind a box side; diffuseWrap 1 retains its edge light", async () => {
+test("default diffuse rejects a shadowed point light behind a box side", async () => {
     const { world } = subjects()[0];
     world.resource(PointShadows).atlas = 1024;
     world.resource(PointShadows).casters = 1;
@@ -70,16 +70,12 @@ test("default diffuse rejects a shadowed point light behind a box side; diffuseW
         world.step(0);
         const { rgba } = await captureTexture(world, camera);
         let maximum = 0;
-        // The front normal points away from the pendant; only wrapped diffuse can light it.
+        // The front normal points away from the pendant.
         // Sample below the top edge at y=1.1, excluding the face's left and right edges.
         for (let y = 20; y < 45; y++) {
             for (let x = 100; x < 156; x++) maximum = Math.max(maximum, rgba[(y * 256 + x) * 4]);
         }
         return maximum;
     }
-    const plain = await edgeLight();
-    materials.update(material, { diffuseWrap: 1 });
-    const wrapped = await edgeLight();
-    expect(wrapped).toBeGreaterThan(0);
-    expect(plain).toBe(0);
+    expect(await edgeLight()).toBe(0);
 });
