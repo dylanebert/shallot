@@ -2,9 +2,11 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
-import { attachTexture, Camera, captureTexture } from "../../core/rendering";
+import { attachTexture, Billboard, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import { lookAtRotation } from "../../engine";
 import {
+    AlphaMode,
     Materials,
     MeshMaterial,
     MeshRenderPlugin,
@@ -37,6 +39,45 @@ async function frame(world: ReturnType<typeof subjects>[number]["world"], camera
     world.step(1 / 60);
     return (await captureTexture(world, camera)).rgba;
 }
+
+test("a Screen label in front of a blended plane stays visible from a pitched camera", async () => {
+    const { world } = subjects()[0];
+    const camera = world.create();
+    const rotation = lookAtRotation(0, -2, 5, 0, 0, 0);
+    world.add(camera, Transform, { translation: [0, -2, 5], rotation });
+    world.add(camera, Camera);
+    world.add(camera, StandardRenderer);
+    attachTexture(world, camera, { width: 64, height: 64 });
+    const plane = world.create();
+    world.add(plane, Transform, { scale: [4, 4, 0.001], rotation });
+    world.add(plane, MeshInstance);
+    world.add(
+        plane,
+        MeshMaterial,
+        world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: [1, 1, 1, 1], unlit: true }), {
+                alphaMode: AlphaMode.Blend,
+            }),
+    );
+    const baseline = await frame(world, camera);
+    const label = world.create();
+    world.add(label, Transform, {
+        translation: [0, (-0.01 * 2) / Math.sqrt(29), (0.01 * 5) / Math.sqrt(29)],
+    });
+    world.add(label, Text, {
+        content: internText(world, "i"),
+        font,
+        fontSize: 1,
+        anchor: [0.5, 0],
+        color: 0x000000,
+        billboard: Billboard.Screen,
+    });
+    expect(await frame(world, camera)).not.toEqual(baseline);
+    world.destroy(label);
+    world.destroy(plane);
+    world.destroy(camera);
+});
 
 test("Text and Line are both visible alone and occluded by an opaque mesh", async () => {
     const { world } = subjects()[0];

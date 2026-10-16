@@ -365,12 +365,24 @@ function queueText(world: World, _eid: number, _view: View, phase: TransparentPh
             continue;
         composeGlobalTransform(world, label.eid, state.transformScratch);
         const transform = state.transformScratch;
-        const x = transform[12] + transform[0] * label.centerX + transform[4] * label.centerY;
-        const y = transform[13] + transform[1] * label.centerX + transform[5] * label.centerY;
-        const z = transform[14] + transform[2] * label.centerX + transform[6] * label.centerY;
-        position[0] = x;
-        position[1] = y;
-        position[2] = z;
+        const mode = world.storage(Text).billboard.get(label.eid);
+        if (mode === Billboard.World) {
+            position[0] =
+                transform[12] + transform[0] * label.centerX + transform[4] * label.centerY;
+            position[1] =
+                transform[13] + transform[1] * label.centerX + transform[5] * label.centerY;
+            position[2] =
+                transform[14] + transform[2] * label.centerX + transform[6] * label.centerY;
+        } else {
+            // Screen corners share the origin's view depth; YLocked's horizontal axis does too.
+            position[0] = transform[12];
+            position[1] =
+                transform[13] +
+                (mode === Billboard.YLocked
+                    ? label.centerY * Math.hypot(transform[4], transform[5], transform[6])
+                    : 0);
+            position[2] = transform[14];
+        }
         phase.addFromScratch(i, label.font, label.eid, 0);
     }
 }
