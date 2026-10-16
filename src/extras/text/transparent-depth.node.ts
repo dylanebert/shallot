@@ -126,7 +126,7 @@ test("Text and Line are both visible alone and occluded by an opaque mesh", asyn
     const textOccluded = await frame(world, camera);
     expect(textOccluded).toEqual(baseline);
 
-    world.storage(Text).visible.set(label, 0);
+    world.remove(label, Text);
     const line = world.create();
     world.add(line, Transform, { translation: [-1.3, -0.5, -0.5, 0] });
     world.add(line, Line, { offset: [2.6, 0, 0, 0], thickness: 8, color: 0xffffff });

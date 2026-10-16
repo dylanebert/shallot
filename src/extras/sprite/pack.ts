@@ -21,7 +21,7 @@ export const SpriteFill = {
     Horizontal: 3,
 } as const;
 
-/** A textured world-space quad anchored to an entity's Transform. */
+/** A textured world-space quad anchored to an entity's Transform. Remove Sprite to hide it; add it again to show it. */
 export const Sprite = component(
     "Sprite",
     {
@@ -35,8 +35,6 @@ export const Sprite = component(
         color: f32,
         /** texture-alpha multiplier; it shrinks the mask or fades the blended sprite */
         opacity: f32,
-        /** drawn when nonzero */
-        visible: f32,
         /** {@link Billboard} orientation; defaults to Screen. */
         billboard: u32,
         /** compositing route */
@@ -53,7 +51,6 @@ export const Sprite = component(
             anchor: [0.5, 0.5],
             color: 0xffffff,
             opacity: 1,
-            visible: 1,
             billboard: Billboard.Screen,
             blend: SpriteBlend.Clip,
             fill: 1,

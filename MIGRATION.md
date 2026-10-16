@@ -2,6 +2,10 @@
 
 These changes require updates to a 0.9.5 app.
 
+## Hiding sprites, labels and lines
+
+`Sprite.visible`, `Text.visible` and `Line.visible` are removed. Remove the drawing component to hide it; add it again with its authored values to show it. Keep any values needed for re-adding outside the removed component: its fields are valid only while the entity holds it.
+
 ## Font and image identity
 
 Remove the name argument from font and image registration: repeated URLs return the same id, different URLs return different ids, and each Blob registration returns a new id distinct from every URL. `Text.font` 0 always selects the bundled default face, even when other fonts are registered.

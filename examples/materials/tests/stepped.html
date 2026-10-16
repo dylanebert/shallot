@@ -25,7 +25,16 @@ window.aim=(index)=>{
  orbit.target.set(gallery.camera,index<0?0:gallery.spheres[index]);
  world.step(1/60);world.step(1/60);
 };
-window.nameVisible=(index,visible)=>world.storage(Text).visible.set(gallery.names[index],Number(visible));
+const nameValues=gallery.names.map(eid=>{
+ const text=world.storage(Text);
+ const values=Object.fromEntries(['content','font','billboard','fontSize','maxWidth','justify','opacity','color'].map(key=>[key,text[key].get(eid)]));
+ values.anchor=[text.anchor.x.get(eid),text.anchor.y.get(eid)];
+ return values;
+});
+window.nameVisible=(index,visible)=>{
+ const eid=gallery.names[index];
+ if(visible)world.add(eid,Text,nameValues[index]);else world.remove(eid,Text);
+};
 window.nameClose=()=>{
  window.aim(2);
  orbit.target.set(gallery.camera,gallery.names[2]);

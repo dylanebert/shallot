@@ -36,7 +36,8 @@ export { drawArrow, drawLine, drawWireBox } from "./segments";
 
 /**
  * a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated
- * offset. A retained scene annotation, expanded into one screen-space segment each frame
+ * offset. A retained scene annotation, expanded into one screen-space segment each frame.
+ * Remove Line to hide it; add it again to show it.
  */
 export const Line = component(
     "Line",
@@ -49,8 +50,6 @@ export const Line = component(
         color: f32,
         /** 0..1 opacity multiplier */
         opacity: f32,
-        /** drawn when nonzero; set to 0 to hide without removing */
-        visible: f32,
     },
     {
         defaults: () => ({
@@ -58,7 +57,6 @@ export const Line = component(
             thickness: 2,
             color: 0xffffff,
             opacity: 1,
-            visible: 1,
         }),
     },
 );
@@ -88,7 +86,6 @@ const RETAINED_LINES_QUERY = [Line, GlobalTransform];
 // Append retained annotations after this frame's immediate segments.
 function expandRetained(world: World): void {
     for (const eid of world.query(RETAINED_LINES_QUERY)) {
-        if (!world.storage(Line).visible.get(eid)) continue;
         composeGlobalTransform(world, eid, _m);
         const ox = world.storage(Line).offset.x.get(eid);
         const oy = world.storage(Line).offset.y.get(eid);

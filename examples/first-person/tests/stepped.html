@@ -12,12 +12,15 @@ attachTexture(world,route.eye,{width:1280,height:720});
 window.controlsInk=async()=>{
  world.step(0);
  const before=(await captureTexture(world,route.eye)).rgba;
- world.storage(Text).visible.set(route.controls,0);
+ const text=world.storage(Text), eid=route.controls;
+ const values=Object.fromEntries(['content','font','billboard','fontSize','maxWidth','justify','opacity','color'].map(key=>[key,text[key].get(eid)]));
+ values.anchor=[text.anchor.x.get(eid),text.anchor.y.get(eid)];
+ world.remove(eid,Text);
  world.step(0);
  const hidden=(await captureTexture(world,route.eye)).rgba;
  let ink=0;
  for(let i=0;i<before.length;i+=4)if([0,1,2].some(c=>Math.abs(before[i+c]-hidden[i+c])>20))ink++;
- world.storage(Text).visible.set(route.controls,1);
+ world.add(eid,Text,values);
  world.step(0);
  return ink;
 };

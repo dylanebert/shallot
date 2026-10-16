@@ -102,13 +102,6 @@ const SpriteSystem: System = {
         for (const eid of world.query(SPRITE_QUERY)) {
             const current = state.instances.get(eid);
             if (!world.has(eid, GlobalTransform)) continue;
-            if (!sprite.visible.get(eid)) {
-                if (current) {
-                    releaseInstance(world, eid);
-                    state.instances.delete(eid);
-                }
-                continue;
-            }
             const image = sprite.image.get(eid);
             const width = sprite.size.x.get(eid);
             const height = sprite.size.y.get(eid);

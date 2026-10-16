@@ -72,7 +72,7 @@ export function internText(world: World, content: string): number {
 /**
  * a world-space text label anchored to an entity's {@link Transform}. Register the string with
  * {@link internText} and, optionally, a face with {@link registerFont}; the glyphs lay out once and ride the entity's
- * transform, so moving a label triggers no rebuild
+ * transform, so moving a label triggers no rebuild. Remove Text to hide it; add it again to show it.
  */
 export const Text = component(
     "Text",
@@ -91,8 +91,6 @@ export const Text = component(
         justify: u32,
         /** 0..1 opacity multiplier */
         opacity: f32,
-        /** drawn when nonzero */
-        visible: f32,
         /** 0..1 pivot within the whole text block; 0 0 = bottom-left, 0.5 0.5 centered */
         anchor: vec2,
         /** hex sRGB glyph color */
@@ -107,7 +105,6 @@ export const Text = component(
             maxWidth: Infinity,
             justify: Justify.Left,
             opacity: 1,
-            visible: 1,
             anchor: [0, 0],
             color: 0xffffff,
         }),
@@ -219,14 +216,13 @@ function fold(h: number, x: number): number {
     return Math.imul(h ^ x, 16777619);
 }
 
-// the dirty key: every visible label's layout-affecting state + membership. Equal to last frame ⇒ the
+// the dirty key: every label's layout-affecting state + membership. Equal to last frame ⇒ the
 // glyph buffer still holds the right geometry, so the rebuild + upload are skipped
 function signature(world: World): number {
     const scratch = world.resource(textStateKey);
     const text = world.storage(Text);
     let h = 0x811c9dc5 | 0;
     for (const eid of world.query(TEXT_TRANSFORM_QUERY)) {
-        if (!text.visible.get(eid)) continue;
         h = fold(h, eid);
         h = fold(h, text.content.get(eid));
         h = fold(h, text.font.get(eid));
@@ -264,7 +260,6 @@ function rebuild(world: World, device: GPUDevice): void {
     for (let i = 0; i < _textState.atlases.length; i++) _textState.byFont[i].length = 0;
 
     for (const eid of world.query(TEXT_TRANSFORM_QUERY)) {
-        if (!world.storage(Text).visible.get(eid)) continue;
         const content = world.resource(Content).name(world.storage(Text).content.get(eid));
         if (!content) continue;
         let fontId = world.storage(Text).font.get(eid);

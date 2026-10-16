@@ -40,6 +40,6 @@ test("a world registering a font draws a font-0 label in the default face", asyn
     world.storage(Text).font.set(label, defaultFont);
     const explicit = await frame();
     expect(implicit).toEqual(explicit);
-    world.storage(Text).visible.set(label, 0);
+    world.remove(label, Text);
     expect(explicit).not.toEqual(await frame());
 });
