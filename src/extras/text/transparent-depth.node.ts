@@ -54,11 +54,9 @@ test("a Screen label in front of a blended plane stays visible from a pitched ca
     world.add(
         plane,
         MeshMaterial,
-        world
-            .resource(Materials)
-            .add(StandardMaterial({ baseColor: [1, 1, 1, 1], unlit: true }), {
-                alphaMode: AlphaMode.Blend,
-            }),
+        world.resource(Materials).add(StandardMaterial({ baseColor: [1, 1, 1, 1], unlit: true }), {
+            alphaMode: AlphaMode.Blend,
+        }),
     );
     const baseline = await frame(world, camera);
     const label = world.create();
