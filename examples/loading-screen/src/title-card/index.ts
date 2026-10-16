@@ -12,15 +12,14 @@ export function titleCard(bootstrap: HTMLElement): Loading {
             card.removeAttribute("data-shallot-bootstrap");
             card.dataset.titleCard = "";
             shownAt = performance.now();
-            const mark = card.querySelector<HTMLElement>(".mark")!;
             if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-                intro = mark.animate(
-                    [
-                        { transform: "rotate(-90deg) scale(0.6)" },
-                        { transform: "rotate(0) scale(1)" },
-                    ],
-                    { duration: 1100, easing: "ease-out", fill: "both" },
-                ).finished;
+                intro = card
+                    .querySelector<HTMLElement>("h1")!
+                    .animate([{ opacity: 0 }, { opacity: 1 }], {
+                        duration: 1100,
+                        easing: "ease-out",
+                        fill: "both",
+                    }).finished;
             }
             return () => card.remove();
         },

@@ -193,6 +193,16 @@ test("the game title bootstrap hands off without a jump to its own progress trac
         };
     });
 
+    await page.route("/", async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({
+            response,
+            body: (await response.text()).replace(
+                "<title>loading-screen</title>",
+                "<title>Copied game</title>",
+            ),
+        });
+    });
     const releaseEntry = await holdEntry(page);
     const bootstrap = await inspectBootstrap(page);
     expect(bootstrap.background).toEqual(lightBackground);
@@ -200,7 +210,10 @@ test("the game title bootstrap hands off without a jump to its own progress trac
         bootstrap.ink,
         "screenshot has contrasting ink in the custom bootstrap text bounds",
     ).toBeGreaterThan(20);
-    await expect(page.locator(`${bootstrapSelector} h1`)).toHaveText("Ember Atlas");
+    expect(await page.title()).toBe("Copied game");
+    await expect(page.locator(`${bootstrapSelector} h1`)).toHaveText(await page.title());
+    await expect(page.locator(`${bootstrapSelector} h1`)).toHaveCSS("font-size", "24px");
+    await expect(page.locator(`${bootstrapSelector} .notice`)).toHaveCSS("font-size", "14px");
     releaseEntry();
     await expect(page.locator(bootstrapSelector)).toHaveCount(0);
     await expect(page.locator(loadingOverlay)).toBeVisible();
@@ -208,8 +221,12 @@ test("the game title bootstrap hands off without a jump to its own progress trac
     await page.evaluate(() => {
         document.querySelector<HTMLElement>(".progress")!.style.width = "38%";
     });
-    if (process.env.SHALLOT_CAPTURE_DIR)
+    if (process.env.SHALLOT_CAPTURE_DIR) {
+        await page.locator(`${loadingOverlay} h1`).evaluate(async (title) => {
+            await Promise.all(title.getAnimations().map((animation) => animation.finished));
+        });
         await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/card-mid-load.png` });
+    }
     await page.evaluate(() => {
         document.querySelector<HTMLElement>(".progress")!.style.width = "0";
     });

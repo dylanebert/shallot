@@ -76,7 +76,7 @@ body {
     overflow: auto;
     background: #282622;
     color: #eee9df;
-    font: 14px/1.5 var(--sans);
+    font: 400 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     text-align: center;
 }
 
@@ -101,7 +101,7 @@ body {
 }
 
 [data-shallot-bootstrap][data-state="error"] {
-    font-weight: 600;
+    font-weight: 400;
 }
 
 canvas {
@@ -128,9 +128,9 @@ canvas.visible {
     padding: 24px;
     background: var(--bg2);
     color: var(--frame-error);
-    font-family: var(--sans);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 400;
     line-height: 1.5;
     text-align: center;
 }

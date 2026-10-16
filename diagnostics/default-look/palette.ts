@@ -22,8 +22,19 @@ export interface LookPalette {
         panel: string;
         ink: string;
         border: string;
+        fontFamily: string;
+        fontSizes: readonly string[];
+        fontWeight: string;
+        radius: string;
     };
 }
+
+const uiType = {
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+    fontSizes: ["14px", "24px"],
+    fontWeight: "400",
+    radius: "2px",
+};
 
 // Comparison scenes hold lighting fixed: warm sun and cool ambient.
 const current = {
@@ -42,6 +53,7 @@ const current = {
         },
         textColor: 0xffffff,
         ui: {
+            ...uiType,
             panel: "rgba(14, 17, 20, 0.72)",
             ink: "#ffffff",
             border: "rgba(255, 255, 255, 0.16)",
@@ -149,7 +161,7 @@ function candidate(hues: (typeof CANDIDATES)[keyof typeof CANDIDATES]): LookPale
             routePerch: linearFromOklch(colors.routePerch),
         },
         textColor: Number.parseInt(ink.slice(1), 16),
-        ui: { panel: colorHex(dark), ink, border: colorHex(ground) },
+        ui: { ...uiType, panel: colorHex(dark), ink, border: colorHex(ground) },
     };
 }
 
@@ -236,7 +248,7 @@ export const PALETTES = {
             routePerch: [0.11, 0.105, 0.095, 1],
         },
         textColor: 0xeee9df,
-        ui: { panel: "#282622", ink: "#eee9df", border: "#797369" },
+        ui: { ...uiType, panel: "#282622", ink: "#eee9df", border: "#797369" },
     } satisfies LookPalette,
     "current-in-range": currentInRange(),
     "dev-orange-neutral": devOrangeNeutral(),

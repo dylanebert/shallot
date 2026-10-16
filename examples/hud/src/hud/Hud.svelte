@@ -62,13 +62,13 @@
         align-items: center;
         gap: 12px;
         padding: 10px 12px;
-        border-radius: 6px;
+        border-radius: 2px;
         background: #282622;
     }
     .swatches { display: flex; gap: 8px; }
-    button { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 4px; cursor: pointer; }
+    button { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 2px; cursor: pointer; }
     button[aria-pressed="true"] { border-color: #eee9df; }
-    .angle { min-width: 4ch; color: #eee9df; font: 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: right; }
-    small { font-size: 0.7em; vertical-align: top; }
+    .angle { min-width: 4ch; color: #eee9df; font: 400 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: right; }
+    small { font-size: 14px; vertical-align: top; }
     input { width: 140px; margin: 0; accent-color: #eee9df; }
 </style>
