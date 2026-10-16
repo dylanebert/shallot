@@ -13,6 +13,9 @@ declare global {
         shadow(kind: string): Promise<{ darkened: number; delta: number }>;
         spot(): Promise<{ x: number; y: number; sum: number }>;
         flashlightWall(): void;
+        playerWall(): void;
+        ambient(value: number): void;
+        fixtures(): Promise<number[]>;
         capture(): Promise<string>;
         device: { requests: { requiredLimits?: unknown }[]; adapter: unknown; limits: unknown };
     }
@@ -28,8 +31,8 @@ test("E dims its ceiling lamp's floor; objects shadow the floor but the shade do
     });
     await page.goto("http://127.0.0.1:4216/tests/stepped.html");
     await page.waitForFunction(() => window.ready);
-    const shadeAtSpawn = await page.evaluate(() => window.shadow("shade"));
-    expect(shadeAtSpawn.darkened).toBe(0);
+    const shade = await page.evaluate(() => window.shadow("shade"));
+    expect(shade.darkened).toBe(0);
     const device = await page.evaluate(() => window.device);
     console.log("lit-interior device", JSON.stringify(device));
     expect(device.requests.length).toBe(1);
@@ -48,7 +51,7 @@ test("E dims its ceiling lamp's floor; objects shadow the floor but the shade do
     });
     expect(await page.evaluate(() => window.lamp())).toBe(80000);
     const object = await page.evaluate(() => window.shadow("object"));
-    console.log("floor shadows", { object, shade: shadeAtSpawn });
+    console.log("floor shadows", { object, shade });
     expect(object.darkened).toBeGreaterThan(20);
     expect(warnings.filter((s) => /overflow|pipeline|refus/i.test(s))).toEqual([]);
     expect(errors).toEqual([]);
@@ -71,8 +74,10 @@ test("E dims its ceiling lamp's floor; objects shadow the floor but the shade do
         window.view();
     });
     await capture("spawn-switched-off");
-    await page.evaluate(() => window.flashlightWall());
+    await page.evaluate(() => window.playerWall());
     await capture("flashlight-wall");
+    await page.evaluate(() => window.ambient(300));
+    await capture("flashlight-wall-ambient-300");
 });
 
 test("turning the player with core input moves the carried flashlight's bright spot across a stationary view", async ({
@@ -91,4 +96,30 @@ test("turning the player with core input moves the carried flashlight's bright s
     expect(after.sum).toBeGreaterThan(100);
     expect(Math.abs(after.x - before.x)).toBeGreaterThan(15);
     expect(errors).toEqual([]);
+});
+
+test("both fixtures show bright sources; E extinguishes only its bulb and restores its emission", async ({
+    page,
+}) => {
+    await page.goto("http://127.0.0.1:4216/tests/stepped.html");
+    await page.waitForFunction(() => window.ready);
+    const on = await page.evaluate(() => window.fixtures());
+    await page.evaluate(() => {
+        window.switchView();
+        window.key(true);
+        window.key(false);
+    });
+    const off = await page.evaluate(() => window.fixtures());
+    await page.evaluate(() => {
+        window.switchView();
+        window.key(true);
+        window.key(false);
+    });
+    const restored = await page.evaluate(() => window.fixtures());
+    console.log("fixture sources", { on, off, restored });
+    expect(on[0]).toBeGreaterThan(180);
+    expect(on[1]).toBeGreaterThan(180);
+    expect(on[0]! - off[0]!).toBeGreaterThan(100);
+    expect(Math.abs(on[1]! - off[1]!)).toBeLessThan(5);
+    expect(Math.abs(on[0]! - restored[0]!)).toBeLessThan(5);
 });

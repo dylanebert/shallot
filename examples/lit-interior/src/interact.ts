@@ -4,6 +4,8 @@ import {
     Devices,
     entity,
     InputPlugin,
+    Materials,
+    MeshMaterial,
     Outline,
     OutlinePlugin,
     type Plugin,
@@ -17,6 +19,8 @@ import {
 } from "@dylanebert/shallot";
 import { castRayClosest, type PhysicsQueryHit } from "@dylanebert/shallot/standard/physics";
 import { LocalPlayer, Player, PlayerPlugin, UpdatePlayerControlSystem } from "./player";
+
+export const LAMP_EMISSION = [2.88, 1.6, 0.2] as const;
 
 export const Usable = component("Usable", {
     lamp: entity,
@@ -108,7 +112,12 @@ const UseInteraction: System = {
             if (!target || !world.has(target, Usable)) continue;
             const active = 1 - usable.active.get(target);
             usable.active.set(target, active);
-            world.storage(PointLight).intensity.set(usable.lamp.get(target), active ? 80000 : 0);
+            const lamp = usable.lamp.get(target);
+            world.storage(PointLight).intensity.set(lamp, active ? 80000 : 0);
+            if (world.has(lamp, MeshMaterial))
+                world.resource(Materials).update(world.storage(MeshMaterial).material.get(lamp), {
+                    emissive: active ? LAMP_EMISSION : [0, 0, 0],
+                });
         }
     },
 };

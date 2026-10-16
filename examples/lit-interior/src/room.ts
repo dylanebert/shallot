@@ -24,7 +24,7 @@ import {
 } from "@dylanebert/shallot";
 import { Billboard } from "@dylanebert/shallot/rendering";
 import { Flashlight, FlashlightPlugin } from "./flashlight";
-import { InteractionInput, InteractPlugin, Usable } from "./interact";
+import { InteractionInput, InteractPlugin, LAMP_EMISSION, Usable } from "./interact";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 const GROUND = [0.085, 0.08, 0.072, 1] as const;
@@ -52,18 +52,27 @@ export const Room: Resource<{
     targets: number[];
     lamps: number[];
     object: number;
-    shade: number;
+    shade: number[];
 }> = {
-    create: () => ({ camera: 0, player: 0, targets: [], lamps: [], object: 0, shade: 0 }),
+    create: () => ({ camera: 0, player: 0, targets: [], lamps: [], object: 0, shade: [] }),
 };
 function room(world: World): void {
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
     ambient.brightness = 30;
     const lamps: number[] = [];
-    for (const x of [-1.8, 1.8]) {
-        const light = world.create();
-        world.add(light, Transform, { translation: [x, 2.9, -0.5] });
+    const shade: number[] = [];
+    for (const [x, shaded] of [
+        [-1.8, true],
+        [1.8, false],
+    ] as const) {
+        block(world, [x, 3.16, -0.5], [0.4, 0.08, 0.4]);
+        block(world, [x, 3.02, -0.5], [0.06, 0.2, 0.06]);
+        const light = block(world, [x, 2.9, -0.5], [0.24, 0.14, 0.24], AMBER);
+        world.add(light, NotShadowCaster);
+        world.resource(Materials).update(world.storage(MeshMaterial).material.get(light), {
+            emissive: LAMP_EMISSION,
+        });
         world.add(light, PointLight, {
             color: 0xffe8cc,
             intensity: 80000,
@@ -71,6 +80,47 @@ function room(world: World): void {
             shadowMapsEnabled: 1,
         });
         lamps.push(light);
+        if (shaded) {
+            for (const [offset, size] of [
+                [
+                    [-0.31, -0.17, 0],
+                    [0.08, 0.56, 0.7],
+                ],
+                [
+                    [0.31, -0.17, 0],
+                    [0.08, 0.56, 0.7],
+                ],
+                [
+                    [0, -0.17, -0.31],
+                    [0.54, 0.56, 0.08],
+                ],
+                [
+                    [0, 0.04, 0.31],
+                    [0.54, 0.14, 0.08],
+                ],
+                [
+                    [0, -0.43, 0.31],
+                    [0.54, 0.06, 0.08],
+                ],
+                [
+                    [0, 0.11, 0],
+                    [0.7, 0.04, 0.04],
+                ],
+                [
+                    [0, 0.11, 0],
+                    [0.04, 0.04, 0.7],
+                ],
+            ] as const) {
+                const panel = block(
+                    world,
+                    [x + offset[0], 2.89 + offset[1], -0.5 + offset[2]],
+                    size,
+                    AMBER,
+                );
+                world.add(panel, NotShadowCaster);
+                shade.push(panel);
+            }
+        }
     }
     for (const x of [-2.4, -1.6, -0.8, 0, 0.8, 1.6, 2.4]) {
         const lamp = block(world, [x, 0.6, -3.15], [0.16, 0.16, 0.16], AMBER);
@@ -122,8 +172,6 @@ function room(world: World): void {
     ] as const;
     for (const [position, size] of surfaces) block(world, position, size);
     const object = block(world, [-1.8, 0.5, -0.5], [0.65, 1, 0.65], ORANGE);
-    const lamp = block(world, [-1.8, 2.65, -0.5], [0.7, 0.22, 0.7], AMBER);
-    world.add(lamp, NotShadowCaster);
     const button = block(world, [0, 1.4, -3.23], [0.3, 0.4, 0.08], CYAN);
     world.add(button, Usable, {
         lamp: lamps[0],
@@ -161,7 +209,7 @@ function room(world: World): void {
         targets: [button],
         lamps,
         object,
-        shade: lamp,
+        shade,
     });
 }
 export const RoomPlugin: Plugin = {
