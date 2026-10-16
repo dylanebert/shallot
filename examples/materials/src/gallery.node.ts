@@ -23,7 +23,7 @@ test("the gallery's carbon and red colours reach the checkerboard's material row
             CheckerParameters,
         );
         expect(Array.from(value.darkColor)).toEqual([0.042, 0.039, 0.035].map(Math.fround));
-        expect(Array.from(value.lightColor)).toEqual([0.65, 0.075, 0.09].map(Math.fround));
+        expect(Array.from(value.lightColor)).toEqual([0.658, 0.301, 0.117].map(Math.fround));
     } finally {
         app.dispose();
     }

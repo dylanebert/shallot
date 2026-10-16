@@ -173,7 +173,7 @@ function surfaces(world: World) {
         MeshMaterial,
         materials.add(
             StandardMaterial({
-                baseColor: [0.65, 0.075, 0.09, 1],
+                baseColor: [0.658, 0.301, 0.117, 1],
                 perceptualRoughness: 0.7,
             }),
         ),
@@ -190,7 +190,7 @@ export const AnimationPlugin: Plugin = {
         const gallery = world.resource(Gallery);
         gallery.checker = world.resource(CheckerMaterial).add({
             darkColor: d.vec3f(0.042, 0.039, 0.035),
-            lightColor: d.vec3f(0.65, 0.075, 0.09),
+            lightColor: d.vec3f(0.658, 0.301, 0.117),
         });
         gallery.wave = world.resource(WaveMaterial).add({ time: 0 });
     },

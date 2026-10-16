@@ -157,7 +157,7 @@ function makeScene(world: World): void {
     const accents = [
         [0.72, 0.4, 0.05, 1],
         [0.04, 0.43, 0.53, 1],
-        [0.65, 0.075, 0.09, 1],
+        [0.658, 0.301, 0.117, 1],
     ] as const;
     const neutral = materials.add(
         StandardMaterial({

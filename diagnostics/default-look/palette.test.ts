@@ -64,6 +64,16 @@ test("dev-orange route neutrals keep the palette hue and distinguish each route 
     expect(c).toBeCloseTo(0.025, 6);
 });
 
+test("aperture-carbon orange matches the brand icon and stays distinct from amber", () => {
+    const materials = PALETTES["aperture-carbon"].materials;
+    expect(materials.greyboxLift.slice(0, 3).map((c) => Math.round(srgbChannel(c)))).toEqual([
+        212, 149, 96,
+    ]);
+    const orangeHue = oklchFromLinear(materials.greyboxLift)[2];
+    const amberHue = oklchFromLinear(materials.blue)[2];
+    expect(Math.abs(orangeHue - amberHue)).toBeGreaterThan(20);
+});
+
 test("all candidates meet hard bounds while the report retains theme-reference violations", () => {
     for (const [name, palette] of Object.entries(PALETTES)) {
         if (name === "current") continue;

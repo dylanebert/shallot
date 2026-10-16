@@ -290,7 +290,7 @@ A choice the pillars leave open is taste, and goes to the person.
 - Each example has a check that fails when its answer breaks, or the example is removed.
 - Examples and their checks use only published names and public seams.
 - An example's UI shows only what its player needs; a control that explains itself carries no label.
-- Examples share the `aperture-carbon` content palette: carbon room and ground neutrals, amber, cyan and red subject accents, and warm pale text and UI ink. Example suns cast shadows; keep warm sun and cool ambient lighting, with `#191816` clear.
+- Examples share the `aperture-carbon` content palette: carbon room and ground neutrals, amber, cyan and brand-orange subject accents, and warm pale text and UI ink. Example suns cast shadows; keep warm sun and cool ambient lighting, with `#191816` clear.
 - `diagnostics/default-look/palette.ts`, with `PALETTES["aperture-carbon"]`, is the source of these values. Copied user projects carry literal values copied from that source, never imports from `diagnostics/`.
 
 ## Heavy work

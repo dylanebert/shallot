@@ -28,7 +28,7 @@ import { LocalPlayer, Player, PlayerPlugin } from "./player";
 const GROUND = [0.085, 0.08, 0.072, 1] as const;
 const AMBER = [0.72, 0.4, 0.05, 1] as const;
 const CYAN = [0.04, 0.43, 0.53, 1] as const;
-const RED = [0.65, 0.075, 0.09, 1] as const;
+const ORANGE = [0.658, 0.301, 0.117, 1] as const;
 type Color = readonly [number, number, number, number];
 type Vec3 = readonly [number, number, number];
 function block(world: World, position: Vec3, size: Vec3, color: Color = GROUND): number {
@@ -131,20 +131,20 @@ function room(world: World): void {
         label: internText(world, "Press"),
         activeLabel: internText(world, "Press"),
     });
-    const held = block(world, [1.8, 1.2, -1], [0.8, 0.8, 0.6], RED);
+    const held = block(world, [1.8, 1.2, -1], [0.8, 0.8, 0.6], ORANGE);
     world.add(held, Usable, {
         action: Action.Hold,
         label: internText(world, "Hold to change"),
         activeLabel: internText(world, "Hold to change"),
     });
-    for (const [target, name, height] of [
-        [lamp, "Lamp", 1.88],
-        [button, "Button", 1.505],
-        [held, "Held block", 1.68],
+    for (const [target, name] of [
+        [lamp, "Lamp"],
+        [button, "Button"],
+        [held, "Held block"],
     ] as const) {
         const label = world.create();
         world.add(label, Transform, {
-            translation: [world.storage(Transform).translation.x.get(target), height, -1],
+            translation: [world.storage(Transform).translation.x.get(target), 2.1, -1],
         });
         world.add(label, Text, {
             content: internText(world, name),

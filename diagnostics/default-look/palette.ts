@@ -226,7 +226,7 @@ export const PALETTES = {
             orange: [0.04, 0.43, 0.53, 1],
             greyboxGround: [0.085, 0.08, 0.072, 1],
             greyboxStep: [0.15, 0.14, 0.125, 1],
-            greyboxLift: [0.65, 0.075, 0.09, 1],
+            greyboxLift: [0.658, 0.301, 0.117, 1],
             greyboxTower: [0.06, 0.057, 0.052, 1],
             greyboxPerch: [0.11, 0.105, 0.095, 1],
             embedded: [0.72, 0.4, 0.05, 0.72],

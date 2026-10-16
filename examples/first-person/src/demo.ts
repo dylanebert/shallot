@@ -33,7 +33,7 @@ type Vec3 = readonly [number, number, number];
 type Vec4 = readonly [number, number, number, number];
 const GROUND_COLOR = [0.085, 0.08, 0.072, 1] as const;
 const STEP_COLOR = [0.15, 0.14, 0.125, 1] as const;
-const LIFT_COLOR = [0.65, 0.075, 0.09, 1] as const;
+const LIFT_COLOR = [0.658, 0.301, 0.117, 1] as const;
 const TOWER_COLOR = [0.15, 0.14, 0.125, 1] as const;
 const PERCH_COLOR = [0.2, 0.19, 0.17, 1] as const;
 

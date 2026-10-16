@@ -147,6 +147,16 @@ test("HUD hint stays visible at near, far and oblique views with its hold ring c
 test("reticle fills only on focus and the hint begins 96px below its centre", async ({ page }) => {
     await page.goto(STEPPED);
     await page.waitForFunction(() => window.ready);
+    // The stepped fixture mounts the game's HUD; also check the shipped shell for stray UI.
+    const shell = await (await page.request.get("http://127.0.0.1:4186/")).text();
+    const stray = await page.evaluate((html) => {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return [...doc.body.children].filter((el) => !["CANVAS", "SCRIPT"].includes(el.tagName))
+            .length;
+    }, shell);
+    expect(stray).toBe(0);
+    await expect(page.locator(".reticle")).toHaveCount(1);
+    await expect(page.locator(".reticle-dot")).toHaveCount(1);
     for (const [index, name] of ["lamp", "button", "hold"].entries()) {
         await page.evaluate((i) => window.aim(i), index);
         const reticle = page.locator(".reticle");
@@ -154,6 +164,13 @@ test("reticle fills only on focus and the hint begins 96px below its centre", as
         await expect(dot).toBeVisible();
         await expect(reticle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
         const centre = await reticle.boundingBox();
+        const inner = await dot.boundingBox();
+        expect(
+            Math.abs(inner!.x + inner!.width / 2 - centre!.x - centre!.width / 2),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(inner!.y + inner!.height / 2 - centre!.y - centre!.height / 2),
+        ).toBeLessThanOrEqual(1);
         const hint = await page.locator(".hint").boundingBox();
         const bounds = await page.locator(".interact-hud").boundingBox();
         expect(

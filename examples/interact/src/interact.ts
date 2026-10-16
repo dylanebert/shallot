@@ -155,7 +155,7 @@ function activate(world: World, target: number): void {
             if (world.has(target, MeshMaterial)) {
                 const material = world.storage(MeshMaterial);
                 world.resource(Materials).update(material.material.get(target), {
-                    baseColor: active ? [0.72, 0.4, 0.05, 1] : [0.65, 0.075, 0.09, 1],
+                    baseColor: active ? [0.72, 0.4, 0.05, 1] : [0.658, 0.301, 0.117, 1],
                 });
             }
             break;
