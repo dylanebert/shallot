@@ -23,12 +23,15 @@ test.describe("reference-scaled card", () => {
                 [320, 180, 1],
             ]) {
                 await page.setViewportSize({ width, height });
+                // CSS zoom can round layout to whole rendered pixels on the host.
                 await expect
-                    .poll(async () => (await title.boundingBox())!.height)
-                    .toBeCloseTo(reference.height * scale, 1);
+                    .poll(async () =>
+                        Math.abs((await title.boundingBox())!.height - reference.height * scale),
+                    )
+                    .toBeLessThanOrEqual(1);
                 const bounds = (await page.locator(".title-card").boundingBox())!;
-                expect(bounds.width).toBeCloseTo(width, 0);
-                expect(bounds.height).toBeCloseTo(height, 0);
+                expect(Math.abs(bounds.width - width)).toBeLessThanOrEqual(1);
+                expect(Math.abs(bounds.height - height)).toBeLessThanOrEqual(1);
             }
         } finally {
             release();
