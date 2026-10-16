@@ -47,9 +47,9 @@ export type {
 } from "./material-type";
 export {
     MaterialAssets,
-    MaterialVertexInput,
     materialFragmentContext,
     materialLayout,
+    materialVertexInput,
     materialVertexOutput,
 } from "./material-type";
 export { MeshRenderPlugin } from "./mesh-render";

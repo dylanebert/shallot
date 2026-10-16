@@ -3,10 +3,10 @@ import {
     engineLayout,
     lit,
     MaterialPlugin,
-    MaterialVertexInput,
     materialFragmentContext,
     materialLayout,
     materialType,
+    materialVertexInput,
     materialVertexOutput,
 } from "@dylanebert/shallot/standard/rendering";
 import tgpu from "typegpu";
@@ -15,20 +15,20 @@ import * as std from "typegpu/std";
 
 export const AnimationParameters = d.struct({ time: d.f32 });
 export const CheckerParameters = d.struct({ scale: d.f32 });
-const checkerLayout = materialLayout(CheckerParameters, {});
-const Fragment = materialFragmentContext();
+const CheckerFragment = materialFragmentContext(CheckerParameters);
+const WaveFragment = materialFragmentContext(AnimationParameters);
 export const CheckerMaterial = materialType({
     name: "ScrollingChecker",
-    layout: checkerLayout,
+    parameters: CheckerParameters,
     defaults: { scale: 1 },
     fragmentInputs: { uv: true },
     fragment: tgpu.fn(
-        [Fragment],
+        [CheckerFragment],
         d.vec4f,
     )((ctx) => {
         "use gpu";
         const time = engineLayout.$.frame.time;
-        const scale = checkerLayout.$.materialParameters[ctx.material].scale;
+        const scale = ctx.parameters.scale;
         const cell = std.floor(ctx.uv.x * 12 * scale + time * 2) + std.floor(ctx.uv.y * 6 * scale);
         const value = cell % 2;
         const color = std.mix(d.vec3f(0.06, 0.045, 0.03), d.vec3f(0.95, 0.36, 0.08), value);
@@ -65,11 +65,11 @@ export const WaveMaterial = materialType({
     layout: waveLayout,
     defaults: { time: 0 },
     vertex: tgpu.fn(
-        [MaterialVertexInput],
+        [materialVertexInput(AnimationParameters)],
         Vertex,
     )((input) => {
         "use gpu";
-        const time = waveLayout.$.materialParameters[input.material].time;
+        const time = input.parameters.time;
         const surface = ripple(
             input.localPos,
             input.localNormal,
@@ -82,7 +82,7 @@ export const WaveMaterial = materialType({
         });
     }),
     fragment: tgpu.fn(
-        [Fragment],
+        [WaveFragment],
         d.vec4f,
     )((ctx) => {
         "use gpu";

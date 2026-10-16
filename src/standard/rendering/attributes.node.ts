@@ -19,11 +19,11 @@ import {
     Draws,
     MaterialPlugin,
     Materials,
-    MaterialVertexInput,
     MeshMaterial,
     materialFragmentContext,
     materialLayout,
     materialType,
+    materialVertexInput,
     materialVertexOutput,
     StandardMaterial,
     StandardRenderingPlugin,
@@ -38,13 +38,13 @@ const streamLayout = materialLayout(parameters, {
     tint: { type: "attribute", element: d.vec4f },
 });
 const StreamVertexOutput = materialVertexOutput(varyings);
-const StreamFragmentContext = materialFragmentContext(varyings);
+const StreamFragmentContext = materialFragmentContext(parameters, varyings);
 const StreamMaterial = materialType({
     name: "StreamAttributeMaterial",
     layout: streamLayout,
     varyings,
     vertex: tgpu.fn(
-        [MaterialVertexInput],
+        [materialVertexInput(parameters)],
         StreamVertexOutput,
     )((input) => {
         "use gpu";

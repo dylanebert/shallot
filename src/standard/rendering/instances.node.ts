@@ -11,12 +11,7 @@ import { globalTransformTable } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { StandardRenderingPlugin } from "./forward";
 import { MaterialPlugin, Materials, MeshMaterial, StandardMaterial } from "./material";
-import {
-    materialFragmentContext,
-    materialLayout,
-    materialType,
-    materialTypeId,
-} from "./material-type";
+import { materialFragmentContext, materialType, materialTypeId } from "./material-type";
 import { MeshRenderPlugin } from "./mesh-render";
 import { meshInstanceTable } from "./preprocess";
 import { Draws } from "./registry";
@@ -27,18 +22,17 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 await setupGlobals();
 
 const TintParams = d.struct({ tint: d.vec4f });
-const tintLayout = materialLayout(TintParams, {});
-const TintContext = materialFragmentContext();
+const TintContext = materialFragmentContext(TintParams);
 const tintFragment = tgpu.fn(
     [TintContext],
     d.vec4f,
 )((ctx) => {
     "use gpu";
-    return TintParams(tintLayout.$.materialParameters[ctx.material]).tint;
+    return d.vec4f(ctx.parameters.tint);
 });
 const TintMaterial = materialType({
     name: "InstanceTypeChangeTint",
-    layout: tintLayout,
+    parameters: TintParams,
     fragment: tintFragment,
     defaults: { tint: d.vec4f(1) },
 });

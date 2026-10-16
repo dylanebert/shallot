@@ -8,12 +8,12 @@ import { createApp } from "../../engine/app";
 import {
     MaterialPlugin,
     Materials,
-    MaterialVertexInput,
     MeshMaterial,
     MeshRenderPlugin,
     materialFragmentContext,
     materialLayout,
     materialType,
+    materialVertexInput,
     materialVertexOutput,
     StandardMaterial,
     StandardRenderingPlugin,
@@ -23,13 +23,13 @@ await setupGlobals();
 const Parameters = d.struct({ unused: d.u32 });
 const layout = materialLayout(Parameters, { phase: { type: "attribute", element: d.f32 } });
 const Vertex = materialVertexOutput();
-const Fragment = materialFragmentContext();
+const Fragment = materialFragmentContext(Parameters);
 const AttributeMaterial = materialType({
     name: "AttributePairOracle",
     layout,
     defaults: { unused: 0 },
     vertex: tgpu.fn(
-        [MaterialVertexInput],
+        [materialVertexInput(Parameters)],
         Vertex,
     )((input) => {
         "use gpu";

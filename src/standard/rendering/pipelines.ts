@@ -42,7 +42,7 @@ import {
     AlphaModeCode,
     AlphaPipelineKey,
     MaterialTypes,
-    MaterialVertexInput,
+    MeshVertexInput as MaterialVertexInput,
 } from "./material-type";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
@@ -371,10 +371,58 @@ const MaterialTypeVertex = d
     })
     .$name("MaterialTypeVertex");
 
+function materialFragmentFunction(surface: AnyMaterialType) {
+    const fragment = surface.fragment;
+    const Context = (fragment as any).shell.argTypes[0];
+    const { parameters: _, ...fields } = Context.propTypes;
+    const Input = d.struct(fields);
+    const bound = surface.layout.$;
+    return tgpu
+        .fn(
+            [Input],
+            d.vec4f,
+        )(`(input: Input) -> vec4f {
+        return fragment(Context(bound.materialParameters[input.material], ${Object.keys(fields)
+            .map((key) => `input.${key}`)
+            .join(", ")}));
+    }`)
+        .$uses({ Input, Context, fragment, bound });
+}
+
+function materialVertexFunction(surface: AnyMaterialType) {
+    const vertex = surface.vertex;
+    if (!vertex) return undefined;
+    const shell = (vertex as any).shell;
+    const Input = shell.argTypes[0];
+    const layout = surface.layout;
+    return tgpu.fn(
+        [MaterialVertexInput],
+        shell.returnType,
+    )((input) => {
+        "use gpu";
+        return vertex(
+            Input({
+                parameters: layout.$.materialParameters[input.material],
+                localPos: input.localPos,
+                localNormal: input.localNormal,
+                uv: input.uv,
+                vidx: input.vidx,
+                eid: input.eid,
+                iid: input.iid,
+                xform: input.xform,
+                world: input.world,
+                worldNormal: input.worldNormal,
+                color: input.color,
+                material: input.material,
+            }),
+        );
+    });
+}
+
 function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "Clip" : "") {
     const instanced = isInstanced(surface);
     const hasVs = !!surface.vertex;
-    const vsFn = surface.vertex;
+    const vsFn = materialVertexFunction(surface);
     const layout = surface.layout;
     const bound = layout.$ as unknown as {
         eids: any[];
@@ -547,9 +595,9 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
 }
 
 function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
-    // Use the exact schema instance the author passed to `surface.fragment`. Re-minting `fsCtxSchema()` here
-    // is structurally equal but makes TypeGPU insert and warn about an implicit struct conversion.
-    const CtxSchema = (surface.fragment as any).shell.argTypes[0];
+    // Reuse the function's schema identity: a structurally equal context forces an implicit conversion.
+    const fragment = materialFragmentFunction(surface);
+    const CtxSchema = (fragment as any).shell.argTypes[0];
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const inputSchema = {
@@ -609,7 +657,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 color: input.color,
                 material: input.material,
             } as any);
-            const col = d.vec4f(std.add(surface.fragment(ctx), d.vec4f(forcedZero)));
+            const col = d.vec4f(std.add(fragment(ctx), d.vec4f(forcedZero)));
             const output = alphaColorOutput(
                 col,
                 input.alphaMode,
@@ -632,7 +680,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
 function prepassVs(surface: AnyMaterialType) {
     const instanced = isInstanced(surface);
     const hasVs = !!surface.vertex;
-    const vsFn = surface.vertex;
+    const vsFn = materialVertexFunction(surface);
     const layout = surface.layout.depthVariant;
     const bound = layout.$ as unknown as {
         eids: any[];
@@ -706,7 +754,8 @@ function prepassVs(surface: AnyMaterialType) {
 function clipFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
-    const Ctx = (surface.fragment as any).shell.argTypes[0];
+    const fragment = materialFragmentFunction(surface);
+    const Ctx = (fragment as any).shell.argTypes[0];
     const input = {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
@@ -729,7 +778,7 @@ function clipFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 color: fin.color,
                 material: fin.material,
             });
-            const color = surface.fragment(ctx);
+            const color = fragment(ctx);
             const cutoff = alphaToCoverageFallback ? d.f32(0.5) : fin.alphaCutoff;
             if (color.a < cutoff) std.discard();
         })
@@ -749,7 +798,7 @@ function clipVaryingCopier(surface: AnyMaterialType) {
     }
     const varyingSchema = varyings[keys[0]];
     const varyingType = (varyingSchema as unknown as { type: string }).type;
-    const fsFn = surface.fragment;
+    const fsFn = materialFragmentFunction(surface);
     const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
     const copier = tgpu
         .fn(
@@ -803,7 +852,7 @@ function varyingClipFs(surface: AnyMaterialType, alphaToCoverageFallback = false
 // TGSL cannot construct dynamically named varying fields; generate the per-surface WGSL entry.
 function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" : "") {
     const varyings = surface.varyings ?? {};
-    const vsFn = surface.vertex;
+    const vsFn = materialVertexFunction(surface);
     if (Object.keys(varyings).length === 0) {
         throw new Error(
             `standard: surface "${surface.name}" reached the raw varying copier without a custom varying`,
@@ -962,9 +1011,7 @@ const shadowForce = tgpu
 // WGSL context constructor, which puts them in the author's actual varying fields.
 // The 1..MAX_VARYINGS arms bound the static entry; the copier signature and vertex side already
 // accept arbitrary counts.
-// fsCtxSchema() mints a new struct identity on every call. Reuse fsFn.shell.argTypes[0], the
-// schema recorded by the author's fragment: a fresh lookalike may resolve device-free, but
-// WGSL struct arguments are not typed purely structurally at device compilation.
+// Reuse fsFn.shell.argTypes[0]: WGSL struct arguments are not typed purely structurally.
 function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     const varyings = surface.varyings ?? {};
     const varyingKeys = Object.keys(varyings);
@@ -977,7 +1024,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     const params = schemas
         .map((s, i) => `v${i}: ${(s as unknown as { type: string }).type}`)
         .join(", ");
-    const fsFn = surface.fragment;
+    const fsFn = materialFragmentFunction(surface);
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
@@ -1377,7 +1424,7 @@ function shadowVs(
     _capacity: number,
 ) {
     const hasVs = !!surface.vertex;
-    const vsFn = surface.vertex;
+    const vsFn = materialVertexFunction(surface);
     const layout = surface.layout.depthVariant;
     const bound = layout.$ as unknown as {
         eids: any[];
@@ -1470,7 +1517,7 @@ function clipShadowVertex(
     _capacity: number,
 ) {
     const hasVs = !!surface.vertex;
-    const vsFn = surface.vertex;
+    const vsFn = materialVertexFunction(surface);
     const layout = surface.layout;
     const bound = layout.$ as unknown as {
         eids: any[];
@@ -1746,7 +1793,7 @@ ${assigns}
             octDecodeNormal,
             xformPoint,
             xformNormal,
-            ...(hasVs ? { MaterialVertexInput, vs: surface.vertex } : {}),
+            ...(hasVs ? { MaterialVertexInput, vs: materialVertexFunction(surface) } : {}),
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipCopier`);
     const located = Object.fromEntries(
@@ -1844,7 +1891,8 @@ function varyingShadowFs(surface: AnyMaterialType, alphaToCoverageFallback = fal
 function clipShadowFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
-    const Ctx = (surface.fragment as any).shell.argTypes[0];
+    const fragment = materialFragmentFunction(surface);
+    const Ctx = (fragment as any).shell.argTypes[0];
     return tgpu
         .fragmentFn({
             in: {
@@ -1876,7 +1924,7 @@ function clipShadowFs(surface: AnyMaterialType, alphaToCoverageFallback = false)
                 color: input.color,
                 material: input.material,
             });
-            const color = surface.fragment(ctx);
+            const color = fragment(ctx);
             const cutoff = alphaToCoverageFallback ? d.f32(0.5) : input.alphaCutoff;
             if (color.a < cutoff) std.discard();
         })

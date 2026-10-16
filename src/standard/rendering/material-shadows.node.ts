@@ -20,28 +20,21 @@ import { pointAtlasView, sunShadowView } from "./atlas";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
 import { MeshMaterial } from "./material-data";
-import {
-    AlphaMode,
-    MaterialPlugin,
-    materialFragmentContext,
-    materialLayout,
-    materialType,
-} from "./material-type";
+import { AlphaMode, MaterialPlugin, materialFragmentContext, materialType } from "./material-type";
 import { MeshRenderPlugin } from "./mesh-render";
 
 setDefaultTimeout(TIMEOUT.node);
 const CutoutParameters = d.struct({ color: d.vec4f });
-const cutoutLayout = materialLayout(CutoutParameters, {});
-const CutoutContext = materialFragmentContext();
+const CutoutContext = materialFragmentContext(CutoutParameters);
 const CutoutMaterial = materialType({
     name: "MaterialShadowCutout",
-    layout: cutoutLayout,
+    parameters: CutoutParameters,
     fragment: tgpu.fn(
         [CutoutContext],
         d.vec4f,
     )((ctx) => {
         "use gpu";
-        const color = CutoutParameters(cutoutLayout.$.materialParameters[ctx.material]).color;
+        const color = d.vec4f(ctx.parameters.color);
         if (color.x < 0.5) std.discard();
         return color;
     }),

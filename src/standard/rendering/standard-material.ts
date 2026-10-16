@@ -4,10 +4,10 @@ import * as std from "typegpu/std";
 import { litPbr } from "./engine";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
 import {
-    MaterialVertexInput,
     materialFragmentContext,
     materialLayout,
     materialType,
+    materialVertexInput,
     materialVertexOutput,
 } from "./material-type";
 import { Pbr } from "./shade";
@@ -16,14 +16,14 @@ const standardLayout = materialLayout(StandardMaterialInput, {
     images: { type: "texture-2d-array" },
     imageSampler: { type: "sampler" },
 });
-const StandardFragmentContext = materialFragmentContext();
+const StandardFragmentContext = materialFragmentContext(StandardMaterialInput);
 
 const standardFragment = tgpu.fn(
     [StandardFragmentContext],
     d.vec4f,
 )((ctx) => {
     "use gpu";
-    const material = StandardMaterialInput(standardLayout.$.materialParameters[ctx.material]);
+    const material = ctx.parameters;
     let baseColor = d.vec4f(material.baseColor);
     const uvDx = std.dpdx(ctx.uv);
     const uvDy = std.dpdy(ctx.uv);
@@ -63,16 +63,15 @@ export const Materials = materialType({
     depthPass: { prepass: true, shadows: true },
 });
 
-const vertexLayout = materialLayout(StandardMaterialInput, {});
 const vertexVaryings = { litColor: d.vec4f };
 const VertexOutput = materialVertexOutput(vertexVaryings);
-const VertexContext = materialFragmentContext(vertexVaryings);
+const VertexContext = materialFragmentContext(StandardMaterialInput, vertexVaryings);
 const vertexVertex = tgpu.fn(
-    [MaterialVertexInput],
+    [materialVertexInput(StandardMaterialInput)],
     VertexOutput,
 )((input) => {
     "use gpu";
-    const material = StandardMaterialInput(vertexLayout.$.materialParameters[input.material]);
+    const material = input.parameters;
     let litColor = d.vec4f(material.baseColor);
     if (material.unlit === 0) {
         const pbr = Pbr({
@@ -106,7 +105,7 @@ const vertexFragment = tgpu.fn(
  */
 export const VertexMaterialType = materialType({
     name: "VertexMaterial",
-    layout: vertexLayout,
+    parameters: StandardMaterialInput,
     varyings: vertexVaryings,
     vertex: vertexVertex,
     fragment: vertexFragment,

@@ -4,10 +4,10 @@ import * as std from "typegpu/std";
 import { Billboard, billboardCorner, xformMat } from "../../core/rendering";
 import {
     engineLayout,
-    MaterialVertexInput,
     materialFragmentContext,
     materialLayout,
     materialType,
+    materialVertexInput,
     materialVertexOutput,
 } from "../../standard/rendering";
 
@@ -28,7 +28,7 @@ const layout = materialLayout(SpriteMaterialInput, {
     imageSampler: { type: "sampler" },
 });
 const SpriteVertexOutput = materialVertexOutput();
-const SpriteFragmentContext = materialFragmentContext();
+const SpriteFragmentContext = materialFragmentContext(SpriteMaterialInput);
 
 const spriteSrgbToLinear = tgpu
     .fn(
@@ -65,11 +65,11 @@ const spriteFillMask = tgpu
 
 const spriteVertex = tgpu
     .fn(
-        [MaterialVertexInput],
+        [materialVertexInput(SpriteMaterialInput)],
         SpriteVertexOutput,
     )((input) => {
         "use gpu";
-        const sprite = SpriteMaterialInput(layout.$.materialParameters[input.eid]);
+        const sprite = input.parameters;
         const local = std.add(sprite.offset, std.mul(input.localPos.xy, sprite.size));
         const transform = xformMat(input.xform);
         const corner = billboardCorner(
@@ -94,7 +94,7 @@ function spriteFragment() {
             d.vec4f,
         )((ctx) => {
             "use gpu";
-            const sprite = SpriteMaterialInput(layout.$.materialParameters[ctx.eid]);
+            const sprite = ctx.parameters;
             const uv = d.vec2f(ctx.localPos.x, 1 - ctx.localPos.y);
             const texel = std.textureSample(
                 layout.$.images,

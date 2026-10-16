@@ -69,20 +69,19 @@ import {
 import "../../standard";
 
 const FloorParameters = d.struct({ color: d.vec4f });
-const floorLayout = materialLayout(FloorParameters, {});
 const attributeLayout = materialLayout(FloorParameters, {
     stream: { type: "attribute", element: d.u32 },
 });
-const FloorContext = materialFragmentContext();
+const FloorContext = materialFragmentContext(FloorParameters);
 const FloorMaterial = materialType({
     name: "FloorCustomMaterial",
-    layout: floorLayout,
+    parameters: FloorParameters,
     fragment: tgpu.fn(
         [FloorContext],
         d.vec4f,
     )((ctx) => {
         "use gpu";
-        return FloorParameters(floorLayout.$.materialParameters[ctx.material]).color;
+        return d.vec4f(ctx.parameters.color);
     }),
     defaults: { color: d.vec4f(1) },
 });

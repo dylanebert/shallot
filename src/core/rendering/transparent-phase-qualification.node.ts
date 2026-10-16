@@ -11,7 +11,6 @@ import {
     MeshMaterial,
     MeshRenderPlugin,
     materialFragmentContext,
-    materialLayout,
     materialType,
     StandardMaterial,
     StandardRenderer,
@@ -39,17 +38,16 @@ import { computeViewProj } from "./camera";
 
 setDefaultTimeout(TIMEOUT.node);
 const TransitionParameters = d.struct({ color: d.vec4f });
-const transitionLayout = materialLayout(TransitionParameters, {});
-const TransitionContext = materialFragmentContext();
+const TransitionContext = materialFragmentContext(TransitionParameters);
 const TransitionMaterial = materialType({
     name: "TransparentQualificationTransition",
-    layout: transitionLayout,
+    parameters: TransitionParameters,
     fragment: tgpu.fn(
         [TransitionContext],
         d.vec4f,
     )((ctx) => {
         "use gpu";
-        return TransitionParameters(transitionLayout.$.materialParameters[ctx.material]).color;
+        return d.vec4f(ctx.parameters.color);
     }),
     defaults: { color: d.vec4f(1) },
 });

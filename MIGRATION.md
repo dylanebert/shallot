@@ -353,9 +353,9 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `assertOwnFn` | Internal; registration validates shader ownership. |
 | `SURFACE_GROUP` | Removed; material and background group indices are renderer-owned. |
 | `clusterOf` | Use `clusterCell` for grid addressing or `lit` for surface lighting. |
-| `engineScaffoldWgsl` | Use `materialLayout`, `materialType` and `materialFragmentContext()`. |
+| `engineScaffoldWgsl` | Use `materialType` and `materialFragmentContext(Params)`; declare owned bindings with `materialLayout`. |
 | `fragCoord` | Use the material fragment context or a core render-phase renderer. |
-| `fragWorld` | Read `.world` from the context returned by `materialFragmentContext()`. |
+| `fragWorld` | Read `.world` from `materialFragmentContext(Params)`. |
 | `lightFactor` | Use `lit` for the standard lighting response. |
 | `litPbr` | Use `StandardMaterial` or `lit`. |
 | `pointFactor` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
@@ -647,30 +647,27 @@ world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 
-Material vertex shaders receive `MaterialVertexInput.xform` and `.world`; fragment shaders read `.world` from the context returned by `materialFragmentContext()`. The dense mesh-instance record carries eid, mesh, material type and type-local material row. Body, camera, light, text, sprite and other world-space consumers read GlobalTransform rather than Transform as world placement.
+Material vertex shaders receive `.xform` and `.world` through `materialVertexInput(Params)`; fragment shaders read `.world` through `materialFragmentContext(Params)`. The dense mesh-instance record carries eid, mesh, material type and type-local material row. Body, camera, light, text, sprite and other world-space consumers read GlobalTransform rather than Transform as world placement.
 
 ## Mesh material types own shaders and typed rows
 
-`Surface`, `registerSurface` and `surfaceLayout` are removed. Define a material type with a parameter schema, a layout, and shader functions; register it with `MaterialPlugin`. Each registered type owns CPU-authored rows and a lazily created GPU parameter table for renderer consumption. `MeshMaterial` stores the World-local material-type id, that type's row, and a numeric `alphaMode`/`alphaCutoff` copy of the row's alpha, rewritten from the row after simulation. Preprocessing groups by `(material type, alpha pipeline key, mesh)`, so changing the type, the row, or the row's alpha mode moves the entity to the corresponding draw on the next frame. A missing `MeshMaterial` selects StandardMaterial type 0, row 0 in Opaque mode.
+`Surface`, `registerSurface` and `surfaceLayout` are removed. Define a material type with a parameter schema and shader functions; register it with `MaterialPlugin`. Only materials with owned bindings need `materialLayout(Params, bindings)`; pass that layout instead of `parameters`. Both shader contexts expose the selected row as typed `.parameters`. Each registered type owns CPU-authored rows and a lazily created GPU parameter table for renderer consumption. `MeshMaterial` stores the World-local material-type id, that type's row, and a numeric `alphaMode`/`alphaCutoff` copy of the row's alpha, rewritten from the row after simulation. Preprocessing groups by `(material type, alpha pipeline key, mesh)`, so changing the type, the row, or the row's alpha mode moves the entity to the corresponding draw on the next frame. A missing `MeshMaterial` selects StandardMaterial type 0, row 0 in Opaque mode.
 
 ```ts
 import {
     MaterialPlugin,
     materialFragmentContext,
-    materialLayout,
     materialType,
 } from "@dylanebert/shallot/standard/rendering";
 
 const Params = d.struct({ tint: d.vec4f });
-const layout = materialLayout(Params, {});
-const Context = materialFragmentContext();
+const Context = materialFragmentContext(Params);
 const Tint = materialType({
     name: "Tint",
     parameters: Params,
-    layout,
     fragment: tgpu.fn([Context], d.vec4f)((ctx) => {
         "use gpu";
-        return Params(layout.$.materialParameters[ctx.material]).tint;
+        return d.vec4f(ctx.parameters.tint);
     }),
     defaults: { tint: d.vec4f(1) },
 });
@@ -844,7 +841,7 @@ The spliced chunks no longer define these functions: raw WGSL that called `packS
 
 `StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1, `diffuseWrap` 1 and lit shading. Set `unlit: true` to use the base colour without lighting. Add the same parameter record to `world.resource(VertexMaterialType)` to evaluate the standard lighting model per vertex and interpolate its result. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` blends Lambert (0) with Shallot's squared half-Lambert (1); its default preserves the diffuse look. Publish changed fields with `world.resource(Materials).update(handle, values)`; omitted fields retain their values. Change both `MeshMaterial.type` and `.material` when switching to another type; changing either field takes effect on the next frame, with the new row's alpha mode. Material handles belong to the World that added them.
 
-Custom material shaders read linear `color` and the type-local `material` row from the context returned by `materialFragmentContext()`. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, alphaMode: u32, alphaCutoff: f32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
+Custom material shaders read linear `color` and their typed `parameters` row from `materialFragmentContext(Params)`. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, alphaMode: u32, alphaCutoff: f32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type. Use `StandardMaterial.diffuseWrap: 1` to retain the former diffuse lobe.
 
 Mesh data has its own `/mesh` module. Add a mesh with `world.resource(Meshes).add`, as materials are added with `world.resource(Materials).add`; it returns a world-local `MeshHandle`. Retain the handle for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels add distinct meshes:
 
@@ -879,7 +876,7 @@ Material, background and draw contracts belong to `/standard/rendering`. Update 
 | 0.9.5 import | 0.10 import |
 | --- | --- |
 | `/render/core` `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface` | Removed; use `materialLayout`, `materialType` and `MaterialPlugin` from `/standard/rendering` |
-| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | Removed; use `MaterialVertexInput`, `materialVertexOutput` and `materialFragmentContext()` |
+| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | Removed; use `materialVertexInput(Params)`, `materialVertexOutput()` and `materialFragmentContext(Params)` |
 | `/render/core` `TagFn` | Removed; there is no replacement picking lane. |
 | `/render/core` `BgCtx` | `/standard/rendering` `BackgroundContext` |
 | `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |

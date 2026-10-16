@@ -136,7 +136,7 @@ const depthVerticesEntry = {
     visibility: VS_FS,
 };
 
-/** Build the material type's bind group before its shader functions so they can close over its typed rows. */
+/** Declare owned bindings before shader functions so they can close over the layout's typed resources. */
 export function materialLayout<B extends Record<string, MaterialBinding>, P extends AnyWgslStruct>(
     parameters: P,
     bindings: B,
@@ -214,8 +214,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
     >;
 }
 
-/** Vertex input shared by standard material types. `material` is this type's parameter-table row. */
-export const MaterialVertexInput = d
+export const MeshVertexInput = d
     .struct({
         localPos: d.vec3f,
         localNormal: d.vec3f,
@@ -229,7 +228,12 @@ export const MaterialVertexInput = d
         color: d.vec4f,
         material: d.u32,
     })
-    .$name("MaterialVertexInput");
+    .$name("MeshVertexInput");
+
+/** Vertex input with this material's typed parameter row. */
+export function materialVertexInput<P extends AnyWgslStruct>(parameters: P) {
+    return d.struct({ parameters, ...MeshVertexInput.propTypes });
+}
 
 /** World-space fields a material vertex function may override, plus its declared varyings. */
 export function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<never, never>>(
@@ -238,11 +242,13 @@ export function materialVertexOutput<V extends Record<string, AnyWgslData> = Rec
     return d.struct({ world: d.vec4f, worldNormal: d.vec3f, ...varyings });
 }
 
-/** Context passed to a material's fragment function; `material` indexes its own parameter table. */
+/** Fragment context with this material's typed parameter row and declared varyings. */
 export function materialFragmentContext<
+    P extends AnyWgslStruct,
     V extends Record<string, AnyWgslData> = Record<never, never>,
->(varyings: V = {} as V) {
+>(parameters: P, varyings: V = {} as V) {
     return d.struct({
+        parameters,
         eid: d.u32,
         world: d.vec3f,
         worldNormal: d.vec3f,
@@ -254,11 +260,16 @@ export function materialFragmentContext<
     });
 }
 
-export type MaterialVertexFn<V extends Record<string, AnyWgslData> = Record<never, never>> = TgpuFn<
-    (input: typeof MaterialVertexInput) => ReturnType<typeof materialVertexOutput<V>>
+export type MaterialVertexFn<
+    P extends AnyWgslStruct,
+    V extends Record<string, AnyWgslData> = Record<never, never>,
+> = TgpuFn<
+    (input: ReturnType<typeof materialVertexInput<P>>) => ReturnType<typeof materialVertexOutput<V>>
 >;
-export type MaterialFragmentFn<V extends Record<string, AnyWgslData> = Record<never, never>> =
-    TgpuFn<(context: ReturnType<typeof materialFragmentContext<V>>) => d.Vec4f>;
+export type MaterialFragmentFn<
+    P extends AnyWgslStruct,
+    V extends Record<string, AnyWgslData> = Record<never, never>,
+> = TgpuFn<(context: ReturnType<typeof materialFragmentContext<P, V>>) => d.Vec4f>;
 
 export type AlphaMode =
     | { readonly kind: "opaque" }
@@ -356,8 +367,8 @@ export interface MaterialType<
     readonly layout: MaterialLayout<B, P>;
     readonly fragmentInputs?: { uv?: true; localPos?: true };
     readonly varyings?: V;
-    readonly vertex?: MaterialVertexFn<V>;
-    readonly fragment: MaterialFragmentFn<V>;
+    readonly vertex?: MaterialVertexFn<P, V>;
+    readonly fragment: MaterialFragmentFn<P, V>;
     readonly depthPass?: { prepass?: boolean; shadows?: boolean };
     readonly defaults?: d.InferInput<P>;
 }
@@ -664,15 +675,17 @@ export function MaterialPlugin<
     };
 }
 
-/** Define the world resource key and immutable shader contract for a material type. */
+/** Define a material resource and shaders. Supply parameters alone, or a layout carrying them and owned bindings. */
 export function materialType<
     P extends AnyWgslStruct,
     B extends Record<string, MaterialBinding>,
     V extends Record<string, AnyWgslData> = Record<never, never>,
 >(
     spec: Omit<MaterialType<P, B, V>, "create" | "parameters" | "layout"> &
-        ({ layout: MaterialLayout<B, P>; parameters?: never } |
-         { parameters: P; layout?: never }) & { defaults: d.InferInput<P> },
+        (
+            | { layout: MaterialLayout<B, P>; parameters?: never }
+            | { parameters: P; layout?: never }
+        ) & { defaults: d.InferInput<P> },
 ): MaterialType<P, B, V> {
     const layout = spec.layout ?? materialLayout(spec.parameters!, {});
     const parameters = layout.parameters;
