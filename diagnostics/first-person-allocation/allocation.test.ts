@@ -31,10 +31,11 @@ test("a sampling session starts after one collected and drained subject step", a
     expect(otherSubject).toEqual(["collect"]);
 });
 
-test("the sampler keeps lazy feedback and Chromium's existing timing flags", () => {
+test("the sampler keeps lazy feedback but disables allocation-site pretenuring for every window", () => {
     expect(TIER_FLAGS).not.toContain("--no-lazy-feedback-allocation");
     expect(TIER_FLAGS).toEqual([
         "--no-concurrent-recompilation",
+        "--no-allocation-site-pretenuring",
         "--invocation-count-for-maglev=10",
         "--invocation-count-for-turbofan=10",
         "--no-wasm-inlining",

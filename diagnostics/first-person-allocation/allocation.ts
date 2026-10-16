@@ -66,6 +66,10 @@ const TEXT_FONT = resolve(import.meta.dir, "../../src/extras/text/Inter-Regular.
 
 /**
  * Lower thresholds only move compiles into warm-up; synchronous compilation keeps installation in its run.
+ * Disable allocation-site pretenuring: a collection can otherwise change an allocation site's generation
+ * and recompile its callers inside any window. Objects still allocate on the JavaScript heap (in young
+ * space instead of directly in old space), and sampling includes objects collected by either GC.
+ * This changes placement, not allocation elimination; no subject allocation becomes admitted or hidden.
  * V8's wait after a type-feedback change stays at its default, since shortening it changes what V8 inlines.
  * These flags do not guarantee a final tier, so Node refuses profiled runs that trace an optimization.
  * Keep production's lazy feedback: eager feedback changes steady allocation, not just compile timing.
@@ -76,6 +80,7 @@ const TEXT_FONT = resolve(import.meta.dir, "../../src/extras/text/Inter-Regular.
  */
 export const TIER_FLAGS = [
     "--no-concurrent-recompilation",
+    "--no-allocation-site-pretenuring",
     "--invocation-count-for-maglev=10",
     "--invocation-count-for-turbofan=10",
     "--no-wasm-inlining",
