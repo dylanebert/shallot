@@ -18,8 +18,18 @@ export interface PointerLock {
     refusal: string | null;
 }
 
+/** one pointer-button press or release, at the pointer position in CSS pixels within the focused canvas */
+export interface PointerButtonEvent {
+    readonly button: "left" | "right" | "middle";
+    /** true for a press, false for a release */
+    readonly pressed: boolean;
+    readonly x: number;
+    readonly y: number;
+}
+
 /** live pointer state in one device record. Positions and sizes are CSS pixels; deltas accumulate over a
- * frame and reset at the draw boundary. */
+ * frame and reset at the draw boundary. A one-finger touch drives `left` and the position; a second finger
+ * cancels that press. */
 export interface Pointer {
     readonly lock: PointerLock;
     /** horizontal pointer movement since the last frame, in CSS pixels */
@@ -31,6 +41,9 @@ export interface Pointer {
     left: boolean;
     right: boolean;
     middle: boolean;
+    /** every button press and release since the last draw boundary, in order. Entries are reused after that
+     * boundary. A cancelled press (a second touch, or `pointercancel`) ends with the button up and no release. */
+    readonly buttonEvents: readonly PointerButtonEvent[];
     /** pointer is over a bound canvas, or a drag is active */
     hover: boolean;
     /** pointer x within the focused canvas, CSS pixels from the left edge */
@@ -62,10 +75,10 @@ export interface AudioDevice {
     context: AudioContextState;
 }
 
-/** all device-fed facts for one World, read directly. `keys.pressed`, `keys.released`, `pointer.scroll` and
- * the pointer and touch deltas cover one frame; the input plugin clears them at the draw boundary. A game or
- * headless driver changes every field except `audio.context` through the producers below, which keep edges and
- * boundary releases; the browser producer writes the same fields from DOM events. `audio.context` has no
+/** all device-fed facts for one World, read directly. `keys.pressed`, `keys.released`, `pointer.buttonEvents`,
+ * `pointer.scroll` and the pointer and touch deltas cover one frame; the input plugin clears
+ * them at the draw boundary. A game or headless driver changes every field except `audio.context` through the
+ * producers below, which keep edges and boundary releases; the browser producer writes the same fields from DOM events. `audio.context` has no
  * producer: the audio runtime or a headless driver writes it directly. The record is created lazily, so a World
  * with no DOM still has devices. */
 export interface Devices {
@@ -90,7 +103,17 @@ interface DeviceRecord extends Devices {
     centroidX: number | null;
     centroidY: number | null;
     pointerCanvasIndex: number;
+    readonly buttonEvents: Mutable<PointerButtonEvent>[];
+    /** every event record allocated so far, reused across frames */
+    readonly buttonEventPool: Mutable<PointerButtonEvent>[];
+    /** the touch that drives the pointer position, or null with no touch held */
+    primaryTouch: number | null;
+    /** the primary touch's press of `left` stands: no second touch has cancelled it */
+    touchPress: boolean;
 }
+
+type ButtonName = PointerButtonEvent["button"];
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /** Host effects for the browser producer; the default host is created only when that producer is composed. */
 export interface InputHost {
@@ -157,7 +180,7 @@ export const Devices: import("../../engine").Resource<Devices> = {
 };
 const adapters = new WeakMap<World, BrowserAdapter>();
 
-const DEFAULT_POINTER: Omit<Pointer, "lock" | "normalizedX" | "normalizedY"> = {
+const DEFAULT_POINTER: Omit<Pointer, "lock" | "normalizedX" | "normalizedY" | "buttonEvents"> = {
     deltaX: 0,
     deltaY: 0,
     scroll: 0,
@@ -173,9 +196,11 @@ const DEFAULT_TOUCH: Touch = { count: 0, pinchDelta: 0, deltaX: 0, deltaY: 0 };
 const DEFAULT_AUDIO: AudioDevice = { context: "none" };
 const DEFAULT_POINTER_LOCK: PointerLock = { status: "unlocked", refusal: null };
 function emptyRecord(world: World): DeviceRecord {
+    const buttonEvents: Mutable<PointerButtonEvent>[] = [];
     const pointer: Pointer = {
         ...DEFAULT_POINTER,
         lock: { ...DEFAULT_POINTER_LOCK },
+        buttonEvents,
         get normalizedX() {
             const viewport = world.resource(Viewports).get(devices.pointerCanvasIndex);
             return unit(pointer.x, viewport?.cssWidth ?? 0);
@@ -202,6 +227,10 @@ function emptyRecord(world: World): DeviceRecord {
         centroidX: null,
         centroidY: null,
         pointerCanvasIndex: -1,
+        buttonEvents,
+        buttonEventPool: [],
+        primaryTouch: null,
+        touchPress: false,
     };
     return devices;
 }
@@ -319,6 +348,24 @@ export function pointerMove(
 
 export type PointerButton = "left" | "right" | "middle" | 0 | 1 | 2;
 
+/** Set a button level, recording the edge at the current pointer position. */
+function setButtonLevel(d: DeviceRecord, name: ButtonName, down: boolean): void {
+    const next = down && !(d.requireLock && d.pointer.lock.status !== "locked");
+    if (d.pointer[name] === next) return;
+    d.pointer[name] = next;
+    const index = d.buttonEvents.length;
+    let event = d.buttonEventPool[index];
+    if (!event) {
+        event = { button: name, pressed: next, x: 0, y: 0 };
+        d.buttonEventPool.push(event);
+    }
+    event.button = name;
+    event.pressed = next;
+    event.x = d.pointer.x;
+    event.y = d.pointer.y;
+    d.buttonEvents.push(event);
+}
+
 function setButton(world: World, button: PointerButton, pressed: boolean): void {
     const d = record(world);
     if (!d.enabled) return;
@@ -328,11 +375,11 @@ function setButton(world: World, button: PointerButton, pressed: boolean): void 
             : button === 1 || button === "middle"
               ? "middle"
               : "right";
-    d.pointer[name] = d.requireLock && d.pointer.lock.status !== "locked" ? false : pressed;
+    setButtonLevel(d, name, pressed);
 }
 
-/** Produce a pointer-button press. While `requireLock` holds and the pointer is not locked, the button stays
- * up. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
+/** Produce a pointer-button press at the current pointer position. While `requireLock` holds and the pointer
+ * is not locked, the button stays up. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
 export function pressButton(world: World, button: PointerButton): void {
     setButton(world, button, true);
 }
@@ -371,7 +418,20 @@ function updatePinchBaseline(d: DeviceRecord): void {
     }
 }
 
-/** `active=false` removes the point. Accumulates two-finger centroid and pinch deltas. */
+/** Remove a touch point; the next held touch, if any, drives the pointer without pressing it. */
+function liftTouch(d: DeviceRecord, pointerId: number): void {
+    d.touchPoints.delete(pointerId);
+    d.touch.count = d.touchPoints.size;
+    updatePinchBaseline(d);
+    if (pointerId !== d.primaryTouch) return;
+    d.touchPress = false;
+    d.primaryTouch = d.touchPoints.keys().next().value ?? null;
+}
+
+/** Produce a touch point in CSS pixels within the focused canvas; `active=false` lifts it. The first touch moves
+ * the pointer and presses `left`, and lifting it releases `left` there. A second touch cancels that press, so a
+ * pinch or pan presents no press and release; while fingers stay held, the remaining one drives the pointer
+ * position. Accumulates two-finger centroid and pinch deltas. */
 export function touchPoint(
     world: World,
     pointerId: number,
@@ -381,17 +441,34 @@ export function touchPoint(
 ): void {
     const d = record(world);
     if (!d.enabled) return;
+    const previous = d.touchPoints.get(pointerId);
     if (!active) {
-        d.touchPoints.delete(pointerId);
-        d.touch.count = d.touchPoints.size;
-        updatePinchBaseline(d);
+        if (!previous) return;
+        if (pointerId === d.primaryTouch) {
+            pointerMove(world, x, y, x - previous.x, y - previous.y);
+            if (d.touchPress) setButtonLevel(d, "left", false);
+        }
+        liftTouch(d, pointerId);
         return;
     }
-    const previous = d.touchPoints.get(pointerId);
-    d.touchPoints.set(pointerId, { x, y });
-    if (!previous) {
+    if (previous) {
+        const fromX = previous.x;
+        const fromY = previous.y;
+        previous.x = x;
+        previous.y = y;
+        if (pointerId === d.primaryTouch) pointerMove(world, x, y, x - fromX, y - fromY);
+    } else {
+        d.touchPoints.set(pointerId, { x, y });
         d.touch.count = d.touchPoints.size;
         updatePinchBaseline(d);
+        if (d.touchPoints.size === 1) {
+            d.primaryTouch = pointerId;
+            pointerMove(world, x, y);
+            setButtonLevel(d, "left", true);
+            d.touchPress = d.pointer.left;
+        } else {
+            cancelTouchPress(d);
+        }
         return;
     }
     if (d.touchPoints.size === 2) {
@@ -408,6 +485,21 @@ export function touchPoint(
         d.centroidX = nextX;
         d.centroidY = nextY;
     }
+}
+
+/** Drop the frame's press events, keeping its releases in order. `buttonEvents[i]` is always
+ * `buttonEventPool[i]`, so the next event reuses a record no listed event holds. */
+function dropPresses(d: DeviceRecord): void {
+    const pool = d.buttonEventPool;
+    let kept = 0;
+    for (let i = 0; i < d.buttonEvents.length; i++) {
+        const event = pool[i];
+        if (event.pressed) continue;
+        pool[i] = pool[kept];
+        pool[kept] = event;
+        d.buttonEvents[kept++] = event;
+    }
+    d.buttonEvents.length = kept;
 }
 
 function releaseHeldKey(d: DeviceRecord, code: string): void {
@@ -453,10 +545,19 @@ export function pointerLockChanged(
     if (wasLocked && !engaged) releaseAll(world, d);
 }
 
-function pointerButtonsForRecord(d: DeviceRecord, buttons: number): void {
-    d.pointer.left = (buttons & 1) !== 0;
-    d.pointer.right = (buttons & 2) !== 0;
-    d.pointer.middle = (buttons & 4) !== 0;
+/** End every held button without a release. */
+function cancelButtons(d: DeviceRecord): void {
+    d.pointer.left = false;
+    d.pointer.right = false;
+    d.pointer.middle = false;
+    d.touchPress = false;
+}
+
+/** End the primary touch's press of `left` without a release. */
+function cancelTouchPress(d: DeviceRecord): void {
+    if (!d.touchPress) return;
+    d.touchPress = false;
+    d.pointer.left = false;
 }
 
 function gatedButtons(d: DeviceRecord, buttons: number): number {
@@ -466,6 +567,8 @@ function gatedButtons(d: DeviceRecord, buttons: number): number {
 function clearTouch(d: DeviceRecord): void {
     d.touchPoints.clear();
     updatePinchBaseline(d);
+    d.primaryTouch = null;
+    d.touchPress = false;
     d.touch.count = 0;
     d.touch.pinchDelta = 0;
     d.touch.deltaX = 0;
@@ -474,7 +577,9 @@ function clearTouch(d: DeviceRecord): void {
 
 function releaseAll(_world: World | null, d: DeviceRecord): void {
     for (const code of [...d.keys.held]) releaseHeldKey(d, code);
-    pointerButtonsForRecord(d, 0);
+    setButtonLevel(d, "left", false);
+    setButtonLevel(d, "right", false);
+    setButtonLevel(d, "middle", false);
     clearTouch(d);
 }
 
@@ -486,16 +591,32 @@ function releaseCapture(a: BrowserAdapter): void {
     a.lastPointerY = 0;
 }
 
-function recaptureTouch(a: BrowserAdapter, d: DeviceRecord, canvas: HTMLCanvasElement): void {
-    const [nextId, pos] = [...d.touchPoints.entries()][0];
-    a.activePointerId = nextId;
+/** Move capture to the touch that now drives the pointer, or release it when none is held. */
+function followTouch(a: BrowserAdapter, d: DeviceRecord, pointerId: number): void {
+    if (pointerId !== a.activePointerId) return;
+    const canvas = a.activeCanvas;
+    if (canvas?.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+    const next = d.primaryTouch;
+    if (canvas === null || next === null) {
+        releaseCapture(a);
+        return;
+    }
+    a.activePointerId = next;
     a.activeButton = 0;
-    a.activeCanvas = canvas;
-    a.lastPointerX = pos.x;
-    a.lastPointerY = pos.y;
     try {
-        canvas.setPointerCapture(nextId);
+        canvas.setPointerCapture(next);
     } catch {}
+}
+
+/** The touch's position within the canvas it is captured to, or else the one it landed on. */
+function touchPosition(
+    a: BrowserAdapter,
+    target: EventTarget | null,
+    e: { clientX: number; clientY: number },
+): { x: number; y: number } {
+    const canvas = a.activeCanvas ?? (a.canvases.has(target as HTMLCanvasElement) ? target : null);
+    const rect = (canvas as HTMLCanvasElement | null)?.getBoundingClientRect();
+    return { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) };
 }
 
 function canvasPosition(
@@ -542,8 +663,14 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         const canvasIndex = a.canvases.get(target);
         if (canvasIndex === undefined) return;
         window.focus();
-        if (e.pointerType === "touch") touchPoint(world, e.pointerId, e.clientX, e.clientY);
-        if (a.activePointerId === null || a.activePointerId === e.pointerId) {
+        if (e.pointerType === "touch") {
+            if (d.touchPoints.size === 0) {
+                d.pointerCanvasIndex = canvasIndex;
+                d.pointer.hover = true;
+            }
+            const at = touchPosition(a, target, e);
+            touchPoint(world, e.pointerId, at.x, at.y);
+        } else if (a.activePointerId === null || a.activePointerId === e.pointerId) {
             a.pointerHover(e);
             pointerButtons(world, gatedButtons(d, e.buttons));
         }
@@ -613,33 +740,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             canvasIndex: d.pointerCanvasIndex,
         });
     };
-    a.pointerUp = (e) => {
-        const wasTouch = d.touchPoints.has(e.pointerId);
-        if (wasTouch) touchPoint(world, e.pointerId, e.clientX, e.clientY, false);
-        if (e.pointerId !== a.activePointerId) return;
-        pointerButtons(world, gatedButtons(d, e.buttons));
-        if (e.button === a.activeButton) {
-            const canvas = a.activeCanvas;
-            if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-            if (wasTouch && canvas && d.touchPoints.size > 0) recaptureTouch(a, d, canvas);
-            else releaseCapture(a);
-        }
-    };
-    a.pointerCancel = (e) => {
-        const wasTouch = d.touchPoints.has(e.pointerId);
-        if (wasTouch) touchPoint(world, e.pointerId, e.clientX, e.clientY, false);
-        if (e.pointerId !== a.activePointerId) return;
-        pointerButtons(world, 0);
-        const canvas = a.activeCanvas;
-        if (wasTouch && canvas && d.touchPoints.size > 0) recaptureTouch(a, d, canvas);
-        else releaseCapture(a);
-    };
-    a.pointerMove = (e) => {
-        if (d.touchPoints.has(e.pointerId)) touchPoint(world, e.pointerId, e.clientX, e.clientY);
-        if (e.pointerId !== a.activePointerId) return;
-        pointerButtons(world, gatedButtons(d, e.buttons));
-        if (d.pointer.lock.status === "locked") return;
-        e.preventDefault();
+    const moveActive = (e: PointerEvent) => {
         pointerMove(world, {
             x: e.clientX - (a.activeCanvas?.getBoundingClientRect().left ?? 0),
             y: e.clientY - (a.activeCanvas?.getBoundingClientRect().top ?? 0),
@@ -650,6 +751,47 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         });
         a.lastPointerX = e.clientX;
         a.lastPointerY = e.clientY;
+    };
+    a.pointerUp = (e) => {
+        if (d.touchPoints.has(e.pointerId)) {
+            const at = touchPosition(a, e.target, e);
+            touchPoint(world, e.pointerId, at.x, at.y, false);
+            followTouch(a, d, e.pointerId);
+            return;
+        }
+        if (e.pointerId !== a.activePointerId) return;
+        if (d.pointer.lock.status !== "locked") moveActive(e);
+        pointerButtons(world, gatedButtons(d, e.buttons));
+        if (e.button === a.activeButton) {
+            const canvas = a.activeCanvas;
+            if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+            releaseCapture(a);
+        }
+    };
+    a.pointerCancel = (e) => {
+        if (d.touchPoints.has(e.pointerId)) {
+            if (e.pointerId === d.primaryTouch) cancelTouchPress(d);
+            liftTouch(d, e.pointerId);
+            followTouch(a, d, e.pointerId);
+            return;
+        }
+        if (e.pointerId !== a.activePointerId) return;
+        cancelButtons(d);
+        releaseCapture(a);
+    };
+    a.pointerMove = (e) => {
+        if (d.touchPoints.has(e.pointerId)) {
+            const at = touchPosition(a, e.target, e);
+            touchPoint(world, e.pointerId, at.x, at.y);
+            if (e.pointerId === a.activePointerId) e.preventDefault();
+            return;
+        }
+        if (e.pointerId !== a.activePointerId) return;
+        if (d.pointer.lock.status !== "locked") {
+            e.preventDefault();
+            moveActive(e);
+        }
+        pointerButtons(world, gatedButtons(d, e.buttons));
     };
     a.wheel = (e) => {
         if (!a.canvases.has(e.target as HTMLCanvasElement)) return;
@@ -854,6 +996,7 @@ export function setInputEnabled(world: World, on: boolean): void {
     if (!on) {
         releaseAll(world, d);
         d.keys.pressed.clear();
+        dropPresses(d);
         d.pointer.deltaX = 0;
         d.pointer.deltaY = 0;
         d.pointer.scroll = 0;
@@ -925,6 +1068,7 @@ const ResetFrameInputSystem: System = {
         const d = record(world);
         if (d.keys.pressed.size !== 0) d.keys.pressed.clear();
         if (d.keys.released.size !== 0) d.keys.released.clear();
+        if (d.buttonEvents.length !== 0) d.buttonEvents.length = 0;
         d.pointer.deltaX = 0;
         d.pointer.deltaY = 0;
         d.pointer.scroll = 0;

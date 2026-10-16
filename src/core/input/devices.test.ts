@@ -40,6 +40,13 @@ function browserInputState(): World {
     return world;
 }
 
+function browserInputStateWith(host: InputHost): World {
+    const world = inputState();
+    const plugin = createBrowserInputPlugin(host);
+    for (const system of plugin.systems ?? []) world.addSystem(system, plugin.name);
+    return world;
+}
+
 type FixtureListener = (event: any) => void;
 
 function fixtureTarget() {
@@ -224,15 +231,6 @@ test("the production browser adapter bypasses shared input producers or loses fo
             preventDefault() {},
         });
         fixture.emitCanvas("wheel", { target: fixture.canvas, deltaY: 7, preventDefault() {} });
-        fixture.emitCanvas("pointerdown", {
-            pointerId: 2,
-            pointerType: "touch",
-            button: 0,
-            buttons: 1,
-            clientX: 40,
-            clientY: 60,
-            preventDefault() {},
-        });
         const input = world.resource(Devices);
         if (
             !input.keys.held.has("KeyW") ||
@@ -242,10 +240,20 @@ test("the production browser adapter bypasses shared input producers or loses fo
             input.pointer.deltaX !== 5 ||
             input.pointer.deltaY !== 4 ||
             input.pointer.scroll !== 7 ||
-            input.touch.count !== 1 ||
             fixture.captured() !== 1
         )
             throw new Error("declared host events did not reach shared producers");
+        fixture.emitCanvas("pointerdown", {
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 40,
+            clientY: 60,
+            preventDefault() {},
+        });
+        if (input.touch.count !== 1 || Number(input.pointer.x) !== 30 || fixture.captured() !== 1)
+            throw new Error("a touch did not reach the shared touch producer");
 
         fixture.setHidden(true);
         fixture.document.emit("visibilitychange");
@@ -708,10 +716,10 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     };
     world.addSystem(reader);
     pressKey(world, "KeyW");
+    touchPoint(world, 1, 10, 20);
     pointerMove(world, 12, 24, 3, -2);
     pressButton(world, "left");
     pointerWheel(world, 7);
-    touchPoint(world, 1, 10, 20);
     world.step(Time.FIXED_DT);
     if (!seen[0]?.held || !seen[0].pressed || seen[0].released)
         throw new Error("press edge was not visible");
@@ -768,7 +776,11 @@ test("window blur leaves keys or pointer buttons held, or releases them without 
     const input = world.resource(Devices);
     if (input.keys.held.has("KeyW") || !input.keys.released.has("KeyW"))
         throw new Error("blur did not emit a key release edge");
-    if (input.pointer.left) throw new Error("blur left a pointer button held");
+    if (
+        input.pointer.left ||
+        !input.pointer.buttonEvents.some((event) => event.button === "left" && !event.pressed)
+    )
+        throw new Error("blur left a pointer button held, or released it without an edge");
     world.dispose();
 });
 
@@ -948,4 +960,221 @@ test("two Worlds hold independent per-canvas viewport records", () => {
         throw new Error("second viewport row was changed");
     first.dispose();
     second.dispose();
+});
+
+function edgeReader(world: World) {
+    const frames: Array<{
+        left: boolean;
+        touches: number;
+        pressed?: { x: number; y: number };
+        released?: { x: number; y: number };
+    }> = [];
+    world.addSystem({
+        group: "simulation",
+        update(s: World) {
+            const { pointer, touch } = s.resource(Devices);
+            const left = pointer.buttonEvents.filter((event) => event.button === "left");
+            const pressed = left.find((event) => event.pressed);
+            const released = left.find((event) => !event.pressed);
+            frames.push({
+                left: pointer.left,
+                touches: touch.count,
+                pressed: pressed && { x: pressed.x, y: pressed.y },
+                released: released && { x: released.x, y: released.y },
+            });
+        },
+    });
+    return frames;
+}
+
+test("a mouse press and release between two frames is lost to a simulation reader, seen twice, or seen away from where it happened", () => {
+    const world = inputState();
+    const frames = edgeReader(world);
+    pointerMove(world, 5, 6);
+    pressButton(world, "left");
+    pointerMove(world, 40, 50);
+    releaseButton(world, "left");
+    pointerMove(world, 90, 90);
+    world.step(0);
+    world.step(0);
+    expect(frames).toEqual([
+        { left: false, touches: 0, pressed: { x: 5, y: 6 }, released: { x: 40, y: 50 } },
+        { left: false, touches: 0, pressed: undefined, released: undefined },
+    ]);
+    world.dispose();
+});
+
+test("two clicks between two frames merge, reorder or lose their positions", () => {
+    const world = inputState();
+    const seen: string[][] = [];
+    world.addSystem({
+        group: "simulation",
+        update(s: World) {
+            seen.push(
+                s
+                    .resource(Devices)
+                    .pointer.buttonEvents.map(
+                        (e) => `${e.button} ${e.pressed ? "press" : "release"} ${e.x},${e.y}`,
+                    ),
+            );
+        },
+    });
+    pointerMove(world, 1, 2);
+    pressButton(world, "left");
+    releaseButton(world, "left");
+    pointerMove(world, 30, 40);
+    pressButton(world, "right");
+    pressButton(world, "left");
+    releaseButton(world, "left");
+    world.step(0);
+    world.step(0);
+    expect(seen).toEqual([
+        [
+            "left press 1,2",
+            "left release 1,2",
+            "right press 30,40",
+            "left press 30,40",
+            "left release 30,40",
+        ],
+        [],
+    ]);
+    world.dispose();
+});
+
+test("suspension keeps a frame's releases, or a later event overwrites one", () => {
+    const world = inputState();
+    const events = world.resource(Devices).pointer.buttonEvents;
+    const read = () =>
+        events.map((e) => `${e.button} ${e.pressed ? "press" : "release"} ${e.x},${e.y}`);
+    pointerMove(world, 1, 2);
+    pressButton(world, "left");
+    releaseButton(world, "left");
+    pressButton(world, "middle");
+    setInputEnabled(world, false);
+    expect(read()).toEqual(["left release 1,2", "middle release 1,2"]);
+    setInputEnabled(world, true);
+    pointerMove(world, 30, 40);
+    pressButton(world, "right");
+    pressButton(world, "left");
+    expect(read()).toEqual([
+        "left release 1,2",
+        "middle release 1,2",
+        "right press 30,40",
+        "left press 30,40",
+    ]);
+    world.dispose();
+});
+
+test("a browser click between two frames loses its press or release, or reports them away from the down and up events", () => {
+    const fixture = declaredHost();
+    const world = browserInputStateWith(fixture.host);
+    const frames = edgeReader(world);
+    try {
+        world.step(0);
+        const event = (x: number, y: number, buttons: number) => ({
+            target: fixture.canvas,
+            pointerId: 1,
+            pointerType: "mouse",
+            button: 0,
+            buttons,
+            clientX: x,
+            clientY: y,
+            preventDefault() {},
+        });
+        fixture.emitCanvas("pointerdown", event(30, 50, 1));
+        fixture.window.emit("pointermove", event(34, 53, 1));
+        fixture.window.emit("pointerup", event(36, 54, 0));
+        world.step(0);
+        expect(frames[1]).toEqual({
+            left: false,
+            touches: 0,
+            pressed: { x: 20, y: 30 },
+            released: { x: 26, y: 34 },
+        });
+    } finally {
+        world.dispose();
+    }
+});
+
+test("a touch tap between two frames is lost to a simulation reader or seen away from where it happened", () => {
+    const world = inputState();
+    const frames = edgeReader(world);
+    touchPoint(world, 1, 7, 8);
+    touchPoint(world, 1, 9, 10, false);
+    world.step(0);
+    world.step(0);
+    expect(frames).toEqual([
+        { left: false, touches: 0, pressed: { x: 7, y: 8 }, released: { x: 9, y: 10 } },
+        { left: false, touches: 0, pressed: undefined, released: undefined },
+    ]);
+    world.dispose();
+});
+
+function touchEvent(canvas: HTMLCanvasElement, pointerId: number, x: number, buttons: number) {
+    return {
+        target: canvas,
+        pointerId,
+        pointerType: "touch",
+        button: 0,
+        buttons,
+        clientX: x,
+        clientY: 70,
+        preventDefault() {},
+    };
+}
+
+test("a pinch released one finger at a time presents a one-finger press or release", () => {
+    for (const firstLifted of [1, 2]) {
+        const fixture = declaredHost();
+        const world = browserInputStateWith(fixture.host);
+        const frames = edgeReader(world);
+        try {
+            world.step(0);
+            fixture.emitCanvas("pointerdown", touchEvent(fixture.canvas, 1, 100, 1));
+            fixture.emitCanvas("pointerdown", touchEvent(fixture.canvas, 2, 200, 1));
+            world.step(0);
+            fixture.window.emit("pointermove", touchEvent(fixture.canvas, 1, 90, 1));
+            fixture.window.emit("pointermove", touchEvent(fixture.canvas, 2, 210, 1));
+            world.step(0);
+            const last = firstLifted === 1 ? 2 : 1;
+            fixture.window.emit("pointerup", touchEvent(fixture.canvas, firstLifted, 150, 0));
+            world.step(0);
+            fixture.window.emit("pointermove", touchEvent(fixture.canvas, last, 220, 1));
+            world.step(0);
+            fixture.window.emit("pointerup", touchEvent(fixture.canvas, last, 220, 0));
+            world.step(0);
+            const presses = frames.filter((frame) => frame.pressed).length;
+            const releases = frames.filter((frame) => frame.released).length;
+            const oneFingerHeld = frames.some((frame) => frame.left && frame.touches === 1);
+            expect({ presses, releases, oneFingerHeld }).toEqual({
+                presses: 1,
+                releases: 0,
+                oneFingerHeld: false,
+            });
+            expect(frames.at(-1)?.left).toBe(false);
+            expect(fixture.captured()).toBeNull();
+        } finally {
+            world.dispose();
+        }
+    }
+});
+
+test("a cancelled touch reads as a release", () => {
+    const fixture = declaredHost();
+    const world = browserInputStateWith(fixture.host);
+    const frames = edgeReader(world);
+    try {
+        world.step(0);
+        fixture.emitCanvas("pointerdown", touchEvent(fixture.canvas, 1, 100, 1));
+        fixture.window.emit("pointercancel", touchEvent(fixture.canvas, 1, 100, 0));
+        world.step(0);
+        expect(frames[1]).toEqual({
+            left: false,
+            touches: 0,
+            pressed: { x: 90, y: 50 },
+            released: undefined,
+        });
+    } finally {
+        world.dispose();
+    }
 });

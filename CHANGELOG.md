@@ -6,4 +6,6 @@
 
 Fonts and images are identified by URL, without registration aliases; each Blob image registration receives its own id. Text font 0 always selects the bundled default face, including in worlds with registered fonts.
 
+`pointer.buttonEvents` lists every pointer-button press and release of a frame in order, each at its position, so presses and releases between two frames are all seen. A one-finger touch, from `touchPoint` or the browser, moves the pointer and presses `left`; a second finger cancels that press, so a pinch or two-finger pan presents no press and release.
+
 To port a 0.9.5 app, see [`MIGRATION.md`](MIGRATION.md). Changes before 0.10 are at the [`archive/changelog-pre-0.10`](https://github.com/dylanebert/shallot/tree/archive/changelog-pre-0.10) tag and in the git history.

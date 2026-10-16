@@ -233,14 +233,14 @@ test("snapshot and restore leave device state outside recovery", async () => {
         const keys = devices.keys;
         const pointer = devices.pointer;
         pressKey(world, "Space");
-        pointerMove(world, 12, 8, 3, 4);
         touchPoint(world, 1, 10, 20);
         touchPoint(world, 2, 30, 20);
+        pointerMove(world, 12, 8, 3, 4);
         devices.audio.context = "suspended";
         const saved = world.snapshot();
         releaseKey(world, "Space");
         pointerMove(world, 42, 18, 8, 9);
-        touchPoint(world, 1, 30, 40);
+        touchPoint(world, 2, 50, 40);
         devices.audio.context = "running";
         world.restore(saved);
         expect(world.resource(Devices)).toBe(devices);
