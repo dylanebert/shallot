@@ -53,7 +53,7 @@ function violations(source: string): string[] {
             size = value;
             valid = ui.fontSizes.includes(value);
         } else if (property === "font-weight") valid = value === ui.fontWeight;
-        else if (property!.includes("radius")) valid = value === ui.radius;
+        else if (property!.includes("radius")) valid = value === ui.radius || value === ui.circle;
         else {
             const font = value.match(/^(?:(\d+)\s+)?(\d+px)(?:\/[^\s]+)?\s+(.+)$/);
             size = font?.[2];
@@ -82,6 +82,7 @@ test("the UI scale reserves 24px for titles and rejects off-token CSS and inline
             '<span style="font-family: sans-serif; font-size: 18px; font-weight: 700; border-radius: 6px">',
         ),
     ).toHaveLength(4);
+    expect(violations(`.reticle { border-radius: ${ui.circle}; }`)).toEqual([]);
     expect(violations(".panel { font: bold 48px serif; }")).toHaveLength(1);
     expect(violations("h1 { font-size: 24px; }")).toEqual([]);
     expect(violations('<h1 style="font-size: 24px">Name</h1>')).toEqual([]);

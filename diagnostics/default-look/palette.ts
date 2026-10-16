@@ -26,6 +26,8 @@ export interface LookPalette {
         fontSizes: readonly string[];
         fontWeight: string;
         radius: string;
+        /** A round mark, such as a reticle. */
+        circle: string;
     };
 }
 
@@ -34,6 +36,7 @@ const uiType = {
     fontSizes: ["14px", "24px"],
     fontWeight: "400",
     radius: "2px",
+    circle: "50%",
 };
 
 // Comparison scenes hold lighting fixed: warm sun and cool ambient.

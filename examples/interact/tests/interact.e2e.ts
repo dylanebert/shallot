@@ -157,6 +157,8 @@ test("reticle fills only on focus and the hint begins 96px below its centre", as
     expect(stray).toBe(0);
     await expect(page.locator(".reticle")).toHaveCount(1);
     await expect(page.locator(".reticle-dot")).toHaveCount(1);
+    await expect(page.locator(".reticle")).toHaveCSS("border-radius", "50%");
+    await expect(page.locator(".reticle-dot")).toHaveCSS("border-radius", "50%");
     for (const [index, name] of ["lamp", "button", "hold"].entries()) {
         await page.evaluate((i) => window.aim(i), index);
         const reticle = page.locator(".reticle");
