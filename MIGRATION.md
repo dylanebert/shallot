@@ -1213,6 +1213,10 @@ Remove imports of `installHarness`, `HarnessTarget` and `REAL_GPU_LAUNCH`. Drive
 
 Remove imports from `@dylanebert/shallot/brand`. The mark and palette are repository assets, not a package subpath; the default loading screen continues to render the mark internally. There is no public brand-assets replacement.
 
+## `OrbitPick` is removed
+
+Remove `OrbitPick.claim` assignments. Orbit rotation runs on every drag; decide selection in the game from `pointer.buttonEvents` press/release positions and a game-owned travel threshold.
+
 ## `OrbitOverlayPlugin` is removed
 
 Remove `OrbitOverlayPlugin` from plugin imports and registrations. `OrbitPlugin` remains; there is no replacement overlay plugin.

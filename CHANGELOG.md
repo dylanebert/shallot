@@ -8,4 +8,6 @@ Fonts and images are identified by URL, without registration aliases; each Blob 
 
 `pointer.buttonEvents` lists every pointer-button press and release of a frame in order, each at its position, so presses and releases between two frames are all seen. A one-finger touch, from `touchPoint` or the browser, moves the pointer and presses `left`; a second finger cancels that press, so a pinch or two-finger pan presents no press and release.
 
+`OrbitPick` is removed. Orbit runs on every drag; games decide click selection using pointer events and their own travel threshold.
+
 To port a 0.9.5 app, see [`MIGRATION.md`](MIGRATION.md). Changes before 0.10 are at the [`archive/changelog-pre-0.10`](https://github.com/dylanebert/shallot/tree/archive/changelog-pre-0.10) tag and in the git history.

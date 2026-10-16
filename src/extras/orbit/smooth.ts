@@ -9,6 +9,4 @@ export const OrbitSmooth = {
     keyYawVelocity: f32,
     keyPitchVelocity: f32,
     flyActive: u8,
-    // 0 idle, 1 claimed, 2 orbiting. Also detects the press edge, absent from mouse-button state.
-    orbitLatch: u8,
 };

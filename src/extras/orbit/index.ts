@@ -26,13 +26,6 @@ const FlyScrollRate = Math.log(1.15) / 100; // ≈ 0.0014
 export const OrbitMode = { Free: 0, Locked: 1 } as const;
 
 /**
- * Consulted at the orbit button's press edge with the cursor in canvas-local CSS pixels.
- * Returning true suppresses orbit rotation for that drag, while pan and fly stay unaffected.
- * Without a claim callback, presses orbit normally.
- */
-export const OrbitPick: { claim?: (x: number, y: number) => boolean } = {};
-
-/**
  * orbit camera controls: drag to rotate around a target, scroll to zoom;
  * on touch, one finger rotates, two-finger pinch zooms, two-finger drag pans
  */
@@ -168,7 +161,6 @@ const OrbitSystem: System = {
             world.storage(OrbitSmooth).keyPitchVelocity.set(eid, 0);
             // sparse storage survives destroy — a recycled eid could inherit a stale latch
             world.storage(OrbitSmooth).flyActive.set(eid, 0);
-            world.storage(OrbitSmooth).orbitLatch.set(eid, 0);
             // Warn on initialization because the pose query silently excludes entities without Transform.
             if (!world.has(eid, Transform)) {
                 console.warn(
@@ -228,17 +220,7 @@ const OrbitSystem: System = {
             const looking = flying ? flyHeld : orbitHeld;
             const lookSpeed = flying ? world.storage(Orbit).flySensitivity.get(eid) : sensitivity;
 
-            // Latch the claim so a picker's mid-drag changes cannot switch rotation on or off.
-            let orbitLatch = world.storage(OrbitSmooth).orbitLatch.get(eid);
-            if (orbitHeld) {
-                if (orbitLatch === 0)
-                    orbitLatch = OrbitPick.claim?.(input.pointer.x, input.pointer.y) ? 1 : 2;
-            } else {
-                orbitLatch = 0;
-            }
-            const suppressed = orbitLatch === 1;
-
-            if (!locked && looking && !suppressed) {
+            if (!locked && looking) {
                 yawO -= input.pointer.deltaX * lookSpeed;
                 pitchO = clamp(pitchO + input.pointer.deltaY * lookSpeed, minPitch, maxPitch);
             }
@@ -442,7 +424,6 @@ const OrbitSystem: System = {
             world.storage(Orbit).pan.set(eid, panX, panY, panZ);
             world.storage(Orbit).flySpeed.set(eid, flySpd);
             world.storage(OrbitSmooth).flyActive.set(eid, flyActive);
-            world.storage(OrbitSmooth).orbitLatch.set(eid, orbitLatch);
             world.storage(OrbitSmooth).yaw.set(eid, yawS);
             world.storage(OrbitSmooth).pitch.set(eid, pitchS);
             world.storage(OrbitSmooth).distance.set(eid, distS);
