@@ -350,7 +350,7 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `FsFn` | `MaterialFragmentFn`, inferred from a `materialType` shader. |
 | `SurfaceLayout` | `MaterialLayout`, inferred from `materialLayout`. |
 | `VsFn` | `MaterialVertexFn`, inferred from a `materialType` shader. |
-| `assertOwnFn` | Internal; registration validates shader ownership. |
+| `assertOwnFn` | Removed; `materialType` refuses prebuilt TypeGPU vertex and fragment functions. Pass plain `"use gpu"` functions instead. |
 | `SURFACE_GROUP` | Removed; material and background group indices are renderer-owned. |
 | `clusterOf` | Use `clusterCell` for grid addressing or `lit` for surface lighting. |
 | `engineScaffoldWgsl` | Use `materialType` with plain `"use gpu"` shaders; declare owned bindings with `materialLayout`. |

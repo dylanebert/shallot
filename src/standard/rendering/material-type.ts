@@ -688,10 +688,14 @@ export function materialType<
         MaterialType<P, B, V>,
         "create" | "parameters" | "layout" | "vertex" | "fragment"
     > & {
-        vertex?: (
+        vertex?: ((
             input: d.InferGPU<ReturnType<typeof materialVertexInput<P>>>,
-        ) => d.InferGPU<ReturnType<typeof materialVertexOutput<V>>>;
-        fragment: (context: d.InferGPU<ReturnType<typeof materialFragmentContext<P, V>>>) => d.v4f;
+        ) => d.InferGPU<ReturnType<typeof materialVertexOutput<V>>>) & {
+            readonly resourceType?: never;
+        };
+        fragment: ((
+            context: d.InferGPU<ReturnType<typeof materialFragmentContext<P, V>>>,
+        ) => d.v4f) & { readonly resourceType?: never };
     } & (
             | { layout: MaterialLayout<B, P>; parameters?: never }
             | { parameters: P; layout?: never }
@@ -700,6 +704,14 @@ export function materialType<
     const layout = spec.layout ?? materialLayout(spec.parameters!, {});
     const parameters = layout.parameters;
     if (!spec.name) throw new Error("material type name must not be empty");
+    for (const stage of ["vertex", "fragment"] as const) {
+        const shader = spec[stage];
+        if (shader && "resourceType" in shader) {
+            throw new Error(
+                `material type "${spec.name}" ${stage} shader must be a plain "use gpu" function, not a prebuilt TypeGPU function`,
+            );
+        }
+    }
     let definition!: MaterialType<P, B, V>;
     definition = {
         ...spec,
