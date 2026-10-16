@@ -25,8 +25,7 @@ export interface LookPalette {
     };
 }
 
-// These are the current examples' material values, gathered here so every scene and later palette
-// candidate has one content-colour source. Lighting stays the examples' warm sun and cool ambient.
+// Comparison scenes hold lighting fixed: warm sun and cool ambient.
 const current = {
     current: {
         clearColor: 0x1c1917,
@@ -107,11 +106,9 @@ export const MATERIAL_ROLES = {
     routePerch: "foreground",
 } satisfies Record<keyof LookPalette["materials"], ColorRole>;
 
-// The original three candidates share lightness and chroma; only their hues change.
+// The previous examples palette remains a comparison and repair-test baseline.
 export const CANDIDATES = {
     "dev-orange": { neutral: 80, accents: [55, 250, 100, 25] },
-    "tidal-teal": { neutral: 220, accents: [290, 185, 225, 145] },
-    "orchid-garden": { neutral: 320, accents: [145, 325, 300, 80] },
 } as const;
 
 export function candidateColors(hues: (typeof CANDIDATES)[keyof typeof CANDIDATES]) {
@@ -221,26 +218,6 @@ function devOrangeNeutral(): LookPalette {
 export const PALETTES = {
     ...current,
     "dev-orange": candidate(CANDIDATES["dev-orange"]),
-    "sdk-slate": {
-        clearColor: 0x15191e,
-        materials: {
-            blue: [0.78, 0.22, 0.045, 1],
-            blueGround: [0.07, 0.08, 0.095, 1],
-            orange: [0.045, 0.3, 0.7, 1],
-            greyboxGround: [0.07, 0.08, 0.095, 1],
-            greyboxStep: [0.12, 0.135, 0.15, 1],
-            greyboxLift: [0.12, 0.48, 0.2, 1],
-            greyboxTower: [0.055, 0.063, 0.075, 1],
-            greyboxPerch: [0.09, 0.105, 0.12, 1],
-            embedded: [0.78, 0.22, 0.045, 0.72],
-            trim: [0.035, 0.039, 0.045, 1],
-            routeGround: [0.07, 0.08, 0.095, 1],
-            routeTower: [0.12, 0.135, 0.15, 1],
-            routePerch: [0.16, 0.18, 0.2, 1],
-        },
-        textColor: 0xe9edf0,
-        ui: { panel: "#20262e", ink: "#e9edf0", border: "#626e7c" },
-    } satisfies LookPalette,
     "aperture-carbon": {
         clearColor: 0x191816,
         materials: {
@@ -261,8 +238,6 @@ export const PALETTES = {
         textColor: 0xeee9df,
         ui: { panel: "#282622", ink: "#eee9df", border: "#797369" },
     } satisfies LookPalette,
-    "tidal-teal": candidate(CANDIDATES["tidal-teal"]),
-    "orchid-garden": candidate(CANDIDATES["orchid-garden"]),
     "current-in-range": currentInRange(),
     "dev-orange-neutral": devOrangeNeutral(),
 };

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { oklchFromLinear, PALETTES, srgbChannel } from "./palette";
 import { reportHtml } from "./report";
+import { SCENES } from "./scenes";
 
 test("current-in-range repairs only overflowing albedo and ink, preserving hue and alpha", () => {
     const baseline = PALETTES.current;
@@ -63,7 +64,7 @@ test("dev-orange route neutrals keep the palette hue and distinguish each route 
     expect(c).toBeCloseTo(0.025, 6);
 });
 
-test("all five candidates meet hard bounds while the report retains theme-reference violations", () => {
+test("all candidates meet hard bounds while the report retains theme-reference violations", () => {
     for (const [name, palette] of Object.entries(PALETTES)) {
         if (name === "current") continue;
         for (const value of Object.values(palette.materials)) {
@@ -74,7 +75,7 @@ test("all five candidates meet hard bounds while the report retains theme-refere
         }
     }
     const html = reportHtml();
-    expect(html.match(/<img /g)).toHaveLength(24);
+    expect(html.match(/<img /g)).toHaveLength(Object.keys(PALETTES).length * SCENES.length);
     expect(html).toContain("Theme reference");
     expect(html).toContain("outside");
 });

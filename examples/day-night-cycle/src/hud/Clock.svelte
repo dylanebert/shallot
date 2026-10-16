@@ -17,6 +17,6 @@
 </section>
 
 <style>
-    section { pointer-events: auto; position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 12px; border-radius: 6px; background: #373635; }
-    input { width: 240px; margin: 0; accent-color: #efe3cf; }
+    section { pointer-events: auto; position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 12px; border-radius: 6px; background: #282622; }
+    input { width: 240px; margin: 0; accent-color: #eee9df; }
 </style>

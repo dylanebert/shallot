@@ -1,8 +1,8 @@
 :root {
-    --bg: #f7f3ec;
-    --bg2: #1e1b19;
-    --ink: #2a231e;
-    --frame-error: #cd6559;
+    --bg: #eee9df;
+    --bg2: #191816;
+    --ink: #282622;
+    --frame-error: #ddaa3f;
     --sans: "IBM Plex Sans", system-ui, sans-serif;
     color-scheme: light;
 }
@@ -74,8 +74,8 @@ body {
     z-index: 1;
     display: flex;
     overflow: auto;
-    background: #141210;
-    color: #f0e6d6;
+    background: #282622;
+    color: #eee9df;
     font: 14px/1.5 var(--sans);
     text-align: center;
 }
@@ -97,7 +97,7 @@ body {
     width: 228px;
     max-width: 100%;
     height: 4px;
-    background: #1c1917;
+    background: #191816;
 }
 
 [data-shallot-bootstrap][data-state="error"] {

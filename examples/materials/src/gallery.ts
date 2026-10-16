@@ -41,23 +41,23 @@ import { CheckerMaterial, CheckerPlugin, WaveMaterial, WavePlugin, waveVector } 
 export const presets = [
     {
         name: "Plastic",
-        baseColor: [0.621407, 0.26791815, 0.11756791, 1],
+        baseColor: [0.72, 0.4, 0.05, 1],
         metallic: 0,
         perceptualRoughness: 0.38,
     },
     {
         name: "Rough metal",
-        baseColor: [0.65, 0.59, 0.5, 1],
+        baseColor: [0.2, 0.19, 0.17, 1],
         metallic: 1,
         perceptualRoughness: 0.65,
     },
     {
         name: "Polished metal",
-        baseColor: [0.65, 0.59, 0.5, 1],
+        baseColor: [0.2, 0.19, 0.17, 1],
         metallic: 1,
         perceptualRoughness: 0.12,
     },
-    { name: "Glass", baseColor: [0.7, 0.85, 0.95, 0.28], metallic: 0, perceptualRoughness: 0.08 },
+    { name: "Glass", baseColor: [0.04, 0.43, 0.53, 0.28], metallic: 0, perceptualRoughness: 0.08 },
 ] as const;
 export const Gallery: Resource<{
     camera: number;
@@ -82,7 +82,7 @@ function scene(world: World) {
     const camera = world.create();
     gallery.camera = camera;
     world.add(camera, Transform);
-    world.add(camera, Camera, { clearColor: 0x1c1917, fov: 20 });
+    world.add(camera, Camera, { clearColor: 0x191816, fov: 20 });
     world.add(camera, StandardRenderer);
     world.add(camera, Orbit, { distance: 32, yaw: 0.04, pitch: 0.2, pan: [0, 0.6, 0] });
 }
@@ -95,7 +95,7 @@ function backdrop(world: World) {
             d.vec3f,
         )(() => {
             "use gpu";
-            return d.vec3f(0.0116, 0.0097, 0.0086);
+            return d.vec3f(0.0097212, 0.0091341, 0.0080232);
         }),
     });
     world.add(world.resource(Gallery).camera, CameraBackground, { name: background });
@@ -128,7 +128,7 @@ function surfaces(world: World) {
     });
     const stone = materials.add(
         StandardMaterial({
-            baseColor: [0.38498746, 0.3374035, 0.26791645, 1],
+            baseColor: [0.085, 0.08, 0.072, 1],
             perceptualRoughness: 0.82,
         }),
     );
@@ -157,7 +157,7 @@ function surfaces(world: World) {
             maxWidth: 1.1,
             justify: Justify.Center,
             anchor: [0.5, 0],
-            color: 0xefe3cf,
+            color: 0xeee9df,
         });
         const plinth = world.create();
         world.add(plinth, Transform, { translation: [x, 0.1, 0], scale: [1.45, 0.6, 1.45] });
@@ -173,7 +173,7 @@ function surfaces(world: World) {
         MeshMaterial,
         materials.add(
             StandardMaterial({
-                baseColor: [0.621407, 0.26791815, 0.11756791, 1],
+                baseColor: [0.65, 0.075, 0.09, 1],
                 perceptualRoughness: 0.7,
             }),
         ),
@@ -189,8 +189,8 @@ export const AnimationPlugin: Plugin = {
     initialize(world) {
         const gallery = world.resource(Gallery);
         gallery.checker = world.resource(CheckerMaterial).add({
-            darkColor: d.vec3f(0.06, 0.045, 0.03),
-            lightColor: d.vec3f(0.95, 0.36, 0.08),
+            darkColor: d.vec3f(0.042, 0.039, 0.035),
+            lightColor: d.vec3f(0.65, 0.075, 0.09),
         });
         gallery.wave = world.resource(WaveMaterial).add({ time: 0 });
     },

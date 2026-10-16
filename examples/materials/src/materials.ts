@@ -85,7 +85,7 @@ export const WaveMaterial = materialType({
         d.vec4f,
     )((ctx) => {
         "use gpu";
-        return d.vec4f(lit(d.vec3f(0.62, 0.268, 0.118), ctx.worldNormal), 1);
+        return d.vec4f(lit(d.vec3f(0.04, 0.43, 0.53), ctx.worldNormal), 1);
     }),
 });
 export const CheckerPlugin = MaterialPlugin(CheckerMaterial);

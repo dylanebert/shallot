@@ -9,18 +9,18 @@
         <style>
             * { box-sizing: border-box; margin: 0; }
             html, body, canvas { width: 100%; height: 100%; }
-            body { overflow: hidden; background: #1c1917; }
+            body { overflow: hidden; background: #191816; }
             canvas { display: block; }
-            .title-card { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; background: #1c1917; color: #efe3cf; font: 14px system-ui, sans-serif; }
+            .title-card { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; background: #191816; color: #eee9df; font: 14px system-ui, sans-serif; }
             .lockup { width: min(80vw, 420px); text-align: center; }
-            .mark { display: inline-block; color: #cf8d60; font-size: 64px; line-height: 1; margin-bottom: 24px; transform: rotate(-90deg) scale(0.6); }
+            .mark { display: inline-block; color: #ddaa3f; font-size: 64px; line-height: 1; margin-bottom: 24px; transform: rotate(-90deg) scale(0.6); }
             @media (prefers-reduced-motion: reduce) { .mark { transform: none; } }
             h1 { font-size: clamp(36px, 7vw, 56px); letter-spacing: -2px; font-weight: 500; }
             .subtitle { margin: 12px 0 32px; letter-spacing: 4px; font-size: 11px; }
-            .track { width: 100%; height: 3px; overflow: hidden; background: #373635; }
-            .progress { width: 0; height: 100%; background: #cf8d60; }
+            .track { width: 100%; height: 3px; overflow: hidden; background: #282622; }
+            .progress { width: 0; height: 100%; background: #ddaa3f; }
             .notice { margin-top: 16px; font-size: 12px; }
-            .error { margin-top: 24px; padding: 16px; background: #373635; border: 1px solid #cf8d60; white-space: pre-wrap; text-align: left; line-height: 1.6; }
+            .error { margin-top: 24px; padding: 16px; background: #282622; border: 1px solid #797369; white-space: pre-wrap; text-align: left; line-height: 1.6; }
         </style>
     </head>
     <body>

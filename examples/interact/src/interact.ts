@@ -140,7 +140,7 @@ function activate(world: World, target: number): void {
             world.storage(PointLight).intensity.set(target, active ? 150000 : 0);
             if (world.has(target, MeshMaterial))
                 world.resource(Materials).update(world.storage(MeshMaterial).material.get(target), {
-                    emissive: active ? [2.485628, 1.0716726, 0.47027164] : [0, 0, 0],
+                    emissive: active ? [2.88, 1.6, 0.2] : [0, 0, 0],
                 });
             break;
         case Action.Button: {
@@ -155,9 +155,7 @@ function activate(world: World, target: number): void {
             if (world.has(target, MeshMaterial)) {
                 const material = world.storage(MeshMaterial);
                 world.resource(Materials).update(material.material.get(target), {
-                    baseColor: active
-                        ? [0.621407, 0.26791815, 0.11756791, 1]
-                        : [0.41696574, 0.35106622, 0.08533862, 1],
+                    baseColor: active ? [0.72, 0.4, 0.05, 1] : [0.65, 0.075, 0.09, 1],
                 });
             }
             break;
@@ -247,7 +245,7 @@ const ShowInteraction: System = {
             if (eid === target) {
                 if (!world.has(eid, Outline))
                     world.add(eid, Outline, {
-                        color: [0.8655607, 0.76723723, 0.62240485, 1],
+                        color: [0.8549926, 0.8148466, 0.7379104, 1],
                         width: 4,
                     });
             } else if (world.has(eid, Outline)) world.remove(eid, Outline);

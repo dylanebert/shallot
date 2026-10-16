@@ -116,7 +116,7 @@ test("morning and afternoon cast a shape's shadow on opposite sides", async ({ p
     save("morning", morning);
     save("afternoon", afternoon);
     const contrast = (f: Frame) =>
-        mean(f, 0.44, 0.49, 0.47, 0.505) - mean(f, 0.53, 0.49, 0.56, 0.505);
+        mean(f, 0.48, 0.535, 0.5, 0.55) - mean(f, 0.605, 0.535, 0.62, 0.55);
     expect(contrast(morning) * contrast(afternoon)).toBeLessThan(-4);
 });
 

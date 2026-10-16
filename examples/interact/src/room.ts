@@ -25,10 +25,10 @@ import { Billboard } from "@dylanebert/shallot/rendering";
 import { Action, InteractionInput, InteractPlugin, Usable } from "./interact";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
-const GROUND = [0.38498746, 0.3374035, 0.26791645, 1] as const;
-const ORANGE = [0.621407, 0.26791815, 0.11756791, 1] as const;
-const BLUE = [0.15270135, 0.36628627, 0.70424525, 1] as const;
-const GOLD = [0.41696574, 0.35106622, 0.08533862, 1] as const;
+const GROUND = [0.085, 0.08, 0.072, 1] as const;
+const AMBER = [0.72, 0.4, 0.05, 1] as const;
+const CYAN = [0.04, 0.43, 0.53, 1] as const;
+const RED = [0.65, 0.075, 0.09, 1] as const;
 type Color = readonly [number, number, number, number];
 type Vec3 = readonly [number, number, number];
 function block(world: World, position: Vec3, size: Vec3, color: Color = GROUND): number {
@@ -60,7 +60,7 @@ function room(world: World): void {
         shadowMapsEnabled: 1,
     });
     const camera = world.create();
-    world.add(camera, Camera, { fov: 70, clearColor: 0x1c1917 });
+    world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });
     world.add(camera, StandardRenderer);
     world.add(camera, Transform, { translation: [0, 1.7, 2] });
     world.add(camera, InteractionInput);
@@ -115,7 +115,7 @@ function room(world: World): void {
         ],
     ] as const;
     for (const [position, size] of surfaces) block(world, position, size);
-    const lamp = block(world, [-1.8, 1.5, -1], [0.6, 0.6, 0.6], ORANGE);
+    const lamp = block(world, [-1.8, 1.5, -1], [0.6, 0.6, 0.6], AMBER);
     world.add(lamp, NotShadowCaster);
     const light = lamp;
     world.add(light, PointLight, { color: 0xffe8cc, intensity: 0, range: 6 });
@@ -124,14 +124,14 @@ function room(world: World): void {
         label: internText(world, "Switch on"),
         activeLabel: internText(world, "Switch off"),
     });
-    block(world, [0, 1.1, -0.87], [0.65, 0.65, 0.06], [0.038351106, 0.037505635, 0.03616409, 1]);
-    const button = block(world, [0, 1.1, -0.81], [0.4, 0.4, 0.06], BLUE);
+    block(world, [0, 1.1, -0.87], [0.65, 0.65, 0.06], [0.042, 0.039, 0.035, 1]);
+    const button = block(world, [0, 1.1, -0.81], [0.4, 0.4, 0.06], CYAN);
     world.add(button, Usable, {
         action: Action.Button,
         label: internText(world, "Press"),
         activeLabel: internText(world, "Press"),
     });
-    const held = block(world, [1.8, 1.2, -1], [0.8, 0.8, 0.6], GOLD);
+    const held = block(world, [1.8, 1.2, -1], [0.8, 0.8, 0.6], RED);
     world.add(held, Usable, {
         action: Action.Hold,
         label: internText(world, "Hold to change"),
@@ -151,7 +151,7 @@ function room(world: World): void {
             fontSize: 0.2,
             anchor: [0.5, 0],
             billboard: Billboard.Screen,
-            color: 0xefe3cf,
+            color: 0xeee9df,
         });
     }
     Object.assign(world.resource(Room), {

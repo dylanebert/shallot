@@ -4,7 +4,7 @@ import { DIAGNOSTIC_PLUGINS, SCENES, type SceneDefinition } from "./scenes";
 
 const query = new URLSearchParams(location.search);
 const sceneId = query.get("scene") ?? SCENES[0]!.id;
-const paletteName = (query.get("palette") ?? "current") as PaletteName;
+const paletteName = (query.get("palette") ?? "aperture-carbon") as PaletteName;
 const selectedScene = SCENES.find((candidate) => candidate.id === sceneId);
 const palette = PALETTES[paletteName];
 if (!selectedScene) throw new Error(`Unknown default-look scene: ${sceneId}`);

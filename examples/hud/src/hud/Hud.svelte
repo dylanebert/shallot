@@ -8,8 +8,8 @@
     let speed = $state(untrack(() => world.resource(Turn).speed));
     let selected = $state(0);
     const swatches = [
-        { name: "Orange", color: [0.621407, 0.26791815, 0.11756791, 1] },
-        { name: "Blue", color: [0.15270135, 0.36628627, 0.70424525, 1] },
+        { name: "Amber", color: [0.72, 0.4, 0.05, 1] },
+        { name: "Cyan", color: [0.04, 0.43, 0.53, 1] },
     ];
 
     function srgb(color: number[]) {
@@ -63,12 +63,12 @@
         gap: 12px;
         padding: 10px 12px;
         border-radius: 6px;
-        background: #373635;
+        background: #282622;
     }
     .swatches { display: flex; gap: 8px; }
     button { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 4px; cursor: pointer; }
-    button[aria-pressed="true"] { border-color: #efe3cf; }
-    .angle { min-width: 4ch; color: #efe3cf; font: 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: right; }
+    button[aria-pressed="true"] { border-color: #eee9df; }
+    .angle { min-width: 4ch; color: #eee9df; font: 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: right; }
     small { font-size: 0.7em; vertical-align: top; }
-    input { width: 140px; margin: 0; accent-color: #efe3cf; }
+    input { width: 140px; margin: 0; accent-color: #eee9df; }
 </style>

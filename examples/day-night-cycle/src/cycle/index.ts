@@ -88,7 +88,7 @@ export function atmosphere(
     out.moonColor = 0xb8ceff;
     out.moonIlluminance = 650 * Math.max(0, Math.min(1, (0.12 - elevation) / 0.4));
     out.sunColor = blend(0xff9b52, 0xffe8cc, day);
-    out.illuminance = (3200 * day) / (0.15 + 0.85 * day);
+    out.illuminance = (2800 * day) / (0.15 + 0.85 * day);
     out.ambientColor = 0xd8e4ff;
     out.ambientBrightness = 180 + 340 * daylight;
     out.zenith = blend(0x080e26, 0x719aca, daylight);
@@ -126,7 +126,7 @@ function makeScene(world: World): void {
     world.add(scene.moon, DirectionalLight, { shadowMapsEnabled: 1 });
     world.add(scene.moon, SunDisk, { angularSize: 0.018, glow: 0.25 });
     scene.camera = world.create();
-    world.add(scene.camera, Camera, { clearColor: 0x1c1917 });
+    world.add(scene.camera, Camera, { clearColor: 0x191816 });
     world.add(scene.camera, CameraBackground, { name: world.resource(Backgrounds).id("sky") });
     world.add(scene.camera, StandardRenderer);
     world.add(scene.camera, Exposure, { ev100: 9.7 });
@@ -154,15 +154,14 @@ function makeScene(world: World): void {
     });
 
     const materials = world.resource(Materials);
-    const orange = materials.add(
-        StandardMaterial({
-            baseColor: [0.621407, 0.26791815, 0.11756791, 1],
-            perceptualRoughness: 0.38,
-        }),
-    );
+    const accents = [
+        [0.72, 0.4, 0.05, 1],
+        [0.04, 0.43, 0.53, 1],
+        [0.65, 0.075, 0.09, 1],
+    ] as const;
     const neutral = materials.add(
         StandardMaterial({
-            baseColor: [0.38498746, 0.3374035, 0.26791645, 1],
+            baseColor: [0.085, 0.08, 0.072, 1],
             perceptualRoughness: 0.82,
         }),
     );
@@ -171,10 +170,16 @@ function makeScene(world: World): void {
         { position: [-1, 0.6, -2.8], scale: [1.2, 1.2, 1.2] },
         { position: [1, 0.4, 2.8], scale: [1.4, 0.8, 1.4] },
     ];
-    for (const shape of shapes) {
+    for (const [index, shape] of shapes.entries()) {
         const eid = world.create();
         world.add(eid, MeshInstance);
-        world.add(eid, MeshMaterial, orange);
+        world.add(
+            eid,
+            MeshMaterial,
+            materials.add(
+                StandardMaterial({ baseColor: accents[index]!, perceptualRoughness: 0.38 }),
+            ),
+        );
         world.add(eid, Transform, { translation: shape.position, scale: shape.scale });
     }
     const ground = world.create();

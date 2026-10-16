@@ -11,8 +11,8 @@ declare global {
 const entry = "**/assets/index-*.js";
 const bootstrapSelector = "[data-shallot-bootstrap]";
 const loadingOverlay = "[data-title-card]";
-const lightBackground = [28, 25, 23];
-const lightTrack = [55, 54, 53];
+const lightBackground = [25, 24, 22];
+const lightTrack = [40, 38, 34];
 
 async function holdEntry(page: Page): Promise<() => void> {
     let release!: () => void;
@@ -214,8 +214,8 @@ test("the game title bootstrap hands off without a jump to its own progress trac
         document.querySelector<HTMLElement>(".progress")!.style.width = "0";
     });
     const runtimeTrack = await loadingTrackPixels(page);
-    expect(runtimeTrack.background).toBe("rgb(28, 25, 23)");
-    expect(runtimeTrack.track).toBe("rgb(55, 54, 53)");
+    expect(runtimeTrack.background).toBe("rgb(25, 24, 22)");
+    expect(runtimeTrack.track).toBe("rgb(40, 38, 34)");
     expect(runtimeTrack.width).toBe(420);
     expect(runtimeTrack.height).toBe(3);
     expect(

@@ -26,7 +26,7 @@ export function authorWorld(world: World): void {
     });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const camera = world.create();
-    world.add(camera, Camera, { clearColor: 0x1c1917 });
+    world.add(camera, Camera, { clearColor: 0x191816 });
     world.add(camera, StandardRenderer);
     world.add(camera, Orbit, { distance: 5, yaw: 0.6, pitch: 0.25 });
     world.add(camera, Transform);
@@ -36,7 +36,7 @@ export function authorWorld(world: World): void {
     const materials = world.resource(Materials);
     const material = materials.add(
         StandardMaterial({
-            baseColor: [0.621407, 0.26791815, 0.11756791, 1],
+            baseColor: [0.72, 0.4, 0.05, 1],
             perceptualRoughness: 0.38,
         }),
     );
@@ -49,7 +49,7 @@ export function authorWorld(world: World): void {
         MeshMaterial,
         materials.add(
             StandardMaterial({
-                baseColor: [0.38498746, 0.3374035, 0.26791645, 1],
+                baseColor: [0.085, 0.08, 0.072, 1],
                 perceptualRoughness: 0.82,
             }),
         ),

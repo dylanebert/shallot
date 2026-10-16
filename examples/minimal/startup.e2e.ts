@@ -58,9 +58,9 @@ async function labelInkPixels(page: Page): Promise<number> {
             ) {
                 const offset = (y * canvas.width + x) * 4;
                 if (
-                    Math.abs(pixels[offset]! - 20) > 4 &&
-                    Math.abs(pixels[offset + 1]! - 18) > 4 &&
-                    Math.abs(pixels[offset + 2]! - 16) > 4
+                    Math.abs(pixels[offset]! - 40) > 4 &&
+                    Math.abs(pixels[offset + 1]! - 38) > 4 &&
+                    Math.abs(pixels[offset + 2]! - 34) > 4
                 )
                     contrasting++;
             }
@@ -85,11 +85,11 @@ test("minimal paints its bootstrap before the held application entry", async ({ 
 test("the screenshot witness rejects a blank bootstrap control", async ({ page }) => {
     const release = await holdEntry(page);
     await page.addStyleTag({
-        content: "[data-shallot-bootstrap] { visibility: hidden !important; }",
+        content: "[data-shallot-bootstrap] { color: transparent !important; }",
     });
     expect(
         await labelInkPixels(page),
-        "hidden bootstrap text leaves no contrasting label pixels",
+        "transparent bootstrap text leaves no contrasting label pixels",
     ).toBe(0);
     release();
 });
