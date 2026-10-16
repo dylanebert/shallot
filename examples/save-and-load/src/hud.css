@@ -1,8 +1,14 @@
-.save-hud { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: #eee9df; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: center; }
+.save-hud { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); width: max-content; color: #eee9df; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: center; }
 .save-hud h1 { font-size: 24px; font-weight: 400; font-variant-numeric: tabular-nums; margin: 0 0 12px; }
 .save-hud .controls { display: flex; gap: 8px; pointer-events: auto; }
-.save-hud button { color: inherit; background: #282622; border: 0; border-radius: 2px; padding: 10px 12px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer; white-space: nowrap; }
+.save-hud button { box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 152px; height: 48px; color: inherit; background: #282622; border: 0; border-radius: 2px; padding: 10px 12px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer; white-space: nowrap; }
 .save-hud button:hover:not(:disabled) { outline: 1px solid #eee9df; }
 .save-hud button:focus-visible { outline: 1px solid #eee9df; outline-offset: 2px; }
 .save-hud button:disabled { color: #797369; cursor: default; }
-.save-hud kbd { display: inline-block; margin-left: 8px; padding: 0 5px; border: 1px solid #797369; border-radius: 2px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.save-hud kbd { display: grid; place-items: center; box-sizing: border-box; flex: 0 0 28px; height: 28px; border: 1px solid #797369; border-radius: 2px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.save-hud.treatment-A { text-shadow: 0 1px 3px #191816; }
+.save-hud.treatment-A .controls { gap: 24px; }
+.save-hud.treatment-A button { background: none; padding: 0; width: 132px; height: 28px; justify-content: flex-start; }
+.save-hud.treatment-A kbd { order: -1; background: #282622; border-color: currentColor; }
+.save-hud.treatment-B .controls { gap: 24px; padding: 10px 12px; background: #282622; border-radius: 2px; }
+.save-hud.treatment-B button { background: none; padding: 0; width: 124px; height: 28px; }

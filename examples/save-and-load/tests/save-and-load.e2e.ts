@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { expect, type Page, test } from "playwright/test";
 import type { Save } from "../src/save";
 
@@ -18,7 +19,7 @@ declare global {
 async function capture(page: Page, name: string): Promise<void> {
     const directory = process.env.SHALLOT_CAPTURE_DIR;
     if (!directory) return;
-    mkdirSync(directory, { recursive: true });
+    mkdirSync(dirname(`${directory}/${name}.png`), { recursive: true });
     const adapter = await page.evaluate(() => window.adapter);
     expect(adapter.class).toBe("real");
     console.log("save-and-load adapter", adapter);
@@ -131,3 +132,45 @@ test("three clicks, Save, New game and Load restore the pile and shown count, al
     await count(page, 0);
     expect(errors).toEqual([]);
 });
+
+for (const treatment of ["A", "B", "C"]) {
+    test(`treatment ${treatment} holds every control still across feedback, disabled, hover and focus`, async ({
+        page,
+    }) => {
+        await page.goto(
+            `http://127.0.0.1:4190/tests/stepped.html?treatment=${treatment}${process.env.SHALLOT_CAPTURE_DIR ? "&capture" : ""}`,
+        );
+        await page.waitForFunction(() => !!window.saveAndLoad);
+        const controls = page.locator(".save-hud button");
+        const boxes = () =>
+            controls.evaluateAll((elements) =>
+                elements.map((element) => {
+                    const { x, y, width, height } = element.getBoundingClientRect();
+                    return { x, y, width, height };
+                }),
+            );
+        const initial = await boxes();
+        await expect(controls.nth(2)).toBeDisabled();
+        for (let i = 0; i < 3; i++) await page.evaluate(() => window.saveAndLoad.click());
+        await page.evaluate(() => window.saveAndLoad.advance(60));
+        await capture(page, `${treatment}/01-three-coins`);
+        await controls.nth(1).click();
+        await page.evaluate(() => window.saveAndLoad.advance());
+        await expect(controls.nth(1)).toHaveText("Saved S");
+        expect(await boxes()).toEqual(initial);
+        await expect(controls.nth(2)).toBeEnabled();
+        await page.mouse.move(0, 0);
+        await capture(page, `${treatment}/02-saved`);
+        await page.evaluate(() => window.saveAndLoad.advance(130));
+        expect(await boxes()).toEqual(initial);
+        for (const control of await controls.all()) {
+            await control.hover();
+            expect(await boxes()).toEqual(initial);
+            await control.focus();
+            expect(await boxes()).toEqual(initial);
+        }
+        await controls.nth(2).evaluate((element) => (element as HTMLElement).blur());
+        await controls.nth(1).hover();
+        await capture(page, `${treatment}/03-save-hovered`);
+    });
+}
