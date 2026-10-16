@@ -86,11 +86,11 @@ export function atmosphere(
     out.moonDirection[1] = elevation - 0.12;
     out.moonDirection[2] = 0.25;
     out.moonColor = 0xb8ceff;
-    out.moonIlluminance = 650 * Math.max(0, Math.min(1, (0.12 - elevation) / 0.4));
+    out.moonIlluminance = 420 * Math.max(0, Math.min(1, (0.12 - elevation) / 0.4));
     out.sunColor = blend(0xff9b52, 0xffe8cc, day);
     out.illuminance = (2800 * day) / (0.15 + 0.85 * day);
     out.ambientColor = 0xd8e4ff;
-    out.ambientBrightness = 180 + 340 * daylight;
+    out.ambientBrightness = 180 + 340 * daylight - 370 * day * day;
     out.zenith = blend(0x080e26, 0x719aca, daylight);
     out.horizon = blend(0x182039, blend(0xbcc5d4, 0xe9a175, dusk), daylight);
     out.hazeColor = blend(0x182039, blend(0xbcc5d4, 0xe9a175, dusk), daylight);
@@ -161,7 +161,7 @@ function makeScene(world: World): void {
     ] as const;
     const neutral = materials.add(
         StandardMaterial({
-            baseColor: [0.085, 0.08, 0.072, 1],
+            baseColor: [0.042, 0.039, 0.035, 1],
             perceptualRoughness: 0.82,
         }),
     );
