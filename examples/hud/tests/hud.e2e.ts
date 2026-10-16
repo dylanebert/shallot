@@ -14,11 +14,20 @@ async function step(page: Page, steps: number): Promise<Turn> {
 }
 
 test.describe("zoomed pointer controls", () => {
-    test.use({ viewport: { width: 2880, height: 1620 }, deviceScaleFactor: 1.333 });
+    // 721 is the smallest whole-pixel shortest side above the 720px zoom reference.
+    test.use({ viewport: { width: 721, height: 721 }, deviceScaleFactor: 1 });
     test("the speed slider follows a pointer drag through the scaled overlay", async ({ page }) => {
         await page.goto("/");
         const controls = page.getByRole("region", { name: "Cube controls" });
-        await expect(controls.locator("..")).toHaveCSS("zoom", "2.25");
+        await expect
+            .poll(async () =>
+                Number(
+                    await controls
+                        .locator("..")
+                        .evaluate((overlay) => getComputedStyle(overlay).zoom),
+                ),
+            )
+            .toBeCloseTo(721 / 720, 5);
         const slider = page.getByRole("slider", { name: "Turn speed" });
         const bounds = (await slider.boundingBox())!;
         const y = bounds.y + bounds.height / 2;

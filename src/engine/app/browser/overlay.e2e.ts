@@ -61,24 +61,33 @@ for (const deviceScaleFactor of [1, 1.333]) {
             ]) {
                 await page.setViewportSize({ width, height });
                 await expect
-                    .poll(async () => (await text.boundingBox())!.height)
-                    .toBeCloseTo(reference.height * scale, 1);
-                expect((await text.boundingBox())!.width).toBeCloseTo(reference.width * scale, 0);
+                    // CSS zoom can round layout to whole rendered pixels on the host.
+                    .poll(async () =>
+                        Math.abs((await text.boundingBox())!.height - reference.height * scale),
+                    )
+                    .toBeLessThanOrEqual(1);
+                expect(
+                    Math.abs((await text.boundingBox())!.width - reference.width * scale),
+                ).toBeLessThanOrEqual(1);
                 const overlay = (await text.locator("..").boundingBox())!;
-                expect(overlay.width).toBeCloseTo(width, 0);
-                expect(overlay.height).toBeCloseTo(height, 0);
+                expect(Math.abs(overlay.width - width)).toBeLessThanOrEqual(1);
+                expect(Math.abs(overlay.height - height)).toBeLessThanOrEqual(1);
                 if (scale === 1) await expect(text).toHaveCSS("font-size", "14px");
                 const bounds = (await text.boundingBox())!;
-                expect(bounds.x + bounds.width / 2).toBeCloseTo(width / 2, 0);
-                expect(bounds.y + bounds.height).toBeCloseTo(height - 16 * scale, 0);
+                expect(Math.abs(bounds.x + bounds.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+                expect(
+                    Math.abs(bounds.y + bounds.height - (height - 16 * scale)),
+                ).toBeLessThanOrEqual(1);
             }
             await page.locator("canvas").evaluate((canvas) => {
                 canvas.style.width = "2880px";
                 canvas.style.height = "1620px";
             });
             await expect
-                .poll(async () => (await text.boundingBox())!.height)
-                .toBeCloseTo(reference.height * 2.25, 1);
+                .poll(async () =>
+                    Math.abs((await text.boundingBox())!.height - reference.height * 2.25),
+                )
+                .toBeLessThanOrEqual(1);
         });
     });
 }
