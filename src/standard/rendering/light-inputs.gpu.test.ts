@@ -6,6 +6,7 @@ import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import { lightInputKey } from "./cluster";
 import { StandardRenderingPlugin } from "./index";
+import { spotParams } from "./lighting";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const subjects = gpuApps(import.meta.path, [
@@ -79,8 +80,10 @@ test("a standalone spot light owns and updates a dense row, then releases it on 
     expect(initial.getFloat32(4, true)).toBe(3);
     expect(initial.getFloat32(8, true)).toBe(8);
     expect(initial.getFloat32(12, true)).toBe(Math.fround(0.2));
-    expect(initial.getFloat32(16, true)).toBe(Math.fround((20 * Math.PI) / 180));
-    expect(initial.getFloat32(20, true)).toBe(Math.fround((40 * Math.PI) / 180));
+    const inner = Math.fround((20 * Math.PI) / 180);
+    const initialSpot = spotParams(inner, Math.fround((40 * Math.PI) / 180));
+    expect(initial.getFloat32(16, true)).toBe(Math.fround(initialSpot.scale));
+    expect(initial.getFloat32(20, true)).toBe(Math.fround(initialSpot.offset));
     expect(initial.getUint32(24, true)).toBe(1);
     world.add(eid, PointLight, { intensity: 99 });
     expect((await record()).getFloat32(4, true)).toBe(3);
@@ -89,7 +92,9 @@ test("a standalone spot light owns and updates a dense row, then releases it on 
     world.storage(SpotLight).outerAngle.set(eid, Math.PI / 4);
     world.add(eid, VolumetricLight);
     const changed = await record();
-    expect(changed.getFloat32(20, true)).toBe(Math.fround(Math.PI / 4));
+    expect(changed.getFloat32(20, true)).toBe(
+        Math.fround(spotParams(inner, Math.fround(Math.PI / 4)).offset),
+    );
     expect(changed.getUint32(24, true)).toBe(3);
     world.remove(eid, SpotLight);
     world.step(0);

@@ -51,6 +51,7 @@ import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle
 import {
     CullLightsSystem,
     initializeClusterState,
+    PackSpotAttenuationSystem,
     UpdateLightClustersSystem,
     warmClusters,
     warmLightCull,
@@ -1223,6 +1224,7 @@ export const StandardRenderingPlugin: Plugin = {
     components: [StandardRenderer, CameraBackground],
     systems: [
         PackLightingSystem,
+        PackSpotAttenuationSystem,
         UpdateLightClustersSystem,
         CullLightsSystem,
         ResolveDrawsSystem,

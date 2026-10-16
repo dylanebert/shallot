@@ -18,7 +18,7 @@ import {
     Xform,
     xformQuat,
 } from "../../core/rendering";
-import type { System, World } from "../../engine";
+import { ClearChangeMarksSystem, type System, type World } from "../../engine";
 import {
     beginComputePass,
     beginRenderPass,
@@ -42,6 +42,7 @@ import {
     PointLightGpu,
     PointLights,
     PointLightsRw,
+    spotParams,
     warnLightOverflow,
 } from "./lighting";
 
@@ -154,15 +155,16 @@ function _clusterGpu(world: World): ClusterGpuState {
     return world.resource(clusterGpuKey);
 }
 
-/** Authoring input rows preserve lumens; the compact pass divides by 4π to store linear-RGB candela. */
+/** Authoring input rows preserve lumens; the compact pass divides by 4π to store linear-RGB candela.
+ * Spot rows carry {@link spotParams} from the CPU, written by {@link PackSpotAttenuationSystem}. */
 const LightInput = d
     .struct({
         color: d.f32,
         intensity: d.f32,
         range: d.f32,
         radius: d.f32,
-        spotInner: d.f32,
-        spotOuter: d.f32,
+        spotScale: d.f32,
+        spotOffset: d.f32,
         flags: d.u32,
         padding: d.u32,
     })
@@ -196,13 +198,47 @@ export function initializeClusterState(world: World): void {
         intensity: "intensity",
         range: "range",
         radius: "radius",
-        spotInner: "innerAngle",
-        spotOuter: "outerAngle",
     });
     table.bindMembership(SpotLight);
     table.bindPresence(SpotLight, "flags", LIGHT_SPOT);
     table.bindPresence(VolumetricLight, "flags", LIGHT_VOLUMETRIC);
 }
+
+const SPOT_SCALE_OFFSET = d.memoryLayoutOf(LightInput, (row) => row.spotScale).offset;
+const SPOT_LIGHTS = [SpotLight];
+
+/**
+ * Spot coefficients come from {@link spotParams} on the CPU, as in Bevy, before the draw-head upload. WGSL
+ * bounds f32 `cos` only to an absolute 2⁻¹¹, and the scale multiplies that error by up to 1e4; f32 also loses
+ * a narrow cone's `cos inner − cos outer` to cancellation.
+ */
+export const PackSpotAttenuationSystem: System = {
+    group: "draw",
+    first: true,
+    before: [ClearChangeMarksSystem],
+    update(world) {
+        const table = lightInputTable(world);
+        const spot = world.storage(SpotLight);
+        const view = new DataView(table.bytes.buffer);
+        for (const eid of world.query(SPOT_LIGHTS)) {
+            const row = table.rowIndex(eid);
+            if (row < 0) continue;
+            const { scale, offset } = spotParams(
+                spot.innerAngle.get(eid),
+                spot.outerAngle.get(eid),
+            );
+            const at = row * table.rowBytes + SPOT_SCALE_OFFSET;
+            if (
+                Object.is(view.getFloat32(at, true), Math.fround(scale)) &&
+                Object.is(view.getFloat32(at + 4, true), Math.fround(offset))
+            )
+                continue;
+            view.setFloat32(at, scale, true);
+            view.setFloat32(at + 4, offset, true);
+            table.markRange(row, 1);
+        }
+    },
+};
 
 // Logarithmic depth slices distribute near-camera lights across clusters.
 // View-space AABBs depend only on projection, so camera motion alone needs no rebuild.
@@ -1010,14 +1046,11 @@ function compactKernel() {
             let params = d.vec4f(radius, 0, 0, 1);
             if ((record.flags & LIGHT_SPOT) !== 0) {
                 const dir = std.normalize(xformQuat(globalTransform.quat, d.vec3f(0, 0, -1)));
-                const cosInner = std.cos(record.spotInner);
-                const cosOuter = std.cos(record.spotOuter);
-                const scale = 1 / std.max(cosInner - cosOuter, 1e-4);
                 params = d.vec4f(
                     radius,
                     std.bitcastU32toF32(octEncodeNormal(dir)),
-                    scale,
-                    -cosOuter * scale,
+                    record.spotScale,
+                    record.spotOffset,
                 );
             }
             compactLayout.$.lights.lights.lights[i].params = d.vec4f(params);

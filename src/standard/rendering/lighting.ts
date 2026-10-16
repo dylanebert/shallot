@@ -275,7 +275,7 @@ export const distanceAttenuation = tgpu.fn(
  * fragment→light direction `L`: `saturate(cd·scale + offset)²`, 1 inside the inner cone and smoothly 0 at
  * the outer. A plain point light carries `(0, 1)` in `params.zw`, so the early-out returns 1 and the
  * multiply is a no-op. `cd` is the cosine between the oct-packed cone axis (`params.y`) and `-L`.
- * {@link spotParams} is the CPU twin that bakes the `(scale, offset)` pair the compact pass stores.
+ * {@link spotParams} computes the `(scale, offset)` pair on the CPU; the compact pass copies it.
  */
 export const spotFactor = tgpu.fn(
     [PointLightGpu, d.vec3f],

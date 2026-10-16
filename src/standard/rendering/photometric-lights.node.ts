@@ -20,6 +20,7 @@ import {
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
+import { probeBuffer } from "../../engine/runtime";
 import {
     Materials,
     MeshMaterial,
@@ -34,6 +35,7 @@ import {
     LightingGpu,
     MAX_DIRECTIONAL_LIGHTS,
     shadowDirectionalLight,
+    spotParams,
     writeLighting,
 } from "./lighting";
 
@@ -41,6 +43,7 @@ setDefaultTimeout(TIMEOUT.node);
 
 const config = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 const subjects = gpuApps(import.meta.path, [
+    config,
     config,
     config,
     config,
@@ -188,6 +191,43 @@ test("spot lumens preserve the former linear-light frame after recalibration", a
     expect(pixel[0]).toBeCloseTo(encoded, 0);
     expect(pixel[1]).toBeCloseTo(encoded, 0);
     expect(pixel[2]).toBeCloseTo(encoded, 0);
+});
+
+// WGSL bounds device cos only to an absolute 2^-11, which a 1e4 scale turns into whole units of offset.
+test("compacted spot coefficients are the CPU's for narrow, ordinary and near-right cones", async () => {
+    const { world } = subjects()[9];
+    const { camera } = scene(world);
+    world.add(camera, AmbientLight, { brightness: 0 });
+    const light = world.create();
+    world.add(light, Transform, { translation: [0, 0, 2, 0] });
+    world.add(light, SpotLight, { range: 10 });
+    const spot = world.storage(SpotLight);
+    const degrees = (angle: number) => (angle * Math.PI) / 180;
+    const nearRight = Math.PI / 2 - 1e-4;
+    const packed: number[][] = [];
+    const cpu: number[][] = [];
+    for (const [inner, outer] of [
+        [degrees(0.5), degrees(1)],
+        [0, degrees(45)],
+        [degrees(20), degrees(30)],
+        [degrees(88), degrees(89)],
+        [nearRight, nearRight],
+    ]) {
+        spot.innerAngle.set(light, inner);
+        spot.outerAngle.set(light, outer);
+        world.step(0);
+        const probe = await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
+            offset: 56,
+            size: 8,
+        });
+        packed.push([...new Float32Array(probe.bytes)]);
+        const { scale, offset } = spotParams(
+            spot.innerAngle.get(light),
+            spot.outerAngle.get(light),
+        );
+        cpu.push([Math.fround(scale), Math.fround(offset)]);
+    }
+    expect(packed).toEqual(cpu);
 });
 
 test("default light values match Bevy's photometric and shadow defaults", () => {
