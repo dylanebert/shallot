@@ -48,6 +48,7 @@ import {
     SkyPlugin,
     Sprite,
     SpritePlugin,
+    skyBackgroundHandle,
     Text,
     TextPlugin,
     Vignette,
@@ -530,9 +531,7 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(camera, Orbit);
             world.add(camera, Listener);
             world.storage(Transform).translation.set(camera, 0, 4, 12, 0);
-            world
-                .storage(CameraBackground)
-                .name.set(camera, world.resource(Backgrounds).id("sky") ?? 0);
+            world.storage(CameraBackground).background.set(camera, skyBackgroundHandle(world));
             attachCanvas(world, camera, canvas);
 
             if (
@@ -873,7 +872,6 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             [SpritePlugin, "material:SpriteMaterial"],
             [TextPlugin, "textGlyphs"],
             [LinesPlugin, "lineSegments"],
-            [SkyPlugin, "sky"],
         ] as const) {
             if (!uses(subject, plugin)) continue;
             const a = first.world.gpu.buffers.get(key);
@@ -881,6 +879,16 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect(a).toBeDefined();
             expect(b).toBeDefined();
             expect(a).not.toBe(b);
+        }
+
+        if (uses(subject, SkyPlugin)) {
+            const binding = (world: World) =>
+                world.resource(Backgrounds).get(skyBackgroundHandle(world))!.bindings!(world).sky;
+            expect(binding(first.world)).toBeDefined();
+            expect(binding(second.world)).toBeDefined();
+            expect(binding(first.world)).not.toBe(binding(second.world));
+            expect(first.world.gpu.buffers.has("sky")).toBe(false);
+            expect(first.world.gpu.typed.has("sky")).toBe(false);
         }
 
         const peerHashBeforeDispose = hasPhysics ? hashPhysics(second.world) : 0n;

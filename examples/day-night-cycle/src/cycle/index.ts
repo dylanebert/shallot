@@ -20,8 +20,15 @@ import {
     VolumetricLight,
     type World,
 } from "@dylanebert/shallot";
-import { Fog, FogPlugin, Orbit, OrbitPlugin, Sky, SkyPlugin } from "@dylanebert/shallot/extras";
-import { Backgrounds } from "@dylanebert/shallot/standard/rendering";
+import {
+    Fog,
+    FogPlugin,
+    Orbit,
+    OrbitPlugin,
+    Sky,
+    SkyPlugin,
+    skyBackgroundHandle,
+} from "@dylanebert/shallot/extras";
 
 /** Hour in [0,24); one real minute is one day. Scrubbing replaces the current hour. */
 export const Clock: Resource<{ hour: number }> = { create: () => ({ hour: 10 }) };
@@ -127,7 +134,7 @@ function makeScene(world: World): void {
     world.add(scene.moon, SunDisk, { angularSize: 0.018, glow: 0.25 });
     scene.camera = world.create();
     world.add(scene.camera, Camera, { clearColor: 0x191816 });
-    world.add(scene.camera, CameraBackground, { name: world.resource(Backgrounds).id("sky") });
+    world.add(scene.camera, CameraBackground, { background: skyBackgroundHandle(world) });
     world.add(scene.camera, StandardRenderer);
     world.add(scene.camera, Exposure, { ev100: 9.7 });
     world.add(scene.camera, Tonemapping, { method: TonemappingMethod.AgX });

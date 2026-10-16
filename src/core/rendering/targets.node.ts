@@ -74,7 +74,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
             return d.vec3f(0.12, 0.2, 0.35);
         }),
     });
-    world.add(camera, CameraBackground, { name: id });
+    world.add(camera, CameraBackground, { background: id });
     attachTexture(world, camera, { width: 64, height: 64 });
     const mesh = world.create();
     world.add(mesh, Transform);

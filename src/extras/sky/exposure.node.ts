@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Sky, SkyPlugin } from "@dylanebert/shallot/extras";
+import { Sky, SkyPlugin, skyBackgroundHandle } from "@dylanebert/shallot/extras";
 import { MeshInstance } from "@dylanebert/shallot/mesh";
 import {
     AmbientLight,
@@ -13,7 +13,6 @@ import {
     TonemappingMethod,
 } from "@dylanebert/shallot/rendering";
 import {
-    Backgrounds,
     CameraBackground,
     Materials,
     MeshMaterial,
@@ -41,7 +40,7 @@ test("one EV dims the sky, SunDisk disk and glow, and a lit surface by half", as
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     world.add(camera, AmbientLight, { brightness: 500 });
     world.add(camera, Exposure, { ev100: 9.7 });
-    world.add(camera, CameraBackground, { name: world.resource(Backgrounds).id("sky") });
+    world.add(camera, CameraBackground, { background: skyBackgroundHandle(world) });
     attachTexture(world, camera, { width: 17, height: 17 });
     const sky = world.create();
     world.add(sky, Sky, { zenith: 0x808080, horizon: 0x808080, cloudCoverage: 0, hazeDensity: 0 });

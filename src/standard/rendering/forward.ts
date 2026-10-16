@@ -205,11 +205,11 @@ export const StandardRenderer = component("StandardRenderer", {});
  * select a StandardRenderer camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen
  * view-ray → color fill on the un-rendered pixels. Without it the camera shows the flat `Camera.clearColor`
  * (the opt-in fallback). The recipe is registered in code with `registerBackground`; this picks one per
- * camera by name.
+ * camera by its World-local handle.
  */
 export const CameraBackground = component("CameraBackground", {
-    /** the {@link Backgrounds} id drawn behind the scene */
-    name: u32,
+    /** The handle returned by registerBackground in this World. */
+    background: u32,
 });
 
 // A draw resolving to null is a silent skip — usually a typo'd binding or an
@@ -303,6 +303,7 @@ function layoutResources(
     entries: Record<string, object>,
     override?: Record<string, BindResource>,
     materialType?: MaterialType<any, any, any>,
+    owned = false,
 ):
     | {
           values: Record<string, unknown>;
@@ -327,7 +328,9 @@ function layoutResources(
             override?.[name] ??
             (name === "materialParameters" && materialType
                 ? world.resource(materialType).table.typed
-                : registry.get(name));
+                : owned
+                  ? undefined
+                  : registry.get(name));
         if (!res) return name;
         if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
         resources.push(res);
@@ -623,20 +626,15 @@ function renderPrepass(
     world.gpu.indirect?.("standard:prepass", draws);
 }
 
-// the camera's selected backdrop — or null (no `CameraBackground` component, or its name
-// isn't a compiled background). Membership-gated — a bare `CameraBackground.name.get` reads 0 for a non-member,
-// which would alias the first registered background, so the `world.has` check is what keeps the
-// no-backdrop path on the clear
 type BackdropPick = { bg: Background; ct: CompiledBackground };
 function backdrop(world: World, eid: number): BackdropPick | null {
     const _backgrounds = world.resource(Backgrounds);
 
     if (!world.has(eid, CameraBackground)) return null;
-    const id = world.storage(CameraBackground).name.get(eid);
-    const name = _backgrounds.name(id);
-    const bg = name ? _backgrounds.get(name) : undefined;
+    const id = world.storage(CameraBackground).background.get(eid);
+    const bg = _backgrounds.get(id);
     if (!bg) return null;
-    const ct = getBackground(world, bg.name, bg) ?? compileBackground(world, bg);
+    const ct = getBackground(world, bg) ?? compileBackground(world, bg);
     return { bg, ct };
 }
 
@@ -650,7 +648,7 @@ function backgroundGroup(
 ): GPUBindGroup | null | "none" {
     const entries = bg.layout.entries as Record<string, object>;
     if (Object.keys(entries).length === 0) return "none";
-    const resolved = layoutResources(world, entries);
+    const resolved = layoutResources(world, entries, bg.bindings?.(world) ?? {}, undefined, true);
     if (typeof resolved === "string") {
         return warnSkip(world, `background:${bg.name}`, `binding "${resolved}" not published`);
     }

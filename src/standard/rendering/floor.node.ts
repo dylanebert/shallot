@@ -348,7 +348,7 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
                 return d.vec3f(0.1, 0.2, 0.3);
             }),
         });
-        world.add(camera, CameraBackground, { name: bg });
+        world.add(camera, CameraBackground, { background: bg });
         const standardMaterial = world
             .resource(Materials)
             .add(StandardMaterial({ baseColor: [1, 0.3, 0.2, 1] }));

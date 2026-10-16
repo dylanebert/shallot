@@ -896,7 +896,7 @@ Material, background and draw contracts belong to `/standard/rendering`. Update 
 | `/render/core` `TagFn` | Removed; there is no replacement picking lane. |
 | `/render/core` `BgCtx` | `/standard/rendering` `BackgroundContext` |
 | `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |
-| `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`, same names |
+| `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`; `registerBackground` returns a World-local `BackgroundHandle`. Store it in `CameraBackground.background` (formerly `name`). Names are display labels; repeated names create distinct backgrounds. `Backgrounds` is a read-only handle map; `Backgrounds.id(name)` is removed. Supply a background's resources through its `bindings(world)` callback instead of publishing them in `world.gpu`. For the sky, select `skyBackgroundHandle(world)` from `/extras`; the sky no longer publishes GPU resources under `"sky"`. |
 | `/render/core` `Draw`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
 | `/render/core` `computeViewProj`, `Frame`, `FrameGpu`, `BeginFrameSystem`, `OverlaySystem`, `CULL_FRUSTUM`, `CULL_VOLUME_FLOATS`, `Views`, `MAX_VIEWS`, `MAX_SLOTS`, `attachCanvas`, `attachView`, `detachCanvas`, `sceneTransform`, `imageArray` | `/rendering`, same names, except `detachCanvas` is `detachView`; `computeViewProj`, `attachCanvas`, `attachView` and `detachView` take World first |
 | `/render/core` `Clusters`, `clusterCell`, `LightCull` | `/standard/rendering`, same names |

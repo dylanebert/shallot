@@ -98,7 +98,7 @@ function backdrop(world: World) {
             return d.vec3f(0.0097212, 0.0091341, 0.0080232);
         }),
     });
-    world.add(world.resource(Gallery).camera, CameraBackground, { name: background });
+    world.add(world.resource(Gallery).camera, CameraBackground, { background });
 }
 function surfaces(world: World) {
     const gallery = world.resource(Gallery);

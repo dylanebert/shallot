@@ -15,7 +15,14 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { internText, Sky, SkyPlugin, Text, TextPlugin } from "@dylanebert/shallot/extras";
+import {
+    internText,
+    Sky,
+    SkyPlugin,
+    skyBackgroundHandle,
+    Text,
+    TextPlugin,
+} from "@dylanebert/shallot/extras";
 import {
     capsule,
     cube,
@@ -25,7 +32,7 @@ import {
     sphere,
 } from "@dylanebert/shallot/mesh";
 import {
-    Backgrounds,
+    type BackgroundHandle,
     CameraBackground,
     type MaterialHandle,
 } from "@dylanebert/shallot/standard/rendering";
@@ -103,14 +110,14 @@ function camera(
     position: Vec3,
     target: Vec3,
     fov = 48,
-    background?: string,
+    background?: BackgroundHandle,
 ): void {
     const eid = world.create();
     const rotation = lookAtRotation(...position, ...target);
     world.add(eid, Camera, { clearColor: palette.clearColor, fov });
     world.add(eid, StandardRenderer);
     if (background) {
-        world.add(eid, CameraBackground, { name: world.resource(Backgrounds).id(background) });
+        world.add(eid, CameraBackground, { background });
     }
     world.add(eid, Transform, {
         translation: [position[0], position[1], position[2], 0],
@@ -171,7 +178,7 @@ function primitivesAndGreybox(world: World, palette: LookPalette): void {
 
 function sunlitExterior(world: World, palette: LookPalette): void {
     exampleLighting(world, true, true, [0.4, -0.25, 0.8]);
-    camera(world, palette, [6, 3.5, 8], [0, 1.5, -0.5], 46, "sky");
+    camera(world, palette, [6, 3.5, 8], [0, 1.5, -0.5], 46, skyBackgroundHandle(world));
     const sky = world.create();
     world.add(sky, Sky, {
         zenith: 0x89b6e9,

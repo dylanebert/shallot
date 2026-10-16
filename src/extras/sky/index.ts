@@ -5,13 +5,18 @@ import { component } from "../../engine";
 import { BeginFrameSystem, MainPassSystem, RenderingPlugin, SunDisk } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
 import { f32 } from "../../engine";
-import { registerBackground, StandardRenderingPlugin } from "../../standard/rendering";
+import {
+    type Background,
+    type BackgroundHandle,
+    registerBackground,
+    StandardRenderingPlugin,
+} from "../../standard/rendering";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 
 /**
  * the scene's procedural sky, one per scene (a singleton). A camera shows it by selecting the registered
- * `sky` background with `CameraBackground`. The look is a layered recipe: an elevation gradient from
+ * handle from `skyBackgroundHandle(world)` with `CameraBackground.background`. The look is a layered recipe: an elevation gradient from
  * `horizon` up to `zenith`, a sun glow + disk (positioned by the scene's directional light, tinted
  * per-light `SunDisk`s), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. Each disk
  * follows its directional light and takes that light's color.
@@ -67,12 +72,27 @@ export const Sky = component(
 
 interface SkyState {
     buffer: GPUBuffer | null;
+    bindings: ReturnType<NonNullable<Background["bindings"]>>;
+    background: BackgroundHandle | null;
     staging: Float32Array;
 }
 
 const skyStateKey = { create: () => createSkyState() };
-const createSkyState = (): SkyState => ({ buffer: null, staging: new Float32Array(SKY_FLOATS) });
+const createSkyState = (): SkyState => ({
+    buffer: null,
+    bindings: {},
+    background: null,
+    staging: new Float32Array(SKY_FLOATS),
+});
 const skyState = (world: World) => world.resource(skyStateKey);
+
+/** The World-local handle for CameraBackground.background. Refuses before SkyPlugin initializes. */
+export function skyBackgroundHandle(world: World): BackgroundHandle {
+    const handle = skyState(world).background;
+    if (handle === null)
+        throw new Error("skyBackgroundHandle requires SkyPlugin to initialize first");
+    return handle;
+}
 
 const SkySystem: System = {
     name: "sky",
@@ -92,8 +112,8 @@ const SkySystem: System = {
 
 /**
  * procedural sky (the bryce3d look). Opt-in: add `SkyPlugin` to the plugin set, give the scene one
- * {@link Sky} singleton, add one or more {@link SunDisk}s to directional lights, and select the `sky` background
- * on the rendering camera with `CameraBackground`. The sky reads each opted-in light and writes nothing.
+ * {@link Sky} singleton, add one or more {@link SunDisk}s to directional lights, and select
+ * `skyBackgroundHandle(world)` on the rendering camera with `CameraBackground.background`. The sky reads each opted-in light and writes nothing.
  */
 export const SkyPlugin: Plugin = {
     gpu: {},
@@ -101,14 +121,13 @@ export const SkyPlugin: Plugin = {
     components: [Sky],
 
     systems: [SkySystem],
-    // Initialize after standard clears Backgrounds; the fragment also needs RenderingPlugin's lighting.
     dependencies: [RenderingPlugin, StandardRenderingPlugin],
 
     initialize(world) {
-        world.resource(skyStateKey);
-        // Each World owns a distinct spec identity. Reusing the module singleton here would let an old
-        // World's exact-object disposal guard mistake a later build for its own registration.
-        registerBackground(world, { ...skyBackground });
+        skyState(world).background = registerBackground(world, {
+            ...skyBackground,
+            bindings: (world) => skyState(world).bindings,
+        });
     },
 
     warm(world: World) {
@@ -120,13 +139,10 @@ export const SkyPlugin: Plugin = {
             size: SKY_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        // the background bind group resolves the `sky` binding from world.gpu.typed by name; republish every
-        // warm — the registries are wiped on each createApp()
-        world.gpu.buffers.set("sky", sky.buffer);
-        world.gpu.typed.set(
-            "sky",
-            world.gpu.root.createBuffer(SkyGpu, sky.buffer).$usage("uniform").$name("sky-config"),
-        );
+        sky.bindings.sky = world.gpu.root
+            .createBuffer(SkyGpu, sky.buffer)
+            .$usage("uniform")
+            .$name("sky-config");
     },
 
     dispose(world) {

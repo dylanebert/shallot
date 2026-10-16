@@ -12,8 +12,8 @@ import {
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { lookAtRotation, type World } from "../../engine";
-import { Backgrounds, CameraBackground, StandardRenderer } from "../../standard/rendering";
-import { Sky, SkyPlugin } from "./index";
+import { CameraBackground, StandardRenderer } from "../../standard/rendering";
+import { Sky, SkyPlugin, skyBackgroundHandle } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [SkyPlugin] }]);
@@ -49,7 +49,7 @@ test("the sky draws each SunDisk in its light color along its transformed direct
         cloudDensity: 0,
         hazeDensity: 0,
     });
-    world.add(camera, CameraBackground, { name: world.resource(Backgrounds).id("sky") });
+    world.add(camera, CameraBackground, { background: skyBackgroundHandle(world) });
 
     const noDisk = await center(world, camera);
     const red = addDisk(world, 0xff0000, [0, 0, 1]);

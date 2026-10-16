@@ -2,9 +2,10 @@ import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { isTgpuFn } from "typegpu";
 import type { WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
-import type { Registry, World } from "../../engine";
+import type { World } from "../../engine";
 import { backgroundsKey } from "./contract-state";
 import type { MaterialBinding } from "./material-type";
+import type { BindResource } from "./pipelines";
 
 type EntryFor<B extends MaterialBinding> = B extends { type: "uniform" }
     ? { uniform: B["struct"]; visibility: ("vertex" | "fragment")[] }
@@ -83,6 +84,10 @@ export function backgroundLayout<B extends Record<string, MaterialBinding>>(
 export const BackgroundContext = d.struct({ dir: d.vec3f }).$name("BackgroundContext");
 export type BackgroundFn = TgpuFn<(ctx: typeof BackgroundContext) => d.Vec3f>;
 
+declare const backgroundHandleBrand: unique symbol;
+/** A background's identity within its owning World. Names are display labels, not keys. */
+export type BackgroundHandle = number & { readonly [backgroundHandleBrand]: true };
+
 /** A fullscreen background recipe; StandardRenderer supplies geometry and opaque alpha. */
 export interface Background<
     B extends Record<string, MaterialBinding> = Record<string, MaterialBinding>,
@@ -90,9 +95,11 @@ export interface Background<
     name: string;
     layout: BackgroundLayout<B>;
     fs: BackgroundFn;
+    /** Live resources owned by this background; called at draw to observe replacements. */
+    bindings?: (world: World) => Record<string, BindResource>;
 }
 
-export const Backgrounds: import("../../engine").Resource<Registry<Background>> = {
+export const Backgrounds: import("../../engine").Resource<ReadonlyMap<number, Background>> = {
     create: (world) => world.resource(backgroundsKey),
 };
 
@@ -113,11 +120,16 @@ function assertOwnFn(label: string, fn: unknown): void {
     );
 }
 
-/** Register a background for the lifetime of its owning World. */
+/** Add a background for the lifetime of its owning World. Every call returns a distinct handle,
+ * including calls with the same name. Cameras select it through CameraBackground.background.
+ * Bindings resolve only from this recipe, never from the World's named GPU registries. */
 export function registerBackground<B extends Record<string, MaterialBinding>>(
     world: World,
     spec: Background<B>,
-): number {
+): BackgroundHandle {
     assertOwnFn(`registerBackground "${spec.name}" fs`, spec.fs);
-    return world.resource(backgroundsKey).register(spec as Background);
+    const backgrounds = world.resource(backgroundsKey);
+    const handle = backgrounds.size + 1;
+    backgrounds.set(handle, { ...spec } as Background);
+    return handle as BackgroundHandle;
 }

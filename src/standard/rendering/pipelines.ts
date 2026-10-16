@@ -121,7 +121,7 @@ interface PipelineState {
     materialGroups: Map<string, MaterialGroupEntry>;
     engineCaches: WeakMap<GPUBuffer, Map<number, GPUBindGroup>>;
     bgQuant: GPUBuffer | null;
-    compiledBackgrounds: Map<string, CompiledBackground>;
+    compiledBackgrounds: Map<AnyBackground, CompiledBackground>;
 }
 
 const pipelineStateKey = { create: createPipelineState };
@@ -2083,12 +2083,12 @@ export interface CompiledBackground {
  * Creates both 4x MSAA and single-sample variants eagerly: backgrounds are few and a camera's
  * AA selection is known only at draw time. Depth is not written; reverse-Z greater-equal at
  * clip z=0 admits clear-depth pixels (0 >= 0) but rejects geometry (depth > 0).
- * Caches by name and exact spec/layout identity; replacing a recipe cannot inherit stale groups.
+ * Caches by recipe identity; backgrounds with the same label keep separate pipelines and groups.
  */
 export function compileBackground(world: World, bg: AnyBackground): CompiledBackground {
     const _render = world.resource(RenderContext);
 
-    const cached = pipelineState(world).compiledBackgrounds.get(bg.name);
+    const cached = pipelineState(world).compiledBackgrounds.get(bg);
     if (cached?.owner === bg && cached.layout === bg.layout) return cached;
     const fragment = bgFs(bg);
     const primitive: GPUPrimitiveState = { topology: "triangle-list", cullMode: "none" };
@@ -2125,20 +2125,16 @@ export function compileBackground(world: World, bg: AnyBackground): CompiledBack
         group2: null,
         engineCache: engineCache(world, bgQuant(world)),
     };
-    pipelineState(world).compiledBackgrounds.set(bg.name, compiled);
+    pipelineState(world).compiledBackgrounds.set(bg, compiled);
     return compiled;
 }
 
 /** the compiled pipeline(s) for a `Backgrounds` entry, or `undefined` until
  * {@link compileBackground} has run for it. */
-export function getBackground(
-    world: World,
-    name: string,
-    bg?: AnyBackground,
-): CompiledBackground | undefined {
-    const compiled = pipelineState(world).compiledBackgrounds.get(name);
-    if (compiled && bg && (compiled.owner !== bg || compiled.layout !== bg.layout)) {
-        pipelineState(world).compiledBackgrounds.delete(name);
+export function getBackground(world: World, bg: AnyBackground): CompiledBackground | undefined {
+    const compiled = pipelineState(world).compiledBackgrounds.get(bg);
+    if (compiled && (compiled.owner !== bg || compiled.layout !== bg.layout)) {
+        pipelineState(world).compiledBackgrounds.delete(bg);
         return undefined;
     }
     return compiled;
@@ -2172,7 +2168,7 @@ export async function preparePipelines(world: World, capacity: number): Promise<
             }
         }
     }
-    for (const bg of world.resource(Backgrounds)) {
+    for (const bg of world.resource(Backgrounds).values()) {
         const cb = compileBackground(world, bg);
         world.gpu.root.unwrap(cb.color);
         world.gpu.root.unwrap(cb.single);

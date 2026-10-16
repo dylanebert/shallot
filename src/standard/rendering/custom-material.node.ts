@@ -15,7 +15,6 @@ import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import {
     BackgroundContext,
-    Backgrounds,
     backgroundLayout,
     CameraBackground,
     Draws,
@@ -45,12 +44,13 @@ const TintMaterial = materialType({
     },
     defaults: { tint: d.vec4f(1) },
 });
+const backgroundKey = { create: () => ({ handle: 0 }) };
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(TintMaterial)],
         setup(world) {
-            registerBackground(world, {
+            world.resource(backgroundKey).handle = registerBackground(world, {
                 name: "setup-background",
                 layout: backgroundLayout({}),
                 fs: tgpu.fn(
@@ -72,7 +72,7 @@ test("the public material type renders two typed tint rows together and updates 
     world.add(camera, Camera);
     world.add(camera, StandardRenderer);
     world.add(camera, CameraBackground, {
-        name: world.resource(Backgrounds).id("setup-background")!,
+        background: world.resource(backgroundKey).handle,
     });
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     attachTexture(world, camera, { width: 64, height: 32 });

@@ -29,6 +29,7 @@ export {
 export {
     Sky,
     SkyPlugin,
+    skyBackgroundHandle,
 } from "./sky";
 export {
     Sprite,
