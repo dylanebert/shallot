@@ -17,6 +17,7 @@ declare global {
             }>;
             walk(count?: number): { before: number; after: number };
             profiler(): void;
+            profile(): { gpuTiming: string; passes: string[] };
             capture(): Promise<string>;
         };
     }
@@ -67,7 +68,7 @@ test("the floor beam outshines adjacent shade, motes brighten the shared view, a
     expect(errors).toEqual([]);
 });
 for (const timestamps of ["adapter", "withheld"] as const) {
-    test(`the built particles page opens with its profiler (${timestamps} timestamps)`, async ({
+    test(`the stepped particles page keeps its profiler closed until F3 (${timestamps} timestamps)`, async ({
         page,
     }) => {
         if (timestamps === "withheld") {
@@ -86,8 +87,12 @@ for (const timestamps of ["adapter", "withheld"] as const) {
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.setViewportSize({ width: 320, height: 180 });
-        await page.goto("/");
+        await page.goto("http://127.0.0.1:4196/tests/stepped.html");
+        await page.waitForFunction(() => window.particles);
         const profiler = page.locator("[data-shallot-profile]");
+        await expect(profiler).toHaveCount(0);
+        await page.keyboard.press("F3");
+        const profile = await page.evaluate(() => window.particles.profile());
         await expect(profiler).toHaveAttribute(
             "data-gpu-timing",
             /available|requires timestamp-query/,
@@ -95,11 +100,8 @@ for (const timestamps of ["adapter", "withheld"] as const) {
         if (timestamps === "withheld") {
             await expect(profiler).toHaveAttribute("data-gpu-timing", "requires timestamp-query");
         }
-        if ((await profiler.getAttribute("data-gpu-timing")) === "available") {
-            await profiler.getByText("▸ gpu", { exact: true }).click();
-            await expect(
-                profiler.getByText("particles:advance", { exact: true }).first(),
-            ).toBeVisible();
+        if (profile.gpuTiming === "available") {
+            expect(profile.passes).toContain("particles:advance");
         } else {
             await expect(
                 profiler.getByText("requires timestamp-query", { exact: true }),
@@ -125,7 +127,6 @@ test("spawn, mid-stir and profiler captures use the game's composed first-person
     await page.evaluate(() => window.particles.walk(32));
     await capture("mid-stir");
     await page.evaluate(() => window.particles.profiler());
-    await page.locator("[data-shallot-profile]").getByText("▸ gpu", { exact: true }).click();
     await capture("profiler-canvas");
     if (directory) await page.screenshot({ path: `${directory}/profiler-shown.png` });
 });

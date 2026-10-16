@@ -2,7 +2,7 @@
 <script type="module">
 import { createApp, Camera, GlobalTransform, pressKey, releaseKey, setInputEnabled } from '@dylanebert/shallot';
 import { attachTexture, detachView, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
-import { showProfiler } from '@dylanebert/shallot/extras';
+import { Profile, showProfiler } from '@dylanebert/shallot/extras';
 import { Motes, MotesPlugin } from '../src/motes';
 import { Room } from '../src/room';
 const requests=[];
@@ -17,7 +17,6 @@ if (!captures) {
  attachTexture(world,room.camera,{width:320,height:180});
  world.storage(Camera).antialias.set(room.camera,0);
 }
-showProfiler(world,false);
 world.step(1/60);world.step(1/60);
 async function render() {
  if (!captures) {world.step(0);return captureTexture(world,room.camera);}
@@ -73,6 +72,14 @@ window.particles={
   releaseKey(world,'KeyW');
   if (!captures) {detachView(world,room.camera);attachTexture(world,room.camera,{width:320,height:180});}
   return {before,after:pose.z.get(room.player)};
+ },
+ async profile() {
+  world.step(0);
+  const stats=world.resource(Profile);
+  if(stats.gpuTiming==='available') while(!stats.gpuTime.has('particles:advance')) {
+   world.step(0);await world.gpu.sync();await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  return {gpuTiming:stats.gpuTiming,passes:[...stats.gpuTime.keys()]};
  },
  profiler() {showProfiler(world);world.step(0);},
  async capture() {

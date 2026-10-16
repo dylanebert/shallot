@@ -17,27 +17,42 @@ const { setupGlobals } = await import("@dylanebert/shallot/webgpu");
 const { Gallery, GalleryPlugin } = await import("../examples/materials/src/gallery");
 const { Clock, CyclePlugin, CycleScene } = await import("../examples/day-night-cycle/src/cycle");
 const { Demo } = await import("../examples/first-person/src/demo");
+const { MotesPlugin } = await import("../examples/particles/src/motes");
+const { Room } = await import("../examples/particles/src/room");
 await setupGlobals();
 const directory = process.argv[2];
-if (!directory) throw new Error("Usage: bun scripts/frame.oracle.ts <directory> [prior-directory]");
+if (!directory)
+    throw new Error("Usage: bun scripts/frame.oracle.ts <directory> [prior-directory] [subject]");
 mkdirSync(directory, { recursive: true });
-for (const subject of ["day-night", "sky", "materials", "sprite", "first-person-labels"]) {
+for (const subject of [
+    "day-night",
+    "sky",
+    "materials",
+    "sprite",
+    "first-person-labels",
+    "particles",
+]) {
+    if (process.argv[4] && process.argv[4] !== subject) continue;
     const plugins =
-        subject === "first-person-labels"
-            ? [Demo]
-            : subject === "day-night"
-              ? [CyclePlugin]
-              : subject === "sky"
-                ? [SkyPlugin]
-                : subject === "sprite"
-                  ? [SpritePlugin]
-                  : [GalleryPlugin];
+        subject === "particles"
+            ? [MotesPlugin]
+            : subject === "first-person-labels"
+              ? [Demo]
+              : subject === "day-night"
+                ? [CyclePlugin]
+                : subject === "sky"
+                  ? [SkyPlugin]
+                  : subject === "sprite"
+                    ? [SpritePlugin]
+                    : [GalleryPlugin];
     const app = await createApp({ plugins });
     const { world } = app;
     console.log(world.gpu.adapter);
     try {
         let camera: number;
-        if (subject === "first-person-labels") {
+        if (subject === "particles") {
+            camera = world.resource(Room).camera;
+        } else if (subject === "first-person-labels") {
             camera = world.create();
             world.add(camera, Transform, {
                 translation: [0, 8, 7.5],
