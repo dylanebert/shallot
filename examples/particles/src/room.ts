@@ -48,7 +48,7 @@ export const RoomPlugin: Plugin = {
     initialize(world) {
         const ambient = world.resource(GlobalAmbientLight);
         ambient.color = 0xd8e4ff;
-        ambient.brightness = 4;
+        ambient.brightness = 300;
         const camera = world.create();
         world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });
         world.add(camera, StandardRenderer);

@@ -46,7 +46,22 @@ window.particles={
    }
    return sum/count;
   };
-  return {increase:increase/count,changed,floorBeam:floorMean(140,180),floorShade:floorMean(80,100)};
+  const linear=value=>{const s=value/255;return s<=0.04045?s/12.92:((s+0.055)/1.055)**2.4;};
+  const luminance=(r,g,b)=>0.2126*linear(r)+0.7152*linear(g)+0.0722*linear(b);
+  const regionLuminance=(left,right,top,bottom)=>{
+   let sum=0,count=0;
+   for(let y=top;y<bottom;y++) for(let x=left;x<right;x++) {
+    const i=(y*320+x)*4;
+    sum+=luminance(off[i],off[i+1],off[i+2]);count++;
+   }
+   return sum/count;
+  };
+  return {
+   increase:increase/count,changed,floorBeam:floorMean(140,180),floorShade:floorMean(80,100),
+   wallLuminance:regionLuminance(100,120,75,95),
+   floorLuminance:regionLuminance(140,180,173,178),
+   clearLuminance:luminance(0x19,0x18,0x16),
+  };
  },
  walk(count=45) {
   // Only the final view is observed; keep every simulated and GPU-stirred frame, not its pixels.
