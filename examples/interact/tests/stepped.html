@@ -3,9 +3,9 @@
 <style>body{margin:0;background:#1c1917}canvas{display:block}</style></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { Camera, createApp, DirectionalLight, Transform, Outline, Text, Sprite, pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
+import { Camera, createApp, Transform, Outline, Text, Sprite, pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
-import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
+import { PointShadows } from '@dylanebert/shallot/standard/rendering';
 import { Room, RoomPlugin } from '../src/room';
 import { LocalPlayer, Player } from '../src/player';
 import { InteractionInput, Usable, Prompt } from '../src/interact';
@@ -18,8 +18,8 @@ if (!new URLSearchParams(location.search).has('captures')) {
  canvas.width=320; canvas.height=180;
  attachTexture(world, room.camera, {width:320, height:180});
  world.storage(Camera).antialias.set(room.camera,0);
- world.resource(DirectionalLightShadowMap).size=256;
- for(const sun of world.query([DirectionalLight])) world.storage(DirectionalLight).numCascades.set(sun,1);
+ world.resource(PointShadows).atlas=512;
+ world.resource(PointShadows).casters=1;
 }
 // The check places the same player, leaving the controller to pose its camera.
 window.aim = (index, distance=2.6, yaw=0, pitch=0) => {
