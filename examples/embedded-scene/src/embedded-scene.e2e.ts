@@ -499,8 +499,9 @@ async function inspectScene(page: Page, frameKey: string) {
         for (let y = 0; y < surface.height; y++) {
             for (let x = 0; x < surface.width; x++) {
                 const offset = (y * surface.width + x) * 4;
+                // R/G 1.17 is the rounded midpoint of ambient amber's minimum 1.219 and ground's maximum 1.12.
                 const different =
-                    rgba[offset]! > rgba[offset + 1]! * 1.25 &&
+                    rgba[offset]! > rgba[offset + 1]! * 1.17 &&
                     rgba[offset + 1]! > rgba[offset + 2]! * 1.3;
                 if (different) {
                     scenePixels++;
