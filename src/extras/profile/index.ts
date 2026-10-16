@@ -808,7 +808,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
     let fenceSum = 0;
     let fenceCount = 0;
     let lastDrainCount = -1;
-    let lastRender = 0;
+    let lastRender = -Infinity;
 
     return {
         update(world: World, profile: ProfileImpl) {
