@@ -72,6 +72,36 @@ type LightFit = {
     extent: Float64Array;
 };
 
+// The light box's axes: right, up (both perpendicular to the sun, the texel-snap plane) and the unit sun
+// direction, written into `out` as `[r, u, d]`. They match lookAt's from the up hint placeFromCenter poses
+// the box with; that hint avoids the degenerate parallel case when the sun points near-straight-down.
+function lightBasis(dir: ArrayLike<number>, out: Float64Array): Float64Array {
+    const dl = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]) || 1;
+    const dx = dir[0] / dl;
+    const dy = dir[1] / dl;
+    const dz = dir[2] / dl;
+    const upY = Math.abs(dy) > 0.99 ? 0 : 1;
+    const upZ = Math.abs(dy) > 0.99 ? 1 : 0;
+    let rx = upY * dz - upZ * dy;
+    let ry = upZ * dx;
+    let rz = -upY * dx;
+    const rl = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
+    rx /= rl;
+    ry /= rl;
+    rz /= rl;
+    out[0] = rx;
+    out[1] = ry;
+    out[2] = rz;
+    out[3] = dy * rz - dz * ry;
+    out[4] = dz * rx - dx * rz;
+    out[5] = dx * ry - dy * rx;
+    out[6] = dx;
+    out[7] = dy;
+    out[8] = dz;
+    return out;
+}
+const _basis = new Float64Array(9);
+
 // Texel snapping prevents shadow crawl. Extend the near plane toward the light to capture occluders
 // between the light and a tight fitted slice; otherwise receivers in the slice incorrectly appear lit.
 // Move the eye back by cover+margin, leaving the far edge fixed (depth 2*cover+margin). This shift
@@ -86,28 +116,18 @@ function placeFromCenter(
     margin: number,
     out: LightFit,
 ): LightFit {
-    let dx = dir[0];
-    let dy = dir[1];
-    let dz = dir[2];
-    const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-    dx /= dl;
-    dy /= dl;
-    dz /= dl;
-
-    // an orthonormal basis in the plane perpendicular to the sun, to snap the eye onto. up0 avoids the
-    // degenerate parallel case when the sun points near-straight-down
+    const b = lightBasis(dir, _basis);
+    const rx = b[0];
+    const ry = b[1];
+    const rz = b[2];
+    const ux = b[3];
+    const uy = b[4];
+    const uz = b[5];
+    const dx = b[6];
+    const dy = b[7];
+    const dz = b[8];
     const upY = Math.abs(dy) > 0.99 ? 0 : 1;
     const upZ = Math.abs(dy) > 0.99 ? 1 : 0;
-    let rx = upY * dz - upZ * dy;
-    let ry = upZ * dx;
-    let rz = -upY * dx;
-    const rl = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
-    rx /= rl;
-    ry /= rl;
-    rz /= rl;
-    const ux = dy * rz - dz * ry;
-    const uy = dz * rx - dx * rz;
-    const uz = dx * ry - dy * rx;
 
     const back = cover + margin;
     let ex = cenX - dx * back;
@@ -164,7 +184,7 @@ export function cascadeSplits(
 
 /**
  * Fits the camera slice `[nearSplit, farSplit]` into a texel-snapped light box.
- * Its bounding-sphere half-extent stays constant as the camera rotates; `margin` captures occluders above it.
+ * Its half-extent stays constant as the camera rotates; `margin` captures occluders above it.
  * Reads camera placement and projection (`fov` or `size`), not camera near/far. Writes `out`.
  */
 export function cascadeFit(
@@ -213,33 +233,53 @@ export function cascadeFit(
     const farW = farH * aspect;
     const nearH = mode === CameraMode.Orthographic ? size : nearSplit * tanH;
     const nearW = nearH * aspect;
-    // the symmetric slice's bounding sphere: one extreme is the far (+right, +up) corner, the other the
-    // opposite corner of whichever diagonal is longer (the far plane's, or the full slice's) — both lie on
-    // the view axis
-    const ax = px + fx * farSplit + rx * farW + ux * farH;
-    const ay = py + fy * farSplit + ry * farW + uy * farH;
-    const az = pz + fz * farSplit + rz * farW + uz * farH;
-    const farX = px + fx * farSplit - rx * farW - ux * farH;
-    const farY = py + fy * farSplit - ry * farW - uy * farH;
-    const farZ = pz + fz * farSplit - rz * farW - uz * farH;
-    const nearX = px + fx * nearSplit - rx * nearW - ux * nearH;
-    const nearY = py + fy * nearSplit - ry * nearW - uy * nearH;
-    const nearZ = pz + fz * nearSplit - rz * nearW - uz * nearH;
-    const nearDist = Math.sqrt(
-        (ax - nearX) * (ax - nearX) + (ay - nearY) * (ay - nearY) + (az - nearZ) * (az - nearZ),
-    );
-    const farDist = Math.sqrt(
-        (ax - farX) * (ax - farX) + (ay - farY) * (ay - farY) + (az - farZ) * (az - farZ),
-    );
-    const nearWins = nearDist > farDist;
-    const bx = nearWins ? nearX : farX;
-    const by = nearWins ? nearY : farY;
-    const bz = nearWins ? nearZ : farZ;
+    // Bevy's `calculate_cascade`: the box side is the slice's longest chord, the larger of its body and
+    // far-plane diagonals, so it stays constant as the camera rotates; the box centres on the corners'
+    // light-space bounds, which that side always spans. The midpoint of the longest chord is no such
+    // centre: it leaves other corners outside the box, where the receiver reads lit.
+    const body = Math.hypot(farW + nearW, farH + nearH, farSplit - nearSplit);
+    const farDiagonal = 2 * Math.hypot(farW, farH);
+    const b = lightBasis(dir, _basis);
+    const lrx = b[0];
+    const lry = b[1];
+    const lrz = b[2];
+    const lux = b[3];
+    const luy = b[4];
+    const luz = b[5];
+    const ldx = b[6];
+    const ldy = b[7];
+    const ldz = b[8];
+    let minR = Infinity;
+    let maxR = -Infinity;
+    let minU = Infinity;
+    let maxU = -Infinity;
+    let minD = Infinity;
+    let maxD = -Infinity;
+    for (let corner = 0; corner < 8; corner++) {
+        const z = corner & 4 ? farSplit : nearSplit;
+        const w = (corner & 4 ? farW : nearW) * (corner & 1 ? 1 : -1);
+        const h = (corner & 4 ? farH : nearH) * (corner & 2 ? 1 : -1);
+        const cx = px + fx * z + rx * w + ux * h;
+        const cy = py + fy * z + ry * w + uy * h;
+        const cz = pz + fz * z + rz * w + uz * h;
+        const r = cx * lrx + cy * lry + cz * lrz;
+        const u = cx * lux + cy * luy + cz * luz;
+        const d = cx * ldx + cy * ldy + cz * ldz;
+        minR = Math.min(minR, r);
+        maxR = Math.max(maxR, r);
+        minU = Math.min(minU, u);
+        maxU = Math.max(maxU, u);
+        minD = Math.min(minD, d);
+        maxD = Math.max(maxD, d);
+    }
+    const cr = (minR + maxR) / 2;
+    const cu = (minU + maxU) / 2;
+    const cd = (minD + maxD) / 2;
     return placeFromCenter(
-        (ax + bx) / 2,
-        (ay + by) / 2,
-        (az + bz) / 2,
-        (nearWins ? nearDist : farDist) / 2,
+        cr * lrx + cu * lux + cd * ldx,
+        cr * lry + cu * luy + cd * ldy,
+        cr * lrz + cu * luz + cd * ldz,
+        Math.max(body, farDiagonal) / 2,
         dir,
         resolution,
         margin,
