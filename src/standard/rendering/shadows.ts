@@ -10,6 +10,7 @@ import {
     MAX_SLOTS,
     MAX_VIEWS,
     PointLight,
+    readRenderGlobalTransform,
     SpotLight,
     Views,
 } from "../../core/rendering";
@@ -1295,6 +1296,8 @@ export function packCasters(
  * infinite; far=range bounds caster culling. Each combo gets a lazily pooled depth-only camera with
  * the same pre-tile projection, so it culls independently before re-gather.
  */
+const _lightPlacement = new Float32Array(12);
+
 export function updatePointShadows(world: World, main: number, frames: PointShadowFrame[]): number {
     const shadow = shadows(world);
     const cap = pointCasters(world);
@@ -1313,9 +1316,10 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
             if (!source.shadowMapsEnabled.get(light)) continue;
             const range = source.range.get(light);
             if (range <= 0) continue;
-            const dx = world.storage(GlobalTransform).translation.x.get(light) - cx;
-            const dy = world.storage(GlobalTransform).translation.y.get(light) - cy;
-            const dz = world.storage(GlobalTransform).translation.z.get(light) - cz;
+            readRenderGlobalTransform(world, light, _lightPlacement);
+            const dx = _lightPlacement[0] - cx;
+            const dy = _lightPlacement[1] - cy;
+            const dz = _lightPlacement[2] - cz;
             const distSq = main >= 0 ? Math.max(dx * dx + dy * dy + dz * dz, 1) : 1;
             const score = (source.intensity.get(light) * range * range) / distSq;
             // The incumbent margin prevents small camera moves from flickering the caster set.
@@ -1369,9 +1373,10 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         f.slot = slot;
         f.score = c.score;
         f.tilePx = MIN_TILE;
-        f.pos[0] = world.storage(GlobalTransform).translation.x.get(c.light);
-        f.pos[1] = world.storage(GlobalTransform).translation.y.get(c.light);
-        f.pos[2] = world.storage(GlobalTransform).translation.z.get(c.light);
+        readRenderGlobalTransform(world, c.light, _lightPlacement);
+        f.pos[0] = _lightPlacement[0];
+        f.pos[1] = _lightPlacement[1];
+        f.pos[2] = _lightPlacement[2];
         f.near = c.range / 1000;
         f.far = c.range;
         const source = world.has(c.light, SpotLight)
@@ -1447,16 +1452,18 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
     for (let i = 0; i < count; i++) {
         const f = frames[i];
         f.tilePx = rects[f.slot * 6 * 4 + 2] * atlas;
-        if (f.spot)
+        if (f.spot) {
+            readRenderGlobalTransform(world, f.light, _lightPlacement);
             spotBasis(
-                world.storage(GlobalTransform).rotation.x.get(f.light),
-                world.storage(GlobalTransform).rotation.y.get(f.light),
-                world.storage(GlobalTransform).rotation.z.get(f.light),
-                world.storage(GlobalTransform).rotation.w.get(f.light),
+                _lightPlacement[4],
+                _lightPlacement[5],
+                _lightPlacement[6],
+                _lightPlacement[7],
                 world.storage(SpotLight).outerAngle.get(f.light),
                 f.tilePx,
                 f,
             );
+        }
     }
 
     syncComboPool(world, shadow, comboSlots(frames, count));

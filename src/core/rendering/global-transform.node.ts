@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { MeshInstance, MeshPlugin } from "../../core/mesh";
 import { Body, BodyType } from "../../core/physics";
 import {
     attachCanvas,
@@ -34,6 +35,7 @@ import {
 import {
     globalTransformTable,
     prepareGlobalTransformFrame,
+    readRenderGlobalTransform,
     GlobalTransformHistory as TransformRuntime,
 } from "./global-transform";
 import { BeginFrameSystem } from "./substrate";
@@ -237,7 +239,13 @@ async function renderedX(
     const row = table.rowIndex(eid);
     expect(row).toBeGreaterThanOrEqual(0);
     const result = await probeBuffer(world, table.buffer, { size: table.buffer.size });
-    return new Float32Array(result.bytes)[row * 12];
+    const gpu = new Float32Array(result.bytes);
+    const cpu = new Float32Array(12);
+    readRenderGlobalTransform(world, eid, cpu);
+    for (const lane of [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]) {
+        expect(cpu[lane]).toBeCloseTo(gpu[row * 12 + lane]!, 5);
+    }
+    return gpu[row * 12];
 }
 
 async function interpolatedRows(
@@ -733,6 +741,42 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
     }
 });
 
+test("a frame-written mesh row snaps at any alpha and step(0), then the next tick interpolates from the write", async () => {
+    const app = await createApp({ defaults: false, plugins: [RenderingPlugin, MeshPlugin] });
+    try {
+        const { world } = app;
+        const eid = world.create();
+        addTransform(world, eid, 0);
+        attachTestCamera(world);
+        const table = globalTransformTable(world);
+        world.add(eid, MeshInstance);
+        let written = 0;
+        let frameWrites = true;
+        world.addSystem({
+            group: "simulation",
+            update() {
+                if (frameWrites) world.storage(Transform).translation.x.set(eid, ++written);
+            },
+        });
+        for (const delta of [1, 0.5, 0.5, 0.75, 0.75, 0, 0]) {
+            world.step(delta * Time.FIXED_DT);
+            expect(await renderedX(world, table, eid)).toBeCloseTo(written, 5);
+        }
+        frameWrites = false;
+        world.addSystem({
+            group: "fixed",
+            update() {
+                world.storage(Transform).translation.x.set(eid, written + 4);
+            },
+        });
+        world.step(Time.FIXED_DT);
+        expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(await renderedX(world, table, eid)).toBeCloseTo(written + 2, 5);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("an author-marked Transform jump of any size snaps instead of interpolating", async () => {
     const app = await createApp({ defaults: false, plugins: [RenderingPlugin] });
     try {
@@ -742,9 +786,14 @@ test("an author-marked Transform jump of any size snaps instead of interpolating
         attachTestCamera(world);
         const table = globalTransformTable(world);
         world.step(Time.FIXED_DT);
-        world.storage(Transform).translation.set(eid, 0.25, 0, 0, 0);
-        resetInterpolation(world, eid);
-        world.step(Time.FIXED_DT / 2);
+        world.addSystem({
+            group: "fixed",
+            update() {
+                world.storage(Transform).translation.set(eid, 0.25, 0, 0, 0);
+                resetInterpolation(world, eid);
+            },
+        });
+        world.step(Time.FIXED_DT * 1.5);
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         expect(await renderedX(world, table, eid)).toBeCloseTo(0.25, 5);
     } finally {

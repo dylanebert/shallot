@@ -1,5 +1,9 @@
 export { Billboard, billboardCorner } from "./billboard";
-export { GlobalTransformHistory, globalTransformTable } from "./global-transform";
+export {
+    GlobalTransformHistory,
+    globalTransformTable,
+    readRenderGlobalTransform,
+} from "./global-transform";
 export {
     CorePipelinePlugin,
     MainPassSystem,

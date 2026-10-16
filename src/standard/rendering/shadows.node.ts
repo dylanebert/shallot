@@ -15,12 +15,7 @@ import {
     PointLight,
     SpotLight,
 } from "../../core/rendering";
-import {
-    GlobalTransform,
-    resetInterpolation,
-    Transform,
-    TransformPlugin,
-} from "../../core/transform";
+import { GlobalTransform, Transform, TransformPlugin } from "../../core/transform";
 import { lookAtRotation, type World } from "../../engine";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -38,10 +33,10 @@ import {
 
 const rendering = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
 // three headless worlds for the cascade-pool rows, three rendering worlds for the bound row, one for
-// the re-gather growth row, then a changed and a fresh world for each light-change row
+// the re-gather growth row, then changed and fresh worlds for the light-change rows
 const subjects = gpuApps(import.meta.path, [
     ...Array.from({ length: 3 }, () => ({ defaults: false, plugins: [TransformPlugin] })),
-    ...Array.from({ length: 8 }, () => rendering),
+    ...Array.from({ length: 14 }, () => rendering),
 ]);
 let nextSubject = 0;
 
@@ -330,10 +325,6 @@ test("the first frame after a casting point light moves and a casting spot light
     changed.world
         .storage(Transform)
         .rotation.set(lights.spot, ...lookAtRotation(-2, 3, 2, 2, 0, -1));
-    // a fresh light has no interpolation history; marking the moves as discontinuities gives the changed
-    // lights none either, so only shadow posing can differ
-    resetInterpolation(changed.world, lights.point);
-    resetInterpolation(changed.world, lights.spot);
     changed.world.step(0);
 
     const reference = renderedScene(fresh.world);
@@ -343,4 +334,107 @@ test("the first frame after a casting point light moves and a casting spot light
     expect((await captureTexture(changed.world, scene.camera)).rgba).toEqual(
         (await captureTexture(fresh.world, reference.camera)).rgba,
     );
+});
+
+test("casting point and spot shadows follow fractional fixed placement, including step(0)", async () => {
+    const [changed, fresh] = subjects().slice(11, 13);
+    const scene = renderedScene(changed.world);
+    changed.world.storage(DirectionalLight).shadowMapsEnabled.set(scene.sun, 0);
+    const lights = localLights(changed.world, [2, 2, 3], [0, 0, 0]);
+    expect(await frame(changed.world)).toBeNull();
+    const start = lookAtRotation(-2, 3, 2, 0, 0, 0);
+    const end = lookAtRotation(-2, 3, 2, 2, 0, -1);
+    const sign = start.reduce((sum, v, i) => sum + v * end[i]!, 0) < 0 ? -1 : 1;
+    const mid = start.map((v, i) => v * sign + end[i]!);
+    const length = Math.hypot(...mid);
+    const rotation = mid.map((v) => v / length) as [number, number, number, number];
+    changed.world.addSystem({
+        group: "fixed",
+        update(world) {
+            world.storage(Transform).translation.set(lights.point, -2, 2, 3);
+            world.storage(Transform).rotation.set(lights.spot, ...end);
+        },
+    });
+    const reference = renderedScene(fresh.world);
+    fresh.world.storage(DirectionalLight).shadowMapsEnabled.set(reference.sun, 0);
+    const referenceLights = localLights(fresh.world, [0, 2, 3], [0, 0, 0]);
+    fresh.world.storage(Transform).rotation.set(referenceLights.spot, ...rotation);
+    expect(await frame(fresh.world)).toBeNull();
+    changed.world.step(1.5 / 60);
+    for (let i = 0; i < 2; i++) {
+        expect((await captureTexture(changed.world, scene.camera)).rgba).toEqual(
+            (await captureTexture(fresh.world, reference.camera)).rgba,
+        );
+        changed.world.step(0);
+    }
+});
+
+test("a simulation-written flashlight shadows from the camera pose at fractional alpha and step(0)", async () => {
+    const [changed, ...references] = subjects().slice(13, 17);
+    const scene = renderedScene(changed.world);
+    changed.world.storage(DirectionalLight).shadowMapsEnabled.set(scene.sun, 0);
+    const light = changed.world.create();
+    changed.world.add(light, Transform, { translation: [-2, 3, 2] });
+    changed.world.add(light, SpotLight, { intensity: 315225.92, range: 12 });
+    changed.world.storage(SpotLight).shadowMapsEnabled.set(light, 1);
+    expect(await frame(changed.world)).toBeNull();
+    let frameIndex = 0;
+    const positions: [number, number, number][] = [
+        [0.5, 3, 7],
+        [-0.5, 2.8, 6.5],
+        [1, 3.2, 7.5],
+    ];
+    const rotations = positions.map((p, i) => lookAtRotation(...p, (i - 1) * 0.7, 0, 0));
+    const moveCamera = {
+        name: "test-move-camera",
+        group: "simulation" as const,
+        update(world: World) {
+            world.storage(Transform).translation.set(scene.camera, ...positions[frameIndex]!);
+            world.storage(Transform).rotation.set(scene.camera, ...rotations[frameIndex]!);
+        },
+    };
+    changed.world.addSystem(moveCamera);
+    changed.world.addSystem({
+        group: "simulation",
+        after: [moveCamera],
+        update(world) {
+            const pose = world.storage(Transform);
+            world
+                .storage(Transform)
+                .translation.set(
+                    light,
+                    pose.translation.x.get(scene.camera),
+                    pose.translation.y.get(scene.camera),
+                    pose.translation.z.get(scene.camera),
+                );
+            world
+                .storage(Transform)
+                .rotation.set(
+                    light,
+                    pose.rotation.x.get(scene.camera),
+                    pose.rotation.y.get(scene.camera),
+                    pose.rotation.z.get(scene.camera),
+                    pose.rotation.w.get(scene.camera),
+                );
+        },
+    });
+    for (frameIndex = 0; frameIndex < positions.length; frameIndex++) {
+        const fresh = references[frameIndex]!;
+        const reference = renderedScene(fresh.world);
+        fresh.world.storage(DirectionalLight).shadowMapsEnabled.set(reference.sun, 0);
+        const translation = positions[frameIndex]!;
+        const rotation = rotations[frameIndex]!;
+        fresh.world.storage(Transform).translation.set(reference.camera, ...translation);
+        fresh.world.storage(Transform).rotation.set(reference.camera, ...rotation);
+        const referenceLight = fresh.world.create();
+        fresh.world.add(referenceLight, Transform, { translation, rotation });
+        fresh.world.add(referenceLight, SpotLight, { intensity: 315225.92, range: 12 });
+        fresh.world.storage(SpotLight).shadowMapsEnabled.set(referenceLight, 1);
+        expect(await frame(fresh.world)).toBeNull();
+        changed.world.step(frameIndex === 0 ? 1.5 / 60 : 0);
+        expect(changed.world.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect((await captureTexture(changed.world, scene.camera)).rgba).toEqual(
+            (await captureTexture(fresh.world, reference.camera)).rgba,
+        );
+    }
 });

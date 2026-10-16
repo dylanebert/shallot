@@ -52,6 +52,11 @@ export interface GlobalTransformRuntime {
     enabled: boolean;
     tickCount: number;
     stages: (GPUBuffer | undefined)[];
+    cpuPrepared: boolean;
+    cpuStages: Float32Array[];
+    cpuCurrent: Float32Array;
+    cpuPrevious: Float32Array;
+    source: Float32Array;
     ranges: Uint32Array;
     pipeline?: GPUComputePipeline;
     group?: GPUBindGroup;
@@ -72,6 +77,11 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             enabled: false,
             tickCount: 0,
             stages: new Array(2),
+            cpuPrepared: false,
+            cpuStages: [new Float32Array(0), new Float32Array(0)],
+            cpuCurrent: new Float32Array(0),
+            cpuPrevious: new Float32Array(0),
+            source: new Float32Array(0),
             ranges: new Uint32Array(4),
             generation: -1,
             historyNeedsPromotion: false,
@@ -81,6 +91,7 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             commitOnSubmit: () => {
                 if (!runtime.enabled) return;
                 runtime.tickCount = 0;
+                runtime.cpuPrepared = false;
                 runtime.ranges.fill(0);
                 runtime.historyNeedsPromotion = runtime.historyPromotionOnSubmit;
                 runtime.historyDiscontinuitiesOnSubmit.fill(0);
@@ -139,6 +150,7 @@ export const PrepareGlobalTransformHistorySystem: System = {
     update(world) {
         const runtime = world.resource(GlobalTransformHistory);
         if (!runtime.enabled) return;
+        markFrameWrites(world, runtime);
         captureCurrent(world, 1);
         runtime.render!.upload();
     },
@@ -210,6 +222,34 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
     }
     return runtime.render!;
 }
+/** Reads drawn placement into a caller-owned 12-float Xform record (position at 0, xyzw quaternion
+ * at 4, scale at 8). Requires an enabled globalTransformTable and the draw placement boundary.
+ * Uses the GPU history's fixedAlpha, linear position/scale and shortest-path normalized quaternion
+ * blend; no GPU readback is performed. */
+export function readRenderGlobalTransform(world: World, eid: number, out: Float32Array): void {
+    const runtime = world.resource(GlobalTransformHistory);
+    prepareCpuFrame(world, runtime);
+    const row = runtime.current?.rowIndex(eid) ?? -1;
+    if (row < 0)
+        throw new Error("readRenderGlobalTransform requires a captured GlobalTransform row");
+    const offset = row * 12;
+    const current = runtime.cpuCurrent,
+        previous = runtime.cpuPrevious;
+    const alpha = world.time.fixedAlpha;
+    for (let i = 0; i < 12; i++)
+        out[i] = previous[offset + i]! * (1 - alpha) + current[offset + i]! * alpha;
+    let dot = 0;
+    for (let i = 4; i < 8; i++) dot += previous[offset + i]! * current[offset + i]!;
+    const flip = dot < 0 ? -1 : 1;
+    let length = 0;
+    for (let i = 4; i < 8; i++) {
+        const value = previous[offset + i]! * flip * (1 - alpha) + current[offset + i]! * alpha;
+        out[i] = value;
+        length += value * value;
+    }
+    length = Math.sqrt(length);
+    for (let i = 4; i < 8; i++) out[i] = length > 1e-12 ? out[i]! / length : i === 7 ? 1 : 0;
+}
 function stageHistoryDiscontinuities(world: World, runtime: GlobalTransformRuntime): Uint32Array {
     const marks = world.resource(TransformRuntime).discontinuities;
     if (runtime.historyDiscontinuitiesOnSubmit.length < marks.length) {
@@ -227,10 +267,62 @@ function stageHistoryDiscontinuities(world: World, runtime: GlobalTransformRunti
     }
     return pending;
 }
+function markFrameWrites(world: World, runtime: GlobalTransformRuntime): void {
+    const current = runtime.current!;
+    const { global } = world.resource(TransformRuntime);
+    const pd = world.fieldStorage(GlobalTransform, "translation").dirty;
+    const qd = world.fieldStorage(GlobalTransform, "rotation").dirty;
+    const sd = world.fieldStorage(GlobalTransform, "scale").dirty;
+    const source = runtime.source;
+    for (let word = 0; word < Math.max(pd.length, qd.length, sd.length); word++) {
+        for (let bits = pd[word] | qd[word] | sd[word]; bits !== 0; bits &= bits - 1) {
+            const eid = (word << 5) | (31 - Math.clz32(bits & -bits));
+            const row = current.rowIndex(eid);
+            if (row < 0) continue;
+            const i = row * 12,
+                j = eid * 4;
+            const p = global.translation.column,
+                q = global.rotation.column,
+                s = global.scale.column;
+            if (
+                source[i] !== p[j] ||
+                source[i + 1] !== p[j + 1] ||
+                source[i + 2] !== p[j + 2] ||
+                source[i + 4] !== q[j] ||
+                source[i + 5] !== q[j + 1] ||
+                source[i + 6] !== q[j + 2] ||
+                source[i + 7] !== q[j + 3] ||
+                source[i + 8] !== s[j] ||
+                source[i + 9] !== s[j + 1] ||
+                source[i + 10] !== s[j + 2]
+            )
+                resetInterpolation(world, eid);
+        }
+    }
+}
 function captureCurrent(world: World, phase: number): void {
     const runtime = world.resource(GlobalTransformHistory);
     const current = runtime.current!;
+    runtime.cpuPrepared = false;
     current.prepareUpload();
+    if (runtime.source.buffer !== current.bytes.buffer) {
+        runtime.source = new Float32Array(
+            current.bytes.buffer,
+            current.bytes.byteOffset,
+            current.bytes.byteLength / 4,
+        );
+        for (let i = 0; i < 2; i++) {
+            const next = new Float32Array(runtime.source.length);
+            next.set(runtime.cpuStages[i]!);
+            runtime.cpuStages[i] = next;
+        }
+        const present = new Float32Array(runtime.source.length);
+        present.set(runtime.cpuCurrent);
+        runtime.cpuCurrent = present;
+        const previous = new Float32Array(runtime.source.length);
+        previous.set(runtime.cpuPrevious);
+        runtime.cpuPrevious = previous;
+    }
     // Reused stages retain earlier changed rows, including gaps in their range.
     if (current.pendingUploadSize && runtime.ranges[phase * 2 + 1])
         current.markRange(
@@ -253,6 +345,9 @@ function captureCurrent(world: World, phase: number): void {
         current.upload(buffer, true);
         runtime.ranges[phase * 2] = current.lastUploadOffset;
         runtime.ranges[phase * 2 + 1] = size;
+        const start = current.lastUploadOffset / 4;
+        for (let i = start; i < start + size / 4; i++)
+            runtime.cpuStages[phase]![i] = runtime.source[i]!;
     }
 }
 function copyPhase(
@@ -303,10 +398,37 @@ function copyPhase(
         }
     return size > 0;
 }
+function prepareCpuFrame(world: World, runtime: GlobalTransformRuntime): void {
+    if (runtime.cpuPrepared || !runtime.enabled) return;
+    runtime.cpuPrepared = true;
+    for (let phase = 0; phase < 2; phase++) {
+        if (phase === 0 && !runtime.tickCount) continue;
+        const offset = runtime.ranges[phase * 2] / 4;
+        const size = runtime.ranges[phase * 2 + 1] / 4;
+        for (let i = offset; i < offset + size; i++)
+            runtime.cpuCurrent[i] = runtime.cpuStages[phase]![i]!;
+        if (
+            (phase === 0 && (runtime.historyNeedsPromotion || size > 0)) ||
+            (phase === 1 && runtime.historyDiscarded)
+        )
+            runtime.cpuPrevious.set(runtime.cpuCurrent);
+    }
+    const marks = world.resource(TransformRuntime).discontinuities;
+    const pending = runtime.historyDiscontinuitiesOnSubmit;
+    for (let word = 0; word < Math.max(marks.length, pending.length); word++) {
+        for (let bits = marks[word] | pending[word]; bits !== 0; bits &= bits - 1) {
+            const row = runtime.current!.rowIndex((word << 5) | (31 - Math.clz32(bits & -bits)));
+            if (row >= 0)
+                for (let i = row * 12; i < row * 12 + 12; i++)
+                    runtime.cpuPrevious[i] = runtime.cpuCurrent[i]!;
+        }
+    }
+}
 /** @internal Records pending history work through the World's draw encoder. */
 export function prepareGlobalTransformFrame(world: World, encoder?: GPUCommandEncoder): void {
     const runtime = world.resource(GlobalTransformHistory);
     if (!runtime.enabled) return;
+    prepareCpuFrame(world, runtime);
     let historyNeedsPromotion = runtime.historyNeedsPromotion;
     const discontinuities =
         encoder === undefined
@@ -331,6 +453,7 @@ export function prepareGlobalTransformFrame(world: World, encoder?: GPUCommandEn
         world.onFrameSubmit(runtime.commitOnSubmit);
     } else {
         runtime.tickCount = 0;
+        runtime.cpuPrepared = false;
         runtime.ranges.fill(0);
         runtime.historyNeedsPromotion = runtime.historyPromotionOnSubmit;
         runtime.historyDiscarded = false;
