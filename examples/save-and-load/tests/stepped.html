@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><title>Save and load, stepped</title>
-<style>body{margin:0;background:#191816}canvas{display:block;width:1280px;height:720px}</style><link rel="stylesheet" href="../src/hud.css"/></head>
+<style>body{margin:0;background:#191816}canvas{display:block;width:640px;height:360px}.capture canvas{width:1280px;height:720px}</style><link rel="stylesheet" href="../src/hud.css"/></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
 import { createApp, mountOverlay } from '@dylanebert/shallot';
@@ -10,6 +10,8 @@ import { Scene } from '../src/scene';
 import { count, Game } from '../src/game';
 import { encode } from '../src/save';
 import { hud } from '../src/hud';
+// Software GPUs draw each frame in tenths of a second: claims run at 640x360, the person's captures at 1280x720.
+if(new URLSearchParams(location.search).has('capture')) document.body.classList.add('capture');
 const app=await createApp({plugins:[Scene]});
 const world=app.world, canvas=document.querySelector('canvas');
 attachCanvas(world,world.resource(Game).camera,canvas);
@@ -24,10 +26,11 @@ window.capture=async()=>{
  return out.toDataURL('image/png');
 };
 window.adapter=world.gpuIfAvailable.adapter;
+const centre=()=>({x:canvas.clientWidth/2,y:canvas.clientHeight/2});
 await advance(3);
 window.saveAndLoad={state,advance,
- hover:()=>{pointerMove(world,{x:640,y:360,hover:true});world.step(0);},
- click:()=>{pointerMove(world,{x:640,y:360,hover:true});pressButton(world,'left');releaseButton(world,'left');world.step(0);},
+ hover:()=>{pointerMove(world,{...centre(),hover:true});world.step(0);},
+ click:()=>{pointerMove(world,{...centre(),hover:true});pressButton(world,'left');releaseButton(world,'left');world.step(0);},
  key:(code)=>{pressKey(world,code);world.step(0);releaseKey(world,code);world.step(0);}
 };
 </script></body></html>

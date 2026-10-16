@@ -66,7 +66,9 @@ test("three clicks, Save, New game and Load restore the pile and shown count, al
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto("http://127.0.0.1:4190/tests/stepped.html");
+    await page.goto(
+        `http://127.0.0.1:4190/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`,
+    );
     await page.waitForFunction(() => !!window.saveAndLoad);
     await count(page, 0);
     await expect(page.getByRole("button", { name: "Load L" })).toBeDisabled();
