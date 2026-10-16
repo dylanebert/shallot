@@ -132,7 +132,7 @@ test("tick-addressed PlayerInput clears the route goals and captures the resulti
         if (!device)
             throw new Error(`goal "final-frame" failed at tick ${tick - 1}: no rendering device`);
         console.info(`first-person ascent adapter: ${adapter.class} (${adapter.identity})`);
-        const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
+        const floorFeatures = ["indirect-first-instance"];
         const grantedFeatures = [...device.features]
             .filter((feature) => feature !== "core-features-and-limits")
             .sort();

@@ -60,8 +60,7 @@ const MULTIPLY_BLEND: GPUBlendState = {
     alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 };
 
-// The HDR target is rg11b10ufloat and has no alpha channel, so hardware alpha-to-coverage is invalid.
-// Emit a sample mask from alpha instead: unlike sample_index, this keeps fragment shading per-pixel. 1× falls back to Mask.
+// Unlike sample_index, a sample mask keeps fragment shading per-pixel. 1× falls back to Mask.
 const alphaColorOutput = tgpu
     .fn(
         [d.vec4f, d.u32, d.f32, d.u32],

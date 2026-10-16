@@ -68,7 +68,7 @@ for (const sharedDevice of [true, false]) {
                 if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
             }
             const device = await adapter.requestDevice({
-                requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
+                requiredFeatures: ["indirect-first-instance"],
                 requiredLimits,
             });
             const live = new Set<GPUBuffer | GPUTexture>();

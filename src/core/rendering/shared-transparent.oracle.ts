@@ -307,7 +307,7 @@ async function main(): Promise<void> {
     if (!adapter) throw new Error("Transparent rendering oracle requires a WebGPU adapter");
     const adapterInfo = adapter.info;
     const device = await adapter.requestDevice({
-        requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
+        requiredFeatures: ["indirect-first-instance"],
     });
     const workloads: Record<string, unknown>[] = [];
     for (const workload of ["singleMaterial", "alternatingMeshes", "alternatingMaterials"] as const)

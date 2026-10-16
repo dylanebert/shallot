@@ -51,11 +51,7 @@ test("report production frame GPU time for first-person and a 10k-instance scene
     ] as const) {
         if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
     }
-    const requiredFeatures = [
-        "indirect-first-instance",
-        "rg11b10ufloat-renderable",
-        "timestamp-query",
-    ] as const;
+    const requiredFeatures = ["indirect-first-instance", "timestamp-query"] as const;
     const device = await bounded(
         "frame probe device",
         adapter.requestDevice({ requiredFeatures: [...requiredFeatures], requiredLimits }),

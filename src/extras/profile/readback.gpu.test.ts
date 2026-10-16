@@ -8,7 +8,7 @@ setDefaultTimeout(TIMEOUT.gpu);
 const subject = compileGpuFile(import.meta.path, async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("profiler adapter unavailable");
-    const requiredFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"] as const;
+    const requiredFeatures = ["indirect-first-instance"] as const;
     const device = await adapter.requestDevice({ requiredFeatures: [...requiredFeatures] });
     expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
     expect(

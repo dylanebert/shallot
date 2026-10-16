@@ -65,15 +65,14 @@ async function buildFailure(config: Parameters<typeof createApp>[0]): Promise<st
 }
 
 test("rendering features are required and the built-in storage floor is the device default", () => {
-    expect(RenderingPlugin.gpu).toEqual({ features: ["rg11b10ufloat-renderable"] });
+    expect(RenderingPlugin.gpu).toEqual({});
     expect(StandardRenderingPlugin.gpu).toEqual({ features: ["indirect-first-instance"] });
 });
 
 test("acquisition requests only enabled plugin requirements before warm-up", async () => {
     const requests: GPUDeviceDescriptor[] = [];
-    const adapter = fakeAdapter(
-        ["indirect-first-instance", "rg11b10ufloat-renderable"],
-        (descriptor) => requests.push(descriptor),
+    const adapter = fakeAdapter(["indirect-first-instance"], (descriptor) =>
+        requests.push(descriptor),
     );
     const restore = withGpu({ requestAdapter: async () => adapter } as unknown as GPU);
     let warmed = false;
@@ -91,10 +90,7 @@ test("acquisition requests only enabled plugin requirements before warm-up", asy
             ],
         });
         expect(requests).toHaveLength(1);
-        expect([...requests[0].requiredFeatures!].sort()).toEqual([
-            "indirect-first-instance",
-            "rg11b10ufloat-renderable",
-        ]);
+        expect([...requests[0].requiredFeatures!].sort()).toEqual(["indirect-first-instance"]);
         expect(requests[0].requiredLimits).toEqual({});
         expect(warmed).toBe(false);
     } finally {
@@ -203,7 +199,7 @@ test("an acquired device with worse alignment than required refuses before devic
 
 test("standard rendering names the missing indirect feature before device creation", async () => {
     let requestedDevice = false;
-    const adapter = fakeAdapter(["rg11b10ufloat-renderable"], () => (requestedDevice = true));
+    const adapter = fakeAdapter([], () => (requestedDevice = true));
     const restore = withGpu({ requestAdapter: async () => adapter } as unknown as GPU);
     try {
         const message = await buildFailure({ defaults: false, plugins: [StandardRenderingPlugin] });

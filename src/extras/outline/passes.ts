@@ -146,8 +146,8 @@ export const jfaLayout = tgpu.bindGroupLayout({
     step: { uniform: d.f32, visibility: ["fragment"] },
 });
 
-/** the composite's I/O: the resolved scene (float — the `rg11b10ufloat` offscreen and the `rgba16float`
- *  scratch alike), the final JFA field, the per-seed color/width, and the scratch the band is written into.
+/** the composite's I/O: the resolved scene, the final JFA field, the per-seed color/width,
+ *  and the rgba16float scratch the band is written into.
  *  @internal */
 export const compositeLayout = tgpu.bindGroupLayout({
     scene: { texture: d.texture2d(d.f32), visibility: ["compute"] },

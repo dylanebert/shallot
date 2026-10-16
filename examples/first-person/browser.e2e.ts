@@ -191,7 +191,7 @@ test("the preview serves its isolated page and presents its first frame", async 
     if (!device) throw new Error("first-person browser did not record its presenting device");
     expect(device.info).toHaveProperty("vendor");
     console.info(`First-person browser device: ${JSON.stringify(device)}`);
-    const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
+    const floorFeatures = ["indirect-first-instance"];
     expect(device.requestedFeatures).toEqual(floorFeatures);
     expect(device.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
     expect(device.features).toEqual(floorFeatures);

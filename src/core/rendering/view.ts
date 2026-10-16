@@ -546,7 +546,7 @@ function releaseOffscreen(world: World, eid: number): void {
     _viewResources.offscreen.delete(eid);
 }
 
-// rgba16float scratches support storage writes; the rg11b10ufloat scene target does not.
+// Scene-transform scratches support storage writes as well as render attachments.
 interface Scratch {
     texture: GPUTexture;
     view: GPUTextureView;

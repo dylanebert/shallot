@@ -428,11 +428,10 @@ async function initRender(world: World): Promise<void> {
     if (!world.gpu.device) return;
     const { device } = world.gpu;
 
-    // HDR preserves radiance above one for tonemapping. rg11b10ufloat uses 4 bytes rather than
-    // rgba16float's 8, halving MSAA target/resolve bandwidth at about 3% relative precision and no alpha.
-    // Over-blending needs no destination alpha. This is only the scene target format; the swapchain
+    // Half-float radiance preserves smooth gradients through tonemapping; see Bevy v0.20.0
+    // (b3bdd75b), ViewTarget::main_texture_format and view/composition.rs. The swapchain
     // keeps the base canvas format and presentation encodes linear to sRGB.
-    _render.format = "rg11b10ufloat";
+    _render.format = "rgba16float";
 
     const uniform = (label: string, size: number) =>
         device.createBuffer({
@@ -479,7 +478,7 @@ async function initRender(world: World): Promise<void> {
 
 /** Camera/view state and frame scheduling without a renderer; included by MeshRenderPlugin. */
 export const RenderingPlugin: Plugin = {
-    gpu: { features: ["rg11b10ufloat-renderable"] },
+    gpu: {},
     dependencies: [TransformPlugin],
     name: "Rendering",
     systems: [

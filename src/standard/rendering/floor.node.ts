@@ -190,7 +190,7 @@ test("pipeline creation refuses the ten-binding light-compact mutation and build
 test("standard, custom-material and extras layouts stay within eight buffers", async () => {
     const adapter = await gpu.requestAdapter();
     if (!adapter) throw new Error("WebGPU adapter unavailable");
-    const requiredFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"] as const;
+    const requiredFeatures = ["indirect-first-instance"] as const;
     const device = await adapter.requestDevice({
         requiredFeatures: [...requiredFeatures],
     });

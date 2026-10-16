@@ -13,6 +13,7 @@ import {
     captureTexture,
     detachView,
     EffectPasses,
+    RenderContext,
     RenderPhases,
     Tonemapping,
     TonemappingMethod,
@@ -52,7 +53,11 @@ const Scene: Plugin = {
         const pipeline = device.createRenderPipeline({
             layout: "auto",
             vertex: { module, entryPoint: "vertex" },
-            fragment: { module, entryPoint: "fragment", targets: [{ format: "rg11b10ufloat" }] },
+            fragment: {
+                module,
+                entryPoint: "fragment",
+                targets: [{ format: world.resource(RenderContext).format }],
+            },
             depthStencil: {
                 format: "depth32float",
                 depthWriteEnabled: false,
