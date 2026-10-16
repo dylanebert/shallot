@@ -76,6 +76,8 @@ function scene(world: World) {
     world.add(camera, Camera, { clearColor: 0x1c1917 });
     world.add(camera, StandardRenderer);
     world.add(camera, Orbit, { distance: 13, yaw: 0.12, pitch: 0.22 });
+}
+function backdrop(world: World) {
     const background = registerBackground(world, {
         name: "Gallery",
         layout: backgroundLayout({}),
@@ -87,7 +89,10 @@ function scene(world: World) {
             return d.vec3f(0.0116, 0.0097, 0.0086);
         }),
     });
-    world.add(camera, CameraBackground, { name: background });
+    world.add(world.resource(Gallery).camera, CameraBackground, { name: background });
+}
+function surfaces(world: World) {
+    const gallery = world.resource(Gallery);
     const materials = world.resource(Materials);
     const wood = registerImage(world, "/wood.jpg");
     const handles = presets.map((preset) =>
@@ -169,5 +174,9 @@ export const AnimationPlugin: Plugin = {
 export const GalleryPlugin: Plugin = {
     name: "Gallery",
     dependencies: [MeshPlugin, OrbitPlugin, AnimationPlugin],
-    initialize: scene,
+    initialize(world) {
+        scene(world);
+        surfaces(world);
+        backdrop(world);
+    },
 };
