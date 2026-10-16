@@ -1,24 +1,17 @@
 import {
+    Content,
     component,
     Devices,
     entity,
     f32,
     InputPlugin,
-    internText,
     Materials,
     MeshMaterial,
-    NotShadowCaster,
     Outline,
     OutlinePlugin,
     type Plugin,
     PointLight,
-    resetInterpolation,
-    Sprite,
-    SpriteBlend,
-    SpriteFill,
-    SpritePlugin,
     type System,
-    Text,
     TextPlugin,
     Time,
     Transform,
@@ -26,7 +19,6 @@ import {
     u32,
     type World,
 } from "@dylanebert/shallot";
-import { Billboard } from "@dylanebert/shallot/rendering";
 import { castRayClosest, type PhysicsQueryHit } from "@dylanebert/shallot/standard/physics";
 import { LocalPlayer, Player, PlayerPlugin, UpdatePlayerControlSystem } from "./player";
 
@@ -53,10 +45,9 @@ export const InteractionInput = component("InteractionInput", {
 /** One sampled press until its consuming tick; a zero target invalidates a pending hold start. */
 export const InteractionPress = component("InteractionPress", { camera: entity, target: entity });
 const PRESSES = [InteractionPress];
-export const Prompt = component("Prompt", { key: entity, label: entity, ring: entity });
+export const Hint = { create: () => ({ target: 0, action: "", hold: false, progress: 0 }) };
 const INPUTS = [InteractionInput, Transform];
 const USABLES = [Usable];
-const PROMPTS = [Prompt];
 const LOCAL_PLAYERS = [LocalPlayer, Player];
 const REACH = 3;
 const Aim = {
@@ -239,13 +230,6 @@ const UseInteraction: System = {
     },
 };
 
-const PROMPT_LAYOUT = [
-    [-0.5, 0, 0],
-    [-0.5, -0.065, 0.01],
-    [-0.12, -0.065, 0.02],
-    [-0.5, 0, 0.03],
-] as const;
-
 const ShowInteraction: System = {
     name: "prompt",
     group: "simulation",
@@ -255,9 +239,7 @@ const ShowInteraction: System = {
         const input = world.storage(InteractionInput);
         let target = 0;
         let ticks = 0;
-        let camera = 0;
         for (const eid of world.query(INPUTS)) {
-            camera = eid;
             target = focus(world, eid);
             ticks = input.ticks.get(eid);
         }
@@ -270,117 +252,26 @@ const ShowInteraction: System = {
                     });
             } else if (world.has(eid, Outline)) world.remove(eid, Outline);
         }
-        const prompts = world.storage(Prompt);
-        for (const eid of world.query(PROMPTS)) {
-            const key = prompts.key.get(eid),
-                label = prompts.label.get(eid),
-                ring = prompts.ring.get(eid);
-            world.storage(Text).visible.set(key, Number(!!target));
-            world.storage(Text).visible.set(label, Number(!!target));
-            world.storage(Sprite).visible.set(eid, Number(!!target));
-            world
-                .storage(Sprite)
-                .visible.set(ring, Number(!!target && usable.action.get(target) === Action.Hold));
-            if (!target) continue;
-            const active = usable.active.get(target);
-            world
-                .storage(Text)
-                .content.set(
-                    label,
-                    active ? usable.activeLabel.get(target) : usable.label.get(target),
-                );
-            world.storage(Sprite).fill.set(ring, ticks / 60);
-            const t = world.storage(Transform);
-            const eyeX = t.translation.x.get(camera),
-                eyeY = t.translation.y.get(camera),
-                eyeZ = t.translation.z.get(camera);
-            const dx = t.translation.x.get(target) - eyeX,
-                dy = t.translation.y.get(target) - eyeY,
-                dz = t.translation.z.get(target) - eyeZ;
-            const distance = Math.hypot(dx, dy, dz);
-            const scale = (distance / 2.6) * 0.25;
-            const x = eyeX + dx * 0.25,
-                y = eyeY + dy * 0.25,
-                z = eyeZ + dz * 0.25;
-            const q = t.rotation;
-            const rightX = 1 - 2 * (q.y.get(camera) ** 2 + q.z.get(camera) ** 2);
-            const rightY =
-                2 * (q.x.get(camera) * q.y.get(camera) + q.w.get(camera) * q.z.get(camera));
-            const rightZ =
-                2 * (q.x.get(camera) * q.z.get(camera) - q.w.get(camera) * q.y.get(camera));
-            const backX =
-                2 * (q.x.get(camera) * q.z.get(camera) + q.w.get(camera) * q.y.get(camera));
-            const backY =
-                2 * (q.y.get(camera) * q.z.get(camera) - q.w.get(camera) * q.x.get(camera));
-            const backZ = 1 - 2 * (q.x.get(camera) ** 2 + q.y.get(camera) ** 2);
-            const upX = 2 * (q.x.get(camera) * q.y.get(camera) - q.w.get(camera) * q.z.get(camera));
-            const upY = 1 - 2 * (q.x.get(camera) ** 2 + q.z.get(camera) ** 2);
-            const upZ = 2 * (q.y.get(camera) * q.z.get(camera) + q.w.get(camera) * q.x.get(camera));
-            // The progress ring clears the cap's corners and the action text.
-            for (let i = 0; i < PROMPT_LAYOUT.length; i++) {
-                const part = i === 0 ? eid : i === 1 ? key : i === 2 ? label : ring;
-                const [right, up, depth] = PROMPT_LAYOUT[i]!;
-                t.translation.set(
-                    part,
-                    x + scale * (rightX * right + upX * (up - 1) + backX * depth),
-                    y + scale * (rightY * right + upY * (up - 1) + backY * depth),
-                    z + scale * (rightZ * right + upZ * (up - 1) + backZ * depth),
-                );
-                t.scale.set(part, scale, scale, scale);
-                resetInterpolation(world, part);
-            }
-        }
+        const hint = world.resource(Hint);
+        hint.target = target;
+        hint.action = target
+            ? world
+                  .resource(Content)
+                  .name(
+                      usable.active.get(target)
+                          ? usable.activeLabel.get(target)
+                          : usable.label.get(target),
+                  )!
+            : "";
+        hint.hold = !!target && usable.action.get(target) === Action.Hold;
+        hint.progress = ticks / 60;
     },
 };
 
 export const InteractPlugin: Plugin = {
     name: "Interact",
     recovery: "stateless",
-    components: [Usable, InteractionInput, InteractionPress, Prompt],
-    dependencies: [InputPlugin, OutlinePlugin, SpritePlugin, TextPlugin],
+    components: [Usable, InteractionInput, InteractionPress],
+    dependencies: [InputPlugin, OutlinePlugin, TextPlugin],
     systems: [SampleInteraction, UseInteraction, ShowInteraction],
 };
-
-export function makePrompt(world: World, image: number, ringImage: number): number {
-    const cap = world.create();
-    world.add(cap, Transform);
-    world.add(cap, NotShadowCaster);
-    world.add(cap, Sprite, {
-        image,
-        size: [0.28, 0.28],
-        anchor: [0.5, 0.5],
-        billboard: Billboard.Screen,
-        blend: SpriteBlend.Alpha,
-    });
-    const key = world.create();
-    world.add(key, Transform);
-    world.add(key, Text, {
-        content: internText(world, "E"),
-        fontSize: 0.18,
-        anchor: [0.5, 0],
-        billboard: Billboard.Screen,
-        color: 0xefe3cf,
-    });
-    const label = world.create();
-    world.add(label, Transform);
-    world.add(label, Text, {
-        fontSize: 0.16,
-        anchor: [0, 0],
-        billboard: Billboard.Screen,
-        color: 0xefe3cf,
-    });
-    const ring = world.create();
-    world.add(ring, Transform);
-    world.add(ring, NotShadowCaster);
-    world.add(ring, Sprite, {
-        image: ringImage,
-        blend: SpriteBlend.Alpha,
-        size: [0.56, 0.56],
-        anchor: [0.5, 0.5],
-        billboard: Billboard.Screen,
-        fillMode: SpriteFill.Radial,
-        fill: 0,
-    });
-    world.add(cap, Prompt, { key, label, ring });
-    return cap;
-}

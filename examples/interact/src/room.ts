@@ -12,7 +12,6 @@ import {
     type Plugin,
     PointLight,
     type Resource,
-    registerImage,
     Shape,
     ShapeKind,
     StandardMaterial,
@@ -23,7 +22,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { Billboard } from "@dylanebert/shallot/rendering";
-import { Action, InteractionInput, InteractPlugin, makePrompt, Usable } from "./interact";
+import { Action, InteractionInput, InteractPlugin, Usable } from "./interact";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 const GROUND = [0.38498746, 0.3374035, 0.26791645, 1] as const;
@@ -45,10 +44,9 @@ function block(world: World, position: Vec3, size: Vec3, color: Color = GROUND):
     );
     return eid;
 }
-export const Room: Resource<{ camera: number; player: number; targets: number[]; prompt: number }> =
-    {
-        create: () => ({ camera: 0, player: 0, targets: [], prompt: 0 }),
-    };
+export const Room: Resource<{ camera: number; player: number; targets: number[] }> = {
+    create: () => ({ camera: 0, player: 0, targets: [] }),
+};
 function room(world: World): void {
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
@@ -156,13 +154,10 @@ function room(world: World): void {
             color: 0xefe3cf,
         });
     }
-    const image = registerImage(world, "/key.png");
-    const ring = registerImage(world, "/ring.png");
     Object.assign(world.resource(Room), {
         camera,
         player,
         targets: [lamp, button, held],
-        prompt: makePrompt(world, image, ring),
     });
 }
 export const RoomPlugin: Plugin = {

@@ -5,21 +5,18 @@ import {
     Content,
     createApp,
     InputPlugin,
-    lookAtRotation,
-    NotShadowCaster,
     Outline,
     PointLight,
     pressKey,
     releaseKey,
     Shape,
-    Sprite,
     StandardPhysicsPlugin,
     Text,
     Transform,
     TransformPlugin,
     type World,
 } from "@dylanebert/shallot";
-import { Action, InteractionInput, InteractPlugin, makePrompt, Prompt, Usable } from "./interact";
+import { Action, Hint, InteractionInput, InteractPlugin, Usable } from "./interact";
 
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 afterEach(() => {
@@ -34,14 +31,7 @@ async function scene(action: number = Action.Lamp) {
                 name: "GameCheck",
                 recovery: "stateless",
                 dependencies: [StandardPhysicsPlugin, InputPlugin, TransformPlugin],
-                components: [
-                    ...InteractPlugin.components!,
-                    Outline,
-                    PointLight,
-                    Text,
-                    Sprite,
-                    NotShadowCaster,
-                ],
+                components: [...InteractPlugin.components!, Outline, PointLight, Text],
                 systems: InteractPlugin.systems,
             },
         ],
@@ -55,14 +45,13 @@ async function scene(action: number = Action.Lamp) {
     const light = target;
     w.add(target, PointLight, { intensity: 0 });
     w.add(target, Usable, { action });
-    const prompt = makePrompt(w, 0, 0);
     w.resource(Content);
     w.tick();
     const step = (n = 1) => {
         for (let i = 0; i < n; i++) w.step(1 / 60);
     };
     step();
-    return { w, camera, target, light, prompt, step };
+    return { w, camera, target, light, step };
 }
 function box(w: World, translation: readonly [number, number, number]) {
     const eid = w.create();
@@ -73,102 +62,32 @@ function box(w: World, translation: readonly [number, number, number]) {
 }
 
 test("in reach and in view focuses, outlines and shows the prompt", async () => {
-    const { w, camera, target, prompt } = await scene();
+    const { w, camera, target } = await scene();
     expect(w.storage(InteractionInput).target.get(camera)).toBe(target);
     expect(w.has(target, Outline)).toBe(true);
-    expect(w.storage(Sprite).visible.get(prompt)).toBe(1);
-    expect(w.has(prompt, NotShadowCaster)).toBe(true);
-    expect(w.has(w.storage(Prompt).ring.get(prompt), NotShadowCaster)).toBe(true);
-});
-
-test("the prompt has distinct depths and a key-centred ring clearing cap and text, even side-on", async () => {
-    const { w, camera, prompt, step } = await scene();
-    const t = w.storage(Transform);
-    const p = w.storage(Prompt);
-    const key = p.key.get(prompt),
-        label = p.label.get(prompt),
-        ring = p.ring.get(prompt);
-    const sprites = w.storage(Sprite);
-    expect(sprites.anchor.x.get(ring)).toBe(sprites.anchor.x.get(prompt));
-    expect(sprites.anchor.y.get(ring)).toBe(sprites.anchor.y.get(prompt));
-    const capRadius = Math.hypot(sprites.size.x.get(prompt), sprites.size.y.get(prompt)) / 2;
-    expect(sprites.size.x.get(ring) * 0.4).toBeGreaterThan(capRadius + 0.02);
-    expect(sprites.size.y.get(ring)).toBe(sprites.size.x.get(ring));
-    for (const side of [false, true]) {
-        if (side) {
-            t.translation.set(camera, 2, 1.4, -3.8);
-            t.rotation.set(camera, 0, Math.SQRT1_2, 0, Math.SQRT1_2);
-            step();
-        }
-        const depth = side ? t.translation.x : t.translation.z;
-        const scale = t.scale.x.get(prompt);
-        expect(depth.get(key) - depth.get(prompt)).toBeCloseTo(0.01 * scale);
-        expect(depth.get(label) - depth.get(prompt)).toBeCloseTo(0.02 * scale);
-        expect(depth.get(ring) - depth.get(prompt)).toBeCloseTo(0.03 * scale);
-        const horizontal = side ? t.translation.z : t.translation.x;
-        expect(horizontal.get(ring)).toBeCloseTo(horizontal.get(prompt), 5);
-        expect(t.translation.y.get(ring)).toBeCloseTo(t.translation.y.get(prompt), 5);
-        expect(Math.abs(horizontal.get(label) - horizontal.get(ring))).toBeGreaterThan(
-            (sprites.size.x.get(ring) / 2 + 0.08) * scale,
-        );
-        expect(t.translation.y.get(key)).toBeCloseTo(t.translation.y.get(label));
-        expect(w.storage(Text).anchor.y.get(key)).toBe(0);
-        expect(w.storage(Text).anchor.y.get(label)).toBe(0);
-    }
-});
-
-test("prompt planes remain distinct at oblique views and near and far distances", async () => {
-    const { w, camera, target, prompt, step } = await scene();
-    const t = w.storage(Transform);
-    const p = w.storage(Prompt);
-    for (const distance of [0.8, 1.5, 2.8])
-        for (const yaw of [-2, -0.7, 0, 0.7, 2])
-            for (const pitch of [-0.6, 0, 0.6]) {
-                const dx = Math.sin(yaw) * Math.cos(pitch),
-                    dy = Math.sin(pitch),
-                    dz = Math.cos(yaw) * Math.cos(pitch);
-                const x = dx * distance,
-                    y = 1.4 + dy * distance,
-                    z = -3.8 + dz * distance;
-                t.translation.set(camera, x, y, z);
-                t.rotation.set(camera, ...lookAtRotation(x, y, z, 0, 1.4, -3.8));
-                step();
-                expect(w.storage(InteractionInput).target.get(camera)).toBe(target);
-                const parts = [prompt, p.key.get(prompt), p.label.get(prompt), p.ring.get(prompt)];
-                const depths = parts.map(
-                    (eid) =>
-                        t.translation.x.get(eid) * dx +
-                        t.translation.y.get(eid) * dy +
-                        t.translation.z.get(eid) * dz,
-                );
-                for (let i = 1; i < depths.length; i++)
-                    expect(depths[i]! - depths[i - 1]!).toBeCloseTo(
-                        0.01 * t.scale.x.get(prompt),
-                        4,
-                    );
-            }
+    expect(w.resource(Hint).target).toBe(target);
 });
 
 test("out of reach or behind a wall neither focuses nor outlines nor shows the prompt", async () => {
-    const { w, camera, target, prompt, step } = await scene();
+    const { w, camera, target, step } = await scene();
     w.storage(Transform).translation.z.set(camera, 2);
     step();
     expect(w.storage(InteractionInput).target.get(camera)).toBe(0);
     expect(w.has(target, Outline)).toBe(false);
-    expect(w.storage(Sprite).visible.get(prompt)).toBe(0);
+    expect(w.resource(Hint).target).toBe(0);
     w.storage(Transform).translation.z.set(camera, -1.8);
     w.storage(Transform).rotation.set(camera, 0, 1, 0, 0);
     step();
     expect(w.storage(InteractionInput).target.get(camera)).toBe(0);
     expect(w.has(target, Outline)).toBe(false);
-    expect(w.storage(Sprite).visible.get(prompt)).toBe(0);
+    expect(w.resource(Hint).target).toBe(0);
     w.storage(Transform).rotation.set(camera, 0, 0, 0, 1);
     box(w, [0, 1.4, -2.7]);
     w.tick();
     step();
     expect(w.storage(InteractionInput).target.get(camera)).toBe(0);
     expect(w.has(target, Outline)).toBe(false);
-    expect(w.storage(Sprite).visible.get(prompt)).toBe(0);
+    expect(w.resource(Hint).target).toBe(0);
 });
 
 test("one press stays latched until a fixed tick and fires once", async () => {

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { expect, type Page, test } from "playwright/test";
 
 type State = {
@@ -17,8 +17,7 @@ declare global {
         adapter: { class: string; identity: string };
         turnAway(): void;
         overview(): void;
-        evidence(): Promise<{ outline: number; prompt: number }>;
-        promptEvidence(): Promise<number[]>;
+        evidence(): Promise<{ outline: number }>;
         lampEvidence(): Promise<{ changed: number; increase: number }>;
         holdEvidence(): Promise<{
             beforePosition: number[];
@@ -31,15 +30,9 @@ const STEPPED = `http://127.0.0.1:4186/tests/stepped.html${process.env.SHALLOT_C
 
 async function capture(page: Page, name: string) {
     if (!process.env.SHALLOT_CAPTURE_DIR) return;
-    const data = await page.evaluate(() => window.capture());
-    if (process.env.SHALLOT_CAPTURE_DIR) {
-        mkdirSync(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
-        writeFileSync(
-            `${process.env.SHALLOT_CAPTURE_DIR}/${name}.png`,
-            Buffer.from(data.split(",")[1]!, "base64"),
-        );
-    }
-    return data;
+    mkdirSync(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
+    await page.evaluate(() => window.capture());
+    await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/${name}.png` });
 }
 
 test("aim is sampled before E; in-reach lamp and prompt render, E lights the wall, and far aim clears both", async ({
@@ -69,7 +62,9 @@ test("aim is sampled before E; in-reach lamp and prompt render, E lights the wal
     expect(focused.prompt).toBe(1);
     const evidence = await page.evaluate(() => window.evidence());
     expect(evidence.outline).toBeGreaterThan(15);
-    expect(evidence.prompt).toBeGreaterThan(15);
+    await expect(page.locator(".hint")).toBeVisible();
+    await expect(page.locator(".action")).toHaveText("Switch on");
+    await expect(page.locator("kbd")).toHaveText("E");
     await capture(page, "lamp-focused");
     const lighting = await page.evaluate(() => window.lampEvidence());
     console.log("lamp wall", lighting);
@@ -77,6 +72,8 @@ test("aim is sampled before E; in-reach lamp and prompt render, E lights the wal
     expect(lighting.increase).toBeGreaterThan(8);
     const switched = (await page.evaluate(() => window.state())).targets[0]!;
     expect(switched.active).toBe(1);
+    await expect(page.locator(".action")).toHaveText("Switch off");
+    await expect(page.locator(".hold-ring")).toBeHidden();
     await page.evaluate(() => {
         window.key(false);
         window.advance();
@@ -84,6 +81,7 @@ test("aim is sampled before E; in-reach lamp and prompt render, E lights the wal
     });
     const far = await page.evaluate(() => window.state());
     expect(far.prompt).toBe(0);
+    await expect(page.locator(".hint")).toBeHidden();
     expect(far.targets.every((t) => !t.outlined)).toBe(true);
     if (process.env.SHALLOT_CAPTURE_DIR) {
         await page.evaluate(() => window.overview());
@@ -92,7 +90,9 @@ test("aim is sampled before E; in-reach lamp and prompt render, E lights the wal
     expect(errors).toEqual([]);
 });
 
-test("every prompt part renders at near, far and oblique views during a hold", async ({ page }) => {
+test("HUD hint stays visible at near, far and oblique views with its hold ring centred on the key", async ({
+    page,
+}) => {
     await page.goto(STEPPED);
     await page.waitForFunction(() => window.ready);
     for (const [distance, yaw, pitch] of [
@@ -108,10 +108,28 @@ test("every prompt part renders at near, far and oblique views during a hold", a
             },
             [distance, yaw, pitch],
         );
-        const parts = await page.evaluate(() => window.promptEvidence());
-        console.log("prompt view", distance, yaw, pitch, parts);
+        await expect(page.locator(".action")).toHaveText("Hold to change");
+        await expect(page.locator(".hold-ring")).toBeVisible();
+        const key = await page.locator("kbd").boundingBox();
+        const ring = await page.locator(".hold-ring").boundingBox();
+        expect(key).not.toBeNull();
+        expect(ring).not.toBeNull();
+        expect(Math.abs(key!.x + key!.width / 2 - ring!.x - ring!.width / 2)).toBeLessThanOrEqual(
+            1,
+        );
+        expect(Math.abs(key!.y + key!.height / 2 - ring!.y - ring!.height / 2)).toBeLessThanOrEqual(
+            1,
+        );
+        console.log("ring/key centres", {
+            x: key!.x + key!.width / 2 - ring!.x - ring!.width / 2,
+            y: key!.y + key!.height / 2 - ring!.y - ring!.height / 2,
+        });
+        const action = await page.locator(".action").boundingBox();
+        expect(action!.x).toBeGreaterThan(ring!.x + ring!.width);
+        expect(Math.hypot(key!.width, key!.height) / 2).toBeLessThan(21);
+        await expect(page.locator(".progress")).toHaveCSS("stroke-dasharray", "0.5px, 1px");
         await capture(page, `hold-view-${distance}`);
-        for (const pixels of parts) expect(pixels).toBeGreaterThan(2);
+
         await page.evaluate(() => {
             window.key(false);
             window.advance();
@@ -126,7 +144,7 @@ test("every prompt part renders at near, far and oblique views during a hold", a
     });
 });
 
-test("each prompt faces the player, with a half-filled ring during the one-second hold", async ({
+test("each HUD hint shows its action, with a half-filled ring during the one-second hold", async ({
     page,
 }) => {
     await page.goto(STEPPED);
@@ -136,6 +154,9 @@ test("each prompt faces the player, with a half-filled ring during the one-secon
         const state = await page.evaluate(() => window.state());
         expect(state.targets[index]!.outlined).toBe(true);
         expect(state.prompt).toBe(1);
+        await expect(page.locator(".action")).toHaveText(
+            ["Switch on", "Press", "Hold to change"][index]!,
+        );
         await capture(page, `${name}-focused`);
     }
     await page.evaluate(() => {

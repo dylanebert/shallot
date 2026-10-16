@@ -1,14 +1,15 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><title>Interact, stepped</title>
-<style>body{margin:0;background:#1c1917}canvas{display:block}</style></head>
+<style>body{margin:0;background:#1c1917}canvas{display:block}</style><link rel="stylesheet" href="../src/hud.css"/></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { Camera, createApp, Transform, Outline, Text, Sprite, pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
+import { Camera, createApp, mountOverlay, Transform, Outline,  pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { PointShadows } from '@dylanebert/shallot/standard/rendering';
 import { Room, RoomPlugin } from '../src/room';
 import { LocalPlayer, Player } from '../src/player';
-import { InteractionInput, Usable, Prompt } from '../src/interact';
+import { InteractionInput, Usable, Hint } from '../src/interact';
+import { hud } from '../src/hud';
 const app = await createApp({plugins:[RoomPlugin]});
 const world = app.world;
 const room = world.resource(Room);
@@ -21,6 +22,7 @@ if (!new URLSearchParams(location.search).has('captures')) {
  world.resource(PointShadows).atlas=512;
  world.resource(PointShadows).casters=1;
 }
+hud(mountOverlay(canvas, world), world);
 // The check places the same player, leaving the controller to pose its camera.
 window.aim = (index, distance=2.6, yaw=0, pitch=0) => {
  const t = world.storage(Transform);
@@ -46,7 +48,7 @@ window.advance = (count=1) => {
 };
 window.state = () => ({
  targets:room.targets.map(eid=>({outlined:world.has(eid,Outline), active:world.storage(Usable).active.get(eid), height:world.storage(Transform).translation.y.get(eid)})),
- prompt:world.storage(Sprite).visible.get(room.prompt),
+ prompt:Number(!!world.resource(Hint).target),
  ticks:world.storage(InteractionInput).ticks.get(room.camera),
 });
 async function render() {
@@ -77,13 +79,6 @@ window.evidence = async () => {
  world.storage(Outline).width.set(outlined,0);
  const off=(await render()).rgba;
  world.storage(Outline).width.set(outlined,4);
- const p=world.storage(Prompt);
- const key=p.key.get(room.prompt), label=p.label.get(room.prompt), ring=p.ring.get(room.prompt);
- world.storage(Sprite).opacity.set(room.prompt,0); world.storage(Sprite).opacity.set(ring,0);
- world.storage(Text).opacity.set(key,0); world.storage(Text).opacity.set(label,0);
- const noPrompt=(await render()).rgba;
- world.storage(Sprite).opacity.set(room.prompt,1); world.storage(Sprite).opacity.set(ring,1);
- world.storage(Text).opacity.set(key,1); world.storage(Text).opacity.set(label,1);
  const count=(a,b,x0,y0,x1,y1)=>{
   let changed=0;
   const scale=canvas.width/1280;
@@ -93,7 +88,7 @@ window.evidence = async () => {
   }
   return changed;
  };
- return {outline:count(on,off,400,0,810,720), prompt:count(on,noPrompt,350,400,1050,650)};
+ return {outline:count(on,off,400,0,810,720)};
 };
 window.lampEvidence = async () => {
  const off=(await render()).rgba;
@@ -109,20 +104,6 @@ window.lampEvidence = async () => {
   increase+=delta;
  }
  return {changed:changed/(400*180*scale*scale), increase:increase/(400*180*scale*scale)};
-};
-window.promptEvidence = async () => {
- const p=world.storage(Prompt), counts=[];
- const parts=[[room.prompt,Sprite],[p.key.get(room.prompt),Text],[p.label.get(room.prompt),Text],[p.ring.get(room.prompt),Sprite]];
- const on=(await render()).rgba;
- for(const [eid,component] of parts) {
-  world.storage(component).opacity.set(eid,0);
-  const off=(await render()).rgba;
-  world.storage(component).opacity.set(eid,1);
-  let changed=0;
-  for(let i=0;i<on.length;i+=4) if(Math.max(Math.abs(on[i]-off[i]),Math.abs(on[i+1]-off[i+1]),Math.abs(on[i+2]-off[i+2]))>15) changed++;
-  counts.push(changed);
- }
- return counts;
 };
 window.holdEvidence = async () => {
  window.aim(2);
