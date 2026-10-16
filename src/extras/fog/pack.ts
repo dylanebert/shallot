@@ -3,19 +3,19 @@ import { unpackColorInto } from "../../engine";
 import { Fog } from "./index";
 import { FOG_MAX_STEPS, FOG_PARAMS } from "./march";
 
-/** Packs into caller-owned storage using FogGpu's layout; clamps steps to the GPU loop's range.
- * Gain reverses the surface-light conversion for volumetric sources, outside the phase function. */
+/** Packs extinction density, scattering albedo and light intensity into caller-owned FogGpu storage.
+ * Clamps stepCount to the GPU loop's range; a zero-extinction medium has zero in-scatter. */
 export function packFog(world: World, eid: number, out: Float32Array): void {
     out.fill(0);
     unpackColorInto(world.storage(Fog).color.get(eid), out, FOG_PARAMS.color);
-    out[FOG_PARAMS.march] = world.storage(Fog).density.get(eid);
+    const fog = world.storage(Fog);
+    const extinction = fog.absorption.get(eid) + fog.scattering.get(eid);
+    out[FOG_PARAMS.march] = fog.density.get(eid) * extinction;
     out[FOG_PARAMS.march + 1] = world.storage(Fog).heightBase.get(eid);
     out[FOG_PARAMS.march + 2] = world.storage(Fog).heightFalloff.get(eid);
     out[FOG_PARAMS.march + 3] = world.storage(Fog).jitter.get(eid);
-    out[FOG_PARAMS.extra] = Math.min(Math.max(world.storage(Fog).steps.get(eid), 1), FOG_MAX_STEPS);
-    out[FOG_PARAMS.extra + 1] = world.storage(Fog).anisotropy.get(eid);
-    out[FOG_PARAMS.extra + 2] = world.storage(Fog).absorption.get(eid);
-    out[FOG_PARAMS.extra + 3] =
-        (world.storage(Fog).scattering.get(eid) * world.storage(Fog).scatterIntensity.get(eid)) /
-        Math.PI;
+    out[FOG_PARAMS.extra] = Math.min(Math.max(fog.stepCount.get(eid), 1), FOG_MAX_STEPS);
+    out[FOG_PARAMS.extra + 1] = fog.scatteringAsymmetry.get(eid);
+    out[FOG_PARAMS.extra + 2] = extinction > 0 ? fog.scattering.get(eid) / extinction : 0;
+    out[FOG_PARAMS.extra + 3] = fog.lightIntensity.get(eid);
 }

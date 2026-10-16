@@ -142,7 +142,7 @@ function createFogKernel(
                 const jitter = cfg.march.w;
                 const steps = std.max(d.u32(cfg.extra.x), d.u32(1));
                 const g = cfg.extra.y;
-                const absorption = cfg.extra.z;
+                const albedo = cfg.extra.z;
                 const gain = cfg.extra.w;
                 const offset = std.mix(0.5, ign(d.vec2f(input.gid.xy)), jitter);
 
@@ -157,7 +157,6 @@ function createFogKernel(
                 // the extinction + in-scatter march, fused on one front-to-back midpoint sweep: `trans` is the
                 // transmittance so far, `inScatter` the radiance scattered toward the camera
                 const ds = dist / d.f32(steps);
-                const albedo = 1 - absorption;
                 let trans = d.f32(1);
                 let inScatter = d.vec3f(0);
                 let i = d.u32(0);

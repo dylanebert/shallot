@@ -26,6 +26,8 @@ import {
     LightCull,
     Lighting,
     pointAtlasView,
+    pointShadowCasters,
+    pointShadowRects,
     StandardRenderer,
     StandardRenderingPlugin,
     shadowSampler,
@@ -46,32 +48,33 @@ import {
  * the scene's volumetric atmosphere: one per scene (a singleton). The fog pass marches each pixel from the
  * camera to the scene depth, accumulating extinction and fading the scene toward `color`. `density` is the
  * base haze thickness; `heightFalloff` makes it an exponential height fog (denser low, thinning with
- * altitude above `heightBase`); `steps` / `jitter` trade march cost for banding. The scattering knobs
- * (`absorption` / `scattering` / `anisotropy` / `scatterIntensity`) shape volumetric light shafts.
+ * altitude above `heightBase`); `stepCount` / `jitter` trade march cost for banding. Extinction is
+ * density × (absorption + scattering); the scattered fraction is scattering / (absorption + scattering).
  */
 export const Fog = component(
     "Fog",
     {
-        /** base extinction coefficient: how fast the scene fades into haze with distance (0 = clear) */
+        /** Base medium density in inverse world units (0 = clear), multiplied by the extinction coefficients. */
         density: f32,
         /** hex sRGB haze color the scene fades toward (e.g. 0xb5c4d8) */
         color: f32,
-        /** absorbed fraction of extinction [0,1]; the rest scatters (the scattering albedo for light shafts) */
+        /** Nonnegative absorption coefficient; density × absorption removes light without scattering. */
         absorption: f32,
-        /** in-scatter strength: how brightly light shafts glow in the haze */
+        /** Nonnegative scattering coefficient; density × scattering scatters light toward and away from the viewer. */
         scattering: f32,
-        /** Henyey-Greenstein anisotropy [-1,1]: 0 even glow, →1 forward (bright halo toward a light) */
-        anisotropy: f32,
+        /** Henyey-Greenstein asymmetry (-1,1): 0 isotropic, positive values scatter forward toward a light. */
+        scatteringAsymmetry: f32,
         /** world height where density equals `density`: the base of the height falloff */
         heightBase: f32,
         /** exponential density falloff per world unit above `heightBase` (0 = uniform haze, no height fog) */
         heightFalloff: f32,
         /** raymarch step count along each pixel's ray (clamped to 256); more = smoother, costlier */
-        steps: u32,
+        stepCount: u32,
         /** per-pixel step jitter [0,1] that breaks march banding into noise (0 = fixed midpoint sampling) */
         jitter: f32,
-        /** overall multiplier on in-scatter brightness */
-        scatterIntensity: f32,
+        /** Nonphysical multiplier on direct and ambient in-scattered light; 1 leaves the light unadjusted.
+         * Defaults to 1/π as a tuned look value. */
+        lightIntensity: f32,
     },
     {
         defaults: () => ({
@@ -79,12 +82,12 @@ export const Fog = component(
             color: 0xb5c4d8,
             absorption: 0,
             scattering: 1,
-            anisotropy: 0,
+            scatteringAsymmetry: 0,
             heightBase: 0,
             heightFalloff: 0,
-            steps: 32,
+            stepCount: 32,
             jitter: 1,
-            scatterIntensity: 1,
+            lightIntensity: 1 / Math.PI,
         }),
     },
 );
@@ -132,8 +135,8 @@ function fogLights(world: World): GPUBindGroup {
     const _lighting = world.resource(Lighting);
 
     const atlas = pointAtlasView(world)!;
-    const casters = world.gpu.buffers.get("pointShadows")!;
-    const tileRects = world.gpu.buffers.get("pointTileRects")!;
+    const casters = pointShadowCasters(world)!;
+    const tileRects = pointShadowRects(world)!;
     const sampler = shadowSampler(world)!;
     const sunMap = sunShadowView(world)!;
     const sunParams = sunShadowParams(world)!;

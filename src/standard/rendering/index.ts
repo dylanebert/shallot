@@ -1,7 +1,14 @@
 /// <reference types="@webgpu/types" />
 
 export { ShadowFilteringMethod, ShadowFilteringMethodMode } from "../../core/rendering";
-export { pointAtlasView, shadowSampler, sunShadowParams, sunShadowView } from "./atlas";
+export {
+    pointAtlasView,
+    pointShadowCasters,
+    pointShadowRects,
+    shadowSampler,
+    sunShadowParams,
+    sunShadowView,
+} from "./atlas";
 export { Clusters, clusterCell, LightClusters, LightCull } from "./cluster";
 export type { Background } from "./contract";
 export { BackgroundContext, Backgrounds, backgroundLayout, registerBackground } from "./contract";

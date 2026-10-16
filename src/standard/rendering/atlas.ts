@@ -215,11 +215,21 @@ export function initializeShadowAtlasState(world: World): void {
 /** the point-shadow atlas depth view a screen-space consumer (the fog volumetric march) binds to sample
  * the casters' shadows: the real atlas once a point/spot light casts, else the 1×1 fallback (whose empty
  * caster slots never match a light, so the march reads it as fully lit). Pairs with {@link shadowSampler}
- * + the published `"pointShadows"` caster uniform. */
+ * + {@link pointShadowCasters} and {@link pointShadowRects}. */
 export function pointAtlasView(world: World): GPUTextureView | null {
     const _atlasState = world.resource(atlasStateKey);
 
     return _atlasState.pointAtlasView ?? _atlasState.fallbackView;
+}
+
+/** World-owned point/spot caster uniform, including empty slots when no light casts. Valid after renderer warm-up. */
+export function pointShadowCasters(world: World): GPUBuffer | null {
+    return world.resource(atlasStateKey).pointParams;
+}
+
+/** World-owned point/spot atlas tile-rectangle uniform. Resolve again after renderer warm-up. */
+export function pointShadowRects(world: World): GPUBuffer | null {
+    return world.resource(atlasStateKey).pointTileRects;
 }
 
 /** Shared reverse-Z greater-equal comparison sampler with linear PCF for pointAtlasView or sunShadowView. */

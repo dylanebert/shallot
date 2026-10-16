@@ -134,7 +134,10 @@ test("the hour resource drives every atmosphere value written by the system", ()
         expect(world.storage(Sky).hazeDensity.get(scene.sky)).toBeCloseTo(v.fogDensity, 6);
         expect(world.storage(Fog).color.get(scene.fog)).toBe(v.fogColor);
         expect(world.storage(Fog).density.get(scene.fog)).toBeCloseTo(v.fogDensity, 6);
-        expect(world.storage(Fog).scattering.get(scene.fog)).toBeCloseTo(v.fogScattering, 5);
+        expect(world.storage(Fog).lightIntensity.get(scene.fog)).toBeCloseTo(
+            v.fogLightIntensity,
+            5,
+        );
         expect(world.storage(ColorGrading).exposure.get(scene.camera)).toBeCloseTo(v.exposure, 6);
     }
     world.addSystem(CycleSystem);

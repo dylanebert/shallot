@@ -14,7 +14,8 @@ const PI = Math.PI;
 
 /**
  * the `Fog` uniform's layout, the one source of truth for it: `color.rgb` is the linear haze color, `march`
- * is (density, heightBase, heightFalloff, jitter), `extra` is (steps, anisotropy g, absorption, gain). f32
+ * is (extinction density, heightBase, heightFalloff, jitter), `extra` is
+ * (stepCount, scatteringAsymmetry, scattering albedo, radiance gain). f32
  * throughout — the shader reads `extra.x` as `u32`. `FOG_FLOATS` and `packFog`'s write indices derive
  * from it.
  */

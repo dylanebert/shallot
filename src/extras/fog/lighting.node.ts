@@ -33,7 +33,7 @@ afterEach(() => {
     for (const eid of entities) subjects()[0]!.world.destroy(eid);
     entities.length = 0;
 });
-function scene(anisotropy = 0) {
+function scene(scatteringAsymmetry = 0) {
     const { world } = subjects()[0]!;
     const camera = entity();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -53,9 +53,9 @@ function scene(anisotropy = 0) {
         density: 0.15,
         absorption: 0,
         scattering: 1,
-        scatterIntensity: 10,
-        anisotropy,
-        steps: 64,
+        lightIntensity: 10 / Math.PI,
+        scatteringAsymmetry,
+        stepCount: 64,
         jitter: 0,
     });
     return camera;

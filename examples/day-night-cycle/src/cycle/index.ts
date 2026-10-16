@@ -48,7 +48,7 @@ interface Atmosphere {
     starIntensity: number;
     fogColor: number;
     fogDensity: number;
-    fogScattering: number;
+    fogLightIntensity: number;
     exposure: number;
 }
 
@@ -70,7 +70,7 @@ export function atmosphere(
         starIntensity: 0,
         fogColor: 0,
         fogDensity: 0,
-        fogScattering: 0,
+        fogLightIntensity: 0,
         exposure: 0,
     },
 ): Atmosphere {
@@ -97,7 +97,7 @@ export function atmosphere(
     out.starIntensity = 1 - daylight;
     out.fogColor = blend(0x182039, blend(0xbcc5d4, 0xe9a175, dusk), daylight);
     out.fogDensity = 0.003 + 0.012 * dusk;
-    out.fogScattering = 0.3 + (4.7 * day) / (0.02 + day);
+    out.fogLightIntensity = (0.3 + (4.7 * day) / (0.02 + day)) / Math.PI;
     out.exposure = -0.2 * (1 - daylight);
     return out;
 }
@@ -148,9 +148,9 @@ function makeScene(world: World): void {
     scene.fog = world.create();
     world.add(scene.fog, Fog, {
         heightFalloff: 0.12,
-        scattering: 0.3,
-        anisotropy: 0.65,
-        steps: 16,
+        lightIntensity: 0.3 / Math.PI,
+        scatteringAsymmetry: 0.65,
+        stepCount: 16,
     });
 
     const materials = world.resource(Materials);
@@ -230,7 +230,7 @@ export const CycleSystem = {
         const fog = world.storage(Fog);
         fog.color.set(s.fog, v.fogColor);
         fog.density.set(s.fog, v.fogDensity);
-        fog.scattering.set(s.fog, v.fogScattering);
+        fog.lightIntensity.set(s.fog, v.fogLightIntensity);
         world.storage(ColorGrading).exposure.set(s.camera, v.exposure);
     },
 };

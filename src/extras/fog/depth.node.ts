@@ -75,7 +75,7 @@ test("fog requests a multisampled depth lane without DepthPrepass and skips NoFo
     world.add(mesh, Transform);
     world.add(mesh, MeshInstance);
     const fog = world.create();
-    world.add(fog, Fog, { density: 0.5, color: 0xff0000, steps: 16, jitter: 0 });
+    world.add(fog, Fog, { density: 0.5, color: 0xff0000, stepCount: 16, jitter: 0 });
 
     const created: { label: string | undefined; sampleCount: number }[] = [];
     const device = world.gpu.device;
@@ -109,7 +109,7 @@ test("NoFog opts out even when the user explicitly requests DepthPrepass", async
     world.add(mesh, Transform);
     world.add(mesh, MeshInstance);
     const fog = world.create();
-    world.add(fog, Fog, { density: 0.5, color: 0xff0000, steps: 16, jitter: 0 });
+    world.add(fog, Fog, { density: 0.5, color: 0xff0000, stepCount: 16, jitter: 0 });
     world.step(0);
     world.step(0);
     const fogged = await captureTexture(world, camera);
@@ -118,7 +118,7 @@ test("NoFog opts out even when the user explicitly requests DepthPrepass", async
     world.step(0);
     const clear = await captureTexture(world, camera);
 
-    world.add(fog, Fog, { density: 0.5, color: 0xff0000, steps: 16, jitter: 0 });
+    world.add(fog, Fog, { density: 0.5, color: 0xff0000, stepCount: 16, jitter: 0 });
     world.add(camera, NoFog);
     world.step(0);
     const optedOut = await captureTexture(world, camera);
