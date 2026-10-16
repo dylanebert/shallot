@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { World } from "../../engine";
 import { SEGMENT_FLOATS, triangleVertex } from "./pipeline";
-import { drawArrow, head, lineStaging } from "./segments";
+import { drawArrow, drawLine, head, lineStaging, segmentState } from "./segments";
 
 test("an arrow stages one filled triangle in its shaft's colour and width, facing world up by default", () => {
     const world = new World();
@@ -42,8 +42,9 @@ test("two different shaft lengths given the same tip length stage the same head"
 test("the head is one nondegenerate triangle perpendicular to its supplied normal, independent of a view", () => {
     const world = new World();
     try {
-        expect(head(world, 5, 2, 3, 0, 2, 3, 1, 3, 0xffffffff, 0, undefined, 0, 0, 2)).toBe(1);
-        const row = lineStaging(world);
+        drawLine(world, [0, 2, 3], [5, 2, 3], 0xffffff, 3);
+        expect(head(segmentState(world), 1, [0, 0, 2])).toBe(1);
+        const row = lineStaging(world).subarray(SEGMENT_FLOATS);
         const a = d.vec3f(row[0], row[1], row[2]);
         const b = d.vec3f(row[4], row[5], row[6]);
         const c = d.vec3f(row[8], row[9], row[10]);
@@ -69,8 +70,10 @@ test("a plane normal must be nonzero and perpendicular to the shaft; an empty he
                 "perpendicular",
             );
         }
-        expect(head(world, 0, 0, 0, 0, 0, 0, 1, 1, 0)).toBe(0);
-        expect(head(world, 1, 0, 0, 0, 0, 0, 0, 1, 0)).toBe(0);
+        drawLine(world, [0, 0, 0], [0, 0, 0], 0xffffff);
+        expect(head(segmentState(world), 1, [0, 1, 0])).toBe(0);
+        drawLine(world, [0, 0, 0], [1, 0, 0], 0xffffff);
+        expect(head(segmentState(world), 0, [0, 1, 0])).toBe(0);
     } finally {
         world.dispose();
     }

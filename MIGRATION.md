@@ -10,11 +10,15 @@ These changes require updates to a 0.9.5 app.
 
 `Sprite.visible`, `Text.visible` and `Line.visible` are removed. Remove the drawing component to hide it; add it again with its authored values to show it. Keep any values needed for re-adding outside the removed component: its fields are valid only while the entity holds it.
 
-## Arrowhead planes and lengths
+## Retained gizmos and arrowheads
 
-`Arrow` and `drawArrow` replace the four fins with one filled world-space triangle. `Arrow.normal` and the final `drawArrow` argument choose its plane normal, defaulting to `[0, 1, 0]`. The normal must be nonzero and perpendicular to the world-space shaft; otherwise drawing throws. For a vertical shaft, pass a horizontal normal such as `[0, 0, 1]`.
+`Line` and `Arrow` are replaced by `GizmoAsset` and `Gizmo`. Build local-space geometry with `drawLine(asset, a, b, color)`, `drawArrow(asset, a, b, color, undefined, tipLength, normal)` or `drawWireBox(asset, min, max, color)`. Register it with `registerGizmo(world, asset)`, then add `Gizmo` with that `handle` beside the entity's `Transform`. One asset can be shared by multiple entities; changing a transform does not rebuild it.
 
-Replace `Arrow.size` with `Arrow.tipLength`, and pass a world-unit head length as the sixth `drawArrow` argument instead of a relative size. Omitting it chooses a tenth of the shaft length (`Arrow.tipLength` defaults to `-1`); negative values select that default and zero omits the head.
+Replace `Line.thickness` with `Gizmo.width` (default `2` pixels), the pixel width of every segment in the asset. Asset builders do not accept a width; set it on each `Gizmo` instead. For an asset arrow with explicit `tipLength` or `normal`, pass `undefined` in the width slot. `Gizmo.opacity` defaults to `1`. Replace `Line.offset` with a line from `[0, 0, 0]` to that offset; its old default is `[1, 0, 0]`, with colour `0xffffff`. Remove `Gizmo` to hide the drawing.
+
+Arrows now have one filled triangle rather than four fins. The final `drawArrow` argument chooses the plane normal, defaulting to `[0, 1, 0]`. It must be nonzero and perpendicular to the shaft in the coordinate space being authored; otherwise drawing throws. For a vertical shaft, pass a horizontal normal such as `[0, 0, 1]`.
+
+Replace `Arrow.size` and the relative size argument of `drawArrow` with a world-unit `tipLength`, the sixth argument. Omitting it chooses a tenth of the shaft length; negative values select that default and zero omits the head. For retained arrows, lengths and normals are authored in the asset's local space and follow its transform. To replace `Arrow.start`, draw an arrow with reversed endpoints; use `drawLine` instead when neither endpoint has a head. Immediate calls still take the World and default to width `1`.
 
 ## Font and image identity
 

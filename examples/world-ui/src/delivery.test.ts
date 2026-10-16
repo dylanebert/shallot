@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import {
     createApp,
+    drawLine,
+    Gizmo,
+    GizmoAsset,
+    registerGizmo,
     Sprite,
     Text,
     Transform,
@@ -24,7 +28,7 @@ function check() {
         plugins: [
             {
                 name: "DeliveryCheck",
-                components: [Car, Text, Sprite],
+                components: [Car, Text, Sprite, Gizmo],
                 dependencies: [TransformPlugin],
                 systems: [DriveCar],
                 initialize(world) {
@@ -43,6 +47,11 @@ function check() {
                     world.storage(Transform).translation.set(scene.icon, 3, 3.1, -2);
                     world.add(scene.label, Text);
                     world.add(scene.bar, Sprite);
+                    scene.trail = world.create();
+                    world.add(scene.trail, Transform);
+                    const trail = new GizmoAsset();
+                    drawLine(trail, [0, 0, 0], [1, 0, 0], 0xeee9df);
+                    scene.trailHandle = registerGizmo(world, trail);
                     DriveCar.update(world);
                 },
             },
@@ -87,6 +96,16 @@ test("the trail tip touches the lower rear edge, never the inside of the car", a
             expect(scene.trailEnd[1]).toBeCloseTo(0.16, 6);
             expect(scene.trailEnd[2]).toBe(1);
             expect(scene.trailStart[1]).toBe(scene.trailEnd[1]);
+            const length = scene.trailEnd[0] - scene.trailStart[0];
+            expect(world.has(scene.trail, Gizmo)).toBe(length > 0);
+            if (length > 0) {
+                expect(world.storage(Gizmo).handle.get(scene.trail)).toBe(scene.trailHandle);
+                expect(world.storage(Gizmo).width.get(scene.trail)).toBe(2);
+                const transform = world.storage(Transform);
+                expect(transform.translation.x.get(scene.trail)).toBe(scene.trailStart[0]);
+                expect(transform.translation.y.get(scene.trail)).toBeCloseTo(scene.trailEnd[1], 6);
+                expect(transform.scale.x.get(scene.trail)).toBeCloseTo(length, 6);
+            }
             advance(world, DRIVE_SECONDS / 2);
         }
     } finally {

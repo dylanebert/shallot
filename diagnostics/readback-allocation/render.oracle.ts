@@ -244,8 +244,8 @@ test("steady rendering allocates no JavaScript heap beyond source-checked GPU an
     // one bounded allocation per gap is not the per-frame allocation that drives GC hitches.
     assertAllocationWrappers(allocationSource());
     const sample = await sampleAllocation(resolve(import.meta.dir, "render.entry.ts"), {
-        // Reading a spot's render placement first optimizes prepareCpuFrame after 12,000 frames.
-        warm: 12_000,
+        // The composed gizmo and shadow paths finish optimizing after 12,000 frames.
+        warm: 24_000,
         frames: 600,
     });
     if (windowBytes({ sites: sample.control }) === 0) throw new Error("allocation control was invisible");
@@ -264,6 +264,15 @@ test("steady rendering allocates no JavaScript heap beyond source-checked GPU an
         windows: sample.windows.map((window) => ({
             ...window,
             sites: window.sites.filter((row) => !isAdmittedAllocationSite(row)),
+        })),
+    });
+    console.info("render allocation", {
+        controlBytes: windowBytes({ sites: sample.control }),
+        windows: sample.windows.map((window) => ({
+            label: window.label,
+            frames: window.frames,
+            optimizations: window.optimizations ?? [],
+            unadmittedBytes: windowBytes({ sites: window.sites.filter((row) => !isAdmittedAllocationSite(row)) }),
         })),
     });
     if (failure) throw new Error(failure);

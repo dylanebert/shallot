@@ -4,7 +4,7 @@ import { gpuApps } from "../../scripts/gpu.fixture";
 import { attachTexture, Camera, captureTexture } from "../core/rendering";
 import { Transform } from "../core/transform";
 import { StandardRenderer } from "../standard/rendering";
-import { Line, LinesPlugin } from "./lines";
+import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "./lines";
 import { Sprite, SpritePlugin } from "./sprite";
 import { internText, registerFont, Text, TextPlugin } from "./text";
 import { isolationFont } from "./text/font.fixture";
@@ -24,7 +24,7 @@ const subjects = gpuApps(import.meta.path, [
     },
 ]);
 
-test("removing and re-adding Sprite, Text and Line removes and restores each drawing", async () => {
+test("removing and re-adding Sprite, Text and Gizmo removes and restores each drawing", async () => {
     const { world } = subjects()[0];
     const device = world.gpu.device;
     const image = device.createTexture({
@@ -73,12 +73,14 @@ test("removing and re-adding Sprite, Text and Line removes and restores each dra
     expect(await frame()).toEqual(textFrame);
     world.remove(entity, Text);
 
-    const line = { offset: [2, 0, 0] as const, thickness: 8 };
-    world.add(entity, Line, line);
+    const asset = new GizmoAsset();
+    drawLine(asset, [0, 0, 0], [2, 0, 0], 0xffffff);
+    const line = { handle: registerGizmo(world, asset), width: 8 };
+    world.add(entity, Gizmo, line);
     const lineFrame = await frame();
     expect(lineFrame).not.toEqual(empty);
-    world.remove(entity, Line);
+    world.remove(entity, Gizmo);
     expect(await frame()).toEqual(empty);
-    world.add(entity, Line, line);
+    world.add(entity, Gizmo, line);
     expect(await frame()).toEqual(lineFrame);
 });

@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import type { World } from "../../engine";
-import { Line, LinesPlugin } from "../../extras/lines";
+import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
 import { internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
 import {
@@ -85,11 +85,15 @@ test("standard, text and line renderers alternate in one phase; text and lines d
 
     const offscreenLine = world.create();
     world.add(offscreenLine, Transform, { translation: [4, 0, -1.2, 0] });
-    world.add(offscreenLine, Line, { offset: [0.4, 0, 0, 0], thickness: 8, color: 0xffffff });
+    const offscreenAsset = new GizmoAsset();
+    drawLine(offscreenAsset, [0, 0, 0], [0.4, 0, 0], 0xffffff);
+    world.add(offscreenLine, Gizmo, { handle: registerGizmo(world, offscreenAsset), width: 8 });
 
     const line = world.create();
     world.add(line, Transform, { translation: [-2, -0.6, -1, 0] });
-    world.add(line, Line, { offset: [1, 0, 0, 0], thickness: 12, color: 0xffffff });
+    const asset = new GizmoAsset();
+    drawLine(asset, [0, 0, 0], [1, 0, 0], 0xffffff);
+    world.add(line, Gizmo, { handle: registerGizmo(world, asset), width: 12 });
     const textAndLines = await readFrame(world, camera);
 
     const farMaterial = world

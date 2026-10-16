@@ -32,11 +32,12 @@ import {
 import { offscreenTexture } from "../../core/rendering/view";
 import { GlobalTransform } from "../../core/transform";
 import {
-    Arrow,
+    drawArrow,
     Fog,
     FogPlugin,
+    Gizmo,
+    GizmoAsset,
     internText,
-    Line,
     LinesPlugin,
     Orbit,
     OrbitPlugin,
@@ -44,6 +45,7 @@ import {
     OutlinePlugin,
     ProfilePlugin,
     registerFont,
+    registerGizmo,
     Sky,
     SkyPlugin,
     Sprite,
@@ -585,8 +587,9 @@ function featurePlugin(subject: Plugin): Plugin {
 
             const line = world.create();
             world.add(line, Transform);
-            world.add(line, Line);
-            world.add(line, Arrow);
+            const asset = new GizmoAsset();
+            drawArrow(asset, [0, 0, 0], [1, 0, 0], 0xffffff);
+            world.add(line, Gizmo, { handle: registerGizmo(world, asset) });
             world.storage(Transform).translation.set(line, -1, 0, 0, 0);
 
             const sprite = world.create();

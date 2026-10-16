@@ -4,12 +4,13 @@
 
 export { Fog, FogPlugin, NoFog } from "./fog";
 export {
-    Arrow,
     drawArrow,
     drawLine,
     drawWireBox,
-    Line,
+    Gizmo,
+    GizmoAsset,
     LinesPlugin,
+    registerGizmo,
 } from "./lines";
 export {
     Orbit,

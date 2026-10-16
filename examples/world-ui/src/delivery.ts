@@ -4,6 +4,8 @@ import {
     DirectionalLight,
     drawLine,
     f32,
+    Gizmo,
+    GizmoAsset,
     GlobalAmbientLight,
     internText,
     LinesPlugin,
@@ -18,6 +20,7 @@ import {
     type Plugin,
     type Resource,
     registerFont,
+    registerGizmo,
     registerImage,
     Sprite,
     SpriteFill,
@@ -29,7 +32,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { Anchor, BeginFrameSystem, Billboard } from "@dylanebert/shallot/rendering";
+import { Anchor, Billboard } from "@dylanebert/shallot/rendering";
 
 type Vec3 = readonly [number, number, number];
 type Color = readonly [number, number, number, number];
@@ -54,6 +57,8 @@ export const Delivery: Resource<{
     image: number;
     white: number;
     parts: { eid: number; offset: Vec3 }[];
+    trail: number;
+    trailHandle: number;
     trailStart: number[];
     trailEnd: number[];
 }> = {
@@ -68,6 +73,8 @@ export const Delivery: Resource<{
         image: 0,
         white: 0,
         parts: [],
+        trail: 0,
+        trailHandle: 0,
         trailStart: [ROAD_START, 0.16, 1],
         trailEnd: [ROAD_START, 0.16, 1],
     }),
@@ -173,6 +180,11 @@ function scene(world: World): void {
         fillMethod: SpriteFill.Horizontal,
     });
     world.add(scene.bar, NotShadowCaster);
+    const trail = new GizmoAsset();
+    drawLine(trail, [0, 0, 0], [1, 0, 0], 0xeee9df);
+    scene.trailHandle = registerGizmo(world, trail);
+    scene.trail = world.create();
+    world.add(scene.trail, Transform);
     DriveCar.update(world);
 }
 export const DriveCar = {
@@ -195,6 +207,13 @@ export const DriveCar = {
         scene.trailEnd[0] = x - transforms.scale.x.get(scene.car) / 2;
         scene.trailEnd[1] = positions.y.get(scene.car) - transforms.scale.y.get(scene.car) / 2;
         scene.trailStart[1] = scene.trailEnd[1];
+        const length = scene.trailEnd[0] - scene.trailStart[0];
+        positions.set(scene.trail, scene.trailStart[0], scene.trailStart[1], scene.trailStart[2]);
+        transforms.scale.set(scene.trail, Math.max(0, length), 1, 1);
+        if (length > 0) {
+            if (!world.has(scene.trail, Gizmo))
+                world.add(scene.trail, Gizmo, { handle: scene.trailHandle, width: 2 });
+        } else if (world.has(scene.trail, Gizmo)) world.remove(scene.trail, Gizmo);
         const t = Math.max(0, Math.min(1, (phase - DRIVE_SECONDS) / EXIT_SECONDS));
         const c1 = 1.70158;
         const easeInBack = t * t * ((c1 + 1) * t - c1);
@@ -202,21 +221,10 @@ export const DriveCar = {
         transforms.scale.set(scene.icon, scale, scale, scale);
     },
 };
-const Trail = {
-    name: "Delivery/trail",
-    group: "draw" as const,
-    after: [BeginFrameSystem],
-    before: LinesPlugin.systems,
-    update(world: World): void {
-        const scene = world.resource(Delivery);
-        const length = scene.trailEnd[0] - scene.trailStart[0];
-        if (length > 0) drawLine(world, scene.trailStart, scene.trailEnd, 0xeee9df, 2);
-    },
-};
 export const DeliveryPlugin: Plugin = {
     name: "Delivery",
     components: [Car],
     dependencies: [OrbitPlugin, TextPlugin, SpritePlugin, LinesPlugin],
     initialize: scene,
-    systems: [DriveCar, Trail],
+    systems: [DriveCar],
 };

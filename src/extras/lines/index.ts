@@ -13,124 +13,87 @@ import {
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
-import { f32, vec3 } from "../../engine";
+import { f32 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { createLinePipeline, lineLayout, SEGMENT_FLOATS, viewLayout } from "./pipeline";
 import {
     disposeSegments,
     flushSegments,
-    head,
+    type GizmoAsset,
+    grow,
     initializeSegmentState,
     Lines,
     lineCount,
     lineStableIds,
     lineStableParts,
     lineStaging,
-    push,
     ready,
     resetCount,
+    segmentState,
     warmSegments,
 } from "./segments";
 
-export { drawArrow, drawLine, drawWireBox } from "./segments";
+export { drawArrow, drawLine, drawWireBox, GizmoAsset } from "./segments";
 
-/**
- * a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated
- * offset. A retained scene annotation, expanded into one screen-space segment each frame.
- * Remove Line to hide it; add it again to show it.
- */
-export const Line = component(
-    "Line",
+/** Draws a registered asset at the entity's GlobalTransform. Remove Gizmo to hide it. */
+export const Gizmo = component(
+    "Gizmo",
     {
-        /** line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up) */
-        offset: vec3,
-        /** constant screen width in pixels */
-        thickness: f32,
-        /** hex sRGB color */
-        color: f32,
-        /** 0..1 opacity multiplier */
+        /** World-local handle returned by registerGizmo. */
+        handle: f32,
+        /** Constant screen width in pixels for every segment; defaults to 2. */
+        width: f32,
+        /** 0..1 opacity multiplier. */
         opacity: f32,
     },
-    {
-        defaults: () => ({
-            offset: [1, 0, 0],
-            thickness: 2,
-            color: 0xffffff,
-            opacity: 1,
-        }),
-    },
+    { defaults: () => ({ handle: 0, width: 2, opacity: 1 }) },
 );
 
-/**
- * A filled world-space triangle at a {@link Line}'s endpoint, perpendicular to `normal`.
- * Requires a {@link Line} on the same entity
- */
-export const Arrow = component(
-    "Arrow",
-    {
-        /** a head at the start endpoint when nonzero */
-        start: f32,
-        /** a head at the end endpoint when nonzero */
-        end: f32,
-        /** Head length in world units; negative chooses a tenth of the shaft, zero omits the head. */
-        tipLength: f32,
-        /** World-space plane normal; nonzero and perpendicular to the shaft. */
-        normal: vec3,
-    },
-    {
-        defaults: () => ({ start: 0, end: 1, tipLength: -1, normal: [0, 1, 0] }),
-    },
-);
+const gizmoAssets = { create: () => [] as GizmoAsset[] };
 
-const _m = new Float32Array(16);
-const RETAINED_LINES_QUERY = [Line, GlobalTransform];
+/** Registers shared local-space geometry in this World; returns its handle. */
+export function registerGizmo(world: World, asset: GizmoAsset): number {
+    return world.resource(gizmoAssets).push(asset);
+}
 
-// Append retained annotations after this frame's immediate segments.
+const RETAINED_LINES_QUERY = [Gizmo, GlobalTransform];
+const matrixKey = { create: () => new Float32Array(16) };
+
 function expandRetained(world: World): void {
+    const matrix = world.resource(matrixKey);
+    const gizmos = world.storage(Gizmo);
+    const assets = world.resource(gizmoAssets);
+    const target = segmentState(world);
     for (const eid of world.query(RETAINED_LINES_QUERY)) {
-        composeGlobalTransform(world, eid, _m);
-        const ox = world.storage(Line).offset.x.get(eid);
-        const oy = world.storage(Line).offset.y.get(eid);
-        const oz = world.storage(Line).offset.z.get(eid);
-        const sx = _m[12];
-        const sy = _m[13];
-        const sz = _m[14];
-        const ex = sx + _m[0] * ox + _m[4] * oy + _m[8] * oz;
-        const ey = sy + _m[1] * ox + _m[5] * oy + _m[9] * oz;
-        const ez = sz + _m[2] * ox + _m[6] * oy + _m[10] * oz;
-        const w = world.storage(Line).thickness.get(eid);
-        const c = packColor(
-            world.storage(Line).color.get(eid),
-            world.storage(Line).opacity.get(eid),
-        );
-        let segment = 0;
-        push(world, sx, sy, sz, ex, ey, ez, w, c, eid, segment++);
-        if (world.has(eid, Arrow)) {
-            const arrows = world.storage(Arrow);
-            const tipLength = arrows.tipLength.get(eid);
-            const nx = arrows.normal.x.get(eid);
-            const ny = arrows.normal.y.get(eid);
-            const nz = arrows.normal.z.get(eid);
-            if (world.storage(Arrow).end.get(eid))
-                segment += head(
-                    world,
-                    ex,
-                    ey,
-                    ez,
-                    sx,
-                    sy,
-                    sz,
-                    tipLength,
-                    w,
-                    c,
-                    eid,
-                    segment,
-                    nx,
-                    ny,
-                    nz,
-                );
-            if (world.storage(Arrow).start.get(eid))
-                head(world, sx, sy, sz, ex, ey, ez, tipLength, w, c, eid, segment, nx, ny, nz);
+        const asset = assets[gizmos.handle.get(eid) - 1];
+        if (!asset) continue;
+        composeGlobalTransform(world, eid, matrix);
+        const source = asset.geometry();
+        const width = gizmos.width.get(eid);
+        const alpha = packColor(0, gizmos.opacity.get(eid)) & 0xff000000;
+        if (target.count + source.count > target.capacity)
+            grow(target, target.count + source.count);
+        for (let i = 0; i < source.count; i++) {
+            const at = i * SEGMENT_FLOATS;
+            const index = target.count++;
+            const out = index * SEGMENT_FLOATS;
+            const triangle = source.u32[at + 11];
+            for (let point = 0; point < (triangle ? 12 : 8); point += 4) {
+                const x = source.f32[at + point];
+                const y = source.f32[at + point + 1];
+                const z = source.f32[at + point + 2];
+                target.f32[out + point] =
+                    matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12];
+                target.f32[out + point + 1] =
+                    matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13];
+                target.f32[out + point + 2] =
+                    matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
+            }
+            target.f32[out + 3] = width;
+            target.u32[out + 7] = (source.u32[at + 7] & 0xffffff) | alpha;
+            target.u32[out + 11] = triangle;
+            target.stableIds[index] = eid;
+            target.stableParts[index] = i;
         }
     }
 }
@@ -248,14 +211,14 @@ const LinesSystem: System = {
 
 /**
  * the shallot debug-line producer: an immediate {@link drawLine} / {@link drawWireBox} / {@link drawArrow} API plus
- * the retained {@link Line} / {@link Arrow} components, both feeding one instanced-quad draw rendered
+ * retained {@link Gizmo} assets, both feeding one instanced-quad draw rendered
  * in core's transparent phase (screen-space constant-pixel width, no overlay pass). Depends on
  * {@link CorePipelinePlugin}; a core camera renders it
  */
 export const LinesPlugin: Plugin = {
     gpu: {},
     name: "Lines",
-    components: [Line, Arrow],
+    components: [Gizmo],
     systems: [LinesSystem],
     dependencies: [CorePipelinePlugin],
 

@@ -13,8 +13,16 @@ import {
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { lookAtRotation } from "../../engine/utils";
-import { Arrow, Line, LinesPlugin } from "./index";
-import { drawArrow } from "./segments";
+import { Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "./index";
+import { SEGMENT_FLOATS } from "./pipeline";
+import {
+    drawArrow,
+    drawLine,
+    drawWireBox,
+    lineCount,
+    lineStableIds,
+    lineStaging,
+} from "./segments";
 
 setDefaultTimeout(TIMEOUT.gpu);
 const Show = { create: () => ({ value: false }) };
@@ -40,6 +48,7 @@ const subjects = gpuApps(import.meta.path, [
             },
         ],
     },
+    { defaults: false, plugins: [LinesPlugin] },
 ]);
 
 test("different-length retained and immediate arrows given the same tip length fill the same head from two views", async () => {
@@ -52,8 +61,10 @@ test("different-length retained and immediate arrows given the same tip length f
     attachTexture(world, camera, { width: 128, height: 128 });
     const arrow = world.create();
     world.add(arrow, Transform, { translation: [-2, 0, 0] });
-    world.add(arrow, Line, { offset: [3, 0, 0], color: 0xffffff, thickness: 3 });
-    world.add(arrow, Arrow, { tipLength: 1.8 });
+    const asset = new GizmoAsset();
+    drawArrow(asset, [0, 0, 0], [3, 0, 0], 0xffffff, undefined, 1.8);
+    const handle = registerGizmo(world, asset);
+    world.add(arrow, Gizmo, { handle, width: 3 });
     const frame = async () => {
         world.step(1 / 60);
         world.step(1 / 60);
@@ -64,10 +75,10 @@ test("different-length retained and immediate arrows given the same tip length f
         world
             .storage(Transform)
             .rotation.set(camera, ...lookAtRotation(eye.x, eye.y, eye.z, 0, -0.75, 0));
-        world.remove(arrow, Line);
+        world.remove(arrow, Gizmo);
         world.resource(Show).value = false;
         const before = await frame();
-        world.add(arrow, Line, { offset: [3, 0, 0], color: 0xffffff, thickness: 3 });
+        world.add(arrow, Gizmo, { handle, width: 3 });
         world.resource(Show).value = true;
         const after = await frame();
         const matrix = new Float32Array(16);
@@ -95,4 +106,62 @@ test("different-length retained and immediate arrows given the same tip length f
             }
         }
     }
+});
+
+test("one asset builds a line, arrow and box once and moves all fifteen primitives with its entity", async () => {
+    const { world } = subjects()[1];
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 0, 5] });
+    world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 5, clearColor: 0 });
+    world.add(camera, DebandDither, { enabled: 0 });
+    attachTexture(world, camera, { width: 128, height: 128 });
+    const asset = new GizmoAsset();
+    drawLine(asset, [-0.6, 0.6, 0], [0.6, 0.6, 0], 0xffaa55);
+    drawArrow(asset, [-0.6, -0.6, 0], [0.6, -0.6, 0], 0x55aaff, undefined, 0.3, [0, 0, 1]);
+    drawWireBox(asset, [-0.4, -0.3, -0.2], [0.4, 0.3, 0.2], 0xffffff);
+    const source = asset.segments.f32;
+    const original = new Uint32Array(source.buffer).slice();
+    expect(asset.segments.count).toBe(15);
+    const entity = world.create();
+    world.add(entity, Transform, { translation: [-1, 0, 0] });
+    world.add(entity, Gizmo, { handle: registerGizmo(world, asset) });
+    const frame = async () => {
+        world.step(1 / 60);
+        world.step(1 / 60);
+        return (await captureTexture(world, camera)).rgba;
+    };
+    expect(asset.rebuilds).toBe(0);
+    const before = await frame();
+    const rebuilds = asset.rebuilds;
+    expect(rebuilds).toBeGreaterThan(0);
+    world.storage(Transform).translation.set(entity, 1, 0, 0);
+    const after = await frame();
+    expect(asset.rebuilds).toBe(rebuilds);
+    expect(asset.rebuilds).toBe(1);
+    expect(asset.segments.f32).toBe(source);
+    expect(new Uint32Array(source.buffer)).toEqual(original);
+    expect(lineCount(world)).toBe(15);
+    const staged = lineStaging(world);
+    for (let i = 0; i < 15; i++) {
+        expect(lineStableIds(world)[i]).toBe(entity);
+        const at = i * SEGMENT_FLOATS;
+        for (const point of [0, 4, ...(asset.segments.u32[at + 11] ? [8] : [])]) {
+            expect(staged[at + point]).toBeCloseTo(source[at + point] + 1, 6);
+            expect(staged[at + point + 1]).toBeCloseTo(source[at + point + 1], 6);
+            expect(staged[at + point + 2]).toBeCloseTo(source[at + point + 2], 6);
+        }
+        expect(staged[at + 3]).toBe(2);
+    }
+    const centroid = (pixels: Uint8ClampedArray) => {
+        let count = 0,
+            x = 0;
+        for (let i = 0; i < pixels.length; i += 4) {
+            if (pixels[i] + pixels[i + 1] + pixels[i + 2] < 100) continue;
+            count++;
+            x += (i / 4) % 128;
+        }
+        expect(count).toBeGreaterThan(100);
+        return x / count;
+    };
+    expect(centroid(after) - centroid(before)).toBeGreaterThan(20);
 });

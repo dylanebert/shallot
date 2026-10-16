@@ -1,4 +1,5 @@
 import { createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight } from "../../src/index";
+import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
 import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
@@ -26,7 +27,7 @@ export function control() { controlSink = { frame: 0 }; }
 export default async function create(_input = "", device?: GPUDevice) {
     const resizeObserver = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
     globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
-    const app = await createApp({ plugins: [], device });
+    const app = await createApp({ plugins: [LinesPlugin], device });
     const world = app.world;
     const lost = world.gpu.device.lost.then((info) => {
         throw new Error(`render allocation device lost: ${info.message}`);
@@ -62,6 +63,25 @@ export default async function create(_input = "", device?: GPUDevice) {
     world.storage(Transform).rotation.set(spot, 0.1, 0.2, 0.3, Math.sqrt(0.86));
     world.storage(SpotLight).shadowMapsEnabled.set(spot, 1);
     const part = world.create(); world.add(part, Transform); world.add(part, MeshInstance);
+    const a = new Float32Array([-1, 0, 0]);
+    const b = new Float32Array([1, 0, 0]);
+    const min = new Float32Array([-0.3, -0.4, -0.5]);
+    const max = new Float32Array([1, 1, 1]);
+    const asset = new GizmoAsset();
+    drawLine(asset, a, b, 0xffaa55);
+    drawArrow(asset, a, b, 0x55aaff);
+    drawWireBox(asset, min, max, 0xffffff);
+    const gizmo = world.create();
+    world.add(gizmo, Transform);
+    world.add(gizmo, Gizmo, { handle: registerGizmo(world, asset) });
+    let frame = 0;
+    const compose = () => {
+        drawLine(world, a, b, 0xffaa55);
+        drawArrow(world, a, b, 0x55aaff);
+        drawWireBox(world, min, max, 0xffffff);
+        world.storage(Transform).translation.set(gizmo, (frame++ % 60) / 60, 0.2, 0.3);
+    };
+    compose();
     world.step(1 / 60);
     if (world.resource(RenderContext).shadeCount === 0) throw new Error("allocation subject did not render a shaded view");
     return {
@@ -84,7 +104,7 @@ export default async function create(_input = "", device?: GPUDevice) {
             setRenderBindGroup,
             draw,
         ],
-        step: () => { if (validation) throw validation; world.step(1 / 60); },
+        step: () => { if (validation) throw validation; compose(); world.step(1 / 60); },
         wait: async () => {
             await Promise.race([world.gpu.device.queue.onSubmittedWorkDone(), failed, lost]);
             if (validation) throw validation;

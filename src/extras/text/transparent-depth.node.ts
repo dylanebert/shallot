@@ -14,7 +14,7 @@ import {
     StandardRenderer,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { Line, LinesPlugin } from "../lines";
+import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../lines";
 import { isolationFont } from "./font.fixture";
 import { internText, registerFont, Text, TextPlugin } from "./index";
 
@@ -94,7 +94,7 @@ for (const pose of [
         world.destroy(camera);
     });
 
-test("Text and Line are both visible alone and occluded by an opaque mesh", async () => {
+test("Text and Gizmo are both visible alone and occluded by an opaque mesh", async () => {
     const { world } = subjects()[0];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
@@ -128,7 +128,9 @@ test("Text and Line are both visible alone and occluded by an opaque mesh", asyn
     world.remove(label, Text);
     const line = world.create();
     world.add(line, Transform, { translation: [-1.3, -0.5, -0.5, 0] });
-    world.add(line, Line, { offset: [2.6, 0, 0, 0], thickness: 8, color: 0xffffff });
+    const asset = new GizmoAsset();
+    drawLine(asset, [0, 0, 0], [2.6, 0, 0], 0xffffff);
+    world.add(line, Gizmo, { handle: registerGizmo(world, asset), width: 8 });
     world.storage(Transform).translation.x.set(cube, -10);
     const lineVisible = await frame(world, camera);
     expect(lineVisible).not.toEqual(baseline);

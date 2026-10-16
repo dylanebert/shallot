@@ -3,7 +3,7 @@ import { MeshInstance } from "../../src/core/mesh";
 import { Transform } from "../../src/core/transform";
 import { createApp } from "../../src/engine";
 import { AlphaMode, Materials, MeshMaterial, MeshRenderPlugin, StandardMaterial, StandardRenderer, StandardRenderingPlugin } from "../../src/standard/rendering";
-import { Line, LinesPlugin } from "../../src/extras/lines";
+import { Gizmo, GizmoAsset, registerGizmo, drawLine, LinesPlugin } from "../../src/extras/lines";
 import { isolationFont } from "../../src/extras/text/font.fixture";
 import { internText, registerFont, Text, TextPlugin } from "../../src/extras/text";
 
@@ -66,7 +66,9 @@ export default async function create() {
 
     const line = world.create();
     world.add(line, Transform, { translation: [-1.15, -1.1, -0.35, 0] });
-    world.add(line, Line, { offset: [2.3, 0, 0, 0], thickness: 2, color: 0xffcc55, opacity: 0.7 });
+    const asset = new GizmoAsset();
+    drawLine(asset, [0, 0, 0], [2.3, 0, 0], 0xffcc55);
+    world.add(line, Gizmo, { handle: registerGizmo(world, asset), width: 2, opacity: 0.7 });
 
     return {
         step: () => world.step(FIXED_DT),

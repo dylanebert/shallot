@@ -30,7 +30,7 @@ import { Transform } from "../../core/transform";
 import type { Plugin } from "../../engine";
 import { probeBuffer, stampAdapter } from "../../engine/runtime";
 import { type AdapterInfoFacts, classifyAdapter } from "../../engine/runtime/adapter";
-import { Line, LinesPlugin } from "../../extras/lines";
+import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
 import { lineLayout, viewLayout as lineViewLayout } from "../../extras/lines/pipeline";
 import { Sprite, SpriteMaterialInput, SpriteMaterialType, SpritePlugin } from "../../extras/sprite";
 import { SpriteAlphaMode } from "../../extras/sprite/pack";
@@ -431,7 +431,9 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         });
         const line = world.create();
         world.add(line, Transform, { translation: [0, 1, 0, 0] });
-        world.add(line, Line, { offset: [1, 0, 0, 0], thickness: 3, color: 0xff00ff });
+        const asset = new GizmoAsset();
+        drawLine(asset, [0, 0, 0], [1, 0, 0], 0xff00ff);
+        world.add(line, Gizmo, { handle: registerGizmo(world, asset), width: 3 });
         for (const aa of [0, 1]) {
             world.storage(Camera).antialias.set(camera, aa);
             for (const depth of [0, 1]) {

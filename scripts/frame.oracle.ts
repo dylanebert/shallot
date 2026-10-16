@@ -11,8 +11,19 @@ const { Transform } = await import("@dylanebert/shallot/transform");
 const { CameraBackground, StandardRenderer } = await import(
     "@dylanebert/shallot/standard/rendering"
 );
-const { Sprite, SpriteAlphaMode, SpriteFill, SpritePlugin, Sky, SkyPlugin, skyBackgroundHandle } =
-    await import("@dylanebert/shallot/extras");
+const {
+    Sprite,
+    SpriteAlphaMode,
+    SpriteFill,
+    SpritePlugin,
+    Sky,
+    SkyPlugin,
+    skyBackgroundHandle,
+    LinesPlugin,
+    drawLine,
+    drawArrow,
+    drawWireBox,
+} = await import("@dylanebert/shallot/extras");
 const { setupGlobals } = await import("@dylanebert/shallot/webgpu");
 const { Gallery, GalleryPlugin } = await import("../examples/materials/src/gallery");
 const { Clock, CyclePlugin, CycleScene } = await import("../examples/day-night-cycle/src/cycle");
@@ -31,26 +42,40 @@ for (const subject of [
     "sprite",
     "first-person-labels",
     "particles",
+    "lines",
 ]) {
     if (process.argv[4] && process.argv[4] !== subject) continue;
     const plugins =
-        subject === "particles"
-            ? [MotesPlugin]
-            : subject === "first-person-labels"
-              ? [Demo]
-              : subject === "day-night"
-                ? [CyclePlugin]
-                : subject === "sky"
-                  ? [SkyPlugin]
-                  : subject === "sprite"
-                    ? [SpritePlugin]
-                    : [GalleryPlugin];
+        subject === "lines"
+            ? [LinesPlugin]
+            : subject === "particles"
+              ? [MotesPlugin]
+              : subject === "first-person-labels"
+                ? [Demo]
+                : subject === "day-night"
+                  ? [CyclePlugin]
+                  : subject === "sky"
+                    ? [SkyPlugin]
+                    : subject === "sprite"
+                      ? [SpritePlugin]
+                      : [GalleryPlugin];
     const app = await createApp({ plugins });
     const { world } = app;
     console.log(world.gpu.adapter);
     try {
         let camera: number;
-        if (subject === "particles") {
+        let linesFrame = () => {};
+        if (subject === "lines") {
+            camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 6] });
+            world.add(camera, Camera);
+            world.add(camera, StandardRenderer);
+            linesFrame = () => {
+                drawLine(world, [-1.3, 0.8, 0], [1.2, 0.8, 0], 0xffaa55, 2);
+                drawArrow(world, [-1.3, -0.8, 0], [1.2, -0.8, 0], 0x55aaff, 3, 0.4, [0, 0, 1]);
+                drawWireBox(world, [-0.6, -0.5, -0.3], [0.6, 0.5, 0.3], 0xffffff, 1);
+            };
+        } else if (subject === "particles") {
             camera = world.resource(Room).camera;
         } else if (subject === "first-person-labels") {
             camera = world.create();
@@ -116,7 +141,9 @@ for (const subject of [
         for (const hour of hours) {
             const name = hour === null ? subject : `${subject}-${hour}`;
             if (hour !== null) world.resource(Clock).hour = hour;
+            linesFrame();
             world.step(0);
+            linesFrame();
             world.step(0);
             const { rgba } = await captureTexture(world, camera);
             if (process.argv[3]) {

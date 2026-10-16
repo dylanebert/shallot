@@ -11,7 +11,7 @@ import * as d from "typegpu/data";
 import { Meshes } from "../../core/mesh";
 import { Images, registerImage } from "../../core/rendering";
 import { GlobalTransform, Transform } from "../../core/transform";
-import { drawLine, Line, LinesPlugin } from "../../extras/lines";
+import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
 import { Sprite, SpritePlugin } from "../../extras/sprite";
 import { Content, Fonts, internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
@@ -318,7 +318,9 @@ async function composition(seed: string, offset: number) {
             world.add(sprite, Sprite, { image });
             const line = world.create();
             world.add(line, Transform, { translation: [offset, 0, 0, 0] });
-            world.add(line, Line, { offset: [1, 1, 1, 0] });
+            const asset = new GizmoAsset();
+            drawLine(asset, [0, 0, 0], [1, 1, 1], 0xffffff);
+            world.add(line, Gizmo, { handle: registerGizmo(world, asset) });
         },
     });
     apps.push(app);
