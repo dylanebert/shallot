@@ -16,25 +16,36 @@ const { Sprite, SpriteAlphaMode, SpriteFill, SpritePlugin, Sky, SkyPlugin, skyBa
 const { setupGlobals } = await import("@dylanebert/shallot/webgpu");
 const { Gallery, GalleryPlugin } = await import("../examples/materials/src/gallery");
 const { Clock, CyclePlugin, CycleScene } = await import("../examples/day-night-cycle/src/cycle");
+const { Demo } = await import("../examples/first-person/src/demo");
 await setupGlobals();
 const directory = process.argv[2];
 if (!directory) throw new Error("Usage: bun scripts/frame.oracle.ts <directory> [prior-directory]");
 mkdirSync(directory, { recursive: true });
-for (const subject of ["day-night", "sky", "materials", "sprite"]) {
+for (const subject of ["day-night", "sky", "materials", "sprite", "first-person-labels"]) {
     const plugins =
-        subject === "day-night"
-            ? [CyclePlugin]
-            : subject === "sky"
-              ? [SkyPlugin]
-              : subject === "sprite"
-                ? [SpritePlugin]
-                : [GalleryPlugin];
+        subject === "first-person-labels"
+            ? [Demo]
+            : subject === "day-night"
+              ? [CyclePlugin]
+              : subject === "sky"
+                ? [SkyPlugin]
+                : subject === "sprite"
+                  ? [SpritePlugin]
+                  : [GalleryPlugin];
     const app = await createApp({ plugins });
     const { world } = app;
     console.log(world.gpu.adapter);
     try {
         let camera: number;
-        if (subject === "sprite") {
+        if (subject === "first-person-labels") {
+            camera = world.create();
+            world.add(camera, Transform, {
+                translation: [0, 8, 7.5],
+                rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2],
+            });
+            world.add(camera, Camera);
+            world.add(camera, StandardRenderer);
+        } else if (subject === "sprite") {
             camera = world.create();
             world.add(camera, Transform, { translation: [0, 0, 5] });
             world.add(camera, Camera);

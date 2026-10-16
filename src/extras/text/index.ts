@@ -6,7 +6,6 @@ import * as d from "typegpu/data";
 import { Meshes, type MeshHandle, MeshPlugin } from "../../core/mesh";
 import {
     Anchor,
-    BeginFrameSystem,
     Billboard,
     Camera,
     CorePipelinePlugin,
@@ -19,7 +18,15 @@ import {
     type Xform,
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
-import { f32, type Plugin, Registry, type System, u32, type World } from "../../engine";
+import {
+    ClearChangeMarksSystem,
+    f32,
+    type Plugin,
+    Registry,
+    type System,
+    u32,
+    type World,
+} from "../../engine";
 import { packColor } from "../../engine/utils";
 import {
     createGlyphAtlas,
@@ -73,7 +80,10 @@ export function internText(world: World, content: string): number {
 /**
  * a world-space text label anchored to an entity's {@link Transform}. Register the string with
  * {@link internText} and, optionally, a face with {@link registerFont}; the glyphs lay out once and ride the entity's
- * transform, so moving a label triggers no rebuild. The block's bottom-left corner is at the
+ * transform. Each label retains its packed glyph layout; marked content, font, size, width,
+ * justification, colour, opacity or Anchor changes lay out only that label before draw. A loaded
+ * font replaces its fallback on the next draw. Placement and billboard changes do not lay out text.
+ * The block's bottom-left corner is at the
  * Transform unless the entity has an Anchor. Remove Text to hide it; add it again to show it.
  */
 export const Text = component(
@@ -121,20 +131,6 @@ const TEXT_TRANSFORM_QUERY = [Text, GlobalTransform];
 
 const INITIAL = 1 << 12;
 
-interface LabelGlyph {
-    label: number;
-    eid: number;
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    u0: number;
-    v0: number;
-    u1: number;
-    v1: number;
-    color: number;
-}
-
 interface TextLabelDraw {
     eid: number;
     font: number;
@@ -142,6 +138,10 @@ interface TextLabelDraw {
     count: number;
     centerX: number;
     centerY: number;
+    ref: number;
+    atlas: GlyphAtlas | null;
+    anchored: boolean;
+    seen: boolean;
 }
 
 interface TextState {
@@ -155,14 +155,11 @@ interface TextState {
     cap: number;
     count: number;
     quad: MeshHandle | null;
-    sig: number;
-    byFont: LabelGlyph[][];
+    labels: Map<number, TextLabelDraw>;
     labelDraws: TextLabelDraw[];
     lastPipeline: import("typegpu").TgpuRenderPipeline | null;
     lastViewGroup: GPUBindGroup | null;
     lastFontGroup: GPUBindGroup | null;
-    bits: Float32Array;
-    bitsU: Uint32Array;
     transformScratch: Float32Array;
     colorPipelines: {
         single: import("typegpu").TgpuRenderPipeline | null;
@@ -177,7 +174,6 @@ const textStateKey = { create: createTextState };
 
 function createTextState(): TextState {
     const staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
-    const bits = new Float32Array(1);
     return {
         loaded: [],
         atlases: [],
@@ -189,14 +185,11 @@ function createTextState(): TextState {
         cap: INITIAL,
         count: 0,
         quad: null,
-        sig: -1,
-        byFont: [],
+        labels: new Map(),
         labelDraws: [],
         lastPipeline: null,
         lastViewGroup: null,
         lastFontGroup: null,
-        bits,
-        bitsU: new Uint32Array(bits.buffer),
         transformScratch: new Float32Array(16),
         colorPipelines: { single: null, multisample: null },
         bindGroups: [],
@@ -205,38 +198,21 @@ function createTextState(): TextState {
     };
 }
 
-// bitcast scratch + an fnv-1a fold over the layout-affecting fields. The transform is deliberately absent
-// — it flows through the slab, so moving a label leaves the signature (and the glyph buffer) untouched
-function fbits(v: number, state: TextState): number {
-    state.bits[0] = v;
-    return state.bitsU[0];
-}
-function fold(h: number, x: number): number {
-    return Math.imul(h ^ x, 16777619);
-}
+const LAYOUT_FIELDS = [
+    "content",
+    "font",
+    "fontSize",
+    "maxWidth",
+    "justify",
+    "color",
+    "opacity",
+] as const;
 
-// the dirty key: every label's layout-affecting state + membership. Equal to last frame ⇒ the
-// glyph buffer still holds the right geometry, so the rebuild + upload are skipped
-function signature(world: World): number {
-    const scratch = world.resource(textStateKey);
-    const text = world.storage(Text);
-    let h = 0x811c9dc5 | 0;
-    for (const eid of world.query(TEXT_TRANSFORM_QUERY)) {
-        h = fold(h, eid);
-        h = fold(h, text.content.get(eid));
-        h = fold(h, text.font.get(eid));
-        h = fold(h, text.billboard.get(eid));
-        h = fold(h, fbits(text.fontSize.get(eid), scratch));
-        h = fold(h, fbits(text.maxWidth.get(eid), scratch));
-        h = fold(h, text.justify.get(eid));
-        const anchor = world.storage(Anchor).offset;
-        h = fold(h, Number(world.has(eid, Anchor)));
-        h = fold(h, fbits(world.has(eid, Anchor) ? anchor.x.get(eid) + 0.5 : 0, scratch));
-        h = fold(h, fbits(world.has(eid, Anchor) ? anchor.y.get(eid) + 0.5 : 0, scratch));
-        h = fold(h, text.color.get(eid));
-        h = fold(h, fbits(text.opacity.get(eid), scratch));
-    }
-    return h;
+function layoutChanged(world: World, eid: number): boolean {
+    const bit = 1 << (eid & 31);
+    for (const name of LAYOUT_FIELDS)
+        if (world.fieldStorage(Text, name).dirty[eid >>> 5] & bit) return true;
+    return (world.fieldStorage(Anchor, "offset").dirty[eid >>> 5] & bit) !== 0;
 }
 
 function grow(world: World, min: number): void {
@@ -252,109 +228,155 @@ function grow(world: World, min: number): void {
     _textState.cap = cap;
 }
 
-// Keep each label's glyphs contiguous for firstInstance addressing.
-function rebuild(world: World, device: GPUDevice): void {
-    const _textState = world.resource(textStateKey);
-    _textState.labelDraws.length = 0;
+// Ranges stay packed: resizing moves following glyph bytes, never their layouts.
+function resizeLabel(world: World, label: TextLabelDraw, count: number): void {
+    const state = world.resource(textStateKey);
+    const delta = count - label.count;
+    if (!delta) return;
+    if (state.count + delta > state.cap) grow(world, state.count + delta);
+    const end = label.start + label.count;
+    state.u32.copyWithin(
+        (end + delta) * GLYPH_FLOATS,
+        end * GLYPH_FLOATS,
+        state.count * GLYPH_FLOATS,
+    );
+    let following = false;
+    for (const other of state.labelDraws) {
+        if (following) other.start += delta;
+        if (other === label) following = true;
+    }
+    label.count = count;
+    state.count += delta;
+}
 
-    while (_textState.byFont.length < _textState.atlases.length) _textState.byFont.push([]);
-    for (let i = 0; i < _textState.atlases.length; i++) _textState.byFont[i].length = 0;
+function layoutLabel(world: World, label: TextLabelDraw): void {
+    const state = world.resource(textStateKey);
+    const text = world.storage(Text);
+    const eid = label.eid;
+    const content = world.resource(Content).name(text.content.get(eid));
+    const atlas = label.atlas;
+    if (!content || !atlas) {
+        resizeLabel(world, label, 0);
+        label.centerX = label.centerY = 0;
+        return;
+    }
+    ensureString(world, atlas, content);
+    const layout = layoutText(
+        content,
+        atlas,
+        text.fontSize.get(eid),
+        text.maxWidth.get(eid),
+        text.justify.get(eid),
+    );
+    const anchor = world.storage(Anchor).offset;
+    const ox = -layout.width * (label.anchored ? anchor.x.get(eid) + 0.5 : 0);
+    const oy = -layout.height * (label.anchored ? anchor.y.get(eid) + 0.5 : 0);
+    const color = packColor(text.color.get(eid), text.opacity.get(eid));
+    resizeLabel(world, label, layout.glyphs.length);
+    label.centerX = ox + layout.width * 0.5;
+    label.centerY = oy + layout.height * 0.5;
+    let n = label.start;
+    for (const g of layout.glyphs) {
+        const o = n++ * GLYPH_FLOATS;
+        state.f32[o + GLYPH_AT.pos] = ox + g.x;
+        state.f32[o + GLYPH_AT.pos + 1] = oy + g.y;
+        state.f32[o + GLYPH_AT.pos + 2] = 0;
+        state.u32[o + GLYPH_AT.eid] = eid;
+        state.f32[o + GLYPH_AT.uvRect] = g.u0;
+        state.f32[o + GLYPH_AT.uvRect + 1] = g.v0;
+        state.f32[o + GLYPH_AT.uvRect + 2] = g.u1;
+        state.f32[o + GLYPH_AT.uvRect + 3] = g.v1;
+        state.f32[o + GLYPH_AT.size] = g.width;
+        state.f32[o + GLYPH_AT.size + 1] = g.height;
+        state.u32[o + GLYPH_AT.color] = color;
+        state.u32[o + GLYPH_AT.billboard] = text.billboard.get(eid);
+    }
+}
 
+function updateLabels(world: World): void {
+    const state = world.resource(textStateKey);
+    const text = world.storage(Text);
+    let dirtyStart = Infinity;
+    let dirtyEnd = 0;
+    for (const label of state.labelDraws) label.seen = false;
     for (const eid of world.query(TEXT_TRANSFORM_QUERY)) {
-        const content = world.resource(Content).name(world.storage(Text).content.get(eid));
-        if (!content) continue;
-        let fontId = world.storage(Text).font.get(eid);
-        if (!_textState.atlases[fontId]) fontId = 0;
-        const atlas = _textState.atlases[fontId];
-        if (!atlas) continue;
-        ensureString(world, atlas, content);
-        const layout = layoutText(
-            content,
-            atlas,
-            world.storage(Text).fontSize.get(eid),
-            world.storage(Text).maxWidth.get(eid),
-            world.storage(Text).justify.get(eid),
-        );
-        const anchor = world.storage(Anchor).offset;
-        const ox = -layout.width * (world.has(eid, Anchor) ? anchor.x.get(eid) + 0.5 : 0);
-        const oy = -layout.height * (world.has(eid, Anchor) ? anchor.y.get(eid) + 0.5 : 0);
-        const color = packColor(
-            world.storage(Text).color.get(eid),
-            world.storage(Text).opacity.get(eid),
-        );
-        const label = layout.glyphs.length
-            ? _textState.labelDraws.push({
-                  eid,
-                  font: fontId,
-                  start: 0,
-                  count: 0,
-                  centerX: ox + layout.width * 0.5,
-                  centerY: oy + layout.height * 0.5,
-              }) - 1
-            : -1;
-        for (const g of layout.glyphs) {
-            _textState.byFont[fontId].push({
-                label,
+        let font = text.font.get(eid);
+        if (!state.atlases[font]) font = 0;
+        const atlas = state.atlases[font] ?? null;
+        const anchored = world.has(eid, Anchor);
+        let label = state.labels.get(eid);
+        const fresh = !label || label.ref !== world.ref(eid);
+        if (!label) {
+            label = {
                 eid,
-                x: ox + g.x,
-                y: oy + g.y,
-                w: g.width,
-                h: g.height,
-                u0: g.u0,
-                v0: g.v0,
-                u1: g.u1,
-                v1: g.v1,
-                color,
-            });
+                ref: world.ref(eid),
+                font,
+                atlas,
+                anchored,
+                seen: true,
+                start: state.count,
+                count: 0,
+                centerX: 0,
+                centerY: 0,
+            };
+            state.labels.set(eid, label);
+            state.labelDraws.push(label);
+        }
+        label.seen = true;
+        if (
+            fresh ||
+            label.atlas !== atlas ||
+            label.anchored !== anchored ||
+            layoutChanged(world, eid)
+        ) {
+            label.ref = world.ref(eid);
+            label.font = font;
+            label.atlas = atlas;
+            label.anchored = anchored;
+            const oldCount = label.count;
+            layoutLabel(world, label);
+            dirtyStart = Math.min(dirtyStart, label.start);
+            dirtyEnd = Math.max(
+                dirtyEnd,
+                oldCount === label.count ? label.start + label.count : state.count,
+            );
+        } else if (world.fieldStorage(Text, "billboard").dirty[eid >>> 5] & (1 << (eid & 31))) {
+            for (let n = label.start; n < label.start + label.count; n++)
+                state.u32[n * GLYPH_FLOATS + GLYPH_AT.billboard] = text.billboard.get(eid);
+            dirtyStart = Math.min(dirtyStart, label.start);
+            dirtyEnd = Math.max(dirtyEnd, label.start + label.count);
         }
     }
-
-    let total = 0;
-    for (let id = 0; id < _textState.atlases.length; id++)
-        total += _textState.byFont[id]?.length ?? 0;
-    if (total > _textState.cap) grow(world, total);
-
-    let n = 0;
-    for (let id = 0; id < _textState.atlases.length; id++) {
-        for (const g of _textState.byFont[id] ?? []) {
-            const label = _textState.labelDraws[g.label];
-            if (label.count === 0) label.start = n;
-            label.count++;
-            const o = n * GLYPH_FLOATS;
-            _textState.f32[o + GLYPH_AT.pos] = g.x;
-            _textState.f32[o + GLYPH_AT.pos + 1] = g.y;
-            _textState.f32[o + GLYPH_AT.pos + 2] = 0;
-            _textState.u32[o + GLYPH_AT.eid] = g.eid;
-            _textState.f32[o + GLYPH_AT.uvRect] = g.u0;
-            _textState.f32[o + GLYPH_AT.uvRect + 1] = g.v0;
-            _textState.f32[o + GLYPH_AT.uvRect + 2] = g.u1;
-            _textState.f32[o + GLYPH_AT.uvRect + 3] = g.v1;
-            _textState.f32[o + GLYPH_AT.size] = g.w;
-            _textState.f32[o + GLYPH_AT.size + 1] = g.h;
-            _textState.u32[o + GLYPH_AT.color] = g.color;
-            _textState.u32[o + GLYPH_AT.billboard] = world.storage(Text).billboard.get(g.eid);
-            n++;
-        }
+    for (let i = state.labelDraws.length - 1; i >= 0; i--) {
+        const label = state.labelDraws[i];
+        if (label.seen) continue;
+        dirtyStart = Math.min(dirtyStart, label.start);
+        resizeLabel(world, label, 0);
+        dirtyEnd = Math.max(dirtyEnd, state.count);
+        state.labels.delete(label.eid);
+        state.labelDraws.splice(i, 1);
     }
-    _textState.count = n;
-
-    if (_textState.cap * GLYPH_BYTES > world.gpu.root.unwrap(_textState.glyphBuf!).size) {
-        const stale = _textState.glyphBuf!;
-        _textState.glyphBuf = world.gpu.root
-            .createBuffer(d.arrayOf(Glyph, _textState.cap))
+    const device = world.gpu.device;
+    if (state.cap * GLYPH_BYTES > world.gpu.root.unwrap(state.glyphBuf!).size) {
+        const stale = state.glyphBuf!;
+        state.glyphBuf = world.gpu.root
+            .createBuffer(d.arrayOf(Glyph, state.cap))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        world.gpu.buffers.set("textGlyphs", world.gpu.root.unwrap(_textState.glyphBuf));
-        world.gpu.typed.set("textGlyphs", _textState.glyphBuf);
+        world.gpu.buffers.set("textGlyphs", world.gpu.root.unwrap(state.glyphBuf));
+        world.gpu.typed.set("textGlyphs", state.glyphBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
+        dirtyStart = 0;
+        dirtyEnd = state.count;
     }
-    if (_textState.count > 0)
+    dirtyEnd = Math.min(dirtyEnd, state.count);
+    if (dirtyStart < dirtyEnd)
         device.queue.writeBuffer(
-            world.gpu.root.unwrap(_textState.glyphBuf!),
-            0,
-            _textState.staging,
-            0,
-            _textState.count * GLYPH_BYTES,
+            world.gpu.root.unwrap(state.glyphBuf!),
+            dirtyStart * GLYPH_BYTES,
+            state.staging,
+            dirtyStart * GLYPH_BYTES,
+            (dirtyEnd - dirtyStart) * GLYPH_BYTES,
         );
 }
 
@@ -362,16 +384,13 @@ function rebuild(world: World, device: GPUDevice): void {
 const TextSystem: System = {
     name: "text",
     group: "draw",
-    after: [BeginFrameSystem],
-    before: [PrepassSystem],
+    first: true,
+    before: [ClearChangeMarksSystem, PrepassSystem],
     update(world) {
         const _textState = world.resource(textStateKey);
 
         if (!_textState.glyphBuf || _textState.atlases.length === 0) return;
-        const sig = signature(world);
-        if (sig === _textState.sig) return;
-        _textState.sig = sig;
-        rebuild(world, world.gpu.device);
+        updateLabels(world);
     },
 };
 
@@ -545,7 +564,10 @@ function drawText(
 
 /**
  * the shallot text producer: the retained {@link Text} component laid out into instanced SDF glyph quads,
- * drawn in core's transparent phase (one draw per label). Register fonts with {@link registerFont} and
+ * drawn in core's transparent phase (one draw per label). Each label owns a contiguous glyph range;
+ * range resizing compacts following bytes without laying out other labels. Storage grows geometrically
+ * to the peak live glyph count; unchanged frames allocate and upload nothing for text layout.
+ * Register fonts with {@link registerFont} and
  * label strings with {@link internText}. Depends on {@link CorePipelinePlugin}; a core camera renders it
  */
 export const TextPlugin: Plugin = {
@@ -568,7 +590,8 @@ export const TextPlugin: Plugin = {
         _textState.atlases = [];
         _textState.glyphBuf = null;
         _textState.sampler = null;
-        _textState.sig = -1;
+        _textState.labels.clear();
+        _textState.labelDraws.length = 0;
 
         const device = world.gpu.device;
 
@@ -613,7 +636,8 @@ export const TextPlugin: Plugin = {
         _textState.f32 = new Float32Array(_textState.staging);
         _textState.u32 = new Uint32Array(_textState.staging);
         _textState.count = 0;
-        _textState.sig = -1;
+        _textState.labels.clear();
+        _textState.labelDraws.length = 0;
         _textState.glyphBuf = world.gpu.root
             .createBuffer(d.arrayOf(Glyph, INITIAL))
             .$usage("storage")
@@ -641,6 +665,8 @@ export const TextPlugin: Plugin = {
         _textState.atlases = [];
         _textState.loaded = [];
         _textState.count = 0;
+        _textState.labels.clear();
+        _textState.labelDraws.length = 0;
         _textState.bindGroups = [];
         _textState.bindKeys = [];
         _textState.viewGroups.clear();
