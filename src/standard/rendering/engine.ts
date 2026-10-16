@@ -10,7 +10,7 @@ import { FrameGpu, ViewUniforms } from "../../core/rendering";
 import { clusterCell, LightClusters } from "./cluster";
 import { IndirectLightInput, indirectLight } from "./indirect";
 import { distanceAttenuation, LightingGpu, PointLightGpu, spotFactor } from "./lighting";
-import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
+import { brdf, brdfSphere, Pbr, pointShadowRef } from "./shade";
 
 const PI = Math.PI;
 
@@ -117,7 +117,7 @@ export const pointFactor = tgpu.fn(
         const distSq = std.dot(toLight, toLight);
         const radiusSq = light.params.x * light.params.x;
         const L = std.mul(toLight, std.inverseSqrt(std.max(distSq, 0.0001)));
-        const diff = halfLambert(std.dot(normal, L));
+        const diff = std.max(std.dot(normal, L), 0);
         sum = d.vec3f(
             std.add(
                 sum,
@@ -153,7 +153,7 @@ export const lightFactor = tgpu.fn(
         const light = engineLayout.$.lighting.directionalLights[i];
         let visibility = d.f32(1);
         if (light.params.y > 0) visibility = sunVisibility.$;
-        const cosine = halfLambert(std.dot(normal, std.neg(light.direction.xyz)));
+        const cosine = std.max(std.dot(normal, std.neg(light.direction.xyz)), 0);
         direct = d.vec3f(
             std.add(
                 direct,

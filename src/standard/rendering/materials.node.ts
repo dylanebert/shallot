@@ -166,6 +166,6 @@ test("type-owned adds return distinct rows and partial updates preserve the othe
     expect(changed.diffuseWrap).toBe(0);
     expect(unchanged.baseColor).toEqual(d.vec4f(1));
     expect(unchanged.emissive).toEqual(d.vec3f(0));
-    expect(unchanged.diffuseWrap).toBe(1);
+    expect(unchanged.diffuseWrap).toBe(0);
     expect(await world.gpu.device.popErrorScope()).toBeNull();
 });

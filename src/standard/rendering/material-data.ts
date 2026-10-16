@@ -56,7 +56,7 @@ type StandardMaterialOptions = {
 };
 
 /**
- * Linear colours; emissive is independent of baseColor. diffuseWrap 1 preserves Shallot's diffuse look.
+ * Linear colours; emissive is independent of baseColor. diffuseWrap defaults to Lambert (0); 1 selects squared half-Lambert.
  * baseColorTexture is an id from registerImage before warm; its sampled RGBA multiplies baseColor
  * at mesh UVs. Omit it to leave baseColor untextured, without sampling the image array.
  */
@@ -68,7 +68,7 @@ export function StandardMaterial(values: StandardMaterialOptions = {}): Standard
         perceptualRoughness: values.perceptualRoughness ?? 0.5,
         emissive: d.vec3f(...(values.emissive ?? [0, 0, 0])),
         occlusion: values.occlusion ?? 1,
-        diffuseWrap: values.diffuseWrap ?? 1,
+        diffuseWrap: values.diffuseWrap ?? 0,
         unlit: values.unlit ? 1 : 0,
     };
 }
