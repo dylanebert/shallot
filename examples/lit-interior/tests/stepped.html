@@ -5,6 +5,7 @@
 <script type="module">
 import { Camera, createApp, Transform, MeshInstance, VolumetricLight, setTransform } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
+import { DirectionalLightShadowMap, PointShadows } from '@dylanebert/shallot/standard/rendering';
 import { Room, RoomPlugin } from '../src/room';
 import { LocalPlayer, Player } from '../src/player';
 const requests=[];
@@ -14,7 +15,7 @@ const app=await createApp({plugins:[RoomPlugin]});
 const w=app.world, room=w.resource(Room);
 const canvas=document.querySelector('canvas');
 const captures=new URLSearchParams(location.search).has('captures');
-if(!captures){canvas.width=640;canvas.height=360;attachTexture(w,room.camera,{width:640,height:360});w.storage(Camera).antialias.set(room.camera,0);}
+if(!captures){canvas.width=640;canvas.height=360;attachTexture(w,room.camera,{width:640,height:360});w.storage(Camera).antialias.set(room.camera,0);w.resource(PointShadows).atlas=1024;w.resource(DirectionalLightShadowMap).size=512;}
 w.storage(Player).gravity.set(room.player,0);
 w.storage(Player).friction.set(room.player,1000);
 window.view=(x=2.5,y=1,z=11,yaw=0.25,pitch=-0.05)=>{
