@@ -416,8 +416,8 @@ async function buildNow(config: AppConfig): Promise<App> {
 /**
  * Mount an overlay filling the canvas's parent, or document.body when there is no parent.
  * The parent must be connected before mounting.
- * The reference is a 720 CSS pixel shortest side. The uniform UI scale is
- * max(1, min(canvas CSS width, canvas CSS height) / 720), independent of device pixel ratio.
+ * The reference is a 1080 CSS pixel shortest side, Unreal's default DPI curve point of scale 1.
+ * The uniform UI scale is max(1, min(canvas CSS width, canvas CSS height) / 1080).
  * The 1× floor keeps reference text readable on small canvases; layout must still fit them.
  * A ResizeObserver follows canvas resizes (the parent when canvas is null).
  * `scale: false` keeps CSS pixels, scaled only by device pixel ratio, for developer tools,
@@ -445,7 +445,7 @@ export function mountOverlay(
     const resize = (): void => {
         if (!scale) return;
         const { width, height } = target.getBoundingClientRect();
-        overlay.style.zoom = String(Math.max(1, Math.min(width, height) / 720));
+        overlay.style.zoom = String(Math.max(1, Math.min(width, height) / 1080));
     };
     const observer = new ResizeObserver(resize);
     if (scale) observer.observe(target);

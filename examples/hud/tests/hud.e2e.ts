@@ -14,8 +14,8 @@ async function step(page: Page, steps: number): Promise<Turn> {
 }
 
 test.describe("zoomed pointer controls", () => {
-    // 721 is the smallest whole-pixel shortest side above the 720px zoom reference.
-    test.use({ viewport: { width: 721, height: 721 }, deviceScaleFactor: 1 });
+    // 1081 is the smallest whole-pixel shortest side above the 1080px zoom reference.
+    test.use({ viewport: { width: 1081, height: 1081 }, deviceScaleFactor: 1 });
     test("the speed slider follows a pointer drag through the scaled overlay", async ({ page }) => {
         await page.goto("/");
         const controls = page.getByRole("region", { name: "Cube controls" });
@@ -27,7 +27,7 @@ test.describe("zoomed pointer controls", () => {
                         .evaluate((overlay) => getComputedStyle(overlay).zoom),
                 ),
             )
-            .toBeCloseTo(721 / 720, 5);
+            .toBeCloseTo(1081 / 1080, 5);
         const slider = page.getByRole("slider", { name: "Turn speed" });
         const bounds = (await slider.boundingBox())!;
         const y = bounds.y + bounds.height / 2;

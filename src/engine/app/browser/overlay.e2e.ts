@@ -54,8 +54,8 @@ for (const deviceScaleFactor of [1, 1.333]) {
             const reference = (await text.boundingBox())!;
             expect(reference.height).toBeCloseTo(20, 1);
             for (const [width, height, scale] of [
-                [2880, 1620, 2.25],
-                [1620, 2880, 2.25],
+                [2880, 1620, 1.5],
+                [1620, 2880, 1.5],
                 [320, 180, 1],
                 [1280, 720, 1],
             ]) {
@@ -85,7 +85,7 @@ for (const deviceScaleFactor of [1, 1.333]) {
             });
             await expect
                 .poll(async () =>
-                    Math.abs((await text.boundingBox())!.height - reference.height * 2.25),
+                    Math.abs((await text.boundingBox())!.height - reference.height * 1.5),
                 )
                 .toBeLessThanOrEqual(1);
         });

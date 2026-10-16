@@ -19,7 +19,7 @@ test.describe("reference-scaled card", () => {
             const title = page.locator(".title-card h1");
             const reference = (await title.boundingBox())!;
             for (const [width, height, scale] of [
-                [2880, 1620, 2.25],
+                [2880, 1620, 1.5],
                 [320, 180, 1],
             ]) {
                 await page.setViewportSize({ width, height });
