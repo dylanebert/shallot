@@ -76,7 +76,6 @@ const attributeLayout = materialLayout(FloorParameters, {
 const FloorContext = materialFragmentContext();
 const FloorMaterial = materialType({
     name: "FloorCustomMaterial",
-    parameters: FloorParameters,
     layout: floorLayout,
     fragment: tgpu.fn(
         [FloorContext],

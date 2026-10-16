@@ -123,7 +123,6 @@ const defaults = {
 /** Sprite parameters occupy one table; each row supplies its own AlphaMode. */
 export const SpriteMaterialType = materialType({
     name: "SpriteMaterial",
-    parameters: SpriteMaterialInput,
     layout,
     fragmentInputs: { localPos: true },
     vertex: spriteVertex,

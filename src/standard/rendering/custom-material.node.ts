@@ -40,7 +40,6 @@ const tintLayout = materialLayout(TintParameters, {});
 const TintContext = materialFragmentContext();
 const TintMaterial = materialType({
     name: "PublicTwoTintMaterial",
-    parameters: TintParameters,
     layout: tintLayout,
     vertex: tgpu.fn(
         [MaterialVertexInput],

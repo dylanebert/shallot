@@ -19,7 +19,6 @@ const checkerLayout = materialLayout(CheckerParameters, {});
 const Fragment = materialFragmentContext();
 export const CheckerMaterial = materialType({
     name: "ScrollingChecker",
-    parameters: CheckerParameters,
     layout: checkerLayout,
     defaults: { scale: 1 },
     fragmentInputs: { uv: true },
@@ -63,7 +62,6 @@ const waveLayout = materialLayout(AnimationParameters, {
 const Vertex = materialVertexOutput();
 export const WaveMaterial = materialType({
     name: "VertexWave",
-    parameters: AnimationParameters,
     layout: waveLayout,
     defaults: { time: 0 },
     vertex: tgpu.fn(

@@ -38,7 +38,6 @@ const tintFragment = tgpu.fn(
 });
 const TintMaterial = materialType({
     name: "InstanceTypeChangeTint",
-    parameters: TintParams,
     layout: tintLayout,
     fragment: tintFragment,
     defaults: { tint: d.vec4f(1) },

@@ -26,7 +26,6 @@ const Vertex = materialVertexOutput();
 const Fragment = materialFragmentContext();
 const AttributeMaterial = materialType({
     name: "AttributePairOracle",
-    parameters: Parameters,
     layout,
     defaults: { unused: 0 },
     vertex: tgpu.fn(

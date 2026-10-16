@@ -35,7 +35,6 @@ const cutoutLayout = materialLayout(CutoutParameters, {});
 const CutoutContext = materialFragmentContext();
 const CutoutMaterial = materialType({
     name: "MaterialShadowCutout",
-    parameters: CutoutParameters,
     layout: cutoutLayout,
     fragment: tgpu.fn(
         [CutoutContext],

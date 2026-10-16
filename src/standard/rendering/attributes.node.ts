@@ -41,7 +41,6 @@ const StreamVertexOutput = materialVertexOutput(varyings);
 const StreamFragmentContext = materialFragmentContext(varyings);
 const StreamMaterial = materialType({
     name: "StreamAttributeMaterial",
-    parameters,
     layout: streamLayout,
     varyings,
     vertex: tgpu.fn(

@@ -43,7 +43,6 @@ const transitionLayout = materialLayout(TransitionParameters, {});
 const TransitionContext = materialFragmentContext();
 const TransitionMaterial = materialType({
     name: "TransparentQualificationTransition",
-    parameters: TransitionParameters,
     layout: transitionLayout,
     fragment: tgpu.fn(
         [TransitionContext],

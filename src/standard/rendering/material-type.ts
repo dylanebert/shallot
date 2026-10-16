@@ -670,13 +670,12 @@ export function materialType<
     B extends Record<string, MaterialBinding>,
     V extends Record<string, AnyWgslData> = Record<never, never>,
 >(
-    spec: Omit<MaterialType<P, B, V>, "create"> & { defaults: d.InferInput<P> },
+    spec: Omit<MaterialType<P, B, V>, "create" | "parameters" | "layout"> &
+        ({ layout: MaterialLayout<B, P>; parameters?: never } |
+         { parameters: P; layout?: never }) & { defaults: d.InferInput<P> },
 ): MaterialType<P, B, V> {
-    if (spec.layout.parameters !== spec.parameters) {
-        throw new Error(
-            `material type "${spec.name}" layout was built for a different parameter schema`,
-        );
-    }
+    const layout = spec.layout ?? materialLayout(spec.parameters!, {});
+    const parameters = layout.parameters;
     if (!spec.name) throw new Error("material type name must not be empty");
     if (!isTgpuFn(spec.fragment) || (spec.vertex && !isTgpuFn(spec.vertex))) {
         throw new Error(
@@ -686,6 +685,8 @@ export function materialType<
     let definition!: MaterialType<P, B, V>;
     definition = {
         ...spec,
+        layout,
+        parameters,
         create: (world: World) => new MaterialAssets<P>(world, definition),
     } as MaterialType<P, B, V>;
     return definition;

@@ -56,7 +56,6 @@ const standardFragment = tgpu.fn(
 /** The built-in mesh material type. Its type-local table is the sole source of its PBR parameters. */
 export const Materials = materialType({
     name: "StandardMaterial",
-    parameters: StandardMaterialInput,
     layout: standardLayout,
     fragmentInputs: { uv: true },
     fragment: standardFragment,
@@ -107,7 +106,6 @@ const vertexFragment = tgpu.fn(
  */
 export const VertexMaterialType = materialType({
     name: "VertexMaterial",
-    parameters: StandardMaterialInput,
     layout: vertexLayout,
     varyings: vertexVaryings,
     vertex: vertexVertex,
