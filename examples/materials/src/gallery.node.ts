@@ -11,7 +11,7 @@ import * as d from "typegpu/data";
 import { Gallery, GalleryPlugin, presets } from "./gallery";
 import { AnimationParameters, CheckerMaterial, CheckerParameters, WaveMaterial } from "./materials";
 
-test("the gallery's dark and orange colours reach the checkerboard's material row", async () => {
+test("the gallery's carbon and red colours reach the checkerboard's material row", async () => {
     const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });
     try {
         const world = app.world;
@@ -22,8 +22,8 @@ test("the gallery's dark and orange colours reach the checkerboard's material ro
             bytes.slice(offset, offset + d.sizeOf(CheckerParameters)).buffer,
             CheckerParameters,
         );
-        expect(Array.from(value.darkColor)).toEqual([0.06, 0.045, 0.03].map(Math.fround));
-        expect(Array.from(value.lightColor)).toEqual([0.95, 0.36, 0.08].map(Math.fround));
+        expect(Array.from(value.darkColor)).toEqual([0.042, 0.039, 0.035].map(Math.fround));
+        expect(Array.from(value.lightColor)).toEqual([0.65, 0.075, 0.09].map(Math.fround));
     } finally {
         app.dispose();
     }
