@@ -43,7 +43,7 @@ import {
     PointLights,
     PointLightsRw,
     spotParams,
-    warnLightOverflow,
+    warnLightInputs,
 } from "./lighting";
 
 interface ClusterGpuState {
@@ -1408,7 +1408,7 @@ export const CullLightsSystem: System = {
             _render.shadeCount === 0
         )
             return;
-        warnLightOverflow(world);
+        warnLightInputs(world);
         const allocation = bindAllocation(world, _render.shadeCount);
 
         world.gpu.device.queue.writeBuffer(

@@ -24,7 +24,7 @@ import {
     type Resource,
     type World,
 } from "../../engine";
-import { directionalTravelDirection, shadowDirectionalLight } from "./lighting";
+import { directionalTravelDirection, shadowDirectionalLight, spotOuterAngle } from "./lighting";
 
 /** the directional shadow's cascade ceiling: each cascade takes one of the depth view slots reserved out
  * of the point-shadow combo budget, so the count can't exceed it. */
@@ -883,7 +883,7 @@ export function createPacker(side: number, min: number): Packer {
 
 /**
  * Writes the spot's local -Z cone axis and lookAt basis into `out` for matching render/receiver projection.
- * outer is a half-angle in radians, clamped to [1°,80°]; tilePx sets the PCF projection margin.
+ * outer is a half-angle in radians; tilePx sets the PCF projection margin.
  * coneTanHalf is tan(outer) widened for that tile's PCF footprint; coneFov is the resulting vertical
  * FOV in degrees. fwd matches the local -Z direction oct-packed by light compaction; right/up
  * form the orthonormal lookAt basis the receiver uses.
@@ -925,9 +925,8 @@ export function spotBasis(
     out.up[0] = ry * fz - rz * fy;
     out.up[1] = rz * fx - rx * fz;
     out.up[2] = rx * fy - ry * fx;
-    // clamp the outer half-angle to [1°, 80°] so the perspective frustum stays under 180° (tan finite); widen
-    // by the PCF seam margin like pointTanHalf, so a cone-edge fragment's 3×3 footprint stays inside its tile
-    const clamped = Math.min(Math.max(outer, Math.PI / 180), (80 * Math.PI) / 180);
+    // The minimum only widens degenerate cones; the upper policy also governs illumination.
+    const clamped = Math.max(spotOuterAngle(outer), Math.PI / 180);
     out.coneTanHalf = Math.tan(clamped) + (2 * EDGE_TEXELS) / tilePx;
     out.coneFov = (Math.atan(out.coneTanHalf) * 360) / Math.PI;
 }

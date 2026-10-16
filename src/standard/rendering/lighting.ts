@@ -52,6 +52,7 @@ interface LightingResources {
     stagingU32: Uint32Array;
     directionalOverflowWarned: boolean;
     pointOverflowWarned: boolean;
+    spotAngleWarned: boolean;
     shadowConflictWarned: boolean;
 }
 
@@ -68,6 +69,7 @@ function createLightingResources(): LightingResources {
         stagingU32: new Uint32Array(backing),
         directionalOverflowWarned: false,
         pointOverflowWarned: false,
+        spotAngleWarned: false,
         shadowConflictWarned: false,
     };
 }
@@ -289,6 +291,14 @@ export const spotFactor = tgpu.fn(
     return a * a;
 });
 
+// Authored angles are f32; fitting uses the same representable upper bound.
+const SPOT_OUTER_LIMIT = Math.fround(Math.PI / 2 - 1e-4);
+
+/** Effective outer half-angle shared by attenuation and shadow fitting; valid cones are unchanged. */
+export function spotOuterAngle(outer: number): number {
+    return outer >= Math.PI / 2 ? SPOT_OUTER_LIMIT : outer;
+}
+
 /**
  * Frostbite `getAngleAtt` coefficients (Lagarde 2014) for inner/outer half-angles in radians.
  * Used as `saturate(cosAngle·scale + offset)²`, where cosAngle is the cosine between the cone axis
@@ -296,8 +306,9 @@ export const spotFactor = tgpu.fn(
  * Equal angles use a narrow edge with a clamped denominator rather than producing NaN.
  */
 export function spotParams(inner: number, outer: number): { scale: number; offset: number } {
-    const cosInner = Math.cos(inner);
-    const cosOuter = Math.cos(outer);
+    const effectiveOuter = spotOuterAngle(outer);
+    const cosInner = Math.cos(Math.min(inner, effectiveOuter));
+    const cosOuter = Math.cos(effectiveOuter);
     const scale = 1 / Math.max(cosInner - cosOuter, 1e-4);
     return { scale, offset: -cosOuter * scale };
 }
@@ -305,12 +316,22 @@ export function spotParams(inner: number, outer: number): { scale: number; offse
 const POINT_LIGHT_TERMS = [PointLight, GlobalTransform];
 const SPOT_LIGHT_TERMS = [SpotLight, GlobalTransform];
 
-/** Warns once per overflow episode; the GPU compact pass drops lights beyond MAX_POINT_LIGHTS. */
-export function warnLightOverflow(world: World): void {
+/** Warns once per invalid-angle or overflow episode; compaction drops lights beyond MAX_POINT_LIGHTS. */
+export function warnLightInputs(world: World): void {
     const resources = lightingResources(world);
     let count = 0;
     for (const eid of world.query(POINT_LIGHT_TERMS)) if (!world.has(eid, SpotLight)) count++;
-    for (const _ of world.query(SPOT_LIGHT_TERMS)) count++;
+    let invalidSpotAngle = false;
+    for (const eid of world.query(SPOT_LIGHT_TERMS)) {
+        count++;
+        invalidSpotAngle ||= world.storage(SpotLight).outerAngle.get(eid) >= Math.PI / 2;
+    }
+    if (invalidSpotAngle && !resources.spotAngleWarned) {
+        console.warn(
+            "shallot: SpotLight outerAngle >= π/2; rendering clamps it to π/2 - 1e-4 and innerAngle to the effective outerAngle",
+        );
+    }
+    resources.spotAngleWarned = invalidSpotAngle;
     if (count > MAX_POINT_LIGHTS && !resources.pointOverflowWarned) {
         resources.pointOverflowWarned = true;
         console.warn(
