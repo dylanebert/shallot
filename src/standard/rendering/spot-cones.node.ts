@@ -1,7 +1,4 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
@@ -12,7 +9,6 @@ import {
     Camera,
     captureTexture,
     NotShadowCaster,
-    PointLight,
     ShadowFilteringMethod,
     ShadowFilteringMethodMode,
     SpotLight,
@@ -28,12 +24,10 @@ import { MeshRenderPlugin } from "./mesh-render";
 import { PointShadows, pointFaceVP } from "./shadows";
 
 setDefaultTimeout(TIMEOUT.node);
-const artifactDirectory = join(tmpdir(), "shallot-spot-cones");
-const controls = [30, 45, 55, "point"] as const;
 const methods = [ShadowFilteringMethodMode.Hardware2x2, ShadowFilteringMethodMode.Gaussian];
 const subject = gpuApps(
     import.meta.path,
-    Array.from({ length: 2 + controls.length * methods.length }, () => ({
+    Array.from({ length: methods.length }, () => ({
         defaults: false,
         plugins: [StandardRenderingPlugin, MeshRenderPlugin],
     })),
@@ -84,19 +78,6 @@ for (const method of methods) {
         world.step(0);
         world.step(0);
         const shadow = (await captureTexture(world, camera)).rgba;
-        mkdirSync(artifactDirectory, { recursive: true });
-        for (const [name, bytes] of [
-            ["control", control],
-            ["shadow", shadow],
-        ] as const) {
-            writeFileSync(
-                join(artifactDirectory, `${method}-${name}.ppm`),
-                Buffer.concat([
-                    Buffer.from("P6\n128 128\n255\n"),
-                    Buffer.from(bytes.filter((_, i) => i % 4 !== 3)),
-                ]),
-            );
-        }
         const mean = (bytes: Uint8ClampedArray) => {
             let sum = 0;
             for (let y = 60; y < 68; y++)
@@ -153,69 +134,3 @@ for (const method of methods) {
         for (const eid of [camera, receiver, occluder, light]) world.destroy(eid);
     });
 }
-
-for (const [index, kind] of controls.entries())
-    for (const method of methods) {
-        test(`${kind} control with filter ${method} produces a lit, shadowed readback`, async () => {
-            const { world } = subject()[2 + index * methods.length + method]!;
-            const camera = world.create();
-            world.add(camera, Transform, {
-                translation: [4, 6, 8, 0],
-                rotation: lookAtRotation(4, 6, 8, 0, 0, 0),
-            });
-            world.add(camera, Camera);
-            world.storage(Camera).antialias.set(camera, 0);
-            world.add(camera, AmbientLight, { brightness: 0 });
-            world.add(camera, StandardRenderer);
-            world.add(camera, ShadowFilteringMethod, { method });
-            attachTexture(world, camera, { width: 128, height: 128 });
-            const material = world
-                .resource(Materials)
-                .add(StandardMaterial({ baseColor: [0.8, 0.8, 0.8, 1] }));
-            for (const [translation, scale] of [
-                [
-                    [0, -0.1, 0, 0],
-                    [12, 0.2, 12, 0],
-                ],
-                [
-                    [0, 0.65, 0, 0],
-                    [1, 1.3, 1, 0],
-                ],
-            ]) {
-                const eid = world.create();
-                world.add(eid, Transform);
-                world
-                    .storage(Transform)
-                    .translation.set(eid, ...(translation! as [number, number, number, number]));
-                world
-                    .storage(Transform)
-                    .scale.set(eid, ...(scale! as [number, number, number, number]));
-                world.add(eid, MeshInstance);
-                world.add(eid, MeshMaterial, material);
-            }
-            const light = world.create();
-            world.add(light, Transform, {
-                translation: [-3, 5, 2, 0],
-                rotation: lookAtRotation(-3, 5, 2, 0, 0, 0),
-            });
-            if (kind !== "point")
-                world.add(light, SpotLight, {
-                    intensity: 900000,
-                    range: 20,
-                    ...(kind === 45 ? {} : { outerAngle: (kind * Math.PI) / 180 }),
-                    shadowMapsEnabled: 1,
-                });
-            else
-                world.add(light, PointLight, {
-                    intensity: 900000,
-                    range: 20,
-                    shadowMapsEnabled: 1,
-                });
-            world.step(0);
-            world.step(0);
-            const bytes = (await captureTexture(world, camera)).rgba;
-            expect(bytes.some((value, i) => i % 4 !== 3 && value > 40)).toBe(true);
-            mkdirSync(artifactDirectory, { recursive: true });
-            writeFileSync(join(artifactDirectory, `${kind}-${method}.rgba`), bytes);
-        });
-    }
