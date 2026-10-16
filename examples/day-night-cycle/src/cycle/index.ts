@@ -5,6 +5,7 @@ import {
     DirectionalLight,
     Exposure,
     GlobalAmbientLight,
+    lookAtRotation,
     Materials,
     MeshInstance,
     MeshMaterial,
@@ -44,6 +45,7 @@ interface Atmosphere {
     starIntensity: number;
     fogColor: number;
     fogDensity: number;
+    fogScattering: number;
     exposure: number;
 }
 
@@ -62,6 +64,7 @@ export function atmosphere(
         starIntensity: 0,
         fogColor: 0,
         fogDensity: 0,
+        fogScattering: 0,
         exposure: 0,
     },
 ): Atmosphere {
@@ -74,7 +77,7 @@ export function atmosphere(
     out.direction[1] = -elevation;
     out.direction[2] = -0.25;
     out.sunColor = blend(0xff9b52, 0xffe8cc, day);
-    out.illuminance = 3200 * day;
+    out.illuminance = (3200 * day) / (0.15 + 0.85 * day);
     out.ambientColor = 0xd8e4ff;
     out.ambientBrightness = 30 + 490 * daylight;
     out.zenith = blend(0x080e26, 0x719aca, daylight);
@@ -82,7 +85,8 @@ export function atmosphere(
     out.hazeColor = blend(0x182039, blend(0xbcc5d4, 0xe9a175, dusk), daylight);
     out.starIntensity = 1 - daylight;
     out.fogColor = blend(0x182039, blend(0xbcc5d4, 0xe9a175, dusk), daylight);
-    out.fogDensity = 0.008 + 0.018 * dusk;
+    out.fogDensity = 0.008 + 0.06 * dusk;
+    out.fogScattering = 0.3 + (11.7 * day) / (0.02 + day);
     out.exposure = -1.5 * (1 - daylight);
     return out;
 }
@@ -98,7 +102,7 @@ function makeScene(world: World): void {
     scene.sun = world.create();
     world.add(scene.sun, Transform);
     world.add(scene.sun, DirectionalLight, { shadowMapsEnabled: 1 });
-    world.add(scene.sun, SunDisk);
+    world.add(scene.sun, SunDisk, { angularSize: 0.025, glow: 0.8 });
     world.add(scene.sun, VolumetricLight);
     scene.camera = world.create();
     world.add(scene.camera, Camera, { clearColor: 0x1c1917 });
@@ -107,12 +111,26 @@ function makeScene(world: World): void {
     world.add(scene.camera, Exposure, { ev100: 9.7 });
     world.add(scene.camera, Tonemapping, { method: TonemappingMethod.AgX });
     world.add(scene.camera, ColorGrading);
-    world.add(scene.camera, Orbit, { distance: 12, yaw: 0, pitch: 0.28 });
-    world.add(scene.camera, Transform);
+    const yaw = -1.3,
+        pitch = 0.18,
+        distance = 12;
+    world.add(scene.camera, Orbit, { distance, yaw, pitch });
+    const x = distance * Math.cos(pitch) * Math.sin(yaw);
+    const y = distance * Math.sin(pitch);
+    const z = distance * Math.cos(pitch) * Math.cos(yaw);
+    world.add(scene.camera, Transform, {
+        translation: [x, y, z],
+        rotation: lookAtRotation(x, y, z, 0, 0, 0),
+    });
     scene.sky = world.create();
     world.add(scene.sky, Sky, { cloudCoverage: 0.12, cloudDensity: 0.3, starAmount: 0.7 });
     scene.fog = world.create();
-    world.add(scene.fog, Fog, { heightFalloff: 0.3, scattering: 0.3, steps: 16 });
+    world.add(scene.fog, Fog, {
+        heightFalloff: 0.12,
+        scattering: 0.3,
+        anisotropy: 0.65,
+        steps: 32,
+    });
 
     const materials = world.resource(Materials);
     const orange = materials.add(
@@ -129,8 +147,8 @@ function makeScene(world: World): void {
     );
     const shapes: { position: [number, number, number]; scale: [number, number, number] }[] = [
         { position: [0, 1, 0], scale: [1, 2, 1] },
-        { position: [-2.5, 0.6, -1], scale: [1.2, 1.2, 1.2] },
-        { position: [2.5, 0.4, 1], scale: [1.4, 0.8, 1.4] },
+        { position: [-1, 0.6, -2.8], scale: [1.2, 1.2, 1.2] },
+        { position: [1, 0.4, 2.8], scale: [1.4, 0.8, 1.4] },
     ];
     for (const shape of shapes) {
         const eid = world.create();
@@ -142,6 +160,7 @@ function makeScene(world: World): void {
     world.add(ground, MeshInstance);
     world.add(ground, MeshMaterial, neutral);
     world.add(ground, Transform, { translation: [0, -0.1, 0], scale: [200, 0.2, 200] });
+    CycleSystem.update(world);
 }
 
 export const CycleSystem = {
@@ -178,6 +197,7 @@ export const CycleSystem = {
         const fog = world.storage(Fog);
         fog.color.set(s.fog, v.fogColor);
         fog.density.set(s.fog, v.fogDensity);
+        fog.scattering.set(s.fog, v.fogScattering);
         world.storage(ColorGrading).exposure.set(s.camera, v.exposure);
     },
 };

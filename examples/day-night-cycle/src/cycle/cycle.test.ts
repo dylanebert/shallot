@@ -18,6 +18,14 @@ test("noon has the highest and brightest sun", () => {
     }
 });
 
+test("the sun is lit whenever it is above the horizon", () => {
+    for (let hour = 0; hour < 24; hour += 0.001) {
+        const values = atmosphere(hour);
+        if (values.direction[1] < 0) expect(values.illuminance).toBeGreaterThan(0);
+        else expect(values.illuminance).toBe(0);
+    }
+});
+
 test("dusk is on the horizon, warmer and hazier than noon", () => {
     const dusk = atmosphere(18),
         noon = atmosphere(12);
@@ -52,7 +60,10 @@ test("values are continuous around the day including the midnight wrap", () => {
                                 (((b[key] as number) >> shift) & 255),
                         ),
                     ).toBeLessThanOrEqual(1);
-            } else expect(Math.abs((a[key] as number) - (b[key] as number))).toBeLessThan(0.02);
+            } else
+                expect(Math.abs((a[key] as number) - (b[key] as number))).toBeLessThan(
+                    key === "illuminance" ? 0.2 : 0.02,
+                );
         }
     }
 });
@@ -98,6 +109,7 @@ test("the hour resource drives every atmosphere value written by the system", ()
         expect(world.storage(Sky).hazeDensity.get(scene.sky)).toBeCloseTo(v.fogDensity, 6);
         expect(world.storage(Fog).color.get(scene.fog)).toBe(v.fogColor);
         expect(world.storage(Fog).density.get(scene.fog)).toBeCloseTo(v.fogDensity, 6);
+        expect(world.storage(Fog).scattering.get(scene.fog)).toBeCloseTo(v.fogScattering, 5);
         expect(world.storage(ColorGrading).exposure.get(scene.camera)).toBeCloseTo(v.exposure, 6);
     }
     world.addSystem(CycleSystem);
