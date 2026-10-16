@@ -13,7 +13,9 @@ declare global {
             pools: number[];
         }>;
         volumetric(value: boolean): void;
-        shadow(kind: "block" | "bulbs"): Promise<{ darkened: number; maxDelta: number }>;
+        shadow(
+            kind: "block" | "bulbs",
+        ): Promise<{ darkened: number; darkenedFraction: number; maxDelta: number }>;
         capture(): Promise<string>;
         device: { requests: { requiredLimits?: unknown }[]; adapter: unknown; limits: unknown };
     }
@@ -75,6 +77,6 @@ test("a pendant's block shadows visible floor in front of it, but its emissive b
     console.log("floor shadows", { block, bulbs });
     expect(bulbs.darkened).toBe(0);
     expect(bulbs.maxDelta).toBeLessThan(1);
-    expect(block.darkened).toBeGreaterThan(10);
+    expect(block.darkenedFraction).toBeGreaterThan(10 / (640 * 360));
     expect(block.maxDelta).toBeGreaterThan(15);
 });
