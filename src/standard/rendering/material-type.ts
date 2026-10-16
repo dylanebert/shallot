@@ -1,5 +1,5 @@
 import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
-import tgpu, { isTgpuFn, readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
+import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Xform } from "../../core/rendering";
@@ -231,19 +231,19 @@ export const MeshVertexInput = d
     .$name("MeshVertexInput");
 
 /** Vertex input with this material's typed parameter row. */
-export function materialVertexInput<P extends AnyWgslStruct>(parameters: P) {
+function materialVertexInput<P extends AnyWgslStruct>(parameters: P) {
     return d.struct({ parameters, ...MeshVertexInput.propTypes });
 }
 
 /** World-space fields a material vertex function may override, plus its declared varyings. */
-export function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<never, never>>(
+function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<never, never>>(
     varyings: V = {} as V,
 ) {
     return d.struct({ world: d.vec4f, worldNormal: d.vec3f, ...varyings });
 }
 
 /** Fragment context with this material's typed parameter row and declared varyings. */
-export function materialFragmentContext<
+function materialFragmentContext<
     P extends AnyWgslStruct,
     V extends Record<string, AnyWgslData> = Record<never, never>,
 >(parameters: P, varyings: V = {} as V) {
@@ -675,14 +675,24 @@ export function MaterialPlugin<
     };
 }
 
-/** Define a material resource and shaders. Supply parameters alone, or a layout carrying them and owned bindings. */
+/**
+ * Define a material resource with plain "use gpu" shaders whose arguments are inferred from its schemas.
+ * Supply parameters alone, or a layout carrying them and owned bindings the shaders close over.
+ */
 export function materialType<
     P extends AnyWgslStruct,
     B extends Record<string, MaterialBinding>,
     V extends Record<string, AnyWgslData> = Record<never, never>,
 >(
-    spec: Omit<MaterialType<P, B, V>, "create" | "parameters" | "layout"> &
-        (
+    spec: Omit<
+        MaterialType<P, B, V>,
+        "create" | "parameters" | "layout" | "vertex" | "fragment"
+    > & {
+        vertex?: (
+            input: d.InferGPU<ReturnType<typeof materialVertexInput<P>>>,
+        ) => d.InferGPU<ReturnType<typeof materialVertexOutput<V>>>;
+        fragment: (context: d.InferGPU<ReturnType<typeof materialFragmentContext<P, V>>>) => d.v4f;
+    } & (
             | { layout: MaterialLayout<B, P>; parameters?: never }
             | { parameters: P; layout?: never }
         ) & { defaults: d.InferInput<P> },
@@ -690,16 +700,21 @@ export function materialType<
     const layout = spec.layout ?? materialLayout(spec.parameters!, {});
     const parameters = layout.parameters;
     if (!spec.name) throw new Error("material type name must not be empty");
-    if (!isTgpuFn(spec.fragment) || (spec.vertex && !isTgpuFn(spec.vertex))) {
-        throw new Error(
-            `material type "${spec.name}" shader is not a TGSL function from this engine's TypeGPU`,
-        );
-    }
     let definition!: MaterialType<P, B, V>;
     definition = {
         ...spec,
         layout,
         parameters,
+        fragment: tgpu.fn(
+            [materialFragmentContext<P, V>(parameters, spec.varyings)],
+            d.vec4f,
+        )(spec.fragment),
+        vertex: spec.vertex
+            ? tgpu.fn(
+                  [materialVertexInput(parameters)],
+                  materialVertexOutput<V>(spec.varyings),
+              )(spec.vertex)
+            : undefined,
         create: (world: World) => new MaterialAssets<P>(world, definition),
     } as MaterialType<P, B, V>;
     return definition;

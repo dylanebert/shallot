@@ -2,14 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Billboard, billboardCorner, xformMat } from "../../core/rendering";
-import {
-    engineLayout,
-    materialFragmentContext,
-    materialLayout,
-    materialType,
-    materialVertexInput,
-    materialVertexOutput,
-} from "../../standard/rendering";
+import { engineLayout, materialLayout, materialType } from "../../standard/rendering";
 
 /** One type-local material row: image, tint and fill are data, never shader registrations. */
 export const SpriteMaterialInput = d
@@ -27,8 +20,6 @@ const layout = materialLayout(SpriteMaterialInput, {
     images: { type: "texture-2d-array" },
     imageSampler: { type: "sampler" },
 });
-const SpriteVertexOutput = materialVertexOutput();
-const SpriteFragmentContext = materialFragmentContext(SpriteMaterialInput);
 
 const spriteSrgbToLinear = tgpu
     .fn(
@@ -63,11 +54,21 @@ const spriteFillMask = tgpu
     })
     .$name("spriteFillMask");
 
-const spriteVertex = tgpu
-    .fn(
-        [materialVertexInput(SpriteMaterialInput)],
-        SpriteVertexOutput,
-    )((input) => {
+/** Sprite parameters occupy one table; each row supplies its own AlphaMode. */
+export const SpriteMaterialType = materialType({
+    name: "SpriteMaterial",
+    layout,
+    fragmentInputs: { localPos: true },
+    defaults: {
+        offset: d.vec2f(0),
+        size: d.vec2f(1),
+        layer: 0,
+        color: 0xffffffff,
+        fill: 0,
+        billboard: Billboard.Screen,
+    },
+    depthPass: { prepass: true, shadows: true },
+    vertex: (input) => {
         "use gpu";
         const sprite = input.parameters;
         const local = std.add(sprite.offset, std.mul(input.localPos.xy, sprite.size));
@@ -80,53 +81,25 @@ const spriteVertex = tgpu
             local.x,
             local.y,
         );
-        return SpriteVertexOutput({
+        return {
             world: d.vec4f(corner, 1),
             worldNormal: input.worldNormal,
-        } as never);
-    })
-    .$name("spriteVertex");
-
-function spriteFragment() {
-    return tgpu
-        .fn(
-            [SpriteFragmentContext],
-            d.vec4f,
-        )((ctx) => {
-            "use gpu";
-            const sprite = ctx.parameters;
-            const uv = d.vec2f(ctx.localPos.x, 1 - ctx.localPos.y);
-            const texel = std.textureSample(
-                layout.$.images,
-                layout.$.imageSampler,
-                uv,
-                d.i32(sprite.layer),
-            );
-            const tint = std.unpack4x8unorm(sprite.color);
-            const mask = spriteFillMask(sprite.fill, uv);
-            const rgb = std.mul(texel.xyz, spriteSrgbToLinear(tint.xyz));
-            const alpha = texel.w * tint.w * mask;
-            return d.vec4f(rgb, alpha);
-        })
-        .$name("spriteFragment");
-}
-
-const defaults = {
-    offset: d.vec2f(0),
-    size: d.vec2f(1),
-    layer: 0,
-    color: 0xffffffff,
-    fill: 0,
-    billboard: Billboard.Screen,
-};
-
-/** Sprite parameters occupy one table; each row supplies its own AlphaMode. */
-export const SpriteMaterialType = materialType({
-    name: "SpriteMaterial",
-    layout,
-    fragmentInputs: { localPos: true },
-    vertex: spriteVertex,
-    fragment: spriteFragment(),
-    defaults,
-    depthPass: { prepass: true, shadows: true },
+        };
+    },
+    fragment: (ctx) => {
+        "use gpu";
+        const sprite = ctx.parameters;
+        const uv = d.vec2f(ctx.localPos.x, 1 - ctx.localPos.y);
+        const texel = std.textureSample(
+            layout.$.images,
+            layout.$.imageSampler,
+            uv,
+            d.i32(sprite.layer),
+        );
+        const tint = std.unpack4x8unorm(sprite.color);
+        const mask = spriteFillMask(sprite.fill, uv);
+        const rgb = std.mul(texel.xyz, spriteSrgbToLinear(tint.xyz));
+        const alpha = texel.w * tint.w * mask;
+        return d.vec4f(rgb, alpha);
+    },
 });

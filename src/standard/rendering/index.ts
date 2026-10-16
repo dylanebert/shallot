@@ -45,13 +45,7 @@ export type {
     MaterialType,
     MaterialVertexFn,
 } from "./material-type";
-export {
-    MaterialAssets,
-    materialFragmentContext,
-    materialLayout,
-    materialVertexInput,
-    materialVertexOutput,
-} from "./material-type";
+export { MaterialAssets, materialLayout } from "./material-type";
 export { MeshRenderPlugin } from "./mesh-render";
 export { MeshPreprocessSystem } from "./preprocess";
 export type { Draw } from "./registry";

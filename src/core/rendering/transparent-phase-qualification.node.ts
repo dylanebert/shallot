@@ -1,6 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import type { World } from "../../engine";
@@ -10,7 +9,6 @@ import {
     Materials,
     MeshMaterial,
     MeshRenderPlugin,
-    materialFragmentContext,
     materialType,
     StandardMaterial,
     StandardRenderer,
@@ -38,17 +36,13 @@ import { computeViewProj } from "./camera";
 
 setDefaultTimeout(TIMEOUT.node);
 const TransitionParameters = d.struct({ color: d.vec4f });
-const TransitionContext = materialFragmentContext(TransitionParameters);
 const TransitionMaterial = materialType({
     name: "TransparentQualificationTransition",
     parameters: TransitionParameters,
-    fragment: tgpu.fn(
-        [TransitionContext],
-        d.vec4f,
-    )((ctx) => {
+    fragment: (ctx) => {
         "use gpu";
         return d.vec4f(ctx.parameters.color);
-    }),
+    },
     defaults: { color: d.vec4f(1) },
 });
 const subjects = gpuApps(import.meta.path, [

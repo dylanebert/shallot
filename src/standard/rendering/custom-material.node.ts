@@ -22,11 +22,8 @@ import {
     MaterialPlugin,
     MeshMaterial,
     MeshRenderPlugin,
-    materialFragmentContext,
     materialType,
     materialTypeId,
-    materialVertexInput,
-    materialVertexOutput,
     registerBackground,
     StandardRenderer,
     StandardRenderingPlugin,
@@ -35,24 +32,17 @@ import {
 setDefaultTimeout(TIMEOUT.node);
 
 const TintParameters = d.struct({ tint: d.vec4f });
-const TintContext = materialFragmentContext(TintParameters);
 const TintMaterial = materialType({
     name: "PublicTwoTintMaterial",
     parameters: TintParameters,
-    vertex: tgpu.fn(
-        [materialVertexInput(TintParameters)],
-        materialVertexOutput(),
-    )((input) => {
+    vertex: (input) => {
         "use gpu";
         return { world: input.world, worldNormal: input.worldNormal };
-    }),
-    fragment: tgpu.fn(
-        [TintContext],
-        d.vec4f,
-    )((ctx) => {
+    },
+    fragment: (ctx) => {
         "use gpu";
         return d.vec4f(ctx.parameters.tint);
-    }),
+    },
     defaults: { tint: d.vec4f(1) },
 });
 const subjects = gpuApps(import.meta.path, [

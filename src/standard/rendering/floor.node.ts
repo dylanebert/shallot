@@ -57,7 +57,6 @@ import {
     MaterialPlugin,
     Materials,
     MeshMaterial,
-    materialFragmentContext,
     materialLayout,
     materialType,
     materialTypeId,
@@ -72,17 +71,13 @@ const FloorParameters = d.struct({ color: d.vec4f });
 const attributeLayout = materialLayout(FloorParameters, {
     stream: { type: "attribute", element: d.u32 },
 });
-const FloorContext = materialFragmentContext(FloorParameters);
 const FloorMaterial = materialType({
     name: "FloorCustomMaterial",
     parameters: FloorParameters,
-    fragment: tgpu.fn(
-        [FloorContext],
-        d.vec4f,
-    )((ctx) => {
+    fragment: (ctx) => {
         "use gpu";
         return d.vec4f(ctx.parameters.color);
-    }),
+    },
     defaults: { color: d.vec4f(1) },
 });
 const FloorMaterialPlugin = MaterialPlugin(FloorMaterial);

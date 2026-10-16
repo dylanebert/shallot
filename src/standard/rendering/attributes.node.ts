@@ -1,6 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
@@ -20,11 +19,8 @@ import {
     MaterialPlugin,
     Materials,
     MeshMaterial,
-    materialFragmentContext,
     materialLayout,
     materialType,
-    materialVertexInput,
-    materialVertexOutput,
     StandardMaterial,
     StandardRenderingPlugin,
 } from "./index";
@@ -37,30 +33,22 @@ const varyings = { tint: d.vec4f };
 const streamLayout = materialLayout(parameters, {
     tint: { type: "attribute", element: d.vec4f },
 });
-const StreamVertexOutput = materialVertexOutput(varyings);
-const StreamFragmentContext = materialFragmentContext(parameters, varyings);
 const StreamMaterial = materialType({
     name: "StreamAttributeMaterial",
     layout: streamLayout,
     varyings,
-    vertex: tgpu.fn(
-        [materialVertexInput(parameters)],
-        StreamVertexOutput,
-    )((input) => {
+    vertex: (input) => {
         "use gpu";
-        return StreamVertexOutput({
+        return {
             world: input.world,
             worldNormal: input.worldNormal,
             tint: streamLayout.$.tint[input.vidx],
-        });
-    }),
-    fragment: tgpu.fn(
-        [StreamFragmentContext],
-        d.vec4f,
-    )((ctx) => {
+        };
+    },
+    fragment: (ctx) => {
         "use gpu";
         return d.vec4f(ctx.tint);
-    }),
+    },
     defaults: { unused: 0 },
 });
 const streamPlugin = MaterialPlugin(StreamMaterial);

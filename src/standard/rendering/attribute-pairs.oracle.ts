@@ -1,6 +1,5 @@
 import { test } from "bun:test";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { cube, Meshes, MeshInstance } from "../../core/mesh";
 import { Transform } from "../../core/transform";
@@ -10,11 +9,8 @@ import {
     Materials,
     MeshMaterial,
     MeshRenderPlugin,
-    materialFragmentContext,
     materialLayout,
     materialType,
-    materialVertexInput,
-    materialVertexOutput,
     StandardMaterial,
     StandardRenderingPlugin,
 } from "./index";
@@ -22,26 +18,18 @@ import {
 await setupGlobals();
 const Parameters = d.struct({ unused: d.u32 });
 const layout = materialLayout(Parameters, { phase: { type: "attribute", element: d.f32 } });
-const Vertex = materialVertexOutput();
-const Fragment = materialFragmentContext(Parameters);
 const AttributeMaterial = materialType({
     name: "AttributePairOracle",
     layout,
     defaults: { unused: 0 },
-    vertex: tgpu.fn(
-        [materialVertexInput(Parameters)],
-        Vertex,
-    )((input) => {
+    vertex: (input) => {
         "use gpu";
         return { world: input.world, worldNormal: input.worldNormal };
-    }),
-    fragment: tgpu.fn(
-        [Fragment],
-        d.vec4f,
-    )(() => {
+    },
+    fragment: () => {
         "use gpu";
         return d.vec4f(1);
-    }),
+    },
 });
 
 test("measure CPU steps with an attribute material and an unrelated mesh", async () => {

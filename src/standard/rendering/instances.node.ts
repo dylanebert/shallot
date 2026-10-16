@@ -1,6 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import tgpu from "typegpu";
 import * as d from "typegpu/data";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -11,7 +10,7 @@ import { globalTransformTable } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { StandardRenderingPlugin } from "./forward";
 import { MaterialPlugin, Materials, MeshMaterial, StandardMaterial } from "./material";
-import { materialFragmentContext, materialType, materialTypeId } from "./material-type";
+import { materialType, materialTypeId } from "./material-type";
 import { MeshRenderPlugin } from "./mesh-render";
 import { meshInstanceTable } from "./preprocess";
 import { Draws } from "./registry";
@@ -22,18 +21,13 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 await setupGlobals();
 
 const TintParams = d.struct({ tint: d.vec4f });
-const TintContext = materialFragmentContext(TintParams);
-const tintFragment = tgpu.fn(
-    [TintContext],
-    d.vec4f,
-)((ctx) => {
-    "use gpu";
-    return d.vec4f(ctx.parameters.tint);
-});
 const TintMaterial = materialType({
     name: "InstanceTypeChangeTint",
     parameters: TintParams,
-    fragment: tintFragment,
+    fragment: (ctx) => {
+        "use gpu";
+        return d.vec4f(ctx.parameters.tint);
+    },
     defaults: { tint: d.vec4f(1) },
 });
 const tintPlugin = MaterialPlugin(TintMaterial);
