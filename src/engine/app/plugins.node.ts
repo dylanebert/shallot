@@ -531,7 +531,8 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(camera, Orbit);
             world.add(camera, Listener);
             world.storage(Transform).translation.set(camera, 0, 4, 12, 0);
-            world.storage(CameraBackground).background.set(camera, skyBackgroundHandle(world));
+            if (uses(subject, SkyPlugin))
+                world.storage(CameraBackground).background.set(camera, skyBackgroundHandle(world));
             attachCanvas(world, camera, canvas);
 
             if (
