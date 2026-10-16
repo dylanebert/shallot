@@ -59,8 +59,6 @@ for (const timestamps of ["adapter", "withheld"] as const) {
     test(`the built particles page opens with its profiler (${timestamps} timestamps)`, async ({
         page,
     }) => {
-        page.on("console", (message) => console.log("DIAG", message.text()));
-        const start = Date.now();
         if (timestamps === "withheld") {
             await page.addInitScript(() => {
                 const request = GPUAdapter.prototype.requestDevice;
@@ -76,7 +74,7 @@ for (const timestamps of ["adapter", "withheld"] as const) {
         }
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
-        await page.setViewportSize({ width: 480, height: 360 });
+        await page.setViewportSize({ width: 320, height: 180 });
         await page.goto("/");
         const profiler = page.locator("[data-shallot-profile]");
         await expect(profiler).toHaveAttribute(
@@ -87,13 +85,10 @@ for (const timestamps of ["adapter", "withheld"] as const) {
             await expect(profiler).toHaveAttribute("data-gpu-timing", "requires timestamp-query");
         }
         if ((await profiler.getAttribute("data-gpu-timing")) === "available") {
-            console.log("CLICK START", Date.now() - start);
             await profiler.getByText("▸ gpu", { exact: true }).click();
-            console.log("CLICK END", Date.now() - start);
             await expect(
                 profiler.getByText("particles:advance", { exact: true }).first(),
-            ).toBeVisible({ timeout: 15_000 });
-            console.log("ROW VISIBLE", Date.now() - start);
+            ).toBeVisible();
         } else {
             await expect(
                 profiler.getByText("requires timestamp-query", { exact: true }),

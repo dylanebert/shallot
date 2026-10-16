@@ -346,7 +346,6 @@ class ProfileImpl implements Profile {
                 }
             }
             this.drainCount++;
-            if (this.drainCount === 1) console.log("FIRST DRAIN", performance.now(), JSON.stringify([...fired.keys()]));
         }
     }
 
@@ -861,7 +860,6 @@ function createOverlay(opts?: OverlayOptions): Overlay {
                     ? gpuFlush.total.toFixed(2) + " ms"
                     : profile.gpuTiming;
             renderPool(gpuPool, gpuFlush.rows);
-            if (profile.drainCount === 1) console.log("FIRST ROWS", performance.now(), JSON.stringify(gpuFlush.rows));
 
             const indirectFlush = flushPool(indirectPool, (v) =>
                 (v * INDIRECT_FLOOR_US).toFixed(0),
