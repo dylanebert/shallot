@@ -9,16 +9,16 @@ import { StandardMaterialInput } from "@dylanebert/shallot/standard/rendering";
 import { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Gallery, GalleryPlugin, presets } from "./gallery";
-import { AnimationParameters, CheckerMaterial } from "./materials";
+import { AnimationParameters, WaveMaterial } from "./materials";
 
-test("the checkerboard's own time parameter advances with the clock", async () => {
+test("the wave's own time parameter advances with the clock", async () => {
     const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });
     try {
         const world = app.world;
         world.step(1 / 60);
         world.step(1 / 60);
-        const row = world.resource(Gallery).checker!.material;
-        const bytes = world.resource(CheckerMaterial).table.bytes;
+        const row = world.resource(Gallery).wave!.material;
+        const bytes = world.resource(WaveMaterial).table.bytes;
         const offset = row * d.sizeOf(AnimationParameters);
         expect(
             readFromArrayBuffer(

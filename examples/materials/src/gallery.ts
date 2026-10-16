@@ -188,7 +188,7 @@ export const AnimationPlugin: Plugin = {
     dependencies: [CheckerPlugin, WavePlugin],
     initialize(world) {
         const gallery = world.resource(Gallery);
-        gallery.checker = world.resource(CheckerMaterial).add({ time: 0 });
+        gallery.checker = world.resource(CheckerMaterial).add({ scale: 1 });
         gallery.wave = world.resource(WaveMaterial).add({ time: 0 });
     },
     systems: [
@@ -197,7 +197,6 @@ export const AnimationPlugin: Plugin = {
             update(world) {
                 const gallery = world.resource(Gallery);
                 gallery.time += world.time.deltaTime;
-                world.resource(CheckerMaterial).update(gallery.checker!, { time: gallery.time });
                 world.resource(WaveMaterial).update(gallery.wave!, { time: gallery.time });
             },
         },

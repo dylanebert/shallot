@@ -1,5 +1,6 @@
 import { xformNormal, xformPoint } from "@dylanebert/shallot/rendering";
 import {
+    engineLayout,
     lit,
     MaterialPlugin,
     MaterialVertexInput,
@@ -13,21 +14,23 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
 export const AnimationParameters = d.struct({ time: d.f32 });
-const checkerLayout = materialLayout(AnimationParameters, {});
+export const CheckerParameters = d.struct({ scale: d.f32 });
+const checkerLayout = materialLayout(CheckerParameters, {});
 const Fragment = materialFragmentContext();
 export const CheckerMaterial = materialType({
     name: "ScrollingChecker",
-    parameters: AnimationParameters,
+    parameters: CheckerParameters,
     layout: checkerLayout,
-    defaults: { time: 0 },
+    defaults: { scale: 1 },
     fragmentInputs: { uv: true },
     fragment: tgpu.fn(
         [Fragment],
         d.vec4f,
     )((ctx) => {
         "use gpu";
-        const time = checkerLayout.$.materialParameters[ctx.material].time;
-        const cell = std.floor(ctx.uv.x * 12 + time * 2) + std.floor(ctx.uv.y * 6);
+        const time = engineLayout.$.frame.time;
+        const scale = checkerLayout.$.materialParameters[ctx.material].scale;
+        const cell = std.floor(ctx.uv.x * 12 * scale + time * 2) + std.floor(ctx.uv.y * 6 * scale);
         const value = cell % 2;
         const color = std.mix(d.vec3f(0.06, 0.045, 0.03), d.vec3f(0.95, 0.36, 0.08), value);
         return d.vec4f(lit(color, ctx.worldNormal), 1);
