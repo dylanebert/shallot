@@ -43,7 +43,7 @@ export interface Plugin {
     readonly dependencies?: readonly Plugin[];
     /** Required and preferred features and required limits for this plugin's GPU use. Presence, including `{}`, declares a device need; an unmet requirement refuses before initialization with this plugin and the cause named. */
     readonly gpu?: GpuRequirements;
-    /** Observes the World-owned GPU context at acquisition, before plugin initialization. */
+    /** @internal Observes the World-owned GPU context at acquisition, before plugin initialization. */
     readonly prepareGpu?: (world: World, gpu: import("../runtime").WorldGpu) => void;
     /** Initial setup, run before warm-up; idempotent. Nothing paints while this hook runs synchronously, until it awaits. Split long setup into awaited slices and report each through `onProgress`. */
     readonly initialize?: (
