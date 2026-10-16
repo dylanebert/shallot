@@ -5,8 +5,32 @@ test("the built gallery presents its canvas", async ({ page }) => {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto("/");
     await expect(page.locator("canvas")).toBeVisible();
-    await expect(page.locator("nav")).toContainText("Wood");
+    await expect(page.locator("nav")).toHaveCount(0);
     expect(errors).toEqual([]);
+});
+
+test("world names cover pixels within separate projected boxes above the spheres", async ({
+    page,
+}) => {
+    await page.goto("http://127.0.0.1:4186/tests/stepped.html?captures");
+    await page.waitForFunction(() => (window as any).ready);
+    const boxes: { names: number[][]; spheres: number[][] } = await page.evaluate(() =>
+        (window as any).boxes(),
+    );
+    const overlaps = (a: number[], b: number[]) =>
+        a[0]! < b[2]! && a[2]! > b[0]! && a[1]! < b[3]! && a[3]! > b[1]!;
+    const ink: number[] = await page.evaluate(
+        (boxes) => (window as any).nameInk(boxes),
+        boxes.names,
+    );
+    for (const [i, box] of boxes.names.entries()) {
+        expect(box[0]).toBeGreaterThan(0);
+        expect(box[1]).toBeGreaterThan(0);
+        expect(box[2]).toBeLessThan(1280);
+        for (const other of [...boxes.names.slice(i + 1), ...boxes.spheres])
+            expect(overlaps(box, other)).toBe(false);
+        expect(ink[i]).toBeGreaterThan(10);
+    }
 });
 
 test("stepped draws show blended glass, decoded wood, animated checker pixels, wave silhouette and registered background", async ({

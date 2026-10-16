@@ -18,7 +18,15 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
+import {
+    internText,
+    Justify,
+    Orbit,
+    OrbitPlugin,
+    Text,
+    TextPlugin,
+} from "@dylanebert/shallot/extras";
+import { Billboard } from "@dylanebert/shallot/rendering";
 import {
     BackgroundContext,
     backgroundLayout,
@@ -55,11 +63,12 @@ export const Gallery: Resource<{
     camera: number;
     backing: number;
     spheres: number[];
+    names: number[];
     checker?: MaterialHandle;
     wave?: MaterialHandle;
     time: number;
 }> = {
-    create: () => ({ camera: 0, backing: 0, spheres: [], time: 0 }),
+    create: () => ({ camera: 0, backing: 0, spheres: [], names: [], time: 0 }),
 };
 function scene(world: World) {
     const gallery = world.resource(Gallery);
@@ -75,7 +84,7 @@ function scene(world: World) {
     world.add(camera, Transform);
     world.add(camera, Camera, { clearColor: 0x1c1917, fov: 20 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Orbit, { distance: 26, yaw: 0.04, pitch: 0.2, pan: [0, 0.6, 0] });
+    world.add(camera, Orbit, { distance: 32, yaw: 0.04, pitch: 0.2, pan: [0, 0.6, 0] });
 }
 function backdrop(world: World) {
     const background = registerBackground(world, {
@@ -124,12 +133,32 @@ function surfaces(world: World) {
         }),
     );
     handles.forEach((handle, i) => {
-        const x = (i - 3) * 1.9;
+        const x = (i - 3) * 2.35;
         const eid = world.create();
         gallery.spheres.push(eid);
         world.add(eid, Transform, { translation: [x, 1.05, 0] });
         world.add(eid, MeshInstance, { mesh: i === 6 ? waveBall : ball });
         world.add(eid, MeshMaterial, handle);
+        const label = world.create();
+        gallery.names.push(label);
+        world.add(label, Transform, { translation: [x, 2.15, 0] });
+        world.add(label, Text, {
+            content: internText(
+                world,
+                [
+                    ...presets.map((preset) => preset.name),
+                    "Wood",
+                    "Scrolling checker",
+                    "Vertex wave",
+                ][i]!,
+            ),
+            billboard: Billboard.Screen,
+            fontSize: 0.17,
+            maxWidth: 1.1,
+            justify: Justify.Center,
+            anchor: [0.5, 0],
+            color: 0xefe3cf,
+        });
         const plinth = world.create();
         world.add(plinth, Transform, { translation: [x, 0.1, 0], scale: [1.45, 0.6, 1.45] });
         world.add(plinth, MeshInstance);
@@ -150,7 +179,7 @@ function surfaces(world: World) {
         ),
     );
     const ground = world.create();
-    world.add(ground, Transform, { translation: [0, -0.26, 0], scale: [18, 0.1, 8] });
+    world.add(ground, Transform, { translation: [0, -0.26, 0], scale: [21, 0.1, 8] });
     world.add(ground, MeshInstance);
     world.add(ground, MeshMaterial, stone);
 }
@@ -176,7 +205,7 @@ export const AnimationPlugin: Plugin = {
 };
 export const GalleryPlugin: Plugin = {
     name: "Gallery",
-    dependencies: [MeshPlugin, OrbitPlugin, AnimationPlugin],
+    dependencies: [MeshPlugin, OrbitPlugin, TextPlugin, AnimationPlugin],
     initialize(world) {
         scene(world);
         surfaces(world);

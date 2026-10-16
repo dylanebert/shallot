@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><title>Materials, stepped</title><style>body{margin:0;background:#1c1917}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas><script type="module">
 import { createApp, Camera, Transform, MeshMaterial, Materials, StandardMaterial, DirectionalLight } from '@dylanebert/shallot';
+import { Text } from '@dylanebert/shallot/extras';
 import { Orbit } from '@dylanebert/shallot/extras';
 import { attachTexture, captureTexture, captureFrame, Tonemapping, TonemappingMethod } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
@@ -23,6 +24,35 @@ window.aim=(index)=>{
  orbit.target.set(gallery.camera,index<0?0:gallery.spheres[index]);
  world.step(1/60);world.step(1/60);
 };
+window.nameVisible=(index,visible)=>world.storage(Text).visible.set(gallery.names[index],Number(visible));
+window.nameClose=()=>{
+ window.aim(2);
+ orbit.target.set(gallery.camera,gallery.names[2]);
+ orbit.distance.set(gallery.camera,3);
+ world.step(1/60);world.step(1/60);
+};
+window.boxes=()=>{
+ const t=world.storage(Transform), camera=gallery.camera;
+ const q=[t.rotation.x.get(camera),t.rotation.y.get(camera),t.rotation.z.get(camera),t.rotation.w.get(camera)];
+ const position=(eid)=>[t.translation.x.get(eid),t.translation.y.get(eid),t.translation.z.get(eid)];
+ const eye=position(camera);
+ const project=(p)=>{
+  const [x,y,z]=p.map((v,i)=>v-eye[i]);
+  const [qx,qy,qz,qw]=q;
+  const tx=2*(-qy*z+qz*y),ty=2*(-qz*x+qx*z),tz=2*(-qx*y+qy*x);
+  const v=[x+qw*tx-qy*tz+qz*ty,y+qw*ty-qz*tx+qx*tz,z+qw*tz-qx*ty+qy*tx];
+  const scale=canvas.height/(2*Math.tan(world.storage(Camera).fov.get(camera)*Math.PI/360)*-v[2]);
+  return [canvas.width/2+v[0]*scale,canvas.height/2-v[1]*scale,scale];
+ };
+ return {
+  names:gallery.names.map(eid=>{const [x,y,s]=project(position(eid));return [x-.55*s,y-.5*s,x+.55*s,y];}),
+  spheres:gallery.spheres.map(eid=>{
+   const center=position(eid),points=[];
+   for(const x of [-.8,.8])for(const y of [-.8,.8])for(const z of [-.8,.8])points.push(project([center[0]+x,center[1]+y,center[2]+z]));
+   return [Math.min(...points.map(p=>p[0])),Math.min(...points.map(p=>p[1])),Math.max(...points.map(p=>p[0])),Math.max(...points.map(p=>p[1]))];
+  })
+ };
+};
 window.advance=async(seconds)=>{
  for(let elapsed=0;elapsed<seconds;){
   const delta=Math.min(1/60,seconds-elapsed);
@@ -32,6 +62,19 @@ window.advance=async(seconds)=>{
  }
 };
 async function render(){if(!full){world.step(0);return captureTexture(world,gallery.camera);}const pending=captureFrame(canvas);world.step(0);return pending;}
+window.nameInk=async(boxes)=>{
+ const before=(await render()).rgba, counts=[];
+ for(let i=0;i<gallery.names.length;i++){
+  window.nameVisible(i,false);
+  const hidden=(await render()).rgba,box=boxes[i];let ink=0;
+  for(let y=Math.floor(box[1]);y<Math.ceil(box[3]);y++)for(let x=Math.floor(box[0]);x<Math.ceil(box[2]);x++){
+   const offset=(y*canvas.width+x)*4;
+   if([0,1,2].some(c=>Math.abs(before[offset+c]-hidden[offset+c])>20))ink++;
+  }
+  counts.push(ink);window.nameVisible(i,true);
+ }
+ return counts;
+};
 window.pixels=async()=>Array.from((await render()).rgba);
 window.capture=async()=>{const frame=await render();const output=document.createElement('canvas');output.width=frame.width;output.height=frame.height;output.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(frame.rgba),frame.width,frame.height),0,0);return output.toDataURL('image/png');};
 window.hide=(index,hidden)=>{world.storage(Transform).scale.set(gallery.spheres[index],...(hidden?[0,0,0]:[1,1,1]));world.step(1/60);world.step(1/60);};
