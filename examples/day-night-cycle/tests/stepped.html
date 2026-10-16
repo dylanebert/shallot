@@ -25,7 +25,7 @@
         app.world.storage(Transform).translation.set(camera, x, y, z);
         app.world.storage(Transform).rotation.set(camera, ...lookAtRotation(x, y, z, 0, 0, 0));
     }
-    if (!fullSize) attachTexture(app.world, camera, { width: 320, height: 180 });
+    if (!fullSize) attachTexture(app.world, camera, { width: 256, height: 144 });
     if (new URL(location.href).searchParams.has("no-shafts")) app.world.remove(app.world.resource(CycleScene).sun, VolumetricLight);
     app.world.tick();
     hud(mountOverlay(canvas, app.world), app.world);

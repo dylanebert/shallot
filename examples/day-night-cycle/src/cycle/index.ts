@@ -129,7 +129,7 @@ function makeScene(world: World): void {
         heightFalloff: 0.12,
         scattering: 0.3,
         anisotropy: 0.65,
-        steps: 32,
+        steps: 16,
     });
 
     const materials = world.resource(Materials);
