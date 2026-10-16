@@ -13,10 +13,8 @@ subjects=$(
     find examples scripts src -type f \( -name 'vite.config.ts' -o -name 'playwright.config.ts' \) \
         -exec dirname {} \; | sort -u
 )
-e2e_files=$(
-    find . -type d \( -name node_modules -o -name .git \) -prune \
-        -o -type f -name '*.e2e.ts' -print
-)
+# Tracked and untracked files, never gitignored scratch such as .artifacts/.
+e2e_files=$(git ls-files --cached --others --exclude-standard -- '*.e2e.ts' | sed 's|^|./|')
 
 printf '%s\n' "$e2e_files" | while IFS= read -r e2e_file; do
     [ -n "$e2e_file" ] || continue
