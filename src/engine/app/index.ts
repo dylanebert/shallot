@@ -416,24 +416,14 @@ async function buildNow(config: AppConfig): Promise<App> {
 /**
  * Mount an overlay filling the canvas's parent, or document.body when there is no parent.
  * The parent must be connected before mounting.
- * The reference is a 1080 CSS pixel shortest side, Unreal's default DPI curve point of scale 1.
- * The uniform UI scale is max(1, min(canvas CSS width, canvas CSS height) / 1080).
- * The 1× floor keeps reference text readable on small canvases; layout must still fit them.
- * A ResizeObserver follows canvas resizes (the parent when canvas is null).
- * `scale: false` keeps CSS pixels, scaled only by device pixel ratio, for developer tools,
- * as Bevy's diagnostics overlay and browser devtools keep a fixed logical size.
+ * Its contents keep CSS pixels, scaled only by device pixel ratio, as browser UI and Bevy's
+ * default `UiScale` of 1 do.
  * Layout and paint containment bounds absolute and fixed descendants to the overlay.
  * Pointer events pass through; UI panels must re-enable them.
  * With `world`, disposal removes the overlay and restores the parent's prior inline `position`.
- * Without it, the caller removes the overlay. When it or an ancestor leaves the document,
- * including through shadow roots, its resize observer disconnects at the next mutation delivery.
- * The parent's `position` is not restored.
+ * Without it, the caller removes the overlay; the parent's `position` is not restored.
  */
-export function mountOverlay(
-    canvas: HTMLElement | null,
-    world?: World,
-    { scale = true }: { scale?: boolean } = {},
-): HTMLDivElement {
+export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
     const prior = parent.style.position;
     parent.style.position = "relative";
@@ -441,34 +431,7 @@ export function mountOverlay(
     overlay.style.cssText =
         "position:absolute;inset:0;pointer-events:none;z-index:1;contain:layout paint;overflow:hidden";
     parent.appendChild(overlay);
-    const target = canvas ?? parent;
-    const resize = (): void => {
-        if (!scale) return;
-        const { width, height } = target.getBoundingClientRect();
-        overlay.style.zoom = String(Math.max(1, Math.min(width, height) / 1080));
-    };
-    const observer = new ResizeObserver(resize);
-    if (scale) observer.observe(target);
-    if (!world && scale) {
-        const removal = new MutationObserver(() => {
-            removal.disconnect();
-            if (overlay.isConnected) observeAncestors();
-            else observer.disconnect();
-        });
-        const observeAncestors = (): void => {
-            for (
-                let node = overlay.parentNode;
-                node;
-                node = node instanceof ShadowRoot ? node.host : node.parentNode
-            ) {
-                removal.observe(node, { childList: true });
-            }
-        };
-        observeAncestors();
-    }
-    resize();
     world?.onDispose(() => {
-        observer.disconnect();
         overlay.remove();
         parent.style.position = prior;
     });

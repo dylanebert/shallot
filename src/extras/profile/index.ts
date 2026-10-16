@@ -674,8 +674,7 @@ function pad(v: string, len: number): string {
 function createOverlay(opts?: OverlayOptions): Overlay {
     const pos = opts?.position ?? "top-left";
     // Bound the profiler to the canvas so it cannot spill into an embedding host page.
-    // A developer tool keeps its CSS size; canvas scaling is for app UI.
-    const parent = mountOverlay(document.querySelector("canvas"), undefined, { scale: false });
+    const parent = mountOverlay(document.querySelector("canvas"));
 
     const root = el("div", {
         position: "absolute",

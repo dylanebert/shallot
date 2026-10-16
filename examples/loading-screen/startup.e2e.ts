@@ -8,37 +8,6 @@ declare global {
     }
 }
 
-test.describe("reference-scaled card", () => {
-    test.use({ deviceScaleFactor: 1.333 });
-    test("the bootstrap scales with the shortest side without shrinking its reference text", async ({
-        page,
-    }) => {
-        await page.setViewportSize({ width: 1280, height: 720 });
-        const release = await holdEntry(page);
-        try {
-            const title = page.locator(".title-card h1");
-            const reference = (await title.boundingBox())!;
-            for (const [width, height, scale] of [
-                [2880, 1620, 1.5],
-                [320, 180, 1],
-            ]) {
-                await page.setViewportSize({ width, height });
-                // CSS zoom can round layout to whole rendered pixels on the host.
-                await expect
-                    .poll(async () =>
-                        Math.abs((await title.boundingBox())!.height - reference.height * scale),
-                    )
-                    .toBeLessThanOrEqual(1);
-                const bounds = (await page.locator(".title-card").boundingBox())!;
-                expect(Math.abs(bounds.width - width)).toBeLessThanOrEqual(1);
-                expect(Math.abs(bounds.height - height)).toBeLessThanOrEqual(1);
-            }
-        } finally {
-            release();
-        }
-    });
-});
-
 const entry = "**/assets/index-*.js";
 const bootstrapSelector = "[data-shallot-bootstrap]";
 const loadingOverlay = "[data-title-card]";

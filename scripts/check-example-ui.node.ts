@@ -86,10 +86,13 @@ function violations(source: string): string[] {
         if (size === ui.fontSizes[1] && !titleDeclaration(source, match.index!)) valid = false;
         if (!valid) failures.push(`${property}: ${value}`);
     }
+    // UI keeps CSS pixels (CONTRIBUTING.md, Examples).
+    for (const match of source.matchAll(/\bzoom\s*:\s*([^;}"'\n]+)/g))
+        failures.push(`zoom: ${match[1]!.trim()}`);
     return failures;
 }
 
-test("the UI scale reserves 24px for titles and rejects off-token CSS and inline declarations", () => {
+test("the UI scale reserves 24px for titles and rejects off-token CSS, inline declarations and zoom", () => {
     const ui = PALETTES["aperture-carbon"].ui;
     expect(ui.fontSizes).toEqual(["14px", "24px"]);
     expect(
@@ -110,6 +113,9 @@ test("the UI scale reserves 24px for titles and rejects off-token CSS and inline
     expect(violations("h1, .notice { font-size: 24px; }")).toHaveLength(1);
     expect(violations('<p style="font-size: 24px">Status</p>')).toHaveLength(1);
     expect(violations("small { font-size: 12px; }")).toHaveLength(1);
+    expect(violations(".card { zoom: max(1, calc(100vmin / 1080px)); }")).toEqual([
+        "zoom: max(1, calc(100vmin / 1080px))",
+    ]);
 });
 
 test("world-space Text font fields are not CSS, while styles in script strings are checked", () => {
