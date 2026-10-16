@@ -1178,3 +1178,31 @@ test("a cancelled touch reads as a release", () => {
         world.dispose();
     }
 });
+
+test.todo("pointer capture is released once every chorded button is up", () => {
+    const fixture = declaredHost();
+    const world = browserInputStateWith(fixture.host);
+    try {
+        world.step(0);
+        const event = (button: number, buttons: number) => ({
+            target: fixture.canvas,
+            pointerId: 1,
+            pointerType: "mouse",
+            button,
+            buttons,
+            clientX: 30,
+            clientY: 50,
+            preventDefault() {},
+        });
+        fixture.emitCanvas("pointerdown", event(0, 1));
+        // DOM reports chorded button changes as pointermove; only the last button up is a pointerup.
+        fixture.window.emit("pointermove", event(2, 3));
+        fixture.window.emit("pointermove", event(0, 2));
+        fixture.window.emit("pointerup", event(2, 0));
+        const { pointer } = world.resource(Devices);
+        expect(pointer.left || pointer.right).toBe(false);
+        expect(fixture.captured()).toBeNull();
+    } finally {
+        world.dispose();
+    }
+});
