@@ -16,12 +16,14 @@ import { probeBuffer } from "../../engine/runtime";
 import {
     Draws,
     MaterialPlugin,
+    MaterialVertexInput,
     MeshMaterial,
     MeshRenderPlugin,
     materialFragmentContext,
     materialLayout,
     materialType,
     materialTypeId,
+    materialVertexOutput,
     StandardRenderer,
     StandardRenderingPlugin,
 } from "./index";
@@ -35,6 +37,13 @@ const TintMaterial = materialType({
     name: "PublicTwoTintMaterial",
     parameters: TintParameters,
     layout: tintLayout,
+    vertex: tgpu.fn(
+        [MaterialVertexInput],
+        materialVertexOutput(),
+    )((input) => {
+        "use gpu";
+        return { world: input.world, worldNormal: input.worldNormal };
+    }),
     fragment: tgpu.fn(
         [TintContext],
         d.vec4f,

@@ -232,7 +232,7 @@ export const MaterialVertexInput = d
     .$name("MaterialVertexInput");
 
 /** World-space fields a material vertex function may override, plus its declared varyings. */
-export function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<string, never>>(
+export function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<never, never>>(
     varyings: V = {} as V,
 ) {
     return d.struct({ world: d.vec4f, worldNormal: d.vec3f, ...varyings });
@@ -240,7 +240,7 @@ export function materialVertexOutput<V extends Record<string, AnyWgslData> = Rec
 
 /** Context passed to a material's fragment function; `material` indexes its own parameter table. */
 export function materialFragmentContext<
-    V extends Record<string, AnyWgslData> = Record<string, never>,
+    V extends Record<string, AnyWgslData> = Record<never, never>,
 >(varyings: V = {} as V) {
     return d.struct({
         eid: d.u32,
@@ -254,9 +254,10 @@ export function materialFragmentContext<
     });
 }
 
-export type MaterialVertexFn<V extends Record<string, AnyWgslData> = Record<string, never>> =
-    TgpuFn<(input: typeof MaterialVertexInput) => ReturnType<typeof materialVertexOutput<V>>>;
-export type MaterialFragmentFn<V extends Record<string, AnyWgslData> = Record<string, never>> =
+export type MaterialVertexFn<V extends Record<string, AnyWgslData> = Record<never, never>> = TgpuFn<
+    (input: typeof MaterialVertexInput) => ReturnType<typeof materialVertexOutput<V>>
+>;
+export type MaterialFragmentFn<V extends Record<string, AnyWgslData> = Record<never, never>> =
     TgpuFn<(context: ReturnType<typeof materialFragmentContext<V>>) => d.Vec4f>;
 
 export type AlphaMode =
@@ -348,7 +349,7 @@ export type AlphaPipelineKey = (typeof AlphaPipelineKey)[keyof typeof AlphaPipel
 export interface MaterialType<
     P extends AnyWgslStruct = AnyWgslStruct,
     B extends Record<string, MaterialBinding> = Record<string, MaterialBinding>,
-    V extends Record<string, AnyWgslData> = Record<string, never>,
+    V extends Record<string, AnyWgslData> = Record<never, never>,
 > extends Resource<MaterialAssets<P>> {
     readonly name: string;
     readonly parameters: P;
@@ -667,7 +668,7 @@ export function MaterialPlugin<
 export function materialType<
     P extends AnyWgslStruct,
     B extends Record<string, MaterialBinding>,
-    V extends Record<string, AnyWgslData> = Record<string, never>,
+    V extends Record<string, AnyWgslData> = Record<never, never>,
 >(
     spec: Omit<MaterialType<P, B, V>, "create"> & { defaults: d.InferInput<P> },
 ): MaterialType<P, B, V> {
