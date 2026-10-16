@@ -1191,6 +1191,7 @@ export async function requestGPU(
     owner?: {
         own(resource: { destroy(): void }): void;
         resource?: <T>(declaration: Resource<T>) => T;
+        prepare?: (gpu: WorldGpu) => void;
     },
 ): Promise<WorldGpu> {
     // before anything resolves: typegpu binds the console method a TGSL `console.log` calls at
@@ -1409,6 +1410,7 @@ export async function requestGPU(
         typed: new Map<string, TgpuBuffer<AnyData>>(),
     };
 
+    owner?.prepare?.(compute);
     return compute;
 }
 

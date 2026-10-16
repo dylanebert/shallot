@@ -32,10 +32,10 @@ export interface Profile {
     readonly compileMs: number;
     /** ms spent awaiting the prior frame's GPU fence before this frame began */
     readonly fenceWaitMs: number;
-    /** live GPU buffer bytes, summed over every buffer allocated since attach and decremented on
+    /** live GPU buffer bytes, summed over every buffer allocated through this World's device from acquisition and decremented on
      *  `destroy()`. */
     readonly bufferBytes: number;
-    /** live GPU texture bytes, summed over every texture allocated since attach and decremented on
+    /** live GPU texture bytes, summed over every texture allocated through this World's device from acquisition and decremented on
      *  `destroy()`. */
     readonly textureBytes: number;
 }
@@ -117,20 +117,6 @@ class ProfileImpl implements Profile {
         this.gpuTiming = device.features.has("timestamp-query")
             ? "available"
             : "requires timestamp-query";
-        if (this.gpuTiming === "available") {
-            this._capacity = capacity;
-            this._querySet = device.createQuerySet({ type: "timestamp", count: capacity * 2 });
-            const bytes = capacity * 2 * 8;
-            this._resolveBuffer = device.createBuffer({
-                label: "profile-resolve",
-                size: bytes,
-                usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-            });
-            for (let i = 0; i < READ_RING; i++) {
-                this._free.push({ bytes: new ArrayBuffer(0), passes: [], count: 0 });
-            }
-        }
-
         const origCompute = device.createComputePipelineAsync.bind(device);
         device.createComputePipelineAsync = async (desc: GPUComputePipelineDescriptor) => {
             const start = performance.now();
@@ -193,6 +179,20 @@ class ProfileImpl implements Profile {
         this._restorePatches.push(() => {
             device.createTexture = origCreateTexture;
         });
+
+        if (this.gpuTiming === "available") {
+            this._capacity = capacity;
+            this._querySet = device.createQuerySet({ type: "timestamp", count: capacity * 2 });
+            const bytes = capacity * 2 * 8;
+            this._resolveBuffer = device.createBuffer({
+                label: "profile-resolve",
+                size: bytes,
+                usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+            });
+            for (let i = 0; i < READ_RING; i++) {
+                this._free.push({ bytes: new ArrayBuffer(0), passes: [], count: 0 });
+            }
+        }
     }
 
     private trackAlloc<T extends GPUBuffer | GPUTexture>(
@@ -995,7 +995,7 @@ const ProfileRenderSystem: System = {
  * performance profiler: an F3-toggled stats overlay (FPS, per-pass GPU/CPU timings, memory, shader
  * compile) plus the World-owned {@link Profile} view. Off by default: add it and press F3 to show the
  * overlay; the data is on `Profile` whether it's shown or not.
- * Register it first so its `createBuffer` / pipeline patches catch every allocation. Composed systems
+ * Tracking starts at device acquisition, independent of plugin order. Composed systems
  * may record phase timings through the world's record sink; this plugin adds no simulation.
  */
 export const ProfilePlugin: Plugin = {
@@ -1004,10 +1004,9 @@ export const ProfilePlugin: Plugin = {
     systems: [ProfileFrameBeginSystem, ProfileRenderSystem],
     dependencies: [],
 
-    initialize(world: World) {
-        const compute = world.gpu;
+    prepareGpu(world, compute) {
         const profiler = world.resource(Profile) as ProfileImpl;
-        const ui = world.resource(profileUi);
+        world.onDispose(() => profiler.dispose());
         profiler.attach(compute.device);
 
         compute.span = (name) => profiler.span(name);
@@ -1017,7 +1016,10 @@ export const ProfilePlugin: Plugin = {
         world.fenceWaitSink = (ms) => {
             profiler.fenceWaitMs = ms;
         };
+    },
 
+    initialize(world: World) {
+        const ui = world.resource(profileUi);
         // World disposal must remove the DOM mount even without App.dispose().
         world.onDispose(() => {
             ui.overlay?.destroy();
@@ -1038,13 +1040,11 @@ export const ProfilePlugin: Plugin = {
     },
 
     dispose(world: World) {
-        const profiler = world.resource(Profile) as ProfileImpl;
         const compute = world.gpu;
         compute.span = undefined;
         compute.indirect = undefined;
         compute.precompiled = undefined;
         world.recordSink = undefined;
         world.fenceWaitSink = undefined;
-        profiler.dispose();
     },
 };
