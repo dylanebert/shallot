@@ -18,7 +18,6 @@ import { LocalPlayer, Player, PlayerPlugin, UpdatePlayerControlSystem } from "./
 
 export const Usable = component("Usable", { bell: u8, clip: f32 });
 export const Sliding = component("Sliding", { phase: f32 });
-export const SpeakerPart = component("SpeakerPart", { speaker: entity });
 export const InteractionInput = component("InteractionInput", { target: entity });
 export const InteractionPress = component("InteractionPress", { camera: entity, target: entity });
 export const Hint = { create: () => ({ target: 0, action: "" }) };
@@ -26,7 +25,7 @@ const INPUTS = [InteractionInput, Transform];
 const PLAYERS = [LocalPlayer, Player];
 const PRESSES = [InteractionPress];
 const SLIDERS = [Sliding, Transform];
-const PARTS = [SpeakerPart, Transform];
+export const CHIME_VOLUME = 0.35;
 const REACH = 3;
 
 const Aim = {
@@ -69,15 +68,11 @@ export function focus(world: World, camera: number, yaw?: number, pitch = 0): nu
     return castRayClosest(world, origin, ray, hit) && world.has(hit.body, Usable) ? hit.body : 0;
 }
 
-export function setVolume(world: World, speaker: number, value: number): void {
-    world.storage(Sound).volume.set(speaker, value);
-}
-
 export const SoundGamePlugin: Plugin = {
     name: "SoundGame",
     recovery: "stateless",
     dependencies: [AudioPlugin, InputPlugin],
-    components: [Usable, Sliding, SpeakerPart, InteractionInput, InteractionPress],
+    components: [Usable, Sliding, InteractionInput, InteractionPress],
     systems: [
         {
             name: "sample",
@@ -117,6 +112,7 @@ export const SoundGamePlugin: Plugin = {
                         const p = world.storage(Transform).translation;
                         play(world, world.storage(Usable).clip.get(target), {
                             position: [p.x.get(target), p.y.get(target), p.z.get(target)],
+                            volume: CHIME_VOLUME,
                         });
                     } else {
                         const paused = world.storage(Sound).paused;
@@ -127,10 +123,6 @@ export const SoundGamePlugin: Plugin = {
                     const phase = world.storage(Sliding).phase;
                     phase.set(eid, phase.get(eid) + Time.FIXED_DT * 0.3);
                     world.storage(Transform).translation.x.set(eid, Math.sin(phase.get(eid)) * 3);
-                }
-                for (const eid of world.query(PARTS)) {
-                    const x = world.storage(Transform).translation.x;
-                    x.set(eid, x.get(world.storage(SpeakerPart).speaker.get(eid)));
                 }
             },
         },

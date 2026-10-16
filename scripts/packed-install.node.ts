@@ -306,7 +306,7 @@ function createExample(name: Example): void {
     const packedRange = `file:${normalizePath(relative(project, tarball))}`;
     manifest.dependencies["@dylanebert/shallot"] = packedRange;
     // Svelte checking resolves its supported TypeScript online in the manual oracle.
-    if (name === "hud" || name === "day-night-cycle" || name === "sound")
+    if (name === "hud" || name === "day-night-cycle")
         delete manifest.devDependencies["svelte-check"];
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
     writeFileSync(join(project, "no-preload.toml"), "[test]\n");
@@ -348,7 +348,7 @@ function assertCreatedExample(name: Example): void {
     );
     for (const svelte of ["svelte", "@sveltejs/vite-plugin-svelte"])
         expect(manifest.devDependencies[svelte]).toBe(
-            name === "hud" || name === "day-night-cycle" || name === "sound"
+            name === "hud" || name === "day-night-cycle"
                 ? rootPackage.devDependencies[svelte]
                 : undefined,
         );
@@ -379,9 +379,7 @@ for (const name of [
             const { project, manifest } = example(name);
             run(["bun", "check"], project, `bun check ${name}`);
             expect(manifest.scripts.typecheck).toBe(
-                name === "hud" || name === "day-night-cycle" || name === "sound"
-                    ? "svelte-check"
-                    : undefined,
+                name === "hud" || name === "day-night-cycle" ? "svelte-check" : undefined,
             );
         });
 

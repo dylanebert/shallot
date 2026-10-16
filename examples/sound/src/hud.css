@@ -1,0 +1,9 @@
+.interact-hud { position: absolute; inset: 0; pointer-events: none; color: #eee9df; font: 18px/1.3 system-ui, sans-serif; text-shadow: 0 1px 3px #191816; }
+.reticle { position: absolute; top: 50%; left: 50%; display: grid; place-items: center; box-sizing: border-box; width: 12px; height: 12px; border: 1px solid #eee9df; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 2px #191816; }
+.reticle-dot { width: 4px; height: 4px; border-radius: 50%; background: #eee9df; }
+.reticle-dot[hidden] { display: none; }
+.hint { position: absolute; top: calc(50% + 96px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.hint[hidden] { display: none; }
+.key-slot { display: grid; place-items: center; width: 48px; height: 48px; }
+.key-slot > * { grid-area: 1 / 1; }
+.key-slot kbd { display: grid; place-items: center; box-sizing: border-box; width: 28px; height: 28px; border: 1px solid #eee9df; border-radius: 4px; background: #282622cc; font: 18px/1 system-ui, sans-serif; }
