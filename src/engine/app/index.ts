@@ -420,6 +420,8 @@ async function buildNow(config: AppConfig): Promise<App> {
  * max(1, min(canvas CSS width, canvas CSS height) / 720), independent of device pixel ratio.
  * The 1× floor keeps reference text readable on small canvases; layout must still fit them.
  * A ResizeObserver follows canvas resizes (the parent when canvas is null).
+ * `scale: false` keeps CSS pixels, scaled only by device pixel ratio, for developer tools,
+ * as Bevy's diagnostics overlay and browser devtools keep a fixed logical size.
  * Layout and paint containment bounds absolute and fixed descendants to the overlay.
  * Pointer events pass through; UI panels must re-enable them.
  * With `world`, disposal removes the overlay and restores the parent's prior inline `position`.
@@ -427,7 +429,11 @@ async function buildNow(config: AppConfig): Promise<App> {
  * including through shadow roots, its resize observer disconnects at the next mutation delivery.
  * The parent's `position` is not restored.
  */
-export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDivElement {
+export function mountOverlay(
+    canvas: HTMLElement | null,
+    world?: World,
+    { scale = true }: { scale?: boolean } = {},
+): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
     const prior = parent.style.position;
     parent.style.position = "relative";
@@ -437,12 +443,13 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
     parent.appendChild(overlay);
     const target = canvas ?? parent;
     const resize = (): void => {
+        if (!scale) return;
         const { width, height } = target.getBoundingClientRect();
         overlay.style.zoom = String(Math.max(1, Math.min(width, height) / 720));
     };
     const observer = new ResizeObserver(resize);
-    observer.observe(target);
-    if (!world) {
+    if (scale) observer.observe(target);
+    if (!world && scale) {
         const removal = new MutationObserver(() => {
             removal.disconnect();
             if (overlay.isConnected) observeAncestors();

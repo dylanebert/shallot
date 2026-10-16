@@ -20,7 +20,9 @@
                 const root = host.attachShadow({ mode: "open" });
                 root.append(canvas.parentElement);
             }
-            const overlay = mountOverlay(canvas, params.has("no-world") ? undefined : app.world);
+            const overlay = mountOverlay(canvas, params.has("no-world") ? undefined : app.world, {
+                scale: !params.has("unscaled"),
+            });
             const text = document.createElement("span");
             text.textContent = "Readable UI";
             text.style.cssText = "position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:inline-block;font:400 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;line-height:20px";

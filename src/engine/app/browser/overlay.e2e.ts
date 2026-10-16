@@ -91,3 +91,12 @@ for (const deviceScaleFactor of [1, 1.333]) {
         });
     });
 }
+
+test("an unscaled overlay keeps its CSS size on a large canvas", async ({ page }) => {
+    await page.setViewportSize({ width: 2880, height: 1620 });
+    await page.goto("/overlay.html?unscaled");
+    const text = page.locator("span");
+    await expect(text).toBeVisible();
+    await expect(text).toHaveCSS("font-size", "14px");
+    expect((await text.boundingBox())!.height).toBeCloseTo(20, 1);
+});
