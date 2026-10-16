@@ -14,6 +14,10 @@ import {
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
 import {
+    BackgroundContext,
+    Backgrounds,
+    backgroundLayout,
+    CameraBackground,
     Draws,
     MaterialPlugin,
     MaterialVertexInput,
@@ -24,6 +28,7 @@ import {
     materialType,
     materialTypeId,
     materialVertexOutput,
+    registerBackground,
     StandardRenderer,
     StandardRenderingPlugin,
 } from "./index";
@@ -57,6 +62,19 @@ const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(TintMaterial)],
+        setup(world) {
+            registerBackground(world, {
+                name: "setup-background",
+                layout: backgroundLayout({}),
+                fs: tgpu.fn(
+                    [BackgroundContext],
+                    d.vec3f,
+                )(() => {
+                    "use gpu";
+                    return d.vec3f(0, 0, 1);
+                }),
+            });
+        },
     },
 ]);
 
@@ -66,6 +84,9 @@ test("the public material type renders two typed tint rows together and updates 
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
     world.add(camera, Camera);
     world.add(camera, StandardRenderer);
+    world.add(camera, CameraBackground, {
+        name: world.resource(Backgrounds).id("setup-background")!,
+    });
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     attachTexture(world, camera, { width: 64, height: 32 });
 
@@ -89,6 +110,7 @@ test("the public material type renders two typed tint rows together and updates 
         const frame = await captureTexture(world, camera);
         const pixel = (x: number, y = 16) =>
             Array.from(frame.rgba.subarray((y * 64 + x) * 4, (y * 64 + x) * 4 + 4));
+        expect(pixel(0, 0)).toEqual([0, 0, 255, 255]);
         return { left: pixel(28), right: pixel(36) };
     };
     expect(await sample()).toEqual({ left: [255, 0, 0, 255], right: [0, 255, 0, 255] });

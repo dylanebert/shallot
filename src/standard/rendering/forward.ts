@@ -1273,7 +1273,6 @@ export const StandardRenderingPlugin: Plugin = {
         registerMaterialType(world, VertexMaterialType as never);
         world.resource(VertexMaterialType);
         initializeDrawState(world);
-        world.resource(Backgrounds).clear();
         world.resource(Draws).clear();
         world.resource(standardRendererStateKey);
         initializeShadowAtlasState(world);
