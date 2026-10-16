@@ -2,6 +2,7 @@ import {
     component,
     Devices,
     InputPlugin,
+    internText,
     Materials,
     Meshes,
     MeshInstance,
@@ -10,19 +11,31 @@ import {
     type Plugin,
     StandardMaterial,
     type System,
+    Text,
     Transform,
     type World,
 } from "@dylanebert/shallot";
 import { viewportToWorld } from "@dylanebert/shallot/rendering";
 import { castRayClosest, type PhysicsQueryHit } from "@dylanebert/shallot/standard/physics";
 import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
-import { Coin, decode, encode, placement, readSave, SAVE_KEY } from "./save";
+import {
+    COIN_CAP,
+    COIN_DIAMETER,
+    COIN_THICKNESS,
+    Coin,
+    decode,
+    encode,
+    placement,
+    readSave,
+    SAVE_KEY,
+} from "./save";
 
 export const Cube = component("Cube", {});
 export const Game = {
     create: () => ({
         camera: 0,
         cube: 0,
+        label: 0,
         press: null as { x: number; y: number } | null,
         storage: null as Pick<Storage, "getItem" | "setItem"> | null,
         saved: false,
@@ -70,13 +83,18 @@ function presentCoin(world: World, eid: number): void {
     world.add(eid, MeshInstance, { mesh: game.mesh });
     if (game.material) world.add(eid, MeshMaterial, game.material);
 }
-export function addCoin(world: World): number {
-    const position = placement(count(world));
+export function saveLabel(world: World): string {
+    return world.resource(Game).feedback > 0 ? "Saved" : "Save";
+}
+export function addCoin(world: World): number | null {
+    const total = count(world);
+    if (total >= COIN_CAP) return null;
+    const position = placement(total);
     const eid = world.create();
     world.add(eid, Coin, { height: position[1], speed: 0 });
     world.add(eid, Transform, {
         translation: [position[0], position[1] + 1.2, position[2]],
-        scale: [0.28, 0.08, 0.28],
+        scale: [COIN_DIAMETER, COIN_THICKNESS, COIN_DIAMETER],
     });
     presentCoin(world, eid);
     return eid;
@@ -129,6 +147,16 @@ export const Play: System = {
             )
                 game.press = null;
         } else game.press = null;
+        if (game.label)
+            world
+                .storage(Text)
+                .content.set(
+                    game.label,
+                    internText(
+                        world,
+                        count(world) >= COIN_CAP ? "The pile is full" : "Click for a coin",
+                    ),
+                );
         if (input.enabled && pointer.hover && hitsCube(world, pointer.x, pointer.y)) {
             if (!world.has(game.cube, Outline))
                 world.add(game.cube, Outline, {

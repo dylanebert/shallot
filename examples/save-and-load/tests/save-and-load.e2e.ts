@@ -56,7 +56,7 @@ test("the built page opens a new game with clear controls and Load disabled unti
     for (const key of ["N", "S", "L"])
         await expect(page.locator("kbd", { hasText: key })).toBeVisible();
     await page.getByRole("button", { name: "Save S" }).click();
-    await expect(page.getByRole("status", { name: "Save feedback" })).toHaveText("Saved");
+    await expect(page.getByRole("button", { name: "Saved S", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Load L" })).toBeEnabled();
     expect(errors).toEqual([]);
 });
@@ -81,12 +81,12 @@ test("three clicks, Save, New game and Load restore the pile and shown count, al
     await page.evaluate(() => window.saveAndLoad.advance(60));
     await capture(page, "02-three-clicks");
     await button(page, "Save S");
-    await expect(page.getByRole("status", { name: "Save feedback" })).toHaveText("Saved");
+    await expect(page.getByRole("button", { name: "Saved S", exact: true })).toBeVisible();
     const saved = await page.evaluate(() => window.saveAndLoad.state().save);
     expect(saved.entities).toHaveLength(3);
     await capture(page, "03-saved");
     await page.evaluate(() => window.saveAndLoad.advance(130));
-    await expect(page.getByRole("status", { name: "Save feedback" })).toBeEmpty();
+    await expect(page.getByRole("button", { name: "Save S", exact: true })).toBeVisible();
     await button(page, "New game N");
     await count(page, 0);
     await button(page, "Load L");
@@ -110,10 +110,21 @@ test("three clicks, Save, New game and Load restore the pile and shown count, al
     }
     await page.evaluate(() => window.saveAndLoad.advance(60));
     await capture(page, "05-ten-clicks");
+    if (process.env.SHALLOT_CAPTURE_DIR) {
+        for (let i = 10; i < 104; i++) await page.evaluate(() => window.saveAndLoad.click());
+        await page.evaluate(() => window.saveAndLoad.advance(60));
+        await count(page, 104);
+        await capture(page, "06-cap");
+        await button(page, "Save S");
+        await capture(page, "07-saved-cap");
+        await button(page, "New game N");
+        await button(page, "Load L");
+        await capture(page, "08-loaded-cap");
+    }
     await page.evaluate(() => window.saveAndLoad.key("KeyN"));
     await count(page, 0);
     await page.evaluate(() => window.saveAndLoad.key("KeyS"));
-    await expect(page.getByRole("status", { name: "Save feedback" })).toHaveText("Saved");
+    await expect(page.getByRole("button", { name: "Saved S", exact: true })).toBeVisible();
     await page.evaluate(() => window.saveAndLoad.key("KeyL"));
     await count(page, 0);
     expect(errors).toEqual([]);

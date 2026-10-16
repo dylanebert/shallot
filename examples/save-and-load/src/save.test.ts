@@ -35,17 +35,13 @@ test("the previous version's bare count migrates to coins on the platform", () =
     expect(migrate(encode(w))).toEqual(encode(w));
     w.dispose();
 });
-test("stacked coins expose staggered edges and stay over the platform after save and load", () => {
+test("scattered coins keep their spots after save and load", () => {
     const w = world();
     decode(w, { version: 1, count: 70 });
     for (let index = 0; index < 70; index++) {
         const [x, , z] = placement(index);
         expect(Math.abs(x) + 0.14).toBeLessThan(2);
         expect(Math.abs(z) + 0.14).toBeLessThan(2);
-        if (index % 5 !== 0) {
-            const previous = placement(index - 1);
-            expect(Math.abs(x - previous[0])).toBeCloseTo(0.075);
-        }
     }
     const saved = encode(w);
     decode(w, saved);

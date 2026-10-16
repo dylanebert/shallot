@@ -79,7 +79,7 @@ function makeScene(world: World): void {
         color: 0xeee9df,
     });
     const game = world.resource(Game);
-    Object.assign(game, { camera, cube });
+    Object.assign(game, { camera, cube, label });
     if (typeof localStorage !== "undefined") {
         game.storage = localStorage;
         game.saved = readSave(localStorage) !== null;
