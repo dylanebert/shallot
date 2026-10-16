@@ -20,7 +20,6 @@ export { fullscreenVertex } from "./tonemapping";
 export {
     ColorGrading,
     CustomPresentation,
-    DebandDither,
     type EffectPass,
     EffectPasses,
     Tonemapping,

@@ -6,6 +6,4 @@
 
 Fonts and images are identified by URL, without registration aliases; each Blob image registration receives its own id. Text font 0 always selects the bundled default face, including in worlds with registered fonts.
 
-Camera presentation now includes debanding dither by default, with a per-camera `DebandDither` opt-out.
-
 To port a 0.9.5 app, see [`MIGRATION.md`](MIGRATION.md). Changes before 0.10 are at the [`archive/changelog-pre-0.10`](https://github.com/dylanebert/shallot/tree/archive/changelog-pre-0.10) tag and in the git history.
