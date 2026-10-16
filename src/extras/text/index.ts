@@ -36,8 +36,14 @@ export { Justify } from "./justify";
 import { createTextPipeline, textLayout, viewLayout } from "./pipeline";
 import { resetPipelines } from "./sdf";
 
-/** registered fonts, keyed by name (the url when unnamed); the id is the atlas slot */
-export const Fonts = { create: () => new Registry<{ name: string; url: string }>() };
+/** Registered fonts keyed by URL; id 0 is the bundled default face. */
+export const Fonts = {
+    create: () => {
+        const fonts = new Registry<{ name: string; url: string }>();
+        fonts.register({ name: DEFAULT_FONT, url: DEFAULT_FONT });
+        return fonts;
+    },
+};
 /** interned label strings; id 0 is the empty string (the `Text.content` default) */
 export const Content = {
     create: () => {
@@ -48,11 +54,11 @@ export const Content = {
 };
 
 /**
- * register a font by url, returning the id stored in {@link Text.font}. `name` (optional) is its
- * {@link Fonts} key; unnamed fonts key by url. Register in the owning World during `setup` so the atlas loads at init
+ * Register a font by URL, returning the id stored in {@link Text.font}. Repeated URLs return the
+ * same id. Register in the owning World during `setup` so the atlas loads at init.
  */
-export function registerFont(world: World, url: string, name?: string): number {
-    return world.resource(Fonts).register({ name: name ?? url, url });
+export function registerFont(world: World, url: string): number {
+    return world.resource(Fonts).register({ name: url, url });
 }
 
 /**
@@ -568,8 +574,6 @@ export const TextPlugin: Plugin = {
         _textState.sig = -1;
 
         const device = world.gpu.device;
-
-        if (_fonts.size === 0) registerFont(world, DEFAULT_FONT);
 
         _textState.quad = world.resource(Meshes).add({
             name: "textQuad",

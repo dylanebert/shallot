@@ -16,11 +16,14 @@ export const Images = { create: () => new Registry<{ name: string; source: strin
 /**
  * Register before warm, normally in a plugin's initialize. The returned id selects a layer of the
  * world's shared sRGB image array, used by Sprite and StandardMaterial.baseColorTexture.
+ * Repeated URLs return the same id; each Blob registration returns a new id, distinct from all URLs.
  */
-export function registerImage(world: World, source: string | Blob, name?: string): number {
+export function registerImage(world: World, source: string | Blob): number {
     const images = world.resource(Images);
-    const key = name ?? (typeof source === "string" ? source : `image${images.size}`);
-    return images.register({ name: key, source });
+    if (typeof source === "string") return images.register({ name: `url:${source}`, source });
+    let next = images.size;
+    while (images.id(`blob:${next}`) !== undefined) next++;
+    return images.register({ name: `blob:${next}`, source });
 }
 
 const PIXEL_PNG =

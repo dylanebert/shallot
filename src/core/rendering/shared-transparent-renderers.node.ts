@@ -36,7 +36,6 @@ const subjects = gpuApps(import.meta.path, [
             font = registerFont(
                 world,
                 `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
-                "shared-transparent-witness",
             );
         },
     },

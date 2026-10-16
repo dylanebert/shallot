@@ -130,6 +130,7 @@ function storageCount(layout: unknown, stage: "vertex" | "fragment"): number {
         (entry) => entry.storage && (entry.visibility ?? ["vertex", "fragment"]).includes(stage),
     ).length;
 }
+const FLOOR_FONT = `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`;
 const proof: Plugin = {
     name: "FloorProof",
     dependencies: [
@@ -141,11 +142,7 @@ const proof: Plugin = {
         FloorMaterialPlugin,
     ],
     initialize(world) {
-        registerFont(
-            world,
-            `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
-            "floor",
-        );
+        registerFont(world, FLOOR_FONT);
     },
 };
 
@@ -418,7 +415,11 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         }
         const text = world.create();
         world.add(text, Transform);
-        world.add(text, Text, { content: internText(world, "isolation"), fontSize: 0.2 });
+        world.add(text, Text, {
+            content: internText(world, "isolation"),
+            font: registerFont(world, FLOOR_FONT),
+            fontSize: 0.2,
+        });
         const line = world.create();
         world.add(line, Transform, { translation: [0, 1, 0, 0] });
         world.add(line, Line, { offset: [1, 0, 0, 0], thickness: 3, color: 0xff00ff });

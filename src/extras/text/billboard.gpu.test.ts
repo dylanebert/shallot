@@ -7,12 +7,13 @@ import { isolationFont } from "./font.fixture";
 import { internText, registerFont, Text, TextPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
+let font = 0;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
         plugins: [TextPlugin],
         setup(world) {
-            registerFont(
+            font = registerFont(
                 world,
                 `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
             );
@@ -40,6 +41,7 @@ test("an edge-on label covers pixels in Screen mode and none in World mode", asy
     world.add(label, Transform);
     world.add(label, Text, {
         content: internText(world, "i"),
+        font,
         fontSize: 2,
         anchor: [0.5, 0.5],
     });

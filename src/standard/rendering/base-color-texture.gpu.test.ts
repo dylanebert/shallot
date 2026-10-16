@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Images, registerImage } from "@dylanebert/shallot";
+import { registerImage } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { Meshes, MeshInstance } from "../../core/mesh";
@@ -22,6 +22,7 @@ import {
 } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
+let imageId = 0;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
@@ -33,12 +34,11 @@ const subjects = gpuApps(import.meta.path, [
                 initialize(world) {
                     const png =
                         "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR4nGP4z8DwH4SRIKkCADRIH+EDrgQAAAAAAElFTkSuQmCC";
-                    registerImage(
+                    imageId = registerImage(
                         world,
                         new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], {
                             type: "image/png",
                         }),
-                        "two-colour",
                     );
                 },
             },
@@ -74,7 +74,7 @@ test("StandardMaterial samples both image halves at mesh UVs and multiplies base
     const materials = world.resource(Materials);
     const row = materials.add(
         StandardMaterial({
-            baseColorTexture: world.resource(Images).id("two-colour")!,
+            baseColorTexture: imageId,
             unlit: true,
         }),
     );

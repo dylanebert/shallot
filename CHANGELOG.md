@@ -4,4 +4,6 @@
 
 0.10 is a hard reset. It holds everything Shallot includes to a higher standard of verification, moves experimental features to their own packages, and arranges the engine in layers, from the engine at the center to optional extras at the edge, so a game can replace or drop the outer ones. [`CONTRIBUTING.md`](CONTRIBUTING.md) describes the layers.
 
+Fonts and images are identified by URL, without registration aliases; each Blob image registration receives its own id. Text font 0 always selects the bundled default face, including in worlds with registered fonts.
+
 To port a 0.9.5 app, see [`MIGRATION.md`](MIGRATION.md). Changes before 0.10 are at the [`archive/changelog-pre-0.10`](https://github.com/dylanebert/shallot/tree/archive/changelog-pre-0.10) tag and in the git history.

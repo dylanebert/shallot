@@ -24,7 +24,6 @@ export default async function create() {
             font = registerFont(
                 world,
                 `data:font/ttf;base64,${Buffer.from(isolationFont()).toString("base64")}`,
-                "transparent-allocation",
             );
         },
     });

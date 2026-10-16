@@ -52,7 +52,7 @@ test("TextPlugin initialization refuses a failed font load with its cause", asyn
             },
             (error: unknown) => error as Error,
         );
-        expect(error.message).toContain("font 0 (https://font.invalid/offline.ttf) failed to load");
+        expect(error.message).toContain("font 1 (https://font.invalid/offline.ttf) failed to load");
         expect(error.cause).toBe(cause);
     } finally {
         globalThis.fetch = originalFetch;

@@ -599,9 +599,7 @@ function featurePlugin(subject: Plugin): Plugin {
             world.add(label, Text);
             world.storage(Transform).translation.set(label, 0, 2, 0, 0);
             if (uses(subject, TextPlugin))
-                world
-                    .storage(Text)
-                    .font.set(label, registerFont(world, ISOLATION_FONT, "isolation"));
+                world.storage(Text).font.set(label, registerFont(world, ISOLATION_FONT));
             world.storage(Text).content.set(label, internText(world, "isolation"));
 
             const sound = world.create();

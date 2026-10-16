@@ -307,8 +307,8 @@ async function composition(seed: string, offset: number) {
     const app = await createApp({
         plugins: [TextPlugin, SpritePlugin, LinesPlugin],
         setup(world) {
-            const font = registerFont(world, OWNERSHIP_FONT, seed);
-            const image = registerImage(world, new Blob([], { type: "image/png" }), seed);
+            const font = registerFont(world, OWNERSHIP_FONT);
+            const image = registerImage(world, new Blob([], { type: "image/png" }));
             const content = internText(world, seed === "first" ? "isolation" : "salt");
             const label = world.create();
             world.add(label, Transform, { translation: [offset, 1, 0, 0] });
