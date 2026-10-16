@@ -144,6 +144,34 @@ test("HUD hint stays visible at near, far and oblique views with its hold ring c
     });
 });
 
+test("reticle fills only on focus and the hint begins 96px below its centre", async ({ page }) => {
+    await page.goto(STEPPED);
+    await page.waitForFunction(() => window.ready);
+    for (const [index, name] of ["lamp", "button", "hold"].entries()) {
+        await page.evaluate((i) => window.aim(i), index);
+        const reticle = page.locator(".reticle");
+        const dot = page.locator(".reticle-dot");
+        await expect(dot).toBeVisible();
+        await expect(reticle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+        const centre = await reticle.boundingBox();
+        const hint = await page.locator(".hint").boundingBox();
+        const bounds = await page.locator(".interact-hud").boundingBox();
+        expect(
+            Math.abs(centre!.x + centre!.width / 2 - bounds!.x - bounds!.width / 2),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(centre!.y + centre!.height / 2 - bounds!.y - bounds!.height / 2),
+        ).toBeLessThanOrEqual(1);
+        expect(Math.abs(hint!.y - centre!.y - centre!.height / 2 - 96)).toBeLessThanOrEqual(1);
+        await capture(page, `${name}-focused`);
+        await page.evaluate((i) => window.aim(i, 6), index);
+        await expect(dot).toBeHidden();
+        await expect(reticle).toBeVisible();
+        await expect(page.locator(".hint")).toBeHidden();
+        await capture(page, `${name}-unfocused`);
+    }
+});
+
 test("each HUD hint shows its action, with a half-filled ring during the one-second hold", async ({
     page,
 }) => {

@@ -137,14 +137,14 @@ function room(world: World): void {
         label: internText(world, "Hold to change"),
         activeLabel: internText(world, "Hold to change"),
     });
-    for (const [target, name] of [
-        [lamp, "Lamp"],
-        [button, "Button"],
-        [held, "Held block"],
+    for (const [target, name, height] of [
+        [lamp, "Lamp", 1.88],
+        [button, "Button", 1.505],
+        [held, "Held block", 1.68],
     ] as const) {
         const label = world.create();
         world.add(label, Transform, {
-            translation: [world.storage(Transform).translation.x.get(target), 2.6, -1],
+            translation: [world.storage(Transform).translation.x.get(target), height, -1],
         });
         world.add(label, Text, {
             content: internText(world, name),
