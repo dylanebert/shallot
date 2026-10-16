@@ -248,6 +248,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         "loading-screen",
         "materials",
         "minimal",
+        "particles",
         "save-and-load",
         "sound",
     ]);
@@ -266,6 +267,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/interact/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/save-and-load/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/particles/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/materials/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/embedded-scene/tsconfig.json");
@@ -285,6 +287,7 @@ type Example =
     | "sound"
     | "interact"
     | "save-and-load"
+    | "particles"
     | "materials";
 
 const created = new Map<Example, { manifest: Record<string, any>; installOutput: string }>();
@@ -342,10 +345,15 @@ function assertCreatedExample(name: Example): void {
     expect(manifest.devDependencies.playwright).toBe(rootPackage.peerDependencies.playwright);
     expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
     expect(manifest.devDependencies.typegpu).toBe(
-        name === "materials" ? rootPackage.peerDependencies.typegpu : undefined,
+        name === "materials" || name === "particles"
+            ? rootPackage.peerDependencies.typegpu
+            : undefined,
     );
     expect(manifest.devDependencies.webgpu).toBe(
-        name === "first-person" || name === "embedded-scene" || name === "materials"
+        name === "first-person" ||
+            name === "embedded-scene" ||
+            name === "materials" ||
+            name === "particles"
             ? rootPackage.peerDependencies.webgpu
             : undefined,
     );
@@ -369,6 +377,7 @@ for (const name of [
     "hud",
     "interact",
     "save-and-load",
+    "particles",
     "sound",
     "materials",
 ] as const) {

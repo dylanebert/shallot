@@ -312,6 +312,7 @@ test("an unknown template names installed examples and their descriptions", () =
     expect(output.join("\n")).toContain("first-person");
     expect(output.join("\n")).toMatch(/interact.*—.*Aim at objects/);
     expect(output.join("\n")).toMatch(/save-and-load.*—.*Collect coins/);
+    expect(output.join("\n")).toMatch(/particles.*—.*GPU-simulated dust motes/);
     expect(output.join("\n")).toContain(
         "loading-screen — A game's own title card, held until its intro and minimum dwell end.",
     );

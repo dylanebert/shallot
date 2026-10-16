@@ -74,6 +74,7 @@
         "examples/hud",
         "examples/interact",
         "examples/save-and-load",
+        "examples/particles",
         "examples/sound",
         "examples/materials",
         "!examples/*/node_modules",

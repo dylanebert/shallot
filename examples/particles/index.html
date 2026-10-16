@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Walk through GPU-simulated dust motes in a sunlit room and see their cost in the profiler." />
+<link rel="icon" type="image/svg+xml" href="/icon.svg" /><title>Particles · Shallot</title>
+<style>html,body{margin:0;width:100%;height:100%;background:#191816}canvas{display:block;width:100%;height:100%}</style>
+</head><body><canvas></canvas><script type="module">
+import { runApp } from '@dylanebert/shallot';
+import { MotesPlugin } from './src/motes';
+await runApp({ plugins: [MotesPlugin] });
+</script></body></html>

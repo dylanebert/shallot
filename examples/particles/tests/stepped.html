@@ -1,0 +1,58 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>Particles, stepped</title><link rel="icon" type="image/svg+xml" href="/icon.svg"/><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas>
+<script type="module">
+import { createApp, Camera, GlobalTransform, pressKey, releaseKey, setInputEnabled } from '@dylanebert/shallot';
+import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
+import { showProfiler } from '@dylanebert/shallot/extras';
+import { Motes, MotesPlugin } from '../src/motes';
+import { Room } from '../src/room';
+const requests=[];
+const request=GPUAdapter.prototype.requestDevice;
+GPUAdapter.prototype.requestDevice=function(descriptor) { requests.push({requiredLimits:descriptor?.requiredLimits, requiredFeatures:descriptor?.requiredFeatures}); return request.call(this,descriptor); };
+const app=await createApp({plugins:[MotesPlugin]});
+const world=app.world, room=world.resource(Room), motes=world.resource(Motes);
+const canvas=document.querySelector('canvas');
+const captures=new URLSearchParams(location.search).has('captures');
+if (!captures) {
+ canvas.width=320;canvas.height=180;
+ attachTexture(world,room.camera,{width:320,height:180});
+ world.storage(Camera).antialias.set(room.camera,0);
+}
+showProfiler(world,false);
+world.step(1/60);world.step(1/60);
+async function render() {
+ if (!captures) {world.step(0);return captureTexture(world,room.camera);}
+ const pending=captureFrame(canvas);world.step(0);return pending;
+}
+window.particles={
+ adapter:world.gpu.adapter,
+ requests,
+ async evidence() {
+  const on=(await render()).rgba;
+  motes.visible=false;
+  const off=(await render()).rgba;
+  motes.visible=true;
+  let increase=0,changed=0,count=0;
+  // The central window and the shaft below it, not the room's unlit corners.
+  for(let y=45;y<150;y++) for(let x=125;x<195;x++) {
+   const i=(y*320+x)*4;
+   const delta=(on[i]+on[i+1]+on[i+2]-off[i]-off[i+1]-off[i+2])/3;
+   increase+=delta;changed+=Number(delta>2);count++;
+  }
+  return {increase:increase/count,changed};
+ },
+ walk(count=45) {
+  const pose=world.storage(GlobalTransform).translation;
+  const before=pose.z.get(room.player);
+  setInputEnabled(world,true);pressKey(world,'KeyW');
+  for(let i=0;i<count;i++)world.step(1/60);
+  releaseKey(world,'KeyW');
+  return {before,after:pose.z.get(room.player)};
+ },
+ profiler() {showProfiler(world);world.step(0);},
+ async capture() {
+  const image=await render();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);
+  return c.toDataURL('image/png');
+ },
+};
+</script></body></html>
