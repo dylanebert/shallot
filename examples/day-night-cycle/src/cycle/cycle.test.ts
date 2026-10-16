@@ -44,14 +44,22 @@ test("midnight has no sunlight, visible stars and a darker sky", () => {
 });
 
 test("values are continuous around the day including the midnight wrap", () => {
-    const colors = ["sunColor", "ambientColor", "zenith", "horizon", "hazeColor", "fogColor"];
+    const colors = [
+        "sunColor",
+        "moonColor",
+        "ambientColor",
+        "zenith",
+        "horizon",
+        "hazeColor",
+        "fogColor",
+    ];
     for (let hour = 0; hour <= 24; hour += 0.05) {
         const a = atmosphere(hour - 0.00001),
             b = atmosphere(hour + 0.00001);
         for (const key of Object.keys(a) as (keyof typeof a)[]) {
-            if (key === "direction") {
+            if (key === "direction" || key === "moonDirection") {
                 for (let i = 0; i < 3; i++)
-                    expect(Math.abs(a.direction[i] - b.direction[i])).toBeLessThan(0.0001);
+                    expect(Math.abs(a[key][i] - b[key][i])).toBeLessThan(0.0001);
             } else if (colors.includes(key)) {
                 for (const shift of [0, 8, 16])
                     expect(
@@ -74,6 +82,9 @@ test("the hour resource drives every atmosphere value written by the system", ()
     scene.sun = world.create();
     world.add(scene.sun, Transform);
     world.add(scene.sun, DirectionalLight);
+    scene.moon = world.create();
+    world.add(scene.moon, Transform);
+    world.add(scene.moon, DirectionalLight);
     scene.sky = world.create();
     world.add(scene.sky, Sky);
     scene.fog = world.create();
@@ -100,6 +111,20 @@ test("the hour resource drives every atmosphere value written by the system", ()
             3,
         );
         expect(world.storage(DirectionalLight).color.get(scene.sun)).toBe(v.sunColor);
+        expect(world.storage(DirectionalLight).color.get(scene.moon)).toBe(v.moonColor);
+        expect(world.storage(DirectionalLight).illuminance.get(scene.moon)).toBeCloseTo(
+            v.moonIlluminance,
+            3,
+        );
+        const moonRotation = lookAtRotation(0, 0, 0, ...v.moonDirection);
+        expect(
+            Math.abs(
+                rotation.x.get(scene.moon) * moonRotation[0] +
+                    rotation.y.get(scene.moon) * moonRotation[1] +
+                    rotation.z.get(scene.moon) * moonRotation[2] +
+                    rotation.w.get(scene.moon) * moonRotation[3],
+            ),
+        ).toBeCloseTo(1, 6);
         expect(world.resource(GlobalAmbientLight)).toMatchObject({
             color: v.ambientColor,
             brightness: v.ambientBrightness,
@@ -117,4 +142,18 @@ test("the hour resource drives every atmosphere value written by the system", ()
     world.step(1 / 60);
     expect(world.resource(Clock).hour).toBeCloseTo((23.999 + 24 / 60 / 60) % 24, 8);
     world.dispose();
+});
+
+test("the moon lights every sunless hour and rests at noon; the brightest light is above the horizon", () => {
+    expect(atmosphere(12).moonIlluminance).toBe(0);
+    for (let hour = 0; hour < 24; hour += 0.001) {
+        const v = atmosphere(hour);
+        if (v.direction[1] >= 0) expect(v.moonIlluminance).toBeGreaterThan(0);
+        const direction = v.illuminance >= v.moonIlluminance ? v.direction : v.moonDirection;
+        expect(direction[1]).toBeLessThan(0);
+        expect(v.ambientBrightness).toBeGreaterThan(0);
+        if (v.starIntensity === 1)
+            for (const shift of [0, 8, 16])
+                expect((v.horizon >> shift) & 255).toBeGreaterThan((v.zenith >> shift) & 255);
+    }
 });

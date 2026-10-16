@@ -83,6 +83,21 @@ test.describe("one stepped app", () => {
         expect(error / initial.rgba.length).toBeLessThan(0.05);
     });
 
+    test("low-sun haze leaves the central shape distinct from adjacent ground", () => {
+        expect(
+            Math.abs(mean(initial, 0.48, 0.4, 0.51, 0.46) - mean(initial, 0.54, 0.4, 0.57, 0.46)),
+        ).toBeGreaterThan(10);
+    });
+
+    test("moonlight separates the midnight shape from ground and its lit face from its shadow face", async () => {
+        const night = await page.evaluate(() => window.frame(0));
+        const lit = mean(night, 0.48, 0.4, 0.51, 0.46);
+        const shadow = mean(night, 0.518, 0.4, 0.523, 0.46);
+        const ground = mean(night, 0.54, 0.4, 0.57, 0.46);
+        expect(Math.abs(lit - ground)).toBeGreaterThan(10);
+        expect(lit - shadow).toBeGreaterThan(3);
+    });
+
     test("the slider drives the hour and noon sky is brighter than midnight", async () => {
         const noon = await page.evaluate(() => window.frame(12));
         await page.getByRole("slider", { name: "Hour" }).fill("0");
