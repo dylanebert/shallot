@@ -9,6 +9,7 @@ import { SKY_AT } from "./shader";
  */
 export function packSky(world: World, eid: number, out: Float32Array): void {
     out.fill(0);
+    out[SKY_AT.brightness] = world.storage(Sky).brightness.get(eid);
     out[SKY_AT.hazeDensity] = world.storage(Sky).hazeDensity.get(eid);
     out[SKY_AT.horizonBand] = world.storage(Sky).band.get(eid);
 

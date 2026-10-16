@@ -19,6 +19,11 @@ import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 export const Sky = component(
     "Sky",
     {
+        /** Scale of the complete sky, including SunDisk disks and glow, in cd/m².
+         * Multiplied by each view's exposure. The default `1.2 * 2 ** 9.7` is a tuned look
+         * value that gives unit gain at the default Exposure, not a measured sky luminance.
+         */
+        brightness: f32,
         /** hex sRGB color overhead, at the zenith (e.g. 0x89b6e9) */
         zenith: f32,
         /** hex sRGB color at the horizon, blended up toward `zenith` */
@@ -44,6 +49,7 @@ export const Sky = component(
     },
     {
         defaults: () => ({
+            brightness: 1.2 * 2 ** 9.7,
             zenith: 0x89b6e9,
             horizon: 0xc4cdda,
             band: 0,

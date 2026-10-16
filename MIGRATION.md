@@ -484,6 +484,7 @@ In v0.10, authored light values use photometric units and a directional light sh
 | Root `Shadow.depthBias`, `.normalBias` | `depthBias` and `shadowNormalBias`; normal bias remains measured in shadow texels, but `depthBias` is now a world-space receiver offset toward the light. Re-author it in world units. |
 | `/src/standard/sear/shadows` `SHADOW_DEFAULTS` | Removed. Per-light shadow requests default off; Bevy's directional defaults apply, including `shadowNormalBias: 1.8` and `maximumDistance: 150`. |
 | Root `Volumetric` | `VolumetricLight`, still a marker; every marked point, spot and directional light contributes fog in-scatter. |
+| Sky brightness | `Sky.brightness` scales the complete sky, including `SunDisk` disks and glow, in cd/m² before the camera's `Exposure` is applied. To preserve an existing sky's appearance at EV100 `ev100`, set `brightness: 1.2 * 2 ** ev100`. The default preserves the look at the default EV100 of 9.7. |
 | `Sky.sunSize`, `Sky.sunGlow` | Add `SunDisk` to each directional light whose disk should be drawn. To preserve the old disk diameter, set `angularSize` to `2 * Math.acos(1 - 0.0005 * oldSunSize)` radians; copy `sunGlow` to `glow`, the Shallot extension to Bevy's `SunDisk`. The default `angularSize` is Bevy's `EARTH` solar size. |
 | `Sky.sunColor` | Removed: a disk takes its directional light's `color`. `SunDisk.intensity` controls only its visual brightness, not illumination or shadows. |
 | Root `SunShadows.cascades` | `DirectionalLight.numCascades`, default `4`, clamped to `MAX_CASCADES`. |

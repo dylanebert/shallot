@@ -14,7 +14,7 @@ export const SkyGpu = d
     .struct({
         hazeDensity: d.f32,
         horizonBand: d.f32,
-        pad0: d.f32,
+        brightness: d.f32,
         pad1: d.f32,
         hazeColor: d.vec4f,
         skyZenith: d.vec4f,
@@ -35,6 +35,7 @@ const at = <T extends d.BaseData>(schema: T, field: (p: d.Infer<T>) => unknown) 
 
 /** f32 lane offsets the flat CPU packer writes, derived from {@link SkyGpu}. @internal */
 export const SKY_AT = {
+    brightness: at(SkyGpu, (sky) => sky.brightness),
     hazeDensity: at(SkyGpu, (sky) => sky.hazeDensity),
     horizonBand: at(SkyGpu, (sky) => sky.horizonBand),
     hazeColor: at(SkyGpu, (sky) => sky.hazeColor),
@@ -290,7 +291,11 @@ const skyFs = tgpu
         d.vec3f,
     )((ctx) => {
         "use gpu";
-        return sampleSky(SkyGpu(skyLayout.$.sky), ctx.dir, LightingGpu(engineLayout.$.lighting));
+        const sky = SkyGpu(skyLayout.$.sky);
+        return std.mul(
+            sampleSky(sky, ctx.dir, LightingGpu(engineLayout.$.lighting)),
+            sky.brightness * engineLayout.$.view.exposure,
+        );
     })
     .$name("skyFs");
 
