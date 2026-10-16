@@ -23,7 +23,7 @@ import { APP_PLUGINS } from "./plugins";
 
 async function ascent() {
     const app = await openGpuApp({ defaults: false, plugins: APP_PLUGINS });
-    expect(app.world.resource(Meshes).size).toBe(1);
+    expect(app.world.resource(Meshes).size).toBe(2);
     for (const eid of app.world.query([MeshInstance]))
         expect(app.world.storage(MeshInstance).mesh.get(eid)).toBe(0);
     return app;
