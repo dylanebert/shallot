@@ -16,13 +16,16 @@ import {
 import { Transform } from "../../core/transform";
 import { StandardRenderer } from "./forward";
 import {
+    Draws,
     MaterialPlugin,
+    Materials,
     MaterialVertexInput,
     MeshMaterial,
     materialFragmentContext,
     materialLayout,
     materialType,
     materialVertexOutput,
+    StandardMaterial,
     StandardRenderingPlugin,
 } from "./index";
 import { MeshRenderPlugin } from "./mesh-render";
@@ -63,6 +66,7 @@ const StreamMaterial = materialType({
 });
 const streamPlugin = MaterialPlugin(StreamMaterial);
 const subjects = gpuApps(import.meta.path, [
+    { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin, streamPlugin] },
     { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin, streamPlugin] },
 ]);
 const vertices = new Float32Array([
@@ -129,6 +133,46 @@ test("a material type reads a quad's vec4f stream and rebinds after clear and re
     expect(
         Array.from((await captureTexture(world, camera)).rgba.subarray(4 * 36, 4 * 36 + 4)),
     ).toEqual([0, 255, 0, 255]);
+});
+
+test("an attribute material and an unrelated mesh draw together without warning or an incompatible draw pair", async () => {
+    const { world } = subjects()[1];
+    const tinted = rebuild(world, [1, 0, 0, 1]);
+    const unrelated = world.resource(Meshes).add({ name: "unrelated", vertices, indices });
+    flushMeshes(world);
+    for (const [x, mesh, material] of [
+        [-0.7, tinted, world.resource(StreamMaterial).add({ unused: 0 })],
+        [
+            0.7,
+            unrelated,
+            world
+                .resource(Materials)
+                .add(StandardMaterial({ baseColor: [0, 1, 0, 1], unlit: true })),
+        ],
+    ] as const) {
+        const eid = world.create();
+        world.add(eid, Transform, { translation: [x, 0, 0], scale: [0.5, 0.5, 0.5] });
+        world.add(eid, MeshInstance, { mesh });
+        world.add(eid, MeshMaterial, material);
+    }
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 0, 5] });
+    world.add(camera, Camera);
+    world.add(camera, StandardRenderer);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+    attachTexture(world, camera, { width: 64, height: 32 });
+    world.step(0);
+    world.step(0);
+    const frame = await captureTexture(world, camera);
+    const pixel = (x: number) =>
+        Array.from(frame.rgba.subarray((16 * 64 + x) * 4, (16 * 64 + x) * 4 + 4));
+    expect(pixel(28)).toEqual([255, 0, 0, 255]);
+    expect(pixel(36)).toEqual([0, 255, 0, 255]);
+    expect(
+        [...world.resource(Draws)].some(
+            (draw) => draw.name.includes("StreamAttributeMaterial") && draw.mesh === unrelated,
+        ),
+    ).toBe(false);
 });
 
 for (const mesh of ["missing", "wrong"])

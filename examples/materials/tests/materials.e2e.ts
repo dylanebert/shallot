@@ -14,6 +14,11 @@ test("stepped draws show blended glass, decoded wood, animated checker pixels, w
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    const skippedDraws: string[] = [];
+    page.on("console", (message) => {
+        if (message.type() === "warning" && message.text().startsWith("standard: draw"))
+            skippedDraws.push(message.text());
+    });
     await page.goto("http://127.0.0.1:4186/tests/stepped.html");
     await page.waitForFunction(() => (window as any).ready);
     console.log("materials adapter", await page.evaluate(() => (window as any).adapter));
@@ -80,5 +85,6 @@ test("stepped draws show blended glass, decoded wood, animated checker pixels, w
     expect(background[1]).toBeLessThanOrEqual(32);
     expect(background[2]).toBeGreaterThanOrEqual(21);
     expect(background[2]).toBeLessThanOrEqual(30);
+    expect(skippedDraws).toEqual([]);
     expect(errors).toEqual([]);
 });

@@ -74,6 +74,7 @@ import {
     MaterialTypes,
     registerMaterialType,
 } from "./material-type";
+import { materialAttributeError } from "./mesh-attributes";
 import {
     type BindResource,
     bgQuant,
@@ -452,17 +453,11 @@ function recordMaterial(
         return prev.item;
     }
 
+    const attributeError = materialAttributeError(mesh, surface);
+    if (attributeError) return warnSkip(world, warningName, attributeError);
     const overrides = { ...mesh.bindings } as Record<string, MeshBinding>;
-    for (const [name, element] of Object.entries(surface.layout.attributes)) {
-        const stream = mesh.attributes?.[name];
-        if (!stream || !d.deepEqual(stream.dataType.elementType, element))
-            return warnSkip(
-                world,
-                warningName,
-                `mesh "${mesh.name}" ${stream ? "has a different schema for" : "has no"} attribute "${name}" that material type "${surface.name}" reads`,
-            );
-        overrides[name] = stream;
-    }
+    for (const name of Object.keys(surface.layout.attributes))
+        overrides[name] = mesh.attributes![name];
     const resolved = layoutResources(
         world,
         surface.layout.entries as Record<string, object>,

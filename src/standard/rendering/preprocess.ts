@@ -28,6 +28,7 @@ import {
 import { type MaterialType, MaterialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 import { ALPHA_PIPELINE_KEY_COUNT } from "./material-type";
+import { materialAttributeError } from "./mesh-attributes";
 import {
     CullParams,
     countKernel,
@@ -41,6 +42,7 @@ import {
 import { type Draw, DrawIndexedIndirect, Draws } from "./registry";
 
 const DRAW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
+const MESH_INSTANCES = [MeshInstance];
 type InstanceBuffer = TgpuBuffer<d.WgslArray<d.Vec4u>> & StorageFlag;
 type AtomicU32Buffer = TgpuBuffer<d.WgslArray<d.Atomic<d.U32>>> & StorageFlag;
 type Vec4fBuffer = TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag;
@@ -82,6 +84,8 @@ interface MeshPreprocessState {
     materialTypeCount: number;
     /** each material type's `alphaKeys` when draws were last registered */
     alphaKeys: Int32Array;
+    invalidPairs: Map<number, Map<number, { name: string; cause: string }>>;
+    warnedPairs: Set<string>;
     meshCount: number;
     pairCount: number;
     viewDim: number;
@@ -137,6 +141,8 @@ function createMeshPreprocessState(): MeshPreprocessState {
         scatterBound: null,
         materialTypeCount: 0,
         alphaKeys: new Int32Array(0),
+        invalidPairs: new Map(),
+        warnedPairs: new Set(),
         meshCount: 0,
         pairCount: 0,
         viewDim: 1,
@@ -200,6 +206,7 @@ export const MeshPreprocessSystem: System = {
         if (!_meshPreprocess.countPipe || !_meshPreprocess.scanPipe || !_meshPreprocess.scatterPipe)
             return;
         syncBuffers(world);
+        warnInvalidInstances(world);
         if (_meshPreprocess.pairCount === 0) return;
         const count = bindCount(world);
         const scan = bindScan(world);
@@ -553,6 +560,8 @@ export function publishMeshInstanceDraws(
     },
 ): { offset: number; args: DrawRecord }[] {
     const { materialTypes, assets, meshes, draws } = registries;
+    const invalidPairs = world.resource(meshPreprocessKey).invalidPairs;
+    invalidPairs.clear();
     const writes: { offset: number; args: DrawRecord }[] = [];
     const viewStride = pairCount * DRAW_ARG_STRIDE;
     for (const [materialType, definition] of materialTypes.entries()) {
@@ -566,6 +575,16 @@ export function publishMeshInstanceDraws(
             // a key no row has held has no instance; its records stay unwritten and undrawn
             if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
             for (const [handle, m] of meshes.entries()) {
+                const cause = materialAttributeError(m, definition);
+                if (cause) {
+                    let rejected = invalidPairs.get(materialType);
+                    if (!rejected) invalidPairs.set(materialType, (rejected = new Map()));
+                    rejected.set(handle, {
+                        name: `mesh:material:${definition.name}:${m.name}:${handle}`,
+                        cause,
+                    });
+                    continue;
+                }
                 const pair =
                     (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) * meshes.size +
                     handle;
@@ -590,6 +609,19 @@ export function publishMeshInstanceDraws(
         }
     }
     return writes;
+}
+
+function warnInvalidInstances(world: World): void {
+    const { invalidPairs, warnedPairs } = world.resource(meshPreprocessKey);
+    if (invalidPairs.size === 0) return;
+    const meshes = world.storage(MeshInstance).mesh;
+    const types = world.storage(MeshMaterial).type;
+    for (const eid of world.query(MESH_INSTANCES)) {
+        const rejected = invalidPairs.get(types.get(eid))?.get(meshes.get(eid));
+        if (!rejected || warnedPairs.has(rejected.name)) continue;
+        warnedPairs.add(rejected.name);
+        console.warn(`standard: draw "${rejected.name}" skipped — ${rejected.cause}`);
+    }
 }
 
 function registerDraws(world: World): void {
