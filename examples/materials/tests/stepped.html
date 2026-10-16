@@ -23,7 +23,14 @@ window.aim=(index)=>{
  orbit.target.set(gallery.camera,index<0?0:gallery.spheres[index]);
  world.step(1/60);world.step(1/60);
 };
-window.advance=async(seconds)=>{world.step(seconds);await world.gpu.device.queue.onSubmittedWorkDone();};
+window.advance=async(seconds)=>{
+ for(let elapsed=0;elapsed<seconds;){
+  const delta=Math.min(1/60,seconds-elapsed);
+  world.step(delta);
+  await world.gpu.device.queue.onSubmittedWorkDone();
+  elapsed+=delta;
+ }
+};
 async function render(){if(!full){world.step(0);return captureTexture(world,gallery.camera);}const pending=captureFrame(canvas);world.step(0);return pending;}
 window.pixels=async()=>Array.from((await render()).rgba);
 window.capture=async()=>{const frame=await render();const output=document.createElement('canvas');output.width=frame.width;output.height=frame.height;output.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(frame.rgba),frame.width,frame.height),0,0);return output.toDataURL('image/png');};

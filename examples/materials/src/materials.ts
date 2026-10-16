@@ -33,8 +33,8 @@ export const CheckerMaterial = materialType({
         return d.vec4f(lit(color, ctx.worldNormal), 1);
     }),
 });
-export const waveVector = d.vec3f(1.5, 4, 0);
-const rippleAmplitude = 0.045;
+export const waveVector = d.vec3f(3, 14, 0);
+const rippleAmplitude = 0.03;
 const RippleSurface = d.struct({ position: d.vec3f, normal: d.vec3f });
 export const ripple = tgpu.fn(
     [d.vec3f, d.vec3f, d.f32, d.f32],
