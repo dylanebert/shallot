@@ -1,6 +1,6 @@
 # WoodFloor051 colour image
 
-`wood.jpg` is the unmodified `WoodFloor051_1K-JPG_Color.jpg` by ambientCG.
+`wood.jpg` is `WoodFloor051_1K-JPG_Color.jpg` by ambientCG, downscaled to 512 × 512 at JPEG quality 85.
 
 Source: https://ambientcg.com/a/WoodFloor051
 Download: https://ambientcg.com/get?file=WoodFloor051_1K-JPG.zip
