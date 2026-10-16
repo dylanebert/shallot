@@ -179,6 +179,7 @@ bun run format                  # biome
 ## Verification
 
 - Module promises are tested beside their owners and through public examples; test names state claims.
+- A change to an example also runs the engine tests that read it, `rg -l 'examples/<name>' src scripts diagnostics`, apart from manual oracles.
 - The engine owns its test ceilings and publishes them in [the `./testing` subpath](src/project/testing.js) alongside shared browser configuration; those ceilings are hang and runaway backstops, not performance targets. The same subpath publishes `BUDGET` for local iteration and `TIMEOUT`, which uses `CEILING` when `CI` is nonempty and tier budgets otherwise; startup always uses `CEILING.startup`. Local runs fail over budget; CI warns above half a budget, including a whole browser subject. Work warned on more than one run is made cheaper, split or moved to a heavier tier; a single slow run needs nothing.
 
 | Tier | Files | Hang ceiling | Speed budget |
@@ -290,6 +291,9 @@ A choice the pillars leave open is taste, and goes to the person.
 - Each example has a check that fails when its answer breaks, or the example is removed.
 - Examples and their checks use only published names and public seams.
 - An example's UI shows only what its player needs; a control that explains itself carries no label.
+- What is tied to a place in the world is drawn there, in world space; the overlay holds the rest.
+- An example that shows a lone subject copies `minimal`'s cube, platform, orbit and light, and is listed in `scripts/check-cube-scenes.node.ts`.
+- In every example the subject accent is the brightest, most saturated thing in frame, lit and shaded faces separate, and a cast shadow reads as shade, not as the clear.
 - Examples share the `aperture-carbon` content palette: carbon room and ground neutrals, amber, cyan and brand-orange subject accents, and warm pale text and UI ink. Example suns cast shadows; keep warm sun and cool ambient lighting, with `#191816` clear.
 - `diagnostics/default-look/palette.ts`, with `PALETTES["aperture-carbon"]`, is the source of these values and the `ui` tokens: system monospace, 14px text and 24px titles, weight 400, radius 2px. Copied user projects carry literal values copied from that source, never imports from `diagnostics/`.
 
