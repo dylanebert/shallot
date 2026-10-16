@@ -93,11 +93,7 @@ export const SpotLight = component(
         radius: f32,
         /** Inner half-angle in radians, at most `outerAngle`; full brightness inside it. */
         innerAngle: f32,
-        /**
-         * Outer half-angle in radians, below `Math.PI / 2`; dark beyond it.
-         * Standard rendering warns for values at or above π/2 and uses π/2 − 1e-4,
-         * limiting innerAngle to that effective outer without changing the authored fields.
-         */
+        /** Outer half-angle in radians, below `Math.PI / 2`; dark beyond it. */
         outerAngle: f32,
         shadowMapsEnabled: u32,
         /** Receiver offset toward this light in world units. */
