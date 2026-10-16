@@ -6,6 +6,7 @@
 import { Camera, createApp, Transform, MeshInstance, VolumetricLight, setTransform } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap, PointShadows } from '@dylanebert/shallot/standard/rendering';
+import { Fog } from '@dylanebert/shallot/extras';
 import { Room, RoomPlugin } from '../src/room';
 import { LocalPlayer, Player } from '../src/player';
 const requests=[];
@@ -15,7 +16,7 @@ const app=await createApp({plugins:[RoomPlugin]});
 const w=app.world, room=w.resource(Room);
 const canvas=document.querySelector('canvas');
 const captures=new URLSearchParams(location.search).has('captures');
-if(!captures){canvas.width=320;canvas.height=180;attachTexture(w,room.camera,{width:320,height:180});w.storage(Camera).antialias.set(room.camera,0);w.resource(PointShadows).atlas=1024;w.resource(DirectionalLightShadowMap).size=512;}
+if(!captures){canvas.width=320;canvas.height=180;attachTexture(w,room.camera,{width:320,height:180});w.storage(Camera).antialias.set(room.camera,0);w.resource(PointShadows).atlas=1024;w.resource(DirectionalLightShadowMap).size=512;w.storage(Fog).stepCount.set(room.fog,16);}
 w.storage(Player).gravity.set(room.player,0);
 w.storage(Player).friction.set(room.player,1000);
 window.view=(x=2.5,y=1,z=11,yaw=0.25,pitch=-0.05)=>{
@@ -26,7 +27,7 @@ window.view=(x=2.5,y=1,z=11,yaw=0.25,pitch=-0.05)=>{
  w.storage(LocalPlayer).initialized.set(room.player,1);
  w.tick();w.tick();w.step(0);
 };
-async function render(){if(!captures){w.step(0);return captureTexture(w,room.camera);}const pending=captureFrame(canvas);w.step(0);return pending;}
+async function render(draw=true){if(!captures){if(draw)w.step(0);return captureTexture(w,room.camera);}const pending=captureFrame(canvas);w.step(0);return pending;}
 window.capture=async()=>{const image=await render();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);return c.toDataURL('image/png');};
 function pixel(x,y,z){
  const yaw=0.25,pitch=-0.05,dx=x-2.5,dy=y-1.7,dz=z-11;
@@ -35,10 +36,11 @@ function pixel(x,y,z){
  return [Math.round(160+(cy*dx-sy*dz)*90/(depth*Math.tan(35*Math.PI/180))),Math.round(90- (sy*sp*dx+cp*dy+cy*sp*dz)*90/(depth*Math.tan(35*Math.PI/180)))];
 }
 function patch(image,point,radius=1){const [cx,cy]=pixel(...point);let sum=0,n=0;for(let y=cy-radius;y<=cy+radius;y++)for(let x=cx-radius;x<=cx+radius;x++){const i=(y*image.width+x)*4;sum+=0.2126*image.rgba[i]+0.7152*image.rgba[i+1]+0.0722*image.rgba[i+2];n++;}return sum/n;}
-window.regions=async()=>{const image=await render();return {shaft:patch(image,[0,0.8,-8]),beside:patch(image,[-3,0.8,-8]),shaftFloor:patch(image,[0,0,-7]),darkFloor:patch(image,[0,0,-1]),pools:[patch(image,[-2,0,4]),patch(image,[-2,0,8])]};};
+window.regions=async()=>{const image=await render(false);return {shaft:patch(image,[0,0.8,-8]),beside:patch(image,[-3,0.8,-8]),shaftFloor:patch(image,[0,0,-7]),darkFloor:patch(image,[0,0,-1]),pools:[patch(image,[-2,0,4]),patch(image,[-2,0,8])]};};
+let baseline;
 window.shadow=async(kind)=>{
  const eids=kind==='block'?[room.object]:room.bulbs;
- const before=await render();
+ const before=baseline??=await render(false);
  for(const eid of eids)w.remove(eid,MeshInstance);
  const after=await render();
  for(const eid of eids)w.add(eid,MeshInstance);
@@ -51,7 +53,7 @@ window.shadow=async(kind)=>{
  }
  return {darkened,darkenedFraction:darkened/(before.width*before.height),maxDelta};
 };
-window.volumetric=value=>{if(value)w.add(room.sun,VolumetricLight);else w.remove(room.sun,VolumetricLight);};
+window.volumetric=value=>{if(value)w.add(room.sun,VolumetricLight);else w.remove(room.sun,VolumetricLight);w.step(0);};
 window.device={requests,adapter:w.gpuIfAvailable.adapter,limits:{maxStorageBuffersPerShaderStage:w.gpuIfAvailable.device.limits.maxStorageBuffersPerShaderStage}};
 window.view();
 window.ready=true;
