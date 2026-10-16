@@ -410,10 +410,17 @@ async function buildNow(config: AppConfig): Promise<App> {
 
 /**
  * Mount an overlay filling the canvas's parent, or document.body when there is no parent.
+ * The parent must be connected before mounting.
+ * The reference is a 720 CSS pixel shortest side. The uniform UI scale is
+ * max(1, min(canvas CSS width, canvas CSS height) / 720), independent of device pixel ratio.
+ * The 1× floor keeps reference text readable on small canvases; layout must still fit them.
+ * A ResizeObserver follows canvas resizes (the parent when canvas is null).
  * Layout and paint containment bounds absolute and fixed descendants to the overlay.
  * Pointer events pass through; UI panels must re-enable them.
  * With `world`, disposal removes the overlay and restores the parent's prior inline `position`.
- * Without it, the caller removes the overlay; the parent's `position` is not restored.
+ * Without it, the caller removes the overlay. When it or an ancestor leaves the document,
+ * including through shadow roots, its resize observer disconnects at the next mutation delivery.
+ * The parent's `position` is not restored.
  */
 export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
@@ -423,7 +430,33 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
     overlay.style.cssText =
         "position:absolute;inset:0;pointer-events:none;z-index:1;contain:layout paint;overflow:hidden";
     parent.appendChild(overlay);
+    const target = canvas ?? parent;
+    const resize = (): void => {
+        const { width, height } = target.getBoundingClientRect();
+        overlay.style.zoom = String(Math.max(1, Math.min(width, height) / 720));
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(target);
+    if (!world) {
+        const removal = new MutationObserver(() => {
+            removal.disconnect();
+            if (overlay.isConnected) observeAncestors();
+            else observer.disconnect();
+        });
+        const observeAncestors = (): void => {
+            for (
+                let node = overlay.parentNode;
+                node;
+                node = node instanceof ShadowRoot ? node.host : node.parentNode
+            ) {
+                removal.observe(node, { childList: true });
+            }
+        };
+        observeAncestors();
+    }
+    resize();
     world?.onDispose(() => {
+        observer.disconnect();
         overlay.remove();
         parent.style.position = prior;
     });

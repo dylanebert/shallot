@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+    <head><meta charset="UTF-8" /><title>Overlay scaling</title></head>
+    <body style="margin:0">
+        <div style="position:relative;width:100vw;height:100vh">
+            <canvas style="display:block;width:100%;height:100%"></canvas>
+        </div>
+        <script type="module">
+            import { createApp, mountOverlay } from "@dylanebert/shallot";
+            const app = await createApp({ plugins: [] });
+            const params = new URLSearchParams(location.search);
+            const canvas = document.querySelector("canvas");
+            if (params.has("shadow")) {
+                const ancestor = document.createElement("section");
+                const host = document.createElement("div");
+                ancestor.append(host);
+                const outerHost = document.createElement("div");
+                document.body.append(outerHost);
+                outerHost.attachShadow({ mode: "open" }).append(ancestor);
+                const root = host.attachShadow({ mode: "open" });
+                root.append(canvas.parentElement);
+            }
+            const overlay = mountOverlay(canvas, params.has("no-world") ? undefined : app.world);
+            const text = document.createElement("span");
+            text.textContent = "Readable UI";
+            text.style.cssText = "position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:inline-block;font:400 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;line-height:20px";
+            overlay.append(text);
+        </script>
+    </body>
+</html>

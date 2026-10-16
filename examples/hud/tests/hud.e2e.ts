@@ -13,6 +13,32 @@ async function step(page: Page, steps: number): Promise<Turn> {
     return page.evaluate((count) => (window as SteppedWindow).stepHud!(count), steps);
 }
 
+test.describe("zoomed pointer controls", () => {
+    test.use({ viewport: { width: 2880, height: 1620 }, deviceScaleFactor: 1.333 });
+    test("the speed slider follows a pointer drag through the scaled overlay", async ({ page }) => {
+        await page.goto("/");
+        const controls = page.getByRole("region", { name: "Cube controls" });
+        await expect(controls.locator("..")).toHaveCSS("zoom", "2.25");
+        const slider = page.getByRole("slider", { name: "Turn speed" });
+        const bounds = (await slider.boundingBox())!;
+        const y = bounds.y + bounds.height / 2;
+        await page.mouse.move(bounds.x + bounds.width * 0.4, y);
+        await page.mouse.down();
+        try {
+            for (const [x, value] of [
+                [bounds.x + 1, "0"],
+                [bounds.x + bounds.width / 2, "1.5"],
+                [bounds.x + bounds.width - 1, "3"],
+            ] as const) {
+                await page.mouse.move(x, y, { steps: 5 });
+                await expect(slider).toHaveValue(value);
+            }
+        } finally {
+            await page.mouse.up();
+        }
+    });
+});
+
 test("the controls float centred along the canvas's bottom edge", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));

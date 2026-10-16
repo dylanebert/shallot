@@ -295,6 +295,7 @@ A choice the pillars leave open is taste, and goes to the person.
 - An example that shows a lone subject copies `minimal`'s cube, platform, orbit and light, and is listed in `scripts/check-cube-scenes.node.ts`.
 - In every example the subject accent is the brightest, most saturated thing in frame, lit and shaded faces separate, and a cast shadow reads as shade, not as the clear.
 - Examples share the `aperture-carbon` content palette: carbon room and ground neutrals, amber, cyan and brand-orange subject accents, and warm pale text and UI ink. Example suns cast shadows; keep warm sun and cool ambient lighting, with `#191816` clear.
+- `mountOverlay` uses a reference shortest side of 720 CSS px and scales by `max(1, shortest canvas side / 720)` on resize; the loading card uses the same rule, and tokens stay reference values.
 - `diagnostics/default-look/palette.ts`, with `PALETTES["aperture-carbon"]`, is the source of these values and the `ui` tokens: system monospace, 14px text and 24px titles, weight 400, radius 2px. Copied user projects carry literal values copied from that source, never imports from `diagnostics/`.
 
 ## Heavy work
