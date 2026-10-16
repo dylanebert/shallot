@@ -66,8 +66,10 @@ function room(world: World): void {
         [-1.8, true],
         [1.8, false],
     ] as const) {
-        block(world, [x, 3.16, -0.5], [0.4, 0.08, 0.4]);
-        block(world, [x, 3.02, -0.5], [0.06, 0.2, 0.06]);
+        const mount = block(world, [x, 3.16, -0.5], [0.4, 0.08, 0.4]);
+        world.add(mount, NotShadowCaster);
+        const stem = block(world, [x, 3.02, -0.5], [0.06, 0.2, 0.06]);
+        world.add(stem, NotShadowCaster);
         const light = block(world, [x, 2.9, -0.5], [0.24, 0.14, 0.24], AMBER);
         world.add(light, NotShadowCaster);
         world.resource(Materials).update(world.storage(MeshMaterial).material.get(light), {
