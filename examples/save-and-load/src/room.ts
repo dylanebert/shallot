@@ -6,6 +6,7 @@ import {
     GlobalAmbientLight,
     internText,
     Materials,
+    Meshes,
     MeshInstance,
     MeshMaterial,
     type Plugin,
@@ -15,6 +16,7 @@ import {
     StandardMaterial,
     StandardPhysicsPlugin,
     StandardRenderer,
+    sphere,
     Text,
     TextPlugin,
     Transform,
@@ -37,6 +39,9 @@ const GROUND = [0.085, 0.08, 0.072, 1] as const;
 const AMBER = [0.72, 0.4, 0.05, 1] as const;
 const CYAN = [0.04, 0.43, 0.53, 1] as const;
 const ORANGE = [0.658, 0.301, 0.117, 1] as const;
+const CoinMesh = {
+    create: (world: World) => world.resource(Meshes).add({ name: "coin", ...sphere() }),
+};
 type Vec3 = readonly [number, number, number];
 type Color = readonly [number, number, number, number];
 function mesh(world: World, eid: number, color: Color): void {
@@ -68,7 +73,7 @@ export function newGame(world: World): number[] {
     world.add(player, Player, { camera });
     world.add(player, Wallet);
     const coins = ([-1.5, 0, 1.5] as const).map((x) =>
-        saved(world, Kind.Coin, [x, 1.1, 0], [0.22, 0.35, 0.12]),
+        saved(world, Kind.Coin, [x, 1.1, 0], [0.35, 0.35, 0.08]),
     );
     return [camera, player, ...coins];
 }
@@ -99,6 +104,7 @@ function decorate(world: World, eid: number): void {
         default: {
             const coin = world.storage(Saved).kind.get(eid) === Kind.Coin;
             mesh(world, eid, coin ? AMBER : ORANGE);
+            if (coin) world.storage(MeshInstance).mesh.set(eid, world.resource(CoinMesh));
             world.add(eid, Usable, { action: coin ? Action.Coin : Action.Crate });
             if (world.storage(Wallet).carried.get(game.player) !== eid) {
                 world.add(eid, Body, { type: BodyType.Static });

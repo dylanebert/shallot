@@ -176,7 +176,9 @@ const ShowInteraction: System = {
                 p.y.get(game.camera) + 2 * (w * x - y * z) * 1.2 - 0.35,
                 p.z.get(game.camera) - (1 - 2 * (x * x + y * y)) * 1.2,
             );
-            q.set(carried, x, y, z, w);
+            const s = Math.sin(0.15),
+                c = Math.cos(0.15);
+            q.set(carried, x * c - z * s, y * c + w * s, z * c + x * s, w * c - y * s);
         }
         const target = focus(world, game.camera);
         for (const eid of world.query(USABLES)) {
