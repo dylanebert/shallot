@@ -15,7 +15,7 @@ import {
     NotShadowCaster,
     RenderContext,
 } from "../../core/rendering";
-import type { Registry, System, World } from "../../engine";
+import { ClearChangeMarksSystem, type Registry, type System, type World } from "../../engine";
 import {
     beginComputePass,
     dispatchWorkgroups,
@@ -206,7 +206,6 @@ export const MeshPreprocessSystem: System = {
         if (!_meshPreprocess.countPipe || !_meshPreprocess.scanPipe || !_meshPreprocess.scatterPipe)
             return;
         syncBuffers(world);
-        warnInvalidInstances(world);
         if (_meshPreprocess.pairCount === 0) return;
         const count = bindCount(world);
         const scan = bindScan(world);
@@ -611,18 +610,36 @@ export function publishMeshInstanceDraws(
     return writes;
 }
 
-function warnInvalidInstances(world: World): void {
+function warnInvalidInstance(world: World, eid: number): void {
+    if (!world.has(eid, MeshInstance)) return;
     const { invalidPairs, warnedPairs } = world.resource(meshPreprocessKey);
-    if (invalidPairs.size === 0) return;
-    const meshes = world.storage(MeshInstance).mesh;
-    const types = world.storage(MeshMaterial).type;
-    for (const eid of world.query(MESH_INSTANCES)) {
-        const rejected = invalidPairs.get(types.get(eid))?.get(meshes.get(eid));
-        if (!rejected || warnedPairs.has(rejected.name)) continue;
-        warnedPairs.add(rejected.name);
-        console.warn(`standard: draw "${rejected.name}" skipped — ${rejected.cause}`);
-    }
+    const rejected = invalidPairs
+        .get(world.storage(MeshMaterial).type.get(eid))
+        ?.get(world.storage(MeshInstance).mesh.get(eid));
+    if (!rejected || warnedPairs.has(rejected.name)) return;
+    warnedPairs.add(rejected.name);
+    console.warn(`standard: draw "${rejected.name}" skipped — ${rejected.cause}`);
 }
+
+export const MeshPairingSystem: System = {
+    group: "draw",
+    first: true,
+    before: [ClearChangeMarksSystem],
+    update(world) {
+        if (world.resource(meshPreprocessKey).invalidPairs.size === 0) return;
+        const meshes = world.fieldStorage(MeshInstance, "mesh").dirty;
+        const types = world.fieldStorage(MeshMaterial, "type").dirty;
+        const words = (world.entityHighWater + 31) >>> 5;
+        for (let word = 0; word < words; word++) {
+            let bits = (meshes[word] ?? 0) | (types[word] ?? 0);
+            while (bits) {
+                const bit = bits & -bits;
+                warnInvalidInstance(world, (word << 5) + 31 - Math.clz32(bit));
+                bits ^= bit;
+            }
+        }
+    },
+};
 
 function registerDraws(world: World): void {
     const _meshDraws = world.resource(MeshDrawBuffers);
@@ -642,6 +659,9 @@ function registerDraws(world: World): void {
         writeToArrayBuffer(record, DrawIndexedIndirect, args);
         slot.set(recordBytes, offset);
     }
+    // A new rejection can affect unchanged instances; ordinary frames check only marked pairings.
+    if (_meshPreprocess.invalidPairs.size !== 0)
+        for (const eid of world.query(MESH_INSTANCES)) warnInvalidInstance(world, eid);
     const target = world.gpu.root.unwrap(_meshDraws.drawArgs);
     for (let view = 0; view < _meshPreprocess.viewDim; view++)
         world.gpu.device.queue.writeBuffer(target, view * viewStride, slot);

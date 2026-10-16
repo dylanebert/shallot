@@ -175,6 +175,40 @@ test("an attribute material and an unrelated mesh draw together without warning 
     ).toBe(false);
 });
 
+for (const change of ["added-instance", "type", "mesh", "marked-raw-type"] as const)
+    test(`${change} pairing changes warn once after draw publication`, () => {
+        const { world } = subjects()[1];
+        const missing = world.resource(Meshes).add({ name: change, vertices, indices });
+        flushMeshes(world);
+        world.step(0);
+        const material = world.resource(StreamMaterial).add({ unused: 0 });
+        const eid = world.create();
+        world.add(eid, Transform);
+        if (change === "mesh") {
+            const valid = [...world.resource(Meshes).entries()].find(
+                ([, mesh]) => mesh.name === "quad",
+            )![0];
+            world.add(eid, MeshInstance, { mesh: valid });
+            world.add(eid, MeshMaterial, material);
+        } else {
+            world.add(eid, MeshInstance, { mesh: missing });
+            world.add(eid, MeshMaterial, change === "added-instance" ? material : undefined);
+        }
+        if (change !== "added-instance") world.step(0);
+        expectWarning(
+            new RegExp(`mesh:material:StreamAttributeMaterial:${change}:\\d+.*attribute "tint"`),
+        );
+        if (change === "mesh") world.storage(MeshInstance).mesh.set(eid, missing);
+        if (change === "type") world.storage(MeshMaterial).type.set(eid, material.type);
+        if (change === "marked-raw-type") {
+            const type = world.storage(MeshMaterial).type;
+            type.column[eid] = material.type;
+            type.markChanged(eid);
+        }
+        world.step(0);
+        world.step(0);
+    });
+
 for (const mesh of ["missing", "wrong"])
     test(`a ${mesh} stream refusal names mesh, material type and attribute and warns once`, () => {
         expectWarning(
