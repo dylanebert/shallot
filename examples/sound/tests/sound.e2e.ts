@@ -20,9 +20,7 @@ test("the built yard serves its clips and music volume control", async ({ page }
     expect((await page.request.get("/Project_Utopia.ogg")).ok()).toBe(true);
     expect((await page.request.get("/bong_001.ogg")).ok()).toBe(true);
 });
-test("spatial music pans, fades, pauses and resumes; the bell finishes once", async ({
-    page,
-}) => {
+test("spatial music pans, fades, pauses and resumes; the bell finishes once", async ({ page }) => {
     await page.goto("http://127.0.0.1:4186/tests/stepped.html");
     await page.waitForFunction(() => (window as any).ready);
     await page.getByRole("button", { name: "Start audio" }).click();
