@@ -7,6 +7,7 @@ import {
     attachTexture,
     Camera,
     captureTexture,
+    DebandDither,
     DepthPrepass,
     DirectionalLight,
 } from "../../core/rendering";
@@ -40,6 +41,7 @@ function scene(world: World, cascades: number, prepass = false): { camera: numbe
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 3, 8, 0] });
     world.add(camera, Camera);
+    world.add(camera, DebandDither, { enabled: 0 });
     world.add(camera, StandardRenderer);
     if (prepass) world.add(camera, DepthPrepass);
     world.add(camera, AmbientLight, { brightness: 0 });

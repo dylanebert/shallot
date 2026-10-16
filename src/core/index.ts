@@ -49,6 +49,7 @@ export {
     ColorGrading,
     CorePipelinePlugin,
     CustomPresentation,
+    DebandDither,
     DirectionalLight,
     type EffectPass,
     EffectPasses,

@@ -10,6 +10,10 @@ These changes require updates to a 0.9.5 app.
 
 Remove the name argument from font and image registration: repeated URLs return the same id, different URLs return different ids, and each Blob registration returns a new id distinct from every URL. `Text.font` 0 always selects the bundled default face, even when other fonts are registered.
 
+## Debanding
+
+Camera presentation now dithers by default to reduce 8-bit output banding. For undithered output, add `DebandDither` to the camera with `{ enabled: 0 }`. `TonemappingMethod.None` bypasses grading, exposure and dither, applying only display encoding. Use `TonemappingMethod.Linear` for an identity curve that keeps grading, exposure and dither.
+
 ## Loading presets
 
 `shallotLight`, `minimalDark` and `minimalLight` are removed. For a custom loading screen, implement `Loading`, as [`examples/loading-screen`](examples/loading-screen) does. `shallotDark` remains the default preset.

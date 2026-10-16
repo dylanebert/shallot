@@ -405,8 +405,23 @@ async function inspectPageScreenshot(page: Page, encoded: string) {
     }, encoded);
 }
 
+function oklab(rgb: number[]) {
+    const [r, g, b] = rgb.map((v) => {
+        const s = v / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    const l = Math.cbrt(0.4122214708 * r! + 0.5363325363 * g! + 0.0514459929 * b!);
+    const m = Math.cbrt(0.2119034982 * r! + 0.6806995451 * g! + 0.1073969566 * b!);
+    const s = Math.cbrt(0.0883024619 * r! + 0.2817188376 * g! + 0.6299787005 * b!);
+    return [
+        0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+        1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+        0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+    ];
+}
+
 async function inspectScene(page: Page, frameKey: string) {
-    return page.evaluate(async (key) => {
+    const result = await page.evaluate(async (key) => {
         if (!window.shallotCaptureFrame) throw new Error("captureFrame is not installed");
         const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
         const capture = await window.shallotCaptureFrame(canvas);
@@ -511,7 +526,7 @@ async function inspectScene(page: Page, frameKey: string) {
             height <= expectedHeight * 1.28 &&
             Math.abs(centerX - expectedCenterX) <= expectedWidth * 0.12 &&
             Math.abs(centerY - expectedCenterY) <= expectedHeight * 0.12;
-        let maxBackgroundError = 0;
+        const backgroundSum = [0, 0, 0];
         let compared = 0;
         for (let y = 0; y < surface.height; y++) {
             for (let x = 0; x < surface.width; x++) {
@@ -526,25 +541,33 @@ async function inspectScene(page: Page, frameKey: string) {
                 )
                     continue;
                 const offset = (y * surface.width + x) * 4;
-                maxBackgroundError = Math.max(
-                    maxBackgroundError,
-                    Math.abs(rgba[offset]! - frameColor[0]!),
-                    Math.abs(rgba[offset + 1]! - frameColor[1]!),
-                    Math.abs(rgba[offset + 2]! - frameColor[2]!),
-                );
+                for (let channel = 0; channel < 3; channel++) {
+                    const value = rgba[offset + channel]!;
+                    backgroundSum[channel]! += value;
+                }
                 compared++;
             }
         }
+        const backgroundMean = backgroundSum.map((sum) => sum / compared);
         return {
             width: surface.width,
             height: surface.height,
             scenePixels,
             expectedPopulation,
             geometry,
-            maxBackgroundError,
+            backgroundMean,
+            frameColor,
             compared,
         };
     }, frameKey);
+    const background = oklab(result.backgroundMean);
+    const frame = oklab(result.frameColor);
+    return {
+        ...result,
+        backgroundDeltaE: Math.hypot(
+            ...background.map((value, channel) => value - frame[channel]!),
+        ),
+    };
 }
 
 test("light document and rendered frame differ by at least 0.6 OKLab lightness", async ({
@@ -558,31 +581,19 @@ test("light document and rendered frame differ by at least 0.6 OKLab lightness",
     await expect
         .poll(() => page.locator("#scene").evaluate((e) => (e as HTMLCanvasElement).width))
         .toBe(1280);
-    const contrast = await page.evaluate(async () => {
+    const colors = await page.evaluate(async () => {
         const shot = await window.shallotCaptureFrame!(
             document.querySelector<HTMLCanvasElement>("#scene")!,
         );
-        const lightness = (rgb: number[]) => {
-            const [r, g, b] = rgb.map((v) => {
-                const s = v / 255;
-                return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-            });
-            return (
-                0.2104542553 *
-                    Math.cbrt(0.4122214708 * r! + 0.5363325363 * g! + 0.0514459929 * b!) +
-                0.793617785 * Math.cbrt(0.2119034982 * r! + 0.6806995451 * g! + 0.1073969566 * b!) -
-                0.0040720468 * Math.cbrt(0.0883024619 * r! + 0.2817188376 * g! + 0.6299787005 * b!)
-            );
-        };
         const page = getComputedStyle(document.body)
             .backgroundColor.match(/\d+/g)!
             .slice(0, 3)
             .map(Number);
         const clear = Array.from(shot.rgba.slice(0, 3));
         console.log("rendered clear", clear);
-        return lightness(page) - lightness(clear);
+        return { page, clear };
     });
-    expect(contrast).toBeGreaterThanOrEqual(0.6);
+    expect(oklab(colors.page)[0]! - oklab(colors.clear)[0]!).toBeGreaterThanOrEqual(0.6);
 });
 
 async function compareSceneFrames(page: Page, first: string, later: string) {
@@ -886,6 +897,12 @@ test("the first and later scene frames match the projected unit cube and remain 
     await page.addScriptTag({ path: CAPTURE_ENTRY });
     await page.waitForFunction(() => typeof window.shallotCaptureFrame === "function");
     const first = await inspectScene(page, "first");
+    await page.waitForTimeout(100);
+    const later = await inspectScene(page, "later");
+    console.info("background seam", {
+        first: first.backgroundDeltaE,
+        later: later.backgroundDeltaE,
+    });
     expect(first.width, "captureFrame matches the real canvas width").toBe(
         Math.round(bounds!.width),
     );
@@ -897,12 +914,10 @@ test("the first and later scene frames match the projected unit cube and remain 
         "the first revealed scene has the orbit-projected unit-cube population and centered bounds",
     ).toBe(true);
     expect(
-        first.maxBackgroundError,
-        "above the cube and ground, the rendered clear matches the frame within 2 RGB levels",
-    ).toBeLessThanOrEqual(2);
+        first.backgroundDeltaE,
+        "the first clear's mean colour is within CSS Color 4's gamut-mapping JND (ΔE_OK 0.02) of the frame",
+    ).toBeLessThanOrEqual(0.02);
 
-    await page.waitForTimeout(100);
-    const later = await inspectScene(page, "later");
     expect(
         later.geometry,
         "the later stepped scene has the orbit-projected unit-cube population and centered bounds",
@@ -917,9 +932,9 @@ test("the first and later scene frames match the projected unit cube and remain 
         "the first scene region changes no more than 0.1% of pixels beyond 2 RGB levels",
     ).toBeLessThanOrEqual(0.001);
     expect(
-        later.maxBackgroundError,
-        "the later rendered clear above the cube and ground matches the frame",
-    ).toBeLessThanOrEqual(2);
+        later.backgroundDeltaE,
+        "the later clear's mean colour is within CSS Color 4's gamut-mapping JND (ΔE_OK 0.02) of the frame",
+    ).toBeLessThanOrEqual(0.02);
 });
 
 test("the description and scene frame stay fitted in six responsive viewports", async ({

@@ -12,6 +12,7 @@ import {
     attachTexture,
     Camera,
     captureTexture,
+    DebandDither,
     DirectionalLight,
     PointLight,
     SpotLight,
@@ -46,6 +47,7 @@ function addScene(
     world.add(camera, Transform, { translation: [cameraX, 6, 8, 0] });
     world.storage(Transform).rotation.set(camera, ...lookAtRotation(cameraX, 6, 8, 0, 0, 0));
     world.add(camera, Camera);
+    world.add(camera, DebandDither, { enabled: 0 });
     world.storage(Camera).antialias.set(camera, 0);
     world.add(camera, AmbientLight, { brightness: 0 });
     world.add(camera, StandardRenderer);

@@ -5,7 +5,10 @@ import * as std from "typegpu/std";
 /** Tonemapping operators. AgX uses an analytic fit. */
 export const TonemappingMethod = {
     TonyMcMapface: 0,
+    /** Bypass grading, exposure and dither; only display encoding applies. */
     None: 1,
+    /** Identity curve with color grading, exposure and debanding dither. */
+    Linear: 8,
     AcesFitted: 2,
     Reinhard: 3,
     ReinhardLuminance: 4,
@@ -210,7 +213,7 @@ export const tonemap = tgpu.fn(
     d.vec3f,
 )((mode, c) => {
     "use gpu";
-    if (mode === 1) return std.copy(c);
+    if (mode === 8) return std.copy(c);
     if (mode === 2) return tmAces(c);
     if (mode === 3) return tmReinhard(c);
     if (mode === 4) return tmReinhardLuminance(c);

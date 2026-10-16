@@ -1,4 +1,4 @@
-// Bevy 24661940b42fa8c8a89538a1d3572f7fe6dbd49a, bevy_render/view and tonemapping_shared.wgsl.
+// Bevy b3bdd75becaffe9a16677cf5bae5bd6d198f052b, bevy_render/view and tonemapping_shared.wesl.
 // MIT OR Apache-2.0, copyright Bevy contributors; see bevy-LICENSE-MIT.
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -57,6 +57,7 @@ export const GradingConfig = d.struct({
     gamma: d.vec4f,
     gain: d.vec4f,
     lift: d.vec4f,
+    debandDither: d.u32,
 });
 
 /** Shadow, midtone and highlight weights with continuous crossfades. */

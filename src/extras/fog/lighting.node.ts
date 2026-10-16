@@ -8,6 +8,7 @@ import {
     Camera,
     CameraMode,
     captureTexture,
+    DebandDither,
     DirectionalLight,
     PointLight,
     SpotLight,
@@ -45,6 +46,7 @@ function scene(scatteringAsymmetry = 0) {
         far: 10,
         clearColor: 0,
     });
+    world.add(camera, DebandDither, { enabled: 0 });
     world.add(camera, StandardRenderer);
     world.add(camera, AmbientLight, { brightness: 0 });
     attachTexture(world, camera, { width: SIZE, height: SIZE });

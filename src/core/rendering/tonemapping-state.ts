@@ -24,8 +24,18 @@ import { composite } from "./tonemapping";
 export { ColorGrading } from "./color-grading";
 export { TonemappingMethod } from "./tonemap";
 
-/** Per-camera operator; absent cameras use TonyMcMapface. None accepts display-ready linear images. */
+/** Per-camera presentation; absent cameras use TonyMcMapface. None only display-encodes
+ * linear input, bypassing grading, exposure and dither. Linear keeps them with an identity curve. */
 export const Tonemapping = component("Tonemapping", { method: u32 });
+
+/** Per-camera debanding in gamma-2.2 space before display encoding. Enabled when absent;
+ * set enabled to 0 to disable. TonemappingMethod.None always bypasses dither.
+ */
+export const DebandDither = component(
+    "DebandDither",
+    { enabled: u32 },
+    { defaults: () => ({ enabled: 1 }) },
+);
 
 /** Camera marker: core skips this view's tonemapping and EffectPasses.
  * The replacement owns grading and encoding and must write every presented pixel
@@ -64,7 +74,7 @@ interface Targets {
     display: Target[];
 }
 const tonemappingState = () => {
-    const bytes = new Float32Array(28);
+    const bytes = new Float32Array(29);
     return {
         configs: [] as ReturnType<typeof configBuffer>[],
         built: null as ReturnType<typeof composite> | null,
@@ -149,6 +159,7 @@ export const TonemappingSystem: System = {
         }
         const grading = world.storage(ColorGrading);
         const methods = world.storage(Tonemapping);
+        const dither = world.storage(DebandDither);
         for (const eid of world.query(CAMERAS)) {
             const view = world.resource(Views).get(eid);
             if (!view?.present || !view.framebuffer || world.has(eid, CustomPresentation)) continue;
@@ -181,6 +192,7 @@ export const TonemappingSystem: System = {
                 b[11 + i * 4] = 0;
             }
             state.words[5] = world.has(eid, Tonemapping) ? methods.method.get(eid) : 0;
+            state.words[28] = world.has(eid, DebandDither) ? dither.enabled.get(eid) : 1;
             device.queue.writeBuffer(state.buffers[view.slot], 0, b);
             let cached = state.groups.get(view);
             if (!cached || cached.input !== input || cached.slot !== view.slot) {
@@ -223,7 +235,7 @@ export const TonemappingPlugin: Plugin = {
     gpu: {},
     name: "Tonemapping",
     dependencies: [RenderingPlugin],
-    components: [Tonemapping, CustomPresentation, ColorGrading],
+    components: [Tonemapping, DebandDither, CustomPresentation, ColorGrading],
     initialize(world) {
         world.resource(tonemappingStateKey);
         world.resource(EffectPasses);

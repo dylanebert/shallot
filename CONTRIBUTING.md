@@ -111,7 +111,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - `AlphaMode` is per material row. StandardMaterial preserves base-color alpha; `Mask` writes depth, blended modes do not, and `AlphaToCoverage` emits a fragment sample mask because the `rg11b10ufloat` HDR target has no alpha channel (single-sample views use the 0.5 mask fallback).
 - At most one enabled directional casts shadows: greatest illuminance wins, then lower eid. Light units and direction live beside the [lighting components](src/core/rendering/lighting.ts).
 - Presenting view state grows without recompiling pipelines or layouts, up to [MAX_VIEWS](src/core/rendering/view.ts); a camera beyond it is skipped with a warning.
-- Presentation tonemaps, grades and encodes each view; `TonemappingMethod.None` skips only the operator.
+- Presentation tonemaps, grades, dithers and encodes each view. `TonemappingMethod.None` bypasses grading, exposure and dither, applying only display encoding; `Linear` keeps them with an identity curve.
 - `core/mesh` owns mesh data, GPU storage, built-in primitives and `MeshInstance`, independent of rendering.
 - `standard/rendering` is the one clustered forward mesh pipeline over both core modules: surfaces, materials, light packing, culling, indirect draws, backgrounds and shadow passes. It records into core's phases.
 - Standard contains no effects; they belong in extras.

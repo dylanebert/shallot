@@ -1,7 +1,13 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { attachTexture, Billboard, Camera, captureTexture } from "../../core/rendering";
+import {
+    attachTexture,
+    Billboard,
+    Camera,
+    captureTexture,
+    DebandDither,
+} from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { isolationFont } from "./font.fixture";
 import { internText, registerFont, Text, TextPlugin } from "./index";
@@ -30,6 +36,7 @@ test("an edge-on label covers pixels in Screen mode and none in World mode", asy
         rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2],
     });
     world.add(camera, Camera);
+    world.add(camera, DebandDither, { enabled: 0 });
     attachTexture(world, camera, { width: 64, height: 64 });
     const frame = async () => {
         world.step(1 / 60);
