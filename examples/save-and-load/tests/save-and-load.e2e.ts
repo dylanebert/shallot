@@ -120,6 +120,8 @@ test("three clicks, Save, New game and Load restore the pile and shown count, al
         await button(page, "New game N");
         await button(page, "Load L");
         await capture(page, "08-loaded-cap");
+        await page.getByRole("button", { name: "Save S", exact: true }).hover();
+        await capture(page, "09-save-hovered");
     }
     await page.evaluate(() => window.saveAndLoad.key("KeyN"));
     await count(page, 0);

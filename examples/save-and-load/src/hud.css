@@ -1,8 +1,8 @@
 .save-hud { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: #eee9df; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: center; }
 .save-hud h1 { font-size: 24px; font-weight: 400; font-variant-numeric: tabular-nums; margin: 0 0 12px; }
 .save-hud .controls { display: flex; gap: 8px; pointer-events: auto; }
-.save-hud button { color: inherit; background: #282622; border: 1px solid #797369; border-radius: 2px; padding: 10px 12px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer; white-space: nowrap; }
-.save-hud button:hover:not(:disabled) { background: #eee9df; color: #282622; }
-.save-hud button:focus-visible { outline: 2px solid #eee9df; outline-offset: 2px; }
+.save-hud button { color: inherit; background: #282622; border: 0; border-radius: 2px; padding: 10px 12px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer; white-space: nowrap; }
+.save-hud button:hover:not(:disabled) { outline: 1px solid #eee9df; }
+.save-hud button:focus-visible { outline: 1px solid #eee9df; outline-offset: 2px; }
 .save-hud button:disabled { color: #797369; cursor: default; }
 .save-hud kbd { display: inline-block; margin-left: 8px; padding: 0 5px; border: 1px solid #797369; border-radius: 2px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

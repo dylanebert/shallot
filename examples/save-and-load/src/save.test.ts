@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Transform, World } from "@dylanebert/shallot";
-import { Coin, decode, encode, migrate, placement, readSave } from "./save";
+import { COIN_CAP, Coin, decode, encode, migrate, placement, readSave, sampleSpots } from "./save";
 
 function world() {
     const w = new World();
@@ -48,6 +48,31 @@ test("scattered coins keep their spots after save and load", () => {
     expect(encode(w).entities).toHaveLength(70);
     expect(encode(w).entities).toEqual(expect.arrayContaining(saved.entities));
     w.dispose();
+});
+test("the seeded Poisson-disc sampler repeats its seed and changes with another seed", () => {
+    expect(sampleSpots(7)).toEqual(sampleSpots(7));
+    expect(sampleSpots(8)).not.toEqual(sampleSpots(7));
+});
+test("the seeded Poisson-disc sample fills the cap with separated spots in the lit region", () => {
+    const spots = sampleSpots(0x5a1107);
+    expect(spots.length).toBeGreaterThanOrEqual(COIN_CAP);
+    for (const [i, [x, z]] of spots.entries()) {
+        expect(x).toBeGreaterThanOrEqual(-1.8);
+        expect(x).toBeLessThanOrEqual(1.8);
+        expect(z).toBeGreaterThanOrEqual(0.65);
+        expect(z).toBeLessThanOrEqual(1.8);
+        for (const [otherX, otherZ] of spots.slice(i + 1))
+            expect(Math.hypot(x - otherX, z - otherZ)).toBeGreaterThanOrEqual(0.15);
+    }
+});
+test("the first ten shuffled spots span the scatter rather than its growth frontier", () => {
+    const spots = Array.from({ length: 10 }, (_, i) => placement(i));
+    expect(
+        Math.max(...spots.map((p) => p[0])) - Math.min(...spots.map((p) => p[0])),
+    ).toBeGreaterThan(2);
+    expect(
+        Math.max(...spots.map((p) => p[2])) - Math.min(...spots.map((p) => p[2])),
+    ).toBeGreaterThan(0.6);
 });
 test("a missing localStorage record has no save to load", () => {
     expect(readSave({ getItem: () => null })).toBeNull();
