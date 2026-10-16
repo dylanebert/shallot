@@ -854,7 +854,11 @@ function createOverlay(opts?: OverlayOptions): Overlay {
             }
 
             const gpuFlush = flushPool(gpuPool, msFmt);
-            gpu.totalEl.textContent = gpuFlush.total.toFixed(2) + " ms";
+            root.dataset.gpuTiming = profile.gpuTiming;
+            gpu.totalEl.textContent =
+                profile.gpuTiming === "available"
+                    ? gpuFlush.total.toFixed(2) + " ms"
+                    : profile.gpuTiming;
             renderPool(gpuPool, gpuFlush.rows);
 
             const indirectFlush = flushPool(indirectPool, (v) =>

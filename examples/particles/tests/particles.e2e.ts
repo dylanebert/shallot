@@ -55,20 +55,49 @@ test("the shared-view beam is brighter with motes, and injected walking draws on
     await page.evaluate(() => window.particles.evidence());
     expect(errors).toEqual([]);
 });
-test("the built particles page opens with its profiler", async ({ page }) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto("/");
-    await expect(page.locator("[data-shallot-profile]")).toBeVisible();
-    await page.locator("[data-shallot-profile]").getByText("▸ gpu", { exact: true }).click();
-    await expect(
-        page
-            .locator("[data-shallot-profile]")
-            .getByText("particles:advance", { exact: true })
-            .first(),
-    ).toBeVisible();
-    expect(errors).toEqual([]);
-});
+for (const timestamps of ["adapter", "withheld"] as const) {
+    test(`the built particles page opens with its profiler (${timestamps} timestamps)`, async ({
+        page,
+    }) => {
+        if (timestamps === "withheld") {
+            await page.addInitScript(() => {
+                const request = GPUAdapter.prototype.requestDevice;
+                GPUAdapter.prototype.requestDevice = function (descriptor) {
+                    return request.call(this, {
+                        ...descriptor,
+                        requiredFeatures: [...(descriptor?.requiredFeatures ?? [])].filter(
+                            (feature) => feature !== "timestamp-query",
+                        ),
+                    });
+                };
+            });
+        }
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.setViewportSize({ width: 480, height: 360 });
+        await page.goto("/");
+        const profiler = page.locator("[data-shallot-profile]");
+        await expect(profiler).toHaveAttribute(
+            "data-gpu-timing",
+            /available|requires timestamp-query/,
+        );
+        if (timestamps === "withheld") {
+            await expect(profiler).toHaveAttribute("data-gpu-timing", "requires timestamp-query");
+        }
+        if ((await profiler.getAttribute("data-gpu-timing")) === "available") {
+            await profiler.getByText("▸ gpu", { exact: true }).click();
+            await expect(
+                profiler.getByText("particles:advance", { exact: true }).first(),
+            ).toBeVisible();
+        } else {
+            await expect(
+                profiler.getByText("requires timestamp-query", { exact: true }),
+            ).toBeVisible();
+            await expect(profiler.getByText("particles:advance", { exact: true })).toHaveCount(0);
+        }
+        expect(errors).toEqual([]);
+    });
+}
 test("spawn, mid-stir and profiler captures use the game's composed first-person view", async ({
     page,
 }) => {

@@ -3,17 +3,16 @@ import { createApp, probeBuffer, setTransform } from "@dylanebert/shallot";
 import { Profile } from "@dylanebert/shallot/extras";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { openGpuApp } from "../tests/gpu-app";
 import { MOTE_COUNT, Motes, MotesPlugin } from "./motes";
 import { Room } from "./room";
 
 setDefaultTimeout(TIMEOUT.node);
-await setupGlobals();
 let app: Awaited<ReturnType<typeof createApp>>;
 let untimed: Awaited<ReturnType<typeof createApp>>;
 let untimedDevice: GPUDevice;
 beforeAll(async () => {
-    app = await createApp({ plugins: [MotesPlugin] });
+    app = await openGpuApp({ plugins: [MotesPlugin] });
     console.log("particles adapter", app.world.gpu.adapter);
     attachTexture(app.world, app.world.resource(Room).camera, { width: 64, height: 64 });
     app.world.step(1 / 60);
@@ -23,7 +22,7 @@ beforeAll(async () => {
     untimedDevice = await adapter.requestDevice({
         requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
     });
-    untimed = await createApp({ plugins: [MotesPlugin], device: untimedDevice, adapter });
+    untimed = await openGpuApp({ plugins: [MotesPlugin], device: untimedDevice, adapter });
     attachTexture(untimed.world, untimed.world.resource(Room).camera, { width: 16, height: 16 });
 });
 afterAll(async () => {
