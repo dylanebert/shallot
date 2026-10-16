@@ -8,7 +8,7 @@ declare global {
         adapter: { class: string; identity: string };
         saveAndLoad: {
             state(): { count: number; save: Save };
-            advance(frames?: number): void;
+            advance(ticks?: number): Promise<unknown>;
             hover(): void;
             click(): void;
             key(code: string): void;

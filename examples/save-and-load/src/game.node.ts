@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, setDefaultTimeout, test } from "bun:test";
-import { createApp, Outline, resizeViewport, Transform } from "@dylanebert/shallot";
+import { type createApp, Outline, resizeViewport, Transform } from "@dylanebert/shallot";
 import { Orbit } from "@dylanebert/shallot/extras";
 import {
     pointerMove,
@@ -10,17 +10,16 @@ import {
 } from "@dylanebert/shallot/input";
 import { attachTexture, Views } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { openGpuApp } from "../tests/gpu-app";
 import { addCoin, count, Game, loadGame, newGame, saveGame } from "./game";
 import { Coin, encode, SAVE_KEY } from "./save";
 import { Scene } from "./scene";
 
 setDefaultTimeout(TIMEOUT.node);
-await setupGlobals();
 let app: Awaited<ReturnType<typeof createApp>>;
 const records = new Map<string, string>();
 beforeAll(async () => {
-    app = await createApp({ plugins: [Scene] });
+    app = await openGpuApp({ plugins: [Scene] });
     const world = app.world;
     attachTexture(world, world.resource(Game).camera, { width: 320, height: 180 });
     world.resource(Views).get(world.resource(Game).camera)!.viewportIndex = 0;
@@ -33,7 +32,6 @@ beforeAll(async () => {
     };
     world.step(1 / 60);
     world.step(1 / 60);
-    console.log("save-and-load adapter", world.gpuIfAvailable?.adapter);
 });
 afterAll(() => app?.dispose());
 beforeEach(() => {

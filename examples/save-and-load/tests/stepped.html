@@ -14,7 +14,8 @@ const app=await createApp({plugins:[Scene]});
 const world=app.world, canvas=document.querySelector('canvas');
 attachCanvas(world,world.resource(Game).camera,canvas);
 hud(mountOverlay(canvas,world),world);
-const advance=(frames=1)=>{ for(let i=0;i<frames;i++) world.step(1/60); return state(); };
+// Each draw advances up to Time.MAX_FIXED_STEPS ticks and waits for its frame, so a software GPU never holds a backlog.
+const advance=async(ticks=1)=>{ while(ticks>0){ const n=Math.min(ticks,4); world.step(n/60); ticks-=n; await world.frameFence; } return state(); };
 const state=()=>({count:count(world),save:encode(world)});
 window.capture=async()=>{
  const pending=captureFrame(canvas);world.step(0);const image=await pending;
@@ -23,7 +24,7 @@ window.capture=async()=>{
  return out.toDataURL('image/png');
 };
 window.adapter=world.gpuIfAvailable.adapter;
-advance(3);
+await advance(3);
 window.saveAndLoad={state,advance,
  hover:()=>{pointerMove(world,{x:640,y:360,hover:true});world.step(0);},
  click:()=>{pointerMove(world,{x:640,y:360,hover:true});pressButton(world,'left');releaseButton(world,'left');world.step(0);},
