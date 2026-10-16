@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parse } from "@babel/parser";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { PALETTES } from "../diagnostics/default-look/palette";
 
@@ -36,6 +37,25 @@ function titleDeclaration(source: string, offset: number): boolean {
         open > before.lastIndexOf("}") &&
         selectors.every((selector) => /(?:^|\s|>)h1\s*$/.test(selector))
     );
+}
+
+function styleSources(path: string, source: string): string[] {
+    if (!/\.[cm]?[jt]s$/.test(path)) return [source];
+    const strings: string[] = [];
+    const ast = parse(source, { sourceType: "module", plugins: ["typescript"] });
+    function visit(value: unknown): void {
+        if (!value || typeof value !== "object") return;
+        const node = value as Record<string, unknown>;
+        if (node.type === "StringLiteral") strings.push(node.value as string);
+        else if (node.type === "TemplateElement") strings.push((node.value as { raw: string }).raw);
+        else
+            for (const child of Object.values(node)) {
+                if (Array.isArray(child)) for (const item of child) visit(item);
+                else visit(child);
+            }
+    }
+    visit(ast);
+    return strings;
 }
 
 function violations(source: string): string[] {
@@ -92,12 +112,22 @@ test("the UI scale reserves 24px for titles and rejects off-token CSS and inline
     expect(violations("small { font-size: 12px; }")).toHaveLength(1);
 });
 
+test("world-space Text font fields are not CSS, while styles in script strings are checked", () => {
+    const source =
+        "const state: { font: number } = { font: 1 }; const text = { font: state.font }; const css = `.panel { font: bold 48px serif; }`;";
+    expect(styleSources("scene.ts", source).flatMap(violations)).toEqual(["font: bold 48px serif"]);
+});
+
 for (const example of await readdir("examples")) {
     test(`${example} CSS and inline styles use the UI type and shape tokens`, async () => {
         const failures: string[] = [];
         for (const path of await sources(join("examples", example))) {
             const source = await readFile(path, "utf8");
-            failures.push(...violations(source).map((failure) => `${path}: ${failure}`));
+            failures.push(
+                ...styleSources(path, source)
+                    .flatMap(violations)
+                    .map((failure) => `${path}: ${failure}`),
+            );
         }
         expect(failures).toEqual([]);
     });
