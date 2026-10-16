@@ -77,10 +77,6 @@ test("morning and afternoon cast a shape's shadow on opposite sides", async ({ p
 });
 
 test("the first frame after changing the light direction has the new shadows", async ({ page }) => {
-    test.fail(
-        true,
-        "Shadow presentation lags a light-direction change by one frame; stage 2 owns the fix.",
-    );
     await open(page, 15);
     const reference = await page.evaluate(() => window.frame());
     await open(page, 9);

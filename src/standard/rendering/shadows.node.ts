@@ -13,8 +13,14 @@ import {
     captureTexture,
     DirectionalLight,
     PointLight,
+    SpotLight,
 } from "../../core/rendering";
-import { Transform, TransformPlugin } from "../../core/transform";
+import {
+    GlobalTransform,
+    resetInterpolation,
+    Transform,
+    TransformPlugin,
+} from "../../core/transform";
 import { lookAtRotation, type World } from "../../engine";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
@@ -31,14 +37,11 @@ import {
 } from "./shadows";
 
 const rendering = { defaults: false, plugins: [StandardRenderingPlugin, MeshRenderPlugin] };
-// three headless worlds for the cascade-pool rows, three rendering worlds for the bound row, then one for
-// the re-gather growth row
+// three headless worlds for the cascade-pool rows, three rendering worlds for the bound row, one for
+// the re-gather growth row, then a changed and a fresh world for each light-change row
 const subjects = gpuApps(import.meta.path, [
     ...Array.from({ length: 3 }, () => ({ defaults: false, plugins: [TransformPlugin] })),
-    rendering,
-    rendering,
-    rendering,
-    rendering,
+    ...Array.from({ length: 8 }, () => rendering),
 ]);
 let nextSubject = 0;
 
@@ -138,9 +141,9 @@ test("the cascade pass rebuilds its boxes after the main camera GlobalTransform 
     const n = cascadeCount(world);
     const cams = cascadeComboEids(world).slice(0, n);
     const before = cams.map((eid) => [
-        world.storage(Transform).translation.x.get(eid),
-        world.storage(Transform).translation.y.get(eid),
-        world.storage(Transform).translation.z.get(eid),
+        world.storage(GlobalTransform).translation.x.get(eid),
+        world.storage(GlobalTransform).translation.y.get(eid),
+        world.storage(GlobalTransform).translation.z.get(eid),
     ]);
 
     world.storage(Transform).translation.set(main, 200, 2, -150, 0);
@@ -150,9 +153,9 @@ test("the cascade pass rebuilds its boxes after the main camera GlobalTransform 
     for (let i = 0; i < n; i++) {
         const eid = cams[i];
         if (
-            world.storage(Transform).translation.x.get(eid) !== before[i][0] ||
-            world.storage(Transform).translation.y.get(eid) !== before[i][1] ||
-            world.storage(Transform).translation.z.get(eid) !== before[i][2]
+            world.storage(GlobalTransform).translation.x.get(eid) !== before[i][0] ||
+            world.storage(GlobalTransform).translation.y.get(eid) !== before[i][1] ||
+            world.storage(GlobalTransform).translation.z.get(eid) !== before[i][2]
         )
             moved = true;
     }
@@ -182,10 +185,9 @@ function renderedScene(world: World): { camera: number; sun: number } {
     return { camera, sun };
 }
 
-// two frames, since the shadows first appear on the second; returns the validation error, if any
-async function frames(world: World): Promise<string | null> {
+// one frame; returns the validation error, if any
+async function frame(world: World): Promise<string | null> {
     world.gpu.device.pushErrorScope("validation");
-    world.step(0);
     world.step(0);
     return (await world.gpu.device.popErrorScope())?.message ?? null;
 }
@@ -209,25 +211,25 @@ test("a sun whose firstCascadeFarBound reaches or passes its maximumDistance spl
     const sceneA = renderedScene(a.world);
     light(a.world).numCascades.set(sceneA.sun, 3);
     light(a.world).maximumDistance.set(sceneA.sun, 10);
-    expect(await frames(a.world)).toBeNull();
+    expect(await frame(a.world)).toBeNull();
     expect(cascadeCount(a.world)).toBe(3);
     expectBevyBounds(cascadeFars(a.world), 3, 10, 10);
     light(a.world).numCascades.set(sceneA.sun, 1);
-    expect(await frames(a.world)).toBeNull();
+    expect(await frame(a.world)).toBeNull();
     expectBevyBounds(cascadeFars(a.world), 1, 10, 10);
 
     // 4 cascades out to 8, past the default bound: Bevy's bounds shrink from 10 to 8
     const sceneB = renderedScene(b.world);
     light(b.world).maximumDistance.set(sceneB.sun, 8);
-    expect(await frames(b.world)).toBeNull();
+    expect(await frame(b.world)).toBeNull();
     expect(cascadeCount(b.world)).toBe(4);
     expectBevyBounds(cascadeFars(b.world), 4, 10, 8);
 
     // the corrected distance renders the frame a fresh default app does
     light(b.world).maximumDistance.set(sceneB.sun, 50);
-    expect(await frames(b.world)).toBeNull();
+    expect(await frame(b.world)).toBeNull();
     const sceneR = renderedScene(reference.world);
-    expect(await frames(reference.world)).toBeNull();
+    expect(await frame(reference.world)).toBeNull();
     const { rgba } = await captureTexture(b.world, sceneB.camera);
     expect(rgba).toEqual((await captureTexture(reference.world, sceneR.camera)).rgba);
 });
@@ -239,7 +241,7 @@ test("spawning an entity a frame under a casting sun and point light reallocates
     world.add(point, Transform, { translation: [2, 2, 3, 0] });
     world.add(point, PointLight, { intensity: 315225.92, range: 10 });
     world.storage(PointLight).shadowMapsEnabled.set(point, 1);
-    expect(await frames(world)).toBeNull();
+    expect(await frame(world)).toBeNull();
 
     const device = world.gpu.device;
     const createBuffer = device.createBuffer.bind(device);
@@ -277,4 +279,68 @@ test("spawning an entity a frame under a casting sun and point light reallocates
     expect(lists["standard-cascade-regather-eids"]).toBeLessThanOrEqual(growths);
     expect(lists["standard-point-regather-eids"]).toBeLessThanOrEqual(growths);
     expect(groups).toBeLessThanOrEqual(growths * firstFrameGroups);
+});
+
+// a point and a spot light casting beside the cube, both shadowing
+function localLights(
+    world: World,
+    point: [number, number, number],
+    spot: [number, number, number],
+): { point: number; spot: number } {
+    const pointEid = world.create();
+    world.add(pointEid, Transform, { translation: point });
+    world.add(pointEid, PointLight, { intensity: 315225.92, range: 10 });
+    world.storage(PointLight).shadowMapsEnabled.set(pointEid, 1);
+    const spotEid = world.create();
+    world.add(spotEid, Transform, {
+        translation: [-2, 3, 2, 0],
+        rotation: lookAtRotation(-2, 3, 2, spot[0], spot[1], spot[2]),
+    });
+    world.add(spotEid, SpotLight, { intensity: 315225.92, range: 12 });
+    world.storage(SpotLight).shadowMapsEnabled.set(spotEid, 1);
+    return { point: pointEid, spot: spotEid };
+}
+
+test("the first frame after a casting sun turns matches a fresh frame of the turned sun", async () => {
+    const [changed, fresh] = subjects().slice(7, 9);
+    const scene = renderedScene(changed.world);
+    expect(await frame(changed.world)).toBeNull();
+    changed.world
+        .storage(Transform)
+        .rotation.set(scene.sun, ...lookAtRotation(0, 0, 0, 0.6, -1, 0.3));
+    changed.world.step(0);
+
+    const reference = renderedScene(fresh.world);
+    fresh.world
+        .storage(Transform)
+        .rotation.set(reference.sun, ...lookAtRotation(0, 0, 0, 0.6, -1, 0.3));
+    expect(await frame(fresh.world)).toBeNull();
+    expect((await captureTexture(changed.world, scene.camera)).rgba).toEqual(
+        (await captureTexture(fresh.world, reference.camera)).rgba,
+    );
+});
+
+test("the first frame after a casting point light moves and a casting spot light turns matches a fresh frame of both", async () => {
+    const [changed, fresh] = subjects().slice(9, 11);
+    const scene = renderedScene(changed.world);
+    changed.world.storage(DirectionalLight).shadowMapsEnabled.set(scene.sun, 0);
+    const lights = localLights(changed.world, [2, 2, 3], [0, 0, 0]);
+    expect(await frame(changed.world)).toBeNull();
+    changed.world.storage(Transform).translation.set(lights.point, -2, 2, 3, 0);
+    changed.world
+        .storage(Transform)
+        .rotation.set(lights.spot, ...lookAtRotation(-2, 3, 2, 2, 0, -1));
+    // a fresh light has no interpolation history; marking the moves as discontinuities gives the changed
+    // lights none either, so only shadow posing can differ
+    resetInterpolation(changed.world, lights.point);
+    resetInterpolation(changed.world, lights.spot);
+    changed.world.step(0);
+
+    const reference = renderedScene(fresh.world);
+    fresh.world.storage(DirectionalLight).shadowMapsEnabled.set(reference.sun, 0);
+    localLights(fresh.world, [-2, 2, 3], [2, 0, -1]);
+    expect(await frame(fresh.world)).toBeNull();
+    expect((await captureTexture(changed.world, scene.camera)).rgba).toEqual(
+        (await captureTexture(fresh.world, reference.camera)).rgba,
+    );
 });

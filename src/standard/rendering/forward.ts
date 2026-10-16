@@ -1140,10 +1140,13 @@ const ResolveDrawsSystem: System = {
     },
 };
 
-// Shadow cameras must be posed before BeginFrameSystem packs this frame's view projections.
+// Shadow cameras are posed from the frame's derived light and camera placement, including simulation
+// writes, and before BeginFrameSystem packs this frame's view projections.
 const ShadowCameraSystem: System = {
     name: "shadow-camera",
-    group: "simulation",
+    group: "draw",
+    first: true,
+    before: [BeginFrameSystem],
     update(world) {
         const _standardRendererState = world.resource(standardRendererStateKey);
 

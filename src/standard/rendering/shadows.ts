@@ -13,7 +13,7 @@ import {
     SpotLight,
     Views,
 } from "../../core/rendering";
-import { composeGlobalTransform, GlobalTransform, Transform } from "../../core/transform";
+import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import {
     lookAt,
     lookAtRotation,
@@ -502,7 +502,7 @@ export function sunTowardLight(world: World): Float64Array {
 
 function createCascadeCamera(world: World): number {
     const eid = world.create();
-    world.add(eid, Transform);
+    world.add(eid, GlobalTransform);
     world.add(eid, Camera);
     world.storage(Camera).mode.set(eid, CameraMode.Orthographic);
     attachView(world, eid);
@@ -533,8 +533,8 @@ function poseCascade(world: World, eid: number, fit: LightFit): void {
         up[1],
         up[2],
     );
-    world.storage(Transform).translation.set(eid, eye[0], eye[1], eye[2]);
-    world.storage(Transform).rotation.set(eid, ...q);
+    world.storage(GlobalTransform).translation.set(eid, eye[0], eye[1], eye[2]);
+    world.storage(GlobalTransform).rotation.set(eid, ...q);
     world.storage(Camera).mode.set(eid, CameraMode.Orthographic);
     world.storage(Camera).near.set(eid, 0);
     // size = the cover, far = the near-extended box depth (2·cover + margin), so the cull frustum matches the
@@ -563,8 +563,8 @@ export function resetCascades(world: World): void {
 }
 
 /**
- * Updates cascade cameras and borrowed atlas/receiver arrays in simulation, before BeginFrameSystem
- * packs their view projections. Without a casting light or main camera, publishes zero cascades.
+ * Updates cascade cameras and borrowed atlas/receiver arrays after the frame's placement derivation,
+ * before BeginFrameSystem packs their view projections. Without a casting light or main camera, publishes zero cascades.
  * Perspective splits [camera.near, DirectionalLight.maximumDistance] into numCascades view-depth slices;
  * the receiver selects by view-z and blends overlaps. Orthographic uses one ground fit with a sentinel
  * far bound, so every visible fragment selects it without blending. Each box texel-snaps to avoid crawl.
@@ -1031,7 +1031,7 @@ export function pointComboEids(world: World): number[] {
 
 function createComboCamera(world: World): number {
     const eid = world.create();
-    world.add(eid, Transform);
+    world.add(eid, GlobalTransform);
     world.add(eid, Camera);
     world.storage(Camera).mode.set(eid, CameraMode.Perspective);
     attachView(world, eid);
@@ -1137,17 +1137,17 @@ function poseSpotRotation(world: World, eid: number, frame: PointShadowFrame): v
         qy = (yz + zy) / s;
         qz = 0.25 * s;
     }
-    world.storage(Transform).rotation.set(eid, qx, qy, qz, qw);
+    world.storage(GlobalTransform).rotation.set(eid, qx, qy, qz, qw);
 }
 
 // Combo culling must match the face/cone projection before atlas tile placement.
 function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: number): void {
-    world.storage(Transform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2]);
+    world.storage(GlobalTransform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2]);
     if (frame.spot) poseSpotRotation(world, eid, frame);
     else {
         const r = face * 4;
         world
-            .storage(Transform)
+            .storage(GlobalTransform)
             .rotation.set(
                 eid,
                 POINT_FACE_ROTATIONS[r],
@@ -1242,7 +1242,8 @@ export function packCasters(
 }
 
 /**
- * Selects enabled point/spot shadow casters in simulation, before BeginFrameSystem packs their cameras.
+ * Selects enabled point/spot shadow casters after the frame's placement derivation, before BeginFrameSystem
+ * packs their cameras.
  * Writes/grows the caller's reusable frames pool and returns its live prefix length. Highest importance
  * wins (ties by lower eid); hysteresis favours the last submitted caster set. Importance is
  * intensity*range^2/dist^2 at main, with dist^2 floored at one (or one when no main camera exists).
