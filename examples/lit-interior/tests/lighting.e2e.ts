@@ -16,6 +16,7 @@ declare global {
         playerWall(): void;
         ambient(value: number): void;
         fixtures(): Promise<number[]>;
+        labelPixels(): Promise<{ content: string; ink: number; missing: number }>;
         capture(): Promise<string>;
         device: { requests: { requiredLimits?: unknown }[]; adapter: unknown; limits: unknown };
     }
@@ -122,4 +123,19 @@ test("both fixtures show bright sources; E extinguishes only its bulb and restor
     expect(on[0]! - off[0]!).toBeGreaterThan(100);
     expect(Math.abs(on[1]! - off[1]!)).toBeLessThan(5);
     expect(Math.abs(on[0]! - restored[0]!)).toBeLessThan(5);
+});
+
+test("the wall label's complete pixels survive the oblique flashlight view", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4216/tests/stepped.html");
+    await page.waitForFunction(() => window.ready);
+    await page.evaluate(() => {
+        window.switchView();
+        window.key(true);
+        window.key(false);
+    });
+    const label = await page.evaluate(() => window.labelPixels());
+    console.log("wall label", label);
+    expect(label.content).toBe("Ceiling lamp");
+    expect(label.ink).toBeGreaterThan(30);
+    expect(label.missing).toBe(0);
 });

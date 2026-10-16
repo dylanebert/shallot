@@ -184,13 +184,13 @@ function room(world: World): void {
     for (const [target, name] of [[button, "Ceiling lamp"]] as const) {
         const label = world.create();
         world.add(label, Transform, {
-            translation: [world.storage(Transform).translation.x.get(target), 1.9, -3.2],
+            translation: [world.storage(Transform).translation.x.get(target), 1.9, -3.29],
         });
         world.add(label, Text, {
             content: internText(world, name),
             fontSize: 0.2,
             anchor: [0.5, 0],
-            billboard: Billboard.Screen,
+            billboard: Billboard.World,
             color: 0xeee9df,
         });
     }
