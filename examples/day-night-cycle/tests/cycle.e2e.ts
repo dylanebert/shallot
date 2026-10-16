@@ -42,7 +42,9 @@ test("the slider drives the hour, noon sky is brighter than midnight, and shadow
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto("http://127.0.0.1:4186/tests/stepped.html");
+    await page.goto(
+        `http://127.0.0.1:4186/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`,
+    );
     await page.waitForFunction(() => !!window.frame);
     const frames: Record<string, Frame> = {};
     for (const [name, hour] of Object.entries({

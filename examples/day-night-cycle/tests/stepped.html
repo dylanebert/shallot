@@ -5,27 +5,30 @@
 <canvas width="1280" height="720"></canvas>
 <script type="module">
     import { createApp, mountOverlay } from "@dylanebert/shallot";
-    import { captureFrame } from "@dylanebert/shallot/rendering";
+    import { attachTexture, captureTexture, captureFrame } from "@dylanebert/shallot/rendering";
     import { flushSync } from "svelte";
     import { hud } from "../src/hud";
-    import { Clock, CyclePlugin } from "../src/cycle";
+    import { Clock, CycleScene, CyclePlugin } from "../src/cycle";
     const canvas = document.querySelector("canvas");
     const app = await createApp({ plugins: [CyclePlugin] });
+    const fullSize = new URL(location.href).searchParams.has("capture");
+    const camera = app.world.resource(CycleScene).camera;
+    if (!fullSize) attachTexture(app.world, camera, { width: 320, height: 180 });
     hud(mountOverlay(canvas, app.world), app.world);
     flushSync();
     window.frame = async (hour, settle = true) => {
         if (hour !== undefined) app.world.resource(Clock).hour = hour;
         // Shadow presentation settles one frame after a changed light direction.
         if (settle) app.world.step(0);
-        const capture = captureFrame(canvas);
+        const capture = fullSize ? captureFrame(canvas) : undefined;
         app.world.step(0);
         flushSync();
-        const image = await capture;
+        const image = await (capture ?? captureTexture(app.world, camera));
         const copy = document.createElement("canvas");
         copy.width = image.width; copy.height = image.height;
         copy.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height), 0, 0);
         const small = document.createElement("canvas");
-        small.width = image.width / 4; small.height = image.height / 4;
+        small.width = 320; small.height = 180;
         const context = small.getContext("2d");
         context.drawImage(copy, 0, 0, small.width, small.height);
         return { hour: app.world.resource(Clock).hour, width: small.width, height: small.height, rgba: Array.from(context.getImageData(0, 0, small.width, small.height).data), png: copy.toDataURL() };
