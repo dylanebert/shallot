@@ -30,11 +30,11 @@ import { Transform } from "../../core/transform";
 import type { Plugin } from "../../engine";
 import { probeBuffer, stampAdapter } from "../../engine/runtime";
 import { type AdapterInfoFacts, classifyAdapter } from "../../engine/runtime/adapter";
-import { packColor } from "../../engine/utils";
 import { Line, LinesPlugin } from "../../extras/lines";
 import { lineLayout, viewLayout as lineViewLayout } from "../../extras/lines/pipeline";
 import { Sprite, SpriteMaterialInput, SpriteMaterialType, SpritePlugin } from "../../extras/sprite";
-import { packSpriteFill } from "../../extras/sprite/pack";
+import { SpriteAlphaMode } from "../../extras/sprite/pack";
+import { spritePublicationLayout } from "../../extras/sprite/table";
 import { internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
 import { textLayout, viewLayout as textViewLayout } from "../../extras/text/pipeline";
@@ -120,7 +120,7 @@ function storageLimitPlugin(bindings: number): Plugin {
     };
 }
 
-function storageCount(layout: unknown, stage: "vertex" | "fragment"): number {
+function storageCount(layout: unknown, stage: "vertex" | "fragment" | "compute"): number {
     const entries = (
         layout as {
             entries: Record<string, { storage?: unknown; visibility?: readonly string[] }>;
@@ -287,6 +287,13 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             spriteVertex:
                 storageCount(engineLayout, "vertex") +
                 storageCount(SpriteMaterialType.layout, "vertex"),
+            spriteFragment:
+                storageCount(engineLayout, "fragment") +
+                storageCount(SpriteMaterialType.layout, "fragment"),
+            spritePublicationCompute: storageCount(
+                spritePublicationLayout(SpriteMaterialInput),
+                "compute",
+            ),
             textVertex: storageCount(textViewLayout, "vertex") + storageCount(textLayout, "vertex"),
             textFragment: storageCount(textLayout, "fragment"),
             linesVertex:
@@ -302,6 +309,8 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
             attributeVertex: 8,
             attributeFragment: 8,
             spriteVertex: 7,
+            spriteFragment: 7,
+            spritePublicationCompute: 3,
             textVertex: 5,
             textFragment: 0,
             linesVertex: 1,
@@ -405,10 +414,10 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
                 world.add(sprite, Transform);
                 world.add(sprite, Sprite, {
                     billboard,
-                    blend,
+                    alphaMode: blend === 0 ? SpriteAlphaMode.Mask() : SpriteAlphaMode.Blend,
                     color: 0xff0000 + billboard * 0x000101,
-                    fill: 0.5,
-                    fillMode: billboard % 3,
+                    fillAmount: 0.5,
+                    fillMethod: billboard % 3,
                 });
                 spriteEids.push(sprite);
             }
@@ -450,24 +459,22 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         for (const eid of spriteEids) {
             const typeId = world.storage(MeshMaterial).type.get(eid);
             const row = world.storage(MeshMaterial).material.get(eid);
-            expect(row).toBe(eid);
+            expect(row).toBe(world.resource(SpriteMaterialType.source!).table.rowIndex(eid));
             const type = SpriteMaterialType;
             expect(typeId).toBe(materialTypeId(world, type));
             const bytes = world
-                .resource(type)
+                .resource(type.source!)
                 .table.bytes.slice(
                     row * d.sizeOf(SpriteMaterialInput),
                     (row + 1) * d.sizeOf(SpriteMaterialInput),
                 );
             const parameters = readFromArrayBuffer(bytes.buffer, SpriteMaterialInput);
             const sprite = world.storage(Sprite);
-            expect(parameters.layer).toBe(sprite.image.get(eid));
-            expect(parameters.color).toBe(
-                packColor(sprite.color.get(eid), sprite.opacity.get(eid)),
-            );
-            expect(parameters.fill).toBe(
-                packSpriteFill(sprite.fill.get(eid), sprite.fillMode.get(eid)),
-            );
+            expect(parameters.image).toBe(sprite.image.get(eid));
+            expect(parameters.color).toBe(sprite.color.get(eid));
+            expect(parameters.opacity).toBe(sprite.opacity.get(eid));
+            expect(parameters.fillAmount).toBe(sprite.fillAmount.get(eid));
+            expect(parameters.fillMethod).toBe(sprite.fillMethod.get(eid));
         }
         const view = world.resource(Views).get(camera)!;
         const cube = [...world.resource(Meshes).entries()].find(

@@ -42,6 +42,7 @@ export {
 } from "./physics";
 export {
     AlphaMode,
+    AlphaModeCode,
     CameraBackground,
     DirectionalLightShadowMap,
     MAX_CASCADES,

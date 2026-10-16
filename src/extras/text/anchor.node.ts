@@ -1,10 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { readFromArrayBuffer } from "typegpu";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { Anchor } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
-import { Sprite, SpriteMaterialType, SpritePlugin } from "../sprite";
+import { Sprite, SpriteMaterialInput, SpriteMaterialType, SpritePlugin } from "../sprite";
+import { spriteOffset } from "../sprite/material";
 import { isolationFont } from "./font.fixture";
 import { GLYPH_AT, GLYPH_BYTES } from "./glyph";
 import { internText, registerFont, Text, TextPlugin } from "./index";
@@ -51,9 +53,15 @@ test("sprite and label pivots follow all nine named anchors, updates, removal an
         return new Float32Array(snapshot.bytes).slice(GLYPH_AT.pos, GLYPH_AT.pos + 2);
     };
     const spritePosition = () => {
-        const table = world.resource(SpriteMaterialType).table;
+        const table = world.resource(SpriteMaterialType.source!).table;
         const stride = table.rowBytes;
-        return new Float32Array(table.bytes.buffer, table.bytes.byteOffset + sprite * stride, 2);
+        const row = table.rowIndex(sprite);
+        const parameters = readFromArrayBuffer(
+            table.bytes.slice(row * stride, (row + 1) * stride).buffer,
+            SpriteMaterialInput,
+        );
+        const offset = spriteOffset(parameters);
+        return [offset.x, offset.y];
     };
     world.step(0);
     expect([...spritePosition()]).toEqual([-1, -2]);

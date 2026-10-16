@@ -3,7 +3,7 @@ import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Xform } from "../../core/rendering";
-import type { Plugin, Resource, System, World } from "../../engine";
+import type { GpuTable, Plugin, Resource, System, World } from "../../engine";
 import type { ComponentStorage } from "../../engine/ecs";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 
@@ -358,6 +358,21 @@ export function alphaPipelineKey(alphaMode: number): number {
 
 export type AlphaPipelineKey = (typeof AlphaPipelineKey)[keyof typeof AlphaPipelineKey];
 
+/** A material's externally owned parameter table and alpha pipeline inputs.
+ * The owner fills and uploads its table through World's table schedule, and publishes each consumer's
+ * alphaMode/alphaCutoff into meshInstanceTable after upload and before MeshPreprocessSystem.
+ * alphaMode reads the selected row for CPU transparent sorting; alphaKeys is the growing bitset of
+ * `1 << AlphaPipelineKey` values the type can draw. Rows remain valid for the source's stated lifetime.
+ * cullBounds, when supplied, reads the selected row and writes a local-space [x, y, z, radius] sphere
+ * into caller-owned scratch during transparent queuing. Shared consumers use the same row's geometry;
+ * geometry-changing shaders must cover their expanded geometry here too. */
+export interface MaterialSource<P extends AnyWgslStruct = AnyWgslStruct> {
+    readonly table: GpuTable<P>;
+    readonly alphaKeys: number;
+    alphaMode(row: number): number;
+    cullBounds?(row: number, out: Float32Array): void;
+}
+
 /** The shader, parameter schema, and depth behavior shared by every instance of one mesh material type. */
 export interface MaterialType<
     P extends AnyWgslStruct = AnyWgslStruct,
@@ -367,6 +382,9 @@ export interface MaterialType<
     readonly name: string;
     readonly parameters: P;
     readonly layout: MaterialLayout<B, P>;
+    /** Omit for MaterialAssets; otherwise the renderer borrows this source. Accessing the type's asset
+     * allocator refuses: resolve this resource to access its externally owned rows. */
+    readonly source?: Resource<MaterialSource<P>>;
     readonly fragmentInputs?: { uv?: true; localPos?: true };
     readonly varyings?: V;
     readonly vertex?: MaterialVertexFn<P, V>;
@@ -383,7 +401,8 @@ export interface MaterialHandle {
     readonly alphaCutoff: number;
 }
 
-/** CPU-authored material rows with a lazily published GPU table using the type's parameter schema. */
+/** CPU-authored material assets with a lazily published GPU table using the type's parameter schema.
+ * Externally sourced material types refuse construction; their rows belong to the declared source. */
 export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     private readonly _world: World;
     private readonly _type: MaterialType<P, any, any>;
@@ -397,13 +416,18 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     private _highWater = 1;
     // row zero starts Opaque, and rows reserved past the high-water mark start at its zero code
     private _alphaKeys = 1 << AlphaPipelineKey.Opaque;
-    private _table: ReturnType<World["table"]> | undefined;
+    private _table: GpuTable<P> | undefined;
 
     constructor(world: World, type: MaterialType<P, any, any>) {
+        if (type.source)
+            throw new Error(
+                `MaterialAssets "${type.name}" cannot allocate assets: the material type uses an external parameter source`,
+            );
         this._world = world;
         this._type = type;
         const id = registerMaterialType(world, type, type.name === "StandardMaterial");
         world.resource(MaterialTypes).assets[id] = this;
+        world.resource(MaterialTypes).sources[id] = this;
         this._rowBytes = d.sizeOf(type.parameters);
         this._scratch = new ArrayBuffer(this._rowBytes);
         this._bytes = new Uint8Array(this._rowBytes);
@@ -412,7 +436,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     }
 
     /** The renderer initializes this table at warm so its default row is uploaded before the first draw. */
-    get table(): ReturnType<World["table"]> {
+    get table(): GpuTable<P> {
         if (!this._table) {
             const table = this._world.table(`material:${this._type.name}`, this._type.parameters);
             table.reserveSlots(this._highWater);
@@ -474,6 +498,11 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
             throw new RangeError(`Materials.alpha: unknown ${this._type.name} row ${row}`);
         }
         return { alphaMode: this._alphaModes[row], alphaCutoff: this._alphaCutoffs[row] };
+    }
+
+    /** AlphaModeCode at one asset row, without allocating an alpha record. */
+    alphaMode(row: number): number {
+        return this._alphaModes[row];
     }
 
     /** Bit `1 << key` for each alpha pipeline key any of this type's rows has held; it only grows. */
@@ -594,6 +623,8 @@ interface MaterialTypeState {
     readonly types: (ErasedMaterialType | undefined)[];
     /** each registered type's CPU store, by type id, once created */
     readonly assets: (MaterialAssets<any> | undefined)[];
+    /** Renderer inputs by type id; an external source keeps ownership of its table. */
+    readonly sources: (MaterialSource<any> | undefined)[];
     readonly ids: WeakMap<object, number>;
     readonly names: Map<string, ErasedMaterialType>;
 }
@@ -601,6 +632,7 @@ const materialTypesKey = {
     create: (): MaterialTypeState => ({
         types: [undefined],
         assets: [],
+        sources: [],
         ids: new WeakMap(),
         names: new Map(),
     }),
@@ -614,13 +646,16 @@ function copyMeshAlpha(world: World): void {
     const assets = world.resource(MaterialTypes).assets;
     const storage = world.storage(MeshMaterial);
     for (const eid of world.query(MESH_MATERIALS)) {
-        assets[storage.type.get(eid)]?.copyAlpha(storage, eid);
+        const type = storage.type.get(eid);
+        if (!world.resource(MaterialTypes).types[type]?.source)
+            assets[type]?.copyAlpha(storage, eid);
     }
 }
 
 /**
  * Copies each MeshMaterial's row alpha into its `alphaMode` and `alphaCutoff` after simulation, so a
  * reassigned `type` or `material` takes its row's alpha mode in the same frame's upload.
+ * External table owners publish directly into the GPU mesh table after their table upload.
  */
 export const MeshMaterialAlphaSystem: System = {
     name: "mesh-material-alpha",
@@ -662,6 +697,14 @@ export function materialTypeId(world: World, type: ErasedMaterialType): number {
     return id;
 }
 
+/** @internal Resolve the renderer's parameter source without transferring its ownership. */
+export function materialSource<P extends AnyWgslStruct>(
+    world: World,
+    type: MaterialType<P, any, any>,
+): MaterialSource<P> {
+    return type.source ? world.resource(type.source) : world.resource(type);
+}
+
 export function MaterialPlugin<
     P extends AnyWgslStruct,
     B extends Record<string, MaterialBinding>,
@@ -672,7 +715,8 @@ export function MaterialPlugin<
         components: [MeshMaterial],
         initialize(world) {
             registerMaterialType(world, type as ErasedMaterialType);
-            world.resource(type);
+            const source = materialSource(world, type);
+            world.resource(MaterialTypes).sources[materialTypeId(world, type)] = source;
         },
     };
 }

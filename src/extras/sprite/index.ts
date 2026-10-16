@@ -1,94 +1,31 @@
-import * as d from "typegpu/data";
 import { Meshes, type MeshHandle, MeshInstance, MeshPlugin } from "../../core/mesh";
-import { Anchor, BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
+import { BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
-import { ClearChangeMarksSystem, type Plugin, type System, type World } from "../../engine";
-import { packColor } from "../../engine/utils";
+import { ClearChangeMarksSystem, type Plugin, type System } from "../../engine";
 import {
-    AlphaMode,
     MaterialPlugin,
     MeshMaterial,
+    MeshPreprocessSystem,
     MeshRenderPlugin,
     materialTypeId,
     StandardRenderingPlugin,
 } from "../../standard/rendering";
-import { SpriteMaterialType } from "./material";
-import { packSpriteFill, Sprite, SpriteBlend } from "./pack";
+import { SpriteMaterialType, SpriteSource } from "./material";
+import { Sprite } from "./pack";
 
 export { SpriteMaterialInput, SpriteMaterialType } from "./material";
-export { Sprite, SpriteBlend, SpriteFill } from "./pack";
+export { Sprite, SpriteAlphaMode, SpriteFill } from "./pack";
 
 const SPRITE_QUERY = [Sprite];
-
-// prettier-ignore
 const QUAD_VERTS = new Float32Array([
     0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0,
 ]);
 const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
-
-interface SpriteGpuState {
-    quad: MeshHandle | null;
-    instances: Map<number, SpriteInstance>;
-}
-interface SpriteInstance {
-    image: number;
-    width: number;
-    height: number;
-    anchorX: number;
-    anchorY: number;
-    color: number;
-    opacity: number;
-    billboard: number;
-    fill: number;
-    fillMode: number;
-    blend: number;
-}
 const spriteGpuKey = {
-    create: (): SpriteGpuState => ({
-        quad: null,
-        instances: new Map(),
-    }),
+    create: () => ({ quad: null as MeshHandle | null, instances: new Set<number>() }),
 };
 
-function writeValues(
-    world: World,
-    eid: number,
-    blend: number,
-    width: number,
-    height: number,
-    anchorX: number,
-    anchorY: number,
-    image: number,
-    color: number,
-    opacity: number,
-    billboard: number,
-    fill: number,
-    fillMode: number,
-): number {
-    world.resource(SpriteMaterialType).setAt(
-        eid,
-        {
-            offset: d.vec2f(-width * anchorX, -height * anchorY),
-            size: d.vec2f(width, height),
-            layer: image,
-            color: packColor(color, opacity),
-            fill: packSpriteFill(fill, fillMode),
-            billboard,
-        },
-        { alphaMode: blend === SpriteBlend.Alpha ? AlphaMode.Blend : AlphaMode.Mask(0.5) },
-    );
-    const halfWidth = Math.max(Math.abs(width * anchorX), Math.abs(width * (1 - anchorX)));
-    const halfHeight = Math.max(Math.abs(height * anchorY), Math.abs(height * (1 - anchorY)));
-    return Math.hypot(halfWidth, halfHeight);
-}
-
-function releaseInstance(world: World, eid: number): void {
-    if (world.has(eid, MeshMaterial)) world.remove(eid, MeshMaterial);
-    if (world.has(eid, MeshInstance)) world.remove(eid, MeshInstance);
-}
-
-// After every simulation system, terminal included, and before ClearChangeMarksSystem's upload, so the
-// frame carries this frame's Sprite writes.
+// Membership reconciliation follows terminal simulation writes and precedes column upload.
 const SpriteSystem: System = {
     name: "sprite",
     group: "draw",
@@ -98,127 +35,38 @@ const SpriteSystem: System = {
     update(world) {
         const state = world.resource(spriteGpuKey);
         if (state.quad === null) return;
-        const sprite = world.storage(Sprite);
         for (const eid of world.query(SPRITE_QUERY)) {
-            const current = state.instances.get(eid);
-            if (!world.has(eid, GlobalTransform)) continue;
-            const image = sprite.image.get(eid);
-            const width = sprite.size.x.get(eid);
-            const height = sprite.size.y.get(eid);
-            const anchor = world.storage(Anchor).offset;
-            const anchorX = world.has(eid, Anchor) ? anchor.x.get(eid) + 0.5 : 0.5;
-            const anchorY = world.has(eid, Anchor) ? anchor.y.get(eid) + 0.5 : 0.5;
-            const color = sprite.color.get(eid);
-            const opacity = sprite.opacity.get(eid);
-            const billboard = Math.min(sprite.billboard.get(eid), 2);
-            const blend = Math.min(sprite.blend.get(eid), 1);
-            const fill = sprite.fill.get(eid);
-            const fillMode = sprite.fillMode.get(eid);
-            if (current) {
-                if (
-                    current.blend === blend &&
-                    current.image === image &&
-                    current.width === width &&
-                    current.height === height &&
-                    current.anchorX === anchorX &&
-                    current.anchorY === anchorY &&
-                    current.color === color &&
-                    current.opacity === opacity &&
-                    current.billboard === billboard &&
-                    current.fill === fill &&
-                    current.fillMode === fillMode
-                ) {
-                    continue;
-                }
-                const radius = writeValues(
-                    world,
-                    eid,
-                    blend,
-                    width,
-                    height,
-                    anchorX,
-                    anchorY,
-                    image,
-                    color,
-                    opacity,
-                    billboard,
-                    fill,
-                    fillMode,
-                );
-                current.image = image;
-                current.width = width;
-                current.height = height;
-                current.anchorX = anchorX;
-                current.anchorY = anchorY;
-                current.color = color;
-                current.opacity = opacity;
-                current.billboard = billboard;
-                current.fill = fill;
-                current.fillMode = fillMode;
-                current.blend = blend;
-                world
-                    .storage(MeshMaterial)
-                    .type.set(eid, materialTypeId(world, SpriteMaterialType));
-                world.storage(MeshMaterial).material.set(eid, eid);
-                world.storage(MeshInstance).cullBounds.w.set(eid, radius);
-                continue;
-            }
-            if (world.has(eid, MeshInstance) || world.has(eid, MeshMaterial)) {
+            if (state.instances.has(eid) || !world.has(eid, GlobalTransform)) continue;
+            if (world.has(eid, MeshInstance) || world.has(eid, MeshMaterial))
                 throw new Error(
                     `Sprite ${eid} cannot share its entity with another MeshInstance or MeshMaterial`,
                 );
-            }
-            const radius = writeValues(
-                world,
-                eid,
-                blend,
-                width,
-                height,
-                anchorX,
-                anchorY,
-                image,
-                color,
-                opacity,
-                billboard,
-                fill,
-                fillMode,
-            );
-            world.add(eid, MeshInstance, { mesh: state.quad, cullBounds: [0, 0, 0, radius] });
+            world.add(eid, MeshInstance, { mesh: state.quad });
             world.add(eid, MeshMaterial, {
                 type: materialTypeId(world, SpriteMaterialType),
-                material: eid,
-                ...world.resource(SpriteMaterialType).alpha(eid),
+                material: world.resource(SpriteSource).table.rowIndex(eid),
             });
-            state.instances.set(eid, {
-                image,
-                width,
-                height,
-                anchorX,
-                anchorY,
-                color,
-                opacity,
-                billboard,
-                fill,
-                fillMode,
-                blend,
-            });
-        }
-        for (const eid of state.instances.keys()) {
-            if (world.has(eid, Sprite)) continue;
-            releaseInstance(world, eid);
-            state.instances.delete(eid);
+            state.instances.add(eid);
         }
     },
 };
-
 const SpriteMaterialPlugin = MaterialPlugin(SpriteMaterialType);
+const SpritePublicationSystem: System = {
+    name: "sprite-publication",
+    group: "draw",
+    after: [ClearChangeMarksSystem],
+    before: [MeshPreprocessSystem],
+    update(world) {
+        world.resource(SpriteSource).publish(materialTypeId(world, SpriteMaterialType));
+    },
+};
 
 /** Retained textured quads; Mask sprites cast shadows through StandardRenderingPlugin. */
 export const SpritePlugin: Plugin = {
     gpu: {},
     name: "Sprite",
     components: [Sprite],
-    systems: [SpriteSystem],
+    systems: [SpriteSystem, SpritePublicationSystem],
     dependencies: [
         MeshPlugin,
         RenderingPlugin,
@@ -226,19 +74,18 @@ export const SpritePlugin: Plugin = {
         MeshRenderPlugin,
         SpriteMaterialPlugin,
     ],
-
     initialize(world) {
-        const state = world.resource(spriteGpuKey);
-        state.instances.clear();
-        if (world.gpu.device) {
-            state.quad = world.resource(Meshes).add({
-                name: "spriteQuad",
-                vertices: QUAD_VERTS,
-                indices: QUAD_INDICES,
-            });
-        }
+        world.onDispose(
+            world.observeMembership(Sprite, (eid, present) => {
+                if (present || !world.resource(spriteGpuKey).instances.delete(eid)) return;
+                if (world.has(eid, MeshMaterial)) world.remove(eid, MeshMaterial);
+                if (world.has(eid, MeshInstance)) world.remove(eid, MeshInstance);
+            }),
+        );
+        world.resource(spriteGpuKey).quad = world
+            .resource(Meshes)
+            .add({ name: "spriteQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
     },
-
     dispose(world) {
         const state = world.resource(spriteGpuKey);
         state.quad = null;

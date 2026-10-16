@@ -33,6 +33,7 @@ export {
 } from "./lighting";
 export {
     AlphaMode,
+    AlphaModeCode,
     AlphaPipelineKey,
     MaterialPlugin,
     Materials,
@@ -49,12 +50,13 @@ export type {
     MaterialFragmentFn,
     MaterialHandle,
     MaterialLayout,
+    MaterialSource,
     MaterialType,
     MaterialVertexFn,
 } from "./material-type";
 export { MaterialAssets, materialLayout } from "./material-type";
 export { MeshRenderPlugin } from "./mesh-render";
-export { MeshPreprocessSystem } from "./preprocess";
+export { MeshPreprocessSystem, meshInstanceTable } from "./preprocess";
 export type { Draw } from "./registry";
 export { DrawIndexedIndirect, Draws } from "./registry";
 export {

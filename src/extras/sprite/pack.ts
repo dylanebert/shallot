@@ -1,12 +1,17 @@
 import { Billboard } from "../../core/rendering";
 import { component, f32, u32, vec2 } from "../../engine";
+import { AlphaModeCode } from "../../standard/rendering";
 
-/** Sprite material alpha mode: Clip maps to Mask(0.5), Alpha maps to Blend. */
-export const SpriteBlend = {
-    /** alpha-tested cutout at 0.5: depth-written and casts holed shadows (the default) */
-    Clip: 0,
-    /** translucent: blended over the opaque scene and casts no shadows */
-    Alpha: 1,
+/** Sprite alpha as [AlphaModeCode, cutoff], stored in Sprite.alphaMode's two lanes. */
+export const SpriteAlphaMode = {
+    /** Alpha-tested cutout; writes depth and casts holed shadows. Threshold is in 0..1. */
+    Mask: (threshold = 0.5): readonly [number, number] => {
+        if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1)
+            throw new RangeError("SpriteAlphaMode.Mask threshold must be between 0 and 1");
+        return [AlphaModeCode.Mask, threshold];
+    },
+    /** Translucent; blends over the opaque scene and casts no shadows. */
+    Blend: [AlphaModeCode.Blend, 0.5] as const,
 } as const;
 
 /** which portion of a sprite's image shows, for progress rings and gauges */
@@ -35,12 +40,12 @@ export const Sprite = component(
         opacity: f32,
         /** {@link Billboard} orientation; defaults to Screen. */
         billboard: u32,
-        /** compositing route */
-        blend: u32,
+        /** {@link SpriteAlphaMode} tuple; defaults to Mask(0.5). */
+        alphaMode: vec2,
         /** leading fraction of the image shown, 0..1 */
-        fill: f32,
-        /** fill direction */
-        fillMode: u32,
+        fillAmount: f32,
+        /** {@link SpriteFill} direction; None shows the whole image. */
+        fillMethod: u32,
     },
     {
         defaults: () => ({
@@ -49,15 +54,9 @@ export const Sprite = component(
             color: 0xffffff,
             opacity: 1,
             billboard: Billboard.Screen,
-            blend: SpriteBlend.Clip,
-            fill: 1,
-            fillMode: SpriteFill.None,
+            alphaMode: SpriteAlphaMode.Mask(),
+            fillAmount: 1,
+            fillMethod: SpriteFill.None,
         }),
     },
 );
-
-/** Encode fill amount and direction in the Sprite material row. */
-export function packSpriteFill(amount: number, mode: number): number {
-    const a = Math.round(Math.min(1, Math.max(0, amount)) * 0xffff);
-    return ((mode & 0xffff) << 16) | a;
-}

@@ -33,7 +33,7 @@ export {
 } from "./sky";
 export {
     Sprite,
-    SpriteBlend,
+    SpriteAlphaMode,
     SpriteFill,
     SpritePlugin,
 } from "./sprite";

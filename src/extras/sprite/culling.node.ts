@@ -1,9 +1,12 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { readFromArrayBuffer } from "typegpu";
+import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Billboard, Camera } from "../../core/rendering";
 import { Transform } from "../../core/transform";
+import type { World } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
 import {
     AlphaPipelineKey,
@@ -11,7 +14,18 @@ import {
     materialTypeId,
     StandardRenderer,
 } from "../../standard/rendering";
+import { MeshInstanceInput } from "../../standard/rendering/material-data";
+import { meshInstanceTable } from "../../standard/rendering/preprocess";
 import { Sprite, SpriteMaterialType, SpritePlugin } from "./index";
+
+async function boundRadius(world: World, eid: number): Promise<number> {
+    const table = meshInstanceTable(world);
+    const snapshot = await probeBuffer(world, table.buffer, {
+        offset: table.rowIndex(eid) * d.sizeOf(MeshInstanceInput),
+        size: d.sizeOf(MeshInstanceInput),
+    });
+    return readFromArrayBuffer(snapshot.bytes, MeshInstanceInput).cullBounds.w;
+}
 
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
@@ -36,8 +50,7 @@ test("a large anchored world Sprite stays in the camera draw when its quad reach
 
     world.step(0);
     world.step(0);
-    const instanceBound = world.storage(MeshInstance).cullBounds;
-    expect(instanceBound.w.get(sprite)).toBeGreaterThan(7);
+    expect(await boundRadius(world, sprite)).toBeGreaterThan(7);
     const type = materialTypeId(world, SpriteMaterialType);
     const mesh = world.storage(MeshInstance).mesh.get(sprite);
     const draw = [...world.resource(Draws)].find(
@@ -84,7 +97,7 @@ test("a Sprite spawned before a frame draws in that frame", async () => {
     expect(new Uint32Array(snapshot.bytes)[1]).toBe(1);
 });
 
-test("a terminal simulation system's Sprite size change reaches that frame's cull bounds", () => {
+test("a terminal simulation system's Sprite size change reaches that frame's cull bounds", async () => {
     const { world } = subjects()[0];
     const sprite = world.create();
     world.add(sprite, Transform);
@@ -98,5 +111,5 @@ test("a terminal simulation system's Sprite size change reaches that frame's cul
         update: (world) => world.storage(Sprite).size.x.set(sprite, 10),
     });
     world.step(0);
-    expect(world.storage(MeshInstance).cullBounds.w.get(sprite)).toBeGreaterThan(5);
+    expect(await boundRadius(world, sprite)).toBeGreaterThan(5);
 });

@@ -870,7 +870,7 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect(samplerA).not.toBe(samplerB);
         }
         for (const [plugin, key] of [
-            [SpritePlugin, "material:SpriteMaterial"],
+            [SpritePlugin, "sprite-material"],
             [TextPlugin, "textGlyphs"],
             [LinesPlugin, "lineSegments"],
         ] as const) {

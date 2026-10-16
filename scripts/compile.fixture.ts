@@ -8,6 +8,7 @@ import {
     OutlinePlugin,
     ProfilePlugin,
     RenderingPlugin,
+    SpritePlugin,
     StandardPhysicsPlugin,
     VignettePlugin,
 } from "@dylanebert/shallot";
@@ -36,6 +37,7 @@ export const compileSubjects = [
     { name: "Fog", config: { plugins: [FogPlugin] } },
     { name: "Outline", config: { plugins: [OutlinePlugin] } },
     { name: "Vignette", config: { plugins: [VignettePlugin] } },
+    { name: "Sprite", config: { plugins: [SpritePlugin] } },
 ] satisfies { name: string; config: Parameters<typeof createApp>[0] }[];
 
 export async function measureCompile(config: Parameters<typeof createApp>[0]) {

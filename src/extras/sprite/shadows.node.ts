@@ -109,8 +109,8 @@ test("clip Sprite leaves its alpha hole out of the directional shadow map", asyn
     world.add(sprite, Transform);
     world.add(sprite, Sprite, {
         size: [2, 2],
-        fill: 0.5,
-        fillMode: SpriteFill.Horizontal,
+        fillAmount: 0.5,
+        fillMethod: SpriteFill.Horizontal,
         billboard: Billboard.World,
     });
     world.step(0);

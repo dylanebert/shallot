@@ -21,6 +21,7 @@ const pipelineCounts: Record<string, number> = {
     Fog: 25, // single-sample and multisampled march
     Outline: 28, // three mask variants, jump flood and composite
     Vignette: 24,
+    Sprite: 28,
 };
 
 for (const subject of compileSubjects) {

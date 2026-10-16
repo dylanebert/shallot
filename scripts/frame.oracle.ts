@@ -11,9 +11,8 @@ const { Transform } = await import("@dylanebert/shallot/transform");
 const { CameraBackground, StandardRenderer } = await import(
     "@dylanebert/shallot/standard/rendering"
 );
-const { Sprite, SpritePlugin, Sky, SkyPlugin, skyBackgroundHandle } = await import(
-    "@dylanebert/shallot/extras"
-);
+const { Sprite, SpriteAlphaMode, SpriteFill, SpritePlugin, Sky, SkyPlugin, skyBackgroundHandle } =
+    await import("@dylanebert/shallot/extras");
 const { setupGlobals } = await import("@dylanebert/shallot/webgpu");
 const { Gallery, GalleryPlugin } = await import("../examples/materials/src/gallery");
 const { Clock, CyclePlugin, CycleScene } = await import("../examples/day-night-cycle/src/cycle");
@@ -40,10 +39,39 @@ for (const subject of ["day-night", "sky", "materials", "sprite"]) {
             world.add(camera, Transform, { translation: [0, 0, 5] });
             world.add(camera, Camera);
             world.add(camera, StandardRenderer);
-            const sprite = world.create();
-            world.add(sprite, Transform);
-            world.add(sprite, Anchor, { offset: [-0.25, 0.25] });
-            world.add(sprite, Sprite, { size: [2, 1] });
+            const atlas = world.gpu.device.createTexture({
+                size: [2, 2, 1],
+                format: "rgba8unorm-srgb",
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            });
+            world.own(atlas);
+            world.gpu.device.queue.writeTexture(
+                { texture: atlas },
+                new Uint8Array([
+                    255, 255, 255, 255, 255, 255, 255, 80, 255, 255, 255, 160, 255, 255, 255, 0,
+                ]),
+                { bytesPerRow: 8 },
+                [2, 2, 1],
+            );
+            world.gpu.textures.set("images", atlas);
+            for (const blend of [0, 1]) {
+                const alphaMode = blend === 0 ? SpriteAlphaMode.Mask() : SpriteAlphaMode.Blend;
+                for (const fillMethod of Object.values(SpriteFill)) {
+                    const sprite = world.create();
+                    world.add(sprite, Transform, {
+                        translation: [(fillMethod - 1.5) * 1.1, blend - 0.5, 0],
+                    });
+                    world.add(sprite, Anchor, { offset: [-0.25, 0.25] });
+                    world.add(sprite, Sprite, {
+                        size: [0.8, 0.8],
+                        alphaMode,
+                        fillMethod,
+                        fillAmount: 0.65,
+                        color: 0xffaa55,
+                        opacity: 0.8,
+                    });
+                }
+            }
         } else if (subject === "sky") {
             camera = world.create();
             world.add(camera, Transform);

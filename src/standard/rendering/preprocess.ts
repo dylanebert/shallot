@@ -104,7 +104,10 @@ interface MeshPreprocessState {
 const meshPreprocessKey = { create: createMeshPreprocessState };
 const meshInstanceTableKey = { create: createMeshInstanceTable };
 
-/** Dense MeshInstance records shared by the GPU pack and surface stages. */
+/** Dense MeshInstance records shared by preprocessing and surface stages.
+ * External material sources may publish alphaMode, alphaCutoff and cullBounds after table upload and
+ * before MeshPreprocessSystem. Preserve the other fields; address an entity through rowIndex(eid),
+ * or iterate activeRowsTyped's [eid, row] pairs. GPU writes do not change the CPU component columns. */
 export function meshInstanceTable(world: World) {
     return world.resource(meshInstanceTableKey);
 }
@@ -494,10 +497,10 @@ function syncBuffers(world: World): void {
 
 function syncAlphaKeys(world: World): boolean {
     const known = world.resource(meshPreprocessKey).alphaKeys;
-    const assets = world.resource(MaterialTypes).assets;
+    const sources = world.resource(MaterialTypes).sources;
     let grew = false;
     for (let type = 0; type < known.length; type++) {
-        const keys = assets[type]?.alphaKeys ?? 0;
+        const keys = sources[type]?.alphaKeys ?? 0;
         if (keys !== known[type]) {
             known[type] = keys;
             grew = true;
@@ -548,24 +551,24 @@ export function publishMeshInstanceDraws(
     pairCount: number,
     registries: {
         materialTypes: readonly (MaterialType | undefined)[];
-        assets: readonly ({ readonly alphaKeys: number } | undefined)[];
+        sources: readonly ({ readonly alphaKeys: number } | undefined)[];
         meshes: ReturnType<typeof Meshes.create>;
         draws: Registry<Draw>;
     } = {
         materialTypes: world.resource(MaterialTypes).types,
-        assets: world.resource(MaterialTypes).assets,
+        sources: world.resource(MaterialTypes).sources,
         meshes: world.resource(Meshes),
         draws: world.resource(Draws),
     },
 ): { offset: number; args: DrawRecord }[] {
-    const { materialTypes, assets, meshes, draws } = registries;
+    const { materialTypes, sources, meshes, draws } = registries;
     const invalidPairs = world.resource(meshPreprocessKey).invalidPairs;
     invalidPairs.clear();
     const writes: { offset: number; args: DrawRecord }[] = [];
     const viewStride = pairCount * DRAW_ARG_STRIDE;
     for (const [materialType, definition] of materialTypes.entries()) {
         if (!definition) continue;
-        const alphaKeys = assets[materialType]?.alphaKeys ?? 0;
+        const alphaKeys = sources[materialType]?.alphaKeys ?? 0;
         for (
             let alphaPipelineKey = 0;
             alphaPipelineKey < ALPHA_PIPELINE_KEY_COUNT;

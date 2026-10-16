@@ -43,6 +43,7 @@ import {
     AlphaPipelineKey,
     MaterialTypes,
     MeshVertexInput as MaterialVertexInput,
+    materialSource,
 } from "./material-type";
 import type { Draw } from "./registry";
 import { sampleSunShadow } from "./shade";
@@ -2104,8 +2105,9 @@ export async function preparePipelines(world: World, capacity: number): Promise<
     // both at warm so resolution/validation errors surface here, not mid-frame on the first draw.
     for (const type of world.resource(MaterialTypes).types) {
         if (!type) continue;
-        world.resource(type).table;
-        const alphaKeys = world.resource(type).alphaKeys;
+        const source = materialSource(world, type);
+        source.table;
+        const alphaKeys = source.alphaKeys;
         for (
             let alphaPipelineKey = 0;
             alphaPipelineKey < ALPHA_PIPELINE_KEY_COUNT;

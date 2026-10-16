@@ -4,6 +4,7 @@ import { Materials, VertexMaterialType } from "./standard-material";
 export type { MaterialHandle, MaterialType } from "./material-type";
 export {
     AlphaMode,
+    AlphaModeCode,
     AlphaPipelineKey,
     MaterialPlugin,
     MaterialTypes,

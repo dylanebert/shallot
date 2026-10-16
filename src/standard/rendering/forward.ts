@@ -73,6 +73,7 @@ import {
     alphaPipelineKey,
     type MaterialType,
     MaterialTypes,
+    materialSource,
     registerMaterialType,
 } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
@@ -122,6 +123,7 @@ interface StandardRendererState {
     resolveCapacity: number;
     resolveMeshCount: number;
     resolveDrawCallback: ((draw: Draw) => void) | undefined;
+    materialBounds: Float32Array;
     transparentEidsStage: ArrayBuffer;
     transparentEidsU32: Uint32Array;
     transparentArgsStage: ArrayBuffer;
@@ -163,6 +165,7 @@ function createStandardRendererState(): StandardRendererState {
         resolveCapacity: 0,
         resolveMeshCount: 0,
         resolveDrawCallback: undefined,
+        materialBounds: new Float32Array(4),
         transparentEidsStage: new ArrayBuffer(0),
         transparentEidsU32: new Uint32Array(0),
         transparentArgsStage: new ArrayBuffer(0),
@@ -328,7 +331,7 @@ function layoutResources(
         const res =
             override?.[name] ??
             (name === "materialParameters" && materialType
-                ? world.resource(materialType).table.typed
+                ? materialSource(world, materialType).table.typed
                 : owned
                   ? undefined
                   : registry.get(name));
@@ -373,7 +376,7 @@ function sameResources(
             name in g.owner.layout.attributes
                 ? mesh.attributes?.[name]
                 : name === "materialParameters"
-                  ? world.resource(g.owner).table.typed
+                  ? materialSource(world, g.owner).table.typed
                   : (override?.[name] ?? g.registries[i].get(name));
         if (live !== res[k]) return false;
     }
@@ -833,7 +836,10 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     const planeBase = view.slot * CULL_VOLUME_FLOATS;
     const position = phase.positionScratch;
     for (const instanceEid of world.query(TRANSPARENT_MESHES)) {
-        const alphaMode = materials.alphaMode.get(instanceEid);
+        const source = world.resource(MaterialTypes).sources[materials.type.get(instanceEid)];
+        const alphaMode =
+            source?.alphaMode(materials.material.get(instanceEid)) ??
+            materials.alphaMode.get(instanceEid);
         if (!transparentAlpha(alphaMode)) continue;
         const meshId = instances.mesh.get(instanceEid);
         const mesh = meshRegistry.get(meshId as MeshHandle);
@@ -863,6 +869,14 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
             by = override.y.get(instanceEid);
             bz = override.z.get(instanceEid);
             radius = overrideRadius;
+        }
+
+        if (source?.cullBounds) {
+            source.cullBounds(materials.material.get(instanceEid), state.materialBounds);
+            bx = state.materialBounds[0];
+            by = state.materialBounds[1];
+            bz = state.materialBounds[2];
+            radius = state.materialBounds[3];
         }
 
         const sx = placement.scale.x.get(instanceEid);
