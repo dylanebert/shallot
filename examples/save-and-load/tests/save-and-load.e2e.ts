@@ -102,6 +102,12 @@ test("three clicks, Save, New game and Load restore the pile and shown count, al
     expect((await page.evaluate(() => window.saveAndLoad.state().save)).entities).toEqual(
         expect.arrayContaining(saved.entities),
     );
+    for (let i = 4; i <= 10; i++) {
+        await page.evaluate(() => window.saveAndLoad.click());
+        await count(page, i);
+    }
+    await page.evaluate(() => window.saveAndLoad.advance(60));
+    await capture(page, "05-ten-clicks");
     await page.evaluate(() => window.saveAndLoad.key("KeyN"));
     await count(page, 0);
     await page.evaluate(() => window.saveAndLoad.key("KeyS"));

@@ -11,10 +11,11 @@ export const SAVE_KEY = "shallot-save-and-load";
 export function placement(index: number): [number, number, number] {
     const column = Math.floor(index / 5) % 7;
     const angle = (column * Math.PI * 2) / 6;
+    const layer = index % 5;
     return [
-        1.15 + (column === 6 ? 0 : Math.cos(angle) * 0.35),
+        1.15 + (column === 6 ? 0 : Math.cos(angle) * 0.35) - (layer % 2) * 0.075,
         -0.46 + (Math.floor(index / 35) * 5 + (index % 5)) * 0.085,
-        column === 6 ? 0 : Math.sin(angle) * 0.35,
+        (column === 6 ? 0 : Math.sin(angle) * 0.35) + layer * 0.015,
     ];
 }
 
