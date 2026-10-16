@@ -223,8 +223,8 @@ export default async function create() {
         loopingPcm.fill(0.1);
         const oncePcm = new Float32Array(4096);
         oncePcm.fill(0.1);
-        const loopingClip = registerClip(world, "loop", loopingPcm);
-        const onceClip = registerClip(world, "once", oncePcm);
+        const loopingClip = registerClip(world, loopingPcm);
+        const onceClip = registerClip(world, oncePcm);
 
         const listener = world.create();
         world.add(listener, Listener);

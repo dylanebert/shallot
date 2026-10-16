@@ -1,13 +1,4 @@
-import {
-    component,
-    f32,
-    i32,
-    type Plugin,
-    Registry,
-    type Resource,
-    u8,
-    type World,
-} from "../../engine";
+import { component, f32, i32, type Plugin, type Resource, u8, type World } from "../../engine";
 import { GlobalTransform, Transform, TransformPlugin } from "../transform";
 
 const MAX_CLIPS = 256;
@@ -17,17 +8,10 @@ export interface Clip {
     readonly name: string;
     readonly channels: readonly Float32Array[];
     readonly sampleRate: number;
-    readonly version: number;
 }
 
-interface ClipStore {
-    readonly registry: Registry<Clip>;
-    nextId: number;
-    nextVersion: number;
-}
-
-export const Clips: Resource<ClipStore> = {
-    create: () => ({ registry: new Registry<Clip>(), nextId: 0, nextVersion: 1 }),
+export const Clips: Resource<Clip[]> = {
+    create: () => [],
 };
 
 /** Playback data, with no voice or device state.
@@ -63,17 +47,16 @@ export const AudioOutput: Resource<AudioOutputValue> = {
     create: () => ({ context: null, bus: null }),
 };
 
-/** Register decoded PCM in this World's clip registry, returning its stable clip ID or -1 at capacity.
- * Re-registering a name replaces its PCM and advances its version. Mono and stereo are retained; wider
- * sources are downmixed to mono. PCM is copied so later caller mutation cannot change a registered clip.
+/** Register decoded PCM with a new World-local handle, or -1 at capacity. The optional name is
+ * a display label, not an identity. Mono and stereo are retained; wider sources are downmixed to mono.
+ * PCM is copied so later caller mutation cannot change a registered clip.
  */
 export function registerClip(
     world: World,
-    name: string,
     pcm: Float32Array | readonly Float32Array[],
     sampleRate = 48000,
+    name = "",
 ): number {
-    if (!name) throw new Error("clip name must not be empty");
     if (!Number.isFinite(sampleRate) || sampleRate <= 0)
         throw new Error("sampleRate must be positive");
     const source = pcm instanceof Float32Array ? [pcm] : [...pcm];
@@ -88,16 +71,8 @@ export function registerClip(
     const channels =
         source.length <= 2 ? source.map((channel) => channel.slice()) : [downmix(source, length)];
     const store = world.resource(Clips);
-    const id = store.registry.id(name);
-    if (id === undefined && store.nextId >= MAX_CLIPS) return -1;
-    const registered = store.registry.register({
-        name,
-        channels,
-        sampleRate,
-        version: store.nextVersion++,
-    });
-    if (id === undefined) store.nextId++;
-    return registered;
+    if (store.length >= MAX_CLIPS) return -1;
+    return store.push({ name, channels, sampleRate }) - 1;
 }
 
 function downmix(channels: readonly Float32Array[], length: number): Float32Array {
@@ -114,17 +89,14 @@ function downmix(channels: readonly Float32Array[], length: number): Float32Arra
  */
 export function play(
     world: World,
-    clip: string | number,
+    clip: number,
     options: { loop?: boolean; volume?: number; position?: readonly [number, number, number] } = {},
 ): number {
-    const clips = world.resource(Clips).registry;
-    const id = typeof clip === "string" ? clips.id(clip) : clip;
-    const name = id === undefined ? undefined : clips.name(id);
-    if (id === undefined || id < 0 || name === undefined || !clips.get(name)) return -1;
+    if (!world.resource(Clips)[clip]) return -1;
     const eid = world.create();
     world.add(eid, Sound);
     const sound = world.storage(Sound);
-    sound.clip.set(eid, id);
+    sound.clip.set(eid, clip);
     sound.loop.set(eid, options.loop ? 1 : 0);
     if (options.volume !== undefined) sound.volume.set(eid, options.volume);
     if (options.position !== undefined) {

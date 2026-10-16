@@ -11,8 +11,8 @@ if (!context) throw new Error("StandardAudioPlugin did not publish its AudioCont
 const pcm = new Float32Array(context.sampleRate / 2);
 for (let i = 0; i < pcm.length; i++)
     pcm[i] = Math.sin((2 * Math.PI * 440 * i) / context.sampleRate) * 0.25;
-registerClip(world, "browser-tone", pcm, context.sampleRate);
-play(world, "browser-tone", { loop: true });
+const clip = registerClip(world, pcm, context.sampleRate);
+play(world, clip, { loop: true });
 
 const analyser = context.createAnalyser();
 analyser.fftSize = 2048;

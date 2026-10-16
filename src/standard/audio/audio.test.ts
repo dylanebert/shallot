@@ -49,16 +49,16 @@ function lastBatch(messages: Message[]): Message {
     return message;
 }
 
-test("each World owns its clip registry and uploads each clip version once to its own worklet", () => {
+test("each World owns its clip registry and uploads each clip once to its own worklet", () => {
     const first = new World();
     const second = new World();
     const firstMessages = setup(first);
     const secondMessages = setup(second);
-    const firstId = registerClip(first, "shared-name", new Float32Array([0.25]));
-    const secondId = registerClip(second, "shared-name", new Float32Array([0.75]));
+    const firstId = registerClip(first, new Float32Array([0.25]), 48000, "shared-name");
+    const secondId = registerClip(second, new Float32Array([0.75]), 48000, "shared-name");
     expect(first.resource(Clips)).not.toBe(second.resource(Clips));
-    expect(first.resource(Clips).registry.get("shared-name")?.channels[0][0]).toBe(0.25);
-    expect(second.resource(Clips).registry.get("shared-name")?.channels[0][0]).toBe(0.75);
+    expect(first.resource(Clips)[firstId]?.channels[0][0]).toBe(0.25);
+    expect(second.resource(Clips)[secondId]?.channels[0][0]).toBe(0.75);
 
     reconcileAudio(first);
     reconcileAudio(second);
@@ -76,7 +76,7 @@ test("each World owns its clip registry and uploads each clip version once to it
     expect(firstMessages.filter((message) => message.type === "clip")).toHaveLength(1);
     expect(secondMessages.filter((message) => message.type === "clip")).toHaveLength(1);
 
-    registerClip(first, "shared-name", new Float32Array([0.5]));
+    registerClip(first, new Float32Array([0.5]), 48000, "shared-name");
     returnBatch(first, firstMessages);
     reconcileAudio(first);
     returnBatch(second, secondMessages);
@@ -89,8 +89,8 @@ test("each World owns its clip registry and uploads each clip version once to it
 
 test("play adds a positional Sound and unknown clips return -1", () => {
     const world = new World();
-    const clip = registerClip(world, "positioned", new Float32Array([0.5]));
-    expect(play(world, "not-registered")).toBe(-1);
+    const clip = registerClip(world, new Float32Array([0.5]));
+    expect(play(world, -1)).toBe(-1);
     const eid = play(world, clip, { position: [1, 2, 3], volume: 0.4, loop: true });
     expect(eid).toBeGreaterThan(0);
     expect(world.has(eid, Sound)).toBe(true);
@@ -105,11 +105,11 @@ test("play adds a positional Sound and unknown clips return -1", () => {
 
 test("a suspended context drops a once Sound and leaves a loop pending", () => {
     const world = new World();
-    registerClip(world, "suspended", new Float32Array([0.25]));
+    const clip = registerClip(world, new Float32Array([0.25]));
     setup(world);
     world.resource(Devices).audio.context = "suspended";
-    const once = play(world, "suspended");
-    const loop = play(world, "suspended", { loop: true });
+    const once = play(world, clip);
+    const loop = play(world, clip, { loop: true });
     reconcileAudio(world);
     expect(world.exists(once)).toBe(false);
     expect(world.exists(loop)).toBe(true);
@@ -120,9 +120,9 @@ test("a suspended context drops a once Sound and leaves a loop pending", () => {
 test("a restored loop reconciles to one voice while a finished once sound is discarded", () => {
     const world = new World();
     const messages = setup(world);
-    registerClip(world, "restored", new Float32Array([0.25]));
-    const loop = play(world, "restored", { loop: true });
-    const once = play(world, "restored");
+    const clip = registerClip(world, new Float32Array([0.25]));
+    const loop = play(world, clip, { loop: true });
+    const once = play(world, clip);
     const snapshot = world.snapshot();
     reconcileAudio(world);
     const sent = lastBatch(messages);
@@ -147,8 +147,8 @@ test("a restored loop reconciles to one voice while a finished once sound is dis
 test("a once Sound restored after many later completions is discarded without replay", () => {
     const world = new World();
     const messages = setup(world);
-    registerClip(world, "many-once", new Float32Array([0.25]));
-    const oldEid = play(world, "many-once");
+    const clip = registerClip(world, new Float32Array([0.25]));
+    const oldEid = play(world, clip);
     const oldSnapshot = world.snapshot();
 
     reconcileAudio(world);
@@ -157,7 +157,7 @@ test("a once Sound restored after many later completions is discarded without re
     messages.length = 0;
 
     for (let i = 0; i < 65; i++) {
-        play(world, "many-once");
+        play(world, clip);
         reconcileAudio(world);
         data = commands(lastBatch(messages));
         returnAudioBuffer(world, data, [data[3]]);
@@ -175,7 +175,7 @@ test("a once Sound restored after many later completions is discarded without re
 test("a once Sound with a live matching voice keeps that voice across restore", () => {
     const world = new World();
     const messages = setup(world);
-    const clip = registerClip(world, "active-once", new Float32Array([0.25]));
+    const clip = registerClip(world, new Float32Array([0.25]));
     const eid = play(world, clip);
     const snapshot = world.snapshot();
     reconcileAudio(world);
@@ -196,7 +196,7 @@ test("a once Sound with a live matching voice keeps that voice across restore", 
 test("a once Sound played after restore starts normally", () => {
     const world = new World();
     const messages = setup(world);
-    const clip = registerClip(world, "after-restore", new Float32Array([0.25]));
+    const clip = registerClip(world, new Float32Array([0.25]));
     const snapshot = world.snapshot();
     world.restore(snapshot);
 
@@ -213,8 +213,8 @@ test("a once Sound played after restore starts normally", () => {
 test("removing a loop fades and frees its voice", () => {
     const world = new World();
     const messages = setup(world);
-    registerClip(world, "removed-loop", new Float32Array([0.25]));
-    const eid = play(world, "removed-loop", { loop: true });
+    const clip = registerClip(world, new Float32Array([0.25]));
+    const eid = play(world, clip, { loop: true });
     reconcileAudio(world);
     const voice = voiceFor(world, eid)!;
     returnBatch(world, messages);
@@ -234,11 +234,11 @@ test("removing a loop fades and frees its voice", () => {
 test("the positional command carries listener-relative azimuth for a source at the listener's left", () => {
     const world = new World();
     const messages = setup(world);
-    registerClip(world, "left", new Float32Array([0.25]));
+    const clip = registerClip(world, new Float32Array([0.25]));
     const listener = world.create();
     world.add(listener, Listener);
     world.add(listener, GlobalTransform);
-    const source = play(world, "left", { position: [-1, 0, 0] });
+    const source = play(world, clip, { position: [-1, 0, 0] });
     const transforms = world.storage(GlobalTransform);
     transforms.translation.set(listener, 0, 0, 0, 0);
     transforms.rotation.set(listener, 0, 0, 0, 1);

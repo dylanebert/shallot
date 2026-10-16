@@ -40,7 +40,7 @@ interface Runtime {
     generations: Uint32Array;
     voicePool: Voice[];
     slots: (Voice | null)[];
-    sentClips: Map<number, number>;
+    sentClips: number;
     buffer: Float64Array | null;
     batchMessage: { type: "batch"; buffer: Float64Array | null };
     batchTransfer: ArrayBuffer[];
@@ -63,7 +63,7 @@ export const AudioRuntime: Resource<Runtime> = {
         generations: new Uint32Array(MAX_VOICES),
         voicePool: createVoicePool(),
         slots: Array.from({ length: MAX_VOICES }, () => null),
-        sentClips: new Map(),
+        sentClips: 0,
         buffer: new Float64Array(BUFFER_LENGTH),
         batchMessage: { type: "batch", buffer: null },
         batchTransfer: [new ArrayBuffer(0)],
@@ -200,7 +200,7 @@ export async function initializeAudio(world: World): Promise<void> {
     if (!Ctor || typeof AudioWorkletNode === "undefined") return;
     await disposeAudio(world, runtime);
     resetVoices(runtime);
-    runtime.sentClips.clear();
+    runtime.sentClips = 0;
 
     const context = new Ctor();
     runtime.context = context;
@@ -327,7 +327,7 @@ export async function disposeAudio(
     runtime.node = null;
     runtime.buffer = new Float64Array(BUFFER_LENGTH);
     resetVoices(runtime);
-    runtime.sentClips.clear();
+    runtime.sentClips = 0;
     output.context = null;
     output.bus = null;
     if (context) devices.audio.context = "closed";
@@ -337,18 +337,15 @@ function uploadClips(world: World, runtime: Runtime): void {
     const context = runtime.context;
     const node = runtime.node;
     if (!context || !node) return;
-    const store = world.resource(Clips);
-    const registry = store.registry;
-    for (let id = 0; id < store.nextId; id++) {
-        const name = registry.name(id)!;
-        const clip = registry.get(name);
-        if (!clip || runtime.sentClips.get(id) === clip.version) continue;
+    const clips = world.resource(Clips);
+    for (let id = runtime.sentClips; id < clips.length; id++) {
+        const clip = clips[id];
         const channels = clip.channels.map((channel) =>
             resample(channel, clip.sampleRate, context.sampleRate),
         );
         const transfer = channels.map((channel) => channel.buffer as ArrayBuffer);
         node.port.postMessage({ type: "clip", id, channels }, transfer);
-        runtime.sentClips.set(id, clip.version);
+        runtime.sentClips = id + 1;
     }
 }
 
@@ -526,8 +523,7 @@ export function reconcileAudio(world: World): void {
         const ref = world.ref(eid);
         if (ownedVoice(runtime, eid)) continue;
         const clip = sounds.clip.get(eid);
-        const entry = world.resource(Clips).registry.name(clip);
-        if (entry === undefined || !world.resource(Clips).registry.get(entry)) continue;
+        if (!world.resource(Clips)[clip]) continue;
         const loop = sounds.loop.get(eid) !== 0;
         if (sounds.paused.get(eid) !== 0) continue;
         const voice = allocate(runtime, eid, ref, clip, loop, soundVolume(world, eid));
@@ -624,30 +620,45 @@ export const StandardAudioPlugin: Plugin = {
     },
 };
 
-/** Registers decoded PCM in this World's clip registry. Rejects without an AudioContext or on
- * fetch/decode failure; closes a temporary decoding context, never the World's output context. */
-export async function loadClip(world: World, name: string, source: string | Blob): Promise<number> {
+const ClipLoads: Resource<Map<string, Promise<number>>> = { create: () => new Map() };
+
+/** Load a URL once per World, sharing its handle and in-flight fetch. Failed loads may be retried.
+ * Rejects without an AudioContext or on fetch/decode failure; closes a temporary decoding context,
+ * never the World's output context. For bytes, pass a URL created with URL.createObjectURL. */
+export function loadClip(world: World, url: string): Promise<number> {
+    const loads = world.resource(ClipLoads);
+    const existing = loads.get(url);
+    if (existing) return existing;
+    const pending = decodeClip(world, url).then(
+        (handle) => {
+            if (handle < 0) loads.delete(url);
+            return handle;
+        },
+        (error) => {
+            loads.delete(url);
+            throw error;
+        },
+    );
+    loads.set(url, pending);
+    return pending;
+}
+
+async function decodeClip(world: World, url: string): Promise<number> {
     const output = world.resource(AudioOutput);
     const Ctor = browserAudioContext();
     if (!output.context && !Ctor) throw new Error("AudioContext is not available to decode clips");
     const context = output.context ?? new Ctor!();
     const owned = context !== output.context;
     try {
-        const bytes =
-            typeof source === "string"
-                ? await fetch(source).then((response) => {
-                      if (!response.ok)
-                          throw new Error(
-                              `failed to fetch clip: ${response.status} ${response.statusText}`,
-                          );
-                      return response.arrayBuffer();
-                  })
-                : await source.arrayBuffer();
+        const response = await fetch(url);
+        if (!response.ok)
+            throw new Error(`failed to fetch clip: ${response.status} ${response.statusText}`);
+        const bytes = await response.arrayBuffer();
         const decoded = await context.decodeAudioData(bytes);
         const channels: Float32Array[] = [];
         for (let channel = 0; channel < decoded.numberOfChannels; channel++)
             channels.push(decoded.getChannelData(channel).slice());
-        return registerClip(world, name, channels, decoded.sampleRate);
+        return registerClip(world, channels, decoded.sampleRate);
     } finally {
         if (owned) await context.close();
     }
