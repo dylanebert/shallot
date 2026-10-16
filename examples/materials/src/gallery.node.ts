@@ -9,7 +9,25 @@ import { StandardMaterialInput } from "@dylanebert/shallot/standard/rendering";
 import { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Gallery, GalleryPlugin, presets } from "./gallery";
-import { AnimationParameters, WaveMaterial } from "./materials";
+import { AnimationParameters, CheckerMaterial, CheckerParameters, WaveMaterial } from "./materials";
+
+test("the gallery's dark and orange colours reach the checkerboard's material row", async () => {
+    const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });
+    try {
+        const world = app.world;
+        const row = world.resource(Gallery).checker!.material;
+        const bytes = world.resource(CheckerMaterial).table.bytes;
+        const offset = row * d.sizeOf(CheckerParameters);
+        const value = readFromArrayBuffer(
+            bytes.slice(offset, offset + d.sizeOf(CheckerParameters)).buffer,
+            CheckerParameters,
+        );
+        expect(Array.from(value.darkColor)).toEqual([0.06, 0.045, 0.03].map(Math.fround));
+        expect(Array.from(value.lightColor)).toEqual([0.95, 0.36, 0.08].map(Math.fround));
+    } finally {
+        app.dispose();
+    }
+});
 
 test("the wave's own time parameter advances with the clock", async () => {
     const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });

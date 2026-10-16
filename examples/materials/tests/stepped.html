@@ -6,6 +6,7 @@ import { Orbit } from '@dylanebert/shallot/extras';
 import { attachTexture, captureTexture, captureFrame, Tonemapping, TonemappingMethod } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { Gallery, GalleryPlugin } from '../src/gallery';
+import { CheckerMaterial } from '../src/materials';
 const app=await createApp({plugins:[GalleryPlugin]});
 const world=app.world, gallery=world.resource(Gallery), canvas=document.querySelector('canvas');
 // A missing registered background must not pass as the camera's similarly coloured clear.
@@ -80,6 +81,7 @@ window.capture=async()=>{const frame=await render();const output=document.create
 window.hide=(index,hidden)=>{world.storage(Transform).scale.set(gallery.spheres[index],...(hidden?[0,0,0]:[1,1,1]));world.step(1/60);world.step(1/60);};
 function replace(index,handle){const storage=world.storage(MeshMaterial);storage.type.set(gallery.spheres[index],handle.type);storage.material.set(gallery.spheres[index],handle.material);}
 window.woodOff=()=>replace(4,world.resource(Materials).add(StandardMaterial({perceptualRoughness:0.72})));
+window.checkerBlue=()=>world.resource(CheckerMaterial).update(gallery.checker,{lightColor:[0.02,0.1,0.95]});
 window.glassOpaque=()=>replace(3,world.resource(Materials).add(StandardMaterial({baseColor:[0.7,0.85,0.95,1],perceptualRoughness:0.08})));
 window.adapter=world.gpuIfAvailable.adapter;
 window.aim(-1);window.ready=true;

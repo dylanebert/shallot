@@ -14,13 +14,13 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
 export const AnimationParameters = d.struct({ time: d.f32 });
-export const CheckerParameters = d.struct({ scale: d.f32 });
+export const CheckerParameters = d.struct({ darkColor: d.vec3f, lightColor: d.vec3f });
 const CheckerFragment = materialFragmentContext(CheckerParameters);
 const WaveFragment = materialFragmentContext(AnimationParameters);
 export const CheckerMaterial = materialType({
     name: "ScrollingChecker",
     parameters: CheckerParameters,
-    defaults: { scale: 1 },
+    defaults: { darkColor: d.vec3f(0), lightColor: d.vec3f(1) },
     fragmentInputs: { uv: true },
     fragment: tgpu.fn(
         [CheckerFragment],
@@ -28,10 +28,9 @@ export const CheckerMaterial = materialType({
     )((ctx) => {
         "use gpu";
         const time = engineLayout.$.frame.time;
-        const scale = ctx.parameters.scale;
-        const cell = std.floor(ctx.uv.x * 12 * scale + time * 2) + std.floor(ctx.uv.y * 6 * scale);
+        const cell = std.floor(ctx.uv.x * 12 + time * 2) + std.floor(ctx.uv.y * 6);
         const value = cell % 2;
-        const color = std.mix(d.vec3f(0.06, 0.045, 0.03), d.vec3f(0.95, 0.36, 0.08), value);
+        const color = std.mix(ctx.parameters.darkColor, ctx.parameters.lightColor, value);
         return d.vec4f(lit(color, ctx.worldNormal), 1);
     }),
 });

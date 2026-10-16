@@ -33,7 +33,7 @@ test("world names cover pixels within separate projected boxes above the spheres
     }
 });
 
-test("stepped draws show blended glass, decoded wood, animated checker pixels, wave silhouette and registered background", async ({
+test("stepped draws show blended glass, decoded wood, animated and row-coloured checker pixels, wave silhouette and registered background", async ({
     page,
 }) => {
     const errors: string[] = [];
@@ -86,7 +86,10 @@ test("stepped draws show blended glass, decoded wood, animated checker pixels, w
     await aim(5);
     const checker = await pixels();
     await page.evaluate(() => (window as any).advance(0.37));
-    expect(changed(checker, await pixels())).toBeGreaterThan(500);
+    const animatedChecker = await pixels();
+    expect(changed(checker, animatedChecker)).toBeGreaterThan(500);
+    await page.evaluate(() => (window as any).checkerBlue());
+    expect(changed(animatedChecker, await pixels())).toBeGreaterThan(500);
     await aim(6);
     const wave = await pixels();
     await page.evaluate(() => (window as any).advance(0.48));

@@ -188,7 +188,10 @@ export const AnimationPlugin: Plugin = {
     dependencies: [CheckerPlugin, WavePlugin],
     initialize(world) {
         const gallery = world.resource(Gallery);
-        gallery.checker = world.resource(CheckerMaterial).add({ scale: 1 });
+        gallery.checker = world.resource(CheckerMaterial).add({
+            darkColor: d.vec3f(0.06, 0.045, 0.03),
+            lightColor: d.vec3f(0.95, 0.36, 0.08),
+        });
         gallery.wave = world.resource(WaveMaterial).add({ time: 0 });
     },
     systems: [
