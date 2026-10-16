@@ -15,7 +15,7 @@ const orbit=world.storage(Orbit);
 const overview={distance:orbit.distance.get(gallery.camera),yaw:orbit.yaw.get(gallery.camera),pitch:orbit.pitch.get(gallery.camera),pan:[orbit.pan.x.get(gallery.camera),orbit.pan.y.get(gallery.camera),orbit.pan.z.get(gallery.camera)]};
 window.aim=(index)=>{
  orbit.smoothness.set(gallery.camera,1);
- orbit.distance.set(gallery.camera,index<0?overview.distance:2.6);
+ orbit.distance.set(gallery.camera,index<0?overview.distance:8.5);
  orbit.yaw.set(gallery.camera,index<0?overview.yaw:0);
  orbit.pitch.set(gallery.camera,index<0?overview.pitch:0);
  orbit.pan.set(gallery.camera,...(index<0?overview.pan:[0,0,0]));

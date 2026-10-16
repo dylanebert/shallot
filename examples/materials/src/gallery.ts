@@ -73,9 +73,9 @@ function scene(world: World) {
     const camera = world.create();
     gallery.camera = camera;
     world.add(camera, Transform);
-    world.add(camera, Camera, { clearColor: 0x1c1917 });
+    world.add(camera, Camera, { clearColor: 0x1c1917, fov: 20 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Orbit, { distance: 7.8, yaw: 0.04, pitch: 0.2, pan: [0, 0.6, 0] });
+    world.add(camera, Orbit, { distance: 26, yaw: 0.04, pitch: 0.2, pan: [0, 0.6, 0] });
 }
 function backdrop(world: World) {
     const background = registerBackground(world, {
