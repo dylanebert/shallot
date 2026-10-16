@@ -16,6 +16,15 @@ declare global {
         shadow(
             kind: "block" | "bulbs",
         ): Promise<{ darkened: number; darkenedFraction: number; maxDelta: number }>;
+        appearance(): Promise<{
+            window: number;
+            shaftFloor: number;
+            wallRgb: number[];
+            wallL: number;
+            clearL: number;
+            ceilingL: number;
+            floorL: number;
+        }>;
         capture(): Promise<string>;
         device: { requests: { requiredLimits?: unknown }[]; adapter: unknown; limits: unknown };
     }
@@ -65,6 +74,19 @@ test("the window shaft scatters only with VolumetricLight; its floor and both pe
     await capture("shaft-toward-pendants");
     await page.evaluate(() => window.view(1, 1, 5, 0, 0));
     await capture("pendants-toward-window");
+});
+
+test("daylight through the window outshines its floor patch, and the dark room stays legible against the clear", async ({
+    page,
+}) => {
+    await page.goto("http://127.0.0.1:4216/tests/stepped.html");
+    await page.waitForFunction(() => window.ready);
+    const appearance = await page.evaluate(() => window.appearance());
+    console.log("window and dark room", appearance);
+    expect.soft(appearance.window).toBeGreaterThan(appearance.shaftFloor + 20);
+    expect.soft(appearance.wallL - appearance.clearL).toBeGreaterThan(0.03);
+    expect.soft(appearance.wallL - appearance.ceilingL).toBeGreaterThan(0.015);
+    expect.soft(appearance.ceilingL - appearance.floorL).toBeGreaterThan(0.015);
 });
 
 test("a pendant's block shadows visible floor in front of it, but its emissive bulbs do not", async ({

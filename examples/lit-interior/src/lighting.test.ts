@@ -7,11 +7,12 @@ import {
     VolumetricLight,
     World,
 } from "@dylanebert/shallot";
-import { Fog } from "@dylanebert/shallot/extras";
+import { Fog, SkyPlugin } from "@dylanebert/shallot/extras";
 import { Room, RoomPlugin } from "./room";
 
 function scene() {
     const world = new World();
+    SkyPlugin.initialize!(world);
     RoomPlugin.initialize!(world);
     return { world, room: world.resource(Room) };
 }

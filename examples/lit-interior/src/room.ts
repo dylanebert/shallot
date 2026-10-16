@@ -2,6 +2,7 @@ import {
     Body,
     BodyType,
     Camera,
+    CameraBackground,
     Character,
     DirectionalLight,
     GlobalAmbientLight,
@@ -23,7 +24,7 @@ import {
     VolumetricLight,
     type World,
 } from "@dylanebert/shallot";
-import { Fog, FogPlugin } from "@dylanebert/shallot/extras";
+import { Fog, FogPlugin, Sky, SkyPlugin, skyBackgroundHandle } from "@dylanebert/shallot/extras";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 type Color = readonly [number, number, number, number];
@@ -71,16 +72,10 @@ function room(world: World): void {
     const scene = world.resource(Room);
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
-    ambient.brightness = 25;
+    ambient.brightness = 180;
+    block(world, [0, -0.25, 0], [9, 0.5, 24]);
+    block(world, [0, 5.25, 0], [9, 0.5, 24], [0.11, 0.105, 0.095, 1]);
     for (const [position, size] of [
-        [
-            [0, -0.25, 0],
-            [9, 0.5, 24],
-        ],
-        [
-            [0, 5.25, 0],
-            [9, 0.5, 24],
-        ],
         [
             [-4.5, 2.5, 0],
             [0.4, 5, 24],
@@ -110,7 +105,7 @@ function room(world: World): void {
             [4, 0.5, 0.4],
         ],
     ] as const)
-        block(world, position, size);
+        block(world, position, size, [0.15, 0.14, 0.125, 1]);
     scene.sun = world.create();
     world.add(scene.sun, Transform, { rotation: lookAtRotation(0, 8, -12, 0, 0, 0) });
     world.add(scene.sun, DirectionalLight, {
@@ -171,9 +166,17 @@ function room(world: World): void {
     scene.object = block(world, [-1, 0.55, 4], [0.8, 1.1, 0.8], [0.658, 0.301, 0.117, 1]);
     block(world, [2, 0.3, 7], [1.1, 0.6, 1.1]);
     block(world, [2.5, 0.65, 8.2], [0.7, 1.3, 0.7]);
+    const sky = world.create();
+    world.add(sky, Sky, {
+        brightness: 8 * 2 ** 9.7,
+        zenith: 0xd8e4ff,
+        horizon: 0xeee9df,
+        cloudCoverage: 0.2,
+    });
     scene.camera = world.create();
     world.add(scene.camera, Camera, { fov: 70, clearColor: 0x191816 });
     world.add(scene.camera, StandardRenderer);
+    world.add(scene.camera, CameraBackground, { background: skyBackgroundHandle(world) });
     world.add(scene.camera, Transform, { translation: [2.5, 1.7, 11] });
     scene.player = world.create();
     world.add(scene.player, Transform, { translation: [2.5, 1, 11] });
@@ -190,6 +193,6 @@ function room(world: World): void {
 }
 export const RoomPlugin: Plugin = {
     name: "Room",
-    dependencies: [StandardPhysicsPlugin, PlayerPlugin, FogPlugin],
+    dependencies: [StandardPhysicsPlugin, PlayerPlugin, FogPlugin, SkyPlugin],
     initialize: room,
 };
