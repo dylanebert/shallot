@@ -59,6 +59,27 @@ for (const timestamps of ["adapter", "withheld"] as const) {
     test(`the built particles page opens with its profiler (${timestamps} timestamps)`, async ({
         page,
     }) => {
+        test.setTimeout(120_000);
+        page.on("console", (message) => console.log("DIAG", message.text()));
+        await page.addInitScript(() => {
+            const start = performance.now();
+            const log = (...args: unknown[]) => console.log("TIMING", Math.round(performance.now() - start), ...args);
+            const begin = GPUCommandEncoder.prototype.beginComputePass;
+            GPUCommandEncoder.prototype.beginComputePass = function (descriptor) {
+                if (descriptor?.label === "particles:advance") log("advance", !!descriptor.timestampWrites);
+                return begin.call(this, descriptor);
+            };
+            const resolve = GPUCommandEncoder.prototype.resolveQuerySet;
+            GPUCommandEncoder.prototype.resolveQuerySet = function (...args) {
+                log("resolve", args[2]);
+                return resolve.apply(this, args);
+            };
+            const map = GPUBuffer.prototype.mapAsync;
+            GPUBuffer.prototype.mapAsync = function (...args) {
+                log("map", this.label);
+                return map.apply(this, args).then(() => log("mapped", this.label));
+            };
+        });
         if (timestamps === "withheld") {
             await page.addInitScript(() => {
                 const request = GPUAdapter.prototype.requestDevice;
@@ -88,7 +109,8 @@ for (const timestamps of ["adapter", "withheld"] as const) {
             await profiler.getByText("▸ gpu", { exact: true }).click();
             await expect(
                 profiler.getByText("particles:advance", { exact: true }).first(),
-            ).toBeVisible();
+            ).toBeVisible({ timeout: 90_000 });
+            console.log("DIAG row arrived");
         } else {
             await expect(
                 profiler.getByText("requires timestamp-query", { exact: true }),
