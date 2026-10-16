@@ -32,6 +32,8 @@ struct Voice {
     clip_looping: bool,
     clip_playing: bool,
     clip_stopping: bool,
+    clip_paused: bool,
+    pause_gain: f32,
     clip_gain: f32,
     clip_gain_target: f32,
     buffers: [[f32; BLOCK_SIZE]; 2],
@@ -56,6 +58,8 @@ fn default_voice() -> Voice {
         clip_looping: false,
         clip_playing: false,
         clip_stopping: false,
+        clip_paused: false,
+        pause_gain: 1.0,
         clip_gain: 0.0,
         clip_gain_target: 0.0,
         buffers: [[0.0; BLOCK_SIZE]; 2],
@@ -202,7 +206,7 @@ impl AudioEngine {
         let mut count = 0usize;
         for voice_id in 0..MAX_VOICES {
             let voice = &mut self.voices[voice_id];
-            if !voice.active {
+            if !voice.active || (voice.clip_paused && voice.pause_gain == 0.0) {
                 continue;
             }
             let gain = if voice.spatial {
@@ -238,8 +242,8 @@ impl AudioEngine {
                 ranked[j] = key;
             }
             let below_boundary = self.voices[ranked[REAL_VOICE_BUDGET] as usize].audibility;
-            for rank in 0..count {
-                let voice = &mut self.voices[ranked[rank] as usize];
+            for (rank, &index) in ranked.iter().enumerate() {
+                let voice = &mut self.voices[index as usize];
                 if rank < REAL_VOICE_BUDGET {
                     if voice.virtual_voice
                         && (rank < REAL_VOICE_BUDGET - 1 || voice.audibility > below_boundary * 1.2)
@@ -354,6 +358,8 @@ impl AudioEngine {
         let voice = &mut self.voices[voice_index];
         voice.clip_id = clip_id;
         voice.clip_position = 0.0;
+        voice.clip_paused = false;
+        voice.pause_gain = 1.0;
         voice.clip_looping = looping;
         voice.clip_playing = true;
         voice.clip_stopping = false;
@@ -373,6 +379,12 @@ impl AudioEngine {
         if voice.clip_playing {
             voice.clip_stopping = true;
             voice.fade_samples = -FADE_SAMPLES;
+        }
+    }
+
+    pub fn set_clip_paused(&mut self, voice_id: u32, paused: bool) {
+        if let Some(voice) = self.voices.get_mut(voice_id as usize) {
+            voice.clip_paused = paused;
         }
     }
 
@@ -422,6 +434,9 @@ impl AudioEngine {
         voice.buffers[0].fill(0.0);
         voice.buffers[1].fill(0.0);
 
+        if voice.clip_paused && voice.pause_gain == 0.0 && !voice.clip_stopping {
+            return true;
+        }
         let sample = &samples[voice.clip_id as usize];
         let left = &sample.channels[0];
         if !voice.clip_playing || left.is_empty() {
@@ -435,6 +450,15 @@ impl AudioEngine {
         };
 
         for frame in 0..BLOCK_SIZE {
+            if voice.clip_paused && voice.pause_gain == 0.0 && !voice.clip_stopping {
+                break;
+            }
+            let pause_step = 1.0 / FADE_SAMPLES as f32;
+            voice.pause_gain = if voice.clip_paused {
+                (voice.pause_gain - pause_step).max(0.0)
+            } else {
+                (voice.pause_gain + pause_step).min(1.0)
+            };
             let delta = voice.clip_gain_target - voice.clip_gain;
             let next_gain = voice.clip_gain + smooth_coeff * delta;
             voice.clip_gain = if delta.abs() <= GAIN_SETTLE_EPSILON || next_gain == voice.clip_gain
@@ -464,6 +488,8 @@ impl AudioEngine {
                 break;
             }
 
+            voice.buffers[0][frame] *= voice.pause_gain;
+            voice.buffers[1][frame] *= voice.pause_gain;
             if voice.clip_looping {
                 voice.clip_position = voice.clip_position.rem_euclid(left.len() as f64);
             } else if voice.clip_position >= left.len() as f64 {
@@ -517,13 +543,13 @@ impl AudioEngine {
                 let elevation_end = voice.elevation;
                 let (sin_az_end, cos_az_end) = (azimuth_end.sin(), azimuth_end.cos());
                 let (sin_el_end, cos_el_end) = (elevation_end.sin(), elevation_end.cos());
-                for frame in 0..BLOCK_SIZE {
+                for (frame, &sample) in mono.iter().enumerate() {
                     let t = frame as f32 * inv_block;
                     let sin_az = sin_az_start + (sin_az_end - sin_az_start) * t;
                     let cos_az = cos_az_start + (cos_az_end - cos_az_start) * t;
                     let sin_el = sin_el_start + (sin_el_end - sin_el_start) * t;
                     let cos_el = cos_el_start + (cos_el_end - cos_el_start) * t;
-                    let value = mono[frame];
+                    let value = sample;
                     self.foa_bus[0][frame] += value;
                     self.foa_bus[1][frame] += value * sin_az * cos_el;
                     self.foa_bus[2][frame] += value * sin_el;
@@ -560,9 +586,9 @@ impl AudioEngine {
         for speaker in 0..NUM_SPEAKERS {
             let direction = &self.speakers[speaker];
             let mut block = [0.0f32; BLOCK_SIZE];
-            for frame in 0..BLOCK_SIZE {
+            for (frame, value) in block.iter_mut().enumerate() {
                 const MAX_RE: f32 = 0.775;
-                block[frame] = self.foa_bus[0][frame]
+                *value = self.foa_bus[0][frame]
                     + MAX_RE
                         * (direction.x * self.foa_bus[1][frame]
                             + direction.y * self.foa_bus[2][frame]
@@ -657,6 +683,11 @@ pub extern "C" fn audio_set_spatial(voice_id: u32, azimuth: f32, elevation: f32,
 #[no_mangle]
 pub extern "C" fn audio_set_voice_spatial(voice_id: u32, spatial: u32) {
     engine().set_voice_spatial(voice_id, spatial);
+}
+
+#[no_mangle]
+pub extern "C" fn audio_set_clip_paused(voice_id: u32, paused: u32) {
+    engine().set_clip_paused(voice_id, paused != 0);
 }
 
 #[no_mangle]
@@ -829,6 +860,60 @@ mod tests {
     }
 
     #[test]
+    fn paused_loop_holds_position_and_never_reports_idle() {
+        let mut engine = new_engine(48000.0);
+        let pcm: Vec<f32> = (0..8192).map(|i| i as f32 / 8192.0).collect();
+        upload_mono(&mut engine, 0, &pcm);
+        engine.play_clip(0, 0, true, 1.0);
+        process_blocks(&mut engine, 32);
+        engine.set_clip_paused(0, true);
+        process_blocks(&mut engine, 2);
+        let position = engine.voices[0].clip_position;
+        process_blocks(&mut engine, 8);
+        assert_eq!(engine.voices[0].clip_position, position);
+        assert_eq!(engine.voice_idle(0), 0);
+        assert!(engine.output.iter().all(|v| v.abs() < 1e-7));
+        engine.set_clip_paused(0, false);
+        engine.process_pre_limiter();
+        assert_eq!(engine.voices[0].clip_position, position + BLOCK_SIZE as f64);
+        let expected =
+            pcm[position as usize + BLOCK_SIZE - 1] * (BLOCK_SIZE as f32 / FADE_SAMPLES as f32);
+        assert!((engine.output[BLOCK_SIZE - 1] - expected).abs() < 1e-5);
+    }
+
+    #[test]
+    fn paused_voices_do_not_take_the_real_voice_budget() {
+        let mut engine = new_engine(48000.0);
+        upload_mono(&mut engine, 0, &[0.2; 8192]);
+        for id in 0..MAX_VOICES as u32 {
+            engine.play_clip(id, 0, true, 1.0);
+            if id < (MAX_VOICES - REAL_VOICE_BUDGET) as u32 {
+                engine.set_clip_paused(id, true);
+            }
+        }
+        process_blocks(&mut engine, 32);
+        for voice in &engine.voices[MAX_VOICES - REAL_VOICE_BUDGET..] {
+            assert!(!voice.virtual_voice);
+        }
+    }
+
+    #[test]
+    fn positional_distance_energy_follows_inverse_rolloff_squared() {
+        let energy = |distance| {
+            let mut engine = new_engine(48000.0);
+            upload_mono(&mut engine, 0, &[0.2; 1024]);
+            engine.play_clip(0, 0, true, 1.0);
+            engine.set_voice_spatial(0, 1);
+            engine.set_spatial(0, 0.0, 0.0, distance);
+            process_blocks(&mut engine, 64);
+            engine.process_pre_limiter();
+            engine.output.iter().map(|v| v * v).sum::<f32>()
+        };
+        let ratio = energy(30.0) / energy(3.0);
+        assert!((ratio - 0.01).abs() < 0.0001, "energy ratio: {ratio}");
+    }
+
+    #[test]
     fn stopped_clip_fades_to_silence_within_fade_and_reports_idle() {
         let mut engine = new_engine(48000.0);
         upload_mono(&mut engine, 0, &[0.3; 1024]);
@@ -901,14 +986,12 @@ mod tests {
 
         engine.set_clip_gain(0, 0.0);
         engine.set_clip_gain(24, 1.0);
-        let mut blocks_processed = 32usize;
         let mut return_cursor = None;
         let mut gain_at_return = 0.0;
-        for _ in 0..32 {
+        for blocks_processed in 32..64 {
             let cursor = (blocks_processed * BLOCK_SIZE) % pcm.len();
             let gain = engine.voices[24].clip_gain;
             engine.process_pre_limiter();
-            blocks_processed += 1;
             if !engine.voices[24].virtual_voice {
                 return_cursor = Some(cursor);
                 gain_at_return = gain;

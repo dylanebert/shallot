@@ -49,6 +49,60 @@ function lastBatch(messages: Message[]): Message {
     return message;
 }
 
+test("pausing a live loop retains its voice without STOP and resumes without PLAY", () => {
+    const world = new World();
+    const messages = setup(world);
+    const clip = registerClip(world, new Float32Array([0.3]));
+    const eid = play(world, clip, { loop: true });
+    reconcileAudio(world);
+    const handle = voiceFor(world, eid)!.handle;
+    returnBatch(world, messages);
+    world.storage(Sound).paused.set(eid, 1);
+    reconcileAudio(world);
+    expect(commands(lastBatch(messages))[2]).not.toBe(3);
+    expect(voiceFor(world, eid)?.handle).toBe(handle);
+    returnBatch(world, messages);
+    world.storage(Sound).paused.set(eid, 0);
+    reconcileAudio(world);
+    expect(commands(lastBatch(messages))[2]).not.toBe(1);
+    expect(voiceFor(world, eid)?.handle).toBe(handle);
+    world.dispose();
+});
+
+test("a paused once sound with a live owner survives restore and completes after resume", () => {
+    const world = new World();
+    const messages = setup(world);
+    const clip = registerClip(world, new Float32Array([0.3]));
+    const eid = play(world, clip);
+    reconcileAudio(world);
+    const handle = voiceFor(world, eid)!.handle;
+    returnBatch(world, messages);
+    world.storage(Sound).paused.set(eid, 1);
+    reconcileAudio(world);
+    returnBatch(world, messages);
+    const snapshot = world.snapshot();
+    world.restore(snapshot);
+    expect(world.has(eid, Sound)).toBe(true);
+    expect(voiceFor(world, eid)?.handle).toBe(handle);
+    world.storage(Sound).paused.set(eid, 0);
+    reconcileAudio(world);
+    returnBatch(world, messages, [handle]);
+    expect(world.has(eid, Sound)).toBe(false);
+    world.dispose();
+});
+
+test("a paused sound without a voice does not start", () => {
+    const world = new World();
+    const messages = setup(world);
+    const clip = registerClip(world, new Float32Array([0.3]));
+    const eid = play(world, clip, { loop: true });
+    world.storage(Sound).paused.set(eid, 1);
+    reconcileAudio(world);
+    expect(commands(lastBatch(messages))[0]).toBe(0);
+    expect(voiceFor(world, eid)).toBeUndefined();
+    world.dispose();
+});
+
 test("each World owns its clip registry and uploads each clip once to its own worklet", () => {
     const first = new World();
     const second = new World();

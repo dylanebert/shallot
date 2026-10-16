@@ -17,6 +17,7 @@ const BUFFER_LENGTH = FINISHED_OFFSET + MAX_VOICES;
 const PLAY = 1;
 const UPDATE = 2;
 const STOP = 3;
+const PAUSE = 4;
 const MATRIX = new Float32Array(16);
 const SOUND_QUERY = [Sound];
 const LISTENER_QUERY = [Listener, GlobalTransform];
@@ -114,7 +115,6 @@ function restoredOnceHasVoice(world: World, runtime: Runtime, eid: number): bool
     return (
         world.resource(Devices).audio.context === "running" &&
         world.storage(Sound).loop.get(eid) === 0 &&
-        world.storage(Sound).paused.get(eid) === 0 &&
         voice !== undefined &&
         voice.ref === world.ref(eid) &&
         voice.clip === world.storage(Sound).clip.get(eid) &&
@@ -131,7 +131,8 @@ function discardRestoredOnceSounds(world: World, runtime: Runtime): void {
     }
 }
 
-/** Observe restores without snapshotting voice state; only once sounds with a live owner survive. */
+/** Observe restores without snapshotting voice state; only once sounds with a live owner,
+ * including paused voices, survive. Restore does not rewind a surviving voice's playhead. */
 export function installAudioRestore(world: World, runtime = world.resource(AudioRuntime)): void {
     world.storage(Sound);
     world.registerRecovery("StandardAudio", {
@@ -506,7 +507,7 @@ export function reconcileAudio(world: World): void {
         const clip = sounds.clip.get(eid);
         const loop = sounds.loop.get(eid) !== 0;
         const paused = sounds.paused.get(eid) !== 0;
-        if (paused || clip !== voice.clip) {
+        if (clip !== voice.clip) {
             count = stopVoice(voice, buffer, count);
             continue;
         }
@@ -514,7 +515,7 @@ export function reconcileAudio(world: World): void {
         voice.loop = loop;
         const volume = soundVolume(world, eid);
         voice.volume = volume;
-        count = pushSpatial(world, buffer, count, UPDATE, voice, eid, listener);
+        count = pushSpatial(world, buffer, count, paused ? PAUSE : UPDATE, voice, eid, listener);
     }
 
     const sounds = world.storage(Sound);

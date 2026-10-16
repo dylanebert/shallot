@@ -5,6 +5,7 @@ const FINISHED_OFFSET = 2 + COMMANDS * STRIDE;
 const PLAY = 1;
 const UPDATE = 2;
 const STOP = 3;
+const PAUSE = 4;
 
 export const WORKLET_CODE = `
 const MAX_VOICES = ${MAX_VOICES};
@@ -14,6 +15,7 @@ const FINISHED_OFFSET = ${FINISHED_OFFSET};
 const PLAY = ${PLAY};
 const UPDATE = ${UPDATE};
 const STOP = ${STOP};
+const PAUSE = ${PAUSE};
 
 class ShallotAudioProcessor extends AudioWorkletProcessor {
     constructor(options) {
@@ -88,7 +90,8 @@ class ShallotAudioProcessor extends AudioWorkletProcessor {
                 this.wasm.audio_play_clip(voice, clip, loop, gain);
                 this.setSpatial(buffer, offset, voice);
                 this.watched[voice] = loop === 0 ? handle : 0;
-            } else if (op === UPDATE) {
+            } else if (op === UPDATE || op === PAUSE) {
+                this.wasm.audio_set_clip_paused(voice, op === PAUSE ? 1 : 0);
                 const loop = buffer[offset + 3];
                 this.wasm.audio_set_clip_gain(voice, buffer[offset + 4]);
                 this.wasm.audio_set_clip_loop(voice, loop);

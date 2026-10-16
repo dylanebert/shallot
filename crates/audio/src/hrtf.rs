@@ -31,8 +31,8 @@ fn hann(i: usize, n: usize) -> f32 {
 fn build_delay_filter(delay_samples: f32, gain: f32, buf: &mut [f32; HRTF_TAPS]) {
     let center = (HRTF_TAPS / 2) as f32;
     let d = center + delay_samples;
-    for i in 0..HRTF_TAPS {
-        buf[i] = gain * sinc(i as f32 - d) * hann(i, HRTF_TAPS);
+    for (i, value) in buf.iter_mut().enumerate() {
+        *value = gain * sinc(i as f32 - d) * hann(i, HRTF_TAPS);
     }
 }
 
@@ -55,10 +55,10 @@ fn apply_head_shadow(buf: &mut [f32; HRTF_TAPS], alpha: f32, tau: f32, sample_ra
 
     let mut prev_in: f32 = 0.0;
     let mut prev_out: f32 = 0.0;
-    for i in 0..HRTF_TAPS {
-        let x = buf[i];
+    for value in buf.iter_mut() {
+        let x = *value;
         let y = b0 * x + b1 * prev_in - a1 * prev_out;
-        buf[i] = y;
+        *value = y;
         prev_in = x;
         prev_out = y;
     }
@@ -79,8 +79,8 @@ fn compute_speaker(az_deg: f32, el_deg: f32, sample_rate: f32) -> Speaker {
     let angle_left = az - PI * 0.5;
     let angle_right = az + PI * 0.5;
 
-    let itd_left = head_radius / speed_of_sound * (angle_left.cos().max(-1.0).min(1.0) + 1.0);
-    let itd_right = head_radius / speed_of_sound * (angle_right.cos().max(-1.0).min(1.0) + 1.0);
+    let itd_left = head_radius / speed_of_sound * (angle_left.cos().clamp(-1.0, 1.0) + 1.0);
+    let itd_right = head_radius / speed_of_sound * (angle_right.cos().clamp(-1.0, 1.0) + 1.0);
 
     let delay_left = itd_left * sample_rate;
     let delay_right = itd_right * sample_rate;
@@ -271,7 +271,7 @@ mod tests {
             let theta = deg as f32 * PI / 180.0;
             let alpha = test_brown_duda_alpha(theta);
             assert!(
-                alpha >= 0.1 - 1e-4 && alpha <= 1.0 + 1e-4,
+                (0.1 - 1e-4..=1.0 + 1e-4).contains(&alpha),
                 "alpha({deg}°) = {alpha}, out of [0.1, 1.0]"
             );
         }

@@ -27,7 +27,8 @@ export const Sound = component(
         loop: u8,
         /** Linear playback gain. */
         volume: f32,
-        /** A paused sound does not start; pausing a live voice fades it to silence. */
+        /** A paused sound with no voice does not start. A live voice fades to silence and
+         * holds its slot and playhead; resuming fades in from that position. */
         paused: u8,
     },
     { defaults: () => ({ clip: -1, loop: 0, volume: 1, paused: 0 }) },

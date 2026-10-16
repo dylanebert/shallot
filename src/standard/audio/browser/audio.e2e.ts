@@ -11,4 +11,20 @@ test("StandardAudioPlugin plays a registered clip through AudioOutput's bus", as
             ),
         )
         .toBeGreaterThan(0.01);
+    await page.evaluate(() =>
+        (window as Window & { pauseAudio?: (paused: boolean) => void }).pauseAudio!(true),
+    );
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as Window & { audioPeak?: () => number }).audioPeak!()),
+        )
+        .toBeLessThan(0.0001);
+    await page.evaluate(() =>
+        (window as Window & { pauseAudio?: (paused: boolean) => void }).pauseAudio!(false),
+    );
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as Window & { audioPeak?: () => number }).audioPeak!()),
+        )
+        .toBeGreaterThan(0.01);
 });

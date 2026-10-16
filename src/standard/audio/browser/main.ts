@@ -1,5 +1,5 @@
 import { createApp } from "@dylanebert/shallot/app";
-import { AudioOutput, AudioPlugin, play, registerClip } from "@dylanebert/shallot/audio";
+import { AudioOutput, AudioPlugin, play, registerClip, Sound } from "@dylanebert/shallot/audio";
 import { StandardAudioPlugin } from "@dylanebert/shallot/standard/audio";
 
 const status = document.querySelector("#status")!;
@@ -12,7 +12,10 @@ const pcm = new Float32Array(context.sampleRate / 2);
 for (let i = 0; i < pcm.length; i++)
     pcm[i] = Math.sin((2 * Math.PI * 440 * i) / context.sampleRate) * 0.25;
 const clip = registerClip(world, pcm, context.sampleRate);
-play(world, clip, { loop: true });
+const loop = play(world, clip, { loop: true });
+(window as Window & { pauseAudio?: (paused: boolean) => void }).pauseAudio = (paused) => {
+    world.storage(Sound).paused.set(loop, paused ? 1 : 0);
+};
 
 const analyser = context.createAnalyser();
 analyser.fftSize = 2048;
