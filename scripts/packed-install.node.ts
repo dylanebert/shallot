@@ -248,6 +248,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         "loading-screen",
         "materials",
         "minimal",
+        "sound",
     ]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
@@ -279,6 +280,7 @@ type Example =
     | "embedded-scene"
     | "day-night-cycle"
     | "hud"
+    | "sound"
     | "interact"
     | "materials";
 
@@ -304,7 +306,7 @@ function createExample(name: Example): void {
     const packedRange = `file:${normalizePath(relative(project, tarball))}`;
     manifest.dependencies["@dylanebert/shallot"] = packedRange;
     // Svelte checking resolves its supported TypeScript online in the manual oracle.
-    if (name === "hud" || name === "day-night-cycle")
+    if (name === "hud" || name === "day-night-cycle" || name === "sound")
         delete manifest.devDependencies["svelte-check"];
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
     writeFileSync(join(project, "no-preload.toml"), "[test]\n");
@@ -346,7 +348,7 @@ function assertCreatedExample(name: Example): void {
     );
     for (const svelte of ["svelte", "@sveltejs/vite-plugin-svelte"])
         expect(manifest.devDependencies[svelte]).toBe(
-            name === "hud" || name === "day-night-cycle"
+            name === "hud" || name === "day-night-cycle" || name === "sound"
                 ? rootPackage.devDependencies[svelte]
                 : undefined,
         );
@@ -363,6 +365,7 @@ for (const name of [
     "day-night-cycle",
     "hud",
     "interact",
+    "sound",
     "materials",
 ] as const) {
     describe(name, () => {
@@ -376,7 +379,9 @@ for (const name of [
             const { project, manifest } = example(name);
             run(["bun", "check"], project, `bun check ${name}`);
             expect(manifest.scripts.typecheck).toBe(
-                name === "hud" || name === "day-night-cycle" ? "svelte-check" : undefined,
+                name === "hud" || name === "day-night-cycle" || name === "sound"
+                    ? "svelte-check"
+                    : undefined,
             );
         });
 

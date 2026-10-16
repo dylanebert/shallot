@@ -1,0 +1,44 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>Sound stepped</title><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas><button id="start">Start audio</button><script type="module">
+import { AudioOutput, Camera, createApp, mountOverlay, Sound, Transform, pressKey, releaseKey, setInputEnabled, setTransform } from '@dylanebert/shallot';
+import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
+import { Yard, YardPlugin } from '../src/yard';
+import { LocalPlayer, Player } from '../src/player';
+import { Sliding, Hint } from '../src/sound';
+import { hud } from '../src/hud';
+const app=await createApp({plugins:[YardPlugin]});
+const w=app.world, yard=w.resource(Yard), canvas=document.querySelector('canvas');
+const captures=new URLSearchParams(location.search).has('captures');
+if(!captures) {canvas.width=320;canvas.height=180;attachTexture(w,yard.camera,{width:320,height:180});w.storage(Camera).antialias.set(yard.camera,0);}
+hud(mountOverlay(canvas,w),w);
+const output=w.resource(AudioOutput), context=output.context;
+const splitter=context.createChannelSplitter(2);output.bus.connect(splitter);
+const analysers=[context.createAnalyser(),context.createAnalyser()];
+const samples=analysers.map(a=>{a.fftSize=2048;return new Float32Array(a.fftSize);});
+analysers.forEach((a,i)=>splitter.connect(a,i));
+window.energy=()=>analysers.map((a,i)=>{a.getFloatTimeDomainData(samples[i]);return samples[i].reduce((sum,x)=>sum+x*x,0)/samples[i].length;});
+window.pose=(x,y,z,yaw=0)=>{
+ setTransform(w,yard.player,[x,y-0.7,z],[0,0,0,1]);
+ w.storage(Transform).translation.set(yard.player,x,y-0.7,z);
+ w.storage(LocalPlayer).viewYaw.set(yard.player,yaw);
+ w.storage(LocalPlayer).viewPitch.set(yard.player,0);
+ w.storage(Player).gravity.set(yard.player,0);w.storage(Player).friction.set(yard.player,1000);
+ w.step(1/60);w.step(1/60);
+};
+window.aim=()=>{const p=w.storage(Transform).translation;window.pose(p.x.get(yard.speaker),1.4,0.4);};
+window.key=down=>{setInputEnabled(w,true);(down?pressKey:releaseKey)(w,'KeyE');w.step(1/60);};
+window.freeze=()=>{w.remove(yard.speaker,Sliding);};
+window.bell=()=>{window.pose(5,1.4,0.4);window.key(true);window.key(false);};
+window.state=()=>({paused:w.storage(Sound).paused.get(yard.speaker),volume:w.storage(Sound).volume.get(yard.speaker),once:[...w.query([Sound])].filter(e=>e!==yard.speaker).length,hint:w.resource(Hint).action});
+window.advance=()=>w.step(1/60);
+window.capture=async()=>{
+ let image;
+ if(captures){const pending=captureFrame(canvas);w.step(0);image=await pending;}
+ else {w.step(0);image=await captureTexture(w,yard.camera);}
+ const out=document.createElement('canvas');out.width=image.width;out.height=image.height;
+ out.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);
+ return out.toDataURL('image/png');
+};
+document.querySelector('#start').onclick=async()=>{await context.resume();window.started=true;};
+w.step(1/60);w.step(1/60);
+window.adapter=w.gpuIfAvailable.adapter;window.ready=true;
+</script></body></html>

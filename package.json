@@ -73,6 +73,7 @@
         "examples/day-night-cycle",
         "examples/hud",
         "examples/interact",
+        "examples/sound",
         "examples/materials",
         "!examples/*/node_modules",
         "!examples/*/dist",
