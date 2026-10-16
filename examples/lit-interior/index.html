@@ -4,15 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-<meta name="description" content="Explore a closed room under shadowed ceiling lamps, switch a lamp with E and carry a shadow-casting flashlight." />
+<meta name="description" content="Walk a dark room between a volumetric window shaft and warm shadowed pendants." />
 <title>Lit interior · Shallot</title>
 <style>html,body{margin:0;width:100%;height:100%;background:#191816}canvas{display:block;width:100%;height:100%}</style>
-<link rel="stylesheet" href="./src/hud.css"/></head>
+</head>
 <body><canvas></canvas>
 <script type="module">
 import { runApp } from '@dylanebert/shallot';
 import { RoomPlugin } from './src/room';
-import { hud } from './src/hud';
-await runApp({plugins:[RoomPlugin], ui: hud});
+await runApp({plugins:[RoomPlugin]});
 </script></body>
 </html>

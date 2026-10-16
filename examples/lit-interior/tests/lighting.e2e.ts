@@ -5,22 +5,21 @@ declare global {
     interface Window {
         ready: boolean;
         view(x?: number, y?: number, z?: number, yaw?: number, pitch?: number): void;
-        switchView(): void;
-        key(down: boolean): void;
-        turn(delta: number): void;
-        floor(): Promise<number>;
-        lamp(): number;
-        shadow(kind: string): Promise<{ darkened: number; delta: number }>;
-        spot(): Promise<{ x: number; y: number; sum: number }>;
-        flashlightWall(): void;
-        playerWall(): void;
-        ambient(value: number): void;
-        fixtures(): Promise<number[]>;
+        regions(): Promise<{
+            shaft: number;
+            beside: number;
+            shaftFloor: number;
+            darkFloor: number;
+            pools: number[];
+        }>;
+        volumetric(value: boolean): void;
+        shadow(kind: "block" | "bulbs"): Promise<{ darkened: number; maxDelta: number }>;
         capture(): Promise<string>;
         device: { requests: { requiredLimits?: unknown }[]; adapter: unknown; limits: unknown };
     }
 }
-test("E dims its ceiling lamp's floor; objects shadow the floor but the shade does not, on the default device", async ({
+
+test("the window shaft scatters only with VolumetricLight; its floor and both pendant pools outshine the dark stretch", async ({
     page,
 }) => {
     const errors: string[] = [],
@@ -31,29 +30,22 @@ test("E dims its ceiling lamp's floor; objects shadow the floor but the shade do
     });
     await page.goto("http://127.0.0.1:4216/tests/stepped.html");
     await page.waitForFunction(() => window.ready);
-    const shade = await page.evaluate(() => window.shadow("shade"));
-    expect(shade.darkened).toBe(0);
+    const lit = await page.evaluate(() => window.regions());
+    await page.evaluate(() => window.volumetric(false));
+    const unmarked = await page.evaluate(() => window.regions());
+    console.log("shaft and floor luminance", { lit, unmarked });
+    expect.soft(lit.shaft - lit.beside).toBeGreaterThan(20);
+    expect.soft(unmarked.shaft - unmarked.beside).toBeLessThan(3);
+    expect.soft(lit.shaft - unmarked.shaft).toBeGreaterThan(20);
+    expect.soft(lit.shaftFloor - lit.darkFloor).toBeGreaterThan(30);
+    for (const pool of lit.pools) expect.soft(pool - lit.darkFloor).toBeGreaterThan(15);
     const device = await page.evaluate(() => window.device);
     console.log("lit-interior device", JSON.stringify(device));
-    expect(device.requests.length).toBe(1);
-    expect(device.requests[0].requiredLimits ?? {}).toEqual({});
-    await page.evaluate(() => window.switchView());
-    const on = await page.evaluate(() => window.floor());
-    await page.evaluate(() => window.key(true));
-    expect(await page.evaluate(() => window.lamp())).toBe(0);
-    const off = await page.evaluate(() => window.floor());
-    console.log("floor", { on, off });
-    expect(on - off).toBeGreaterThan(3);
-    await page.evaluate(() => {
-        window.key(false);
-        window.key(true);
-        window.key(false);
-    });
-    expect(await page.evaluate(() => window.lamp())).toBe(80000);
-    const object = await page.evaluate(() => window.shadow("object"));
-    console.log("floor shadows", { object, shade });
-    expect(object.darkened).toBeGreaterThan(20);
-    expect(warnings.filter((s) => /overflow|pipeline|refus/i.test(s))).toEqual([]);
+    expect(device.requests).toHaveLength(1);
+    expect(device.requests[0]!.requiredLimits ?? {}).toEqual({});
+    expect(warnings.filter((s) => /overflow|pipeline|refus|GPUValidationError/i.test(s))).toEqual(
+        [],
+    );
     expect(errors).toEqual([]);
 
     if (!process.env.SHALLOT_CAPTURE_DIR) return;
@@ -66,60 +58,23 @@ test("E dims its ceiling lamp's floor; objects shadow the floor but the shade do
         const data = await page.evaluate(() => window.capture());
         writeFileSync(`${dir}/${name}.png`, Buffer.from(data.split(",")[1]!, "base64"));
     }
-    await capture("spawn-both-lit");
-    await page.evaluate(() => {
-        window.switchView();
-        window.key(true);
-        window.key(false);
-        window.view();
-    });
-    await capture("spawn-switched-off");
-    await page.evaluate(() => window.playerWall());
-    await capture("flashlight-wall");
-    await page.evaluate(() => window.ambient(300));
-    await capture("flashlight-wall-ambient-300");
+    await capture("spawn");
+    await page.evaluate(() => window.view(1, 1, -7, Math.PI, -0.1));
+    await capture("shaft-toward-pendants");
+    await page.evaluate(() => window.view(1, 1, 5, 0, 0));
+    await capture("pendants-toward-window");
 });
 
-test("turning the player with core input moves the carried flashlight's bright spot across a stationary view", async ({
-    page,
-}) => {
-    const errors: string[] = [];
-    page.on("pageerror", (e) => errors.push(e.message));
-    await page.goto("http://127.0.0.1:4216/tests/stepped.html");
-    await page.waitForFunction(() => window.ready);
-    await page.evaluate(() => window.flashlightWall());
-    const before = await page.evaluate(() => window.spot());
-    await page.evaluate(() => window.turn(300));
-    const after = await page.evaluate(() => window.spot());
-    console.log("flashlight spot", { before, after });
-    expect(before.sum).toBeGreaterThan(100);
-    expect(after.sum).toBeGreaterThan(100);
-    expect(Math.abs(after.x - before.x)).toBeGreaterThan(15);
-    expect(errors).toEqual([]);
-});
-
-test("both fixtures show bright sources; E extinguishes only its bulb and restores its emission", async ({
+test("a pendant's block shadows visible floor in front of it, but its emissive bulbs do not", async ({
     page,
 }) => {
     await page.goto("http://127.0.0.1:4216/tests/stepped.html");
     await page.waitForFunction(() => window.ready);
-    const on = await page.evaluate(() => window.fixtures());
-    await page.evaluate(() => {
-        window.switchView();
-        window.key(true);
-        window.key(false);
-    });
-    const off = await page.evaluate(() => window.fixtures());
-    await page.evaluate(() => {
-        window.switchView();
-        window.key(true);
-        window.key(false);
-    });
-    const restored = await page.evaluate(() => window.fixtures());
-    console.log("fixture sources", { on, off, restored });
-    expect(on[0]).toBeGreaterThan(180);
-    expect(on[1]).toBeGreaterThan(180);
-    expect(on[0]! - off[0]!).toBeGreaterThan(100);
-    expect(Math.abs(on[1]! - off[1]!)).toBeLessThan(5);
-    expect(Math.abs(on[0]! - restored[0]!)).toBeLessThan(5);
+    const block = await page.evaluate(() => window.shadow("block"));
+    const bulbs = await page.evaluate(() => window.shadow("bulbs"));
+    console.log("floor shadows", { block, bulbs });
+    expect(bulbs.darkened).toBe(0);
+    expect(bulbs.maxDelta).toBeLessThan(1);
+    expect(block.darkened).toBeGreaterThan(10);
+    expect(block.maxDelta).toBeGreaterThan(15);
 });

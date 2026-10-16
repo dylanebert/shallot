@@ -3,8 +3,9 @@ import {
     BodyType,
     Camera,
     Character,
+    DirectionalLight,
     GlobalAmbientLight,
-    internText,
+    lookAtRotation,
     Materials,
     MeshInstance,
     MeshMaterial,
@@ -19,19 +20,18 @@ import {
     StandardPhysicsPlugin,
     StandardRenderer,
     Transform,
+    VolumetricLight,
     type World,
 } from "@dylanebert/shallot";
-import { Flashlight, FlashlightPlugin } from "./flashlight";
-import { InteractionInput, InteractPlugin, LAMP_EMISSION, Usable } from "./interact";
+import { Fog, FogPlugin } from "@dylanebert/shallot/extras";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
-const GROUND = [0.085, 0.08, 0.072, 1] as const;
-const AMBER = [0.72, 0.4, 0.05, 1] as const;
-const CYAN = [0.04, 0.43, 0.53, 1] as const;
-const ORANGE = [0.658, 0.301, 0.117, 1] as const;
 type Color = readonly [number, number, number, number];
 type Vec3 = readonly [number, number, number];
-function block(world: World, position: Vec3, size: Vec3, color: Color = GROUND): number {
+const CARBON: Color = [0.085, 0.08, 0.072, 1];
+const TRIM: Color = [0.042, 0.039, 0.035, 1];
+const AMBER: Color = [0.72, 0.4, 0.05, 1];
+function block(world: World, position: Vec3, size: Vec3, color: Color = CARBON): number {
     const eid = world.create();
     world.add(eid, Transform, { translation: position, scale: size });
     world.add(eid, Body, { type: BodyType.Static });
@@ -40,167 +40,156 @@ function block(world: World, position: Vec3, size: Vec3, color: Color = GROUND):
     world.add(
         eid,
         MeshMaterial,
-        world.resource(Materials).add(StandardMaterial({ baseColor: color })),
+        world
+            .resource(Materials)
+            .add(StandardMaterial({ baseColor: color, perceptualRoughness: 0.85 })),
     );
     return eid;
 }
 export const Room: Resource<{
     camera: number;
     player: number;
-    targets: number[];
-    lamps: number[];
+    sun: number;
+    fog: number;
+    pendants: number[];
+    downlight: number;
     object: number;
-    shade: number[];
+    bulbs: number[];
 }> = {
-    create: () => ({ camera: 0, player: 0, targets: [], lamps: [], object: 0, shade: [] }),
+    create: () => ({
+        camera: 0,
+        player: 0,
+        sun: 0,
+        fog: 0,
+        pendants: [],
+        downlight: 0,
+        object: 0,
+        bulbs: [],
+    }),
 };
 function room(world: World): void {
+    const scene = world.resource(Room);
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
-    ambient.brightness = 30;
-    const lamps: number[] = [];
-    const shade: number[] = [];
-    for (const [x, shaded] of [
-        [-1.8, true],
-        [1.8, false],
-    ] as const) {
-        const mount = block(world, [x, 3.16, -0.5], [0.4, 0.08, 0.4]);
-        world.add(mount, NotShadowCaster);
-        const stem = block(world, [x, 3.02, -0.5], [0.06, 0.2, 0.06]);
-        world.add(stem, NotShadowCaster);
-        const light = block(world, [x, 2.9, -0.5], [0.24, 0.14, 0.24], AMBER);
-        world.add(light, NotShadowCaster);
-        world.resource(Materials).update(world.storage(MeshMaterial).material.get(light), {
-            emissive: LAMP_EMISSION,
-        });
+    ambient.brightness = 25;
+    for (const [position, size] of [
+        [
+            [0, -0.25, 0],
+            [9, 0.5, 24],
+        ],
+        [
+            [0, 5.25, 0],
+            [9, 0.5, 24],
+        ],
+        [
+            [-4.5, 2.5, 0],
+            [0.4, 5, 24],
+        ],
+        [
+            [4.5, 2.5, 0],
+            [0.4, 5, 24],
+        ],
+        [
+            [0, 2.5, 12],
+            [9, 5, 0.4],
+        ],
+        [
+            [-3.25, 2.5, -12],
+            [2.5, 5, 0.4],
+        ],
+        [
+            [3.25, 2.5, -12],
+            [2.5, 5, 0.4],
+        ],
+        [
+            [0, 0.75, -12],
+            [4, 1.5, 0.4],
+        ],
+        [
+            [0, 4.75, -12],
+            [4, 0.5, 0.4],
+        ],
+    ] as const)
+        block(world, position, size);
+    scene.sun = world.create();
+    world.add(scene.sun, Transform, { rotation: lookAtRotation(0, 8, -12, 0, 0, 0) });
+    world.add(scene.sun, DirectionalLight, {
+        color: 0xffe8cc,
+        illuminance: 70000,
+        shadowMapsEnabled: 1,
+        maximumDistance: 45,
+    });
+    world.add(scene.sun, VolumetricLight);
+    scene.fog = world.create();
+    world.add(scene.fog, Fog, {
+        color: 0,
+        density: 0.035,
+        heightFalloff: 0,
+        scatteringAsymmetry: 0.25,
+        lightIntensity: 0.5 / Math.PI,
+        stepCount: 64,
+        jitter: 0,
+    });
+    for (const z of [4, 8]) {
+        block(world, [-1, 4.4, z], [0.04, 1.2, 0.04], TRIM);
+        block(world, [-1, 3.98, z], [0.65, 0.12, 0.65], TRIM);
+        const bulb = block(world, [-1, 3.64, z], [0.18, 0.16, 0.18], AMBER);
+        world.add(bulb, NotShadowCaster);
+        world
+            .resource(Materials)
+            .update(world.storage(MeshMaterial).material.get(bulb), { emissive: [12, 8, 3] });
+        const light = world.create();
+        world.add(light, Transform, { translation: [-1, 3.85, z] });
         world.add(light, PointLight, {
-            color: 0xffe8cc,
-            intensity: 80000,
-            range: 8,
+            color: 0xffd49a,
+            intensity: 400000,
+            range: 6,
             shadowMapsEnabled: 1,
         });
-        lamps.push(light);
-        if (shaded) {
-            for (const [offset, size] of [
-                [
-                    [-0.31, -0.17, 0],
-                    [0.08, 0.56, 0.7],
-                ],
-                [
-                    [0.31, -0.17, 0],
-                    [0.08, 0.56, 0.7],
-                ],
-                [
-                    [0, -0.17, -0.31],
-                    [0.54, 0.56, 0.08],
-                ],
-                [
-                    [0, 0.04, 0.31],
-                    [0.54, 0.14, 0.08],
-                ],
-                [
-                    [0, -0.43, 0.31],
-                    [0.54, 0.06, 0.08],
-                ],
-                [
-                    [0, 0.11, 0],
-                    [0.7, 0.04, 0.04],
-                ],
-                [
-                    [0, 0.11, 0],
-                    [0.04, 0.04, 0.7],
-                ],
-            ] as const) {
-                const panel = block(
-                    world,
-                    [x + offset[0], 2.89 + offset[1], -0.5 + offset[2]],
-                    size,
-                    AMBER,
-                );
-                world.add(panel, NotShadowCaster);
-                shade.push(panel);
-            }
-        }
+        scene.pendants.push(light);
+        scene.bulbs.push(bulb);
     }
-    for (const x of [-2.4, -1.6, -0.8, 0, 0.8, 1.6, 2.4]) {
-        const lamp = block(world, [x, 0.6, -3.15], [0.16, 0.16, 0.16], AMBER);
-        world.add(lamp, NotShadowCaster);
-        world.add(lamp, PointLight, { color: 0xffc773, intensity: 900, range: 4 });
-    }
-    const camera = world.create();
-    world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });
-    world.add(camera, StandardRenderer);
-    world.add(camera, Transform, { translation: [0, 1.7, 2] });
-    world.add(camera, InteractionInput);
-    const player = world.create();
-    world.add(player, Transform, { translation: [0, 1, 2] });
-    world.add(player, Body, { type: BodyType.Kinematic });
-    world.add(player, Shape, {
+    scene.downlight = world.create();
+    world.add(scene.downlight, Transform, {
+        translation: [2, 4.7, 7],
+        rotation: lookAtRotation(2, 4.7, 7, 2, 0, 7),
+    });
+    world.add(scene.downlight, SpotLight, {
+        color: 0xffe8cc,
+        intensity: 200000,
+        range: 6,
+        innerAngle: 0.3,
+        outerAngle: 0.5,
+        shadowMapsEnabled: 1,
+    });
+    const downlightBulb = block(world, [2, 4.75, 7], [0.3, 0.08, 0.3], AMBER);
+    world.add(downlightBulb, NotShadowCaster);
+    world.resource(Materials).update(world.storage(MeshMaterial).material.get(downlightBulb), {
+        emissive: [12, 8, 3],
+    });
+    scene.bulbs.push(downlightBulb);
+    scene.object = block(world, [-1, 0.55, 4], [0.8, 1.1, 0.8], [0.658, 0.301, 0.117, 1]);
+    block(world, [2, 0.3, 7], [1.1, 0.6, 1.1]);
+    block(world, [2.5, 0.65, 8.2], [0.7, 1.3, 0.7]);
+    scene.camera = world.create();
+    world.add(scene.camera, Camera, { fov: 70, clearColor: 0x191816 });
+    world.add(scene.camera, StandardRenderer);
+    world.add(scene.camera, Transform, { translation: [2.5, 1.7, 11] });
+    scene.player = world.create();
+    world.add(scene.player, Transform, { translation: [2.5, 1, 11] });
+    world.add(scene.player, Body, { type: BodyType.Kinematic });
+    world.add(scene.player, Shape, {
         kind: ShapeKind.Capsule,
         capsuleCenter1: [0, -0.3, 0],
         capsuleCenter2: [0, 0.3, 0],
         radius: 0.3,
     });
-    world.add(player, Character);
-    world.add(player, Player, { camera });
-    world.add(player, LocalPlayer);
-    const surfaces = [
-        [
-            [0, -0.25, 0],
-            [7, 0.5, 7],
-        ],
-        [
-            [0, 3.45, 0],
-            [7, 0.5, 7],
-        ],
-        [
-            [0, 1.6, -3.5],
-            [7, 3.2, 0.4],
-        ],
-        [
-            [0, 1.6, 3.5],
-            [7, 3.2, 0.4],
-        ],
-        [
-            [-3.5, 1.6, 0],
-            [0.4, 3.2, 7],
-        ],
-        [
-            [3.5, 1.6, 0],
-            [0.4, 3.2, 7],
-        ],
-    ] as const;
-    for (const [position, size] of surfaces) block(world, position, size);
-    const object = block(world, [-1.8, 0.5, -0.5], [0.65, 1, 0.65], ORANGE);
-    const button = block(world, [0, 1.4, -3.23], [0.3, 0.4, 0.08], CYAN);
-    world.add(button, Usable, {
-        lamp: lamps[0],
-        active: 1,
-        label: internText(world, "Switch on"),
-        activeLabel: internText(world, "Switch off"),
-    });
-    const flashlight = world.create();
-    world.add(flashlight, Transform);
-    world.add(flashlight, SpotLight, {
-        color: 0xd8e4ff,
-        intensity: 180000,
-        range: 10,
-        innerAngle: 0.18,
-        outerAngle: 0.35,
-        shadowMapsEnabled: 1,
-    });
-    Object.assign(world.resource(Flashlight), { camera, light: flashlight });
-    Object.assign(world.resource(Room), {
-        camera,
-        player,
-        targets: [button],
-        lamps,
-        object,
-        shade,
-    });
+    world.add(scene.player, Character);
+    world.add(scene.player, Player, { camera: scene.camera, yaw: 0.25, pitch: -0.05 });
+    world.add(scene.player, LocalPlayer);
 }
 export const RoomPlugin: Plugin = {
     name: "Room",
-    dependencies: [StandardPhysicsPlugin, PlayerPlugin, InteractPlugin, FlashlightPlugin],
+    dependencies: [StandardPhysicsPlugin, PlayerPlugin, FogPlugin],
     initialize: room,
 };
