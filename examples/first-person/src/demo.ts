@@ -120,7 +120,7 @@ export function route(world: World) {
         rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2],
     });
     world.add(controls, Text, {
-        content: internText(world, "WASD  Move\nSPACE  Jump\nClick  Look"),
+        content: internText(world, "WASD  Move\nSPACE  Jump\nMOUSE  Look"),
         fontSize: 0.5,
         maxWidth: 5,
         anchor: [0.5, 0.5],

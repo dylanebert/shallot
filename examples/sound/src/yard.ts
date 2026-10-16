@@ -76,7 +76,7 @@ export const YardPlugin: Plugin = {
         world.add(speaker, Sound, { clip: music, loop: 1, volume: 0.7 });
         world.add(speaker, Sliding);
         world.add(speaker, Usable);
-        const bell = block(world, [5, 1.4, -2], [1, 1, 1], [0.72, 0.4, 0.05, 1]);
+        const bell = block(world, [5, 1.4, -2], [0.5, 0.5, 0.5], [0.658, 0.301, 0.117, 1]);
         world.add(bell, Usable, { bell: 1, clip: tone });
         const camera = world.create();
         world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });

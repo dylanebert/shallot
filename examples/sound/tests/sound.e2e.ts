@@ -53,6 +53,8 @@ test("spatial music pans, fades, pauses and resumes; the bell finishes once", as
     expect(await page.evaluate(() => (window as any).state().paused)).toBe(0);
     const resumed = await energy(page);
     expect(Math.min(...resumed)).toBeGreaterThan(0.000001);
+    await page.evaluate(() => (window as any).pose(5, 1.4, 0.4));
+    expect(await page.evaluate(() => (window as any).state().hint)).toBe("Ring bell");
     await page.evaluate(() => (window as any).bell());
     expect(await page.evaluate(() => (window as any).state().once)).toBe(1);
     await expect
