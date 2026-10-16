@@ -108,7 +108,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Each presenting view has one main render pass; renderers record opaque, then transparent, work into it with core's formats and sample count.
 - A renderer reaches an effect's depth input only by recording into that prepass lane.
 - Transparent items are sorted back-to-front by view-space depth across renderers for each view, with deterministic identity ties; renderers may batch only consecutive compatible items in that order.
-- `AlphaMode` is per material row. StandardMaterial preserves base-color alpha; `Mask` writes depth, blended modes do not, and `AlphaToCoverage` emits a fragment sample mask (single-sample views use the 0.5 mask fallback).
+- `AlphaMode` is per material row. StandardMaterial preserves base-color alpha; `Mask` writes depth, blended modes do not, and `AlphaToCoverage` uses hardware multisample coverage, sharpening sampled base-color alpha; single-sample views mask at the material's cutoff.
 - At most one enabled directional casts shadows: greatest illuminance wins, then lower eid. Light units and direction live beside the [lighting components](src/core/rendering/lighting.ts).
 - Presenting view state grows without recompiling pipelines or layouts, up to [MAX_VIEWS](src/core/rendering/view.ts); a camera beyond it is skipped with a warning.
 - Presentation tonemaps, grades, dithers and encodes each view. `TonemappingMethod.None` bypasses grading, exposure and dither, applying only display encoding; `Linear` keeps them with an identity curve.

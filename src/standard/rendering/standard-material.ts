@@ -2,7 +2,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { litPbr } from "./engine";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
-import { materialLayout, materialType } from "./material-type";
+import { AlphaModeCode, materialLayout, materialType } from "./material-type";
 import { Pbr } from "./shade";
 
 const standardLayout = materialLayout(StandardMaterialInput, {
@@ -34,6 +34,10 @@ export const Materials = materialType({
                     uvDy,
                 ),
             );
+        }
+        const alphaWidth = std.fwidth(baseColor.a);
+        if (material.baseColorTexture >= 0 && ctx.alphaMode === AlphaModeCode.AlphaToCoverage) {
+            baseColor.a = (baseColor.a - ctx.alphaCutoff) / std.max(alphaWidth, 0.0001) + 0.5;
         }
         if (material.unlit !== 0) return baseColor;
         const pbr = Pbr({

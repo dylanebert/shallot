@@ -256,6 +256,8 @@ function materialFragmentContext<
         localPos: d.vec3f,
         color: d.vec4f,
         material: d.u32,
+        alphaMode: d.u32,
+        alphaCutoff: d.f32,
         ...varyings,
     });
 }

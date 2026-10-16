@@ -29,7 +29,13 @@ const alphaWorld = {
     defaults: false,
     plugins: [StandardRenderingPlugin, MeshRenderPlugin],
 };
-const subjects = gpuApps(import.meta.path, [alphaWorld, alphaWorld, alphaWorld, alphaWorld]);
+const subjects = gpuApps(import.meta.path, [
+    alphaWorld,
+    alphaWorld,
+    alphaWorld,
+    alphaWorld,
+    alphaWorld,
+]);
 
 function srgbByte(linear: number): number {
     const encoded = linear <= 0.0031308 ? linear * 12.92 : 1.055 * linear ** (1 / 2.4) - 0.055;
@@ -201,6 +207,47 @@ test("AlphaToCoverage selects fractional sample coverage on a multisampled targe
     expect(Array.from(singleSample.subarray((48 * 96 + 48) * 4, (48 * 96 + 48) * 4 + 4))).toEqual([
         0x2e, 0x2b, 0x28, 255,
     ]);
+});
+
+test("AlphaToCoverage sharpens a sampled texel just above cutoff to full 4× coverage", async () => {
+    const { world } = subjects()[4];
+    const device = world.gpu.device;
+    // Direct upload isolates shader sampling from image decoding on Dawn.
+    const image = device.createTexture({
+        size: [1, 1, 1],
+        format: "rgba8unorm-srgb",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    world.own(image);
+    device.queue.writeTexture(
+        { texture: image },
+        new Uint8Array([255, 0, 0, 128]),
+        { bytesPerRow: 4 },
+        [1, 1, 1],
+    );
+    world.gpu.textures.set("images", image);
+    const material = world
+        .resource(Materials)
+        .add(StandardMaterial({ baseColorTexture: 0, unlit: true }), {
+            alphaMode: AlphaMode.AlphaToCoverage,
+        });
+    const eid = world.create();
+    world.add(eid, Transform, { scale: [0.45, 0.45, 0.45, 0] });
+    world.add(eid, MeshInstance);
+    world.add(eid, MeshMaterial, material);
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+    world.add(camera, Camera);
+    world.storage(Camera).antialias.set(camera, 1);
+    world.add(camera, StandardRenderer);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+    attachTexture(world, camera, { width: 32, height: 32 });
+    world.step(0);
+    world.step(0);
+    const { rgba } = await captureTexture(world, camera);
+    expect(Array.from(rgba.subarray((16 * 32 + 16) * 4, (16 * 32 + 16) * 4 + 4))).toEqual(
+        expectedPixel(1, 0, 0),
+    );
 });
 
 test("a reassigned material row's alpha mode selects the entity's draw on the next step", async () => {

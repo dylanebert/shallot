@@ -60,7 +60,6 @@ const MULTIPLY_BLEND: GPUBlendState = {
     alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 };
 
-// Unlike sample_index, a sample mask keeps fragment shading per-pixel. 1× falls back to Mask.
 const alphaColorOutput = tgpu
     .fn(
         [d.vec4f, d.u32, d.f32, d.u32],
@@ -71,11 +70,10 @@ const alphaColorOutput = tgpu
         const coverageFallback =
             fallback === 0xffffffff && alphaMode === AlphaModeCode.AlphaToCoverage;
         if (mask || coverageFallback) {
-            const cutoff = mask ? alphaCutoff : d.f32(0.5);
+            const cutoff = alphaCutoff;
             if (color.a < cutoff) std.discard();
             return d.vec4f(color.rgb, 1);
         }
-        if (alphaMode === AlphaModeCode.AlphaToCoverage) return d.vec4f(color.rgb, 1);
         if (alphaMode === AlphaModeCode.Add) {
             return d.vec4f(std.mul(color.rgb, color.a), 0);
         }
@@ -86,28 +84,7 @@ const alphaColorOutput = tgpu
     })
     .$name("materialAlphaOutput");
 
-const alphaCoverageMask = tgpu
-    .fn(
-        [d.f32, d.u32, d.u32],
-        d.u32,
-    )((alpha, alphaMode, fallback) => {
-        "use gpu";
-        if (alphaMode !== AlphaModeCode.AlphaToCoverage || fallback !== 0) {
-            return d.u32(0xffffffff);
-        }
-        const sampleCount = d.u32(std.mul(std.clamp(alpha, d.f32(0), d.f32(1)), d.f32(4)));
-        if (sampleCount === 0) return d.u32(0);
-        if (sampleCount === 1) return d.u32(1);
-        if (sampleCount === 2) return d.u32(3);
-        if (sampleCount === 3) return d.u32(7);
-        return d.u32(15);
-    })
-    .$name("materialAlphaCoverageMask");
-
-const colorAndSampleMaskOutput = {
-    color: d.vec4f,
-    sampleMask: d.builtin.sampleMask,
-};
+const colorOutput = { color: d.vec4f };
 
 export type BindResource =
     | import("typegpu").TgpuBuffer<AnyData>
@@ -613,7 +590,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     return tgpu
         .fragmentFn({
             in: inputSchema,
-            out: colorAndSampleMaskOutput,
+            out: colorOutput,
         })((input: any) => {
             "use gpu";
             const worldNormal = std.normalize(input.worldNormal);
@@ -655,6 +632,8 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 localPos: needLocalPos ? input.localPos : d.vec3f(0),
                 color: input.color,
                 material: input.material,
+                alphaMode: alphaToCoverageFallback ? AlphaModeCode.Opaque : input.alphaMode,
+                alphaCutoff: input.alphaCutoff,
             } as any);
             const col = d.vec4f(std.add(fragment(ctx), d.vec4f(forcedZero)));
             const output = alphaColorOutput(
@@ -665,11 +644,6 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
             );
             return {
                 color: output,
-                sampleMask: alphaCoverageMask(
-                    col.a,
-                    input.alphaMode,
-                    alphaToCoverageFallback ? d.u32(1) : d.u32(0),
-                ),
             };
         })
         .$name(`${surface.name}${alphaToCoverageFallback ? "Single" : ""}Fs`);
@@ -750,7 +724,7 @@ function prepassVs(surface: AnyMaterialType) {
         .$name(`${surface.name}PrepassVs`);
 }
 
-function clipFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
+function clipFs(surface: AnyMaterialType) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const fragment = materialFragmentFunction(surface);
@@ -776,9 +750,11 @@ function clipFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
                 color: fin.color,
                 material: fin.material,
+                alphaMode: d.u32(0),
+                alphaCutoff: fin.alphaCutoff,
             });
             const color = fragment(ctx);
-            const cutoff = alphaToCoverageFallback ? d.f32(0.5) : fin.alphaCutoff;
+            const cutoff = fin.alphaCutoff;
             if (color.a < cutoff) std.discard();
         })
         .$name(`${surface.name}ClipFs`);
@@ -804,7 +780,7 @@ function clipVaryingCopier(surface: AnyMaterialType) {
             [d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.u32, varyingSchema],
             d.vec4f,
         )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, v0: ${varyingType}) -> vec4f {
-    let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, color, material, v0);
+    let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, color, material, 0u, 0.5f, v0);
     return fs(ctx);
 }`)
         .$uses({ Ctx: CtxSchema, fs: fsFn })
@@ -812,7 +788,7 @@ function clipVaryingCopier(surface: AnyMaterialType) {
     return { varyingSchema, copier };
 }
 
-function varyingClipFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
+function varyingClipFs(surface: AnyMaterialType) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const { varyingSchema, copier } = clipVaryingCopier(surface);
@@ -842,7 +818,7 @@ function varyingClipFs(surface: AnyMaterialType, alphaToCoverageFallback = false
                 input.material,
                 input.v0,
             );
-            const cutoff = alphaToCoverageFallback ? d.f32(0.5) : input.alphaCutoff;
+            const cutoff = input.alphaCutoff;
             if (color.a < cutoff) std.discard();
         })
         .$name(`${surface.name}ClipFs`);
@@ -1033,7 +1009,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
             d.vec4f,
         )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, ${params}) -> vec4f {
     let worldNormal = normalize(worldNormalIn);
-    let ctx = Ctx(eid, world, worldNormal, uv, localPos, color, material, ${schemas.map((_, i) => `v${i}`).join(", ")});
+    let ctx = Ctx(eid, world, worldNormal, uv, localPos, color, material, 0u, 0.5f, ${schemas.map((_, i) => `v${i}`).join(", ")});
     return fs(ctx);
 }`)
         .$uses({ Ctx: CtxSchema, fs: fsFn })
@@ -1058,7 +1034,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     if (varyingKeys.length === 1) {
         const entryIn = { ...base, v0: slot(0) } as unknown as typeof base & { v0: d.Vec3f };
         return tgpu
-            .fragmentFn({ in: entryIn, out: colorAndSampleMaskOutput })((input) => {
+            .fragmentFn({ in: entryIn, out: colorOutput })((input) => {
                 "use gpu";
                 const col = copier(
                     input.pos,
@@ -1080,11 +1056,6 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 );
                 return {
                     color: output,
-                    sampleMask: alphaCoverageMask(
-                        shaded.a,
-                        input.alphaMode,
-                        alphaToCoverageFallback ? d.u32(1) : d.u32(0),
-                    ),
                 };
             })
             .$name(name);
@@ -1095,7 +1066,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
             v1: d.Vec3f;
         };
         return tgpu
-            .fragmentFn({ in: entryIn, out: colorAndSampleMaskOutput })((input) => {
+            .fragmentFn({ in: entryIn, out: colorOutput })((input) => {
                 "use gpu";
                 const col = copier(
                     input.pos,
@@ -1118,11 +1089,6 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 );
                 return {
                     color: output,
-                    sampleMask: alphaCoverageMask(
-                        shaded.a,
-                        input.alphaMode,
-                        alphaToCoverageFallback ? d.u32(1) : d.u32(0),
-                    ),
                 };
             })
             .$name(name);
@@ -1139,7 +1105,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
             v2: d.Vec3f;
         };
         return tgpu
-            .fragmentFn({ in: entryIn, out: colorAndSampleMaskOutput })((input) => {
+            .fragmentFn({ in: entryIn, out: colorOutput })((input) => {
                 "use gpu";
                 const col = copier(
                     input.pos,
@@ -1163,11 +1129,6 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 );
                 return {
                     color: output,
-                    sampleMask: alphaCoverageMask(
-                        shaded.a,
-                        input.alphaMode,
-                        alphaToCoverageFallback ? d.u32(1) : d.u32(0),
-                    ),
                 };
             })
             .$name(name);
@@ -1180,7 +1141,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
         v3: slot(3),
     } as unknown as typeof base & { v0: d.Vec3f; v1: d.Vec3f; v2: d.Vec3f; v3: d.Vec3f };
     return tgpu
-        .fragmentFn({ in: entryIn, out: colorAndSampleMaskOutput })((input) => {
+        .fragmentFn({ in: entryIn, out: colorOutput })((input) => {
             "use gpu";
             const col = copier(
                 input.pos,
@@ -1205,11 +1166,6 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
             );
             return {
                 color: output,
-                sampleMask: alphaCoverageMask(
-                    shaded.a,
-                    input.alphaMode,
-                    alphaToCoverageFallback ? d.u32(1) : d.u32(0),
-                ),
             };
         })
         .$name(name);
@@ -1276,7 +1232,10 @@ export function compileMaterial<
         targets: { color: { format: _render.format, ...(blend ? { blend } : {}) } },
         primitive,
         depthStencil,
-        multisample: { count: SAMPLE_COUNT },
+        multisample: {
+            count: SAMPLE_COUNT,
+            alphaToCoverageEnabled: alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage,
+        },
     });
     const compiled: CompiledMaterial = {
         owner: surface as AnyMaterialType,
@@ -1370,7 +1329,6 @@ function compilePrepass(
         .with(pointShadowSlot, pointShadowStub)
         .with(indirectLightSlot, indirectLightSources(world));
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
-    const atc = alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage;
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const depthOnly = root
         .createRenderPipeline({
@@ -1381,9 +1339,7 @@ function compilePrepass(
                 : prepassVs(surface),
             ...(clip
                 ? {
-                      fragment: (varying
-                          ? varyingClipFs(surface, atc)
-                          : clipFs(surface, atc)) as never,
+                      fragment: (varying ? varyingClipFs(surface) : clipFs(surface)) as never,
                   }
                 : {}),
             primitive,
@@ -1841,7 +1797,7 @@ ${outputAssignments}
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`);
 }
 
-function varyingShadowFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
+function varyingShadowFs(surface: AnyMaterialType) {
     const { varyingSchema, copier } = clipVaryingCopier(surface);
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
@@ -1879,7 +1835,7 @@ function varyingShadowFs(surface: AnyMaterialType, alphaToCoverageFallback = fal
                 input.material,
                 input.v0,
             );
-            const cutoff = alphaToCoverageFallback ? d.f32(0.5) : input.alphaCutoff;
+            const cutoff = input.alphaCutoff;
             if (color.a < cutoff) std.discard();
         })
         .$name(`${surface.name}ClipShadowFs`);
@@ -1887,7 +1843,7 @@ function varyingShadowFs(surface: AnyMaterialType, alphaToCoverageFallback = fal
 
 /** the clipped atlas fragment: preserve the tile-seam discard, then call the surface fs solely for its
  * cutoff discard. Its color result is intentionally ignored by this depth-only pipeline. */
-function clipShadowFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
+function clipShadowFs(surface: AnyMaterialType) {
     const needUv = !!surface.fragmentInputs?.uv;
     const needLocalPos = !!surface.fragmentInputs?.localPos;
     const fragment = materialFragmentFunction(surface);
@@ -1922,9 +1878,11 @@ function clipShadowFs(surface: AnyMaterialType, alphaToCoverageFallback = false)
                 localPos: needLocalPos ? (input as any).localPos : d.vec3f(0),
                 color: input.color,
                 material: input.material,
+                alphaMode: d.u32(0),
+                alphaCutoff: input.alphaCutoff,
             });
             const color = fragment(ctx);
-            const cutoff = alphaToCoverageFallback ? d.f32(0.5) : input.alphaCutoff;
+            const cutoff = input.alphaCutoff;
             if (color.a < cutoff) std.discard();
         })
         .$name(`${surface.name}ClipShadowFs`);
@@ -1957,7 +1915,6 @@ function compileShadow(
         .with(pointShadowSlot, pointShadowStub)
         .with(indirectLightSlot, indirectLightSources(world));
     const clip = alphaPipelineKey !== AlphaPipelineKey.Opaque;
-    const atc = alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage;
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const point = root
         .createRenderPipeline({
@@ -1967,7 +1924,7 @@ function compileShadow(
                     : clipShadowVs(surface, pointLayout, false, capacity)
                 : shadowVs(surface, pointLayout, false, capacity),
             fragment: clip
-                ? ((varying ? varyingShadowFs(surface, atc) : clipShadowFs(surface, atc)) as never)
+                ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : shadowFs,
             primitive,
             depthStencil,
@@ -1982,7 +1939,7 @@ function compileShadow(
                     : clipShadowVs(surface, cascadeLayout, true, capacity)
                 : shadowVs(surface, cascadeLayout, true, capacity),
             fragment: clip
-                ? ((varying ? varyingShadowFs(surface, atc) : clipShadowFs(surface, atc)) as never)
+                ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : shadowFs,
             primitive,
             depthStencil,
