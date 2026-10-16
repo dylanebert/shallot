@@ -57,12 +57,11 @@ export const ripple = tgpu.fn(
 const waveLayout = materialLayout(AnimationParameters, {
     phase: { type: "attribute", element: d.f32 },
 });
-const Vertex = materialVertexOutput({});
+const Vertex = materialVertexOutput();
 export const WaveMaterial = materialType({
     name: "VertexWave",
     parameters: AnimationParameters,
     layout: waveLayout,
-    varyings: {},
     defaults: { time: 0 },
     vertex: tgpu.fn(
         [MaterialVertexInput],
