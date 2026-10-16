@@ -211,6 +211,9 @@ export class TransparentPhase {
             this._items = this._scratch;
             this._scratch = previous;
         }
+        // A merge overwrites scratch slots below the count, so both arrays must hold the same items
+        // there; otherwise a later frame with fewer items drops one and queues another twice.
+        for (let i = 0; i < count; i++) this._scratch[i] = this._items[i];
         if (this.measureTimings) this.metrics.sortMs += performance.now() - started;
     }
 
