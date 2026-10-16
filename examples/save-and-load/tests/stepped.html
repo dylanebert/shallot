@@ -15,10 +15,7 @@ if(new URLSearchParams(location.search).has('capture')) document.body.classList.
 const app=await createApp({plugins:[Scene]});
 const world=app.world, canvas=document.querySelector('canvas');
 attachCanvas(world,world.resource(Game).camera,canvas);
-const overlay=mountOverlay(canvas,world);
-hud(overlay,world);
-const treatment=new URLSearchParams(location.search).get('treatment');
-if(['A','B','C'].includes(treatment)) overlay.querySelector('.save-hud').classList.add(`treatment-${treatment}`);
+hud(mountOverlay(canvas,world),world);
 // Each draw advances up to Time.MAX_FIXED_STEPS ticks and waits for its frame, so a software GPU never holds a backlog.
 const advance=async(ticks=1)=>{ while(ticks>0){ const n=Math.min(ticks,4); world.step(n/60); ticks-=n; await world.frameFence; } return state(); };
 const state=()=>({count:count(world),save:encode(world)});
