@@ -26,7 +26,7 @@ window.view=(x=0,y=1,z=2,yaw=0,pitch=0)=>{
  w.storage(Transform).translation.set(room.player,x,y,z);
  w.storage(LocalPlayer).viewYaw.set(room.player,yaw);
  w.storage(LocalPlayer).viewPitch.set(room.player,pitch);
- w.step(1/60);w.step(1/60);
+ w.tick();w.tick();w.step(0);
 };
 window.key=down=>{setInputEnabled(w,true);(down?pressKey:releaseKey)(w,'KeyE');w.step(1/60);};
 window.turn=delta=>{setInputEnabled(w,true);pointerLockChanged(w,true);pointerMove(w,{x:0,y:0,deltaX:delta});w.step(1/120);};

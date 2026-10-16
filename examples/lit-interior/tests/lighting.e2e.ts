@@ -17,7 +17,7 @@ declare global {
         device: { requests: { requiredLimits?: unknown }[]; adapter: unknown; limits: unknown };
     }
 }
-test("E dims its ceiling lamp's floor; carried spot moves with input; objects shadow the floor but the shade does not, on the default device", async ({
+test("E dims its ceiling lamp's floor; objects shadow the floor but the shade does not, on the default device", async ({
     page,
 }) => {
     const errors: string[] = [],
@@ -50,14 +50,6 @@ test("E dims its ceiling lamp's floor; carried spot moves with input; objects sh
     const object = await page.evaluate(() => window.shadow("object"));
     console.log("floor shadows", { object, shade: shadeAtSpawn });
     expect(object.darkened).toBeGreaterThan(20);
-    await page.evaluate(() => window.flashlightWall());
-    const before = await page.evaluate(() => window.spot());
-    await page.evaluate(() => window.turn(300));
-    const after = await page.evaluate(() => window.spot());
-    console.log("flashlight spot", { before, after });
-    expect(before.sum).toBeGreaterThan(100);
-    expect(after.sum).toBeGreaterThan(100);
-    expect(Math.abs(after.x - before.x)).toBeGreaterThan(15);
     expect(warnings.filter((s) => /overflow|pipeline|refus/i.test(s))).toEqual([]);
     expect(errors).toEqual([]);
 
@@ -81,4 +73,22 @@ test("E dims its ceiling lamp's floor; carried spot moves with input; objects sh
     await capture("spawn-switched-off");
     await page.evaluate(() => window.flashlightWall());
     await capture("flashlight-wall");
+});
+
+test("turning the player with core input moves the carried flashlight's bright spot across a stationary view", async ({
+    page,
+}) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto("http://127.0.0.1:4216/tests/stepped.html");
+    await page.waitForFunction(() => window.ready);
+    await page.evaluate(() => window.flashlightWall());
+    const before = await page.evaluate(() => window.spot());
+    await page.evaluate(() => window.turn(300));
+    const after = await page.evaluate(() => window.spot());
+    console.log("flashlight spot", { before, after });
+    expect(before.sum).toBeGreaterThan(100);
+    expect(after.sum).toBeGreaterThan(100);
+    expect(Math.abs(after.x - before.x)).toBeGreaterThan(15);
+    expect(errors).toEqual([]);
 });
