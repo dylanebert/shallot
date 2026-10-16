@@ -18,10 +18,9 @@ import {
     StandardPhysicsPlugin,
     StandardRenderer,
     Transform,
-    VolumetricLight,
     type World,
 } from "@dylanebert/shallot";
-import { Fog, FogPlugin, ProfilePlugin, showProfiler } from "@dylanebert/shallot/extras";
+import { ProfilePlugin, showProfiler } from "@dylanebert/shallot/extras";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 export const Room: Resource<{ camera: number; player: number }> = {
@@ -45,11 +44,11 @@ function block(
 }
 export const RoomPlugin: Plugin = {
     name: "Room",
-    dependencies: [StandardPhysicsPlugin, PlayerPlugin, FogPlugin, ProfilePlugin],
+    dependencies: [StandardPhysicsPlugin, PlayerPlugin, ProfilePlugin],
     initialize(world) {
         const ambient = world.resource(GlobalAmbientLight);
         ambient.color = 0xd8e4ff;
-        ambient.brightness = 12;
+        ambient.brightness = 4;
         const camera = world.create();
         world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });
         world.add(camera, StandardRenderer);
@@ -111,19 +110,9 @@ export const RoomPlugin: Plugin = {
         world.add(sun, Transform, { rotation: lookAtRotation(0, 5, -8, 0, 1, 0) });
         world.add(sun, DirectionalLight, {
             color: 0xffe8cc,
-            illuminance: 24000,
+            illuminance: 32000,
             shadowMapsEnabled: 1,
             maximumDistance: 20,
-        });
-        world.add(sun, VolumetricLight);
-        const fog = world.create();
-        world.add(fog, Fog, {
-            color: 0xeee9df,
-            density: 0.025,
-            scattering: 1,
-            anisotropy: 0.4,
-            heightFalloff: 0,
-            steps: 32,
         });
     },
     warm(world) {

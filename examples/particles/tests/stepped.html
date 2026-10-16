@@ -38,7 +38,15 @@ window.particles={
    const delta=(on[i]+on[i+1]+on[i+2]-off[i]-off[i+1]-off[i+2])/3;
    increase+=delta;changed+=Number(delta>2);count++;
   }
-  return {increase:increase/count,changed};
+  const floorMean=(left,right)=>{
+   let sum=0,count=0;
+   for(let y=173;y<178;y++) for(let x=left;x<right;x++) {
+    const i=(y*320+x)*4;
+    sum+=(off[i]+off[i+1]+off[i+2])/3;count++;
+   }
+   return sum/count;
+  };
+  return {increase:increase/count,changed,floorBeam:floorMean(140,180),floorShade:floorMean(80,100)};
  },
  walk(count=45) {
   // Only the final view is observed; keep every simulated and GPU-stirred frame, not its pixels.

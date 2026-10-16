@@ -6,14 +6,19 @@ declare global {
         particles: {
             adapter: { class: string; identity: string };
             requests: { requiredLimits?: Record<string, number>; requiredFeatures?: string[] }[];
-            evidence(): Promise<{ increase: number; changed: number }>;
+            evidence(): Promise<{
+                increase: number;
+                changed: number;
+                floorBeam: number;
+                floorShade: number;
+            }>;
             walk(count?: number): { before: number; after: number };
             profiler(): void;
             capture(): Promise<string>;
         };
     }
 }
-test("the shared-view beam is brighter with motes, and injected walking draws on default device limits without pipeline refusal", async ({
+test("the floor beam outshines adjacent shade, motes brighten the shared view, and injected walking draws on default device limits", async ({
     page,
 }) => {
     const errors: string[] = [];
@@ -50,6 +55,7 @@ test("the shared-view beam is brighter with motes, and injected walking draws on
     console.log("beam motes", evidence);
     expect(evidence.increase).toBeGreaterThan(0.02);
     expect(evidence.changed).toBeGreaterThan(5);
+    expect(evidence.floorBeam).toBeGreaterThan(evidence.floorShade + 20);
     const walk = await page.evaluate(() => window.particles.walk());
     expect(walk.after).toBeLessThan(walk.before - 1);
     await page.evaluate(() => window.particles.evidence());
