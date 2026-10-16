@@ -252,6 +252,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         "particles",
         "save-and-load",
         "sound",
+        "world-ui",
     ]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
 
@@ -267,6 +268,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).toContain("examples/minimal/src/welcome/welcome.test.ts");
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/interact/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/world-ui/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/save-and-load/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/particles/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/lit-interior/tsconfig.json");
@@ -288,6 +290,7 @@ type Example =
     | "hud"
     | "sound"
     | "interact"
+    | "world-ui"
     | "save-and-load"
     | "particles"
     | "lit-interior"
@@ -380,6 +383,7 @@ for (const name of [
     "day-night-cycle",
     "hud",
     "interact",
+    "world-ui",
     "save-and-load",
     "particles",
     "lit-interior",

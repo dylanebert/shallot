@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8" /><title>World UI, stepped</title>
+<style>html,body{margin:0;background:#191816}canvas{width:1280px;height:720px;display:block}</style></head>
+<body><canvas width="1280" height="720"></canvas>
+<script type="module">
+import { createApp, GlobalTransform, Sprite, Orbit, qRotate } from '@dylanebert/shallot';
+import { captureFrame } from '@dylanebert/shallot/rendering';
+import { assets, Delivery, DeliveryPlugin } from '../src/delivery';
+import { project } from './project';
+const app = await createApp({ plugins: [DeliveryPlugin], setup: assets });
+const world = app.world;
+const canvas = document.querySelector('canvas');
+for (let i = 0; i < 3; i++) world.step(0);
+function xyz(eid) {
+    const p = world.storage(GlobalTransform).translation;
+    return [p.x.get(eid), p.y.get(eid), p.z.get(eid)];
+}
+function projected(p) { return project(world, world.resource(Delivery).camera, p); }
+function rect(eid, scaled = true) {
+    const scene = world.resource(Delivery);
+    const q = world.storage(GlobalTransform).rotation;
+    const camera = scene.camera;
+    const right = qRotate(q.x.get(camera), q.y.get(camera), q.z.get(camera), q.w.get(camera), 1, 0, 0);
+    const up = qRotate(q.x.get(camera), q.y.get(camera), q.z.get(camera), q.w.get(camera), 0, 1, 0);
+    const size = world.storage(Sprite).size;
+    const scale = world.storage(GlobalTransform).scale;
+    const p = xyz(eid);
+    const center = projected(p);
+    const edge = projected(p.map((v, i) => v + right[i] * size.x.get(eid) * (scaled ? scale.x.get(eid) : 1) / 2 + up[i] * size.y.get(eid) * (scaled ? scale.y.get(eid) : 1) / 2));
+    return { x: center.x, y: center.y, width: Math.abs(edge.x - center.x) * 2, height: Math.abs(edge.y - center.y) * 2 };
+}
+window.delivery = {
+    advance(seconds, pitch) {
+        const camera = world.resource(Delivery).camera;
+        world.storage(Orbit).smoothness.set(camera, 1);
+        world.storage(Orbit).pitch.set(camera, pitch);
+        world.setTimeScale(seconds * 60);
+        world.step(1/60);
+        world.setTimeScale(1);
+    },
+    async background() {
+        const eid = world.resource(Delivery).backing;
+        const sprite = world.storage(Sprite);
+        const original = { image: sprite.image.get(eid), color: sprite.color.get(eid), size: [sprite.size.x.get(eid), sprite.size.y.get(eid)], billboard: sprite.billboard.get(eid) };
+        world.remove(eid, Sprite);
+        try { return await this.capture(); }
+        finally { world.add(eid, Sprite, original); }
+    },
+    async capture(png = false) {
+        const promise = captureFrame(canvas);
+        world.step(0);
+        const image = await promise;
+        function ink(p, halfWidth, halfHeight, cyan = false, bounds) {
+            let count = 0;
+            for (let y = Math.floor(p.y - halfHeight); y <= p.y + halfHeight; y++) for (let x = Math.floor(p.x - halfWidth); x <= p.x + halfWidth; x++) {
+                const at = (y * image.width + x) * 4;
+                const [r, g, b] = image.rgba.subarray(at, at + 3);
+                if (cyan ? g > r + 30 && b > r + 30 && b > 80 : r > 180 && g > 170 && b > 155 && Math.abs(r - b) < 65) {
+                    count++;
+                    if (bounds) {
+                        bounds.left = Math.min(bounds.left, x); bounds.right = Math.max(bounds.right, x);
+                        bounds.top = Math.min(bounds.top, y); bounds.bottom = Math.max(bounds.bottom, y);
+                    }
+                }
+            }
+            return count;
+        }
+        const scene = world.resource(Delivery);
+        const bar = rect(scene.bar), icon = rect(scene.icon), iconBase = rect(scene.icon, false);
+        const bounds = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+        const iconVisible = ink(iconBase, iconBase.width * 1.1, iconBase.height * 1.1, false, bounds);
+        const fill = world.storage(Sprite).fillAmount.get(scene.bar);
+        const barPoint = t => ({ x: bar.x + bar.width * (t - 0.5), y: bar.y });
+        const empty = barPoint(fill + (1 - fill) * 0.5);
+        const emptyRgb = [0, 0, 0];
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const at = ((Math.floor(empty.y) + dy) * image.width + Math.floor(empty.x) + dx) * 4;
+            for (let channel = 0; channel < 3; channel++) emptyRgb[channel] += image.rgba[at + channel] / 9;
+        }
+        const besideTip = [-1, 1].map(sign => projected([scene.trailEnd[0] - 0.54, scene.trailEnd[1], scene.trailEnd[2] + 0.18 * sign]));
+        const trail = [0.15, 0.35, 0.55].map(t => projected([scene.trailStart[0] + (scene.trailEnd[0] - scene.trailStart[0]) * t, scene.trailStart[1], scene.trailStart[2]]));
+        let data = '';
+        if (png) {
+            const output = document.createElement('canvas');
+            output.width = image.width; output.height = image.height;
+            output.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height), 0, 0);
+            data = output.toDataURL('image/png');
+        }
+        return {
+            adapter: world.gpu.adapter, png: data,
+            icon: ink(icon, icon.width * 0.45, icon.height * 0.45),
+            iconWidth: icon.width,
+            iconVisible,
+            iconCenter: iconVisible ? [(bounds.left + bounds.right + 1) / 2, (bounds.top + bounds.bottom + 1) / 2] : [],
+            iconProjection: [iconBase.x, iconBase.y],
+            fill,
+            name: ink(projected(xyz(scene.label)), 55, 12),
+            barFilled: [-0.32, 0, 0.32].map(t => ink({ ...barPoint(fill * 0.5), y: bar.y + t * bar.height }, 1, 0, true)),
+            barEmpty: ink(empty, 1, 1, true),
+            emptyRgb,
+            trail: trail.map(p => ink(p, 2, 2)),
+            besideTip: besideTip.map(p => ink(p, 0, 0)),
+        };
+    },
+};
+</script></body></html>

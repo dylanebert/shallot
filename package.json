@@ -73,6 +73,7 @@
         "examples/day-night-cycle",
         "examples/hud",
         "examples/interact",
+        "examples/world-ui",
         "examples/save-and-load",
         "examples/particles",
         "examples/lit-interior",

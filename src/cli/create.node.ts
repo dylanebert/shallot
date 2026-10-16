@@ -311,6 +311,7 @@ test("an unknown template names installed examples and their descriptions", () =
     expect(output.join("\n")).toContain("minimal");
     expect(output.join("\n")).toContain("first-person");
     expect(output.join("\n")).toMatch(/interact.*—.*Aim at objects/);
+    expect(output.join("\n")).toMatch(/world-ui.*—.*Follow a courier/);
     expect(output.join("\n")).toMatch(/save-and-load.*—.*Click a cube/);
     expect(output.join("\n")).toMatch(/particles.*—.*GPU-simulated dust motes/);
     expect(output.join("\n")).toMatch(/lit-interior.*—.*Walk a dark room/);

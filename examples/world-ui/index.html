@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" type="image/svg+xml" href="/icon.svg" />
+<meta name="description" content="Follow a courier along a road with a world-space name, a progress bar, a line trail and an icon that scales away." />
+<title>World UI · Shallot</title>
+<style>html,body{margin:0;width:100%;height:100%;background:#191816}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+</head>
+<body><canvas></canvas>
+<script type="module">
+import { runApp } from '@dylanebert/shallot';
+import { assets, DeliveryPlugin } from './src/delivery';
+await runApp({plugins:[DeliveryPlugin], setup:assets});
+</script></body>
+</html>
