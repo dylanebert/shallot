@@ -1225,6 +1225,10 @@ Remove imports of `installHarness`, `HarnessTarget` and `REAL_GPU_LAUNCH`. Drive
 
 Remove imports from `@dylanebert/shallot/brand`. The mark and palette are repository assets, not a package subpath; the default loading screen continues to render the mark internally. There is no public brand-assets replacement.
 
+## Orthographic `Orbit` fly-button drags orbit
+
+With an orthographic `Camera`, holding `Orbit.flyButton` now rotates around the target using orbit sensitivity and smoothing; WASD/QE no longer translate the camera, and scroll changes `Camera.size` rather than fly speed. `OrbitMode.Locked` still disables look. Perspective flythrough is unchanged.
+
 ## `OrbitPick` is removed
 
 Remove `OrbitPick.claim` assignments. Orbit rotation runs on every drag; decide selection in the game from `pointer.buttonEvents` press/release positions and a game-owned travel threshold.

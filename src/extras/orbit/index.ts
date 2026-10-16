@@ -26,8 +26,10 @@ const FlyScrollRate = Math.log(1.15) / 100; // ≈ 0.0014
 export const OrbitMode = { Free: 0, Locked: 1 } as const;
 
 /**
- * orbit camera controls: drag to rotate around a target, scroll to zoom;
- * on touch, one finger rotates, two-finger pinch zooms, two-finger drag pans
+ * Orbit, pan and zoom around a target. Hold the fly button for perspective flythrough
+ * (mouse look, WASD/QE movement, Shift boost, scroll speed); in orthographic mode it orbits
+ * instead, and scroll zooms size. Locked disables look.
+ * On touch, one finger rotates, two-finger pinch zooms, two-finger drag pans.
  */
 export const Orbit = component(
     "Orbit",
@@ -72,7 +74,7 @@ export const Orbit = component(
         orbitButton: u8,
         /** mouse button that pans: 0 left, 1 middle, 2 right */
         panButton: u8,
-        /** mouse button that flies (hold to look around, WASD/QE to move): 0 left, 1 middle, 2 right */
+        /** mouse button for perspective flythrough (look and WASD/QE movement), or orthographic orbit: 0 left, 1 middle, 2 right */
         flyButton: u8,
         /** pan offset from the orbit target, world units */
         pan: vec3,
@@ -216,8 +218,8 @@ const OrbitSystem: System = {
                     ? false
                     : isButton(input.pointer, world.storage(Orbit).flyButton.get(eid));
             // Leave movement keys to gameplay unless the fly button is held; orbit and pan take priority.
-            const flying = !orbitHeld && !panHeld && flyHeld;
-            const looking = flying ? flyHeld : orbitHeld;
+            const flying = !isOrtho && !orbitHeld && !panHeld && flyHeld;
+            const looking = orbitHeld || (!panHeld && flyHeld);
             const lookSpeed = flying ? world.storage(Orbit).flySensitivity.get(eid) : sensitivity;
 
             if (!locked && looking) {
