@@ -21,10 +21,9 @@ import {
     StandardPhysicsPlugin,
     StandardRenderer,
     Transform,
-    VolumetricLight,
     type World,
 } from "@dylanebert/shallot";
-import { Fog, FogPlugin, Sky, SkyPlugin, skyBackgroundHandle } from "@dylanebert/shallot/extras";
+import { Sky, SkyPlugin, skyBackgroundHandle } from "@dylanebert/shallot/extras";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 type Color = readonly [number, number, number, number];
@@ -51,7 +50,6 @@ export const Room: Resource<{
     camera: number;
     player: number;
     sun: number;
-    fog: number;
     pendants: number[];
     downlight: number;
     object: number;
@@ -61,7 +59,6 @@ export const Room: Resource<{
         camera: 0,
         player: 0,
         sun: 0,
-        fog: 0,
         pendants: [],
         downlight: 0,
         object: 0,
@@ -113,17 +110,6 @@ function room(world: World): void {
         illuminance: 70000,
         shadowMapsEnabled: 1,
         maximumDistance: 45,
-    });
-    world.add(scene.sun, VolumetricLight);
-    scene.fog = world.create();
-    world.add(scene.fog, Fog, {
-        color: 0,
-        density: 0.035,
-        heightFalloff: 0,
-        scatteringAsymmetry: 0.25,
-        lightIntensity: 0.5 / Math.PI,
-        stepCount: 64,
-        jitter: 0,
     });
     for (const z of [4, 8]) {
         block(world, [-1, 4.4, z], [0.04, 1.2, 0.04], TRIM);
@@ -193,6 +179,6 @@ function room(world: World): void {
 }
 export const RoomPlugin: Plugin = {
     name: "Room",
-    dependencies: [StandardPhysicsPlugin, PlayerPlugin, FogPlugin, SkyPlugin],
+    dependencies: [StandardPhysicsPlugin, PlayerPlugin, SkyPlugin],
     initialize: room,
 };

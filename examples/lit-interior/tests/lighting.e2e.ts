@@ -6,19 +6,16 @@ declare global {
         ready: boolean;
         view(x?: number, y?: number, z?: number, yaw?: number, pitch?: number): void;
         regions(): Promise<{
-            shaft: number;
-            beside: number;
-            shaftFloor: number;
+            sunlitFloor: number;
             darkFloor: number;
             pools: number[];
         }>;
-        volumetric(value: boolean): void;
         shadow(
             kind: "block" | "bulbs",
         ): Promise<{ darkened: number; darkenedFraction: number; maxDelta: number }>;
         appearance(): Promise<{
             window: number;
-            shaftFloor: number;
+            sunlitFloor: number;
             wallRgb: number[];
             wallL: number;
             clearL: number;
@@ -30,9 +27,7 @@ declare global {
     }
 }
 
-test("the window shaft scatters only with VolumetricLight; its floor and both pendant pools outshine the dark stretch", async ({
-    page,
-}) => {
+test("the sunlit floor and both pendant pools outshine the dark stretch", async ({ page }) => {
     const errors: string[] = [],
         warnings: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -44,19 +39,14 @@ test("the window shaft scatters only with VolumetricLight; its floor and both pe
     await test.step("daylight through the window outshines its floor patch, and the dark room stays legible against the clear", async () => {
         const appearance = await page.evaluate(() => window.appearance());
         console.log("window and dark room", appearance);
-        expect.soft(appearance.window).toBeGreaterThan(appearance.shaftFloor + 20);
+        expect.soft(appearance.window).toBeGreaterThan(appearance.sunlitFloor + 20);
         expect.soft(appearance.wallL - appearance.clearL).toBeGreaterThan(0.03);
         expect.soft(appearance.wallL - appearance.ceilingL).toBeGreaterThan(0.015);
         expect.soft(appearance.ceilingL - appearance.floorL).toBeGreaterThan(0.015);
     });
     const lit = await page.evaluate(() => window.regions());
-    await page.evaluate(() => window.volumetric(false));
-    const unmarked = await page.evaluate(() => window.regions());
-    console.log("shaft and floor luminance", { lit, unmarked });
-    expect.soft(lit.shaft - lit.beside).toBeGreaterThan(20);
-    expect.soft(unmarked.shaft - unmarked.beside).toBeLessThan(3);
-    expect.soft(lit.shaft - unmarked.shaft).toBeGreaterThan(20);
-    expect.soft(lit.shaftFloor - lit.darkFloor).toBeGreaterThan(30);
+    console.log("sunlit floor and pendant pool luminance", lit);
+    expect.soft(lit.sunlitFloor - lit.darkFloor).toBeGreaterThan(30);
     for (const pool of lit.pools) expect.soft(pool - lit.darkFloor).toBeGreaterThan(15);
     const device = await page.evaluate(() => window.device);
     console.log("lit-interior device", JSON.stringify(device));

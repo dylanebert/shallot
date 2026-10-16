@@ -4,10 +4,9 @@ import {
     NotShadowCaster,
     PointLight,
     SpotLight,
-    VolumetricLight,
     World,
 } from "@dylanebert/shallot";
-import { Fog, SkyPlugin } from "@dylanebert/shallot/extras";
+import { SkyPlugin } from "@dylanebert/shallot/extras";
 import { Room, RoomPlugin } from "./room";
 
 function scene() {
@@ -16,13 +15,10 @@ function scene() {
     RoomPlugin.initialize!(world);
     return { world, room: world.resource(Room) };
 }
-test("the window sun casts cascaded shadows and scatters through room fog", () => {
+test("the window sun casts cascaded shadows", () => {
     const { world, room } = scene();
-    expect(world.has(room.sun, VolumetricLight)).toBe(true);
     expect(world.storage(DirectionalLight).shadowMapsEnabled.get(room.sun)).toBe(1);
     expect(world.storage(DirectionalLight).illuminance.get(room.sun)).toBeGreaterThan(0);
-    expect(world.storage(Fog).density.get(room.fog)).toBeGreaterThan(0);
-    expect(world.storage(Fog).stepCount.get(room.fog)).toBeGreaterThanOrEqual(64);
 });
 test("two warm shadowed point pendants and a fixed shadowed spot downlight light the far end", () => {
     const { world, room } = scene();
