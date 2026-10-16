@@ -4,9 +4,25 @@ import { expect, test } from "playwright/test";
 type Frame = { hour: number; width: number; height: number; rgba: number[]; png: string };
 declare global {
     interface Window {
-        frame: (hour?: number) => Promise<Frame>;
+        frame: (hour?: number, settle?: boolean) => Promise<Frame>;
     }
 }
+
+test("the built game's only control floats centred at the canvas's bottom", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto("/");
+    const slider = page.getByRole("slider", { name: "Hour" });
+    await slider.waitFor();
+    const canvas = await page.locator("canvas").boundingBox();
+    const controls = await page.getByRole("region", { name: "Time of day" }).boundingBox();
+    expect(canvas && controls).toBeTruthy();
+    expect(controls!.x + controls!.width / 2).toBeCloseTo(canvas!.x + canvas!.width / 2, 0);
+    expect(controls!.y).toBeGreaterThan(canvas!.y + canvas!.height / 2);
+    expect(controls!.y + controls!.height).toBeLessThanOrEqual(canvas!.y + canvas!.height);
+    expect(await page.getByRole("slider").count()).toBe(1);
+    expect(errors).toEqual([]);
+});
 
 function mean(frame: Frame, x0: number, y0: number, x1: number, y1: number) {
     let sum = 0,
@@ -39,6 +55,10 @@ test("the slider drives the hour, noon sky is brighter than midnight, and shadow
     })) {
         await page.getByRole("slider", { name: "Hour" }).fill(String(hour));
         frames[name] = await page.evaluate(() => window.frame());
+        if (process.env.SHALLOT_CAPTURE_DIR) {
+            mkdirSync(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
+            await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/page-${name}.png` });
+        }
         expect(frames[name].hour).toBe(hour);
     }
     expect(mean(frames.noon, 0.1, 0.05, 0.9, 0.25)).toBeGreaterThan(
@@ -55,6 +75,9 @@ test("the slider drives the hour, noon sky is brighter than midnight, and shadow
                 Buffer.from(frame.png.split(",")[1], "base64"),
             );
         for (const [name, frame] of Object.entries(frames)) save(name, frame);
+        await page.evaluate(() => window.frame(6));
+        save("changed-sun-first-frame", await page.evaluate(() => window.frame(9, false)));
+        save("changed-sun-settled", await page.evaluate(() => window.frame(9)));
         for (let i = 0; i < 12; i++)
             save(
                 `low-sun-${String(i).padStart(2, "0")}`,

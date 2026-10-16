@@ -13,9 +13,10 @@
     const app = await createApp({ plugins: [CyclePlugin] });
     hud(mountOverlay(canvas, app.world), app.world);
     flushSync();
-    window.frame = async (hour) => {
+    window.frame = async (hour, settle = true) => {
         if (hour !== undefined) app.world.resource(Clock).hour = hour;
-        app.world.step(0);
+        // Shadow presentation settles one frame after a changed light direction.
+        if (settle) app.world.step(0);
         const capture = captureFrame(canvas);
         app.world.step(0);
         flushSync();
