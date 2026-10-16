@@ -117,16 +117,13 @@ test("every prompt part renders at near, far and oblique views during a hold", a
             window.advance();
         });
     }
-});
-
-test("a completed hold changes the block colour without moving it", async ({ page }) => {
-    await page.goto(STEPPED);
-    await page.waitForFunction(() => window.ready);
-    const evidence = await page.evaluate(() => window.holdEvidence());
-    console.log("hold colour", evidence);
-    await capture(page, "hold-complete");
-    expect(evidence.afterPosition).toEqual(evidence.beforePosition);
-    expect(evidence.changed).toBeGreaterThan(0.9);
+    await test.step("a completed hold changes the block colour without moving it", async () => {
+        const evidence = await page.evaluate(() => window.holdEvidence());
+        console.log("hold colour", evidence);
+        await capture(page, "hold-complete");
+        expect(evidence.afterPosition).toEqual(evidence.beforePosition);
+        expect(evidence.changed).toBeGreaterThan(0.9);
+    });
 });
 
 test("each prompt faces the player, with a half-filled ring during the one-second hold", async ({
