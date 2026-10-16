@@ -182,11 +182,10 @@ test("the preview serves its isolated page and presents its first frame", async 
 
     const canvas = page.locator("#canvas");
     await expect(canvas).toBeVisible();
-    // The controls mount on the first draw, after pipeline warm-up. A cold hosted macOS runner took 5.75 s,
-    // past expect's 5 s, so the wait is bounded by the test's timeout instead.
-    const controls = page.locator("[data-recipe-controls]");
-    await controls.waitFor();
-    await expect(controls).toContainText("WASD");
+    await page.waitForFunction(() => document.querySelector("canvas")?.width === 1280);
+    await page.addScriptTag({ path: CAPTURE_ENTRY });
+    const first = await captureCanvasFrame(page, "first");
+    await expect(page.locator("[data-recipe-controls]")).toHaveCount(0);
     expect(pageErrors, "first-person reaches its first draw without a runtime error").toEqual([]);
     const device = await page.evaluate(() => (window as CaptureWindow).__firstPersonDeviceRecord);
     if (!device) throw new Error("first-person browser did not record its presenting device");
@@ -197,8 +196,6 @@ test("the preview serves its isolated page and presents its first frame", async 
     expect(device.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
     expect(device.features).toEqual(floorFeatures);
     expect(device.maxStorageBuffersPerShaderStage).toBe(8);
-    await page.addScriptTag({ path: CAPTURE_ENTRY });
-    const first = await captureCanvasFrame(page, "first");
     expect(first.width).toBe(1280);
     expect(first.height).toBe(720);
     expect(first.identity).toMatchObject({
@@ -227,8 +224,7 @@ test.describe("at a quarter size", () => {
         await page.goto("/");
         const canvas = page.locator("#canvas");
         await expect(canvas).toBeVisible();
-        // The controls mount on the first draw, after pipeline warm-up, bounded by the test's timeout.
-        await page.locator("[data-recipe-controls]").waitFor();
+        await page.waitForFunction(() => document.querySelector("canvas")?.width === 320);
         await screenshotCanvas(page, "idle-before");
         await page.waitForTimeout(700);
         await screenshotCanvas(page, "idle-after");

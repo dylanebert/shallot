@@ -5,7 +5,6 @@ import {
     Character,
     CharacterPlugin,
     component,
-    Devices,
     DirectionalLight,
     GlobalAmbientLight,
     InputPlugin,
@@ -14,7 +13,6 @@ import {
     MeshInstance,
     MeshMaterial,
     MeshPlugin,
-    mountOverlay,
     type Plugin,
     type Resource,
     Shape,
@@ -27,6 +25,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
+import { internText, Justify, Text, TextPlugin } from "@dylanebert/shallot/extras";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 type Vec3 = readonly [number, number, number];
@@ -34,8 +33,8 @@ type Vec4 = readonly [number, number, number, number];
 const GROUND_COLOR = [0.085, 0.08, 0.072, 1] as const;
 const STEP_COLOR = [0.15, 0.14, 0.125, 1] as const;
 const LIFT_COLOR = [0.658, 0.301, 0.117, 1] as const;
-const TOWER_COLOR = [0.15, 0.14, 0.125, 1] as const;
-const PERCH_COLOR = [0.2, 0.19, 0.17, 1] as const;
+const TOWER_COLOR = [0.06, 0.057, 0.052, 1] as const;
+const PERCH_COLOR = [0.11, 0.105, 0.095, 1] as const;
 
 function block(
     world: World,
@@ -61,12 +60,12 @@ export const Route: Resource<{ entities: ReturnType<typeof route> | null }> = {
 export function route(world: World) {
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
-    ambient.brightness = 738.59085;
+    ambient.brightness = 380;
     const sun = world.create();
-    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.45, -1, -0.6) });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, 1, -2, -0.35) });
     world.add(sun, DirectionalLight, {
         color: 0xffe8cc,
-        illuminance: 3449.1713,
+        illuminance: 6000,
         maximumDistance: 50,
         depthBias: 0.0005,
         shadowNormalBias: 1.8,
@@ -115,7 +114,20 @@ export function route(world: World) {
         [[0.7, 4.5, -14.5], [4.4, 1, 3], PERCH_COLOR],
     ] as const satisfies readonly (readonly [Vec3, Vec3, Vec4])[];
     for (const [at, size, rgba] of tower) block(world, at, size, rgba);
-    return { player, eye, lift };
+    const controls = world.create();
+    world.add(controls, Transform, {
+        translation: [0, 0.505, 7.5],
+        rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2],
+    });
+    world.add(controls, Text, {
+        content: internText(world, "WASD  Move\nSPACE  Jump\nClick  Look"),
+        fontSize: 0.5,
+        maxWidth: 5,
+        anchor: [0.5, 0.5],
+        justify: Justify.Center,
+        color: 0xeee9df,
+    });
+    return { player, eye, lift, controls };
 }
 
 // Marks route entities driven by the lift system; their authored positions become trajectory bases.
@@ -129,8 +141,6 @@ type DemoBag = {
     liftEids: number[];
     liftBases: number[];
     liftCount: number;
-    panel: HTMLDivElement | null;
-    look: HTMLDivElement | null;
 };
 function stateBag(world: World): DemoBag {
     return world.resource(RECIPE_STATE);
@@ -143,13 +153,9 @@ function createBag(world: World): DemoBag {
         liftEids: [],
         liftBases: [],
         liftCount: 0,
-        panel: null,
-        look: null,
     };
     world.onDispose(() => {
         bag.liftCount = 0;
-        bag.panel = null;
-        bag.look = null;
     });
     return bag;
 }
@@ -176,58 +182,6 @@ const lift: System = {
     },
 };
 
-function mountControls(world: World): void {
-    if (typeof document === "undefined") return;
-    const bag = stateBag(world);
-    if (bag.panel) return;
-    const overlay = mountOverlay(document.querySelector("canvas"), world);
-    const panel = document.createElement("div");
-    panel.dataset.recipeControls = "";
-    panel.style.cssText =
-        "position:absolute;top:20px;left:20px;pointer-events:none;padding:10px 12px;" +
-        "display:grid;row-gap:6px;column-gap:16px;border:1px solid #797369;" +
-        "border-radius:6px;background:#282622;color:#eee9df;" +
-        "font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
-    for (const [control, action] of [
-        ["WASD", "Move"],
-        ["MOUSE", "Look"],
-        ["SPACE", "Jump"],
-    ] as const) {
-        const row = document.createElement("div");
-        row.dataset.controlRow = "";
-        row.style.cssText =
-            "display:grid;grid-template-columns:max-content max-content;column-gap:16px";
-        for (const text of [control, action]) {
-            const cell = document.createElement("span");
-            cell.textContent = text;
-            cell.style.color = "#eee9df";
-            row.append(cell);
-        }
-        panel.append(row);
-        if (control === "MOUSE") bag.look = row;
-    }
-    overlay.append(panel);
-    bag.panel = panel;
-}
-
-const controls: System = {
-    name: "first-person-controls",
-    group: "draw",
-    update(world) {
-        mountControls(world);
-        const bag = stateBag(world);
-        if (!bag.panel || !bag.look) return;
-        const { status, refusal } = world.resource(Devices).pointer.lock;
-        const look =
-            status === "locked" ? "locked" : status === "unlocked" ? "idle" : "unavailable";
-        if (bag.look.dataset.pointerLook === look) return;
-        bag.look.dataset.pointerLook = look;
-        bag.look.style.opacity = look === "locked" ? "1" : "0.45";
-        bag.look.style.textDecoration = look === "unavailable" ? "line-through" : "none";
-        bag.look.title = look === "unavailable" ? (refusal ?? "") : "";
-    },
-};
-
 export const Demo = {
     name: "Demo",
     recovery: (world: World) => ({
@@ -244,11 +198,17 @@ export const Demo = {
             bag.liftEids = saved.liftEids.slice();
             bag.liftBases = saved.liftBases.slice();
             bag.liftCount = saved.liftCount;
-            // DOM handles are presentation; liftPos is overwritten per call.
         },
     }),
     components: [Lift],
-    dependencies: [PlayerPlugin, CharacterPlugin, InputPlugin, StandardPhysicsPlugin, MeshPlugin],
+    dependencies: [
+        PlayerPlugin,
+        CharacterPlugin,
+        InputPlugin,
+        StandardPhysicsPlugin,
+        MeshPlugin,
+        TextPlugin,
+    ],
     initialize(world: World) {
         const state = world.resource(Route);
         state.entities ??= route(world);
@@ -265,5 +225,5 @@ export const Demo = {
             bag.liftCount++;
         }
     },
-    systems: [lift, controls],
+    systems: [lift],
 } satisfies Plugin;
