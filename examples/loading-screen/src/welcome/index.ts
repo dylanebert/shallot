@@ -20,17 +20,17 @@ export const WelcomeCube = component("WelcomeCube", {});
 function makeScene(world: World): void {
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
-    ambient.brightness = 520;
+    ambient.brightness = 380;
 
     const sun = world.create();
-    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.5, -1, -0.6) });
-    world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 3200 });
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, 1, -2, -0.35) });
+    world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 6000 });
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
 
     const camera = world.create();
     world.add(camera, Camera, { clearColor: 0x191816 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Orbit, { distance: 5, yaw: 0.7, pitch: 0.32 });
+    world.add(camera, Orbit, { distance: 6, yaw: 0.7, pitch: 0.4 });
     world.add(camera, Transform);
 
     const materials = world.resource(Materials);
@@ -43,7 +43,7 @@ function makeScene(world: World): void {
     const cube = world.create();
     world.add(cube, MeshInstance);
     world.add(cube, MeshMaterial, cubeMaterial);
-    world.add(cube, Transform, { translation: [0, 0.15, 0] });
+    world.add(cube, Transform, { translation: [0, 0, 0] });
     world.add(cube, WelcomeCube);
 
     const groundMaterial = materials.add(
@@ -56,8 +56,8 @@ function makeScene(world: World): void {
     world.add(ground, MeshInstance);
     world.add(ground, MeshMaterial, groundMaterial);
     world.add(ground, Transform, {
-        translation: [0, -0.62, 0],
-        scale: [8, 0.2, 8],
+        translation: [0, -0.6, 0],
+        scale: [4, 0.2, 4],
     });
 }
 
