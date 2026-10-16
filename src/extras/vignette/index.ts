@@ -12,7 +12,7 @@ import {
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
-import { component, f32, type Plugin, vec2, vec4, type World } from "../../engine";
+import { component, f32, type Plugin, vec2, type World } from "../../engine";
 import {
     beginRenderPass,
     draw,
@@ -22,7 +22,7 @@ import {
     setRenderPipeline,
 } from "../../engine/runtime";
 
-/** HDR vignette. Color is sRGB, center is UV; only carrying cameras run the pass. */
+/** HDR vignette. Color is 0xRRGGBB sRGB, mixed unconverted; center is UV. Only carrying cameras run the pass. */
 export const Vignette = component(
     "Vignette",
     {
@@ -32,7 +32,7 @@ export const Vignette = component(
         roundness: f32,
         center: vec2,
         edgeCompensation: f32,
-        color: vec4,
+        color: f32,
     },
     {
         defaults: () => ({
@@ -42,7 +42,7 @@ export const Vignette = component(
             roundness: 1,
             center: [0.5, 0.5],
             edgeCompensation: 1,
-            color: [0, 0, 0, 1],
+            color: 0x000000,
         }),
     },
 );
@@ -193,10 +193,11 @@ export const VignettePlugin: Plugin = {
                     b[5] = s.center.y.get(eid);
                     b[6] = s.edgeCompensation.get(eid);
                     b[7] = 0;
-                    b[8] = s.color.x.get(eid);
-                    b[9] = s.color.y.get(eid);
-                    b[10] = s.color.z.get(eid);
-                    b[11] = s.color.w.get(eid);
+                    const color = s.color.get(eid);
+                    b[8] = ((color >> 16) & 0xff) / 255;
+                    b[9] = ((color >> 8) & 0xff) / 255;
+                    b[10] = (color & 0xff) / 255;
+                    b[11] = 1;
                     world.gpu.device.queue.writeBuffer(camera.buffer, 0, b);
                 }
                 for (const eid of state.cameras.keys()) {

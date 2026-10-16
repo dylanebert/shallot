@@ -83,7 +83,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
         .add(StandardMaterial({ baseColor: [1, 0, 1, 1], perceptualRoughness: 1 }));
     world.add(mesh, MeshInstance);
     world.add(mesh, MeshMaterial, material);
-    world.add(mesh, Outline, { width: 3, color: [0.1, 1, 0.2, 1] });
+    world.add(mesh, Outline, { width: 3, color: 0x59ff7c });
     const edgeMesh = world.create();
     world.add(edgeMesh, Transform, {
         translation: [-1.2, -0.55, 0.2, 0],

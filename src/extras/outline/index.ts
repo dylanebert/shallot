@@ -7,6 +7,7 @@ import { type Mesh, Meshes, type MeshHandle, MeshInstance } from "../../core/mes
 import {
     Camera,
     DepthPrepassRequests,
+    globalTransformTable,
     MainPassSystem,
     OverlaySystem,
     PresentationSystem,
@@ -18,7 +19,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
-import { f32, vec4 } from "../../engine";
+import { f32 } from "../../engine";
 import {
     beginComputePass,
     beginRenderPass,
@@ -32,6 +33,7 @@ import {
     setRenderBindGroup,
     setRenderPipeline,
 } from "../../engine/runtime";
+import { unpackColorInto } from "../../engine/utils";
 import { MeshRenderPlugin, StandardRenderer } from "../../standard/rendering";
 import {
     compositeKernel,
@@ -60,8 +62,8 @@ import {
 export const Outline = component(
     "Outline",
     {
-        /** band color, linear rgb (alpha unused) */
-        color: vec4,
+        /** Band color as 0xRRGGBB sRGB. */
+        color: f32,
         /** band thickness in pixels, clamped to 64 */
         width: f32,
         /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry */
@@ -69,7 +71,7 @@ export const Outline = component(
     },
     {
         defaults: () => ({
-            color: [1, 0.85, 0.2, 1],
+            color: 0xffed7c,
             width: 4,
             occlude: 0,
         }),
@@ -300,7 +302,7 @@ function maskBind(
         _outlineState.masks.set(camEid, byMesh);
     }
     const viewBuffer = world.resource(RenderContext).viewBuffers[view.slot]!;
-    const globalTransformRows = world.gpu.buffers.get("globalTransformRows")!;
+    const globalTransformRows = globalTransformTable(world).eidToRowBuffer!;
     const eids = _outlineState.gpu.eids!;
     const attrs = _outlineState.gpu.attrs!;
     const depth = variant === "plain" ? null : view.depth;
@@ -476,8 +478,7 @@ const OutlineSystem: System = {
             n++;
         }
         if (n === 0) return; // bare path — no passes
-        const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
-        if (!globalTransforms) return;
+        const globalTransforms = globalTransformTable(world).buffer;
 
         ensureInstances(world, n);
         const outline = world.storage(Outline);
@@ -508,10 +509,8 @@ const OutlineSystem: System = {
                 const eid = eids[j]!;
                 eidsStaging[cursor] = eid;
                 const o = cursor * 8;
-                attrStaging[o] = outline.color.x.get(eid);
-                attrStaging[o + 1] = outline.color.y.get(eid);
-                attrStaging[o + 2] = outline.color.z.get(eid);
-                attrStaging[o + 3] = outline.color.w.get(eid);
+                unpackColorInto(outline.color.get(eid), attrStaging, o);
+                attrStaging[o + 3] = 1;
                 const w = Math.max(0, Math.min(MAX_WIDTH, outline.width.get(eid)));
                 const occ = outline.occlude.get(eid);
                 attrStaging[o + 4] = w;

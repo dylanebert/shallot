@@ -12,7 +12,7 @@ import { Outline, OutlinePlugin } from ".";
 setDefaultTimeout(TIMEOUT.node);
 
 const SIZE = 48;
-const BAND = [1, 0, 1, 1] as const;
+const BAND = 0xff00ff;
 
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },

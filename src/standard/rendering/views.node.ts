@@ -127,7 +127,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
                         .resource(Materials)
                         .add(StandardMaterial({ baseColor: color, perceptualRoughness: 0.8 })),
                 );
-                world.add(mesh, Outline, { color: [0.1, 1, 0.2, 1], width: 3 });
+                world.add(mesh, Outline, { color: 0x59ff7c, width: 3 });
             }
             const pointSpecs = [
                 { x: -3, light: { color: 0xff8844, intensity: 315225.92, range: 3.5 } },

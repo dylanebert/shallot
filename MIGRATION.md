@@ -305,6 +305,8 @@ const material: SurfaceMaterial = { ...base, tangentVelocity: [1, 0, 0] };
 
 ## Glaze becomes camera grading and effect passes
 
+`Outline.color` and `Vignette.color` take a `0xRRGGBB` sRGB number, not an RGBA array. Convert old linear outline RGB to sRGB bytes; vignette RGB was already sRGB. Alpha was unused by both. The outline default is `0xffed7c`; the vignette default is `0x000000`.
+
 Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/glaze` imports. `CorePipelinePlugin` presents views and registers `Tonemapping` and `ColorGrading`, exported from `/rendering` and the root. Default plugins already include it. Add `VignettePlugin` from `/vignette` (or the root) for cameras carrying `Vignette`.
 
 | Glaze field | Replacement |

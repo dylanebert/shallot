@@ -7,11 +7,16 @@ const { createApp } = await import("@dylanebert/shallot");
 const { attachTexture, captureTexture, Camera, Anchor } = await import(
     "@dylanebert/shallot/rendering"
 );
+const { MeshInstance } = await import("@dylanebert/shallot/mesh");
 const { Transform } = await import("@dylanebert/shallot/transform");
 const { CameraBackground, StandardRenderer } = await import(
     "@dylanebert/shallot/standard/rendering"
 );
 const {
+    Outline,
+    OutlinePlugin,
+    Vignette,
+    VignettePlugin,
     Sprite,
     SpriteAlphaMode,
     SpriteFill,
@@ -43,10 +48,18 @@ for (const subject of [
     "first-person-labels",
     "particles",
     "lines",
+    "outline",
+    "outline-authored",
+    "outline-band",
+    "outline-green",
+    "vignette",
 ]) {
     if (process.argv[4] && process.argv[4] !== subject) continue;
-    const plugins =
-        subject === "lines"
+    const plugins = subject.startsWith("outline")
+        ? [OutlinePlugin]
+        : subject === "vignette"
+          ? [VignettePlugin]
+          : subject === "lines"
             ? [LinesPlugin]
             : subject === "particles"
               ? [MotesPlugin]
@@ -65,7 +78,23 @@ for (const subject of [
     try {
         let camera: number;
         let linesFrame = () => {};
-        if (subject === "lines") {
+        if (subject.startsWith("outline") || subject === "vignette") {
+            camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5] });
+            world.add(camera, Camera, { clearColor: 0x204060 });
+            world.add(camera, StandardRenderer);
+            const mesh = world.create();
+            world.add(mesh, Transform);
+            world.add(mesh, MeshInstance);
+            if (subject === "vignette") world.add(camera, Vignette);
+            else if (subject === "outline-authored")
+                world.add(mesh, Outline, { color: 0xeee9df, width: 4 });
+            else if (subject === "outline-band")
+                world.add(mesh, Outline, { color: 0xff00ff, width: 4 });
+            else if (subject === "outline-green")
+                world.add(mesh, Outline, { color: 0x59ff7c, width: 3 });
+            else world.add(mesh, Outline);
+        } else if (subject === "lines") {
             camera = world.create();
             world.add(camera, Transform, { translation: [0, 0, 6] });
             world.add(camera, Camera);

@@ -245,7 +245,7 @@ const ShowInteraction: System = {
             if (eid === target) {
                 if (!world.has(eid, Outline))
                     world.add(eid, Outline, {
-                        color: [0.8549926, 0.8148466, 0.7379104, 1],
+                        color: 0xeee9df,
                         width: 4,
                     });
             } else if (world.has(eid, Outline)) world.remove(eid, Outline);

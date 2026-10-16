@@ -160,7 +160,7 @@ export const Play: System = {
         if (input.enabled && pointer.hover && hitsCube(world, pointer.x, pointer.y)) {
             if (!world.has(game.cube, Outline))
                 world.add(game.cube, Outline, {
-                    color: [0.8549926, 0.8148466, 0.7379104, 1],
+                    color: 0xeee9df,
                     width: 4,
                 });
         } else if (world.has(game.cube, Outline)) world.remove(game.cube, Outline);
