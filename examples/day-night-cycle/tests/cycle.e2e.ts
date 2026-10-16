@@ -53,22 +53,51 @@ function mean(frame: Frame, x0: number, y0: number, x1: number, y1: number) {
     return sum / count;
 }
 
-test("the slider drives the hour and noon sky is brighter than midnight", async ({ page }) => {
-    await open(page, 12);
-    const noon = await page.evaluate(() => window.frame());
-    await page.getByRole("slider", { name: "Hour" }).fill("0");
-    const night = await page.evaluate(() => window.frame());
-    expect(night.hour).toBe(0);
-    expect(mean(noon, 0.1, 0.05, 0.9, 0.25)).toBeGreaterThan(
-        mean(night, 0.1, 0.05, 0.9, 0.25) + 30,
-    );
+// These frame claims share one stepped app, started at 7, so its page and pipelines build once.
+test.describe("one stepped app", () => {
+    test.describe.configure({ mode: "serial" });
+    let page: Page;
+    let initial: Frame;
+    test.beforeAll(async ({ browser }) => {
+        page = await browser.newPage();
+        await open(page, 7);
+    });
+    test.afterAll(() => page.close());
+
+    test("a fresh scene starts at the requested hour with the low sun's disk in frame", async () => {
+        initial = await page.evaluate(() => window.frame());
+        expect(initial.hour).toBe(7);
+        expect(mean(initial, 0.798, 0.048, 0.807, 0.067)).toBeGreaterThan(
+            mean(initial, 0.7, 0.05, 0.74, 0.1) + 8,
+        );
+    });
+
+    test("the first frame after changing the light direction has the new shadows", async () => {
+        await page.evaluate(() => window.frame(15));
+        const changed = await page.evaluate(() => window.frame(7));
+        save("changed-sun-first-frame", changed);
+        save("changed-sun-reference", initial);
+        let error = 0;
+        for (let i = 0; i < initial.rgba.length; i++)
+            error += Math.abs(initial.rgba[i] - changed.rgba[i]);
+        expect(error / initial.rgba.length).toBeLessThan(0.05);
+    });
+
+    test("the slider drives the hour and noon sky is brighter than midnight", async () => {
+        const noon = await page.evaluate(() => window.frame(12));
+        await page.getByRole("slider", { name: "Hour" }).fill("0");
+        const night = await page.evaluate(() => window.frame());
+        expect(night.hour).toBe(0);
+        expect(mean(noon, 0.1, 0.05, 0.9, 0.25)).toBeGreaterThan(
+            mean(night, 0.1, 0.05, 0.9, 0.25) + 30,
+        );
+    });
 });
 
 test("morning and afternoon cast a shape's shadow on opposite sides", async ({ page }) => {
     await open(page, 9, false, true);
     const morning = await page.evaluate(() => window.frame());
-    await open(page, 15, false, true);
-    const afternoon = await page.evaluate(() => window.frame());
+    const afternoon = await page.evaluate(() => window.frame(15));
     save("morning", morning);
     save("afternoon", afternoon);
     const contrast = (f: Frame) =>
@@ -76,29 +105,9 @@ test("morning and afternoon cast a shape's shadow on opposite sides", async ({ p
     expect(contrast(morning) * contrast(afternoon)).toBeLessThan(-4);
 });
 
-test("the first frame after changing the light direction has the new shadows", async ({ page }) => {
-    await open(page, 15);
-    const reference = await page.evaluate(() => window.frame());
-    await open(page, 9);
-    await page.evaluate(() => window.frame());
-    const changed = await page.evaluate(() => window.frame(15));
-    save("changed-sun-first-frame", changed);
-    save("changed-sun-reference", reference);
-    let error = 0;
-    for (let i = 0; i < reference.rgba.length; i++)
-        error += Math.abs(reference.rgba[i] - changed.rgba[i]);
-    expect(error / reference.rgba.length).toBeLessThan(0.05);
-});
-
-test("a fresh scene starts at the requested hour with the low sun's disk in frame", async ({
+test("named hours and a low-sun sequence are captured when SHALLOT_CAPTURE_DIR is set", async ({
     page,
 }) => {
-    await open(page, 7);
-    const initial = await page.evaluate(() => window.frame());
-    expect(initial.hour).toBe(7);
-    expect(mean(initial, 0.798, 0.048, 0.807, 0.067)).toBeGreaterThan(
-        mean(initial, 0.7, 0.05, 0.74, 0.1) + 8,
-    );
     if (!process.env.SHALLOT_CAPTURE_DIR) return;
     for (const [name, hour] of Object.entries({
         dawn: 6.25,
