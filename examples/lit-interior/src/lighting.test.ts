@@ -12,7 +12,6 @@ import {
     Shape,
     SpotLight,
     StandardPhysicsPlugin,
-    Text,
     Transform,
     TransformPlugin,
 } from "@dylanebert/shallot";
@@ -32,7 +31,7 @@ async function scene() {
                 name: "GameCheck",
                 recovery: "stateless",
                 dependencies: [StandardPhysicsPlugin, InputPlugin, TransformPlugin],
-                components: [...InteractPlugin.components!, Outline, PointLight, SpotLight, Text],
+                components: [...InteractPlugin.components!, Outline, PointLight, SpotLight],
                 systems: [...InteractPlugin.systems!, ...FlashlightPlugin.systems!],
             },
         ],

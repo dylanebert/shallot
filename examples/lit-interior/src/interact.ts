@@ -11,7 +11,6 @@ import {
     type Plugin,
     PointLight,
     type System,
-    TextPlugin,
     Transform,
     u8,
     u32,
@@ -157,6 +156,6 @@ export const InteractPlugin: Plugin = {
     name: "Interact",
     recovery: "stateless",
     components: [Usable, InteractionInput, InteractionPress],
-    dependencies: [InputPlugin, OutlinePlugin, TextPlugin],
+    dependencies: [InputPlugin, OutlinePlugin],
     systems: [SampleInteraction, UseInteraction, ShowInteraction],
 };

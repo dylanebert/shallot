@@ -18,11 +18,9 @@ import {
     StandardMaterial,
     StandardPhysicsPlugin,
     StandardRenderer,
-    Text,
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { Billboard } from "@dylanebert/shallot/rendering";
 import { Flashlight, FlashlightPlugin } from "./flashlight";
 import { InteractionInput, InteractPlugin, LAMP_EMISSION, Usable } from "./interact";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
@@ -181,19 +179,6 @@ function room(world: World): void {
         label: internText(world, "Switch on"),
         activeLabel: internText(world, "Switch off"),
     });
-    for (const [target, name] of [[button, "Ceiling lamp"]] as const) {
-        const label = world.create();
-        world.add(label, Transform, {
-            translation: [world.storage(Transform).translation.x.get(target), 1.9, -3.29],
-        });
-        world.add(label, Text, {
-            content: internText(world, name),
-            fontSize: 0.2,
-            anchor: [0.5, 0],
-            billboard: Billboard.World,
-            color: 0xeee9df,
-        });
-    }
     const flashlight = world.create();
     world.add(flashlight, Transform);
     world.add(flashlight, SpotLight, {
