@@ -75,6 +75,7 @@
         "examples/interact",
         "examples/save-and-load",
         "examples/particles",
+        "examples/lit-interior",
         "examples/sound",
         "examples/materials",
         "!examples/*/node_modules",

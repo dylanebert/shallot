@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"/><title>Lit interior, stepped</title>
+<style>body{margin:0;background:#191816}canvas{display:block}</style><link rel="stylesheet" href="../src/hud.css"/></head>
+<body><canvas width="1280" height="720"></canvas>
+<script type="module">
+import { Camera, createApp, mountOverlay, Transform, MeshInstance, PointLight, SpotLight, StandardRenderer, pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
+import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
+import { PointShadows } from '@dylanebert/shallot/standard/rendering';
+import { Room, RoomPlugin } from '../src/room';
+import { Flashlight } from '../src/flashlight';
+import { LocalPlayer, Player } from '../src/player';
+import { hud } from '../src/hud';
+const requests=[];
+const requestDevice=GPUAdapter.prototype.requestDevice;
+GPUAdapter.prototype.requestDevice=function(descriptor){requests.push(descriptor??{});return requestDevice.call(this,descriptor);};
+const app=await createApp({plugins:[RoomPlugin]});
+const w=app.world, room=w.resource(Room), flashlight=w.resource(Flashlight);
+const canvas=document.querySelector('canvas');
+const captures=new URLSearchParams(location.search).has('captures');
+if(!captures){canvas.width=320;canvas.height=180;attachTexture(w,room.camera,{width:320,height:180});w.storage(Camera).antialias.set(room.camera,0);w.resource(PointShadows).atlas=512;}
+hud(mountOverlay(canvas,w),w);
+w.storage(Player).gravity.set(room.player,0);
+w.storage(Player).friction.set(room.player,1000);
+window.view=(x=0,y=1,z=2,yaw=0,pitch=0)=>{
+ setTransform(w,room.player,[x,y,z],[0,0,0,1]);
+ w.storage(Transform).translation.set(room.player,x,y,z);
+ w.storage(LocalPlayer).viewYaw.set(room.player,yaw);
+ w.storage(LocalPlayer).viewPitch.set(room.player,pitch);
+ w.step(1/60);w.step(1/60);
+};
+window.key=down=>{setInputEnabled(w,true);(down?pressKey:releaseKey)(w,'KeyE');w.step(1/60);};
+window.turn=delta=>{setInputEnabled(w,true);pointerLockChanged(w,true);pointerMove(w,{x:0,y:0,deltaX:delta});w.step(1/120);};
+async function render(camera=room.camera){if(!captures){w.step(0);return captureTexture(w,camera);}const pending=captureFrame(canvas);w.step(0);return pending;}
+window.capture=async()=>{const image=await render();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);return c.toDataURL('image/png');};
+function mean(image,rect){let sum=0,n=0;for(let y=rect[1];y<rect[3];y++)for(let x=rect[0];x<rect[2];x++){const i=(y*image.width+x)*4;sum+=0.2126*image.rgba[i]+0.7152*image.rgba[i+1]+0.0722*image.rgba[i+2];n++;}return sum/n;}
+window.floor=async()=>mean(await render(),[15,115,145,170]);
+window.lamp=()=>w.storage(PointLight).intensity.get(room.lamps[0]);
+window.switchView=()=>window.view(0,0.7,-0.8,0,0);
+window.shadow=async(kind)=>{
+ window.view(0,1,2,0,-0.3);
+ const eid=kind==='object'?room.object:room.shade;
+ const before=await render();
+ w.remove(eid,MeshInstance);
+ const after=await render();
+ w.add(eid,MeshInstance);
+ const rect=[15,115,145,170];
+ let darkened=0,delta=0;
+ for(let y=rect[1];y<rect[3];y++)for(let x=rect[0];x<rect[2];x++){
+  const i=(y*before.width+x)*4;
+  const d=(after.rgba[i]+after.rgba[i+1]+after.rgba[i+2]-before.rgba[i]-before.rgba[i+1]-before.rgba[i+2])/3;
+  if(d>3)darkened++;delta+=d;
+ }
+ return {darkened,delta};
+};
+// A stationary observer distinguishes a moving beam from camera motion.
+let observer=0;
+window.spot=async()=>{
+ if(!observer){
+  observer=w.create();
+  w.add(observer,Transform,{translation:[0,1.7,2]});
+  w.add(observer,Camera,{fov:70,antialias:0,clearColor:0x191816});
+  w.add(observer,StandardRenderer);
+  attachTexture(w,observer,{width:320,height:180});
+ }
+ const image=await render(observer);
+ const intensity=w.storage(SpotLight).intensity.get(flashlight.light);
+ w.storage(SpotLight).intensity.set(flashlight.light,0);
+ const unlit=await render(observer);
+ w.storage(SpotLight).intensity.set(flashlight.light,intensity);
+ let sum=0,xsum=0,ysum=0;
+ for(let y=15;y<120;y++)for(let x=15;x<305;x++){
+  const i=(y*image.width+x)*4;const v=Math.max(0,(image.rgba[i]+image.rgba[i+1]+image.rgba[i+2]-unlit.rgba[i]-unlit.rgba[i+1]-unlit.rgba[i+2])/3-3);
+  sum+=v;xsum+=v*x;ysum+=v*y;
+ }
+ return {x:xsum/sum,y:ysum/sum,sum};
+};
+window.flashlightWall=()=>{for(const light of room.lamps)w.storage(PointLight).intensity.set(light,0);window.view(0,1,1,0,0);};
+window.device={requests,adapter:w.gpuIfAvailable.adapter,limits:{maxStorageBuffersPerShaderStage:w.gpuIfAvailable.device.limits.maxStorageBuffersPerShaderStage}};
+window.view();
+window.ready=true;
+</script></body></html>
