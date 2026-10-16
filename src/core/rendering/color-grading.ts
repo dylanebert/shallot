@@ -57,6 +57,7 @@ export const GradingConfig = d.struct({
     gamma: d.vec4f,
     gain: d.vec4f,
     lift: d.vec4f,
+    debandDither: d.u32,
 });
 
 /** Shadow, midtone and highlight weights with continuous crossfades. */

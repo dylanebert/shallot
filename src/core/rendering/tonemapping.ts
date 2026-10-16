@@ -46,6 +46,16 @@ export function tonemappingKernel(layout: ReturnType<typeof tonemappingLayout>) 
                 ).xyz;
             } else color = tonemap(layout.$.grading.tonemapMode, color);
             color = std.mix(d.vec3f(tmLuma(color)), color, layout.$.grading.postSaturation);
+            if (layout.$.grading.debandDither !== 0) {
+                color = std.mul(std.pow(std.abs(color), d.vec3f(1 / 2.2)), std.sign(color));
+                const seed = std.dot(d.vec2f(171, 231), input.position.xy);
+                const noise = std.div(
+                    std.sub(std.fract(std.div(d.vec3f(seed), d.vec3f(103, 71, 97))), 0.5),
+                    255,
+                );
+                color = std.add(color, noise);
+                color = std.mul(std.pow(std.abs(color), d.vec3f(2.2)), std.sign(color));
+            }
             return d.vec4f(linearToSrgb3(std.max(color, d.vec3f(0))), 1);
         })
         .$name("tonemapping");

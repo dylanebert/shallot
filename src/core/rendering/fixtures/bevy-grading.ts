@@ -1,6 +1,17 @@
 // Extracted from Bevy 24661940b42fa8c8a89538a1d3572f7fe6dbd49a.
 // MIT OR Apache-2.0, copyright Bevy contributors; see ../bevy-LICENSE-MIT.
 // Only the lower crossover assignment is corrected, with its citation below.
+export const bevyDither = `fn screen_space_dither(frag_coord: vec2<f32>) -> vec3<f32> {
+    var dither = vec3<f32>(dot(vec2<f32>(171.0, 231.0), frag_coord)).xxx;
+    dither = fract(dither.rgb / vec3<f32>(103.0, 71.0, 97.0));
+    return (dither - 0.5) / 255.0;
+}
+fn deband(color: vec3f, position: vec2f) -> vec3f {
+    var output_rgb = pow(abs(color), vec3f(1.0 / 2.2)) * sign(color);
+    output_rgb = output_rgb + screen_space_dither(position);
+    return pow(abs(output_rgb), vec3f(2.2)) * sign(output_rgb);
+}`;
+
 export const bevyGrading = `const LEVEL_MARGIN: f32 = 0.1;
 const LEVEL_MARGIN_DIV: f32 = 0.5 / LEVEL_MARGIN;
 const FRAC_PI_3: f32 = 1.0471975511965976;
