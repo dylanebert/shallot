@@ -95,19 +95,13 @@ for (const example of await readdir("examples")) {
     test(`${example} CSS and inline styles use the UI type and shape tokens`, async () => {
         const failures: string[] = [];
         for (const path of await sources(join("examples", example))) {
-            let source = await readFile(path, "utf8");
-            if (path === "examples/embedded-scene/src/style.css") {
-                source = [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-                    .filter((match) => /bootstrap|frame-error/.test(match[1]!))
-                    .map((match) => match[2])
-                    .join("\n");
-            }
+            const source = await readFile(path, "utf8");
             failures.push(...violations(source).map((failure) => `${path}: ${failure}`));
         }
         expect(failures).toEqual([]);
     });
 }
 
-test.todo("embedded-scene host page uses the UI type and shape tokens", async () => {
+test("embedded-scene host page uses the UI type and shape tokens", async () => {
     expect(violations(await readFile("examples/embedded-scene/src/style.css", "utf8"))).toEqual([]);
 });

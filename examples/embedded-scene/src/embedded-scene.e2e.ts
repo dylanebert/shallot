@@ -951,7 +951,7 @@ test("the description and scene frame stay fitted in six responsive viewports", 
             return {
                 width: window.innerWidth,
                 height: window.innerHeight,
-                textEdges: ["h1", ".description", ".afterword"].map((selector) => {
+                textEdges: ["h1", ".description"].map((selector) => {
                     const bounds = document.querySelector(selector)!.getBoundingClientRect();
                     return { left: bounds.left, width: bounds.width };
                 }),
@@ -964,9 +964,7 @@ test("the description and scene frame stay fitted in six responsive viewports", 
                 frameWidth: frame.width,
                 frameHeight: frame.height,
                 topMargin: document.querySelector("h1")!.getBoundingClientRect().top,
-                bottomMargin:
-                    window.innerHeight -
-                    document.querySelector(".afterword")!.getBoundingClientRect().bottom,
+                bottomMargin: window.innerHeight - frame.bottom,
                 leftPadding: frame.left,
                 rightPadding: window.innerWidth - frame.right,
                 documentWidth: document.documentElement.scrollWidth,

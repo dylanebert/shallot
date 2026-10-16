@@ -3,7 +3,6 @@
     --bg2: #191816;
     --ink: #282622;
     --frame-error: #ddaa3f;
-    --sans: "IBM Plex Sans", system-ui, sans-serif;
     color-scheme: light;
 }
 
@@ -20,8 +19,9 @@ html {
 body {
     background: var(--bg);
     color: var(--ink);
-    font-family: var(--sans);
-    font-size: 15px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 14px;
+    font-weight: 400;
     line-height: 1.55;
 }
 
@@ -45,13 +45,12 @@ body {
 }
 
 @media (max-height: 480px) {
-    body { font-size: 13px; line-height: 1.4; }
-    h1 { font-size: 20px; }
     .page { --page-gap: 8px; }
 }
 
-.description {
-    color: var(--ink);
+h1 {
+    font-size: 24px;
+    font-weight: 400;
 }
 
 .scene {
@@ -63,7 +62,7 @@ body {
     width: 100%;
     aspect-ratio: 16 / 9;
     overflow: hidden;
-    border-radius: 6px;
+    border-radius: 2px;
     margin-inline: auto;
     background: var(--bg2);
 }
