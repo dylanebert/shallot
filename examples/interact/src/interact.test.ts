@@ -81,7 +81,7 @@ test("in reach and in view focuses, outlines and shows the prompt", async () => 
     expect(w.has(w.storage(Prompt).ring.get(prompt), NotShadowCaster)).toBe(true);
 });
 
-test("the prompt has four distinct view depths and progress sits below the hint, even side-on", async () => {
+test("the prompt has distinct depths and a key-centred ring clearing cap and text, even side-on", async () => {
     const { w, camera, prompt, step } = await scene();
     const t = w.storage(Transform);
     const p = w.storage(Prompt);
@@ -91,8 +91,9 @@ test("the prompt has four distinct view depths and progress sits below the hint,
     const sprites = w.storage(Sprite);
     expect(sprites.anchor.x.get(ring)).toBe(sprites.anchor.x.get(prompt));
     expect(sprites.anchor.y.get(ring)).toBe(sprites.anchor.y.get(prompt));
-    expect(sprites.size.x.get(ring)).toBe(sprites.size.x.get(prompt));
-    expect(sprites.size.y.get(ring)).toBe(sprites.size.y.get(prompt));
+    const capRadius = Math.hypot(sprites.size.x.get(prompt), sprites.size.y.get(prompt)) / 2;
+    expect(sprites.size.x.get(ring) * 0.4).toBeGreaterThan(capRadius + 0.02);
+    expect(sprites.size.y.get(ring)).toBe(sprites.size.x.get(ring));
     for (const side of [false, true]) {
         if (side) {
             t.translation.set(camera, 2, 1.4, -3.8);
@@ -104,8 +105,11 @@ test("the prompt has four distinct view depths and progress sits below the hint,
         expect(depth.get(key) - depth.get(prompt)).toBeCloseTo(0.01 * scale);
         expect(depth.get(label) - depth.get(prompt)).toBeCloseTo(0.02 * scale);
         expect(depth.get(ring) - depth.get(prompt)).toBeCloseTo(0.03 * scale);
-        expect(t.translation.y.get(ring) + 0.14 * scale).toBeLessThan(
-            t.translation.y.get(prompt) - 0.14 * scale,
+        const horizontal = side ? t.translation.z : t.translation.x;
+        expect(horizontal.get(ring)).toBeCloseTo(horizontal.get(prompt), 5);
+        expect(t.translation.y.get(ring)).toBeCloseTo(t.translation.y.get(prompt), 5);
+        expect(Math.abs(horizontal.get(label) - horizontal.get(ring))).toBeGreaterThan(
+            (sprites.size.x.get(ring) / 2 + 0.08) * scale,
         );
         expect(t.translation.y.get(key)).toBeCloseTo(t.translation.y.get(label));
         expect(w.storage(Text).anchor.y.get(key)).toBe(0);

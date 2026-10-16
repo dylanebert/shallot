@@ -126,7 +126,8 @@ function room(world: World): void {
         label: internText(world, "Switch on"),
         activeLabel: internText(world, "Switch off"),
     });
-    const button = block(world, [0, 1.1, -0.775], [0.45, 0.45, 0.25], BLUE);
+    block(world, [0, 1.1, -0.87], [0.65, 0.65, 0.06], [0.038351106, 0.037505635, 0.03616409, 1]);
+    const button = block(world, [0, 1.1, -0.81], [0.4, 0.4, 0.06], BLUE);
     world.add(button, Usable, {
         action: Action.Button,
         label: internText(world, "Press"),

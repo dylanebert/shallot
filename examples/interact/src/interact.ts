@@ -145,7 +145,7 @@ function activate(world: World, target: number): void {
             const z = world.storage(Transform).translation.z;
             usable.rest.set(target, z.get(target));
             usable.remaining.set(target, 11);
-            z.set(target, z.get(target) - 0.12 * Math.sin(Math.PI / 12));
+            z.set(target, z.get(target) - 0.025 * Math.sin(Math.PI / 12));
             break;
         }
         case Action.Hold: {
@@ -178,7 +178,7 @@ const UseInteraction: System = {
                 .translation.z.set(
                     target,
                     usable.rest.get(target) -
-                        (remaining === 1 ? 0 : 0.12 * Math.sin((Math.PI * (13 - remaining)) / 12)),
+                        (remaining === 1 ? 0 : 0.025 * Math.sin((Math.PI * (13 - remaining)) / 12)),
                 );
         }
         for (const camera of world.query(INPUTS)) {
@@ -225,8 +225,8 @@ const UseInteraction: System = {
 const PROMPT_LAYOUT = [
     [-0.5, 0, 0],
     [-0.5, -0.065, 0.01],
-    [-0.27, -0.065, 0.02],
-    [0, -0.38, 0.03],
+    [-0.12, -0.065, 0.02],
+    [-0.5, 0, 0.03],
 ] as const;
 
 const ShowInteraction: System = {
@@ -299,7 +299,7 @@ const ShowInteraction: System = {
             const upX = 2 * (q.x.get(camera) * q.y.get(camera) - q.w.get(camera) * q.z.get(camera));
             const upY = 1 - 2 * (q.x.get(camera) ** 2 + q.z.get(camera) ** 2);
             const upZ = 2 * (q.y.get(camera) * q.z.get(camera) + q.w.get(camera) * q.x.get(camera));
-            // One camera-facing layout: progress sits below the hint, never over its key or text.
+            // The progress ring clears the cap's corners and the action text.
             for (let i = 0; i < PROMPT_LAYOUT.length; i++) {
                 const part = i === 0 ? eid : i === 1 ? key : i === 2 ? label : ring;
                 const [right, up, depth] = PROMPT_LAYOUT[i]!;
@@ -358,7 +358,7 @@ export function makePrompt(world: World, image: number, ringImage: number): numb
     world.add(ring, Sprite, {
         image: ringImage,
         blend: SpriteBlend.Alpha,
-        size: [0.28, 0.28],
+        size: [0.56, 0.56],
         anchor: [0.5, 0.5],
         billboard: Billboard.Screen,
         fillMode: SpriteFill.Radial,
