@@ -232,6 +232,87 @@ test("lost focus between fixed ticks remains latched until the hold consumes it"
     expect(w.storage(InteractionInput).ticks.get(camera)).toBe(0);
 });
 
+test("a pending hold cancelled before its first tick needs a fresh press", async () => {
+    const { w, camera, target, step } = await scene(Action.Hold);
+    pressKey(w, "KeyE");
+    w.step(0);
+    w.storage(Transform).translation.x.set(camera, 5);
+    w.step(0);
+    w.storage(Transform).translation.x.set(camera, 0);
+    w.step(0);
+    step(60);
+    expect(w.storage(Usable).active.get(target)).toBe(0);
+    expect(w.storage(Usable).presses.get(target)).toBe(0);
+    releaseKey(w, "KeyE");
+    w.step(0);
+    pressKey(w, "KeyE");
+    w.step(0);
+    step(60);
+    expect(w.storage(Usable).active.get(target)).toBe(1);
+    expect(w.storage(Usable).presses.get(target)).toBe(1);
+});
+
+test("a fresh hold press after zero-tick cancellation starts on its own completing tick", async () => {
+    const { w, camera, target, step } = await scene(Action.Hold);
+    pressKey(w, "KeyE");
+    w.step(0);
+    w.storage(Transform).translation.x.set(camera, 5);
+    w.step(0);
+    w.storage(Transform).translation.x.set(camera, 0);
+    w.step(0);
+    releaseKey(w, "KeyE");
+    w.step(0);
+    pressKey(w, "KeyE");
+    w.step(0);
+    step(59);
+    expect(w.storage(Usable).presses.get(target)).toBe(0);
+    step();
+    expect(w.storage(Usable).presses.get(target)).toBe(1);
+    expect(w.storage(Usable).active.get(target)).toBe(1);
+});
+
+for (const different of [false, true])
+    test(`separately sampled taps on ${different ? "different targets" : "one target"} each keep their entity until a tick`, async () => {
+        const { w, camera, target, step } = await scene();
+        const other = box(w, [2, 1.4, -3.8]);
+        w.add(other, Usable, { action: Action.Lamp });
+        w.add(other, PointLight, { intensity: 0 });
+        w.tick();
+        pressKey(w, "KeyE");
+        w.step(0);
+        releaseKey(w, "KeyE");
+        w.step(0);
+        if (different) w.storage(Transform).translation.x.set(camera, 2);
+        pressKey(w, "KeyE");
+        w.step(0);
+        releaseKey(w, "KeyE");
+        w.step(0);
+        step();
+        expect(w.storage(Usable).presses.get(target)).toBe(different ? 1 : 2);
+        expect(w.storage(Usable).active.get(target)).toBe(different ? 1 : 0);
+        expect(w.storage(Usable).presses.get(other)).toBe(different ? 1 : 0);
+        expect(w.storage(Usable).active.get(other)).toBe(different ? 1 : 0);
+        step();
+        expect(w.storage(Usable).presses.get(target)).toBe(different ? 1 : 2);
+        expect(w.storage(Usable).presses.get(other)).toBe(different ? 1 : 0);
+    });
+
+test("two sampled button taps each fire without drifting the return position", async () => {
+    const { w, target, step } = await scene(Action.Button);
+    const z = w.storage(Transform).translation.z.get(target);
+    for (let i = 0; i < 2; i++) {
+        pressKey(w, "KeyE");
+        w.step(0);
+        releaseKey(w, "KeyE");
+        w.step(0);
+    }
+    step();
+    expect(w.storage(Usable).presses.get(target)).toBe(2);
+    step(30);
+    expect(w.storage(Transform).translation.z.get(target)).toBeCloseTo(z);
+    expect(w.storage(Usable).presses.get(target)).toBe(2);
+});
+
 test("a button returns out after one press instead of toggling its pose", async () => {
     const { w, target, step } = await scene(Action.Button);
     const z = w.storage(Transform).translation.z.get(target);
@@ -288,9 +369,9 @@ for (const source of Object.values(Action))
             w.storage(Transform).translation.x.set(camera, 2);
             step(60);
             expect(w.storage(Usable).active.get(other)).toBe(0);
-            expect(w.storage(Usable).active.get(target)).toBe(0);
+            expect(w.storage(Usable).active.get(target)).toBe(source === Action.Lamp ? 1 : 0);
             expect(w.storage(Usable).presses.get(other)).toBe(0);
-            expect(w.storage(Usable).presses.get(target)).toBe(0);
+            expect(w.storage(Usable).presses.get(target)).toBe(source === Action.Hold ? 0 : 1);
         });
     }
 

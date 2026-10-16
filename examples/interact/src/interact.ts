@@ -40,19 +40,19 @@ export const Usable = component("Usable", {
     remaining: u32,
     rest: f32,
 });
-/** Sampled E input and its fixed-tick hold state, all captured with the world. */
+/** Current aim, sampled held state and fixed-tick hold progress. */
 export const InteractionInput = component("InteractionInput", {
     target: entity,
-    presses: u32,
-    pressedTarget: entity,
     held: u8,
     /** Release or lost focus stays latched until a tick consumes it. */
     cancelled: u8,
-    lastPresses: u32,
     holding: entity,
     ticks: u32,
     spent: u8,
 });
+/** One sampled press until its consuming tick; a zero target invalidates a pending hold start. */
+export const InteractionPress = component("InteractionPress", { camera: entity, target: entity });
+const PRESSES = [InteractionPress];
 export const Prompt = component("Prompt", { key: entity, label: entity, ring: entity });
 const INPUTS = [InteractionInput, Transform];
 const USABLES = [Usable];
@@ -116,12 +116,24 @@ const SampleInteraction: System = {
             }
             const target = focus(world, camera, yaw, pitch);
             const held = Number(devices.enabled && devices.keys.held.has("KeyE"));
-            if (target !== input.target.get(camera) || !held) input.cancelled.set(camera, 1);
+            if (target !== input.target.get(camera) || !held) {
+                input.cancelled.set(camera, 1);
+                const presses = world.storage(InteractionPress);
+                for (const press of world.query(PRESSES)) {
+                    const pending = presses.target.get(press);
+                    if (
+                        presses.camera.get(press) === camera &&
+                        world.has(pending, Usable) &&
+                        world.storage(Usable).action.get(pending) === Action.Hold
+                    )
+                        presses.target.set(press, 0);
+                }
+            }
             input.target.set(camera, target);
             input.held.set(camera, held);
             if (devices.enabled && !world.time.paused && devices.keys.pressed.has("KeyE")) {
-                input.presses.set(camera, input.presses.get(camera) + 1);
-                input.pressedTarget.set(camera, target);
+                const press = world.create();
+                world.add(press, InteractionPress, { camera, target });
             }
         }
     },
@@ -129,7 +141,6 @@ const SampleInteraction: System = {
 
 function activate(world: World, target: number): void {
     const usable = world.storage(Usable);
-    if (usable.remaining.get(target)) return;
     const active = 1 - usable.active.get(target);
     usable.presses.set(target, usable.presses.get(target) + 1);
     switch (usable.action.get(target)) {
@@ -143,9 +154,9 @@ function activate(world: World, target: number): void {
             break;
         case Action.Button: {
             const z = world.storage(Transform).translation.z;
-            usable.rest.set(target, z.get(target));
+            if (!usable.remaining.get(target)) usable.rest.set(target, z.get(target));
             usable.remaining.set(target, 11);
-            z.set(target, z.get(target) - 0.025 * Math.sin(Math.PI / 12));
+            z.set(target, usable.rest.get(target) - 0.025 * Math.sin(Math.PI / 12));
             break;
         }
         case Action.Hold: {
@@ -182,28 +193,34 @@ const UseInteraction: System = {
                 );
         }
         for (const camera of world.query(INPUTS)) {
-            const target = input.target.get(camera);
-            const pressed =
-                input.presses.get(camera) !== input.lastPresses.get(camera) &&
-                input.pressedTarget.get(camera) === target;
-            input.lastPresses.set(camera, input.presses.get(camera));
             if (input.cancelled.get(camera)) {
                 input.ticks.set(camera, 0);
                 input.spent.set(camera, 1);
                 input.cancelled.set(camera, 0);
             }
-            if (pressed) {
+        }
+        const presses = world.storage(InteractionPress);
+        for (const press of world.query(PRESSES)) {
+            const camera = presses.camera.get(press),
+                target = presses.target.get(press);
+            world.destroy(press);
+            if (!world.has(camera, InteractionInput) || !target || !world.has(target, Usable))
+                continue;
+            if (usable.action.get(target) !== Action.Hold) activate(world, target);
+            else if (input.held.get(camera) && input.target.get(camera) === target) {
                 input.ticks.set(camera, 0);
                 input.spent.set(camera, 0);
                 input.holding.set(camera, target);
             }
+        }
+        for (const camera of world.query(INPUTS)) {
+            const target = input.target.get(camera);
             if (!target || !world.has(target, Usable)) {
                 input.ticks.set(camera, 0);
                 input.spent.set(camera, 1);
                 continue;
             }
             if (world.storage(Usable).action.get(target) !== Action.Hold) {
-                if (pressed) activate(world, target);
                 input.ticks.set(camera, 0);
                 continue;
             }
@@ -319,7 +336,7 @@ const ShowInteraction: System = {
 export const InteractPlugin: Plugin = {
     name: "Interact",
     recovery: "stateless",
-    components: [Usable, InteractionInput, Prompt],
+    components: [Usable, InteractionInput, InteractionPress, Prompt],
     dependencies: [InputPlugin, OutlinePlugin, SpritePlugin, TextPlugin],
     systems: [SampleInteraction, UseInteraction, ShowInteraction],
 };
