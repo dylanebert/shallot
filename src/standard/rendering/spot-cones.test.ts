@@ -6,18 +6,30 @@ import { EDGE_TEXELS, type PointShadowFrame, spotBasis } from "./shadows";
 const radians = Math.PI / 180;
 // f32 spacing in [1, 2) is 2^-23; rounding π/2 goes above the valid range.
 const lastValidOuter = Math.fround(Math.PI / 2) - 2 ** -23;
-const output = (): Pick<PointShadowFrame, "fwd" | "right" | "up" | "coneTanHalf" | "coneFov"> => ({
+type Output = Pick<
+    PointShadowFrame,
+    "outer" | "tilePx" | "fwd" | "right" | "up" | "coneTanHalf" | "coneFov"
+>;
+const output = (): Output => ({
+    outer: 0,
+    tilePx: 512,
     fwd: [0, 0, 0],
     right: [0, 0, 0],
     up: [0, 0, 0],
     coneTanHalf: 0,
     coneFov: 0,
 });
+const fit = (rotation: readonly number[], outer: number, out: Output) => {
+    const placement = new Float32Array(12);
+    placement.set(rotation, 4);
+    out.outer = outer;
+    spotBasis(placement, out);
+};
 
 test("an illuminated 85 degree receiver fits the 89 degree shadow cone", () => {
     const out = output();
     const outer = Math.fround(89 * radians);
-    spotBasis(0, 0, 0, 1, outer, 512, out);
+    fit([0, 0, 0, 1], outer, out);
     const { scale, offset } = spotParams(Math.fround(88 * radians), outer);
     expect(Math.min(1, Math.max(0, Math.cos(85 * radians) * scale + offset))).toBe(1);
     expect(Math.tan(85 * radians) / out.coneTanHalf).toBeLessThan(1);
@@ -41,8 +53,7 @@ for (const outer of [
             lookAtRotation(0, 0, 0, 0, 1, 0),
         ]) {
             const out = output();
-            const [qx, qy, qz, qw] = rotation.map(Math.fround);
-            spotBasis(qx!, qy!, qz!, qw!, outer, 512, out);
+            fit(rotation, outer, out);
             expect(spotOuterAngle(outer)).toBe(outer);
             const projection = perspective(out.coneFov, 1, 0.1);
             expect(Array.from(projection).every(Number.isFinite)).toBe(true);
@@ -77,7 +88,7 @@ test("ordinary projections retain their existing additive margin, including defa
     for (const degrees of [1, 30, 45, 55, 80]) {
         const outer = Math.fround(degrees * radians);
         const out = output();
-        spotBasis(0, 0, 0, 1, outer, 512, out);
+        fit([0, 0, 0, 1], outer, out);
         expect(out.coneTanHalf).toBe(Math.tan(Math.max(outer, radians)) + (2 * EDGE_TEXELS) / 512);
     }
 });
@@ -108,8 +119,8 @@ test("upper-bound policy clamps inner and outer together without narrowing valid
         expect(spotParams(outer, outer)).toEqual(spotParams(effective, effective));
         const invalid = output();
         const clamped = output();
-        spotBasis(0, 0, 0, 1, outer, 512, invalid);
-        spotBasis(0, 0, 0, 1, effective, 512, clamped);
-        expect(invalid).toEqual(clamped);
+        fit([0, 0, 0, 1], outer, invalid);
+        fit([0, 0, 0, 1], effective, clamped);
+        expect({ ...invalid, outer: effective }).toEqual(clamped);
     }
 });

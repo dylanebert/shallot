@@ -233,10 +233,10 @@ bun run format                  # biome
 
 ### Rendering iteration
 
-- A rendering change runs every `*.test.ts` and `*.node.ts` under `src/core/rendering`, `src/standard/rendering` and `src/extras`, passed explicitly to `bun test`:
+- A rendering change runs every `*.test.ts` and `*.node.ts` under `src/core/rendering`, `src/standard/rendering` and `src/extras`, passed explicitly to `bun test`, with the render allocation oracle:
 
 ```sh
-bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort)
+bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort) ./diagnostics/readback-allocation/render.oracle.ts
 ```
 
 - A change to what a view draws also runs that set and every browser subject that reads pixels in the Linux software-rendering container, through `scripts/lavapipe.sh`. It uses Mesa llvmpipe for GPU/Node subjects and the shared Linux browser configuration's SwiftShader for Chromium; neither is hardware qualification. The script needs Docker, builds from `scripts/lavapipe.Dockerfile` with the tree's Bun and Node pins, and runs a command in a `git archive` of the given revision. Commit the candidate before running it; uncommitted edits are not copied. Dependency and Playwright volumes persist between runs.

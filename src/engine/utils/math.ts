@@ -481,6 +481,8 @@ function assertFiniteAimLookAtParams(
     }
 }
 
+const _aim = new Float64Array(9);
+
 /** view matrix from eye looking at target */
 export function lookAt(
     eyeX: number,
@@ -494,6 +496,32 @@ export function lookAt(
     upZ = 0,
     out?: Float32Array,
 ): Float32Array {
+    _aim[0] = eyeX;
+    _aim[1] = eyeY;
+    _aim[2] = eyeZ;
+    _aim[3] = targetX;
+    _aim[4] = targetY;
+    _aim[5] = targetZ;
+    _aim[6] = upX;
+    _aim[7] = upY;
+    _aim[8] = upZ;
+    return lookAtPacked(_aim, out);
+}
+
+/**
+ * {@link lookAt} from eye at 0, target at 3 and up at 6 of `aim`. Per-frame code calls this form: V8 does not
+ * inline lookAt, and optimized code boxes each non-integral number argument of an out-of-line call.
+ */
+export function lookAtPacked(aim: Float64Array, out?: Float32Array): Float32Array {
+    const eyeX = aim[0]!;
+    const eyeY = aim[1]!;
+    const eyeZ = aim[2]!;
+    const targetX = aim[3]!;
+    const targetY = aim[4]!;
+    const targetZ = aim[5]!;
+    const upX = aim[6]!;
+    const upY = aim[7]!;
+    const upZ = aim[8]!;
     assertFiniteAimLookAtParams(
         "lookAt",
         eyeX,

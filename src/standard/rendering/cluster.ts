@@ -219,7 +219,7 @@ export const PackSpotAttenuationSystem: System = {
     update(world) {
         const table = lightInputTable(world);
         const spot = world.storage(SpotLight);
-        const view = new DataView(table.bytes.buffer);
+        const view = table.view;
         for (const eid of world.query(SPOT_LIGHTS)) {
             const row = table.rowIndex(eid);
             if (row < 0) continue;

@@ -291,12 +291,12 @@ export const spotFactor = tgpu.fn(
     return a * a;
 });
 
-// Authored angles are f32; fitting uses the same representable upper bound.
-const SPOT_OUTER_LIMIT = Math.fround(Math.PI / 2 - 1e-4);
-
 /** Effective outer half-angle shared by attenuation and shadow fitting; valid cones are unchanged. */
 export function spotOuterAngle(outer: number): number {
-    return outer >= Math.PI / 2 ? SPOT_OUTER_LIMIT : outer;
+    // Authored angles are f32; fitting uses the same representable upper bound. It is written inline: optimized
+    // code reads a module constant as a boxed number, and choosing between it and `outer` boxes `outer` on
+    // every call.
+    return outer >= Math.PI / 2 ? Math.fround(Math.PI / 2 - 1e-4) : outer;
 }
 
 /**

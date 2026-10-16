@@ -409,6 +409,15 @@ function surfaceGroup(
     );
 }
 
+// Built only on a skip: a steady frame must not allocate the name.
+function materialWarning(
+    surface: MaterialType<any, any, any>,
+    draw: Draw,
+    meshName?: string,
+): string {
+    return `mesh:material:${surface.name}:${meshName ?? draw.mesh}:${draw.mesh}`;
+}
+
 /**
  * Resolves compiled pipelines and caches group-2 state by draw name. Reuses the groups while the
  * material type, layout and bound resource identities are unchanged.
@@ -422,14 +431,18 @@ function recordMaterial(
     capacity: number,
 ): FrameDraw | null {
     const mesh = world.resource(Meshes).get(draw.mesh);
-    const warningName = `mesh:material:${surface.name}:${mesh?.name ?? draw.mesh}:${draw.mesh}`;
-    if (!mesh) return warnSkip(world, warningName, `mesh handle ${draw.mesh} not registered`);
+    if (!mesh)
+        return warnSkip(
+            world,
+            materialWarning(surface, draw),
+            `mesh handle ${draw.mesh} not registered`,
+        );
     if (!mesh.position || !mesh.quant) {
         // Meshes.add staged it after this frame's pack; it draws from the next frame
         if (mesh.pending) return null;
         return warnSkip(
             world,
-            warningName,
+            materialWarning(surface, draw, mesh.name),
             `mesh "${mesh.name}" has no quantized position/quant stream`,
         );
     }
@@ -444,7 +457,7 @@ function recordMaterial(
         } catch (e) {
             return warnSkip(
                 world,
-                warningName,
+                materialWarning(surface, draw, mesh.name),
                 `material type "${surface.name}" failed to compile: ${e}`,
             );
         }
@@ -461,7 +474,8 @@ function recordMaterial(
     }
 
     const attributeError = materialAttributeError(mesh, surface);
-    if (attributeError) return warnSkip(world, warningName, attributeError);
+    if (attributeError)
+        return warnSkip(world, materialWarning(surface, draw, mesh.name), attributeError);
     const overrides = { ...mesh.bindings } as Record<string, MeshBinding>;
     for (const name of Object.keys(surface.layout.attributes))
         overrides[name] = mesh.attributes![name];
@@ -472,7 +486,11 @@ function recordMaterial(
         surface,
     );
     if (typeof resolved === "string")
-        return warnSkip(world, warningName, `binding "${resolved}" not published`);
+        return warnSkip(
+            world,
+            materialWarning(surface, draw, mesh.name),
+            `binding "${resolved}" not published`,
+        );
     // geometry + the atlas packed lists join the identity check (a re-gather realloc also clears the
     // whole cache via `clearGroups` — the lists here make the entry self-consistent even without it)
     const resources: BindResource[] = [

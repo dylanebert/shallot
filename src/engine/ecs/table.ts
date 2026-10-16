@@ -172,6 +172,12 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return this._bytes;
     }
 
+    /** {@link bytes} as a DataView, replaced with it when the table grows; unavailable for a GPU-only table. */
+    get view(): DataView {
+        if (!this._view) throw new Error(`GpuTable "${this.name}" is GPU-only`);
+        return this._view;
+    }
+
     /** Optional eid-to-row map, encoded as row + 1; zero means that the eid is not present. */
     get eidToRowBuffer(): GPUBuffer | undefined {
         return this._mapBuffer;

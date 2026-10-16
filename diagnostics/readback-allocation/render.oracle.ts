@@ -11,8 +11,8 @@ import { attribute } from "../first-person-allocation/allocation-sampler.mjs";
 
 import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 
-// The qualified 6,000/600-frame sample takes about 33 s on Mesa lavapipe.
-setDefaultTimeout(70_000);
+// The qualified 12,000/600-frame sample takes about 11 s on an Apple M4 Max.
+setDefaultTimeout(120_000);
 
 const allocationSourcePath = resolve(import.meta.dir, "../../src/engine/runtime/allocation-site.ts");
 const allocationSource = () => readFileSync(allocationSourcePath, "utf8");
@@ -244,7 +244,8 @@ test("steady rendering allocates no JavaScript heap beyond source-checked GPU an
     // one bounded allocation per gap is not the per-frame allocation that drives GC hitches.
     assertAllocationWrappers(allocationSource());
     const sample = await sampleAllocation(resolve(import.meta.dir, "render.entry.ts"), {
-        warm: 6000,
+        // Reading a spot's render placement first optimizes prepareCpuFrame after 12,000 frames.
+        warm: 12_000,
         frames: 600,
     });
     if (windowBytes({ sites: sample.control }) === 0) throw new Error("allocation control was invisible");

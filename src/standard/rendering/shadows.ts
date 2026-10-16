@@ -24,6 +24,7 @@ import {
     type Resource,
     type World,
 } from "../../engine";
+import { lookAtPacked } from "../../engine/utils";
 import { directionalTravelDirection, shadowDirectionalLight, spotOuterAngle } from "./lighting";
 
 /** the directional shadow's cascade ceiling: each cascade takes one of the depth view slots reserved out
@@ -882,21 +883,25 @@ export function createPacker(side: number, min: number): Packer {
 }
 
 /**
- * Writes the spot's local -Z cone axis and lookAt basis into `out` for matching render/receiver projection.
- * outer is a half-angle in radians; tilePx sets the PCF projection margin.
+ * Writes the spot's local -Z cone axis and lookAt basis into `out` for matching render/receiver projection,
+ * from the xyzw quaternion at 4 of a 12-float placement record and `out`'s outer half-angle and tile.
  * coneTanHalf is tan(outer) widened for that tile's PCF footprint; coneFov is the resulting vertical
  * FOV in degrees. fwd matches the local -Z direction oct-packed by light compaction; right/up
  * form the orthonormal lookAt basis the receiver uses.
  */
+// Takes no number arguments: V8 does not inline it, and optimized code boxes each non-integral number
+// argument of an out-of-line call, an allocation every frame.
 export function spotBasis(
-    qx: number,
-    qy: number,
-    qz: number,
-    qw: number,
-    outer: number,
-    tilePx: number,
-    out: Pick<PointShadowFrame, "fwd" | "right" | "up" | "coneTanHalf" | "coneFov">,
+    placement: Float32Array,
+    out: Pick<
+        PointShadowFrame,
+        "outer" | "tilePx" | "fwd" | "right" | "up" | "coneTanHalf" | "coneFov"
+    >,
 ): void {
+    const qx = placement[4]!;
+    const qy = placement[5]!;
+    const qz = placement[6]!;
+    const qw = placement[7]!;
     const ax = -2 * (qx * qz + qw * qy);
     const ay = -2 * (qy * qz - qw * qx);
     const az = -(1 - 2 * (qx * qx + qy * qy));
@@ -926,8 +931,8 @@ export function spotBasis(
     out.up[1] = rz * fx - rx * fz;
     out.up[2] = rx * fy - ry * fx;
     // The minimum only widens degenerate cones; the upper policy also governs illumination.
-    const clamped = Math.max(spotOuterAngle(outer), Math.PI / 180);
-    out.coneTanHalf = Math.tan(clamped) + (2 * EDGE_TEXELS) / tilePx;
+    const clamped = Math.max(spotOuterAngle(out.outer), Math.PI / 180);
+    out.coneTanHalf = Math.tan(clamped) + (2 * EDGE_TEXELS) / out.tilePx;
     out.coneFov = (Math.atan(out.coneTanHalf) * 360) / Math.PI;
 }
 
@@ -1005,6 +1010,7 @@ export interface PointShadowFrame {
     depthBias: number;
     normalBias: number;
     spot: boolean;
+    outer: number; // a spot's authored outer half-angle in radians, 0 for a point caster
     fwd: [number, number, number];
     right: [number, number, number]; // the lookAt-derived basis the FS projects fragments onto
     up: [number, number, number];
@@ -1030,6 +1036,7 @@ function newPointFrame(): PointShadowFrame {
         depthBias: 0,
         normalBias: 0,
         spot: false,
+        outer: 0,
         fwd: [0, 0, -1],
         right: [1, 0, 0],
         up: [0, 1, 0],
@@ -1040,6 +1047,7 @@ function newPointFrame(): PointShadowFrame {
 
 // per-combo view scratch stays process-local; retained outputs and pooled eids live in ShadowRuntime.
 const _faceView = new Float32Array(16);
+const _aim = new Float64Array(9);
 // the proj·view product before the tile transform is folded on (the combo viewProj carries the tile
 // placement, so the VS emits `tileVP·world` directly — see {@link tileTransform})
 const _pv = new Float32Array(16);
@@ -1123,7 +1131,16 @@ function writeComboViewProj(
         shadow.casterProjKey[key] = fov;
         shadow.casterProjKey[key + 1] = frame.near;
     }
-    lookAt(px, py, pz, px + fwd[0], py + fwd[1], pz + fwd[2], up[0], up[1], up[2], _faceView);
+    _aim[0] = px;
+    _aim[1] = py;
+    _aim[2] = pz;
+    _aim[3] = px + fwd[0];
+    _aim[4] = py + fwd[1];
+    _aim[5] = pz + fwd[2];
+    _aim[6] = up[0];
+    _aim[7] = up[1];
+    _aim[8] = up[2];
+    lookAtPacked(_aim, _faceView);
     multiplyMat4(proj, _faceView, _pv);
     multiplyMat4(tileTransform(rects, _tileMat, at), _pv, _tileVP);
     shadow.faceVP.set(_tileVP, ci * 16);
@@ -1393,6 +1410,7 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         f.up[0] = 0;
         f.up[1] = 1;
         f.up[2] = 0;
+        f.outer = 0;
         f.coneTanHalf = 0;
         f.coneFov = 0;
     }
@@ -1453,15 +1471,8 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         f.tilePx = rects[f.slot * 6 * 4 + 2] * atlas;
         if (f.spot) {
             readRenderGlobalTransform(world, f.light, _lightPlacement);
-            spotBasis(
-                _lightPlacement[4],
-                _lightPlacement[5],
-                _lightPlacement[6],
-                _lightPlacement[7],
-                world.storage(SpotLight).outerAngle.get(f.light),
-                f.tilePx,
-                f,
-            );
+            f.outer = world.storage(SpotLight).outerAngle.get(f.light);
+            spotBasis(_lightPlacement, f);
         }
     }
 

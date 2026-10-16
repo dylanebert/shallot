@@ -54,10 +54,12 @@ export default async function create(_input = "", device?: GPUDevice) {
     const sun = world.create(); world.add(sun, Transform); world.add(sun, DirectionalLight);
     world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
     const point = world.create(); world.add(point, Transform); world.add(point, PointLight);
-    world.storage(Transform).translation.set(point, 1, 1, 1);
+    // Non-integral placement: optimized code boxes a number argument of an out-of-line call unless it is integral.
+    world.storage(Transform).translation.set(point, 1.3, 1.1, 0.7);
     world.storage(PointLight).shadowMapsEnabled.set(point, 1);
     const spot = world.create(); world.add(spot, Transform); world.add(spot, SpotLight);
-    world.storage(Transform).translation.set(spot, -1, 1, 2);
+    world.storage(Transform).translation.set(spot, -1.2, 1.3, 2.1);
+    world.storage(Transform).rotation.set(spot, 0.1, 0.2, 0.3, Math.sqrt(0.86));
     world.storage(SpotLight).shadowMapsEnabled.set(spot, 1);
     const part = world.create(); world.add(part, Transform); world.add(part, MeshInstance);
     world.step(1 / 60);

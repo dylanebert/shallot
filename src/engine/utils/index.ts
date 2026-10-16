@@ -39,6 +39,7 @@ export {
     invertMat4,
     lerp,
     lookAt,
+    lookAtPacked,
     lookAtRotation,
     multiplyMat4,
     orthographic,
