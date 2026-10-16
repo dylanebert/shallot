@@ -245,6 +245,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         "hud",
         "interact",
         "loading-screen",
+        "materials",
         "minimal",
     ]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
@@ -261,6 +262,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).toContain("examples/minimal/src/welcome/welcome.test.ts");
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/interact/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/materials/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/embedded-scene/tsconfig.json");
     expect(packed.stdout.toString()).not.toContain("examples/minimal/package.json");
@@ -275,7 +277,8 @@ type Example =
     | "loading-screen"
     | "embedded-scene"
     | "hud"
-    | "interact";
+    | "interact"
+    | "materials";
 
 const created = new Map<Example, { manifest: Record<string, any>; installOutput: string }>();
 
@@ -330,9 +333,11 @@ function assertCreatedExample(name: Example): void {
     expect(manifest.devDependencies["@types/bun"]).toBe(rootPackage.devDependencies["@types/bun"]);
     expect(manifest.devDependencies.playwright).toBe(rootPackage.peerDependencies.playwright);
     expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
-    expect(manifest.devDependencies.typegpu).toBeUndefined();
+    expect(manifest.devDependencies.typegpu).toBe(
+        name === "materials" ? rootPackage.peerDependencies.typegpu : undefined,
+    );
     expect(manifest.devDependencies.webgpu).toBe(
-        name === "first-person" || name === "embedded-scene"
+        name === "first-person" || name === "embedded-scene" || name === "materials"
             ? rootPackage.peerDependencies.webgpu
             : undefined,
     );
@@ -352,6 +357,7 @@ for (const name of [
     "embedded-scene",
     "hud",
     "interact",
+    "materials",
 ] as const) {
     describe(name, () => {
         beforeAll(() => createExample(name), TIMEOUT.startup);

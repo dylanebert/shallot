@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"/><title>Materials, stepped</title><style>body{margin:0;background:#1c1917}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas><script type="module">
+import { createApp, Camera, Transform, MeshMaterial, Materials, StandardMaterial, DirectionalLight } from '@dylanebert/shallot';
+import { Orbit } from '@dylanebert/shallot/extras';
+import { attachTexture, captureTexture, captureFrame, Tonemapping, TonemappingMethod } from '@dylanebert/shallot/rendering';
+import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
+import { Gallery, GalleryPlugin } from '../src/gallery';
+const app=await createApp({plugins:[GalleryPlugin]});
+const world=app.world, gallery=world.resource(Gallery), canvas=document.querySelector('canvas');
+// A missing registered background must not pass as the camera's similarly coloured clear.
+world.storage(Camera).clearColor.set(gallery.camera,0xff0000);
+const full=new URLSearchParams(location.search).has('captures');
+if(!full){canvas.width=320;canvas.height=180;attachTexture(world,gallery.camera,{width:320,height:180});world.storage(Camera).antialias.set(gallery.camera,0);world.resource(DirectionalLightShadowMap).size=256;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
+window.aim=(index)=>{
+ const orbit=world.storage(Orbit);
+ orbit.smoothness.set(gallery.camera,1);
+ orbit.distance.set(gallery.camera,index<0?13:2.6);
+ orbit.yaw.set(gallery.camera,index<0?0.12:0);
+ orbit.pitch.set(gallery.camera,index<0?0.22:0);
+ // A target entity lets the orbit controller keep owning the camera pose.
+ orbit.target.set(gallery.camera,index<0?0:gallery.spheres[index]);
+ world.step(1/60);world.step(1/60);
+};
+window.advance=async(seconds)=>{world.step(seconds);await world.gpu.device.queue.onSubmittedWorkDone();};
+async function render(){if(!full){world.step(0);return captureTexture(world,gallery.camera);}const pending=captureFrame(canvas);world.step(0);return pending;}
+window.pixels=async()=>Array.from((await render()).rgba);
+window.capture=async()=>{const frame=await render();const output=document.createElement('canvas');output.width=frame.width;output.height=frame.height;output.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(frame.rgba),frame.width,frame.height),0,0);return output.toDataURL('image/png');};
+window.hide=(index,hidden)=>{world.storage(Transform).scale.set(gallery.spheres[index],...(hidden?[0,0,0]:[1,1,1]));world.step(1/60);world.step(1/60);};
+function replace(index,handle){const storage=world.storage(MeshMaterial);storage.type.set(gallery.spheres[index],handle.type);storage.material.set(gallery.spheres[index],handle.material);}
+window.woodOff=()=>replace(4,world.resource(Materials).add(StandardMaterial({perceptualRoughness:0.72})));
+window.glassOpaque=()=>replace(3,world.resource(Materials).add(StandardMaterial({baseColor:[0.7,0.85,0.95,1],perceptualRoughness:0.08})));
+window.adapter=world.gpuIfAvailable.adapter;
+window.aim(-1);window.ready=true;
+</script></body></html>
