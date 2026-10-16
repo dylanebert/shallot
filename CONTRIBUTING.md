@@ -231,6 +231,23 @@ bun run format                  # biome
 | GPU release | Counting wrapper over a real Dawn device / GPU |
 | Beyond the suite | Heap snapshots, CDP tracing, `measureUserAgentSpecificMemory`, GPU timestamps / oracle |
 
+### Rendering iteration
+
+- A rendering change runs every `*.test.ts` and `*.node.ts` under `src/core/rendering`, `src/standard/rendering` and `src/extras`, passed explicitly to `bun test`:
+
+```sh
+bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort)
+```
+
+- A change to what a view draws also runs that set and every browser subject that reads pixels on Linux's Mesa llvmpipe, through `scripts/lavapipe.sh`. The script needs Docker, builds from `scripts/lavapipe.Dockerfile` with the tree's Bun and Node pins, and runs a command in a `git archive` of the given revision. Commit the candidate before running it; uncommitted edits are not copied. Dependency and Playwright volumes persist between runs.
+
+```sh
+sh scripts/lavapipe.sh HEAD sh -c 'bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name "*.test.ts" -o -name "*.node.ts" \) -print | sort)'
+sh scripts/lavapipe.sh HEAD bunx playwright test -c examples/embedded-scene --workers=1
+# Or run every browser subject:
+sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
+```
+
 ### Physics iteration
 
 - A change runs, in the loop, the sets of every row it touches. The common set is `bun check`, `bun run lint` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`; the kernel set adds `bun crates/physics/scripts/build-kernel.ts`, `cargo test -p shallot-physics`, `src/standard/physics/solver/step.gold.node.ts` and `diagnostics/box3d-parity/phases.oracle.ts`.
