@@ -70,6 +70,7 @@
         "examples/first-person",
         "examples/loading-screen",
         "examples/embedded-scene",
+        "examples/day-night-cycle",
         "examples/hud",
         "examples/interact",
         "examples/materials",

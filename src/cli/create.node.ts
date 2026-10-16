@@ -313,6 +313,9 @@ test("an unknown template names installed examples and their descriptions", () =
         "loading-screen — A game's own title card, held until its intro and minimum dwell end.",
     );
     expect(output.join("\n")).toContain(
+        "day-night-cycle — A sky, sun, shadows and haze follow a one-minute day; scrub the hour.",
+    );
+    expect(output.join("\n")).toContain(
         "embedded-scene — Embed a Shallot scene in an ordinary web page, with loading and rendering contained in its frame.",
     );
     expect(output.join("\n")).toMatch(/first-person.*—.*Climb/i);

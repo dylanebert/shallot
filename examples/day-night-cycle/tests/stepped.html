@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8" /><title>day-night-cycle, stepped</title><style>body { margin: 0; } canvas { display: block; }</style></head>
+<body>
+<canvas width="1280" height="720"></canvas>
+<script type="module">
+    import { createApp, mountOverlay } from "@dylanebert/shallot";
+    import { captureFrame } from "@dylanebert/shallot/rendering";
+    import { flushSync } from "svelte";
+    import { hud } from "../src/hud";
+    import { Clock, CyclePlugin } from "../src/cycle";
+    const canvas = document.querySelector("canvas");
+    const app = await createApp({ plugins: [CyclePlugin] });
+    hud(mountOverlay(canvas, app.world), app.world);
+    flushSync();
+    window.frame = async (hour) => {
+        if (hour !== undefined) app.world.resource(Clock).hour = hour;
+        app.world.step(0);
+        const capture = captureFrame(canvas);
+        app.world.step(0);
+        flushSync();
+        const image = await capture;
+        const copy = document.createElement("canvas");
+        copy.width = image.width; copy.height = image.height;
+        copy.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height), 0, 0);
+        const small = document.createElement("canvas");
+        small.width = image.width / 4; small.height = image.height / 4;
+        const context = small.getContext("2d");
+        context.drawImage(copy, 0, 0, small.width, small.height);
+        return { hour: app.world.resource(Clock).hour, width: small.width, height: small.height, rgba: Array.from(context.getImageData(0, 0, small.width, small.height).data), png: copy.toDataURL() };
+    };
+</script>
+</body></html>

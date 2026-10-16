@@ -240,6 +240,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         .map((entry) => entry.name)
         .sort();
     expect(recipes).toEqual([
+        "day-night-cycle",
         "embedded-scene",
         "first-person",
         "hud",
@@ -276,6 +277,7 @@ type Example =
     | "first-person"
     | "loading-screen"
     | "embedded-scene"
+    | "day-night-cycle"
     | "hud"
     | "interact"
     | "materials";
@@ -302,7 +304,8 @@ function createExample(name: Example): void {
     const packedRange = `file:${normalizePath(relative(project, tarball))}`;
     manifest.dependencies["@dylanebert/shallot"] = packedRange;
     // Svelte checking resolves its supported TypeScript online in the manual oracle.
-    if (name === "hud") delete manifest.devDependencies["svelte-check"];
+    if (name === "hud" || name === "day-night-cycle")
+        delete manifest.devDependencies["svelte-check"];
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
     writeFileSync(join(project, "no-preload.toml"), "[test]\n");
     writeFileSync(
@@ -343,7 +346,9 @@ function assertCreatedExample(name: Example): void {
     );
     for (const svelte of ["svelte", "@sveltejs/vite-plugin-svelte"])
         expect(manifest.devDependencies[svelte]).toBe(
-            name === "hud" ? rootPackage.devDependencies[svelte] : undefined,
+            name === "hud" || name === "day-night-cycle"
+                ? rootPackage.devDependencies[svelte]
+                : undefined,
         );
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
     expect(installOutput).not.toContain("build-tooling: generated dist/");
@@ -355,6 +360,7 @@ for (const name of [
     "first-person",
     "loading-screen",
     "embedded-scene",
+    "day-night-cycle",
     "hud",
     "interact",
     "materials",
@@ -369,7 +375,9 @@ for (const name of [
         test(`${name} type-checks in its copy`, () => {
             const { project, manifest } = example(name);
             run(["bun", "check"], project, `bun check ${name}`);
-            expect(manifest.scripts.typecheck).toBe(name === "hud" ? "svelte-check" : undefined);
+            expect(manifest.scripts.typecheck).toBe(
+                name === "hud" || name === "day-night-cycle" ? "svelte-check" : undefined,
+            );
         });
 
         test(`${name} builds in its copy`, () => {
