@@ -29,6 +29,10 @@ import {
 } from "./atlas";
 import { DEFAULT_FONT, type Font, loadFont } from "./font";
 import { GLYPH_AT, GLYPH_BYTES, GLYPH_FLOATS, Glyph } from "./glyph";
+import { Justify } from "./justify";
+
+export { Justify } from "./justify";
+
 import { createTextPipeline, textLayout, viewLayout } from "./pipeline";
 import { resetPipelines } from "./sdf";
 
@@ -77,7 +81,7 @@ export const Text = component(
         fontSize: f32,
         /** Maximum line width in world units; Infinity (default) is unbounded. Wraps at spaces, never splits a word; \n starts a new line. */
         maxWidth: f32,
-        /** Line alignment within the block width: 0 left (default), 1 centre, 2 right. */
+        /** {@link Justify} alignment of each line within the block width; defaults to Justify.Left. */
         justify: u32,
         /** 0..1 opacity multiplier */
         opacity: f32,
@@ -95,7 +99,7 @@ export const Text = component(
             billboard: Billboard.World,
             fontSize: 1,
             maxWidth: Infinity,
-            justify: 0,
+            justify: Justify.Left,
             opacity: 1,
             visible: 1,
             anchor: [0, 0],

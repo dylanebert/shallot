@@ -1,4 +1,5 @@
 import type { Font } from "./font";
+import { Justify } from "./justify";
 import { SDF_EXPONENT, SDFGenerator } from "./sdf";
 
 const SDF_SIZE = 96;
@@ -191,7 +192,7 @@ export function layoutText(
     atlas: GlyphAtlas,
     fontSize: number,
     maxWidth = Infinity,
-    justify = 0,
+    justify: number = Justify.Left,
 ): LayoutResult {
     if (!Number.isFinite(maxWidth) && !text.includes("\n"))
         return layoutLine(text, atlas, fontSize);
@@ -214,7 +215,9 @@ export function layoutText(
     const advance = (atlas.font.lineHeight / atlas.font.unitsPerEm) * fontSize;
     const glyphs: LayoutGlyph[] = [];
     for (const [i, line] of lines.entries()) {
-        const x = (width - line.width) * (justify === 1 ? 0.5 : justify === 2 ? 1 : 0);
+        const x =
+            (width - line.width) *
+            (justify === Justify.Center ? 0.5 : justify === Justify.Right ? 1 : 0);
         const y = (lines.length - 1 - i) * advance;
         for (const glyph of line.glyphs) glyphs.push({ ...glyph, x: glyph.x + x, y: glyph.y + y });
     }

@@ -40,6 +40,7 @@ export {
     Content,
     Fonts,
     internText,
+    Justify,
     registerFont,
     Text,
     TextPlugin,

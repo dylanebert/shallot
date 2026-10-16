@@ -4,7 +4,7 @@ import { gpuApps } from "../../../scripts/gpu.fixture";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { isolationFont } from "./font.fixture";
-import { internText, registerFont, Text, TextPlugin } from "./index";
+import { internText, Justify, registerFont, Text, TextPlugin } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
 let font = 0;
@@ -37,7 +37,7 @@ test("a wrapped centred label covers two separated rows in a captured frame", as
         font,
         fontSize: 1,
         maxWidth: 1.3,
-        justify: 1,
+        justify: Justify.Center,
         anchor: [0.5, 0.5],
         color: 0xffffff,
     });

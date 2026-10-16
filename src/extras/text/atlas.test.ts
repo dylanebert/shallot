@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { World } from "../../engine";
 import { ensureString, type GlyphAtlas, layoutText } from "./atlas";
 import { DEFAULT_FONT, loadFont } from "./font";
+import { Justify } from "./index";
 
 const metrics = {
     glyphWidth: 1,
@@ -50,10 +51,11 @@ test("newlines break lines, including empty lines", () => {
     expect(result.height).toBe(8);
 });
 
-test("centred lines share a centre and right lines share a right edge", () => {
+test("line justification aligns left edges, centres or right edges", () => {
     for (const [justify, positions] of [
-        [1, [1, 2, 1.5]],
-        [2, [2, 3, 3]],
+        [Justify.Left, [0, 1, 0]],
+        [Justify.Center, [1, 2, 1.5]],
+        [Justify.Right, [2, 3, 3]],
     ] as const) {
         const result = layoutText("ab\nc", layoutAtlas, 1, 4, justify);
         expect(result.glyphs.map((g) => g.x)).toEqual([...positions]);
