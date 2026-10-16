@@ -352,6 +352,7 @@ function assertCreatedExample(name: Example): void {
     expect(manifest.devDependencies.webgpu).toBe(
         name === "first-person" ||
             name === "embedded-scene" ||
+            name === "save-and-load" ||
             name === "materials" ||
             name === "particles"
             ? rootPackage.peerDependencies.webgpu

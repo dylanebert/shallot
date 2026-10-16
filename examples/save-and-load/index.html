@@ -4,15 +4,15 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-<meta name="description" content="Collect coins, buy and carry crates, and save your place in a first-person room." />
+<meta name="description" content="Click a cube to build a coin pile, save it, and load it into the running game." />
 <title>Save and load · Shallot</title>
 <style>html,body{margin:0;width:100%;height:100%;background:#191816}canvas{display:block;width:100%;height:100%}</style>
 <link rel="stylesheet" href="./src/hud.css"/></head>
 <body><canvas></canvas>
 <script type="module">
 import { runApp } from '@dylanebert/shallot';
-import { RoomPlugin } from './src/room';
+import { Scene } from './src/scene';
 import { hud } from './src/hud';
-await runApp({plugins:[RoomPlugin], ui: hud});
+await runApp({plugins:[Scene], ui: hud});
 </script></body>
 </html>

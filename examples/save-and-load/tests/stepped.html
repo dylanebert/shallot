@@ -1,57 +1,32 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><title>Save and load, stepped</title>
-<style>body{margin:0;background:#191816}canvas{display:block}</style><link rel="stylesheet" href="../src/hud.css"/></head>
+<style>body{margin:0;background:#191816}canvas{display:block;width:1280px;height:720px}</style><link rel="stylesheet" href="../src/hud.css"/></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { Camera, createApp, mountOverlay, Transform, setTransform } from '@dylanebert/shallot';
-import { pressKey, releaseKey, setInputEnabled } from '@dylanebert/shallot/input';
-import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
-import { PointShadows } from '@dylanebert/shallot/standard/rendering';
-import { RoomPlugin } from '../src/room';
-import { LocalPlayer } from '../src/player';
-import { Game, Usable, Action } from '../src/interact';
-import { encode, Wallet } from '../src/save';
+import { createApp, mountOverlay } from '@dylanebert/shallot';
+import { pointerMove, pressButton, releaseButton, pressKey, releaseKey } from '@dylanebert/shallot/input';
+import { attachCanvas, captureFrame } from '@dylanebert/shallot/rendering';
+import { Scene } from '../src/scene';
+import { count, Game } from '../src/game';
+import { encode } from '../src/save';
 import { hud } from '../src/hud';
-const app=await createApp({plugins:[RoomPlugin]});
-const world=app.world, game=world.resource(Game);
-const canvas=document.querySelector('canvas');
-if (!new URLSearchParams(location.search).has('captures')) {
- canvas.width=320; canvas.height=180;
- attachTexture(world,game.camera,{width:320,height:180});
- world.storage(Camera).antialias.set(game.camera,0);
- world.resource(PointShadows).atlas=512;
- world.resource(PointShadows).casters=1;
-}
+const app=await createApp({plugins:[Scene]});
+const world=app.world, canvas=document.querySelector('canvas');
+attachCanvas(world,world.resource(Game).camera,canvas);
 hud(mountOverlay(canvas,world),world);
-window.state=()=>{
- const t=world.storage(Transform).translation;
- const wallet=world.storage(Wallet);
- return {money:wallet.money.get(game.player),position:[t.x.get(game.player),t.y.get(game.player),t.z.get(game.player)],carried:!!wallet.carried.get(game.player),save:encode(world)};
-};
-window.aim=(action)=>{
- const target=[...world.query([Usable])].find(eid=>world.storage(Usable).action.get(eid)===action);
- if(!target) throw new Error('No target for action '+action);
- const t=world.storage(Transform).translation;
- const x=t.x.get(target), y=t.y.get(target), z=t.z.get(target);
- // The same controller poses its camera after a placement through the public physics seam.
- setTransform(world,game.player,[x,Math.max(0.65,y-0.7),z+2],[0,0,0,1]);
- t.set(game.player,x,Math.max(0.65,y-0.7),z+2);
- world.storage(LocalPlayer).viewYaw.set(game.player,0);
- world.storage(LocalPlayer).viewPitch.set(game.player,Math.atan2(y-(Math.max(0.65,y-0.7)+0.7),2));
- world.step(1/60);world.step(1/60);
- return window.state();
-};
-window.key=(down)=>{setInputEnabled(world,true);(down?pressKey:releaseKey)(world,'KeyE');};
-window.advance=()=>{world.step(1/60);return window.state();};
+const advance=(frames=1)=>{ for(let i=0;i<frames;i++) world.step(1/60); return state(); };
+const state=()=>({count:count(world),save:encode(world)});
 window.capture=async()=>{
- let image;
- if(canvas.width===320){world.step(0);image=await captureTexture(world,game.camera);}
- else {const pending=captureFrame(canvas);world.step(0);image=await pending;}
+ const pending=captureFrame(canvas);world.step(0);const image=await pending;
  const out=document.createElement('canvas');out.width=image.width;out.height=image.height;
  out.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);
  return out.toDataURL('image/png');
 };
 window.adapter=world.gpuIfAvailable.adapter;
-world.step(0);
-window.saveAndLoad={state:window.state,aim:window.aim,key:window.key,advance:window.advance};
+advance(3);
+window.saveAndLoad={state,advance,
+ hover:()=>{pointerMove(world,{x:640,y:360,hover:true});world.step(0);},
+ click:()=>{pointerMove(world,{x:640,y:360,hover:true});pressButton(world,'left');releaseButton(world,'left');world.step(0);},
+ key:(code)=>{pressKey(world,code);world.step(0);releaseKey(world,code);world.step(0);}
+};
 </script></body></html>

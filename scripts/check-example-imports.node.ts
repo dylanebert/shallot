@@ -32,7 +32,7 @@ function sourceFiles(directory: string): string[] {
     });
 }
 
-for (const name of ["interact", "sound", "save-and-load", "particles"]) {
+for (const name of ["interact", "sound", "particles"]) {
     test(`${name} carries unchanged copies of first-person's controller over published imports`, () => {
         for (const file of ["player.ts", "motion.ts", "follow.ts"]) {
             expect(readFileSync(resolve(EXAMPLES, name, "src", file), "utf8")).toBe(

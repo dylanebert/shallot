@@ -9,6 +9,7 @@ const paths = [
     "examples/hud/src/turntable/index.ts",
     "examples/loading-screen/src/welcome/index.ts",
     "examples/embedded-scene/src/scene.ts",
+    "examples/save-and-load/src/scene.ts",
 ];
 
 function scene(source: string) {
@@ -40,7 +41,7 @@ function scene(source: string) {
     };
 }
 
-test("the four copied cube scenes have equal geometry, orbit, lighting and materials", () => {
+test("the copied cube scenes have equal geometry, orbit, lighting and materials", () => {
     const scenes = paths.map((path) => scene(readFileSync(path, "utf8")));
     for (const [index, value] of scenes.entries()) expect(value, paths[index]).toEqual(scenes[0]!);
 });

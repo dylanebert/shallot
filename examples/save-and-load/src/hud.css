@@ -1,10 +1,9 @@
-.interact-hud { position: absolute; inset: 0; pointer-events: none; color: #eee9df; font: 400 14px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-shadow: 0 1px 3px #191816; }
-.reticle { position: absolute; top: 50%; left: 50%; display: grid; place-items: center; box-sizing: border-box; width: 12px; height: 12px; border: 1px solid #eee9df; border-radius: 2px; transform: translate(-50%, -50%); box-shadow: 0 0 2px #191816; }
-.reticle-dot { width: 4px; height: 4px; border-radius: 2px; background: #eee9df; }
-.reticle-dot[hidden] { display: none; }
-.hint { position: absolute; top: calc(50% + 96px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; white-space: nowrap; }
-.hint[hidden] { display: none; }
-.key-slot { display: grid; place-items: center; width: 48px; height: 48px; }
-.key-slot > * { grid-area: 1 / 1; }
-.key-slot kbd { display: grid; place-items: center; box-sizing: border-box; width: 28px; height: 28px; border: 1px solid #eee9df; border-radius: 2px; background: #282622cc; font: 400 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.money { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); }
+.save-hud { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: #eee9df; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: center; }
+.save-hud h1 { font-size: 24px; font-weight: 400; font-variant-numeric: tabular-nums; margin: 0 0 12px; }
+.save-hud .controls { display: flex; gap: 8px; pointer-events: auto; }
+.save-hud button { color: inherit; background: #282622; border: 1px solid #58534a; border-radius: 2px; padding: 10px 12px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer; white-space: nowrap; }
+.save-hud button:hover:not(:disabled) { background: #3c3831; }
+.save-hud button:focus-visible { outline: 2px solid #eee9df; outline-offset: 2px; }
+.save-hud button:disabled { opacity: 0.4; cursor: default; }
+.save-hud kbd { display: inline-block; margin-left: 8px; padding: 0 5px; border: 1px solid #827969; border-bottom-width: 2px; border-radius: 2px; font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.save-hud [role=status] { display: block; height: 20px; margin-top: 8px; }

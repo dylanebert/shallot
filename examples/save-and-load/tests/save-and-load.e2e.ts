@@ -2,20 +2,19 @@ import { mkdirSync } from "node:fs";
 import { expect, type Page, test } from "playwright/test";
 import type { Save } from "../src/save";
 
-type State = { money: number; position: number[]; carried: boolean; save: Save };
 declare global {
     interface Window {
         capture(): Promise<string>;
         adapter: { class: string; identity: string };
         saveAndLoad: {
-            state: () => State;
-            aim: (action: number) => State;
-            key: (down: boolean) => void;
-            advance: () => State;
+            state(): { count: number; save: Save };
+            advance(frames?: number): void;
+            hover(): void;
+            click(): void;
+            key(code: string): void;
         };
     }
 }
-type Stepped = Window;
 async function capture(page: Page, name: string): Promise<void> {
     const directory = process.env.SHALLOT_CAPTURE_DIR;
     if (!directory) return;
@@ -23,76 +22,91 @@ async function capture(page: Page, name: string): Promise<void> {
     const adapter = await page.evaluate(() => window.adapter);
     expect(adapter.class).toBe("real");
     console.log("save-and-load adapter", adapter);
-    await page.evaluate(() => window.capture());
+    const image = await page.evaluate(() => window.capture());
+    await page.evaluate(async (src) => {
+        const img = new Image();
+        img.id = "capture";
+        img.style.cssText = "position:absolute;left:0;top:0;pointer-events:none";
+        img.src = src;
+        await img.decode();
+        document.body.insertBefore(img, document.querySelector("canvas")!.nextSibling);
+    }, image);
     await page.screenshot({ path: `${directory}/${name}.png` });
+    await page.evaluate(() => document.getElementById("capture")!.remove());
+}
+async function count(page: Page, expected: number) {
+    expect(await page.evaluate(() => window.saveAndLoad.state().count)).toBe(expected);
+    await expect(page.getByRole("status", { name: "Coins", exact: true })).toHaveText(
+        `${expected} coins`,
+    );
+}
+async function button(page: Page, name: string) {
+    await page.getByRole("button", { name }).click();
+    await page.evaluate(() => window.saveAndLoad.advance());
 }
 
-async function state(page: Page): Promise<State> {
-    const value = await page.evaluate(() => (window as Stepped).saveAndLoad.state());
-    await expect(page.getByRole("status", { name: "Money" })).toHaveText(`${value.money} coins`);
-    return value;
-}
-async function use(page: Page, action: number): Promise<State> {
-    await page.evaluate((action) => (window as Stepped).saveAndLoad.aim(action), action);
-    await state(page);
-    await page.evaluate(() => {
-        const game = (window as Stepped).saveAndLoad;
-        game.key(true);
-        game.advance();
-    });
-    await state(page);
-    await page.evaluate(() => {
-        const game = (window as Stepped).saveAndLoad;
-        game.key(false);
-        game.advance();
-    });
-    return state(page);
-}
-
-test("the built page shows money centred at the bottom of the canvas", async ({ page }) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto("/");
-    const money = page.getByRole("status", { name: "Money" });
-    await expect(money).toHaveText("0 coins");
-    const canvas = (await page.locator("canvas").boundingBox())!;
-    const bounds = (await money.boundingBox())!;
-    expect(bounds.x + bounds.width / 2).toBeCloseTo(canvas.x + canvas.width / 2, 0);
-    expect(bounds.y).toBeGreaterThan(canvas.y + canvas.height / 2);
-    expect(bounds.y + bounds.height).toBeLessThan(canvas.y + canvas.height);
-    expect(errors).toEqual([]);
-});
-
-test("collect, buy, carry and save; page reload restores money, player placement and carried crate", async ({
+test("the built page opens a new game with clear controls and Load disabled until Save", async ({
     page,
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(
-        `http://127.0.0.1:4190/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?captures" : ""}`,
+    await page.goto("/");
+    await expect(page.getByRole("status", { name: "Coins", exact: true })).toHaveText("0 coins");
+    await expect(page.getByRole("button", { name: "Load L" })).toBeDisabled();
+    for (const key of ["N", "S", "L"])
+        await expect(page.locator("kbd", { hasText: key })).toBeVisible();
+    await page.getByRole("button", { name: "Save S" }).click();
+    await expect(page.getByRole("status", { name: "Save feedback" })).toHaveText("Saved");
+    await expect(page.getByRole("button", { name: "Load L" })).toBeEnabled();
+    expect(errors).toEqual([]);
+});
+
+test("three clicks, Save, New game and Load restore the pile and shown count, also after page reload", async ({
+    page,
+}) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto("http://127.0.0.1:4190/tests/stepped.html");
+    await page.waitForFunction(() => !!window.saveAndLoad);
+    await count(page, 0);
+    await expect(page.getByRole("button", { name: "Load L" })).toBeDisabled();
+    await page.evaluate(() => window.saveAndLoad.hover());
+    await capture(page, "01-start-hovered");
+    for (let i = 1; i <= 3; i++) {
+        await page.evaluate(() => window.saveAndLoad.click());
+        await count(page, i);
+    }
+    await page.evaluate(() => window.saveAndLoad.advance(60));
+    await capture(page, "02-three-clicks");
+    await button(page, "Save S");
+    await expect(page.getByRole("status", { name: "Save feedback" })).toHaveText("Saved");
+    const saved = await page.evaluate(() => window.saveAndLoad.state().save);
+    expect(saved.entities).toHaveLength(3);
+    await capture(page, "03-saved");
+    await page.evaluate(() => window.saveAndLoad.advance(130));
+    await expect(page.getByRole("status", { name: "Save feedback" })).toBeEmpty();
+    await button(page, "New game N");
+    await count(page, 0);
+    await button(page, "Load L");
+    await count(page, 3);
+    expect((await page.evaluate(() => window.saveAndLoad.state().save)).entities).toEqual(
+        expect.arrayContaining(saved.entities),
     );
-    await page.waitForFunction(() => !!(window as Stepped).saveAndLoad);
-    expect((await state(page)).money).toBe(0);
-    await capture(page, "spawn");
-    for (let i = 1; i <= 3; i++) expect((await use(page, 0)).money).toBe(i);
-    expect((await use(page, 1)).money).toBe(0);
-    expect((await use(page, 2)).carried).toBe(true);
-    await capture(page, "carrying");
-    const before = await use(page, 3);
-    const stored = await page.evaluate(() =>
-        JSON.parse(localStorage.getItem("shallot-save-and-load")!),
-    );
-    expect(stored.version).toBe(2);
+    await capture(page, "04-loaded");
     await page.reload();
-    await page.waitForFunction(() => !!(window as Stepped).saveAndLoad);
-    const after = await state(page);
-    await capture(page, "after-reload");
-    expect(after.money).toBe(before.money);
-    expect(after.carried).toBe(true);
-    const savedPlayer = stored.entities.find((entry: Record<string, unknown>) => entry.Player);
-    expect(after.position).toEqual(savedPlayer.Transform.translation.slice(0, 3));
-    expect(after.save.entities.find((entry) => entry.Player)).toEqual(savedPlayer);
-    const carried = after.save.entities[savedPlayer.Wallet.carried];
-    expect(carried.Saved.kind).toBe(3);
+    await page.waitForFunction(() => !!window.saveAndLoad);
+    await count(page, 0);
+    await expect(page.getByRole("button", { name: "Load L" })).toBeEnabled();
+    await page.evaluate(() => window.saveAndLoad.key("KeyL"));
+    await count(page, 3);
+    expect((await page.evaluate(() => window.saveAndLoad.state().save)).entities).toEqual(
+        expect.arrayContaining(saved.entities),
+    );
+    await page.evaluate(() => window.saveAndLoad.key("KeyN"));
+    await count(page, 0);
+    await page.evaluate(() => window.saveAndLoad.key("KeyS"));
+    await expect(page.getByRole("status", { name: "Save feedback" })).toHaveText("Saved");
+    await page.evaluate(() => window.saveAndLoad.key("KeyL"));
+    await count(page, 0);
     expect(errors).toEqual([]);
 });

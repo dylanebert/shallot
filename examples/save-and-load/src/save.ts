@@ -1,40 +1,42 @@
-import { component, entity, Transform, u8, u32, type World } from "@dylanebert/shallot";
+import { component, f32, Transform, type World } from "@dylanebert/shallot";
 import { fields, type ScalarField, type Vector4Field } from "@dylanebert/shallot/ecs";
-import { Player } from "./player";
 
-export const Kind = { Camera: 0, Player: 1, Coin: 2, Crate: 3 } as const;
-export const Saved = component("Saved", { kind: u8 });
-export const Wallet = component("Wallet", { money: u32, carried: entity });
-export const persisted = { Saved, Transform, Player, Wallet };
+export const Coin = component("Coin", { height: f32, speed: f32 });
+export const persisted = { Coin, Transform };
 type Values = Record<string, number | number[]>;
 export type Save = { version: 2; entities: Record<string, Values>[] };
-export type PreviousSave = { version: 1; entities: Record<string, Values>[] };
+export type PreviousSave = { version: 1; count: number };
 export const SAVE_KEY = "shallot-save-and-load";
 
+export function placement(index: number): [number, number, number] {
+    const column = Math.floor(index / 5) % 7;
+    const angle = (column * Math.PI * 2) / 6;
+    return [
+        1.15 + (column === 6 ? 0 : Math.cos(angle) * 0.35),
+        -0.46 + (Math.floor(index / 35) * 5 + (index % 5)) * 0.085,
+        column === 6 ? 0 : Math.sin(angle) * 0.35,
+    ];
+}
+
 export function encode(world: World): Save {
-    const eids = [...world.query([Saved])];
-    const ids = new Map(eids.map((eid, index) => [eid, index]));
     return {
         version: 2,
-        entities: eids.map((eid) => {
+        entities: [...world.query([Coin])].map((eid) => {
             const record: Record<string, Values> = {};
             for (const [key, component] of Object.entries(persisted)) {
-                if (!world.has(eid, component)) continue;
                 const storage = world.storage(component) as Record<
                     string,
                     ScalarField | Vector4Field
                 >;
                 const values: Values = {};
                 for (const { name, field } of fields(component)) {
-                    const handle = storage[name] as ScalarField | Vector4Field;
-                    if (field === entity) {
-                        const target = (handle as ScalarField).get(eid);
-                        values[name] = target ? (ids.get(target) ?? -1) : -1;
-                    } else if (field.lanes === 1) values[name] = (handle as ScalarField).get(eid);
-                    else
-                        values[name] = Array.from(
-                            handle.column.slice(eid * field.lanes, (eid + 1) * field.lanes),
-                        );
+                    const handle = storage[name]!;
+                    values[name] =
+                        field.lanes === 1
+                            ? (handle as ScalarField).get(eid)
+                            : Array.from(
+                                  handle.column.slice(eid * field.lanes, (eid + 1) * field.lanes),
+                              );
                 }
                 record[key] = values;
             }
@@ -48,37 +50,40 @@ export function migrate(record: Save | PreviousSave): Save {
     if (record.version !== 1) throw new Error("Unsupported save version");
     return {
         version: 2,
-        entities: record.entities.map((entry) => {
-            if (!entry.Wallet) return entry;
-            const { coins, ...wallet } = entry.Wallet;
-            return { ...entry, Wallet: { ...wallet, money: coins } };
+        entities: Array.from({ length: record.count }, (_, index) => {
+            const translation = placement(index);
+            return {
+                Coin: { height: translation[1], speed: 0 },
+                Transform: {
+                    translation: [...translation, 0],
+                    rotation: [0, 0, 0, 1],
+                    scale: [0.28, 0.08, 0.28, 0],
+                },
+            };
         }),
     };
 }
 
 export function decode(world: World, record: Save | PreviousSave): number[] {
     const save = migrate(record);
-    const eids = save.entities.map(() => world.create());
-    save.entities.forEach((entry, index) => {
-        const eid = eids[index];
+    for (const eid of world.query([Coin])) world.destroy(eid);
+    return save.entities.map((entry) => {
+        const eid = world.create();
         for (const [key, component] of Object.entries(persisted)) {
-            const values = entry[key];
-            if (!values) continue;
             world.add(eid, component);
             const storage = world.storage(component) as Record<string, ScalarField | Vector4Field>;
             for (const { name, field } of fields(component)) {
-                const handle = storage[name] as ScalarField | Vector4Field;
-                const value = values[name];
-                if (field === entity) (handle as ScalarField).set(eid, eids[value as number] ?? 0);
-                else if (field.lanes === 1) (handle as ScalarField).set(eid, value as number);
+                const handle = storage[name]!;
+                const value = entry[key]![name]!;
+                if (field.lanes === 1) (handle as ScalarField).set(eid, value as number);
                 else {
                     handle.column.set(value as number[], eid * field.lanes);
                     handle.markChanged(eid);
                 }
             }
         }
+        return eid;
     });
-    return eids;
 }
 
 export function readSave(storage: Pick<Storage, "getItem">): Save | null {
