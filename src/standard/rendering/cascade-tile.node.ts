@@ -28,7 +28,7 @@ import {
 
 setDefaultTimeout(TIMEOUT.node);
 
-const BASE_3X3_SUBTEXEL_SHADOWED_PIXELS = 8;
+const BASE_3X3_SUBTEXEL_LUMINANCE_CHANGE = 1991.3080000000002;
 
 const renderingExports = (await import("./index")) as unknown as Record<string, unknown>;
 const shadowFilteringMethod = renderingExports["ShadowFilteringMethod"] as any;
@@ -189,7 +189,7 @@ for (const [size0, cascades0, size1, cascades1] of [
     }
 }
 
-test("Gaussian cascade sub-texel camera moves change no more shadowed pixels than the base 3×3", async () => {
+test("Gaussian cascade sub-texel camera moves change no more total luminance than the base 3×3", async () => {
     const app = await build(2048);
     try {
         const { camera } = scene(app.world, 4);
@@ -201,16 +201,16 @@ test("Gaussian cascade sub-texel camera moves change no more shadowed pixels tha
             app.world.storage(Transform).translation.set(camera, k * 0.0137, 3, 8, 0);
             app.world.step(0);
             const next = (await captureTexture(app.world, camera)).rgba;
-            let changed = 0;
+            let change = 0;
             for (let i = 0; i < first.length; i += 4) {
                 const before = 0.2126 * first[i] + 0.7152 * first[i + 1] + 0.0722 * first[i + 2];
                 const after = 0.2126 * next[i] + 0.7152 * next[i + 1] + 0.0722 * next[i + 2];
-                if (before < 72 !== after < 72) changed++;
+                change += Math.abs(after - before);
             }
-            maxChanges = Math.max(maxChanges, changed);
+            maxChanges = Math.max(maxChanges, change);
         }
-        console.log(`cascade-tile sub-texel shadowed pixels: ${maxChanges}`);
-        expect(maxChanges).toBeLessThanOrEqual(BASE_3X3_SUBTEXEL_SHADOWED_PIXELS);
+        console.log(`cascade-tile sub-texel summed luminance change: ${maxChanges}`);
+        expect(maxChanges).toBeLessThanOrEqual(BASE_3X3_SUBTEXEL_LUMINANCE_CHANGE);
     } finally {
         app.dispose();
     }

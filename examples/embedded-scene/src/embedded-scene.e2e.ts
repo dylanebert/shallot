@@ -734,7 +734,7 @@ test("embedded-scene progress stays in its owned frame and reaches the bar; its 
             );
             expect(held.progressBar, "the real page owns a progress bar during loading").toBe(true);
             expect(held.device?.identity, "the subject adapter identity was recorded").toBeTruthy();
-            const floorFeatures = ["indirect-first-instance", "rg11b10ufloat-renderable"];
+            const floorFeatures = ["indirect-first-instance"];
             expect(held.device?.requestedFeatures).toEqual(floorFeatures);
             expect(held.device?.features).toEqual(floorFeatures);
             expect(held.device?.requestedLimits).not.toHaveProperty(

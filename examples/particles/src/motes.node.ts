@@ -20,7 +20,7 @@ beforeAll(async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("particles requires an adapter");
     untimedDevice = await adapter.requestDevice({
-        requiredFeatures: ["indirect-first-instance", "rg11b10ufloat-renderable"],
+        requiredFeatures: ["indirect-first-instance"],
     });
     untimed = await openGpuApp({ plugins: [MotesPlugin], device: untimedDevice, adapter });
     attachTexture(untimed.world, untimed.world.resource(Room).camera, { width: 16, height: 16 });

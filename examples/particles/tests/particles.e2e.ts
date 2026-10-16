@@ -46,7 +46,7 @@ test("the floor beam outshines adjacent shade, motes brighten the shared view, a
         expect(value).toBe(0);
     }
     expect([...(requests[0].requiredFeatures ?? [])].sort()).toEqual(
-        ["indirect-first-instance", "rg11b10ufloat-renderable", "timestamp-query"]
+        ["indirect-first-instance", "timestamp-query"]
             .filter(
                 (feature) =>
                     feature !== "timestamp-query" ||

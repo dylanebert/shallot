@@ -22,7 +22,6 @@ test("embedded-scene draws with default WebGPU limits", async () => {
         });
         expect(device.limits.maxStorageBuffersPerShaderStage).toBe(8);
         expect(device.features.has("indirect-first-instance")).toBe(true);
-        expect(device.features.has("rg11b10ufloat-renderable")).toBe(true);
         const camera = [...world.query([Camera])][0];
         if (camera === undefined) throw new Error("embedded-scene scene has no camera");
         attachTexture(world, camera, { width: 64, height: 64 });

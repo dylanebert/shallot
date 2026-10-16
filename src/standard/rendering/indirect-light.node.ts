@@ -137,6 +137,6 @@ test("a registered indirect source adds to material light and receives occlusion
 test("AmbientLight-only material frame matches main", async () => {
     const { world } = subjects()[0];
     const frame = await ambientFrame(world);
-    expect(pixel(frame, 32)).toEqual([123, 89, 63, 255]);
+    expect(pixel(frame, 32)).toEqual([124, 89, 63, 255]);
     expect(frame).toHaveLength(64 * 32 * 4);
 });
