@@ -40,42 +40,60 @@ async function frame(world: ReturnType<typeof subjects>[number]["world"], camera
     return (await captureTexture(world, camera)).rgba;
 }
 
-test("a Screen label in front of a blended plane stays visible from a pitched camera", async () => {
-    const { world } = subjects()[0];
-    const camera = world.create();
-    const rotation = lookAtRotation(0, -2, 5, 0, 0, 0);
-    world.add(camera, Transform, { translation: [0, -2, 5], rotation });
-    world.add(camera, Camera);
-    world.add(camera, StandardRenderer);
-    attachTexture(world, camera, { width: 64, height: 64 });
-    const plane = world.create();
-    world.add(plane, Transform, { scale: [4, 4, 0.001], rotation });
-    world.add(plane, MeshInstance);
-    world.add(
-        plane,
-        MeshMaterial,
-        world.resource(Materials).add(StandardMaterial({ baseColor: [1, 1, 1, 1], unlit: true }), {
-            alphaMode: AlphaMode.Blend,
-        }),
-    );
-    const baseline = await frame(world, camera);
-    const label = world.create();
-    world.add(label, Transform, {
-        translation: [0, (-0.01 * 2) / Math.sqrt(29), (0.01 * 5) / Math.sqrt(29)],
-    });
-    world.add(label, Text, {
-        content: internText(world, "i"),
-        font,
-        fontSize: 1,
+for (const pose of [
+    {
+        name: "Screen from a pitched camera",
+        mode: Billboard.Screen,
+        eye: [0, -2, 5],
+        label: [0, -0.02 / Math.sqrt(29), 0.05 / Math.sqrt(29)],
         anchor: [0.5, 0],
-        color: 0x000000,
-        billboard: Billboard.Screen,
+    },
+    {
+        name: "YLocked from a side-on camera",
+        mode: Billboard.YLocked,
+        eye: [-5, 0, 0],
+        label: [-0.01, 0, 0],
+        anchor: [0, 0],
+    },
+] as const)
+    test(`a ${pose.name} label in front of a blended plane stays visible`, async () => {
+        const { world } = subjects()[0];
+        const camera = world.create();
+        const rotation = lookAtRotation(pose.eye[0], pose.eye[1], pose.eye[2], 0, 0, 0);
+        world.add(camera, Transform, { translation: pose.eye, rotation });
+        world.add(camera, Camera);
+        world.add(camera, StandardRenderer);
+        attachTexture(world, camera, { width: 64, height: 64 });
+        const plane = world.create();
+        world.add(plane, Transform, { scale: [4, 4, 0.001], rotation });
+        world.add(plane, MeshInstance);
+        world.add(
+            plane,
+            MeshMaterial,
+            world
+                .resource(Materials)
+                .add(StandardMaterial({ baseColor: [1, 1, 1, 1], unlit: true }), {
+                    alphaMode: AlphaMode.Blend,
+                }),
+        );
+        const baseline = await frame(world, camera);
+        const label = world.create();
+        world.add(label, Transform, {
+            translation: pose.label,
+        });
+        world.add(label, Text, {
+            content: internText(world, "i"),
+            font,
+            fontSize: 1,
+            anchor: pose.anchor,
+            color: 0x000000,
+            billboard: pose.mode,
+        });
+        expect(await frame(world, camera)).not.toEqual(baseline);
+        world.destroy(label);
+        world.destroy(plane);
+        world.destroy(camera);
     });
-    expect(await frame(world, camera)).not.toEqual(baseline);
-    world.destroy(label);
-    world.destroy(plane);
-    world.destroy(camera);
-});
 
 test("Text and Line are both visible alone and occluded by an opaque mesh", async () => {
     const { world } = subjects()[0];
