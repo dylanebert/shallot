@@ -28,7 +28,7 @@ import {
 } from "@dylanebert/shallot/standard/rendering";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { CheckerMaterial, CheckerPlugin, WaveMaterial, WavePlugin } from "./materials";
+import { CheckerMaterial, CheckerPlugin, WaveMaterial, WavePlugin, waveVector } from "./materials";
 
 export const presets = [
     {
@@ -75,7 +75,7 @@ function scene(world: World) {
     world.add(camera, Transform);
     world.add(camera, Camera, { clearColor: 0x1c1917 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Orbit, { distance: 13, yaw: 0.12, pitch: 0.22 });
+    world.add(camera, Orbit, { distance: 7.8, yaw: 0.04, pitch: 0.2, pan: [0, 0.6, 0] });
 }
 function backdrop(world: World) {
     const background = registerBackground(world, {
@@ -108,7 +108,10 @@ function surfaces(world: World) {
     const ball = world.resource(Meshes).add({ name: "Gallery sphere", ...geometry });
     const phases = new Float32Array(geometry.vertices.length / 8);
     for (let i = 0; i < phases.length; i++)
-        phases[i] = geometry.vertices[i * 8 + 1]! * 15 + geometry.vertices[i * 8]! * 6;
+        phases[i] =
+            geometry.vertices[i * 8]! * waveVector.x +
+            geometry.vertices[i * 8 + 1]! * waveVector.y +
+            geometry.vertices[i * 8 + 2]! * waveVector.z;
     const waveBall = world.resource(Meshes).add({
         name: "Wave sphere",
         ...geometry,

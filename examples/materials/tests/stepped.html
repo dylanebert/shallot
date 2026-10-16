@@ -11,12 +11,14 @@ const world=app.world, gallery=world.resource(Gallery), canvas=document.querySel
 world.storage(Camera).clearColor.set(gallery.camera,0xff0000);
 const full=new URLSearchParams(location.search).has('captures');
 if(!full){canvas.width=320;canvas.height=180;attachTexture(world,gallery.camera,{width:320,height:180});world.storage(Camera).antialias.set(gallery.camera,0);world.resource(DirectionalLightShadowMap).size=256;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
+const orbit=world.storage(Orbit);
+const overview={distance:orbit.distance.get(gallery.camera),yaw:orbit.yaw.get(gallery.camera),pitch:orbit.pitch.get(gallery.camera),pan:[orbit.pan.x.get(gallery.camera),orbit.pan.y.get(gallery.camera),orbit.pan.z.get(gallery.camera)]};
 window.aim=(index)=>{
- const orbit=world.storage(Orbit);
  orbit.smoothness.set(gallery.camera,1);
- orbit.distance.set(gallery.camera,index<0?13:2.6);
- orbit.yaw.set(gallery.camera,index<0?0.12:0);
- orbit.pitch.set(gallery.camera,index<0?0.22:0);
+ orbit.distance.set(gallery.camera,index<0?overview.distance:2.6);
+ orbit.yaw.set(gallery.camera,index<0?overview.yaw:0);
+ orbit.pitch.set(gallery.camera,index<0?overview.pitch:0);
+ orbit.pan.set(gallery.camera,...(index<0?overview.pan:[0,0,0]));
  // A target entity lets the orbit controller keep owning the camera pose.
  orbit.target.set(gallery.camera,index<0?0:gallery.spheres[index]);
  world.step(1/60);world.step(1/60);

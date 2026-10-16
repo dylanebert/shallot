@@ -1,3 +1,4 @@
+import { xformNormal, xformPoint } from "@dylanebert/shallot/rendering";
 import {
     lit,
     MaterialPlugin,
@@ -32,6 +33,27 @@ export const CheckerMaterial = materialType({
         return d.vec4f(lit(color, ctx.worldNormal), 1);
     }),
 });
+export const waveVector = d.vec3f(1.5, 4, 0);
+const rippleAmplitude = 0.045;
+const RippleSurface = d.struct({ position: d.vec3f, normal: d.vec3f });
+export const ripple = tgpu.fn(
+    [d.vec3f, d.vec3f, d.f32, d.f32],
+    RippleSurface,
+)((position, normal, phase, time) => {
+    "use gpu";
+    const angle = phase + time * 3;
+    const offset = std.sin(angle) * rippleAmplitude;
+    const radius = std.length(position);
+    const tangentGradient = std.sub(waveVector, std.mul(normal, std.dot(waveVector, normal)));
+    const slope = std.mul(
+        tangentGradient,
+        (std.cos(angle) * rippleAmplitude * radius) / (radius + offset),
+    );
+    return RippleSurface({
+        position: std.add(position, std.mul(normal, offset)),
+        normal: std.normalize(std.sub(normal, slope)),
+    });
+});
 const waveLayout = materialLayout(AnimationParameters, {
     phase: { type: "attribute", element: d.f32 },
 });
@@ -48,10 +70,15 @@ export const WaveMaterial = materialType({
     )((input) => {
         "use gpu";
         const time = waveLayout.$.materialParameters[input.material].time;
-        const offset = std.sin(waveLayout.$.phase[input.vidx] + time * 3) * 0.22;
+        const surface = ripple(
+            input.localPos,
+            input.localNormal,
+            waveLayout.$.phase[input.vidx],
+            time,
+        );
         return Vertex({
-            world: std.add(input.world, d.vec4f(std.mul(input.worldNormal, offset), 0)),
-            worldNormal: input.worldNormal,
+            world: d.vec4f(xformPoint(input.xform, surface.position), 1),
+            worldNormal: xformNormal(input.xform, surface.normal),
         });
     }),
     fragment: tgpu.fn(
