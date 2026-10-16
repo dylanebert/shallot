@@ -28,7 +28,6 @@ window.aim=(index)=>{
 const nameValues=gallery.names.map(eid=>{
  const text=world.storage(Text);
  const values=Object.fromEntries(['content','font','billboard','fontSize','maxWidth','justify','opacity','color'].map(key=>[key,text[key].get(eid)]));
- values.anchor=[text.anchor.x.get(eid),text.anchor.y.get(eid)];
  return values;
 });
 window.nameVisible=(index,visible)=>{

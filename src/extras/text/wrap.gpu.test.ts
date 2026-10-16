@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { attachTexture, Camera, captureTexture } from "../../core/rendering";
+import { Anchor, attachTexture, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { isolationFont } from "./font.fixture";
 import { internText, Justify, registerFont, Text, TextPlugin } from "./index";
@@ -32,13 +32,13 @@ test("a wrapped centred label covers two separated rows in a captured frame", as
     const baseline = (await captureTexture(world, camera)).rgba;
     const label = world.create();
     world.add(label, Transform);
+    world.add(label, Anchor, { offset: Anchor.CENTER });
     world.add(label, Text, {
         content: internText(world, "ii i"),
         font,
         fontSize: 1,
         maxWidth: 1.3,
         justify: Justify.Center,
-        anchor: [0.5, 0.5],
         color: 0xffffff,
     });
     world.step(1 / 60);

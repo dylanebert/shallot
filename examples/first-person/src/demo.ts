@@ -26,6 +26,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { internText, Justify, Text, TextPlugin } from "@dylanebert/shallot/extras";
+import { Anchor } from "@dylanebert/shallot/rendering";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 type Vec3 = readonly [number, number, number];
@@ -119,11 +120,11 @@ export function route(world: World) {
         translation: [0, 0.505, 7.5],
         rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2],
     });
+    world.add(controls, Anchor, { offset: Anchor.CENTER });
     world.add(controls, Text, {
         content: internText(world, "WASD  Move\nSPACE  Jump\nMOUSE  Look"),
         fontSize: 0.5,
         maxWidth: 5,
-        anchor: [0.5, 0.5],
         justify: Justify.Center,
         color: 0xeee9df,
     });

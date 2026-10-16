@@ -1,4 +1,5 @@
 import {
+    Anchor,
     Body,
     BodyType,
     Camera,
@@ -71,10 +72,10 @@ function makeScene(world: World): void {
     });
     const label = world.create();
     world.add(label, Transform, { translation: [0, 1, 0] });
+    world.add(label, Anchor, { offset: Anchor.BOTTOM_CENTER });
     world.add(label, Text, {
         content: internText(world, "Click for a coin"),
         fontSize: 0.18,
-        anchor: [0.5, 0],
         billboard: Billboard.Screen,
         color: 0xeee9df,
     });

@@ -61,7 +61,6 @@ export default async function create() {
         content: internText(world, "isolation"),
         font,
         fontSize: 0.22,
-        anchor: [0, 0],
         color: 0xffffff,
     });
 

@@ -4,12 +4,16 @@ import { plugin } from "bun";
 
 plugin(shallot({ root: import.meta.dir }));
 const { createApp } = await import("@dylanebert/shallot");
-const { attachTexture, captureTexture, Camera } = await import("@dylanebert/shallot/rendering");
+const { attachTexture, captureTexture, Camera, Anchor } = await import(
+    "@dylanebert/shallot/rendering"
+);
 const { Transform } = await import("@dylanebert/shallot/transform");
 const { CameraBackground, StandardRenderer } = await import(
     "@dylanebert/shallot/standard/rendering"
 );
-const { Sky, SkyPlugin, skyBackgroundHandle } = await import("@dylanebert/shallot/extras");
+const { Sprite, SpritePlugin, Sky, SkyPlugin, skyBackgroundHandle } = await import(
+    "@dylanebert/shallot/extras"
+);
 const { setupGlobals } = await import("@dylanebert/shallot/webgpu");
 const { Gallery, GalleryPlugin } = await import("../examples/materials/src/gallery");
 const { Clock, CyclePlugin, CycleScene } = await import("../examples/day-night-cycle/src/cycle");
@@ -17,15 +21,30 @@ await setupGlobals();
 const directory = process.argv[2];
 if (!directory) throw new Error("Usage: bun scripts/frame.oracle.ts <directory> [prior-directory]");
 mkdirSync(directory, { recursive: true });
-for (const subject of ["day-night", "sky", "materials"]) {
+for (const subject of ["day-night", "sky", "materials", "sprite"]) {
     const plugins =
-        subject === "day-night" ? [CyclePlugin] : subject === "sky" ? [SkyPlugin] : [GalleryPlugin];
+        subject === "day-night"
+            ? [CyclePlugin]
+            : subject === "sky"
+              ? [SkyPlugin]
+              : subject === "sprite"
+                ? [SpritePlugin]
+                : [GalleryPlugin];
     const app = await createApp({ plugins });
     const { world } = app;
     console.log(world.gpu.adapter);
     try {
         let camera: number;
-        if (subject === "sky") {
+        if (subject === "sprite") {
+            camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5] });
+            world.add(camera, Camera);
+            world.add(camera, StandardRenderer);
+            const sprite = world.create();
+            world.add(sprite, Transform);
+            world.add(sprite, Anchor, { offset: [-0.25, 0.25] });
+            world.add(sprite, Sprite, { size: [2, 1] });
+        } else if (subject === "sky") {
             camera = world.create();
             world.add(camera, Transform);
             world.add(camera, Camera);

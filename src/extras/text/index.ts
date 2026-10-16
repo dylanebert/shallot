@@ -5,6 +5,7 @@ import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Meshes, type MeshHandle, MeshPlugin } from "../../core/mesh";
 import {
+    Anchor,
     BeginFrameSystem,
     Billboard,
     Camera,
@@ -18,7 +19,7 @@ import {
     type Xform,
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
-import { f32, type Plugin, Registry, type System, u32, vec2, type World } from "../../engine";
+import { f32, type Plugin, Registry, type System, u32, type World } from "../../engine";
 import { packColor } from "../../engine/utils";
 import {
     createGlyphAtlas,
@@ -72,7 +73,8 @@ export function internText(world: World, content: string): number {
 /**
  * a world-space text label anchored to an entity's {@link Transform}. Register the string with
  * {@link internText} and, optionally, a face with {@link registerFont}; the glyphs lay out once and ride the entity's
- * transform, so moving a label triggers no rebuild. Remove Text to hide it; add it again to show it.
+ * transform, so moving a label triggers no rebuild. The block's bottom-left corner is at the
+ * Transform unless the entity has an Anchor. Remove Text to hide it; add it again to show it.
  */
 export const Text = component(
     "Text",
@@ -91,8 +93,6 @@ export const Text = component(
         justify: u32,
         /** 0..1 opacity multiplier */
         opacity: f32,
-        /** 0..1 pivot within the whole text block; 0 0 = bottom-left, 0.5 0.5 centered */
-        anchor: vec2,
         /** hex sRGB glyph color */
         color: f32,
     },
@@ -105,7 +105,6 @@ export const Text = component(
             maxWidth: Infinity,
             justify: Justify.Left,
             opacity: 1,
-            anchor: [0, 0],
             color: 0xffffff,
         }),
     },
@@ -230,8 +229,10 @@ function signature(world: World): number {
         h = fold(h, fbits(text.fontSize.get(eid), scratch));
         h = fold(h, fbits(text.maxWidth.get(eid), scratch));
         h = fold(h, text.justify.get(eid));
-        h = fold(h, fbits(text.anchor.x.get(eid), scratch));
-        h = fold(h, fbits(text.anchor.y.get(eid), scratch));
+        const anchor = world.storage(Anchor).offset;
+        h = fold(h, Number(world.has(eid, Anchor)));
+        h = fold(h, fbits(world.has(eid, Anchor) ? anchor.x.get(eid) + 0.5 : 0, scratch));
+        h = fold(h, fbits(world.has(eid, Anchor) ? anchor.y.get(eid) + 0.5 : 0, scratch));
         h = fold(h, text.color.get(eid));
         h = fold(h, fbits(text.opacity.get(eid), scratch));
     }
@@ -274,8 +275,9 @@ function rebuild(world: World, device: GPUDevice): void {
             world.storage(Text).maxWidth.get(eid),
             world.storage(Text).justify.get(eid),
         );
-        const ox = -layout.width * world.storage(Text).anchor.x.get(eid);
-        const oy = -layout.height * world.storage(Text).anchor.y.get(eid);
+        const anchor = world.storage(Anchor).offset;
+        const ox = -layout.width * (world.has(eid, Anchor) ? anchor.x.get(eid) + 0.5 : 0);
+        const oy = -layout.height * (world.has(eid, Anchor) ? anchor.y.get(eid) + 0.5 : 0);
         const color = packColor(
             world.storage(Text).color.get(eid),
             world.storage(Text).opacity.get(eid),

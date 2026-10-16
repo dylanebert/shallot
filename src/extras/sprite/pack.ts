@@ -21,7 +21,7 @@ export const SpriteFill = {
     Horizontal: 3,
 } as const;
 
-/** A textured world-space quad anchored to an entity's Transform. Remove Sprite to hide it; add it again to show it. */
+/** A textured world-space quad centred on its Transform unless it has an Anchor. Remove Sprite to hide it; add it again to show it. */
 export const Sprite = component(
     "Sprite",
     {
@@ -29,8 +29,6 @@ export const Sprite = component(
         image: u32,
         /** quad size in world units, before the transform's scale */
         size: vec2,
-        /** 0..1 pivot within the quad; 0.5 0.5 centers, 0.5 0 pins the bottom edge to the entity */
-        anchor: vec2,
         /** hex sRGB tint multiplied into the texture */
         color: f32,
         /** texture-alpha multiplier; it shrinks the mask or fades the blended sprite */
@@ -48,7 +46,6 @@ export const Sprite = component(
         defaults: () => ({
             image: 0,
             size: [1, 1],
-            anchor: [0.5, 0.5],
             color: 0xffffff,
             opacity: 1,
             billboard: Billboard.Screen,

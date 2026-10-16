@@ -31,7 +31,6 @@ test("a large anchored world Sprite stays in the camera draw when its quad reach
     world.add(sprite, Transform, { translation: [4, 0, 0, 0] });
     world.add(sprite, Sprite, {
         size: [10, 10],
-        anchor: [0.5, 0.5],
         billboard: Billboard.World,
     });
 

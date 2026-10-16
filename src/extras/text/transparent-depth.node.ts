@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
-import { attachTexture, Billboard, Camera, captureTexture } from "../../core/rendering";
+import { Anchor, attachTexture, Billboard, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { lookAtRotation } from "../../engine";
 import {
@@ -45,14 +45,14 @@ for (const pose of [
         mode: Billboard.Screen,
         eye: [0, -2, 5],
         label: [0, -0.02 / Math.sqrt(29), 0.05 / Math.sqrt(29)],
-        anchor: [0.5, 0],
+        anchor: Anchor.BOTTOM_CENTER,
     },
     {
         name: "YLocked from a side-on camera",
         mode: Billboard.YLocked,
         eye: [-5, 0, 0],
         label: [-0.01, 0, 0],
-        anchor: [0, 0],
+        anchor: Anchor.BOTTOM_LEFT,
     },
 ] as const)
     test(`a ${pose.name} label in front of a blended plane stays visible`, async () => {
@@ -80,11 +80,11 @@ for (const pose of [
         world.add(label, Transform, {
             translation: pose.label,
         });
+        world.add(label, Anchor, { offset: pose.anchor });
         world.add(label, Text, {
             content: internText(world, "i"),
             font,
             fontSize: 1,
-            anchor: pose.anchor,
             color: 0x000000,
             billboard: pose.mode,
         });
@@ -117,7 +117,6 @@ test("Text and Line are both visible alone and occluded by an opaque mesh", asyn
         content: internText(world, "isolation"),
         font,
         fontSize: 0.5,
-        anchor: [0, 0],
     });
     world.storage(Transform).translation.x.set(cube, -10);
     const textVisible = await frame(world, camera);

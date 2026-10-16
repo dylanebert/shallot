@@ -15,6 +15,7 @@ import {
     PrepareGlobalTransformSystem,
     TransformPlugin,
 } from "../transform";
+import { Anchor } from "./anchor";
 
 import {
     Camera,
@@ -492,6 +493,7 @@ export const RenderingPlugin: Plugin = {
     ],
     recovery: recoverGlobalTransformHistory,
     components: [
+        Anchor,
         Camera,
         Exposure,
         Resolution,

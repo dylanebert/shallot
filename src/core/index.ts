@@ -44,6 +44,7 @@ export {
 export * from "./physics";
 export {
     AmbientLight,
+    Anchor,
     Camera,
     CameraMode,
     ColorGrading,

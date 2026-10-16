@@ -1,3 +1,4 @@
+export { Anchor } from "./anchor";
 export { Billboard, billboardCorner } from "./billboard";
 export {
     GlobalTransformHistory,

@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import {
+    Anchor,
     attachTexture,
     Billboard,
     Camera,
@@ -46,11 +47,11 @@ test("an edge-on label covers pixels in Screen mode and none in World mode", asy
     const baseline = await frame();
     const label = world.create();
     world.add(label, Transform);
+    world.add(label, Anchor, { offset: Anchor.CENTER });
     world.add(label, Text, {
         content: internText(world, "i"),
         font,
         fontSize: 2,
-        anchor: [0.5, 0.5],
     });
     const coverage = (rgba: Uint8ClampedArray) => {
         let pixels = 0;

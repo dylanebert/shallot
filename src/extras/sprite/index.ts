@@ -1,6 +1,6 @@
 import * as d from "typegpu/data";
 import { Meshes, type MeshHandle, MeshInstance, MeshPlugin } from "../../core/mesh";
-import { BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
+import { Anchor, BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import { ClearChangeMarksSystem, type Plugin, type System, type World } from "../../engine";
 import { packColor } from "../../engine/utils";
@@ -105,8 +105,9 @@ const SpriteSystem: System = {
             const image = sprite.image.get(eid);
             const width = sprite.size.x.get(eid);
             const height = sprite.size.y.get(eid);
-            const anchorX = sprite.anchor.x.get(eid);
-            const anchorY = sprite.anchor.y.get(eid);
+            const anchor = world.storage(Anchor).offset;
+            const anchorX = world.has(eid, Anchor) ? anchor.x.get(eid) + 0.5 : 0.5;
+            const anchorY = world.has(eid, Anchor) ? anchor.y.get(eid) + 0.5 : 0.5;
             const color = sprite.color.get(eid);
             const opacity = sprite.opacity.get(eid);
             const billboard = Math.min(sprite.billboard.get(eid), 2);

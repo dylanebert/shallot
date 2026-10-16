@@ -21,7 +21,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { Billboard } from "@dylanebert/shallot/rendering";
+import { Anchor, Billboard } from "@dylanebert/shallot/rendering";
 import { Action, InteractionInput, InteractPlugin, Usable } from "./interact";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
@@ -146,10 +146,10 @@ function room(world: World): void {
         world.add(label, Transform, {
             translation: [world.storage(Transform).translation.x.get(target), 2.1, -1],
         });
+        world.add(label, Anchor, { offset: Anchor.BOTTOM_CENTER });
         world.add(label, Text, {
             content: internText(world, name),
             fontSize: 0.2,
-            anchor: [0.5, 0],
             billboard: Billboard.Screen,
             color: 0xeee9df,
         });

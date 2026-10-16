@@ -26,7 +26,7 @@ import {
     Text,
     TextPlugin,
 } from "@dylanebert/shallot/extras";
-import { Billboard } from "@dylanebert/shallot/rendering";
+import { Anchor, Billboard } from "@dylanebert/shallot/rendering";
 import {
     BackgroundContext,
     backgroundLayout,
@@ -142,6 +142,7 @@ function surfaces(world: World) {
         const label = world.create();
         gallery.names.push(label);
         world.add(label, Transform, { translation: [x, 2.15, 0] });
+        world.add(label, Anchor, { offset: Anchor.BOTTOM_CENTER });
         world.add(label, Text, {
             content: internText(
                 world,
@@ -156,7 +157,6 @@ function surfaces(world: World) {
             fontSize: 0.17,
             maxWidth: 1.1,
             justify: Justify.Center,
-            anchor: [0.5, 0],
             color: 0xeee9df,
         });
         const plinth = world.create();

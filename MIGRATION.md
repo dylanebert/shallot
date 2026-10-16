@@ -2,6 +2,10 @@
 
 These changes require updates to a 0.9.5 app.
 
+## Sprite and text pivots
+
+`Sprite.anchor` and `Text.anchor` are replaced by `Anchor` from the root or `/rendering`. Add it to the same entity with `{ offset: [p[0] - 0.5, p[1] - 0.5] }` for an old 0..1 pivot `p`. `Anchor` provides `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT`, `CENTER_LEFT`, `CENTER`, `CENTER_RIGHT`, `TOP_LEFT`, `TOP_CENTER` and `TOP_RIGHT` offsets. For example, use `{ offset: Anchor.BOTTOM_CENTER }` for the old `[0.5, 0]`. Without `Anchor`, sprites remain centred and text remains bottom-left anchored; adding `Anchor` without values centres either.
+
 ## Hiding sprites, labels and lines
 
 `Sprite.visible`, `Text.visible` and `Line.visible` are removed. Remove the drawing component to hide it; add it again with its authored values to show it. Keep any values needed for re-adding outside the removed component: its fields are valid only while the entity holds it.

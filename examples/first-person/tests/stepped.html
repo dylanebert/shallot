@@ -14,7 +14,6 @@ window.controlsInk=async()=>{
  const before=(await captureTexture(world,route.eye)).rgba;
  const text=world.storage(Text), eid=route.controls;
  const values=Object.fromEntries(['content','font','billboard','fontSize','maxWidth','justify','opacity','color'].map(key=>[key,text[key].get(eid)]));
- values.anchor=[text.anchor.x.get(eid),text.anchor.y.get(eid)];
  world.remove(eid,Text);
  world.step(0);
  const hidden=(await captureTexture(world,route.eye)).rgba;
