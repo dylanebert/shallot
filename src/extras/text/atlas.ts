@@ -186,7 +186,46 @@ export interface LayoutResult {
     height: number;
 }
 
-export function layoutText(text: string, atlas: GlyphAtlas, fontSize: number): LayoutResult {
+export function layoutText(
+    text: string,
+    atlas: GlyphAtlas,
+    fontSize: number,
+    maxWidth = Infinity,
+    justify = 0,
+): LayoutResult {
+    if (!Number.isFinite(maxWidth) && !text.includes("\n"))
+        return layoutLine(text, atlas, fontSize);
+    const lines: LayoutResult[] = [];
+    for (const paragraph of text.split("\n")) {
+        let line = "";
+        for (const part of paragraph.match(/[^\S\n]*\S+|[^\S\n]+$/gu) ?? []) {
+            const candidate = line + part;
+            if (line && layoutLine(candidate, atlas, fontSize).width > maxWidth) {
+                lines.push(layoutLine(line, atlas, fontSize));
+                line = part.trimStart();
+            } else line = candidate;
+        }
+        lines.push(layoutLine(line, atlas, fontSize));
+    }
+    const width = Math.max(
+        Number.isFinite(maxWidth) ? maxWidth : 0,
+        ...lines.map((line) => line.width),
+    );
+    const advance = (atlas.font.lineHeight / atlas.font.unitsPerEm) * fontSize;
+    const glyphs: LayoutGlyph[] = [];
+    for (const [i, line] of lines.entries()) {
+        const x = (width - line.width) * (justify === 1 ? 0.5 : justify === 2 ? 1 : 0);
+        const y = (lines.length - 1 - i) * advance;
+        for (const glyph of line.glyphs) glyphs.push({ ...glyph, x: glyph.x + x, y: glyph.y + y });
+    }
+    return {
+        glyphs,
+        width,
+        height: Math.max(...lines.map((line) => line.height)) + (lines.length - 1) * advance,
+    };
+}
+
+function layoutLine(text: string, atlas: GlyphAtlas, fontSize: number): LayoutResult {
     const glyphs: LayoutGlyph[] = [];
     const scale = fontSize;
 

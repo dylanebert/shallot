@@ -75,11 +75,15 @@ export const Text = component(
         billboard: u32,
         /** world height of one em */
         fontSize: f32,
+        /** Maximum line width in world units; Infinity (default) is unbounded. Wraps at spaces, never splits a word; \n starts a new line. */
+        maxWidth: f32,
+        /** Line alignment within the block width: 0 left (default), 1 centre, 2 right. */
+        justify: u32,
         /** 0..1 opacity multiplier */
         opacity: f32,
         /** drawn when nonzero */
         visible: f32,
-        /** 0..1 pivot within the label; 0 0 = bottom-left, 0.5 0.5 centered */
+        /** 0..1 pivot within the whole text block; 0 0 = bottom-left, 0.5 0.5 centered */
         anchor: vec2,
         /** hex sRGB glyph color */
         color: f32,
@@ -90,6 +94,8 @@ export const Text = component(
             font: 0,
             billboard: Billboard.World,
             fontSize: 1,
+            maxWidth: Infinity,
+            justify: 0,
             opacity: 1,
             visible: 1,
             anchor: [0, 0],
@@ -216,6 +222,8 @@ function signature(world: World): number {
         h = fold(h, text.font.get(eid));
         h = fold(h, text.billboard.get(eid));
         h = fold(h, fbits(text.fontSize.get(eid), scratch));
+        h = fold(h, fbits(text.maxWidth.get(eid), scratch));
+        h = fold(h, text.justify.get(eid));
         h = fold(h, fbits(text.anchor.x.get(eid), scratch));
         h = fold(h, fbits(text.anchor.y.get(eid), scratch));
         h = fold(h, text.color.get(eid));
@@ -254,7 +262,13 @@ function rebuild(world: World, device: GPUDevice): void {
         const atlas = _textState.atlases[fontId];
         if (!atlas) continue;
         ensureString(world, atlas, content);
-        const layout = layoutText(content, atlas, world.storage(Text).fontSize.get(eid));
+        const layout = layoutText(
+            content,
+            atlas,
+            world.storage(Text).fontSize.get(eid),
+            world.storage(Text).maxWidth.get(eid),
+            world.storage(Text).justify.get(eid),
+        );
         const ox = -layout.width * world.storage(Text).anchor.x.get(eid);
         const oy = -layout.height * world.storage(Text).anchor.y.get(eid);
         const color = packColor(

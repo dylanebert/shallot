@@ -4,6 +4,8 @@ export const DEFAULT_FONT = new URL("./Inter-Regular.ttf", import.meta.url).href
 
 export interface Font {
     unitsPerEm: number;
+    /** Baseline distance in font units: hhea ascent minus descent plus line gap. */
+    lineHeight: number;
     glyphPath(char: string): string | null;
     glyphBounds(char: string): [number, number, number, number] | null;
     advance(char: string): number;
@@ -533,6 +535,8 @@ export function parseFont(buffer: ArrayBuffer): Font {
     }
 
     const head = parseHead(r, headTable);
+    seek(r, hheaTable.offset + 4);
+    const lineHeight = i16(r) - i16(r) + i16(r);
     const numHMetrics = parseHheaMetricCount(r, hheaTable);
     const numGlyphs = parseMaxp(r, maxpTable);
     const hmtx = parseHmtx(r, hmtxTable, numHMetrics, numGlyphs);
@@ -561,6 +565,7 @@ export function parseFont(buffer: ArrayBuffer): Font {
 
     return {
         unitsPerEm: head.unitsPerEm,
+        lineHeight,
 
         glyphPath(char: string): string | null {
             const glyph = getGlyph(getGlyphId(char));

@@ -10,6 +10,7 @@ test("the bundled default Inter font loads as regular text", async () => {
     expect(font.advance("A")).toBeGreaterThan(0);
     expect(font.advance("Ж")).toBeGreaterThan(0);
     expect(font.advance("Ω")).toBeGreaterThan(0);
+    expect(font.lineHeight).toBeGreaterThan(font.unitsPerEm);
 });
 
 test("TextPlugin initialization refuses a failed font load with its cause", async () => {
@@ -61,6 +62,7 @@ test("TextPlugin initialization refuses a failed font load with its cause", asyn
 test("the generated isolation font has a nonempty rectangle glyph for every letter the GPU sweep renders", () => {
     const bytes = isolationFont();
     const font = parseFont(bytes);
+    expect(font.lineHeight).toBe(1000);
     for (const char of "isolation") {
         expect(font.glyphPath(char)).toContain("L");
         expect(font.glyphBounds(char)).toEqual([0, 0, 600, 800]);
