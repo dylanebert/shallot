@@ -12,7 +12,7 @@ import {
     Transform,
     TransformPlugin,
 } from "@dylanebert/shallot";
-import { Action, Game, InteractionInput, InteractPlugin, Usable } from "./interact";
+import { Action, createCrate, Game, InteractionInput, InteractPlugin, Usable } from "./interact";
 import { Player } from "./player";
 import { newGame, populate } from "./room";
 import {
@@ -102,6 +102,60 @@ test("E on a crate carries it and E again sets it down", async () => {
     expect(w.has(target, Body)).toBe(true);
     expect(w.storage(Transform).translation.y.get(target)).toBeCloseTo(0.35);
 });
+
+for (const [look, pitch] of [
+    ["level", 0],
+    ["up", 0.65],
+    ["down", -0.65],
+] as const) {
+    test(`the view-centre aim ray misses the carried crate's box when looking ${look}`, async () => {
+        const { w, camera, player } = await scene();
+        const crate = createCrate(w);
+        w.remove(crate, Shape);
+        w.remove(crate, Body);
+        w.storage(Wallet).carried.set(player, crate);
+        const t = w.storage(Transform);
+        t.rotation.set(camera, Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2));
+        w.step(0);
+
+        const q = t.rotation.read(crate, new Float32Array(4));
+        const centre = t.translation.read(crate, new Float32Array(4));
+        const eye = t.translation.read(camera, new Float32Array(4));
+        const scale = t.scale.read(crate, new Float32Array(4));
+        // Inverse crate rotation puts the ray in its box's local axes.
+        const local = (v: number[]) => {
+            const [x, y, z, s] = [-q[0], -q[1], -q[2], q[3]];
+            const cross = [y * v[2] - z * v[1], z * v[0] - x * v[2], x * v[1] - y * v[0]];
+            return [
+                v[0] + 2 * (s * cross[0] + y * cross[2] - z * cross[1]),
+                v[1] + 2 * (s * cross[1] + z * cross[0] - x * cross[2]),
+                v[2] + 2 * (s * cross[2] + x * cross[1] - y * cross[0]),
+            ];
+        };
+        const origin = local([eye[0] - centre[0], eye[1] - centre[1], eye[2] - centre[2]]);
+        const direction = local([0, Math.sin(pitch), -Math.cos(pitch)]);
+        let near = 0;
+        let far = Number.POSITIVE_INFINITY;
+        for (let axis = 0; axis < 3; axis++) {
+            // Include the boundary despite f32 pose rounding: grazing still obscures aim.
+            const half = scale[axis] / 2 + 1e-6;
+            if (Math.abs(direction[axis]) < 1e-8) {
+                if (Math.abs(origin[axis]) > half) far = -1;
+            } else {
+                const a = (-half - origin[axis]) / direction[axis];
+                const b = (half - origin[axis]) / direction[axis];
+                near = Math.max(near, Math.min(a, b));
+                far = Math.min(far, Math.max(a, b));
+            }
+        }
+        expect(near <= far).toBe(false);
+        expect([...scale.slice(0, 3)]).toEqual([
+            Math.fround(0.7),
+            Math.fround(0.7),
+            Math.fround(0.7),
+        ]);
+    });
+}
 
 test("save loaded into an offset fresh World preserves every field and remaps the carried crate", async () => {
     const { w } = await scene();

@@ -170,11 +170,12 @@ const ShowInteraction: System = {
                 z = q.z.get(game.camera),
                 w = q.w.get(game.camera);
             const p = t.translation;
+            // Lower along the view's up axis so pitching never lifts the crate across aim.
             p.set(
                 carried,
-                p.x.get(game.camera) - 2 * (x * z + w * y) * 1.2,
-                p.y.get(game.camera) + 2 * (w * x - y * z) * 1.2 - 0.35,
-                p.z.get(game.camera) - (1 - 2 * (x * x + y * y)) * 1.2,
+                p.x.get(game.camera) - 2 * (x * z + w * y) * 1.2 - 2 * (x * y - w * z) * 0.65,
+                p.y.get(game.camera) + 2 * (w * x - y * z) * 1.2 - (1 - 2 * (x * x + z * z)) * 0.65,
+                p.z.get(game.camera) - (1 - 2 * (x * x + y * y)) * 1.2 - 2 * (y * z + w * x) * 0.65,
             );
             const s = Math.sin(0.15),
                 c = Math.cos(0.15);
