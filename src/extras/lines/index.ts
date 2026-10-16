@@ -15,7 +15,7 @@ import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
 import { f32, vec3 } from "../../engine";
 import { packColor } from "../../engine/utils";
-import { createLinePipeline, lineLayout, viewLayout } from "./pipeline";
+import { createLinePipeline, lineLayout, SEGMENT_FLOATS, viewLayout } from "./pipeline";
 import {
     disposeSegments,
     flushSegments,
@@ -62,7 +62,7 @@ export const Line = component(
 );
 
 /**
- * an arrowhead on a {@link Line}: four world-space fins at the line's endpoints.
+ * A filled world-space triangle at a {@link Line}'s endpoint, perpendicular to `normal`.
  * Requires a {@link Line} on the same entity
  */
 export const Arrow = component(
@@ -72,11 +72,13 @@ export const Arrow = component(
         start: f32,
         /** a head at the end endpoint when nonzero */
         end: f32,
-        /** head size relative to the shaft length */
-        size: f32,
+        /** Head length in world units; negative chooses a tenth of the shaft, zero omits the head. */
+        tipLength: f32,
+        /** World-space plane normal; nonzero and perpendicular to the shaft. */
+        normal: vec3,
     },
     {
-        defaults: () => ({ start: 0, end: 1, size: 1 }),
+        defaults: () => ({ start: 0, end: 1, tipLength: -1, normal: [0, 1, 0] }),
     },
 );
 
@@ -104,11 +106,31 @@ function expandRetained(world: World): void {
         let segment = 0;
         push(world, sx, sy, sz, ex, ey, ez, w, c, eid, segment++);
         if (world.has(eid, Arrow)) {
-            const size = world.storage(Arrow).size.get(eid);
+            const arrows = world.storage(Arrow);
+            const tipLength = arrows.tipLength.get(eid);
+            const nx = arrows.normal.x.get(eid);
+            const ny = arrows.normal.y.get(eid);
+            const nz = arrows.normal.z.get(eid);
             if (world.storage(Arrow).end.get(eid))
-                segment += head(world, ex, ey, ez, sx, sy, sz, size, w, c, eid, segment);
+                segment += head(
+                    world,
+                    ex,
+                    ey,
+                    ez,
+                    sx,
+                    sy,
+                    sz,
+                    tipLength,
+                    w,
+                    c,
+                    eid,
+                    segment,
+                    nx,
+                    ny,
+                    nz,
+                );
             if (world.storage(Arrow).start.get(eid))
-                head(world, sx, sy, sz, ex, ey, ez, size, w, c, eid, segment);
+                head(world, sx, sy, sz, ex, ey, ez, tipLength, w, c, eid, segment, nx, ny, nz);
         }
     }
 }
@@ -144,7 +166,7 @@ function queueLines(world: World, _eid: number, _view: View, phase: TransparentP
     const stableParts = lineStableParts(world);
     const position = phase.positionScratch;
     for (let i = 0; i < count; i++) {
-        const at = i * 8;
+        const at = i * SEGMENT_FLOATS;
         position[0] = (values[at]! + values[at + 4]!) * 0.5;
         position[1] = (values[at + 1]! + values[at + 5]!) * 0.5;
         position[2] = (values[at + 2]! + values[at + 6]!) * 0.5;

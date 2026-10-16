@@ -10,6 +10,12 @@ These changes require updates to a 0.9.5 app.
 
 `Sprite.visible`, `Text.visible` and `Line.visible` are removed. Remove the drawing component to hide it; add it again with its authored values to show it. Keep any values needed for re-adding outside the removed component: its fields are valid only while the entity holds it.
 
+## Arrowhead planes and lengths
+
+`Arrow` and `drawArrow` replace the four fins with one filled world-space triangle. `Arrow.normal` and the final `drawArrow` argument choose its plane normal, defaulting to `[0, 1, 0]`. The normal must be nonzero and perpendicular to the world-space shaft; otherwise drawing throws. For a vertical shaft, pass a horizontal normal such as `[0, 0, 1]`.
+
+Replace `Arrow.size` with `Arrow.tipLength`, and pass a world-unit head length as the sixth `drawArrow` argument instead of a relative size. Omitting it chooses a tenth of the shaft length (`Arrow.tipLength` defaults to `-1`); negative values select that default and zero omits the head.
+
 ## Font and image identity
 
 Remove the name argument from font and image registration: repeated URLs return the same id, different URLs return different ids, and each Blob registration returns a new id distinct from every URL. `Text.font` 0 always selects the bundled default face, even when other fonts are registered.

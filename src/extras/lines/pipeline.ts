@@ -4,10 +4,23 @@ import * as std from "typegpu/std";
 import { DEPTH_FORMAT, ViewUniforms } from "../../core/rendering";
 import { unpackLdrColor } from "../../engine/utils";
 
-/** one debug segment: two world endpoints, pixel width and packed sRGBA color. */
+/** A pixel-width shaft, or one world-space triangle with vertices a, b and c. */
 export const Segment = d
-    .struct({ a: d.vec3f, width: d.f32, b: d.vec3f, color: d.u32 })
+    .struct({ a: d.vec3f, width: d.f32, b: d.vec3f, color: d.u32, c: d.vec3f, triangle: d.u32 })
     .$name("Segment");
+
+export const SEGMENT_BYTES = d.sizeOf(Segment);
+export const SEGMENT_FLOATS = SEGMENT_BYTES / 4;
+
+export const triangleVertex = tgpu.fn(
+    [d.vec3f, d.vec3f, d.vec3f, d.u32],
+    d.vec3f,
+)((a, b, c, index) => {
+    "use gpu";
+    if (index === 1) return d.vec3f(b);
+    if (index === 2) return d.vec3f(c);
+    return d.vec3f(a);
+});
 
 const viewLayout = tgpu
     .bindGroupLayout({ view: { uniform: ViewUniforms, visibility: ["vertex"] } })
@@ -37,6 +50,14 @@ const LineVertex = tgpu.vertexFn({
         edge = d.f32(-1);
     }
     const view = viewLayout.$.view;
+    if (seg.triangle !== 0) {
+        const point = triangleVertex(seg.a, seg.b, seg.c, index);
+        return {
+            position: std.mul(view.viewProj, d.vec4f(point, 1)),
+            rgba: unpackLdrColor(seg.color),
+            edge: d.vec2f(0, 1),
+        };
+    }
     const quad = lineQuad(
         std.mul(view.viewProj, d.vec4f(seg.a, 1)),
         std.mul(view.viewProj, d.vec4f(seg.b, 1)),

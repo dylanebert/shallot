@@ -2,11 +2,8 @@ import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
 import { packColor } from "../../engine/utils";
-import { Segment } from "./pipeline";
+import { SEGMENT_BYTES, SEGMENT_FLOATS, Segment } from "./pipeline";
 
-// Derive staging stride from the shader schema so CPU and GPU layouts cannot drift.
-const SEGMENT_BYTES = d.sizeOf(Segment);
-const SEGMENT_FLOATS = SEGMENT_BYTES / 4;
 // initial segment capacity; the CPU staging + GPU buffer double on demand for large wireframe workloads
 const INITIAL = 1 << 14;
 
@@ -101,13 +98,13 @@ export function push(
     state.f32[o + 5] = by;
     state.f32[o + 6] = bz;
     state.u32[o + 7] = color;
+    state.u32[o + 11] = 0;
     state.stableIds[index] = stableId;
     state.stableParts[index] = stablePart ?? index;
     state.count++;
 }
 
-// four world-space fins from the tip back along the shaft. perpendicular basis off an up reference that
-// flips near-vertical shafts; fins go back `0.2 * shaftLen * size` and out half that along ±e1/±e2
+// Stage the whole triangle once: every view receives the same world-space head.
 export function head(
     world: World,
     tx: number,
@@ -116,11 +113,14 @@ export function head(
     fromX: number,
     fromY: number,
     fromZ: number,
-    size: number,
+    tipLength: number,
     width: number,
     color: number,
     stableId = 0,
     firstPart?: number,
+    nx = 0,
+    ny = 1,
+    nz = 0,
 ): number {
     let dx = tx - fromX;
     let dy = ty - fromY;
@@ -130,77 +130,41 @@ export function head(
     dx /= len;
     dy /= len;
     dz /= len;
-    const ux = Math.abs(dy) < 0.99 ? 0 : 1;
-    const uy = Math.abs(dy) < 0.99 ? 1 : 0;
-    let e1x = dy * 0 - dz * uy;
-    let e1y = dz * ux - dx * 0;
-    let e1z = dx * uy - dy * ux;
-    const e1l = Math.hypot(e1x, e1y, e1z);
-    e1x /= e1l;
-    e1y /= e1l;
-    e1z /= e1l;
-    const e2x = dy * e1z - dz * e1y;
-    const e2y = dz * e1x - dx * e1z;
-    const e2z = dx * e1y - dy * e1x;
-    const back = 0.2 * len * size;
-    const out = back * 0.5;
-    const bx = tx - dx * back;
-    const by = ty - dy * back;
-    const bz = tz - dz * back;
-    let part = firstPart ?? segmentState(world).count;
+    const back = tipLength < 0 ? len / 10 : tipLength;
+    if (back <= 0) return 0;
+    const normalLength = Math.hypot(nx, ny, nz);
+    if (
+        !Number.isFinite(normalLength) ||
+        normalLength === 0 ||
+        Math.abs(dx * nx + dy * ny + dz * nz) > normalLength * 1e-5
+    )
+        throw new RangeError(
+            "Arrow normal must be nonzero and perpendicular to its world-space shaft",
+        );
+    const halfWidth = back * 0.5;
+    const sx = ((ny * dz - nz * dy) / normalLength) * halfWidth;
+    const sy = ((nz * dx - nx * dz) / normalLength) * halfWidth;
+    const sz = ((nx * dy - ny * dx) / normalLength) * halfWidth;
     push(
         world,
         tx,
         ty,
         tz,
-        bx + e1x * out,
-        by + e1y * out,
-        bz + e1z * out,
+        tx - dx * back + sx,
+        ty - dy * back + sy,
+        tz - dz * back + sz,
         width,
         color,
         stableId,
-        part++,
+        firstPart,
     );
-    push(
-        world,
-        tx,
-        ty,
-        tz,
-        bx - e1x * out,
-        by - e1y * out,
-        bz - e1z * out,
-        width,
-        color,
-        stableId,
-        part++,
-    );
-    push(
-        world,
-        tx,
-        ty,
-        tz,
-        bx + e2x * out,
-        by + e2y * out,
-        bz + e2z * out,
-        width,
-        color,
-        stableId,
-        part++,
-    );
-    push(
-        world,
-        tx,
-        ty,
-        tz,
-        bx - e2x * out,
-        by - e2y * out,
-        bz - e2z * out,
-        width,
-        color,
-        stableId,
-        part++,
-    );
-    return 4;
+    const state = segmentState(world);
+    const o = (state.count - 1) * SEGMENT_FLOATS;
+    state.f32[o + 8] = tx - dx * back - sx;
+    state.f32[o + 9] = ty - dy * back - sy;
+    state.f32[o + 10] = tz - dz * back - sz;
+    state.u32[o + 11] = 1;
+    return 1;
 }
 
 /** draw one world-space segment this frame (cleared next frame). `width` in pixels, `color` hex sRGB */
@@ -244,18 +208,37 @@ export function drawWireBox(
     push(world, x0, y0, z1, x0, y1, z1, width, c);
 }
 
-/** draw a world-space arrow (shaft + a fletched head at `b`) this frame */
+const WORLD_UP = [0, 1, 0] as const;
+
+/** Draw a shaft and one filled triangle at `b`, in its colour and plane normal to `normal` (world up by default). The normal must be nonzero and perpendicular to the world-space shaft. Shaft width is in pixels; tipLength is in world units, with a negative value choosing a tenth of the shaft length. Zero omits the head. */
 export function drawArrow(
     world: World,
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
     width = 1,
-    size = 1,
+    tipLength = -1,
+    normal: ArrayLike<number> = WORLD_UP,
 ): void {
     const c = packColor(color, 1);
     push(world, a[0], a[1], a[2], b[0], b[1], b[2], width, c);
-    head(world, b[0], b[1], b[2], a[0], a[1], a[2], size, width, c);
+    head(
+        world,
+        b[0],
+        b[1],
+        b[2],
+        a[0],
+        a[1],
+        a[2],
+        tipLength,
+        width,
+        c,
+        0,
+        undefined,
+        normal[0],
+        normal[1],
+        normal[2],
+    );
 }
 
 /** true once the GPU buffer is allocated (`warmSegments` ran with a device) */
