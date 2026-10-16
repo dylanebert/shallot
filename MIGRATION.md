@@ -718,6 +718,7 @@ These helpers use the owning World:
 
 - `Profile` data is read with `world.resource(Profile)`.
 - `cascadeComboEids()` and `pointComboEids()` take World first; `cascadeCount()` and `pointComboCount()` are removed.
+- The cameras `cascadeComboEids()` and `pointComboEids()` return carry `GlobalTransform` only, no longer `Transform`. Read their placement from `GlobalTransform`, and query them with `GlobalTransform`, not `Transform`.
 
 ## Profile no longer exposes benchmark windows
 

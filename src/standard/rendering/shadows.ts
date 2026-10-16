@@ -435,7 +435,8 @@ const _fit: LightFit = {
 const _cascRecv = new Float32Array(16);
 const _cascFolded = new Float32Array(16);
 
-/** Borrowed depth-only camera eids; the first {@link cascadeCount} entries are active. */
+/** Borrowed depth-only camera eids; the first {@link cascadeCount} entries are active. Each camera carries
+ * GlobalTransform only, written by the shadow pass, and no Transform. */
 export function cascadeComboEids(world: World): number[] {
     return shadows(world).cascadeEids;
 }
@@ -1024,7 +1025,8 @@ export function pointTileRects(world: World): Float32Array {
     return shadows(world).tileRects;
 }
 
-/** Borrowed depth-only camera eids in caster/face order; only the active combo prefix is valid. */
+/** Borrowed depth-only camera eids in caster/face order; only the active combo prefix is valid. Each camera
+ * carries GlobalTransform only, written by the shadow pass, and no Transform. */
 export function pointComboEids(world: World): number[] {
     return shadows(world).comboEids;
 }
