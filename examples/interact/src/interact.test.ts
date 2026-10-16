@@ -5,6 +5,7 @@ import {
     Content,
     createApp,
     InputPlugin,
+    lookAtRotation,
     NotShadowCaster,
     Outline,
     PointLight,
@@ -51,9 +52,9 @@ async function scene(action: number = Action.Lamp) {
     w.add(camera, Transform, { translation: [0, 1.4, -1.8] });
     w.add(camera, InteractionInput);
     const target = box(w, [0, 1.4, -3.8]);
-    const light = w.create();
-    w.add(light, PointLight, { intensity: 0 });
-    w.add(target, Usable, { action, light });
+    const light = target;
+    w.add(target, PointLight, { intensity: 0 });
+    w.add(target, Usable, { action });
     const prompt = makePrompt(w, 0, 0);
     w.resource(Content);
     w.tick();
@@ -80,7 +81,7 @@ test("in reach and in view focuses, outlines and shows the prompt", async () => 
     expect(w.has(w.storage(Prompt).ring.get(prompt), NotShadowCaster)).toBe(true);
 });
 
-test("the billboard cap, key and ring have distinct view depths and both texts share a baseline, even side-on", async () => {
+test("the prompt has four distinct view depths and progress sits below the hint, even side-on", async () => {
     const { w, camera, prompt, step } = await scene();
     const t = w.storage(Transform);
     const p = w.storage(Prompt);
@@ -99,23 +100,49 @@ test("the billboard cap, key and ring have distinct view depths and both texts s
             step();
         }
         const depth = side ? t.translation.x : t.translation.z;
-        expect(depth.get(key) - depth.get(prompt)).toBeCloseTo(0.01);
-        expect(depth.get(ring) - depth.get(prompt)).toBeCloseTo(0.02);
-        const horizontal = side ? t.translation.z : t.translation.x;
-        const capDepth = depth.get(camera) - depth.get(prompt);
-        const ringDepth = depth.get(camera) - depth.get(ring);
-        expect((horizontal.get(ring) - horizontal.get(camera)) / ringDepth).toBeCloseTo(
-            (horizontal.get(prompt) - horizontal.get(camera)) / capDepth,
-            5,
-        );
-        expect((t.translation.y.get(ring) - t.translation.y.get(camera)) / ringDepth).toBeCloseTo(
-            (t.translation.y.get(prompt) - t.translation.y.get(camera)) / capDepth,
-            5,
+        const scale = t.scale.x.get(prompt);
+        expect(depth.get(key) - depth.get(prompt)).toBeCloseTo(0.01 * scale);
+        expect(depth.get(label) - depth.get(prompt)).toBeCloseTo(0.02 * scale);
+        expect(depth.get(ring) - depth.get(prompt)).toBeCloseTo(0.03 * scale);
+        expect(t.translation.y.get(ring) + 0.14 * scale).toBeLessThan(
+            t.translation.y.get(prompt) - 0.14 * scale,
         );
         expect(t.translation.y.get(key)).toBeCloseTo(t.translation.y.get(label));
         expect(w.storage(Text).anchor.y.get(key)).toBe(0);
         expect(w.storage(Text).anchor.y.get(label)).toBe(0);
     }
+});
+
+test("prompt planes remain distinct at oblique views and near and far distances", async () => {
+    const { w, camera, target, prompt, step } = await scene();
+    const t = w.storage(Transform);
+    const p = w.storage(Prompt);
+    for (const distance of [0.8, 1.5, 2.8])
+        for (const yaw of [-2, -0.7, 0, 0.7, 2])
+            for (const pitch of [-0.6, 0, 0.6]) {
+                const dx = Math.sin(yaw) * Math.cos(pitch),
+                    dy = Math.sin(pitch),
+                    dz = Math.cos(yaw) * Math.cos(pitch);
+                const x = dx * distance,
+                    y = 1.4 + dy * distance,
+                    z = -3.8 + dz * distance;
+                t.translation.set(camera, x, y, z);
+                t.rotation.set(camera, ...lookAtRotation(x, y, z, 0, 1.4, -3.8));
+                step();
+                expect(w.storage(InteractionInput).target.get(camera)).toBe(target);
+                const parts = [prompt, p.key.get(prompt), p.label.get(prompt), p.ring.get(prompt)];
+                const depths = parts.map(
+                    (eid) =>
+                        t.translation.x.get(eid) * dx +
+                        t.translation.y.get(eid) * dy +
+                        t.translation.z.get(eid) * dz,
+                );
+                for (let i = 1; i < depths.length; i++)
+                    expect(depths[i]! - depths[i - 1]!).toBeCloseTo(
+                        0.01 * t.scale.x.get(prompt),
+                        4,
+                    );
+            }
 });
 
 test("out of reach or behind a wall neither focuses nor outlines nor shows the prompt", async () => {
@@ -201,15 +228,77 @@ test("lost focus between fixed ticks remains latched until the hold consumes it"
     expect(w.storage(InteractionInput).ticks.get(camera)).toBe(0);
 });
 
+test("a button returns out after one press instead of toggling its pose", async () => {
+    const { w, target, step } = await scene(Action.Button);
+    const z = w.storage(Transform).translation.z.get(target);
+    pressKey(w, "KeyE");
+    step();
+    expect(w.storage(Transform).translation.z.get(target)).toBeLessThan(z);
+    step(30);
+    expect(w.storage(Transform).translation.z.get(target)).toBeCloseTo(z);
+    expect(w.storage(Usable).presses.get(target)).toBe(1);
+    expect(w.storage(Usable).active.get(target)).toBe(0);
+});
+
+test("a completed hold leaves its position unchanged", async () => {
+    const { w, target, step } = await scene(Action.Hold);
+    const y = w.storage(Transform).translation.y.get(target);
+    pressKey(w, "KeyE");
+    step(60);
+    expect(w.storage(Transform).translation.y.get(target)).toBe(y);
+    expect(w.storage(Usable).active.get(target)).toBe(1);
+    releaseKey(w, "KeyE");
+    step();
+    pressKey(w, "KeyE");
+    step(60);
+    expect(w.storage(Usable).active.get(target)).toBe(0);
+    expect(w.storage(Transform).translation.y.get(target)).toBe(y);
+});
+
+for (const source of Object.values(Action))
+    for (const destination of Object.values(Action)) {
+        test(`action ${source} changes no state on action ${destination}`, async () => {
+            const { w, target, step } = await scene(source);
+            const other = box(w, [2, 1.4, -3.8]);
+            w.add(other, Usable, { action: destination });
+            w.add(other, PointLight, { intensity: 123 });
+            w.tick();
+            pressKey(w, "KeyE");
+            step(source === Action.Hold ? 60 : 1);
+            expect(w.storage(Usable).presses.get(target)).toBe(1);
+            expect(w.storage(Usable).active.get(other)).toBe(0);
+            expect(w.storage(Usable).presses.get(other)).toBe(0);
+            expect(w.storage(Usable).remaining.get(other)).toBe(0);
+            expect(w.storage(Transform).translation.x.get(other)).toBe(2);
+            expect(w.storage(Transform).translation.y.get(other)).toBeCloseTo(1.4);
+            expect(w.storage(Transform).translation.z.get(other)).toBeCloseTo(-3.8);
+            expect(w.storage(PointLight).intensity.get(other)).toBe(123);
+        });
+        test(`a queued action ${source} cannot transfer to action ${destination}`, async () => {
+            const { w, camera, target, step } = await scene(source);
+            const other = box(w, [2, 1.4, -3.8]);
+            w.add(other, Usable, { action: destination });
+            w.tick();
+            pressKey(w, "KeyE");
+            w.step(0);
+            w.storage(Transform).translation.x.set(camera, 2);
+            step(60);
+            expect(w.storage(Usable).active.get(other)).toBe(0);
+            expect(w.storage(Usable).active.get(target)).toBe(0);
+            expect(w.storage(Usable).presses.get(other)).toBe(0);
+            expect(w.storage(Usable).presses.get(target)).toBe(0);
+        });
+    }
+
 for (const [name, action] of Object.entries(Action))
     test(`${name} changes its world state on a fixed tick`, async () => {
         const { w, target, light, step } = await scene(action);
         pressKey(w, "KeyE");
         step(action === Action.Hold ? 60 : 1);
-        expect(w.storage(Usable).active.get(target)).toBe(1);
+        expect(w.storage(Usable).presses.get(target)).toBe(1);
         if (action === Action.Lamp) expect(w.storage(PointLight).intensity.get(light)).toBe(150000);
         if (action === Action.Button)
-            expect(w.storage(Transform).translation.z.get(target)).toBeCloseTo(-3.92);
+            expect(w.storage(Transform).translation.z.get(target)).toBeLessThan(-3.8);
         if (action === Action.Hold)
-            expect(w.storage(Transform).translation.y.get(target)).toBeCloseTo(2.2);
+            expect(w.storage(Transform).translation.y.get(target)).toBeCloseTo(1.4);
     });

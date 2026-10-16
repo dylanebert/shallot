@@ -9,7 +9,7 @@ type State = {
 declare global {
     interface Window {
         ready: boolean;
-        aim(index: number, distance?: number): void;
+        aim(index: number, distance?: number, yaw?: number, pitch?: number): void;
         key(down: boolean): void;
         advance(count?: number): State;
         state(): State;
@@ -18,7 +18,13 @@ declare global {
         turnAway(): void;
         overview(): void;
         evidence(): Promise<{ outline: number; prompt: number }>;
+        promptEvidence(): Promise<number[]>;
         lampEvidence(): Promise<{ changed: number; increase: number }>;
+        holdEvidence(): Promise<{
+            beforePosition: number[];
+            afterPosition: number[];
+            changed: number;
+        }>;
     }
 }
 const STEPPED = `http://127.0.0.1:4186/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?captures" : ""}`;
@@ -84,6 +90,43 @@ test("aim is sampled before E; in-reach lamp and prompt render, E lights the wal
         await capture(page, "room-unfocused");
     }
     expect(errors).toEqual([]);
+});
+
+test("every prompt part renders at near, far and oblique views during a hold", async ({ page }) => {
+    await page.goto(STEPPED);
+    await page.waitForFunction(() => window.ready);
+    for (const [distance, yaw, pitch] of [
+        [1.2, 0, 0],
+        [1.8, -0.45, 0.25],
+        [2.6, 0.45, -0.25],
+    ]) {
+        await page.evaluate(
+            ([d, y, p]) => {
+                window.aim(2, d, y, p);
+                window.key(true);
+                window.advance(30);
+            },
+            [distance, yaw, pitch],
+        );
+        const parts = await page.evaluate(() => window.promptEvidence());
+        console.log("prompt view", distance, yaw, pitch, parts);
+        await capture(page, `hold-view-${distance}`);
+        for (const pixels of parts) expect(pixels).toBeGreaterThan(2);
+        await page.evaluate(() => {
+            window.key(false);
+            window.advance();
+        });
+    }
+});
+
+test("a completed hold changes the block colour without moving it", async ({ page }) => {
+    await page.goto(STEPPED);
+    await page.waitForFunction(() => window.ready);
+    const evidence = await page.evaluate(() => window.holdEvidence());
+    console.log("hold colour", evidence);
+    await capture(page, "hold-complete");
+    expect(evidence.afterPosition).toEqual(evidence.beforePosition);
+    expect(evidence.changed).toBeGreaterThan(0.9);
 });
 
 test("each prompt faces the player, with a half-filled ring during the one-second hold", async ({

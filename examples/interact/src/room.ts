@@ -3,13 +3,12 @@ import {
     BodyType,
     Camera,
     Character,
-    DirectionalLight,
     GlobalAmbientLight,
     internText,
-    lookAtRotation,
     Materials,
     MeshInstance,
     MeshMaterial,
+    NotShadowCaster,
     type Plugin,
     PointLight,
     type Resource,
@@ -53,11 +52,15 @@ export const Room: Resource<{ camera: number; player: number; targets: number[];
 function room(world: World): void {
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
-    ambient.brightness = 520;
-    const sun = world.create();
-    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.5, -1, -0.6) });
-    world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 3200 });
-    world.storage(DirectionalLight).shadowMapsEnabled.set(sun, 1);
+    ambient.brightness = 300;
+    const ceilingLight = world.create();
+    world.add(ceilingLight, Transform, { translation: [0, 2.9, 0] });
+    world.add(ceilingLight, PointLight, {
+        color: 0xffe8cc,
+        intensity: 80000,
+        range: 8,
+        shadowMapsEnabled: 1,
+    });
     const camera = world.create();
     world.add(camera, Camera, { fov: 70, clearColor: 0x1c1917 });
     world.add(camera, StandardRenderer);
@@ -75,34 +78,65 @@ function room(world: World): void {
     world.add(player, Character);
     world.add(player, Player, { camera });
     world.add(player, LocalPlayer);
-    block(world, [0, -0.25, 0], [12, 0.5, 12]);
-    block(world, [0, 2, -3.3], [12, 4, 0.4]);
-    block(world, [-6, 2, 0], [0.4, 4, 9]);
-    block(world, [6, 2, 0], [0.4, 4, 9]);
-    block(world, [-2.8, 0.6, -2.5], [0.18, 1.2, 0.18]);
-    block(world, [0, 0.6, -2.7], [0.8, 1.2, 0.5]);
-    block(world, [2.8, 0.4, -2.5], [1.2, 0.8, 1]);
-    const lamp = block(world, [-2.8, 1.5, -2.5], [0.6, 0.6, 0.6], ORANGE);
-    const light = world.create();
-    world.add(light, Transform, { translation: [-2.8, 2.1, -1.9] });
-    world.add(light, PointLight, { color: 0xffe8cc, intensity: 0, range: 5 });
+    const surfaces = [
+        [
+            [0, -0.25, 0],
+            [7, 0.5, 7],
+        ],
+        [
+            [0, 3.45, 0],
+            [7, 0.5, 7],
+        ],
+        [
+            [0, 1.6, -3.5],
+            [7, 3.2, 0.4],
+        ],
+        [
+            [0, 1.6, 3.5],
+            [7, 3.2, 0.4],
+        ],
+        [
+            [-3.5, 1.6, 0],
+            [0.4, 3.2, 7],
+        ],
+        [
+            [3.5, 1.6, 0],
+            [0.4, 3.2, 7],
+        ],
+        [
+            [-1.8, 0.6, -1],
+            [0.18, 1.2, 0.18],
+        ],
+        [
+            [0, 0.7, -1.15],
+            [0.8, 1.4, 0.5],
+        ],
+        [
+            [1.8, 0.4, -1],
+            [1.2, 0.8, 1],
+        ],
+    ] as const;
+    for (const [position, size] of surfaces) block(world, position, size);
+    const lamp = block(world, [-1.8, 1.5, -1], [0.6, 0.6, 0.6], ORANGE);
+    world.add(lamp, NotShadowCaster);
+    const light = lamp;
+    world.add(light, PointLight, { color: 0xffe8cc, intensity: 0, range: 6 });
     world.add(lamp, Usable, {
         action: Action.Lamp,
-        light,
         label: internText(world, "Switch on"),
         activeLabel: internText(world, "Switch off"),
     });
-    const button = block(world, [0, 1.3, -2.4], [0.45, 0.45, 0.25], BLUE);
+    const button = block(world, [0, 1.1, -0.775], [0.45, 0.45, 0.25], BLUE);
     world.add(button, Usable, {
         action: Action.Button,
         label: internText(world, "Press"),
         activeLabel: internText(world, "Press"),
     });
-    const held = block(world, [2.8, 1.2, -2.5], [0.8, 0.8, 0.6], GOLD);
+    const held = block(world, [1.8, 1.2, -1], [0.8, 0.8, 0.6], GOLD);
     world.add(held, Usable, {
         action: Action.Hold,
-        label: internText(world, "Hold to lift"),
-        activeLabel: internText(world, "Hold to lower"),
+        label: internText(world, "Hold to change"),
+        activeLabel: internText(world, "Hold to change"),
     });
     for (const [target, name] of [
         [lamp, "Lamp"],
@@ -111,14 +145,14 @@ function room(world: World): void {
     ] as const) {
         const label = world.create();
         world.add(label, Transform, {
-            translation: [world.storage(Transform).translation.x.get(target), 2.65, -2.5],
+            translation: [world.storage(Transform).translation.x.get(target), 2.6, -1],
         });
         world.add(label, Text, {
             content: internText(world, name),
             fontSize: 0.2,
             anchor: [0.5, 0],
             billboard: Billboard.Screen,
-            color: 0x1c1917,
+            color: 0xefe3cf,
         });
     }
     const image = registerImage(world, "/key.png");

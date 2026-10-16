@@ -22,14 +22,15 @@ if (!new URLSearchParams(location.search).has('captures')) {
  for(const sun of world.query([DirectionalLight])) world.storage(DirectionalLight).numCascades.set(sun,1);
 }
 // The check places the same player, leaving the controller to pose its camera.
-window.aim = (index, distance=2.6) => {
+window.aim = (index, distance=2.6, yaw=0, pitch=0) => {
  const t = world.storage(Transform);
  const target = room.targets[index];
  const x=t.translation.x.get(target), y=t.translation.y.get(target), z=t.translation.z.get(target);
- setTransform(world, room.player, [x,y-0.7,z+distance], [0,0,0,1]);
- t.translation.set(room.player,x,y-0.7,z+distance);
- world.storage(LocalPlayer).viewYaw.set(room.player,0);
- world.storage(LocalPlayer).viewPitch.set(room.player,0);
+ const px=x+Math.sin(yaw)*Math.cos(pitch)*distance, py=y+Math.sin(pitch)*distance-0.7, pz=z+Math.cos(yaw)*Math.cos(pitch)*distance;
+ setTransform(world, room.player, [px,py,pz], [0,0,0,1]);
+ t.translation.set(room.player,px,py,pz);
+ world.storage(LocalPlayer).viewYaw.set(room.player,yaw);
+ world.storage(LocalPlayer).viewPitch.set(room.player,-pitch);
  world.storage(Player).gravity.set(room.player,0);
  world.storage(Player).friction.set(room.player,1000);
  world.step(1/60);
@@ -92,7 +93,7 @@ window.evidence = async () => {
   }
   return changed;
  };
- return {outline:count(on,off,400,0,810,720), prompt:count(on,noPrompt,810,280,1200,440)};
+ return {outline:count(on,off,400,0,810,720), prompt:count(on,noPrompt,350,400,1050,650)};
 };
 window.lampEvidence = async () => {
  const off=(await render()).rgba;
@@ -108,6 +109,36 @@ window.lampEvidence = async () => {
   increase+=delta;
  }
  return {changed:changed/(400*180*scale*scale), increase:increase/(400*180*scale*scale)};
+};
+window.promptEvidence = async () => {
+ const p=world.storage(Prompt), counts=[];
+ const parts=[[room.prompt,Sprite],[p.key.get(room.prompt),Text],[p.label.get(room.prompt),Text],[p.ring.get(room.prompt),Sprite]];
+ const on=(await render()).rgba;
+ for(const [eid,component] of parts) {
+  world.storage(component).opacity.set(eid,0);
+  const off=(await render()).rgba;
+  world.storage(component).opacity.set(eid,1);
+  let changed=0;
+  for(let i=0;i<on.length;i+=4) if(Math.max(Math.abs(on[i]-off[i]),Math.abs(on[i+1]-off[i+1]),Math.abs(on[i+2]-off[i+2]))>15) changed++;
+  counts.push(changed);
+ }
+ return counts;
+};
+window.holdEvidence = async () => {
+ window.aim(2);
+ const target=room.targets[2], t=world.storage(Transform);
+ const position=()=>[t.translation.x.get(target),t.translation.y.get(target),t.translation.z.get(target)];
+ const beforePosition=position();
+ const before=(await render()).rgba;
+ window.key(true); window.advance(60);
+ const after=(await render()).rgba;
+ let changed=0;
+ const scale=canvas.width/1280;
+ for(let y=Math.floor(330*scale);y<Math.floor(390*scale);y++) for(let x=Math.floor(610*scale);x<Math.floor(670*scale);x++) {
+  const i=(y*canvas.width+x)*4;
+  if(Math.abs(before[i]-after[i])+Math.abs(before[i+1]-after[i+1])+Math.abs(before[i+2]-after[i+2])>20) changed++;
+ }
+ return {beforePosition,afterPosition:position(),changed:changed/(3600*scale*scale)};
 };
 window.ready=true;
 </script></body></html>

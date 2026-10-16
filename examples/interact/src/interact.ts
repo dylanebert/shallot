@@ -2,8 +2,11 @@ import {
     component,
     Devices,
     entity,
+    f32,
     InputPlugin,
     internText,
+    Materials,
+    MeshMaterial,
     NotShadowCaster,
     Outline,
     OutlinePlugin,
@@ -31,14 +34,17 @@ export const Action = { Lamp: 0, Button: 1, Hold: 2 } as const;
 export const Usable = component("Usable", {
     action: u8,
     active: u8,
-    light: entity,
     label: u32,
     activeLabel: u32,
+    presses: u32,
+    remaining: u32,
+    rest: f32,
 });
 /** Sampled E input and its fixed-tick hold state, all captured with the world. */
 export const InteractionInput = component("InteractionInput", {
     target: entity,
     presses: u32,
+    pressedTarget: entity,
     held: u8,
     /** Release or lost focus stays latched until a tick consumes it. */
     cancelled: u8,
@@ -113,28 +119,47 @@ const SampleInteraction: System = {
             if (target !== input.target.get(camera) || !held) input.cancelled.set(camera, 1);
             input.target.set(camera, target);
             input.held.set(camera, held);
-            if (devices.enabled && !world.time.paused && devices.keys.pressed.has("KeyE"))
+            if (devices.enabled && !world.time.paused && devices.keys.pressed.has("KeyE")) {
                 input.presses.set(camera, input.presses.get(camera) + 1);
+                input.pressedTarget.set(camera, target);
+            }
         }
     },
 };
 
 function activate(world: World, target: number): void {
     const usable = world.storage(Usable);
+    if (usable.remaining.get(target)) return;
     const active = 1 - usable.active.get(target);
-    usable.active.set(target, active);
+    usable.presses.set(target, usable.presses.get(target) + 1);
     switch (usable.action.get(target)) {
         case Action.Lamp:
-            world.storage(PointLight).intensity.set(usable.light.get(target), active ? 150000 : 0);
+            usable.active.set(target, active);
+            world.storage(PointLight).intensity.set(target, active ? 150000 : 0);
+            if (world.has(target, MeshMaterial))
+                world.resource(Materials).update(world.storage(MeshMaterial).material.get(target), {
+                    emissive: active ? [2.485628, 1.0716726, 0.47027164] : [0, 0, 0],
+                });
             break;
         case Action.Button: {
             const z = world.storage(Transform).translation.z;
-            z.set(target, z.get(target) + (active ? -0.12 : 0.12));
+            usable.rest.set(target, z.get(target));
+            usable.remaining.set(target, 11);
+            z.set(target, z.get(target) - 0.12 * Math.sin(Math.PI / 12));
             break;
         }
-        case Action.Hold:
-            world.storage(Transform).translation.y.set(target, active ? 2.2 : 1.2);
+        case Action.Hold: {
+            usable.active.set(target, active);
+            if (world.has(target, MeshMaterial)) {
+                const material = world.storage(MeshMaterial);
+                world.resource(Materials).update(material.material.get(target), {
+                    baseColor: active
+                        ? [0.621407, 0.26791815, 0.11756791, 1]
+                        : [0.41696574, 0.35106622, 0.08533862, 1],
+                });
+            }
             break;
+        }
     }
 }
 
@@ -143,9 +168,24 @@ const UseInteraction: System = {
     group: "fixed",
     update(world) {
         const input = world.storage(InteractionInput);
+        const usable = world.storage(Usable);
+        for (const target of world.query(USABLES)) {
+            const remaining = usable.remaining.get(target);
+            if (!remaining) continue;
+            usable.remaining.set(target, remaining - 1);
+            world
+                .storage(Transform)
+                .translation.z.set(
+                    target,
+                    usable.rest.get(target) -
+                        (remaining === 1 ? 0 : 0.12 * Math.sin((Math.PI * (13 - remaining)) / 12)),
+                );
+        }
         for (const camera of world.query(INPUTS)) {
             const target = input.target.get(camera);
-            const pressed = input.presses.get(camera) !== input.lastPresses.get(camera);
+            const pressed =
+                input.presses.get(camera) !== input.lastPresses.get(camera) &&
+                input.pressedTarget.get(camera) === target;
             input.lastPresses.set(camera, input.presses.get(camera));
             if (input.cancelled.get(camera)) {
                 input.ticks.set(camera, 0);
@@ -181,6 +221,13 @@ const UseInteraction: System = {
         }
     },
 };
+
+const PROMPT_LAYOUT = [
+    [-0.5, 0, 0],
+    [-0.5, -0.065, 0.01],
+    [-0.27, -0.065, 0.02],
+    [0, -0.38, 0.03],
+] as const;
 
 const ShowInteraction: System = {
     name: "prompt",
@@ -227,9 +274,17 @@ const ShowInteraction: System = {
                 );
             world.storage(Sprite).fill.set(ring, ticks / 60);
             const t = world.storage(Transform);
-            const x = t.translation.x.get(target) + t.scale.x.get(target) / 2 + 0.23,
-                y = t.translation.y.get(target),
-                z = t.translation.z.get(target) + t.scale.z.get(target) / 2 + 0.08;
+            const eyeX = t.translation.x.get(camera),
+                eyeY = t.translation.y.get(camera),
+                eyeZ = t.translation.z.get(camera);
+            const dx = t.translation.x.get(target) - eyeX,
+                dy = t.translation.y.get(target) - eyeY,
+                dz = t.translation.z.get(target) - eyeZ;
+            const distance = Math.hypot(dx, dy, dz);
+            const scale = (distance / 2.6) * 0.25;
+            const x = eyeX + dx * 0.25,
+                y = eyeY + dy * 0.25,
+                z = eyeZ + dz * 0.25;
             const q = t.rotation;
             const rightX = 1 - 2 * (q.y.get(camera) ** 2 + q.z.get(camera) ** 2);
             const rightY =
@@ -244,36 +299,19 @@ const ShowInteraction: System = {
             const upX = 2 * (q.x.get(camera) * q.y.get(camera) - q.w.get(camera) * q.z.get(camera));
             const upY = 1 - 2 * (q.x.get(camera) ** 2 + q.z.get(camera) ** 2);
             const upZ = 2 * (q.y.get(camera) * q.z.get(camera) + q.w.get(camera) * q.x.get(camera));
-            t.translation.set(eid, x, y, z);
-            // Separate billboard planes along view depth; text shares one baseline below the cap centre.
-            t.translation.set(
-                key,
-                x + backX * 0.01 - upX * 0.065,
-                y + backY * 0.01 - upY * 0.065,
-                z + backZ * 0.01 - upZ * 0.065,
-            );
-            // Move toward the eye along the cap's sightline, so depth separation does not shift its projected centre.
-            const eyeX = t.translation.x.get(camera) - x;
-            const eyeY = t.translation.y.get(camera) - y;
-            const eyeZ = t.translation.z.get(camera) - z;
-            const towardEye = 0.02 / (eyeX * backX + eyeY * backY + eyeZ * backZ);
-            t.translation.set(
-                ring,
-                x + eyeX * towardEye,
-                y + eyeY * towardEye,
-                z + eyeZ * towardEye,
-            );
-            t.translation.set(
-                label,
-                x + rightX * 0.23 + backX * 0.01 - upX * 0.065,
-                y + rightY * 0.23 + backY * 0.01 - upY * 0.065,
-                z + rightZ * 0.23 + backZ * 0.01 - upZ * 0.065,
-            );
-            // A focus change is immediate UI placement, not motion between fixed poses.
-            resetInterpolation(world, eid);
-            resetInterpolation(world, key);
-            resetInterpolation(world, ring);
-            resetInterpolation(world, label);
+            // One camera-facing layout: progress sits below the hint, never over its key or text.
+            for (let i = 0; i < PROMPT_LAYOUT.length; i++) {
+                const part = i === 0 ? eid : i === 1 ? key : i === 2 ? label : ring;
+                const [right, up, depth] = PROMPT_LAYOUT[i]!;
+                t.translation.set(
+                    part,
+                    x + scale * (rightX * right + upX * (up - 0.78) + backX * depth),
+                    y + scale * (rightY * right + upY * (up - 0.78) + backY * depth),
+                    z + scale * (rightZ * right + upZ * (up - 0.78) + backZ * depth),
+                );
+                t.scale.set(part, scale, scale, scale);
+                resetInterpolation(world, part);
+            }
         }
     },
 };
