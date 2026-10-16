@@ -248,6 +248,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         "loading-screen",
         "materials",
         "minimal",
+        "save-and-load",
         "sound",
     ]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
@@ -264,6 +265,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).toContain("examples/minimal/src/welcome/welcome.test.ts");
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/interact/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/save-and-load/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/materials/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/embedded-scene/tsconfig.json");
@@ -282,6 +284,7 @@ type Example =
     | "hud"
     | "sound"
     | "interact"
+    | "save-and-load"
     | "materials";
 
 const created = new Map<Example, { manifest: Record<string, any>; installOutput: string }>();
@@ -365,6 +368,7 @@ for (const name of [
     "day-night-cycle",
     "hud",
     "interact",
+    "save-and-load",
     "sound",
     "materials",
 ] as const) {
