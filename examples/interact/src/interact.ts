@@ -305,9 +305,9 @@ const ShowInteraction: System = {
                 const [right, up, depth] = PROMPT_LAYOUT[i]!;
                 t.translation.set(
                     part,
-                    x + scale * (rightX * right + upX * (up - 0.78) + backX * depth),
-                    y + scale * (rightY * right + upY * (up - 0.78) + backY * depth),
-                    z + scale * (rightZ * right + upZ * (up - 0.78) + backZ * depth),
+                    x + scale * (rightX * right + upX * (up - 1) + backX * depth),
+                    y + scale * (rightY * right + upY * (up - 1) + backY * depth),
+                    z + scale * (rightZ * right + upZ * (up - 1) + backZ * depth),
                 );
                 t.scale.set(part, scale, scale, scale);
                 resetInterpolation(world, part);
