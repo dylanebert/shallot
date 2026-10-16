@@ -31,6 +31,7 @@ export const MeshMaterial = component(
 export const StandardMaterialInput = d
     .struct({
         baseColor: d.vec4f,
+        baseColorTexture: d.i32,
         metallic: d.f32,
         perceptualRoughness: d.f32,
         emissive: d.vec3f,
@@ -43,6 +44,8 @@ export const StandardMaterialInput = d
 export type StandardMaterial = d.Infer<typeof StandardMaterialInput>;
 type StandardMaterialOptions = {
     baseColor?: readonly [number, number, number, number];
+    /** Image id from registerImage, registered before warm; multiplies baseColor RGBA at mesh UVs. */
+    baseColorTexture?: number;
     metallic?: number;
     perceptualRoughness?: number;
     emissive?: readonly [number, number, number];
@@ -51,10 +54,15 @@ type StandardMaterialOptions = {
     unlit?: boolean;
 };
 
-/** Linear colours; emissive is independent of baseColor. diffuseWrap 1 preserves Shallot's diffuse look. */
+/**
+ * Linear colours; emissive is independent of baseColor. diffuseWrap 1 preserves Shallot's diffuse look.
+ * baseColorTexture is an id from registerImage before warm; its sampled RGBA multiplies baseColor
+ * at mesh UVs. Omit it to leave baseColor untextured, without sampling the image array.
+ */
 export function StandardMaterial(values: StandardMaterialOptions = {}): StandardMaterial {
     return {
         baseColor: d.vec4f(...(values.baseColor ?? [1, 1, 1, 1])),
+        baseColorTexture: values.baseColorTexture ?? -1,
         metallic: values.metallic ?? 0,
         perceptualRoughness: values.perceptualRoughness ?? 0.5,
         emissive: d.vec3f(...(values.emissive ?? [0, 0, 0])),

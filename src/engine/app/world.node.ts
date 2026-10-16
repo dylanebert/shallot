@@ -9,9 +9,10 @@ setDefaultTimeout(TIMEOUT.node);
 
 import * as d from "typegpu/data";
 import { Meshes } from "../../core/mesh";
+import { Images, registerImage } from "../../core/rendering";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { drawLine, Line, LinesPlugin } from "../../extras/lines";
-import { Images, registerImage, Sprite, SpritePlugin } from "../../extras/sprite";
+import { Sprite, SpritePlugin } from "../../extras/sprite";
 import { Content, Fonts, internText, registerFont, Text, TextPlugin } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
 import { Draws } from "../../standard/rendering";

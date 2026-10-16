@@ -12,7 +12,10 @@ import {
 } from "./material-type";
 import { Pbr } from "./shade";
 
-const standardLayout = materialLayout(StandardMaterialInput, {});
+const standardLayout = materialLayout(StandardMaterialInput, {
+    images: { type: "texture-2d-array" },
+    imageSampler: { type: "sampler" },
+});
 const StandardFragmentContext = materialFragmentContext();
 
 const standardFragment = tgpu.fn(
@@ -21,9 +24,25 @@ const standardFragment = tgpu.fn(
 )((ctx) => {
     "use gpu";
     const material = StandardMaterialInput(standardLayout.$.materialParameters[ctx.material]);
-    if (material.unlit !== 0) return material.baseColor;
+    let baseColor = d.vec4f(material.baseColor);
+    const uvDx = std.dpdx(ctx.uv);
+    const uvDy = std.dpdy(ctx.uv);
+    if (material.baseColorTexture >= 0) {
+        baseColor = std.mul(
+            baseColor,
+            std.textureSampleGrad(
+                standardLayout.$.images,
+                standardLayout.$.imageSampler,
+                ctx.uv,
+                material.baseColorTexture,
+                uvDx,
+                uvDy,
+            ),
+        );
+    }
+    if (material.unlit !== 0) return baseColor;
     const pbr = Pbr({
-        albedo: material.baseColor.xyz,
+        albedo: baseColor.xyz,
         metallic: material.metallic,
         roughness: material.perceptualRoughness,
         occlusion: material.occlusion,
@@ -31,10 +50,7 @@ const standardFragment = tgpu.fn(
         diffuseWrap: material.diffuseWrap,
     });
     const emissive = material.emissive;
-    return d.vec4f(
-        std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive),
-        material.baseColor.a,
-    );
+    return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), baseColor.a);
 });
 
 /** The built-in mesh material type. Its type-local table is the sole source of its PBR parameters. */
@@ -42,6 +58,7 @@ export const Materials = materialType({
     name: "StandardMaterial",
     parameters: StandardMaterialInput,
     layout: standardLayout,
+    fragmentInputs: { uv: true },
     fragment: standardFragment,
     defaults: StandardMaterial(),
     depthPass: { prepass: true, shadows: true },
@@ -84,7 +101,10 @@ const vertexFragment = tgpu.fn(
     "use gpu";
     return d.vec4f(ctx.litColor);
 });
-/** Built-in Gouraud material: standard lighting is evaluated once per vertex and interpolated. */
+/**
+ * Built-in Gouraud material: standard lighting is evaluated once per vertex and interpolated.
+ * Ignores baseColorTexture; its interpolated colour uses baseColor alone.
+ */
 export const VertexMaterialType = materialType({
     name: "VertexMaterial",
     parameters: StandardMaterialInput,

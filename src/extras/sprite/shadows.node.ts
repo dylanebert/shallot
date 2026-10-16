@@ -45,7 +45,7 @@ test("clip Sprite leaves its alpha hole out of the directional shadow map", asyn
         { bytesPerRow: 4, rowsPerImage: 1 },
         { width: 1, height: 1, depthOrArrayLayers: 1 },
     );
-    world.gpu.textures.set("spriteAtlas", atlas);
+    world.gpu.textures.set("images", atlas);
 
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });

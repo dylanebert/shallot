@@ -5,7 +5,71 @@
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { checkTextureLimits, type World } from "../../engine";
+import { checkTextureLimits, Registry, type World } from "../../engine";
+
+/**
+ * World-local sources decoded at RenderingPlugin warm into world.gpu.textures' `images` array and
+ * world.gpu.samplers' `imageSampler`. An empty registry still allocates one fallback layer.
+ */
+export const Images = { create: () => new Registry<{ name: string; source: string | Blob }>() };
+
+/**
+ * Register before warm, normally in a plugin's initialize. The returned id selects a layer of the
+ * world's shared sRGB image array, used by Sprite and StandardMaterial.baseColorTexture.
+ */
+export function registerImage(world: World, source: string | Blob, name?: string): number {
+    const images = world.resource(Images);
+    const key = name ?? (typeof source === "string" ? source : `image${images.size}`);
+    return images.register({ name: key, source });
+}
+
+const PIXEL_PNG =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAADUlEQVR42mNgYGD4DwABBAEAX+XBlwAAAABJRU5ErkJggg==";
+
+function transparentPixel(): Blob {
+    const bytes = Uint8Array.from(atob(PIXEL_PNG), (c) => c.charCodeAt(0));
+    return new Blob([bytes], { type: "image/png" });
+}
+
+export async function warmImages(world: World): Promise<void> {
+    const images = world.resource(Images);
+    const device = world.gpu.device;
+    let texture: GPUTexture;
+    if (images.size > 0 && typeof createImageBitmap !== "undefined") {
+        const blobs = await Promise.all(
+            Array.from({ length: images.size }, async (_, id) => {
+                const source = images.get(images.name(id)!)!.source;
+                if (typeof source !== "string") return source;
+                try {
+                    const response = await fetch(source);
+                    if (!response.ok) throw new Error(`${response.status}`);
+                    return await response.blob();
+                } catch (error) {
+                    console.warn(`[Rendering] image ${id} (${source}) failed to load:`, error);
+                    return transparentPixel();
+                }
+            }),
+        );
+        texture = await imageArray(world, device, blobs);
+    } else {
+        texture = device.createTexture({
+            label: "images-fallback",
+            size: [1, 1, 1],
+            format: "rgba8unorm-srgb",
+            usage: GPUTextureUsage.TEXTURE_BINDING,
+        });
+    }
+    world.own(texture);
+    world.gpu.textures.set("images", texture);
+    world.gpu.samplers.set(
+        "imageSampler",
+        device.createSampler({
+            label: "images",
+            magFilter: "linear",
+            minFilter: "linear",
+        }),
+    );
+}
 
 /** mip levels for a square texture of `size` px: the full chain down to 1×1. */
 export function mipLevels(size: number): number {

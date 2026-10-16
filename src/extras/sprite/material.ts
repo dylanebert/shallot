@@ -24,8 +24,8 @@ export const SpriteMaterialInput = d
     .$name("SpriteMaterialInput");
 
 const layout = materialLayout(SpriteMaterialInput, {
-    spriteAtlas: { type: "texture-2d-array" },
-    spriteSamp: { type: "sampler" },
+    images: { type: "texture-2d-array" },
+    imageSampler: { type: "sampler" },
 });
 const SpriteVertexOutput = materialVertexOutput();
 const SpriteFragmentContext = materialFragmentContext();
@@ -97,8 +97,8 @@ function spriteFragment() {
             const sprite = SpriteMaterialInput(layout.$.materialParameters[ctx.eid]);
             const uv = d.vec2f(ctx.localPos.x, 1 - ctx.localPos.y);
             const texel = std.textureSample(
-                layout.$.spriteAtlas,
-                layout.$.spriteSamp,
+                layout.$.images,
+                layout.$.imageSampler,
                 uv,
                 d.i32(sprite.layer),
             );

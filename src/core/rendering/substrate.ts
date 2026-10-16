@@ -41,7 +41,7 @@ import {
     prepareGlobalTransformFrame,
     recoverGlobalTransformHistory,
 } from "./global-transform";
-import { initializeImageState } from "./image";
+import { initializeImageState, warmImages } from "./image";
 import {
     AmbientLight,
     DirectionalLight,
@@ -505,6 +505,8 @@ export const RenderingPlugin: Plugin = {
         ShadowFilteringMethod,
     ],
 
+    warm: warmImages,
+
     async initialize(world) {
         initializeRenderState(world);
         initializeViewState(world);
@@ -525,7 +527,7 @@ export const RenderingPlugin: Plugin = {
 export { computeViewFromWorld, computeViewProj } from "./camera";
 export { Frame, FrameGpu } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "./frustum";
-export { imageArray } from "./image";
+export { Images, imageArray, registerImage } from "./image";
 
 export { RenderContext } from "./render";
 export {

@@ -31,8 +31,6 @@ export {
     SkyPlugin,
 } from "./sky";
 export {
-    Images,
-    registerImage,
     Sprite,
     SpriteBlend,
     SpriteFill,

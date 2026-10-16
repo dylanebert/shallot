@@ -1,14 +1,8 @@
 import * as d from "typegpu/data";
 import { Meshes, type MeshHandle, MeshInstance, MeshPlugin } from "../../core/mesh";
-import { BeginFrameSystem, imageArray, RenderingPlugin } from "../../core/rendering";
+import { BeginFrameSystem, RenderingPlugin } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
-import {
-    ClearChangeMarksSystem,
-    type Plugin,
-    Registry,
-    type System,
-    type World,
-} from "../../engine";
+import { ClearChangeMarksSystem, type Plugin, type System, type World } from "../../engine";
 import { packColor } from "../../engine/utils";
 import {
     AlphaMode,
@@ -26,23 +20,6 @@ export { Sprite, SpriteBlend, SpriteFill } from "./pack";
 
 const SPRITE_QUERY = [Sprite];
 
-export const Images = { create: () => new Registry<{ name: string; source: string | Blob }>() };
-
-const PIXEL_PNG =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAADUlEQVR42mNgYGD4DwABBAEAX+XBlwAAAABJRU5ErkJggg==";
-
-function transparentPixel(): Blob {
-    const bytes = Uint8Array.from(atob(PIXEL_PNG), (c) => c.charCodeAt(0));
-    return new Blob([bytes], { type: "image/png" });
-}
-
-/** Register a source image; its returned id is the Sprite material row's texture-array layer. */
-export function registerImage(world: World, source: string | Blob, name?: string): number {
-    const images = world.resource(Images);
-    const key = name ?? (typeof source === "string" ? source : `image${images.size}`);
-    return images.register({ name: key, source });
-}
-
 // prettier-ignore
 const QUAD_VERTS = new Float32Array([
     0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0,
@@ -50,8 +27,6 @@ const QUAD_VERTS = new Float32Array([
 const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
 
 interface SpriteGpuState {
-    atlas: GPUTexture | null;
-    sampler: GPUSampler | null;
     quad: MeshHandle | null;
     instances: Map<number, SpriteInstance>;
 }
@@ -70,8 +45,6 @@ interface SpriteInstance {
 }
 const spriteGpuKey = {
     create: (): SpriteGpuState => ({
-        atlas: null,
-        sampler: null,
         quad: null,
         instances: new Map(),
     }),
@@ -262,8 +235,6 @@ export const SpritePlugin: Plugin = {
 
     initialize(world) {
         const state = world.resource(spriteGpuKey);
-        state.atlas = null;
-        state.sampler = null;
         state.instances.clear();
         if (world.gpu.device) {
             state.quad = world.resource(Meshes).add({
@@ -274,50 +245,8 @@ export const SpritePlugin: Plugin = {
         }
     },
 
-    async warm(world) {
-        const images = world.resource(Images);
-        const state = world.resource(spriteGpuKey);
-        const device = world.gpu.device;
-        if (images.size > 0 && typeof createImageBitmap !== "undefined") {
-            const blobs = await Promise.all(
-                Array.from({ length: images.size }, async (_, id) => {
-                    const source = world
-                        .resource(Images)
-                        .get(world.resource(Images).name(id)!)!.source;
-                    if (typeof source !== "string") return source;
-                    try {
-                        const response = await fetch(source);
-                        if (!response.ok) throw new Error(`${response.status}`);
-                        return await response.blob();
-                    } catch (error) {
-                        console.warn(`[Sprite] image ${id} (${source}) failed to load:`, error);
-                        return transparentPixel();
-                    }
-                }),
-            );
-            state.atlas = await imageArray(world, device, blobs);
-        } else {
-            state.atlas = device.createTexture({
-                label: "sprite-atlas-fallback",
-                size: { width: 1, height: 1, depthOrArrayLayers: 1 },
-                format: "rgba8unorm-srgb",
-                usage: GPUTextureUsage.TEXTURE_BINDING,
-            });
-        }
-        world.gpu.textures.set("spriteAtlas", state.atlas);
-        state.sampler = device.createSampler({
-            label: "sprite",
-            magFilter: "linear",
-            minFilter: "linear",
-        });
-        world.gpu.samplers.set("spriteSamp", state.sampler);
-    },
-
     dispose(world) {
         const state = world.resource(spriteGpuKey);
-        state.atlas?.destroy();
-        state.atlas = null;
-        state.sampler = null;
         state.quad = null;
         state.instances.clear();
     },

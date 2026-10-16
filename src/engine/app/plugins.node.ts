@@ -860,10 +860,10 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect([...second.world.query([GlobalTransform])].length).toBeGreaterThan(0);
         }
         if (uses(subject, SpritePlugin)) {
-            const atlasA = first.world.gpu.textures.get("spriteAtlas");
-            const atlasB = second.world.gpu.textures.get("spriteAtlas");
-            const samplerA = first.world.gpu.samplers.get("spriteSamp");
-            const samplerB = second.world.gpu.samplers.get("spriteSamp");
+            const atlasA = first.world.gpu.textures.get("images");
+            const atlasB = second.world.gpu.textures.get("images");
+            const samplerA = first.world.gpu.samplers.get("imageSampler");
+            const samplerB = second.world.gpu.samplers.get("imageSampler");
             expect(atlasA).toBeDefined();
             expect(atlasB).toBeDefined();
             expect(atlasA).not.toBe(atlasB);
