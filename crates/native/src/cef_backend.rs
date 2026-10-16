@@ -100,7 +100,7 @@ wrap_app! {
                 #[cfg(debug_assertions)]
                 cmd.append_switch_with_value(
                     Some(&CefString::from("remote-debugging-port")),
-                    Some(&CefString::from("9222")),
+                    Some(&CefString::from("0")),
                 );
             }
         }
@@ -445,6 +445,27 @@ mod tests {
         assert_eq!(handler.on_pre_key_event(None, Some(&event), None, None), 0);
     }
 
+    #[test]
+    fn remote_debugging_uses_an_ephemeral_port_only_in_debug_builds() {
+        let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
+        let app = ShallotApp::new();
+        for process in [None, Some(CefString::from("gpu-process"))] {
+            let mut switches = command_line_create().unwrap();
+            app.on_before_command_line_processing(process.as_ref(), Some(&mut switches));
+            assert_eq!(
+                switches.has_switch(Some(&CefString::from("remote-debugging-port"))),
+                i32::from(cfg!(debug_assertions))
+            );
+            assert_eq!(
+                CefString::from(
+                    &switches.switch_value(Some(&CefString::from("remote-debugging-port")))
+                )
+                .to_string(),
+                if cfg!(debug_assertions) { "0" } else { "" }
+            );
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_keeps_angle_vulkan_without_forcing_the_vulkan_compositor() {
@@ -464,10 +485,6 @@ mod tests {
                 )
                 .to_string(),
                 "allow_unsafe_apis"
-            );
-            assert_eq!(
-                switches.has_switch(Some(&CefString::from("remote-debugging-port"))),
-                i32::from(cfg!(debug_assertions))
             );
         }
 
