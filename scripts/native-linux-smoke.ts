@@ -612,7 +612,9 @@ export function assertStartup(
     >,
 ): void {
     if (report.error || report.cpuReady !== true)
-        throw new Error(`Native startup failed: ${report.error ?? "CPU-only startup was not observed"}`);
+        throw new Error(
+            `Native startup failed: ${report.error ?? "CPU-only startup was not observed"}`,
+        );
     if (report.requireHardware === true) {
         if (
             JSON.stringify(report.hooks) !== "[]" ||
