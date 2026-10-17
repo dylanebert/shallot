@@ -43,7 +43,7 @@ export function scatter(config: TerrainConfig, height: ReturnType<typeof heightf
                 else if ((hash & 127) === 1) kind = d.u32(DetailKind.amber);
                 else if ((hash & 127) === 2) kind = d.u32(DetailKind.cyan);
                 else if ((hash & 3) === 0) kind = d.u32(DetailKind.grass);
-                if (kind === 0) return;
+                if (kind === DetailKind.none) return;
                 const slot = d.u32(layout.$.chunk.z);
                 const index = std.atomicAdd(layout.$.counts[slot], 1);
                 layout.$.records[slot * d.u32(Chunk * Chunk) + index] = d.vec2u(

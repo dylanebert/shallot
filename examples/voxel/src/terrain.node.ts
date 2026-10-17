@@ -11,9 +11,8 @@ import { Orbit } from "@dylanebert/shallot/extras";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
-import { columnHash, detailCount, detailKind } from "./detail";
+import { columnHash, DetailKind, detailCount, detailKind } from "./detail";
 import { faces, height } from "./noise";
-import { PART_COUNTS } from "./parts";
 import { Terrain, terrainPlugin } from "./terrain";
 import { inRing, radii, slotCount, type TerrainConfig, voxelScale } from "./terrain-data";
 
@@ -73,6 +72,18 @@ async function countsMatch() {
     const placements = new Float32Array(
         (await probeBuffer(world, world.gpu.root.unwrap(table.placements))).bytes,
     );
+    const instances = new Uint32Array(
+        (await probeBuffer(world, world.gpu.root.unwrap(table.meshInstances))).bytes,
+    );
+    // Kind-to-part selection is independent of the GPU part rows.
+    const parts = {
+        [DetailKind.none]: [],
+        [DetailKind.grass]: [0],
+        [DetailKind.amber]: [1, 2],
+        [DetailKind.cyan]: [1, 3],
+        [DetailKind.rock]: [4],
+        [DetailKind.tree]: [5, 6],
+    };
     const viewer = s.previousViewer + (s.viewer - s.previousViewer) * world.time.fixedAlpha;
     const { inner, outer } = radii(config);
     const anchors: number[][] = [];
@@ -92,23 +103,41 @@ async function countsMatch() {
                 const wx = slot.x * config.chunkSize + x;
                 const wz = slot.z * config.chunkSize + z;
                 const kind = detailKind(wx, wz, config);
-                if (kind) {
+                if (kind !== DetailKind.none) {
                     const cx = wx + 0.5 - viewer,
                         cz = wz + 0.5;
                     const scale = voxelScale(Math.hypot(cx, cz), inner, outer);
                     if (scale > 0) {
                         if (scale < 1) annulus++;
                         const hash = columnHash(wx, wz);
-                        const jx = kind === 5 ? 0 : ((hash & 255) / 255 - 0.5) * 0.35 * scale;
+                        const jx =
+                            kind === DetailKind.tree
+                                ? 0
+                                : ((hash & 255) / 255 - 0.5) * 0.35 * scale;
                         const jz =
-                            kind === 5 ? 0 : (((hash >>> 8) & 255) / 255 - 0.5) * 0.35 * scale;
-                        for (let p = 0; p < PART_COUNTS[kind]; p++)
+                            kind === DetailKind.tree
+                                ? 0
+                                : (((hash >>> 8) & 255) / 255 - 0.5) * 0.35 * scale;
+                        const yaw =
+                            kind === DetailKind.tree ? 0 : ((hash >>> 16) / 65535) * Math.PI * 2;
+                        for (const part of parts[kind]) {
+                            const material = s.placement!.materials[part];
                             anchors.push([
                                 cx + jx,
                                 height(wx, wz, config) - 0.5 - config.height / 2 + 0.5 * scale,
                                 cz + jz,
                                 scale,
+                                scale,
+                                scale,
+                                0,
+                                Math.sin(yaw / 2),
+                                0,
+                                Math.cos(yaw / 2),
+                                s.placement!.meshes[part],
+                                material.type,
+                                material.material,
                             ]);
+                        }
                     }
                     expected.push(
                         `${x},${height(wx, wz, config)},${z},${kind},${columnHash(wx, wz)}`,
@@ -133,16 +162,32 @@ async function countsMatch() {
         placements[i * 12 + 1],
         placements[i * 12 + 2],
         placements[i * 12 + 8],
+        placements[i * 12 + 9],
+        placements[i * 12 + 10],
+        placements[i * 12 + 4],
+        placements[i * 12 + 5],
+        placements[i * 12 + 6],
+        placements[i * 12 + 7],
+        instances[i * 12],
+        instances[i * 12 + 1],
+        instances[i * 12 + 2],
     ]);
-    const order = (a: number[], b: number[]) => a[0] - b[0] || a[2] - b[2];
+    const order = (a: number[], b: number[]) =>
+        a[0] - b[0] || a[2] - b[2] || a[10] - b[10] || a[11] - b[11] || a[12] - b[12];
     actual.sort(order);
     anchors.sort(order);
-    for (let i = 0; i < anchors.length; i++)
-        for (let lane = 0; lane < 4; lane++)
-            expect(actual[i][lane], `producer anchor/scale row ${i} lane ${lane}`).toBeCloseTo(
+    for (let i = 0; i < anchors.length; i++) {
+        for (let lane = 0; lane < 10; lane++) {
+            const field = lane < 3 ? "anchor" : lane < 6 ? "scale" : "quaternion";
+            expect(actual[i][lane], `producer ${field} row ${i} lane ${lane}`).toBeCloseTo(
                 anchors[i][lane],
                 4,
             );
+        }
+        expect(actual[i].slice(10), `producer mesh/material row ${i}`).toEqual(
+            anchors[i].slice(10),
+        );
+    }
 }
 
 test("small-world GPU counts match the oracle after fixed ticks and streaming; 100 warm turnovers create no buffers or bind groups", async () => {

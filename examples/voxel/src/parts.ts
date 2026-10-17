@@ -1,6 +1,7 @@
 import { cube, Meshes, type World } from "@dylanebert/shallot";
 import { Materials } from "@dylanebert/shallot/standard/rendering";
 import * as d from "typegpu/data";
+import { DetailKind } from "./detail";
 
 type Box = [number, number, number, number, number, number];
 function boxes(name: string, parts: Box[]) {
@@ -21,7 +22,6 @@ function boxes(name: string, parts: Box[]) {
     }
     return { name, vertices: new Float32Array(vertices), indices: new Uint32Array(indices) };
 }
-export const PART_COUNTS = [0, 1, 2, 2, 1, 2] as const;
 export function detailParts(world: World) {
     const meshes = world.resource(Meshes);
     const handles = [
@@ -59,7 +59,13 @@ export function detailParts(world: World) {
             perceptualRoughness: 1,
         }),
     );
-    const kinds = [[], [0], [1, 2], [1, 3], [4], [5, 6]];
+    const kinds: number[][] = [];
+    kinds[DetailKind.none] = [];
+    kinds[DetailKind.grass] = [0];
+    kinds[DetailKind.amber] = [1, 2];
+    kinds[DetailKind.cyan] = [1, 3];
+    kinds[DetailKind.rock] = [4];
+    kinds[DetailKind.tree] = [5, 6];
     const rows = kinds.flatMap((parts) =>
         [0, 1].map((i) => {
             const part = parts[i] ?? 0;

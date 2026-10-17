@@ -4,6 +4,7 @@ import { MeshInstanceInput, registerProducerTable } from "@dylanebert/shallot/st
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { DetailKind } from "./detail";
 import { detailParts } from "./parts";
 import { radii, slotCount, type TerrainConfig } from "./terrain-data";
 
@@ -53,7 +54,7 @@ export function placement(
         if (scale <= 0) return;
         let jitter = d.vec2f(0);
         let yaw = d.f32(0);
-        if (kind !== 5) {
+        if (kind !== DetailKind.tree) {
             jitter = d
                 .vec2f(d.f32(hash & 255) / 255 - 0.5, d.f32((hash >>> 8) & 255) / 255 - 0.5)
                 .mul(0.35 * scale);
@@ -113,6 +114,8 @@ export function placement(
     const descriptor: GPUComputePassDescriptor = { label: "voxel:place" };
     return {
         table,
+        meshes: parts.meshes,
+        materials: parts.materials,
         chunk(slot: number, x: number, z: number) {
             coordinates[0] = x;
             coordinates[1] = z;
