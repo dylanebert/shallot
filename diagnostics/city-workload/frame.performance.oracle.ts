@@ -1,3 +1,4 @@
+import { heapStats } from "bun:jsc";
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
@@ -21,6 +22,12 @@ import { refuseReport, WORKLOAD } from "./workload";
 
 function median(values: number[]): number {
     return values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)]!;
+}
+
+function retainedHeap(): number {
+    Bun.gc(true);
+    Bun.gc(true);
+    return heapStats().heapSize;
 }
 
 await setupGlobals();
@@ -95,6 +102,8 @@ test("report no-shadow city poses and shadowed street, rejecting shadows in no-s
     };
     try {
         for (const { population, poses } of WORKLOAD.configurations) {
+            const baseline = retainedHeap();
+            const buildStart = performance.now();
             const app = await createApp({
                 device,
                 adapter,
@@ -105,6 +114,8 @@ test("report no-shadow city poses and shadowed street, rejecting shadows in no-s
                 );
                 throw error;
             });
+            const buildMs = performance.now() - buildStart;
+            const heapBuilt = retainedHeap() - baseline;
             try {
                 const { world } = app;
                 console.info("[city-workload] adapter", world.gpu.adapter);
@@ -118,6 +129,14 @@ test("report no-shadow city poses and shadowed street, rejecting shadows in no-s
                 world.storage(Camera).far.set(camera, 30000);
                 world.remove(camera, Orbit);
                 attachTexture(world, camera, { width: WORKLOAD.width, height: WORKLOAD.height });
+                const firstStepStart = performance.now();
+                world.step(Time.FIXED_DT);
+                await device.queue.onSubmittedWorkDone();
+                const firstStepMs = performance.now() - firstStepStart;
+                const heapFirstStep = retainedHeap() - baseline;
+                console.info(
+                    `[city-workload] population=${population} build-ms=${buildMs.toFixed(3)} first-step-ms=${firstStepMs.toFixed(3)} heap-built-mb=${(heapBuilt / 1e6).toFixed(3)} heap-built-bytes-per-entity=${(heapBuilt / population).toFixed(3)} heap-first-step-mb=${(heapFirstStep / 1e6).toFixed(3)} heap-first-step-bytes-per-entity=${(heapFirstStep / population).toFixed(3)}`,
+                );
                 const lights = world.storage(DirectionalLight);
                 for (const pose of poses) {
                     for (const eid of world.query([DirectionalLight]))
