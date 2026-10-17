@@ -109,7 +109,8 @@ function place(world: World, config: TerrainConfig): void {
 export function terrainPlugin(config: TerrainConfig): Plugin {
     const size = config.chunkSize;
     const span = (config.viewDistance * 2 + 1) * size;
-    const camera = [span * 0.5, span * 0.48, span * 0.63] as const;
+    const camera = [span * 0.45, span * 0.1375, span * 0.6] as const;
+    const target = [-camera[0], span * 0.0625, -camera[2]] as const;
     return {
         name: "Terrain",
         gpu: {},
@@ -194,11 +195,15 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 shadowNormalBias: 1,
             });
             s.camera = world.create();
-            world.add(s.camera, Camera, { clearColor: 0x89b6e9, fov: 55, far: span * 3 });
+            world.add(s.camera, Camera, {
+                clearColor: 0x89b6e9,
+                fov: 55,
+                far: span * 3,
+                antialias: 1,
+            });
             world.add(s.camera, CameraBackground, { background: skyBackgroundHandle(world) });
             const sky = world.create();
             world.add(sky, Sky, {
-                horizon: 0x8dbde8,
                 hazeDensity: 0,
                 cloudCoverage: 0,
                 starIntensity: 0,
@@ -206,7 +211,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
             world.add(s.camera, StandardRenderer);
             world.add(s.camera, Transform, {
                 translation: camera,
-                rotation: lookAtRotation(...camera, 0, -3, 0),
+                rotation: lookAtRotation(...camera, ...target),
             });
         },
         systems: [

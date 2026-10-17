@@ -19,7 +19,7 @@ window.voxel={
    return rgba[i]>rgba[i+2]*1.1&&rgba[i+1]>rgba[i+2]*1.1;
   };
   let covered=0,total=0;
-  if(evidence) for(let y=0.4;y<0.65;y+=0.01) for(let x=0.35;x<0.65;x+=0.01) {
+  if(evidence) for(let y=0.65;y<0.85;y+=0.01) for(let x=0.4;x<0.6;x+=0.01) {
    covered+=Number(land(x,y));total++;
   }
   const c=document.createElement('canvas');c.width=width;c.height=height;
