@@ -19,7 +19,10 @@ export interface ProducerTable {
 }
 
 export const producerTables = {
-    create: () => ({ tables: [] as ProducerEntry[], draws: new Map<string, ProducerTable>() }),
+    create: () => ({
+        tables: [] as ProducerEntry[],
+        draws: new Map<string, ProducerTable | null>(),
+    }),
 };
 export interface ProducerEntry {
     table: ProducerTable;

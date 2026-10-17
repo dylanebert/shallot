@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Meshes } from "../../core/mesh";
+import { Meshes, type MeshHandle } from "../../core/mesh";
 import type { World } from "../../engine";
 import {
     beginComputePass,
@@ -42,12 +42,15 @@ type Source = {
     staging: Uint32Array;
     count: number;
     dirty: boolean;
+    cursor: number;
 };
 const key = {
     create: () => ({
         pipeline: null as GPUComputePipeline | null,
         cache: new Map<GPUBuffer, Source>(),
         active: [] as Source[],
+        activeCount: 0,
+        sources: [] as Source[],
         target: null as GPUBuffer | null,
         output: null as GPUBindGroup | null,
     }),
@@ -62,95 +65,98 @@ export function rebuildMeshCounts(
     slots: number,
 ): void {
     const state = world.resource(key);
-    const rows = new Map<GPUBuffer, number[]>();
-    for (const [handle, mesh] of world.resource(Meshes).entries()) {
-        const source = mesh.indirectIndexCount;
-        if (!source) continue;
-        let data = rows.get(source.buffer);
-        if (!data) {
-            data = [meshCount, pairs, slots, 0];
-            rows.set(source.buffer, data);
+    const meshes = world.resource(Meshes);
+    for (let i = 0; i < state.sources.length; i++) state.sources[i]!.cursor = 0;
+    state.activeCount = 0;
+    for (let handle = 0; handle < meshCount; handle++) {
+        const mesh = meshes.get(handle as MeshHandle);
+        const source = mesh?.indirectIndexCount;
+        if (!mesh || !source) continue;
+        let entry = state.cache.get(source.buffer);
+        if (!entry) {
+            entry = {
+                buffer: source.buffer,
+                table: null!,
+                group: null!,
+                staging: new Uint32Array(0),
+                count: 0,
+                dirty: true,
+                cursor: 0,
+            };
+            state.cache.set(source.buffer, entry);
+            state.sources.push(entry);
         }
-        data.push(handle, (source.offset ?? 0) / 4, mesh.indexCount, 0);
-        data[3]!++;
-    }
-    const prepared: { entry: Source; data: number[]; previous?: Source }[] = [];
-    try {
-        for (const [buffer, data] of rows) {
-            const previous = state.cache.get(buffer);
-            let entry = previous;
-            if (!entry || entry.staging.length < data.length) {
-                let capacity = 8;
-                while (capacity < data.length) capacity *= 2;
-                const table = world.gpu.device.createBuffer({
-                    label: "shallot-mesh-count-rows",
-                    size: capacity * 4,
-                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        if (entry.cursor === 0) {
+            state.active[state.activeCount++] = entry;
+            entry.cursor = 4;
+            setCountLane(entry, 0, meshCount);
+            setCountLane(entry, 1, pairs);
+            setCountLane(entry, 2, slots);
+        }
+        const required = entry.cursor + 4;
+        if (entry.staging.length < required) {
+            let capacity = Math.max(8, entry.staging.length * 2);
+            while (capacity < required) capacity *= 2;
+            const staging = new Uint32Array(capacity);
+            staging.set(entry.staging);
+            const table = world.gpu.device.createBuffer({
+                label: "shallot-mesh-count-rows",
+                size: capacity * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+            world.own(table);
+            let group: GPUBindGroup;
+            try {
+                group = world.gpu.device.createBindGroup({
+                    layout: world.gpu.root.unwrap(sourceLayout),
+                    entries: [
+                        { binding: 0, resource: { buffer: source.buffer } },
+                        { binding: 1, resource: { buffer: table } },
+                    ],
                 });
-                world.own(table);
-                try {
-                    const group = world.gpu.device.createBindGroup({
-                        layout: world.gpu.root.unwrap(sourceLayout),
-                        entries: [
-                            { binding: 0, resource: { buffer } },
-                            { binding: 1, resource: { buffer: table } },
-                        ],
-                    });
-                    entry = {
-                        buffer,
-                        table,
-                        group,
-                        staging: new Uint32Array(capacity),
-                        count: 0,
-                        dirty: true,
-                    };
-                } catch (error) {
-                    table.destroy();
-                    throw error;
-                }
+            } catch (error) {
+                table.destroy();
+                throw error;
             }
-            prepared.push({ entry, data, previous });
+            if (entry.table) world.retireGpuBuffer(entry.table);
+            entry.table = table;
+            entry.group = group;
+            entry.staging = staging;
+            entry.dirty = true;
+            setCountLane(entry, 0, meshCount);
+            setCountLane(entry, 1, pairs);
+            setCountLane(entry, 2, slots);
         }
-        if (prepared.length && !state.pipeline)
-            state.pipeline = world.gpu.root.unwrap(
-                world.gpu.root.createComputePipeline({ compute: kernel }),
-            );
-    } catch (error) {
-        for (const item of prepared) if (item.entry !== item.previous) item.entry.table.destroy();
-        throw error;
+        setCountLane(entry, entry.cursor, handle);
+        setCountLane(entry, entry.cursor + 1, (source.offset ?? 0) / 4);
+        setCountLane(entry, entry.cursor + 2, mesh.indexCount);
+        entry.cursor += 4;
     }
-    try {
-        for (const { entry, data } of prepared) {
-            if (entry.count !== data[3]) entry.dirty = true;
-            for (let i = 0; i < data.length; i++)
-                if (entry.staging[i] !== data[i]) {
-                    entry.staging[i] = data[i]!;
-                    entry.dirty = true;
-                }
-            if (entry.dirty) {
-                world.gpu.device.queue.writeBuffer(entry.table, 0, entry.staging, 0, data.length);
-                entry.dirty = false;
-            }
-            entry.count = data[3]!;
+    if (state.activeCount && !state.pipeline)
+        state.pipeline = world.gpu.root.unwrap(
+            world.gpu.root.createComputePipeline({ compute: kernel }),
+        );
+    for (let i = 0; i < state.activeCount; i++) {
+        const entry = state.active[i]!;
+        entry.count = entry.cursor / 4 - 1;
+        setCountLane(entry, 3, entry.count);
+        if (entry.dirty) {
+            world.gpu.device.queue.writeBuffer(entry.table, 0, entry.staging, 0, entry.cursor);
+            entry.dirty = false;
         }
-    } catch (error) {
-        for (const item of prepared) if (item.entry !== item.previous) item.entry.table.destroy();
-        throw error;
     }
-    const active: Source[] = [];
-    for (const { entry, previous } of prepared) {
-        if (entry !== previous) {
-            if (previous) world.retireGpuBuffer(previous.table);
-            state.cache.set(entry.buffer, entry);
-        }
-        active.push(entry);
+}
+
+function setCountLane(entry: Source, index: number, value: number): void {
+    if (entry.staging[index] !== value) {
+        entry.staging[index] = value;
+        entry.dirty = true;
     }
-    state.active = active;
 }
 
 export function publishMeshCounts(world: World, target: GPUBuffer): void {
     const state = world.resource(key);
-    if (!state.active.length) return;
+    if (!state.activeCount) return;
     if (state.target !== target) {
         const group = world.gpu.device.createBindGroup({
             layout: world.gpu.root.unwrap(outputLayout),
@@ -162,7 +168,8 @@ export function publishMeshCounts(world: World, target: GPUBuffer): void {
     const pass = beginComputePass(world.frameEncoder()!, descriptor);
     setComputePipeline(pass, state.pipeline!);
     setComputeBindGroup(pass, 1, state.output!);
-    for (const entry of state.active) {
+    for (let i = 0; i < state.activeCount; i++) {
+        const entry = state.active[i]!;
         setComputeBindGroup(pass, 0, entry.group);
         dispatchWorkgroups(pass, Math.ceil(entry.count / 64));
     }

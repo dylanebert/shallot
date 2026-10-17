@@ -5,9 +5,14 @@ import type {
     TgpuComputePipeline,
     UniformFlag,
 } from "typegpu";
-import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { Meshes, MeshInstance, meshResourcesKey } from "../../core/mesh";
+import {
+    type Mesh,
+    Meshes,
+    type MeshHandle,
+    MeshInstance,
+    meshResourcesKey,
+} from "../../core/mesh";
 import {
     BeginFrameSystem,
     globalTransformTable,
@@ -15,7 +20,7 @@ import {
     NotShadowCaster,
     RenderContext,
 } from "../../core/rendering";
-import { ClearChangeMarksSystem, type Registry, type System, type World } from "../../engine";
+import { ClearChangeMarksSystem, type System, type World } from "../../engine";
 import {
     beginComputePass,
     dispatchWorkgroups,
@@ -25,7 +30,7 @@ import {
     setComputeBindGroup,
     setComputePipeline,
 } from "../../engine/runtime";
-import { type MaterialType, MaterialTypes } from "./material";
+import { MaterialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 import {
     ALPHA_PIPELINE_KEY_COUNT,
@@ -99,11 +104,16 @@ interface MeshPreprocessState {
     /** each material type's `alphaKeys` when draws were last registered */
     alphaKeys: Int32Array;
     invalidPairs: Map<number, Map<number, { name: string; cause: string }>>;
+    pairingMeshes: (Mesh | undefined)[][];
+    recheckInstances: boolean;
     warnedPairs: Set<string>;
     meshCount: number;
     meshVersion: number;
     producerCount: number;
-    publishedDraws: Set<string>;
+    drawSlots: DrawSlot[];
+    drawLookup: DrawSlot[][];
+    boundsData: Float32Array<ArrayBuffer>;
+    drawData: Uint32Array<ArrayBuffer>;
     pairCount: number;
     viewDim: number;
     packPass: GPUComputePassDescriptor;
@@ -118,7 +128,8 @@ interface MeshPreprocessState {
     inputGeneration: Int32Array;
 }
 
-const meshPreprocessKey = { create: createMeshPreprocessState };
+/** @internal */
+export const meshPreprocessKey = { create: createMeshPreprocessState };
 const meshInstanceTableKey = { create: createMeshInstanceTable };
 
 /** Dense MeshInstance records shared by preprocessing and surface stages.
@@ -157,11 +168,16 @@ function createMeshPreprocessState(): MeshPreprocessState {
         materialTypeCount: 0,
         alphaKeys: new Int32Array(0),
         invalidPairs: new Map(),
+        pairingMeshes: [],
+        recheckInstances: false,
         warnedPairs: new Set(),
         meshCount: 0,
         meshVersion: -1,
         producerCount: 0,
-        publishedDraws: new Set(),
+        drawSlots: [],
+        drawLookup: [],
+        boundsData: new Float32Array(0),
+        drawData: new Uint32Array(0),
         pairCount: 0,
         viewDim: 1,
         packPass: { label: "shallot-mesh-preprocess" },
@@ -485,10 +501,12 @@ function syncBuffers(world: World): void {
         _meshPreprocess.meshCount;
     const records = _meshPreprocess.viewDim * _meshPreprocess.pairCount;
 
-    const staleArgs: (DrawBuffer | AtomicU32Buffer | null)[] = [];
+    let staleArgs: DrawBuffer | null = null;
+    let staleCounts: AtomicU32Buffer | null = null;
     const replaceArgs = growMesh || growView || growProducers || !_meshDraws.drawArgs;
     if (replaceArgs) {
-        staleArgs.push(_meshDraws.drawArgs, _meshPreprocess.counts);
+        staleArgs = _meshDraws.drawArgs;
+        staleCounts = _meshPreprocess.counts;
         _meshDraws.drawArgs = world.gpu.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
             .$usage("storage", "indirect")
@@ -542,9 +560,12 @@ function syncBuffers(world: World): void {
     if (changedMeshes || replaceArgs || growKeys) registerDraws(world);
     _meshPreprocess.meshVersion = meshes.version;
 
-    const stale = [...staleArgs, stalePacked, staleTransparentEids, staleBounds];
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
-    for (const buffer of stale) buffer?.destroy();
+    staleArgs?.destroy();
+    staleCounts?.destroy();
+    stalePacked?.destroy();
+    staleTransparentEids?.destroy();
+    staleBounds?.destroy();
     staleTransparentArgs?.destroy();
 }
 
@@ -582,53 +603,113 @@ function writeMeshBounds(world: World, device: GPUDevice): void {
     const _meshes = world.resource(Meshes);
 
     const buffer = _meshPreprocess.meshBounds!;
-    const data = new Float32Array(_meshPreprocess.meshCount * 4);
-    for (const [handle, mesh] of _meshes.entries()) {
+    if (_meshPreprocess.boundsData.length < _meshPreprocess.meshCount * 4)
+        _meshPreprocess.boundsData = new Float32Array(
+            Math.max(_meshPreprocess.meshCount * 4, _meshPreprocess.boundsData.length * 2),
+        );
+    const data = _meshPreprocess.boundsData;
+    data.fill(0);
+    for (let handle = 0; handle < _meshPreprocess.meshCount; handle++) {
+        const mesh = _meshes.get(handle as MeshHandle);
+        if (!mesh) continue;
         if (mesh.bounds) data.set(mesh.bounds, handle * 4);
         else data[handle * 4 + 3] = 1e30; // never-cull sentinel
     }
-    device.queue.writeBuffer(world.gpu.root.unwrap(buffer), 0, data as Float32Array<ArrayBuffer>);
+    device.queue.writeBuffer(
+        world.gpu.root.unwrap(buffer),
+        0,
+        data,
+        0,
+        _meshPreprocess.meshCount * 4,
+    );
 }
 
-type DrawRecord = {
-    indexCount: number;
-    instanceCount: number;
-    firstIndex: number;
-    baseVertex: number;
-    firstInstance: number;
-};
+type DrawSlot = { draw: Draw; active: boolean; seen: boolean };
+
+function publishDraw(
+    world: World,
+    table: number,
+    type: number,
+    alpha: number,
+    handle: number,
+    pair: number,
+    indirect: DrawBuffer,
+): void {
+    const state = world.resource(meshPreprocessKey);
+    const owner = (table * state.materialTypeCount + type) * ALPHA_PIPELINE_KEY_COUNT + alpha;
+    let lookup = state.drawLookup[owner];
+    if (!lookup) state.drawLookup[owner] = lookup = [];
+    let slot = lookup[handle];
+    const producers = world.resource(producerTables);
+    if (!slot) {
+        const name =
+            table === 0
+                ? `mesh:material:${world.resource(MaterialTypes).types[type]!.name}:${alpha}:${handle}`
+                : `producer:${producers.tables[table - 1]!.table.name}:${type}:${alpha}:${handle}`;
+        slot = {
+            draw: {
+                name,
+                materialType: type,
+                alphaPipelineKey: alpha,
+                mesh: handle as MeshHandle,
+                args: { indirect, offset: 0, viewStride: 0 },
+            },
+            active: false,
+            seen: false,
+        };
+        lookup[handle] = slot;
+        state.drawSlots.push(slot);
+    }
+    if (slot.seen) return;
+    slot.seen = true;
+    const draw = slot.draw;
+    draw.args.indirect = indirect;
+    draw.args.offset = pair * DRAW_ARG_STRIDE;
+    draw.args.viewStride = state.pairCount * DRAW_ARG_STRIDE;
+    const mesh = world.resource(Meshes).get(handle as MeshHandle)!;
+    const offset = pair * 5;
+    state.drawData[offset] = mesh.indexCount;
+    state.drawData[offset + 2] = mesh.indexBase;
+    if (!slot.active) {
+        world.resource(Draws).register(draw);
+        if (table !== 0) producers.draws.set(draw.name, producers.tables[table - 1]!.table);
+        slot.active = true;
+    }
+}
 
 /**
  * Publishes (material type, alpha pipeline key, mesh) draw pairs for keys each type's rows have held.
- * Returns byte offsets and static indirect records for one view slot; the caller uploads them to
- * every slot. Device-free with explicit registries so ordering checks can exercise this same path. @internal
+ * Reuses one CPU record per pair and publishes the current slot image. @internal
  */
 export function publishMeshInstanceDraws(
     world: World,
     drawArgs: DrawBuffer,
     pairCount: number,
-    registries: {
-        materialTypes: readonly (MaterialType | undefined)[];
-        sources: readonly ({ readonly alphaKeys: number } | undefined)[];
-        meshes: ReturnType<typeof Meshes.create>;
-        draws: Registry<Draw>;
-    } = {
-        materialTypes: world.resource(MaterialTypes).types,
-        sources: world.resource(MaterialTypes).sources,
-        meshes: world.resource(Meshes),
-        draws: world.resource(Draws),
-    },
-): { offset: number; args: DrawRecord }[] {
-    const { materialTypes, sources, meshes, draws } = registries;
-    const invalidPairs = world.resource(meshPreprocessKey).invalidPairs;
-    invalidPairs.clear();
-    const published = world.resource(meshPreprocessKey).publishedDraws;
-    for (const name of published) draws.delete(name);
-    published.clear();
-    const writes: { offset: number; args: DrawRecord }[] = [];
-    const viewStride = pairCount * DRAW_ARG_STRIDE;
-    for (const [materialType, definition] of materialTypes.entries()) {
+): void {
+    const { types: materialTypes, sources } = world.resource(MaterialTypes);
+    const meshes = world.resource(Meshes);
+    const state = world.resource(meshPreprocessKey);
+    const invalidPairs = state.invalidPairs;
+    for (let materialType = 0; materialType < materialTypes.length; materialType++) {
+        const definition = materialTypes[materialType];
         if (!definition) continue;
+        let known = state.pairingMeshes[materialType];
+        if (!known) state.pairingMeshes[materialType] = known = [];
+        let rejected = invalidPairs.get(materialType);
+        for (let handle = 0; handle < state.meshCount; handle++) {
+            const mesh = meshes.get(handle as MeshHandle);
+            if (known[handle] === mesh) continue;
+            known[handle] = mesh;
+            const cause = mesh ? materialAttributeError(mesh, definition) : null;
+            if (cause) {
+                if (!rejected) invalidPairs.set(materialType, (rejected = new Map()));
+                rejected.set(handle, {
+                    name: `mesh:material:${definition.name}:${mesh!.name}:${handle}`,
+                    cause,
+                });
+                state.recheckInstances = true;
+            } else rejected?.delete(handle);
+        }
         const alphaKeys = sources[materialType]?.alphaKeys ?? 0;
         for (
             let alphaPipelineKey = 0;
@@ -637,60 +718,27 @@ export function publishMeshInstanceDraws(
         ) {
             // a key no row has held has no instance; its records stay unwritten and undrawn
             if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
-            for (const [handle, m] of meshes.entries()) {
-                const cause = materialAttributeError(m, definition);
-                if (cause) {
-                    let rejected = invalidPairs.get(materialType);
-                    if (!rejected) invalidPairs.set(materialType, (rejected = new Map()));
-                    rejected.set(handle, {
-                        name: `mesh:material:${definition.name}:${m.name}:${handle}`,
-                        cause,
-                    });
-                    continue;
-                }
+            for (let handle = 0; handle < world.resource(meshPreprocessKey).meshCount; handle++) {
+                const m = meshes.get(handle as MeshHandle);
+                if (!m) continue;
+                if (rejected?.has(handle)) continue;
                 const pair =
                     (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) *
                         (pairCount / (materialTypes.length * ALPHA_PIPELINE_KEY_COUNT)) +
                     handle;
-                const offset = pair * DRAW_ARG_STRIDE;
-                // Indices are absolute vertex positions, so baseVertex remains zero.
-                const args = {
-                    indexCount: m.indexCount,
-                    instanceCount: 0,
-                    firstIndex: m.indexBase,
-                    baseVertex: 0,
-                    firstInstance: 0,
-                };
-                writes.push({ offset, args });
-                const name = `mesh:material:${definition.name}:${alphaPipelineKey}:${m.name}:${handle}`;
-                published.add(name);
-                draws.register({
-                    name,
-                    materialType,
-                    alphaPipelineKey,
-                    mesh: handle,
-                    args: { indirect: drawArgs, offset, viewStride },
-                });
+                publishDraw(world, 0, materialType, alphaPipelineKey, handle, pair, drawArgs);
             }
         }
     }
-    return writes;
 }
 
-function publishProducerDraws(
-    world: World,
-    writes: { offset: number; args: DrawRecord }[],
-    basePairs: number,
-    viewStride: number,
-): void {
+function publishProducerDraws(world: World, basePairs: number): void {
     const state = world.resource(meshPreprocessKey);
     const producers = world.resource(producerTables);
-    producers.draws.clear();
     const types = world.resource(MaterialTypes).types;
     const meshes = world.resource(Meshes);
     for (let tableIndex = 0; tableIndex < producers.tables.length; tableIndex++) {
         const entry = producers.tables[tableIndex]!;
-        const pairs = new Set<number>();
         for (const material of entry.materials) {
             const definition = types[material.type];
             if (!definition) continue;
@@ -702,29 +750,15 @@ function publishProducerDraws(
                     (tableIndex + 1) * basePairs +
                     (material.type * ALPHA_PIPELINE_KEY_COUNT + alphaKey) * state.meshCount +
                     handle;
-                if (pairs.has(pair)) continue;
-                pairs.add(pair);
-                const offset = pair * DRAW_ARG_STRIDE;
-                const name = `producer:${entry.table.name}:${material.type}:${alphaKey}:${handle}`;
-                writes.push({
-                    offset,
-                    args: {
-                        indexCount: mesh.indexCount,
-                        instanceCount: 0,
-                        firstIndex: mesh.indexBase,
-                        baseVertex: 0,
-                        firstInstance: 0,
-                    },
-                });
-                state.publishedDraws.add(name);
-                producers.draws.set(name, entry.table);
-                world.resource(Draws).register({
-                    name,
-                    materialType: material.type,
-                    alphaPipelineKey: alphaKey,
-                    mesh: handle,
-                    args: { indirect: state.meshDraws.drawArgs!, offset, viewStride },
-                });
+                publishDraw(
+                    world,
+                    tableIndex + 1,
+                    material.type,
+                    alphaKey,
+                    handle,
+                    pair,
+                    state.meshDraws.drawArgs!,
+                );
             }
         }
     }
@@ -767,27 +801,35 @@ function registerDraws(world: World): void {
 
     if (!world.gpu.device || !_meshDraws.drawArgs || _meshPreprocess.pairCount === 0) return;
     const viewStride = _meshPreprocess.pairCount * DRAW_ARG_STRIDE;
-    // one slot's records packed once, then one write per view slot rather than one per record
-    const slot = new Uint8Array(viewStride);
-    const record = new ArrayBuffer(DRAW_ARG_STRIDE);
-    const recordBytes = new Uint8Array(record);
+    // One slot image is retained across membership changes; absent pairs are zero records.
+    if (_meshPreprocess.drawData.byteLength < viewStride)
+        _meshPreprocess.drawData = new Uint32Array(
+            Math.max(viewStride / 4, _meshPreprocess.drawData.length * 2),
+        );
+    const slot = _meshPreprocess.drawData;
+    slot.fill(0);
+    for (let i = 0; i < _meshPreprocess.drawSlots.length; i++)
+        _meshPreprocess.drawSlots[i]!.seen = false;
     const basePairs =
         _meshPreprocess.materialTypeCount * ALPHA_PIPELINE_KEY_COUNT * _meshPreprocess.meshCount;
-    const writes = publishMeshInstanceDraws(world, _meshDraws.drawArgs, basePairs);
-    // Every draw uses the combined slot stride, including entity draws in table zero.
-    for (const name of _meshPreprocess.publishedDraws)
-        world.resource(Draws).get(name)!.args.viewStride = viewStride;
-    publishProducerDraws(world, writes, basePairs, viewStride);
-    for (const { offset, args } of writes) {
-        writeToArrayBuffer(record, DrawIndexedIndirect, args);
-        slot.set(recordBytes, offset);
+    _meshPreprocess.recheckInstances = false;
+    publishMeshInstanceDraws(world, _meshDraws.drawArgs, basePairs);
+    publishProducerDraws(world, basePairs);
+    for (let i = 0; i < _meshPreprocess.drawSlots.length; i++) {
+        const entry = _meshPreprocess.drawSlots[i]!;
+        if (entry.active && !entry.seen) {
+            world.resource(Draws).delete(entry.draw.name);
+            const producers = world.resource(producerTables).draws;
+            if (producers.has(entry.draw.name)) producers.set(entry.draw.name, null);
+            entry.active = false;
+        }
     }
     // A new rejection can affect unchanged instances; ordinary frames check only marked pairings.
-    if (_meshPreprocess.invalidPairs.size !== 0)
+    if (_meshPreprocess.recheckInstances)
         for (const eid of world.query(MESH_INSTANCES)) warnInvalidInstance(world, eid);
     const target = world.gpu.root.unwrap(_meshDraws.drawArgs);
     for (let view = 0; view < _meshPreprocess.viewDim; view++)
-        world.gpu.device.queue.writeBuffer(target, view * viewStride, slot);
+        world.gpu.device.queue.writeBuffer(target, view * viewStride, slot, 0, viewStride / 4);
     const sources = world.resource(MaterialTypes).sources;
     for (let type = 0; type < _meshPreprocess.alphaKeys.length; type++)
         _meshPreprocess.alphaKeys[type] = sources[type]?.alphaKeys ?? 0;

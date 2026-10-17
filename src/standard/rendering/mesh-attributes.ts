@@ -6,7 +6,8 @@ export function materialAttributeError(
     mesh: Mesh,
     material: MaterialType<any, any, any>,
 ): string | null {
-    for (const [name, element] of Object.entries(material.layout.attributes)) {
+    for (const name in material.layout.attributes) {
+        const element = material.layout.attributes[name]!;
         const stream = mesh.attributes?.[name];
         if (!stream || !d.deepEqual(stream.dataType.elementType, element))
             return `mesh "${mesh.name}" ${stream ? "has a different schema for" : "has no"} attribute "${name}" that material type "${material.name}" reads`;

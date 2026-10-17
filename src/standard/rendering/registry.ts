@@ -59,9 +59,82 @@ export function validateDrawIndirect(buffer: DrawIndirectBuffer): void {
 }
 
 class DrawRegistry extends Registry<Draw> {
+    private _active: boolean[] = [];
+    private _next: number[] = [];
+    private _previous: number[] = [];
+    private _head = -1;
+    private _tail = -1;
+    private _count = 0;
+
     override register(spec: Draw): number {
         validateDrawIndirect(spec.args.indirect);
-        return super.register(spec);
+        // Reserved names retain their Map slots, including while the draw is absent.
+        const id = super.register(spec);
+        if (!this._active[id]) {
+            this._active[id] = true;
+            this._previous[id] = this._tail;
+            this._next[id] = -1;
+            if (this._tail < 0) this._head = id;
+            else this._next[this._tail] = id;
+            this._tail = id;
+            this._count++;
+        }
+        return id;
+    }
+
+    override delete(name: string): boolean {
+        const id = this.id(name);
+        if (id === undefined || !this._active[id]) return false;
+        const previous = this._previous[id]!;
+        const next = this._next[id]!;
+        if (previous < 0) this._head = next;
+        else this._next[previous] = next;
+        if (next < 0) this._tail = previous;
+        else this._previous[next] = previous;
+        this._active[id] = false;
+        this._count--;
+        return true;
+    }
+
+    override get(name: string): Draw | undefined {
+        return this.has(name) ? super.get(name) : undefined;
+    }
+
+    override has(name: string): boolean {
+        const id = this.id(name);
+        return id !== undefined && this._active[id] === true;
+    }
+
+    override get size(): number {
+        return this._count;
+    }
+
+    override forEach(callback: (value: Draw) => void): void {
+        for (let id = this._head; id >= 0; id = this._next[id]!)
+            callback(super.get(this.name(id)!)!);
+    }
+
+    override *values(): IterableIterator<Draw> {
+        for (let id = this._head; id >= 0; id = this._next[id]!) yield super.get(this.name(id)!)!;
+    }
+
+    override snapshot(): ReturnType<Registry<Draw>["snapshot"]> {
+        const names: string[] = [];
+        for (let id = 0; this.name(id) !== undefined; id++) names.push(this.name(id)!);
+        return { names, values: new Map([...this.values()].map((draw) => [draw.name, draw])) };
+    }
+
+    override restore(state: ReturnType<Registry<Draw>["snapshot"]>): void {
+        this.clear();
+        super.restore({ names: state.names, values: new Map() });
+        for (const draw of state.values.values()) this.register(draw);
+    }
+
+    override clear(): void {
+        super.clear();
+        this._active.length = this._next.length = this._previous.length = 0;
+        this._head = this._tail = -1;
+        this._count = 0;
     }
 }
 

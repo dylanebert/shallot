@@ -62,7 +62,7 @@ export function subjectSite(frame, map, base, fallback, root = process.cwd(), pa
  */
 
 /**
- * Collect and, for a subject that opts in, drain one unprofiled step before allocation sampling.
+ * Collect and, for a subject that opts in, rewarm and drain before allocation sampling.
  * @param {{ step(): void, wait?: () => Promise<void>, warmSamplingSessions?: boolean, samplingWarmFrames?: number }} subject
  * @param {() => void} collect
  */
