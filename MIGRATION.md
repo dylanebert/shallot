@@ -20,6 +20,10 @@ Arrows now have one filled triangle rather than four fins. The final `drawArrow`
 
 Replace `Arrow.size` and the relative size argument of `drawArrow` with a world-unit `tipLength`, the sixth argument. Omitting it chooses a tenth of the shaft length; negative values select that default and zero omits the head. For retained arrows, lengths and normals are authored in the asset's local space and follow its transform. To replace `Arrow.start`, draw an arrow with reversed endpoints; use `drawLine` instead when neither endpoint has a head. Immediate calls still take the World and default to width `1`.
 
+## Outline colour
+
+`Outline.color` is now a `0xRRGGBB` sRGB number instead of a linear RGBA array, whose alpha was unused. Convert linear RGB to sRGB bytes: the old default `[1, 0.85, 0.2, 1]` is `0xffed7c`.
+
 ## Font and image identity
 
 Remove the name argument from font and image registration: repeated URLs return the same id, different URLs return different ids, and each Blob registration returns a new id distinct from every URL. `Text.font` 0 always selects the bundled default face, even when other fonts are registered.
@@ -305,8 +309,6 @@ const material: SurfaceMaterial = { ...base, tangentVelocity: [1, 0, 0] };
 
 ## Glaze becomes camera grading and effect passes
 
-`Outline.color` and `Vignette.color` take a `0xRRGGBB` sRGB number, not an RGBA array. Convert old linear outline RGB to sRGB bytes; vignette RGB was already sRGB. Alpha was unused by both. The outline default is `0xffed7c`; the vignette default is `0x000000`.
-
 Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/glaze` imports. `CorePipelinePlugin` presents views and registers `Tonemapping` and `ColorGrading`, exported from `/rendering` and the root. Default plugins already include it. Add `VignettePlugin` from `/vignette` (or the root) for cameras carrying `Vignette`.
 
 | Glaze field | Replacement |
@@ -508,7 +510,7 @@ In v0.10, authored light values use photometric units and a directional light sh
 | Root `Shadow.depthBias`, `.normalBias` | `depthBias` and `shadowNormalBias`; normal bias remains measured in shadow texels, but `depthBias` is now a world-space receiver offset toward the light. Re-author it in world units. |
 | `/src/standard/sear/shadows` `SHADOW_DEFAULTS` | Removed. Per-light shadow requests default off; Bevy's directional defaults apply, including `shadowNormalBias: 1.8` and `maximumDistance: 150`. |
 | Root `Volumetric` | `VolumetricLight`, still a marker; every marked point, spot and directional light contributes fog in-scatter. |
-| Sky brightness | `Sky.brightness` scales the complete sky, including `SunDisk` disks and glow, in cd/m² before the camera's `Exposure` is applied. To preserve an existing sky's appearance at EV100 `ev100`, set `brightness: 1.2 * 2 ** ev100`. The default preserves the look at the default EV100 of 9.7. |
+| `Sky` colors | `Sky.brightness` scales the complete sky, including `SunDisk` disks and glow, in cd/m² before the camera's `Exposure` is applied. To preserve an existing sky's appearance at EV100 `ev100`, set `brightness: 1.2 * 2 ** ev100`. The default preserves the look at the default EV100 of 9.7. |
 | `Sky.sunSize`, `Sky.sunGlow` | Add `SunDisk` to each directional light whose disk should be drawn. To preserve the old disk diameter, set `angularSize` to `2 * Math.acos(1 - 0.0005 * oldSunSize)` radians; copy `sunGlow` to `glow`, the Shallot extension to Bevy's `SunDisk`. The default `angularSize` is Bevy's `EARTH` solar size. |
 | `Sky.sunColor` | Removed: a disk takes its directional light's `color`. `SunDisk.intensity` controls only its visual brightness, not illumination or shadows. |
 | Root `SunShadows.cascades` | `DirectionalLight.numCascades`, default `4`, clamped to `MAX_CASCADES`. |
