@@ -32,6 +32,7 @@ import * as d from "typegpu/data";
 import { TerrainMaterial, TerrainMaterialPlugin } from "./material";
 import { mesher } from "./mesher";
 import { type Geometry, pool } from "./pool";
+import { scatter } from "./scatter";
 import {
     CONFIG,
     chunks,
@@ -58,6 +59,10 @@ export const Terrain: Resource<{
     turnovers: number;
     slots: Slot[];
     counts: GPUBuffer | null;
+    details: GPUBuffer | null;
+    detailCounts: GPUBuffer | null;
+    scatterPipeline: GPUComputePipeline | null;
+    scatterGroups: GPUBindGroup[];
     pipeline: GPUComputePipeline | null;
     emitPass: GPUComputePassDescriptor;
 }> = {
@@ -67,6 +72,10 @@ export const Terrain: Resource<{
         turnovers: 0,
         slots: [],
         counts: null,
+        details: null,
+        detailCounts: null,
+        scatterPipeline: null,
+        scatterGroups: [],
         pipeline: null,
         emitPass: { label: "voxel:emit" },
     }),
@@ -157,13 +166,39 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
             world.own(q);
-            const { emit, quantData } = mesher(config);
+            s.detailCounts = device.createBuffer({
+                size: slotCount(config) * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+            });
+            s.details = device.createBuffer({
+                size: slotCount(config) * size * size * 8,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+            });
+            world.own(s.detailCounts);
+            world.own(s.details);
+            const { emit, quantData, height } = mesher(config);
+            s.scatterPipeline = root.unwrap(
+                root
+                    .createComputePipeline({ compute: scatter(config, height) })
+                    .$name("voxel:scatter"),
+            );
             device.queue.writeBuffer(q, 0, quantData);
             const quant = root.createBuffer(d.arrayOf(MeshQuant, 1), q).$usage("storage");
             s.pipeline = root.unwrap(
                 root.createComputePipeline({ compute: emit }).$name("voxel:emit"),
             );
             const geometries = pool(world, config, s.counts, quant, s.pipeline, slotCount(config));
+            s.scatterGroups = geometries.map((geometry) =>
+                device.createBindGroup({
+                    layout: s.scatterPipeline!.getBindGroupLayout(0),
+                    entries: [s.details!, s.detailCounts!, geometry.uniform].map(
+                        (buffer, binding) => ({
+                            binding,
+                            resource: { buffer },
+                        }),
+                    ),
+                }),
+            );
             const { inner, outer } = radii(config);
             const material = world
                 .resource(TerrainMaterial)
@@ -245,6 +280,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                         if (!slot.dirty) continue;
                         const geometry = slot.geometry!;
                         world.gpu.device.queue.writeBuffer(s.counts!, i * 4, ZERO);
+                        world.gpu.device.queue.writeBuffer(s.detailCounts!, i * 4, ZERO);
                         geometry.input[0] = slot.x;
                         geometry.input[1] = slot.z;
                         geometry.input[2] = i;
@@ -257,6 +293,9 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                         pass.setPipeline(s.pipeline!);
                         pass.setBindGroup(0, geometry.group);
                         pass.dispatchWorkgroups(size / 4, size / 4);
+                        pass.setPipeline(s.scatterPipeline!);
+                        pass.setBindGroup(0, s.scatterGroups[i]);
+                        pass.dispatchWorkgroups(Math.ceil(size / 4), Math.ceil(size / 4));
                         slot.dirty = false;
                     }
                     pass?.end();

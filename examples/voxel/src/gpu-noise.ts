@@ -1,7 +1,19 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { SEED } from "./terrain-data";
+import { SEED, type TerrainConfig } from "./terrain-data";
+
+export function heightfield(config: TerrainConfig) {
+    const Height = config.height;
+    const Relief = config.relief;
+    return tgpu.fn(
+        [d.i32, d.i32],
+        d.i32,
+    )((x, z) => {
+        "use gpu";
+        return d.i32(std.floor(Height / 2 + Relief * perlin(x, z)));
+    });
+}
 
 const hash = tgpu.fn(
     [d.i32, d.i32],

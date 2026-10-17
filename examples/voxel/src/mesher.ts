@@ -3,7 +3,7 @@ import { octEncodeNormal } from "@dylanebert/shallot/utils";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { perlin } from "./gpu-noise";
+import { heightfield } from "./gpu-noise";
 import { capacity, type TerrainConfig } from "./terrain-data";
 
 const layout = tgpu.bindGroupLayout({
@@ -21,14 +21,7 @@ export function mesher(config: TerrainConfig) {
     const Capacity = capacity(config);
     const fullCapacity = capacity(config, true);
     const Height = config.height;
-    const Relief = config.relief;
-    const height = tgpu.fn(
-        [d.i32, d.i32],
-        d.i32,
-    )((x, z) => {
-        "use gpu";
-        return d.i32(std.floor(Height / 2 + Relief * perlin(x, z)));
-    });
+    const height = heightfield(config);
     const quantData = new Float32Array([0, 0, 0, 0, Chunk, Height, Chunk, 0, 1, 1, 0, 0]);
     const quant: d.Infer<typeof MeshQuant> = {
         posOffset: d.vec4f(0),
@@ -119,5 +112,5 @@ export function mesher(config: TerrainConfig) {
             },
         )
         .$name("voxel:emit");
-    return { emit, quantData };
+    return { emit, quantData, height };
 }

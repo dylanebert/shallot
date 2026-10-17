@@ -11,7 +11,8 @@ import { Orbit } from "@dylanebert/shallot/extras";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
-import { faces } from "./noise";
+import { columnHash, detailCount, detailKind } from "./detail";
+import { faces, height } from "./noise";
 import { Terrain, terrainPlugin } from "./terrain";
 import { inRing, slotCount, type TerrainConfig } from "./terrain-data";
 
@@ -62,6 +63,8 @@ async function countsMatch() {
     const world = app.world,
         s = world.resource(Terrain);
     const counts = new Uint32Array((await probeBuffer(world, s.counts!)).bytes);
+    const detailCounts = new Uint32Array((await probeBuffer(world, s.detailCounts!)).bytes);
+    const details = new Uint32Array((await probeBuffer(world, s.details!)).bytes);
     expect(s.slots).toHaveLength(slotCount(config));
     // MeshPlugin's built-in cube is registered even when no entity draws it.
     expect(world.resource(Meshes).size).toBe(s.slots.length + 1);
@@ -70,6 +73,28 @@ async function countsMatch() {
         expect(slot.geometry!.allFaces).toBe(inRing(slot.x, slot.z, s.viewer, config));
         expect(counts[i] / 6).toBe(faces(slot.x, slot.z, config, slot.geometry!.allFaces));
         expect(counts[i]).toBeLessThan(slot.geometry!.mesh.indexCount);
+        expect(detailCounts[i]).toBe(detailCount(slot.x, slot.z, config));
+        const expected: string[] = [];
+        for (let z = 0; z < config.chunkSize; z++) {
+            for (let x = 0; x < config.chunkSize; x++) {
+                const wx = slot.x * config.chunkSize + x;
+                const wz = slot.z * config.chunkSize + z;
+                const kind = detailKind(wx, wz, config);
+                if (kind)
+                    expected.push(
+                        `${x},${height(wx, wz, config)},${z},${kind},${columnHash(wx, wz)}`,
+                    );
+            }
+        }
+        const actual: string[] = [];
+        for (let j = 0; j < detailCounts[i]; j++) {
+            const offset = (i * config.chunkSize ** 2 + j) * 2;
+            const packed = details[offset];
+            actual.push(
+                `${packed & 255},${(packed >>> 8) & 255},${(packed >>> 16) & 255},${packed >>> 24},${details[offset + 1]}`,
+            );
+        }
+        expect(actual.sort()).toEqual(expected.sort());
     }
 }
 
