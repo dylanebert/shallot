@@ -2,6 +2,8 @@
 
 ## 0.10.0
 
+Entity ids reserve `0xFFFFFFFF` as the invalid id. Allocation refuses when the u32 id range is exhausted; restoring an allocator image refuses a next id beyond that value or a live invalid id.
+
 `registerProducerTable` in `/standard/rendering` (also at the root) registers World-owned GPU placement and mesh-instance columns with a GPU-written count. Standard culls and draws those rows beside entities, including shadows, without readback. Materials are opaque, masked or alpha-to-coverage; blended materials are refused because transparent sorting is on the CPU. Material shaders read a producer row's table-local index as `eid`. CPU picking, interpolation and snapshots do not include producer rows.
 
 `openGpuApp` from `@dylanebert/shallot/testing/gpu` installs WebGPU globals and opens a check's app while owning the adapter notice.

@@ -1,4 +1,7 @@
+/** World-local entity id; 0xFFFFFFFF is reserved as the invalid id. */
 export type Entity = number;
+
+const INVALID_ID = 0xffffffff;
 
 /**
  * A safe-integer reference that survives frames and storage growth, not destruction or
@@ -24,6 +27,8 @@ export class Entities {
     private _freeCount = 0;
 
     add(): Entity {
+        if (this._freeCount === 0 && this._nextId >= INVALID_ID)
+            throw new RangeError("Entity id range is exhausted; 0xFFFFFFFF is the invalid id");
         const eid = this._freeCount > 0 ? this._freelist[--this._freeCount] : this._nextId++;
         this._sparse[eid] = this._count;
         this._dense[this._count++] = eid;
@@ -54,6 +59,10 @@ export class Entities {
 
     /** @internal Restore identity and subsequent allocation; wrap warnings remain host diagnostics. */
     restore(state: ReturnType<Entities["snapshot"]>): void {
+        if (state.nextId > INVALID_ID || state.dense.slice(0, state.count).includes(INVALID_ID))
+            throw new RangeError(
+                "Entity restore: id range exceeded or 0xFFFFFFFF invalid id is live",
+            );
         this._dense = state.dense.slice();
         this._sparse = state.sparse.slice();
         this._generation = state.generation.slice();
