@@ -419,7 +419,7 @@ function syncBuffers(world: World): void {
     const growMesh = meshCount > _meshPreprocess.meshCount;
     const growView = viewCount > _meshPreprocess.viewDim;
     const growRows = rowCapacity > _meshPreprocess.rowCapacity;
-    const growKeys = syncAlphaKeys(world);
+    const growKeys = alphaKeysChanged(world);
     if (changedMeshes || growMesh || growView || growKeys) {
         const meshDim = Math.max(_meshPreprocess.meshCount, meshCount);
         const viewDim = growView
@@ -512,18 +512,12 @@ function syncBuffers(world: World): void {
     staleTransparentArgs?.destroy();
 }
 
-function syncAlphaKeys(world: World): boolean {
+function alphaKeysChanged(world: World): boolean {
     const known = world.resource(meshPreprocessKey).alphaKeys;
     const sources = world.resource(MaterialTypes).sources;
-    let grew = false;
-    for (let type = 0; type < known.length; type++) {
-        const keys = sources[type]?.alphaKeys ?? 0;
-        if (keys !== known[type]) {
-            known[type] = keys;
-            grew = true;
-        }
-    }
-    return grew;
+    for (let type = 0; type < known.length; type++)
+        if ((sources[type]?.alphaKeys ?? 0) !== known[type]) return true;
+    return false;
 }
 
 /**
@@ -687,6 +681,9 @@ function registerDraws(world: World): void {
     const target = world.gpu.root.unwrap(_meshDraws.drawArgs);
     for (let view = 0; view < _meshPreprocess.viewDim; view++)
         world.gpu.device.queue.writeBuffer(target, view * viewStride, slot);
+    const sources = world.resource(MaterialTypes).sources;
+    for (let type = 0; type < _meshPreprocess.alphaKeys.length; type++)
+        _meshPreprocess.alphaKeys[type] = sources[type]?.alphaKeys ?? 0;
 }
 
 export function initMeshPreprocess(world: World): void {

@@ -3,12 +3,20 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { Meshes } from "../../core/mesh";
 import { meshResourcesKey } from "../../core/mesh/mesh";
-import { Draws, MeshRenderPlugin, StandardRenderingPlugin } from "./index";
+import {
+    AlphaMode,
+    Draws,
+    Materials,
+    MeshRenderPlugin,
+    StandardMaterial,
+    StandardRenderingPlugin,
+} from "./index";
+import { AlphaPipelineKey } from "./material-type";
 import { MeshDrawBuffers } from "./preprocess";
 
 setDefaultTimeout(TIMEOUT.node);
 const config = { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] };
-const subjects = gpuApps(import.meta.path, [config, config, config, config]);
+const subjects = gpuApps(import.meta.path, [config, config, config, config, config, config]);
 function setup(index: number, count = 1) {
     const { world } = subjects()[index]!;
     const meshes = world.resource(Meshes);
@@ -118,6 +126,64 @@ test("invalid count sources are refused before handle, membership or version cha
         "indirectIndexCount",
     );
     expect([registry.size, registry.capacity, registry.version]).toEqual(before);
+});
+test("failed draw publication does not consume a new alpha key before its record upload succeeds", async () => {
+    const s = setup(5);
+    const handle = s.handles[0]!;
+    s.meshes.remove(handle);
+    s.meshes.add({ ...s.spec, indexBase: 6 });
+    s.world.step(0);
+    s.world.resource(Materials).add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
+    const queue = s.world.gpu.device.queue,
+        write = queue.writeBuffer.bind(queue);
+    let failures = 0;
+    queue.writeBuffer = (...args) => {
+        if (args[0].label === "shallot-draw-args") {
+            failures++;
+            throw new Error("injected draw upload failure");
+        }
+        write(...args);
+    };
+    try {
+        expect(() => s.world.step(0)).toThrow("injected draw upload failure");
+    } finally {
+        queue.writeBuffer = write;
+    }
+    expect(failures).toBe(1);
+    s.world.step(0);
+    const draw = [...s.world.resource(Draws)].find(
+        (d) => d.mesh === handle && d.alphaPipelineKey === AlphaPipelineKey.Blend,
+    )!;
+    const args = (await draw.args.indirect.read()) as { firstIndex: number }[];
+    expect(args[draw.args.offset! / 20]!.firstIndex).toBe(6);
+});
+test("a failed existing count-table upload retries the new count instead of trusting its comparison image", async () => {
+    const s = setup(4);
+    const handle = s.handles[0]!;
+    s.meshes.remove(handle);
+    expect(s.meshes.add({ ...s.spec, indirectIndexCount: { buffer: s.buffer, offset: 4 } })).toBe(
+        handle,
+    );
+    const queue = s.world.gpu.device.queue,
+        write = queue.writeBuffer.bind(queue);
+    let failures = 0;
+    queue.writeBuffer = (...args) => {
+        if (args[0].label === "shallot-mesh-count-rows") {
+            failures++;
+            throw new Error("injected count upload failure");
+        }
+        write(...args);
+    };
+    try {
+        expect(() => s.world.step(0)).toThrow("injected count upload failure");
+    } finally {
+        queue.writeBuffer = write;
+    }
+    expect(failures).toBe(1);
+    s.world.step(0);
+    const draw = [...s.world.resource(Draws)].find((d) => d.mesh === handle)!;
+    const args = (await draw.args.indirect.read()) as { indexCount: number }[];
+    expect(args[draw.args.offset! / 20]!.indexCount).toBe(9);
 });
 test("a failed count binding rebuild retries the unconsumed membership on the next frame", async () => {
     const s = setup(3);

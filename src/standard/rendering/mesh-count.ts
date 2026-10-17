@@ -41,6 +41,7 @@ type Source = {
     group: GPUBindGroup;
     staging: Uint32Array;
     count: number;
+    dirty: boolean;
 };
 const key = {
     create: () => ({
@@ -95,7 +96,14 @@ export function rebuildMeshCounts(
                             { binding: 1, resource: { buffer: table } },
                         ],
                     });
-                    entry = { buffer, table, group, staging: new Uint32Array(capacity), count: 0 };
+                    entry = {
+                        buffer,
+                        table,
+                        group,
+                        staging: new Uint32Array(capacity),
+                        count: 0,
+                        dirty: true,
+                    };
                 } catch (error) {
                     table.destroy();
                     throw error;
@@ -111,19 +119,28 @@ export function rebuildMeshCounts(
         for (const item of prepared) if (item.entry !== item.previous) item.entry.table.destroy();
         throw error;
     }
-    const active: Source[] = [];
-    for (const { entry, data, previous } of prepared) {
-        let changed = entry.count !== data[3];
-        for (let i = 0; i < data.length; i++)
-            if (entry.staging[i] !== data[i]) {
-                entry.staging[i] = data[i]!;
-                changed = true;
+    try {
+        for (const { entry, data } of prepared) {
+            if (entry.count !== data[3]) entry.dirty = true;
+            for (let i = 0; i < data.length; i++)
+                if (entry.staging[i] !== data[i]) {
+                    entry.staging[i] = data[i]!;
+                    entry.dirty = true;
+                }
+            if (entry.dirty) {
+                world.gpu.device.queue.writeBuffer(entry.table, 0, entry.staging, 0, data.length);
+                entry.dirty = false;
             }
-        if (changed)
-            world.gpu.device.queue.writeBuffer(entry.table, 0, entry.staging, 0, data.length);
-        entry.count = data[3]!;
+            entry.count = data[3]!;
+        }
+    } catch (error) {
+        for (const item of prepared) if (item.entry !== item.previous) item.entry.table.destroy();
+        throw error;
+    }
+    const active: Source[] = [];
+    for (const { entry, previous } of prepared) {
         if (entry !== previous) {
-            previous?.table.destroy();
+            if (previous) world.retireGpuBuffer(previous.table);
             state.cache.set(entry.buffer, entry);
         }
         active.push(entry);
@@ -200,7 +217,7 @@ export function publishTransparentCounts(
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
         world.own(table);
-        state.table?.destroy();
+        if (state.table) world.retireGpuBuffer(state.table);
         state.table = table;
         state.staging = new Uint32Array(capacity);
         state.group = null;
