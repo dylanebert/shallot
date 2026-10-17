@@ -26,19 +26,23 @@ beforeAll(async () => {
 });
 afterAll(() => app?.dispose());
 
-test("orbit opens at the fixed terrain camera pose and stays put while terrain scrolls", () => {
+test("orbit opens around the terrain centre and stays put while terrain scrolls", () => {
     const world = app.world;
     const camera = world.resource(Terrain).camera;
     const span = (config.viewDistance * 2 + 1) * config.chunkSize;
-    const position = [span * 0.45, span * 0.1375, span * 0.6] as const;
-    const target = [-position[0], span * 0.0625, -position[2]] as const;
+    const position = [
+        span * 0.99 * Math.cos(0.75) * 0.6,
+        span * 0.99 * Math.sin(0.75),
+        span * 0.99 * Math.cos(0.75) * 0.8,
+    ] as const;
+    const target = [0, 0, 0] as const;
     const rotation = lookAtRotation(...position, ...target);
     const orbit = world.storage(Orbit);
     for (const [i, lane] of [orbit.pan.x, orbit.pan.y, orbit.pan.z].entries())
         expect(lane.get(camera)).toBeCloseTo(target[i], 5);
-    expect(orbit.distance.get(camera)).toBeCloseTo(span * Math.hypot(0.9, 0.075, 1.2), 4);
+    expect(orbit.distance.get(camera)).toBeCloseTo(span * 0.99, 4);
     expect(orbit.yaw.get(camera)).toBeCloseTo(Math.atan2(0.9, 1.2), 6);
-    expect(orbit.pitch.get(camera)).toBeCloseTo(Math.atan2(0.075, 1.5), 6);
+    expect(orbit.pitch.get(camera)).toBeCloseTo(0.75, 6);
     const assertPose = () => {
         const transform = world.storage(Transform);
         const { translation: t, rotation: r } = transform;

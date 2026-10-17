@@ -115,8 +115,6 @@ function place(world: World, config: TerrainConfig): void {
 export function terrainPlugin(config: TerrainConfig): Plugin {
     const size = config.chunkSize;
     const span = (config.viewDistance * 2 + 1) * size;
-    const camera = [span * 0.45, span * 0.1375, span * 0.6] as const;
-    const target = [-camera[0], span * 0.0625, -camera[2]] as const;
     return {
         name: "Terrain",
         gpu: {},
@@ -218,17 +216,10 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
             world.add(s.camera, StandardRenderer);
             world.add(s.camera, Transform);
             world.add(s.camera, Orbit, {
-                pan: target,
-                distance: Math.hypot(
-                    camera[0] - target[0],
-                    camera[1] - target[1],
-                    camera[2] - target[2],
-                ),
-                yaw: Math.atan2(camera[0] - target[0], camera[2] - target[2]),
-                pitch: Math.atan2(
-                    camera[1] - target[1],
-                    Math.hypot(camera[0] - target[0], camera[2] - target[2]),
-                ),
+                pan: [0, 0, 0],
+                distance: span * 0.99,
+                yaw: Math.atan2(0.9, 1.2),
+                pitch: 0.75,
                 maxDistance: span * 2,
                 flySpeed: size,
             });
