@@ -1,8 +1,9 @@
+import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { Meshes, createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight } from "../../src/index";
 import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
 import { ProfilePlugin } from "../../src/extras/profile";
-import { registerProducerTable, Materials, StandardMaterial } from "../../src/standard/rendering";
+import { BackgroundContext, backgroundLayout, CameraBackground, registerProducerTable, Materials, StandardMaterial, registerBackground } from "../../src/standard/rendering";
 import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
@@ -64,6 +65,22 @@ export default async function create(input = "", device?: GPUDevice) {
     world.add(camera, Transform); world.add(camera, Camera); world.add(camera, StandardRenderer);
     world.storage(Transform).translation.set(camera, 0, 0, 5);
     attachCanvas(world, camera, canvas);
+    if (input === "background") {
+        // A backdrop with a bound uniform takes forward's background path every frame, as the sky does.
+        const color = d.struct({ value: d.vec3f });
+        const layout = backgroundLayout({ color: { type: "uniform", struct: color } });
+        const bindings = { color: world.gpu.root.createBuffer(color, { value: d.vec3f(0.2, 0.4, 0.8) }).$usage("uniform") };
+        const background = registerBackground(world, {
+            name: "allocation-background",
+            layout,
+            fs: tgpu.fn([BackgroundContext], d.vec3f)(() => {
+                "use gpu";
+                return layout.$.color.value;
+            }),
+            bindings: () => bindings,
+        });
+        world.add(camera, CameraBackground, { background });
+    }
     const ambient = world.create(); world.add(ambient, AmbientLight);
     const light = world.create(); world.add(light, Transform); world.add(light, PointLight);
     const sun = world.create(); world.add(sun, Transform); world.add(sun, DirectionalLight);

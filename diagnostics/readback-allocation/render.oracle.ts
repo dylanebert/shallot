@@ -239,7 +239,7 @@ test("the sampler admits a wrapper only at its declaration position", () => {
     expect(attributeAt()?.boundary).toBeUndefined();
 });
 
-test.each(["render", "profile"])("steady %s allocates no JavaScript heap beyond source-checked GPU and fence wrappers", async (composition) => {
+async function steadyAllocation(composition: string) {
     // The first frame after each profiler-session idle gap is collected but unprofiled.
     // Session setup and post-idle work land together on it, so timing cannot separate them;
     // one bounded allocation per gap is not the per-frame allocation that drives GC hitches.
@@ -278,4 +278,11 @@ test.each(["render", "profile"])("steady %s allocates no JavaScript heap beyond 
         })),
     });
     if (failure) throw new Error(failure);
-});
+}
+
+test.each(["render", "profile"])("steady %s allocates no JavaScript heap beyond source-checked GPU and fence wrappers", steadyAllocation);
+
+// A camera background re-resolves its bindings every frame; voxel turnover's oracle names the same sites.
+test.todo("steady background allocates no JavaScript heap beyond source-checked GPU and fence wrappers", () =>
+    steadyAllocation("background"),
+);
