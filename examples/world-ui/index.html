@@ -11,7 +11,8 @@
 <body><canvas></canvas>
 <script type="module">
 import { runApp } from '@dylanebert/shallot';
-import { assets, DeliveryPlugin } from './src/delivery';
-await runApp({plugins:[DeliveryPlugin], setup:assets});
+import { assets } from './src/delivery';
+import { AppPlugin } from './src/app';
+await runApp({plugins:[AppPlugin], setup:assets});
 </script></body>
 </html>

@@ -20,10 +20,10 @@
         <script src="/startup.js"></script>
         <script type="module">
             import { runApp, shallotDark } from "@dylanebert/shallot";
-            import { CityPlugin } from "./src/city";
+            import { AppPlugin } from "./src/app";
 
             const bootstrap = document.querySelector("[data-shallot-bootstrap]");
-            await runApp({ plugins: [CityPlugin], loading: shallotDark({ bootstrap }) });
+            await runApp({ plugins: [AppPlugin], loading: shallotDark({ bootstrap }) });
         </script>
     </body>
 </html>

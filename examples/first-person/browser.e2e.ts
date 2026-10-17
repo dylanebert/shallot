@@ -12,6 +12,7 @@ type BrowserDeviceRecord = {
     info: Pick<GPUAdapterInfo, "vendor" | "architecture" | "device" | "description"> & {
         isFallbackAdapter?: boolean;
     };
+    timestampsAvailable: boolean;
     requestedFeatures: string[];
     requestedLimits: Record<string, number | undefined>;
     features: string[];
@@ -157,6 +158,7 @@ test("the preview serves its isolated page and presents its first frame", async 
                     description: info.description,
                     isFallbackAdapter: info.isFallbackAdapter,
                 },
+                timestampsAvailable: this.features.has("timestamp-query"),
                 requestedFeatures: [...(descriptor?.requiredFeatures ?? [])].sort(),
                 requestedLimits: { ...(descriptor?.requiredLimits ?? {}) },
                 features: [...device.features]
@@ -191,7 +193,10 @@ test("the preview serves its isolated page and presents its first frame", async 
     if (!device) throw new Error("first-person browser did not record its presenting device");
     expect(device.info).toHaveProperty("vendor");
     console.info(`First-person browser device: ${JSON.stringify(device)}`);
-    const floorFeatures = ["indirect-first-instance"];
+    const floorFeatures = [
+        "indirect-first-instance",
+        ...(device.timestampsAvailable ? ["timestamp-query"] : []),
+    ];
     expect(device.requestedFeatures).toEqual(floorFeatures);
     expect(device.requestedLimits).not.toHaveProperty("maxStorageBuffersPerShaderStage");
     expect(device.features).toEqual(floorFeatures);

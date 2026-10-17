@@ -16,9 +16,9 @@
         <canvas id="canvas"></canvas>
         <script type="module">
             import { runApp } from "@dylanebert/shallot";
-            import { APP_PLUGINS } from "./src/plugins";
+            import { AppPlugin } from "./src/app";
 
-            await runApp({ plugins: APP_PLUGINS });
+            await runApp({ plugins: [AppPlugin] });
         </script>
     </body>
 </html>
