@@ -55,6 +55,79 @@ async function stepAndValidate(world: World, label: string): Promise<void> {
 const Record = d.struct({ amount: d.f32, tag: d.u32 });
 const Rows = { amount: f32, tag: u32 };
 
+const sharedRows = subject("SharedRows", [], (world) => world.table("row-owner", Record));
+
+test("GPU-only records share one row assignment and metadata across growth, reuse and disposal", async () => {
+    const { world, table: source } = sharedRows();
+    const previous = world.table("row-previous", Record, { gpuOnly: true, rowSource: source });
+    const output = world.table("row-output", Record, { gpuOnly: true, rowSource: source });
+    const first = source.acquire(7);
+    output.enableEidLookup();
+    let mapGeneration = -1;
+    let activeGeneration = -1;
+    const unsubscribeMap = output.subscribeMap((buffer, generation) => {
+        expect(buffer).toBe(source.eidToRowBuffer!);
+        mapGeneration = generation;
+    });
+    const unsubscribeActive = output.subscribeActiveRows((buffer, generation) => {
+        expect(buffer).toBe(source.activeRowsBuffer!);
+        activeGeneration = generation;
+    });
+    world.gpu.device.queue.writeBuffer(
+        previous.buffer,
+        first * source.rowBytes,
+        new Float32Array([17, 0]),
+    );
+    const generation = previous.generation;
+    for (let i = 0; i < 65; i++) source.acquire(100 + i);
+    source.release(7);
+    expect(source.acquire(1000)).toBe(first);
+    source.deactivate(100);
+    source.upload();
+    for (const follower of [previous, output]) {
+        expect(follower.capacity).toBe(source.capacity);
+        expect(follower.highWater).toBe(source.highWater);
+        expect(follower.count).toBe(source.count);
+        expect(follower.activeRowsBuffer).toBe(source.activeRowsBuffer);
+        expect(follower.activeRowsTyped).toBe(source.activeRowsTyped);
+        expect(follower.eidToRowBuffer).toBe(source.eidToRowBuffer);
+        expect(follower.eidToRowTyped).toBe(source.eidToRowTyped);
+        expect(follower.activeGeneration).toBe(activeGeneration);
+        expect(follower.mapGeneration).toBe(mapGeneration);
+        expect(follower.rowIndex(7)).toBe(-1);
+        expect(follower.rowIndex(1000)).toBe(first);
+        expect(() => follower.acquire(2)).toThrow("row membership belongs");
+        expect(() => follower.release(1000)).toThrow("row membership belongs");
+        expect(() => follower.bindMembership(Rows)).toThrow("row membership belongs");
+    }
+    expect(previous.generation).toBeGreaterThan(generation);
+    const bytes = (await probeBuffer(world, previous.buffer, { size: previous.buffer.size })).bytes;
+    expect(new Float32Array(bytes)[first * 2]).toBe(17);
+    const map = new Uint32Array(
+        (await probeBuffer(world, output.eidToRowBuffer!, { size: output.eidToRowBuffer!.size }))
+            .bytes,
+    );
+    expect(map[7]).toBe(0);
+    expect(map[1000]).toBe(first + 1);
+    const rows = new Uint32Array(
+        (await probeBuffer(world, output.activeRowsBuffer!, { size: source.count * 8 })).bytes,
+    );
+    expect(rows.length).toBe(source.count * 2);
+    for (let i = 0; i < source.count; i++) {
+        expect(rows[i * 2]).not.toBe(100);
+        expect(rows[i * 2 + 1]).toBe(source.rowIndex(rows[i * 2]!));
+    }
+    unsubscribeMap();
+    unsubscribeActive();
+    previous.dispose();
+    output.dispose();
+    source.acquire(2000);
+    source.upload();
+    expect((await probeBuffer(world, source.activeRowsBuffer!, { size: 8 })).bytes.byteLength).toBe(
+        8,
+    );
+});
+
 const Reconciled = component("ReconciledUpload", { amount: f32 });
 const reconciliation = { create: () => ({ eid: 0, calls: 0 }) };
 const reconciledUpload = subject("ReconciledUpload", [Reconciled], (world) => {

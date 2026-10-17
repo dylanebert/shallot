@@ -8,6 +8,10 @@ export type TableUploadPath = "none" | "writeBuffer";
 export interface GpuTableOptions {
     /** No CPU backing or upload path; a GPU pass owns every row write. */
     gpuOnly?: boolean;
+    /** @internal GPU-only records sharing this table's row assignment, map and active list.
+     * The source must belong to the same World and own its rows; only it may change membership.
+     * Record buffers grow together, with independent record generations. */
+    rowSource?: GpuTable;
 }
 
 type Consumer = (buffer: GPUBuffer, generation: number) => void;
@@ -45,6 +49,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     readonly maxEntityRows: number;
     readonly gpuOnly: boolean;
     private readonly _world: World;
+    private readonly _rowSource: GpuTable | undefined;
+    private readonly _rowFollowers: GpuTable[] = [];
     private _uploadPreparation: ((world: World) => void) | undefined;
     private _capacity = 0;
     private _highWater = 1;
@@ -103,6 +109,14 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             );
         }
         this.gpuOnly = options.gpuOnly ?? false;
+        this._rowSource = options.rowSource;
+        if (
+            this._rowSource &&
+            (!this.gpuOnly || this._rowSource._world !== world || this._rowSource._rowSource)
+        )
+            throw new Error(
+                `GpuTable "${name}": rowSource requires GPU-only records and a row-owning table in the same World`,
+            );
         const device = world.gpu.device;
         const bindingLimit = device.limits.maxStorageBufferBindingSize;
         const bufferLimit = device.limits.maxBufferSize;
@@ -115,6 +129,11 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (!this.gpuOnly) {
             this._bytes = new Uint8Array(0);
             this._view = new DataView(this._bytes.buffer);
+        }
+        if (this._rowSource) {
+            this.reserveSlots(this._rowSource.capacity);
+            this._rowSource._rowFollowers.push(this);
+            return;
         }
         this._freeRows = new Uint32Array(1);
         this.reserveSlots(1);
@@ -131,12 +150,12 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Highest reserved row count; at least one, and never decreases. */
     get highWater(): number {
-        return this._highWater;
+        return this._rowSource?.highWater ?? this._highWater;
     }
 
     /** Number of active dense rows. */
     get count(): number {
-        return this._activeCount;
+        return this._rowSource?.count ?? this._activeCount;
     }
 
     /** Changes whenever the underlying record buffer is replaced. */
@@ -146,17 +165,17 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Changes whenever the opt-in eid-to-row map buffer is replaced. */
     get mapGeneration(): number {
-        return this._mapGeneration;
+        return this._rowSource?.mapGeneration ?? this._mapGeneration;
     }
 
     /** Bytes uploaded to the eid map on the most recent table upload. */
     get lastMapUploadBytes(): number {
-        return this._lastMapUploadBytes;
+        return this._rowSource?.lastMapUploadBytes ?? this._lastMapUploadBytes;
     }
 
     /** Changes whenever the dense active-row list buffer is replaced. */
     get activeGeneration(): number {
-        return this._activeGeneration;
+        return this._rowSource?.activeGeneration ?? this._activeGeneration;
     }
 
     get buffer(): GPUBuffer {
@@ -181,20 +200,20 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Optional eid-to-row map, encoded as row + 1; zero means that the eid is not present. */
     get eidToRowBuffer(): GPUBuffer | undefined {
-        return this._mapBuffer;
+        return this._rowSource?.eidToRowBuffer ?? this._mapBuffer;
     }
 
     get eidToRowTyped(): TgpuBuffer<d.AnyWgslData> | undefined {
-        return this._mapTyped;
+        return this._rowSource?.eidToRowTyped ?? this._mapTyped;
     }
 
     /** Compact (eid, row) u32 pairs, independent of stable row slots; read only the first `count` pairs. */
     get activeRowsBuffer(): GPUBuffer | undefined {
-        return this._activeBuffer;
+        return this._rowSource?.activeRowsBuffer ?? this._activeBuffer;
     }
 
     get activeRowsTyped(): TgpuBuffer<d.AnyWgslData> | undefined {
-        return this._activeTyped;
+        return this._rowSource?.activeRowsTyped ?? this._activeTyped;
     }
 
     /** Chosen record upload path from the most recent draw-group upload point. */
@@ -224,7 +243,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             this._view = new DataView(bytes.buffer);
         }
         this.replaceRecordBuffer(oldCapacity);
-        this.ensureSlotCapacity(capacity);
+        if (!this._rowSource) this.ensureSlotCapacity(capacity);
+        for (let i = 0; i < this._rowFollowers.length; i++)
+            this._rowFollowers[i]!.reserveSlots(capacity);
     }
 
     /** Mark a contiguous range of record rows changed without per-row callbacks. */
@@ -328,6 +349,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Allocate rows for members of this component without binding component fields. */
     bindMembership(component: Component): void {
+        this.requireRowOwner();
         const binding = this.binding(component);
         if (binding.ownsRows) return;
         binding.ownsRows = true;
@@ -412,6 +434,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Map an eid to a stable dense row, taking a freed slot before extending the table. */
     acquire(eid: number): number {
+        this.requireRowOwner();
         this.ensureEntityRows(eid + 1);
         const existing = this._eidToRow[eid];
         if (existing !== 0) return existing - 1;
@@ -426,6 +449,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Release an eid's dense slot; the next acquire may reuse the slot. */
     release(eid: number): void {
+        this.requireRowOwner();
         this._membershipCounts.delete(eid);
         if (!Number.isSafeInteger(eid) || eid < 0 || eid >= this._eidToRow.length) return;
         const encoded = this._eidToRow[eid];
@@ -444,6 +468,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Activate an eid row in the compact active list. */
     activate(eid: number): void {
+        this.requireRowOwner();
         const row = this.rowIndex(eid);
         if (row < 0) throw new Error(`GpuTable "${this.name}": eid ${eid} has no row`);
         this.activateRow(eid, row);
@@ -451,12 +476,14 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Remove an eid row from the compact active list. */
     deactivate(eid: number): void {
+        this.requireRowOwner();
         const row = this.rowIndex(eid);
         if (row >= 0) this.deactivateRow(row);
     }
 
     /** Row index shaders use for `eid`; -1 means absent from a dense table. */
     rowIndex(eid: number): number {
+        if (this._rowSource) return this._rowSource.rowIndex(eid);
         if (!Number.isSafeInteger(eid) || eid < 0) return -1;
         return eid < this._eidToRow.length ? this._eidToRow[eid] - 1 : -1;
     }
@@ -470,6 +497,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Opt into an uploaded eid-to-row map for shaders that start from an eid. */
     enableEidLookup(): GPUBuffer {
+        if (this._rowSource) return this._rowSource.enableEidLookup();
         this._mapEnabled = true;
         if (this._mapCapacity === 0) this.ensureEntityRows(1);
         else if (!this._mapBuffer) this.replaceMapBuffer();
@@ -479,6 +507,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Subscribe to the opt-in eid-to-row map buffer. */
     subscribeMap(consumer: Consumer): () => void {
+        if (this._rowSource) return this._rowSource.subscribeMap(consumer);
         const buffer = this.enableEidLookup();
         this._mapConsumers.push(consumer);
         consumer(buffer, this._mapGeneration);
@@ -487,6 +516,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Subscribe to the compact active-row list buffer. */
     subscribeActiveRows(consumer: Consumer): () => void {
+        if (this._rowSource) return this._rowSource.subscribeActiveRows(consumer);
         if (!this._activeBuffer) throw new Error(`GpuTable "${this.name}" has no active-row list`);
         this._activeConsumers.push(consumer);
         consumer(this._activeBuffer, this._activeGeneration);
@@ -562,14 +592,20 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             this._dirtyFirst = Number.POSITIVE_INFINITY;
             this._dirtyLast = -1;
         }
-        this.uploadMap();
-        this.uploadActiveRows();
+        const rows = this._rowSource ?? this;
+        rows.uploadMap();
+        rows.uploadActiveRows();
     }
 
     /** Release this table's resources. */
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
+        if (this._rowSource) {
+            const followers = this._rowSource._rowFollowers;
+            const index = followers.indexOf(this);
+            if (index >= 0) followers.splice(index, 1);
+        }
         for (const binding of this._componentBindings) {
             if (binding.ownsRows) this._world.unbindTableComponent(binding.component, this);
         }
@@ -585,11 +621,26 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     }
 
     get mapName(): string | undefined {
-        return this._mapBuffer ? `${this.name}:eid-to-row` : undefined;
+        return this._rowSource
+            ? this._rowSource.mapName
+            : this._mapBuffer
+              ? `${this.name}:eid-to-row`
+              : undefined;
     }
 
     get activeName(): string | undefined {
-        return this._activeBuffer ? `${this.name}:active-rows` : undefined;
+        return this._rowSource
+            ? this._rowSource.activeName
+            : this._activeBuffer
+              ? `${this.name}:active-rows`
+              : undefined;
+    }
+
+    private requireRowOwner(): void {
+        if (this._rowSource)
+            throw new Error(
+                `GpuTable "${this.name}": row membership belongs to "${this._rowSource.name}"`,
+            );
     }
 
     private refuse(limit: number, rows: number): never {

@@ -214,19 +214,19 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
     if (!runtime.enabled) {
         runtime.enabled = true;
         const current = (runtime.current = world.table("global-transform", Xform));
-        const previous = (runtime.previous = world.table("global-transform-previous-tick", Xform, {
+        runtime.previous = world.table("global-transform-previous-tick", Xform, {
             gpuOnly: true,
-        }));
+            rowSource: current,
+        });
         const render = (runtime.render = world.table("global-transform-interpolated", Xform, {
             gpuOnly: true,
+            rowSource: current,
         }));
         current.bindComponent(GlobalTransform, {
             pos: "translation",
             quat: "rotation",
             scale: "scale",
         });
-        previous.bindMembership(GlobalTransform);
-        render.bindMembership(GlobalTransform);
         render.enableEidLookup();
         if (!runtime.params) {
             const params = world.gpu.root.createBuffer(d.vec4f).$usage("uniform");

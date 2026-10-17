@@ -4,7 +4,11 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { createTestGpuApp } from "../../../scripts/gpu.fixture";
 import { probeBuffer, Time } from "../../engine";
 import { GlobalTransform, resetInterpolation, Transform } from "../transform";
-import { globalTransformTable, readRenderGlobalTransform } from "./global-transform";
+import {
+    GlobalTransformHistory,
+    globalTransformTable,
+    readRenderGlobalTransform,
+} from "./global-transform";
 import { attachTexture, Camera, RenderingPlugin } from "./index";
 import { PointLight, SpotLight } from "./lighting";
 
@@ -125,6 +129,30 @@ test("new and reattached lights snap until fixed capture, then match GPU history
         x = 90;
         world.step(Time.FIXED_DT);
         await matchesGpu();
+        const runtime = world.resource(GlobalTransformHistory);
+        const generation = table.generation;
+        const spawned: number[] = [];
+        for (let i = 0; i < 130; i++) {
+            const eid = world.create();
+            spawned.push(eid);
+            world.add(eid, Transform);
+            world.storage(Transform).translation.x.set(eid, i);
+        }
+        world.step(0);
+        expect(table.generation).toBeGreaterThan(generation);
+        for (const eid of spawned.slice(0, 65)) world.destroy(eid);
+        for (let i = 0; i < 65; i++) world.add(world.create(), Transform);
+        world.step(0);
+        await matchesGpu();
+        for (const follower of [runtime.previous!, table]) {
+            expect(follower.activeRowsBuffer).toBe(runtime.current!.activeRowsBuffer);
+            expect(follower.eidToRowBuffer).toBe(runtime.current!.eidToRowBuffer);
+            expect(follower.activeGeneration).toBe(runtime.current!.activeGeneration);
+            expect(follower.mapGeneration).toBe(runtime.current!.mapGeneration);
+            expect(follower.count).toBe(runtime.current!.count);
+            for (const eid of world.query([GlobalTransform]))
+                expect(follower.rowIndex(eid)).toBe(runtime.current!.rowIndex(eid));
+        }
         expect(world.storage(GlobalTransform).translation.x.get(eids[0]!)).toBe(90);
     } finally {
         app.dispose();
