@@ -41,9 +41,9 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 ### GPU floor
 
-- Built-in pipelines and shipped renderer compositions fit WebGPU's default eight storage-buffer bindings per shader stage.
+- What Shallot ships, the engine and its packages, fits WebGPU's default limits, of which eight storage-buffer bindings per shader stage binds first.
 - Storage bindings count across all bound groups by stage visibility, unused declarations included. Pipeline creation refuses a pipeline over the granted per-stage limit, naming its plugin, pipeline, stage and count, and refuses a layout it cannot account for.
-- Device acquisition uses the enabled plugins' declared requirements, never adapter maxima. The built-in renderer does not raise the default storage-buffer limit; an external plugin may require more and owns that compatibility choice.
+- Device acquisition uses the enabled plugins' declared requirements, never adapter maxima.
 - A floor-device proof requests only the composition's required features, with no `requiredLimits`, builds and draws the covered pipeline families and examples, and records the adapter identity, granted features and limits.
 - A built-in pipeline lacking a required feature refuses, naming its owner and the feature.
 - A layout repair preserves precision and capacity, and reports uploads, passes and dispatches on named hardware.
