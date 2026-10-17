@@ -27,7 +27,12 @@ import {
 } from "../../engine/runtime";
 import { type MaterialType, MaterialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
-import { ALPHA_PIPELINE_KEY_COUNT, copyMeshAlpha, TransparentMeshes } from "./material-type";
+import {
+    ALPHA_PIPELINE_KEY_COUNT,
+    alphaPipelineKey,
+    copyMeshAlpha,
+    TransparentMeshes,
+} from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
 import { publishMeshCounts, rebuildMeshCounts } from "./mesh-count";
 import {
@@ -63,7 +68,8 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
  * GPU draw publication. drawArgs is slot-major at `slot*pairCount+pair`, with 20-byte indirect records.
  * registerDraws seeds indexCount/firstIndex/baseVertex; the GPU pack writes instanceCount/firstInstance
  * each frame. packedEids holds one row-capacity-sized region per slot, compacted into pair slices for
- * instance_index. pairCount is material-type count * ALPHA_PIPELINE_KEY_COUNT * mesh count.
+ * instance_index. pairCount is table count (entity table plus producer tables) * material-type count *
+ * ALPHA_PIPELINE_KEY_COUNT * mesh count.
  * Buffers grow with mesh registration, table capacity and active views; Draw.args.viewStride selects a slot.
  */
 export interface MeshDrawBuffers {
@@ -688,13 +694,13 @@ function publishProducerDraws(
         for (const material of entry.materials) {
             const definition = types[material.type];
             if (!definition) continue;
-            const alphaKey = material.alphaMode === 6 ? 5 : material.alphaMode;
+            const alphaKey = alphaPipelineKey(material.alphaMode);
             for (const handle of entry.meshes) {
                 const mesh = meshes.get(handle);
                 if (!mesh || materialAttributeError(mesh, definition)) continue;
                 const pair =
                     (tableIndex + 1) * basePairs +
-                    (material.type * 6 + alphaKey) * state.meshCount +
+                    (material.type * ALPHA_PIPELINE_KEY_COUNT + alphaKey) * state.meshCount +
                     handle;
                 if (pairs.has(pair)) continue;
                 pairs.add(pair);

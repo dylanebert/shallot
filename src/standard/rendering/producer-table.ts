@@ -6,6 +6,7 @@ import { CullVolumes, Xform } from "../../core/rendering";
 import type { World } from "../../engine";
 import type { MaterialHandle } from "./material";
 import { MeshInstanceInput } from "./material-data";
+import { ALPHA_PIPELINE_KEY_COUNT, AlphaModeCode, AlphaPipelineKey } from "./material-type";
 import { CULL_STRIDE, CullParams, countLayout, scatterLayout, visibility } from "./pack";
 
 /** World-owned GPU instance columns. The producer owns initialization, count reset and frame ordering. */
@@ -63,7 +64,10 @@ export function registerProducerTable(
     const state = world.resource(producerTables);
     if (state.tables.some((entry) => entry.table.name === name)) fail("name is already registered");
     for (const material of options.materials) {
-        if (material.alphaMode >= 2 && material.alphaMode <= 5)
+        if (
+            material.alphaMode >= AlphaModeCode.Blend &&
+            material.alphaMode <= AlphaModeCode.Multiply
+        )
             fail(
                 `material ${material.type}:${material.material} is blended; transparent sorting is on the CPU`,
             );
@@ -131,18 +135,20 @@ const producerPair = tgpu.fn(
     const basePairs = producerCullLayout.$.producer.basePairs;
     if (
         instance.mesh >= params.meshCount ||
-        instance.materialType >= d.u32(basePairs / (6 * params.meshCount)) ||
-        (instance.alphaMode !== 0 && instance.alphaMode !== 1 && instance.alphaMode !== 6)
+        instance.materialType >= d.u32(basePairs / (ALPHA_PIPELINE_KEY_COUNT * params.meshCount)) ||
+        (instance.alphaMode !== AlphaModeCode.Opaque &&
+            instance.alphaMode !== AlphaModeCode.Mask &&
+            instance.alphaMode !== AlphaModeCode.AlphaToCoverage)
     )
         return params.pairCount;
     if ((instance.flags & 1) !== 0 && producerCullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0)
         return params.pairCount;
     if (!producerVisible(instance.mesh, row, row, slot)) return params.pairCount;
-    let key = instance.alphaMode;
-    if (key === 6) key = 5;
+    let key: number = instance.alphaMode;
+    if (key === AlphaModeCode.AlphaToCoverage) key = AlphaPipelineKey.AlphaToCoverage;
     return (
         producerCullLayout.$.producer.pairOffset +
-        (instance.materialType * 6 + key) * params.meshCount +
+        (instance.materialType * ALPHA_PIPELINE_KEY_COUNT + key) * params.meshCount +
         instance.mesh
     );
 });

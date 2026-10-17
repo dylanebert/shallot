@@ -173,6 +173,7 @@ export interface CompiledMaterial {
  * Atlas passes use its unread slot-zero ViewUniforms placeholder; their VS uses a tile viewProj instead.
  */
 export type MaterialGroupEntry = {
+    producer: import("./producer-table").ProducerTable | null;
     /** exact registry spec this group was built for — resource identity alone is insufficient when a
      * same-name surface replacement carries a different layout with the same buffers. */
     owner: AnyMaterialType;
