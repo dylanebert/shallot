@@ -24,7 +24,7 @@ import {
 import { initMeshes } from "./primitives";
 
 export type { Mesh, MeshBinding, MeshHandle, MeshIndex } from "./mesh";
-export { Meshes } from "./mesh";
+export { Meshes, meshResourcesKey } from "./mesh";
 
 /**
  * Owns this world's mesh registry and GPU storage, including the default unit cube. Add

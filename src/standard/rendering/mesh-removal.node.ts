@@ -2,10 +2,14 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { cube, Meshes, MeshInstance } from "../../core/mesh";
+import { clearMeshes } from "../../core/mesh/mesh";
 import { attachTexture, Camera, captureTexture } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import {
+    AlphaMode,
+    Draws,
     Materials,
+    MaterialTypes,
     MeshMaterial,
     MeshRenderPlugin,
     StandardMaterial,
@@ -13,10 +17,11 @@ import {
     StandardRenderingPlugin,
 } from "./index";
 import { MeshDrawBuffers } from "./preprocess";
+import { DrawIndexedIndirect } from "./registry";
 
 setDefaultTimeout(TIMEOUT.node);
 const config = { defaults: false, plugins: [MeshRenderPlugin, StandardRenderingPlugin] };
-const subjects = gpuApps(import.meta.path, [config, config, config]);
+const subjects = gpuApps(import.meta.path, [config, config, config, config, config]);
 function scene(index: number) {
     const { world } = subjects()[index]!;
     const meshes = world.resource(Meshes);
@@ -40,6 +45,42 @@ function scene(index: number) {
     world.step(0);
     return { world, meshes, handles, camera, entities };
 }
+test("clearing and repopulating meshes preserves alpha-key pair addressing in every view", async () => {
+    const s = scene(3);
+    const second = s.world.create();
+    s.world.add(second, Transform, { translation: [0, 0, 5, 0] });
+    s.world.add(second, Camera);
+    s.world.add(second, StandardRenderer);
+    attachTexture(s.world, second, { width: 96, height: 96 });
+    const material = s.world
+        .resource(Materials)
+        .add(StandardMaterial({ emissive: [1, 1, 1] }), { alphaMode: AlphaMode.Mask(0.5) });
+    expect(s.world.resource(MaterialTypes).types.filter(Boolean).length).toBeGreaterThan(1);
+    s.world.step(0);
+    clearMeshes(s.world);
+    const mesh = s.meshes.add({ name: "after-clear", ...cube([0.8, 0.8, 0.8]) });
+    for (const eid of s.entities) {
+        s.world.storage(MeshInstance).mesh.set(eid, mesh);
+        s.world.storage(MeshMaterial).material.set(eid, material.material);
+    }
+    s.world.step(0);
+    s.world.step(0);
+    expect((await coverage(s)).every((n) => n > 0)).toBe(true);
+    expect((await coverage({ ...s, camera: second })).every((n) => n > 0)).toBe(true);
+});
+test("an independently registered draw survives mesh republication", () => {
+    const s = scene(4);
+    const draws = s.world.resource(Draws);
+    const independent = {
+        ...[...draws][0]!,
+        name: "independent",
+        args: { indirect: s.world.gpu.root.createBuffer(DrawIndexedIndirect).$usage("indirect") },
+    };
+    draws.register(independent);
+    s.meshes.add({ name: "republish", ...cube() });
+    s.world.step(0);
+    expect([...draws].find((draw) => draw.name === independent.name)).toBe(independent);
+});
 async function coverage(s: ReturnType<typeof scene>) {
     const { rgba } = await captureTexture(s.world, s.camera);
     const counts = [0, 0, 0];
@@ -63,22 +104,32 @@ test("a reissued mesh handle draws the new geometry without a membership-count c
     const s = scene(1);
     const before = (await coverage(s))[1]!;
     s.meshes.remove(s.handles[1]!);
-    const replacement = s.meshes.add({ name: "small", ...cube([0.2, 0.2, 0.2]) });
+    const geometry = cube([0.2, 0.2, 0.2]);
+    const replacement = s.meshes.add({
+        name: "small",
+        ...geometry,
+        indices: geometry.indices.slice(0, 6),
+    });
     expect(replacement).toBe(s.handles[1]!);
     s.world.step(0);
     s.world.step(0);
     const after = (await coverage(s))[1]!;
     expect(after).toBeGreaterThan(0);
     expect(after).toBeLessThan(before);
+    const draw = [...s.world.resource(Draws)].find((draw) => draw.mesh === replacement)!;
+    const args = await draw.args.indirect.read();
+    expect((args as { indexCount: number }[])[draw.args.offset! / 20]!.indexCount).toBe(6);
 });
 test("a hundred fixed-live-count mesh turnovers keep draw and bounds buffer sizes flat", () => {
     const s = scene(2);
     const sizes = new Map<string, number>();
     const device = s.world.gpu.device;
     const create = device.createBuffer.bind(device);
+    let creations = 0;
     device.createBuffer = (descriptor) => {
         if (descriptor.label === "shallot-mesh-bounds" || descriptor.label === "shallot-draw-args")
             sizes.set(descriptor.label, descriptor.size);
+        creations++;
         return create(descriptor);
     };
     try {
@@ -86,14 +137,19 @@ test("a hundred fixed-live-count mesh turnovers keep draw and bounds buffer size
         let first: number[] = [];
         for (let i = 0; i <= 100; i++) {
             s.meshes.remove(handle);
-            handle = s.meshes.add({ name: `turnover-${i}`, ...cube() });
+            handle = s.meshes.add({ ...s.meshes.get(s.handles[0]!)!, name: `turnover-${i}` });
             s.world.step(0);
             const current = [
                 s.world.gpu.root.unwrap(s.world.resource(MeshDrawBuffers).drawArgs!).size,
                 sizes.get("shallot-mesh-bounds")!,
             ];
-            if (i === 0) first = current;
-            else expect(current).toEqual(first);
+            if (i === 0) {
+                first = current;
+                creations = 0;
+            } else {
+                expect(current).toEqual(first);
+                expect(creations).toBe(0);
+            }
         }
     } finally {
         device.createBuffer = create;

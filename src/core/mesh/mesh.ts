@@ -95,10 +95,6 @@ interface MeshRegistry extends Iterable<Mesh> {
     entries(): IterableIterator<[MeshHandle, Mesh]>;
     values(): IterableIterator<Mesh>;
     readonly size: number;
-    /** Handle high-water mark; bounds handle-indexed storage independently of live membership. */
-    readonly capacity: number;
-    /** Changes when membership or packed geometry changes. */
-    readonly version: number;
     clear(): void;
 }
 
@@ -172,7 +168,7 @@ class MeshRegistryImpl implements MeshRegistry {
 
     clear(): void {
         this._entriesByHandle.clear();
-        this._nextHandle = 0;
+        // Handle-indexed consumers retain their allocation and addressing stride across clear.
         this._freeHandle = 0;
         this.version++;
     }
@@ -204,6 +200,7 @@ interface MeshResources {
     families: { destroy(): void }[];
 }
 
+/** World-owned packing and handle-indexed consumer state. @internal */
 export const meshResourcesKey = { create: createMeshResources };
 
 function createMeshResources(world: World): MeshResources {

@@ -7,7 +7,7 @@ import type {
 } from "typegpu";
 import { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { Meshes, MeshInstance } from "../../core/mesh";
+import { Meshes, MeshInstance, meshResourcesKey } from "../../core/mesh";
 import {
     BeginFrameSystem,
     globalTransformTable,
@@ -88,6 +88,7 @@ interface MeshPreprocessState {
     warnedPairs: Set<string>;
     meshCount: number;
     meshVersion: number;
+    publishedDraws: Set<string>;
     pairCount: number;
     viewDim: number;
     packPass: GPUComputePassDescriptor;
@@ -143,6 +144,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
         warnedPairs: new Set(),
         meshCount: 0,
         meshVersion: -1,
+        publishedDraws: new Set(),
         pairCount: 0,
         viewDim: 1,
         packPass: { label: "shallot-mesh-preprocess" },
@@ -407,7 +409,7 @@ function syncBuffers(world: World): void {
     const _meshDraws = world.resource(MeshDrawBuffers);
 
     if (_meshPreprocess.materialTypeCount === 0) return;
-    const meshes = world.resource(Meshes);
+    const meshes = world.resource(meshResourcesKey).meshes;
     const meshCount = meshes.capacity;
     const changedMeshes = meshes.version !== _meshPreprocess.meshVersion;
     _meshPreprocess.meshVersion = meshes.version;
@@ -476,12 +478,16 @@ function syncBuffers(world: World): void {
 
     // Bounds follow membership even when a freed handle is reused without growth.
     let staleBounds: Vec4fBuffer | null = null;
-    if (changedMeshes || !_meshPreprocess.meshBounds) {
+    if (growMesh || !_meshPreprocess.meshBounds) {
         staleBounds = _meshPreprocess.meshBounds;
-        _meshPreprocess.meshBounds = writeMeshBounds(world, device);
+        _meshPreprocess.meshBounds = world.gpu.root
+            .createBuffer(d.arrayOf(d.vec4f, _meshPreprocess.meshCount))
+            .$usage("storage")
+            .$name("shallot-mesh-bounds");
     }
+    if (changedMeshes || staleBounds) writeMeshBounds(world, device);
 
-    unbind(world);
+    if (replaceArgs || growView || growRows || staleBounds) unbind(world);
     // draw records depend only on the meshes, the types' alpha keys and the args buffer, so rows
     // growth keeps them
     if (changedMeshes || replaceArgs || growKeys) registerDraws(world);
@@ -507,26 +513,22 @@ function syncAlphaKeys(world: World): boolean {
 }
 
 /**
- * allocate + fill the per-mesh local bounding sphere buffer (one `vec4` per
+ * Fill the per-mesh local bounding sphere buffer (one `vec4` per
  * mesh handle: `xyz` center, `w` radius). A mesh without `bounds` (a procedural
  * producer that didn't supply one) gets a sentinel radius so the cull keeps it
  * always-visible rather than wrongly culling it
  */
-function writeMeshBounds(world: World, device: GPUDevice): Vec4fBuffer {
+function writeMeshBounds(world: World, device: GPUDevice): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
     const _meshes = world.resource(Meshes);
 
-    const buffer = world.gpu.root
-        .createBuffer(d.arrayOf(d.vec4f, _meshPreprocess.meshCount))
-        .$usage("storage")
-        .$name("shallot-mesh-bounds");
+    const buffer = _meshPreprocess.meshBounds!;
     const data = new Float32Array(_meshPreprocess.meshCount * 4);
     for (const [handle, mesh] of _meshes.entries()) {
         if (mesh.bounds) data.set(mesh.bounds, handle * 4);
         else data[handle * 4 + 3] = 1e30; // never-cull sentinel
     }
     device.queue.writeBuffer(world.gpu.root.unwrap(buffer), 0, data as Float32Array<ArrayBuffer>);
-    return buffer;
 }
 
 type DrawRecord = {
@@ -561,7 +563,9 @@ export function publishMeshInstanceDraws(
     const { materialTypes, sources, meshes, draws } = registries;
     const invalidPairs = world.resource(meshPreprocessKey).invalidPairs;
     invalidPairs.clear();
-    draws.clear();
+    const published = world.resource(meshPreprocessKey).publishedDraws;
+    for (const name of published) draws.delete(name);
+    published.clear();
     const writes: { offset: number; args: DrawRecord }[] = [];
     const viewStride = pairCount * DRAW_ARG_STRIDE;
     for (const [materialType, definition] of materialTypes.entries()) {
@@ -586,7 +590,8 @@ export function publishMeshInstanceDraws(
                     continue;
                 }
                 const pair =
-                    (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) * meshes.capacity +
+                    (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) *
+                        (pairCount / (materialTypes.length * ALPHA_PIPELINE_KEY_COUNT)) +
                     handle;
                 const offset = pair * DRAW_ARG_STRIDE;
                 // Indices are absolute vertex positions, so baseVertex remains zero.
@@ -598,8 +603,10 @@ export function publishMeshInstanceDraws(
                     firstInstance: 0,
                 };
                 writes.push({ offset, args });
+                const name = `mesh:material:${definition.name}:${alphaPipelineKey}:${m.name}:${handle}`;
+                published.add(name);
                 draws.register({
-                    name: `mesh:material:${definition.name}:${alphaPipelineKey}:${m.name}:${handle}`,
+                    name,
                     materialType,
                     alphaPipelineKey,
                     mesh: handle,

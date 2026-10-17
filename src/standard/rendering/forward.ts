@@ -9,6 +9,7 @@ import {
     type MeshIndex,
     MeshInstance,
     MeshPlugin,
+    meshResourcesKey,
 } from "../../core/mesh";
 import type { View } from "../../core/rendering";
 import {
@@ -562,7 +563,7 @@ function recordMaterial(
 // Resolve camera-independent resources once so prepass, atlas and color passes reuse the same draw list.
 function resolveDraws(world: World, capacity: number): void {
     const state = world.resource(standardRendererStateKey);
-    const meshCount = world.resource(Meshes).capacity;
+    const meshCount = world.resource(meshResourcesKey).meshes.capacity;
     const pairCount =
         world.resource(MaterialTypes).types.length * ALPHA_PIPELINE_KEY_COUNT * meshCount;
     state.frameCount = 0;
@@ -852,7 +853,7 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     if (!world.has(eid, StandardRenderer) || !buffers.transparentEids) return;
     const state = world.resource(standardRendererStateKey);
     const meshRegistry = world.resource(Meshes);
-    const meshCount = meshRegistry.capacity;
+    const meshCount = world.resource(meshResourcesKey).meshes.capacity;
     const instances = world.storage(MeshInstance);
     const materials = world.storage(MeshMaterial);
     const placement = world.storage(GlobalTransform);
