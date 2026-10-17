@@ -63,13 +63,16 @@ export function subjectSite(frame, map, base, fallback, root = process.cwd(), pa
 
 /**
  * Collect and, for a subject that opts in, drain one unprofiled step before allocation sampling.
- * @param {{ step(): void, wait?: () => Promise<void>, warmSamplingSessions?: boolean }} subject
+ * @param {{ step(): void, wait?: () => Promise<void>, warmSamplingSessions?: boolean, samplingWarmFrames?: number }} subject
  * @param {() => void} collect
  */
 export async function prepareSamplingSession(subject, collect) {
     collect();
     if (!subject.warmSamplingSessions) return;
-    subject.step();
+    for (let i = 0; i < (subject.samplingWarmFrames ?? 1); i++) {
+        subject.step();
+        if ((i + 1) % 60 === 0) await subject.wait?.();
+    }
     await subject.wait?.();
 }
 
