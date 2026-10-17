@@ -76,6 +76,7 @@ import {
     MaterialTypes,
     materialSource,
     registerMaterialType,
+    TransparentMeshes,
 } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
 import { publishTransparentCounts } from "./mesh-count";
@@ -822,7 +823,6 @@ function renderColor(
     world.gpu.indirect?.("standard:color", indirect);
 }
 
-const TRANSPARENT_MESHES = [MeshInstance, GlobalTransform];
 const EIDS_BYTES = 16;
 const INDIRECT_BYTES = d.sizeOf(DrawIndexedIndirect);
 
@@ -865,8 +865,9 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     const planes = world.resource(RenderContext).cullVolumeStaging;
     const planeBase = view.slot * CULL_VOLUME_FLOATS;
     const position = phase.positionScratch;
-    for (const instanceEid of world.query(TRANSPARENT_MESHES)) {
-        const source = world.resource(MaterialTypes).sources[materials.type.get(instanceEid)];
+    const sources = world.resource(MaterialTypes).sources;
+    for (const instanceEid of world.resource(TransparentMeshes).candidates) {
+        const source = sources[materials.type.get(instanceEid)];
         const alphaMode =
             source?.alphaMode(materials.material.get(instanceEid)) ??
             materials.alphaMode.get(instanceEid);

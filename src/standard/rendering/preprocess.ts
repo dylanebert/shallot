@@ -27,7 +27,7 @@ import {
 } from "../../engine/runtime";
 import { type MaterialType, MaterialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
-import { ALPHA_PIPELINE_KEY_COUNT, copyMeshAlpha } from "./material-type";
+import { ALPHA_PIPELINE_KEY_COUNT, copyMeshAlpha, TransparentMeshes } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
 import { publishMeshCounts, rebuildMeshCounts } from "./mesh-count";
 import {
@@ -514,6 +514,7 @@ function syncBuffers(world: World): void {
 }
 
 function alphaKeysChanged(world: World): boolean {
+    world.resource(TransparentMeshes).growSources();
     const known = world.resource(meshPreprocessKey).alphaKeys;
     const sources = world.resource(MaterialTypes).sources;
     for (let type = 0; type < known.length; type++)

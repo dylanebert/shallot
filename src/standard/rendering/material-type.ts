@@ -2,7 +2,9 @@ import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
 import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
+import { MeshInstance } from "../../core/mesh";
 import { Xform } from "../../core/rendering";
+import { GlobalTransform } from "../../core/transform";
 import type { GpuTable, Plugin, Resource, World } from "../../engine";
 import type { ComponentStorage } from "../../engine/ecs";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
@@ -642,15 +644,75 @@ const materialTypesKey = {
 };
 
 const MESH_MATERIALS = [MeshMaterial];
+const TRANSPARENT_KEYS =
+    (1 << AlphaPipelineKey.Blend) |
+    (1 << AlphaPipelineKey.Premultiplied) |
+    (1 << AlphaPipelineKey.Multiply);
+
+/** Standard's upload-time classification; no ECS membership changes during table gathering. @internal */
+export const TransparentMeshes = {
+    create(world: World) {
+        const candidates = new Set<number>();
+        const external: Set<number>[] = [];
+        const keys: number[] = [];
+        const storage = world.storage(MeshMaterial);
+        const { types, sources } = world.resource(MaterialTypes);
+        const refresh = (eid: number) => {
+            const type = storage.type.get(eid);
+            const source = types[type]?.source ? sources[type] : undefined;
+            const transparent = source
+                ? (source.alphaKeys & TRANSPARENT_KEYS) !== 0
+                : ((1 << alphaPipelineKey(storage.alphaMode.get(eid))) & TRANSPARENT_KEYS) !== 0;
+            if (
+                transparent &&
+                world.has(eid, MeshMaterial) &&
+                world.has(eid, MeshInstance) &&
+                world.has(eid, GlobalTransform)
+            )
+                candidates.add(eid);
+            else candidates.delete(eid);
+        };
+        for (const component of [MeshInstance, GlobalTransform]) {
+            world.observeMembership(component, (eid, present) => {
+                if (present && world.has(eid, MeshMaterial)) refresh(eid);
+                else candidates.delete(eid);
+            });
+        }
+        world.observeMembership(MeshMaterial, (eid, present) => {
+            if (present) return;
+            candidates.delete(eid);
+            for (const members of external) members?.delete(eid);
+        });
+        return {
+            candidates,
+            reconcile(eid: number) {
+                for (const members of external) members?.delete(eid);
+                const type = storage.type.get(eid);
+                if (types[type]?.source) (external[type] ??= new Set()).add(eid);
+                refresh(eid);
+            },
+            growSources() {
+                for (let type = 0; type < sources.length; type++) {
+                    const next = types[type]?.source ? (sources[type]?.alphaKeys ?? 0) : 0;
+                    if (keys[type] === next) continue;
+                    keys[type] = next;
+                    for (const eid of external[type] ?? []) refresh(eid);
+                }
+            },
+        };
+    },
+};
 
 /** Reconcile marked MeshMaterial alpha copies before the mesh table gathers fields. @internal */
 export function copyMeshAlpha(world: World, all = false): void {
     const { assets, types } = world.resource(MaterialTypes);
     const storage = world.storage(MeshMaterial);
+    const transparent = world.resource(TransparentMeshes);
     if (all) {
         for (const eid of world.query(MESH_MATERIALS)) {
             const type = storage.type.get(eid);
             if (!types[type]?.source) assets[type]?.copyAlpha(storage, eid);
+            transparent.reconcile(eid);
         }
         return;
     }
@@ -667,6 +729,7 @@ export function copyMeshAlpha(world: World, all = false): void {
             if (!world.has(eid, MeshMaterial)) continue;
             const id = storage.type.get(eid);
             if (!types[id]?.source) assets[id]?.copyAlpha(storage, eid);
+            transparent.reconcile(eid);
         }
     }
 }

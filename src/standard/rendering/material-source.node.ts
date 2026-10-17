@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import {
     ClearChangeMarksSystem,
     component,
@@ -68,7 +68,7 @@ const Source = {
             warm() {
                 world.gpu.root.unwrap(pipeline);
             },
-            alphaKeys: (1 << AlphaPipelineKey.Mask) | (1 << AlphaPipelineKey.Blend),
+            alphaKeys: 1 << AlphaPipelineKey.Mask,
             alphaMode(row: number) {
                 if (view?.buffer !== table.bytes.buffer) view = new DataView(table.bytes.buffer);
                 return view.getFloat32(row * table.rowBytes + 16, true);
@@ -150,6 +150,31 @@ test("a material borrows externally owned rows and alpha inputs without taking o
     world.step(0);
     const visible = await captureTexture(world, camera);
     expect(visible.rgba).not.toEqual(masked.rgba);
+    const alphaReads = spyOn(source, "alphaMode");
+    try {
+        world.step(0);
+        expect(alphaReads).toHaveBeenCalledTimes(0);
+        const grow = {
+            group: "draw" as const,
+            after: [ClearChangeMarksSystem],
+            before: [MeshPreprocessSystem],
+            update() {
+                source.alphaKeys |= 1 << AlphaPipelineKey.Blend;
+            },
+        };
+        world.addSystem(grow);
+        try {
+            world.step(0);
+        } finally {
+            world.removeSystem(grow);
+        }
+        expect(alphaReads).toHaveBeenCalledTimes(2);
+        alphaReads.mockClear();
+        world.step(0);
+        expect(alphaReads).toHaveBeenCalledTimes(2);
+    } finally {
+        alphaReads.mockRestore();
+    }
     world.storage(Surface).alphaMode.x.set(eid, AlphaModeCode.Blend);
     world.step(0);
     const blended = await captureTexture(world, camera);
