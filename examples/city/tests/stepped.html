@@ -2,8 +2,9 @@
 <script type="module">
 import { createApp } from '@dylanebert/shallot';
 import { captureFrame } from '@dylanebert/shallot/rendering';
-import { CityPlugin } from '../src/city';
-const app=await createApp({plugins:[CityPlugin]});
+import { cityPlugin } from '../src/city';
+import { SEED } from '../src/layout';
+const app=await createApp({plugins:[cityPlugin(SEED,8192)]});
 const world=app.world, canvas=document.querySelector('canvas');
 world.step(1/60);world.step(1/60);
 window.city={
