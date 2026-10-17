@@ -5,9 +5,10 @@ declare global {
     interface Window {
         voxel: {
             step(ticks: number): void;
+            close(): void;
             capture(
                 evidence?: boolean,
-            ): Promise<{ png: string; coverage: number; corners: boolean[] }>;
+            ): Promise<{ details: number; png: string; coverage: number; corners: boolean[] }>;
         };
     }
 }
@@ -24,6 +25,8 @@ test("the stepped scrolling terrain covers the ground and retains a visible view
     await page.waitForFunction(() => window.voxel);
     await page.evaluate(() => window.voxel.step(240));
     const image = await page.evaluate(() => window.voxel.capture(true));
+    // More than isolated MSAA fragments: at least twenty amber flower pixels at 720p.
+    expect(image.details).toBeGreaterThan(20);
     expect(image.coverage).toBeGreaterThan(0.95);
     expect(image.corners).toEqual([false, false]);
     expect(errors).toEqual([]);
@@ -35,6 +38,17 @@ test("the stepped scrolling terrain covers the ground and retains a visible view
             const frame = await page.evaluate(() => window.voxel.capture());
             writeFileSync(
                 `${directory}/scroll-${String(i).padStart(3, "0")}.png`,
+                Buffer.from(frame.png.split(",")[1], "base64"),
+            );
+        }
+        await page.evaluate(() => window.voxel.close());
+        const close = await page.evaluate(() => window.voxel.capture());
+        writeFileSync(`${directory}/close.png`, Buffer.from(close.png.split(",")[1], "base64"));
+        for (let i = 0; i < 90; i++) {
+            await page.evaluate(() => window.voxel.step(4));
+            const frame = await page.evaluate(() => window.voxel.capture());
+            writeFileSync(
+                `${directory}/close-${String(i).padStart(3, "0")}.png`,
                 Buffer.from(frame.png.split(",")[1], "base64"),
             );
         }

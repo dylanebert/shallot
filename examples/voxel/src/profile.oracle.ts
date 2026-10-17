@@ -1,5 +1,5 @@
 import { setDefaultTimeout, test } from "bun:test";
-import { DiagnosticsStore } from "@dylanebert/shallot";
+import { DiagnosticsStore, probeBuffer } from "@dylanebert/shallot";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -71,6 +71,14 @@ test("report shipped voxel CPU/GPU spans and bundle recordings while scrolling a
                 mode,
                 resolution: "1280x720 offscreen",
                 frames: cpu.length,
+                detailRows: new Uint32Array(
+                    (
+                        await probeBuffer(
+                            world,
+                            world.gpu.root.unwrap(world.resource(Terrain).placement!.table.count),
+                        )
+                    ).bytes,
+                )[0],
                 medianCpuStepMs: median(cpu),
                 medianFencedStepMs: median(fenced),
                 recordedBundles: bundles - initialBundles,

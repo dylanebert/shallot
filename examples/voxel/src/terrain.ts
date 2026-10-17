@@ -10,6 +10,7 @@ import {
     type Resource,
     resetInterpolation,
     StandardRenderer,
+    type System,
     Transform,
     type World,
 } from "@dylanebert/shallot";
@@ -31,6 +32,7 @@ import {
 import * as d from "typegpu/data";
 import { TerrainMaterial, TerrainMaterialPlugin } from "./material";
 import { mesher } from "./mesher";
+import { placement } from "./placement";
 import { type Geometry, pool } from "./pool";
 import { scatter } from "./scatter";
 import {
@@ -55,6 +57,8 @@ type Slot = {
 };
 export const Terrain: Resource<{
     viewer: number;
+    previousViewer: number;
+    placement: ReturnType<typeof placement> | null;
     camera: number;
     turnovers: number;
     slots: Slot[];
@@ -68,6 +72,8 @@ export const Terrain: Resource<{
 }> = {
     create: () => ({
         viewer: 0,
+        previousViewer: 0,
+        placement: null,
         camera: 0,
         turnovers: 0,
         slots: [],
@@ -124,6 +130,17 @@ function place(world: World, config: TerrainConfig): void {
 export function terrainPlugin(config: TerrainConfig): Plugin {
     const size = config.chunkSize;
     const span = (config.viewDistance * 2 + 1) * size;
+    const placeDetails: System = {
+        name: "place-details",
+        group: "draw",
+        before: [MeshPreprocessSystem],
+        update(world) {
+            const s = world.resource(Terrain);
+            s.placement!.draw(
+                s.previousViewer + (s.viewer - s.previousViewer) * world.time.fixedAlpha,
+            );
+        },
+    };
     return {
         name: "Terrain",
         gpu: {},
@@ -144,6 +161,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 const saved = snapshot as { viewer: number; turnovers: number };
                 const terrain = world.resource(Terrain);
                 terrain.viewer = saved.viewer;
+                terrain.previousViewer = saved.viewer;
                 place(world, config);
                 const instances = world.storage(MeshInstance).mesh;
                 for (const slot of terrain.slots) {
@@ -176,6 +194,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
             });
             world.own(s.detailCounts);
             world.own(s.details);
+            s.placement = placement(world, config, s.details, s.detailCounts);
             const { emit, quantData, height } = mesher(config);
             s.scatterPipeline = root.unwrap(
                 root
@@ -264,20 +283,23 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 name: "scroll",
                 group: "fixed",
                 update(world) {
-                    world.resource(Terrain).viewer += SPEED / 60;
+                    const s = world.resource(Terrain);
+                    s.previousViewer = s.viewer;
+                    s.viewer += SPEED / 60;
                     place(world, config);
                 },
             },
             {
                 name: "emit-chunks",
                 group: "draw",
-                before: [MeshPreprocessSystem],
+                before: [placeDetails, MeshPreprocessSystem],
                 update(world) {
                     const s = world.resource(Terrain);
                     let pass: GPUComputePassEncoder | undefined;
                     for (let i = 0; i < s.slots.length; i++) {
                         const slot = s.slots[i];
                         if (!slot.dirty) continue;
+                        s.placement!.chunk(i, slot.x, slot.z);
                         const geometry = slot.geometry!;
                         world.gpu.device.queue.writeBuffer(s.counts!, i * 4, ZERO);
                         world.gpu.device.queue.writeBuffer(s.detailCounts!, i * 4, ZERO);
@@ -301,6 +323,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                     pass?.end();
                 },
             },
+            placeDetails,
         ],
     };
 }

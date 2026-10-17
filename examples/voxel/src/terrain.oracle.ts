@@ -49,6 +49,10 @@ test("report the shipped terrain's fenced step time without a performance assert
             maxTransitionChunks: ringSlots(CONFIG),
             emittedFaces: indices.reduce((sum, count) => sum + count / 6, 0),
             loadedChunks: terrain.slots.length,
+            detailRows: new Uint32Array(
+                (await probeBuffer(world, world.gpu.root.unwrap(terrain.placement!.table.count)))
+                    .bytes,
+            )[0],
             meshes: world.resource(Meshes).size,
             turnovers: terrain.turnovers - turnovers,
         });
