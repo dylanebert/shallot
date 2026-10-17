@@ -4,6 +4,25 @@ import { f16, f32, vec2, vec3, vec4, World } from "./index";
 
 const Component = { scalar: f32, pair: vec2, quad: vec4, half: f16, omitted: f32 };
 
+test("re-added components publish new values and reset omitted fields", () => {
+    const world = new World();
+    const Value = { scalar: f32, pair: vec2 };
+    const eid = world.create();
+    try {
+        const storage = world.storage(Value);
+        world.add(eid, Value, { scalar: 7, pair: [8, 9] });
+        world.remove(eid, Value);
+        expect(world.has(eid, Value)).toBe(false);
+        world.add(eid, Value, { scalar: 11 });
+        expect(world.has(eid, Value)).toBe(true);
+        expect(storage.scalar.get(eid)).toBe(11);
+        expect(storage.pair.x.get(eid)).toBe(0);
+        expect(storage.pair.y.get(eid)).toBe(0);
+    } finally {
+        world.dispose();
+    }
+});
+
 test("add writes starting values through world storage and keeps omitted defaults", () => {
     const Component = { scalar: f32, pair: vec2, quad: vec4, half: f16, omitted: f32 };
     const world = new World();

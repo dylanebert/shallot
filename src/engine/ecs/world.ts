@@ -484,9 +484,8 @@ export class World {
     }
 
     private notifyMembership(component: Component, eid: number, present: boolean): void {
-        this._membershipObservers.get(idOf(component))?.forEach((observer) => {
-            observer(eid, present);
-        });
+        const observers = this._membershipObservers.get(idOf(component));
+        if (observers) for (const observer of observers) observer(eid, present);
     }
 
     /** @internal Resolve the world-owned column for engine change consumers. */
@@ -781,16 +780,21 @@ export class World {
             for (const field of this._storage.get(id)!.fields.values()) field.ensure(eid + 1);
             this.notifyMembership(component as Component, eid, true);
             const tables = this._tablesByComponent.get(id);
-            const attached: GpuTable[] = [];
+            let attached = 0;
             try {
                 if (tables) {
                     for (const table of tables) {
                         table.attachComponent(eid, component as Component);
-                        attached.push(table);
+                        attached++;
                     }
                 }
             } catch (error) {
-                for (const table of attached) table.detachComponent(eid, component as Component);
+                if (tables) {
+                    for (const table of tables) {
+                        if (attached-- === 0) break;
+                        table.detachComponent(eid, component as Component);
+                    }
+                }
                 this._components.remove(eid, component);
                 this.notifyMembership(component as Component, eid, false);
                 throw error;

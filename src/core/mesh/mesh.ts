@@ -108,7 +108,8 @@ class MeshRegistryImpl implements MeshRegistry {
     private _nextHandle = 0;
     private _freeHandle = 0;
     version = 0;
-    private readonly _entriesByHandle = new Map<MeshHandle, Mesh>();
+    private readonly _entriesByHandle: (Mesh | undefined)[] = [];
+    private readonly _order: MeshHandle[] = [];
 
     constructor(world: World) {
         this._world = world;
@@ -133,44 +134,55 @@ class MeshRegistryImpl implements MeshRegistry {
         }
         const handle = this._freeHandle as MeshHandle;
         this._nextHandle = Math.max(this._nextHandle, handle + 1);
-        this._entriesByHandle.set(handle, mesh as Mesh);
-        while (this._entriesByHandle.has(this._freeHandle as MeshHandle)) this._freeHandle++;
+        this._entriesByHandle[handle] = mesh as Mesh;
+        this._order.push(handle);
+        while (this._entriesByHandle[this._freeHandle] !== undefined) this._freeHandle++;
         this.version++;
         return handle;
     }
 
     replace(handle: MeshHandle, mesh: Mesh): void {
-        if (!this._entriesByHandle.has(handle)) throw new Error(`unknown mesh handle ${handle}`);
-        this._entriesByHandle.set(handle, mesh);
+        if (!this.has(handle)) throw new Error(`unknown mesh handle ${handle}`);
+        this._entriesByHandle[handle] = mesh;
         this.version++;
     }
 
     remove(handle: MeshHandle): Mesh | undefined {
-        const mesh = this._entriesByHandle.get(handle);
+        const mesh = this._entriesByHandle[handle];
         if (!mesh) return undefined;
-        this._entriesByHandle.delete(handle);
+        this._entriesByHandle[handle] = undefined;
+        const orderIndex = this._order.indexOf(handle);
+        for (let i = orderIndex + 1; i < this._order.length; i++)
+            this._order[i - 1] = this._order[i];
+        this._order.pop();
         this._freeHandle = Math.min(this._freeHandle, handle);
         const pending = this._world.resource(meshResourcesKey).pending;
-        const index = pending.findIndex((entry) => entry.handle === handle);
+        let index = -1;
+        for (let i = 0; i < pending.length; i++) {
+            if (pending[i].handle === handle) {
+                index = i;
+                break;
+            }
+        }
         if (index !== -1) pending.splice(index, 1);
         this.version++;
         return mesh;
     }
 
     get(handle: MeshHandle): Mesh | undefined {
-        return this._entriesByHandle.get(handle);
+        return this._entriesByHandle[handle];
     }
 
     has(handle: MeshHandle): boolean {
-        return this._entriesByHandle.has(handle);
+        return this._entriesByHandle[handle] !== undefined;
     }
 
-    entries(): IterableIterator<[MeshHandle, Mesh]> {
-        return this._entriesByHandle.entries();
+    *entries(): IterableIterator<[MeshHandle, Mesh]> {
+        for (const handle of this._order) yield [handle, this._entriesByHandle[handle]!];
     }
 
-    values(): IterableIterator<Mesh> {
-        return this._entriesByHandle.values();
+    *values(): IterableIterator<Mesh> {
+        for (const handle of this._order) yield this._entriesByHandle[handle]!;
     }
 
     [Symbol.iterator](): IterableIterator<Mesh> {
@@ -178,7 +190,7 @@ class MeshRegistryImpl implements MeshRegistry {
     }
 
     get size(): number {
-        return this._entriesByHandle.size;
+        return this._order.length;
     }
 
     get capacity(): number {
@@ -186,7 +198,8 @@ class MeshRegistryImpl implements MeshRegistry {
     }
 
     clear(): void {
-        this._entriesByHandle.clear();
+        this._entriesByHandle.fill(undefined);
+        this._order.length = 0;
         // Handle-indexed consumers retain their allocation and addressing stride across clear.
         this._freeHandle = 0;
         this.version++;

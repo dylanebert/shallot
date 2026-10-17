@@ -21,6 +21,8 @@ interface DefaultsPlan {
     fields: { name: string; write(eid: number): void }[];
 }
 
+const noRequirements: readonly Component[] = [];
+
 export class ComponentRegistry {
     private readonly _byName = new Map<string, Entry>();
     // keyed by stable component id, so a handle held across reloads resolves this world's registration
@@ -41,7 +43,7 @@ export class ComponentRegistry {
 
     /** Required companions for insertion. */
     getRequirements(component: Component): readonly Component[] {
-        return this._byId.get(idOf(component))?.requires ?? [];
+        return this._byId.get(idOf(component))?.requires ?? noRequirements;
     }
 
     /** iterate every component registered in this world with its key and options */

@@ -93,7 +93,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _componentBindings: ComponentBinding[] = [];
     private _boundDirty = new Uint8Array(0);
     private _seeds = 0;
-    private _membershipCounts = new Map<number, number>();
+    private _membershipCounts = new Uint32Array(0);
     private _presenceBindings: PresenceBinding[] = [];
     private _presenceUnsubscribes: (() => void)[] = [];
 
@@ -405,7 +405,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             }
         if (!bound) throw new Error(`GpuTable "${this.name}": component has no row binding`);
         this.seed(this.acquire(eid));
-        this._membershipCounts.set(eid, (this._membershipCounts.get(eid) ?? 0) + 1);
+        this._membershipCounts[eid]++;
         for (const presence of this._presenceBindings) {
             this.writePresence(eid, presence, this._world.has(eid, presence.component));
         }
@@ -413,9 +413,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     /** Detach one component owner, releasing the row when its last owner leaves. @internal */
     detachComponent(eid: number, _component: Component): void {
-        const count = this._membershipCounts.get(eid) ?? 0;
+        const count = this._membershipCounts[eid] ?? 0;
         if (count <= 1) this.release(eid);
-        else this._membershipCounts.set(eid, count - 1);
+        else this._membershipCounts[eid] = count - 1;
     }
 
     private binding(component: Component): ComponentBinding {
@@ -450,7 +450,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     /** Release an eid's dense slot; the next acquire may reuse the slot. */
     release(eid: number): void {
         this.requireRowOwner();
-        this._membershipCounts.delete(eid);
+        if (eid >= 0 && eid < this._membershipCounts.length) this._membershipCounts[eid] = 0;
         if (!Number.isSafeInteger(eid) || eid < 0 || eid >= this._eidToRow.length) return;
         const encoded = this._eidToRow[eid];
         if (encoded === 0) return;
@@ -613,7 +613,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         for (const unsubscribe of this._presenceUnsubscribes) unsubscribe();
         this._presenceUnsubscribes.length = 0;
         this._presenceBindings.length = 0;
-        this._membershipCounts.clear();
+        this._membershipCounts.fill(0);
         const buffers = [this._buffer];
         if (this._mapBuffer) buffers.push(this._mapBuffer);
         if (this._activeBuffer) buffers.push(this._activeBuffer);
@@ -770,6 +770,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const map = new Uint32Array(capacity);
         map.set(this._eidToRow);
         this._eidToRow = map;
+        const counts = new Uint32Array(capacity);
+        counts.set(this._membershipCounts);
+        this._membershipCounts = counts;
         this._mapCapacity = capacity;
         if (this._mapEnabled) this.replaceMapBuffer();
     }
