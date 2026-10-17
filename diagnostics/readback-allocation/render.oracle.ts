@@ -282,7 +282,6 @@ async function steadyAllocation(composition: string) {
 
 test.each(["render", "profile"])("steady %s allocates no JavaScript heap beyond source-checked GPU and fence wrappers", steadyAllocation);
 
-// A camera background re-resolves its bindings every frame; voxel turnover's oracle names the same sites.
-test.todo("steady background allocates no JavaScript heap beyond source-checked GPU and fence wrappers", () =>
+test("steady background allocates no JavaScript heap beyond source-checked GPU and fence wrappers", () =>
     steadyAllocation("background"),
 );

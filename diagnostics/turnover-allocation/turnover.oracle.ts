@@ -48,6 +48,8 @@ const groups: { name: string; claims: Claim[] }[] = [
     {
         name: "forward's background path",
         claims: [
+            // The resource-comparison callback captures `resolved`, allocating a 40 B context even on a cache hit.
+            { callers: ["renderColor src/standard/rendering/forward.ts:747:21"], leaf: backgroundGroup, bytesPerSample: 40 },
             { callers: [backgroundGroup], leaf: layoutResources },
             { callers: [backgroundGroup], leaf: layoutResources, natives: ["entries <native>"] },
             { callers: [layoutResources], leaf: "validateMeshBindingOverrides src/standard/rendering/forward.ts:251:45", natives: ["entries <native>"] },
@@ -108,7 +110,7 @@ test("warm voxel turnover allocates nothing outside the admitted wrappers and th
 });
 
 for (const owner of groups)
-    (owner.name === "ECS and mesh registry turnover" ? test : test.todo)(`warm voxel turnover allocates nothing in ${owner.name}`, async () => {
+    (owner.name === "ECS and mesh registry turnover" || owner.name === "forward's background path" ? test : test.todo)(`warm voxel turnover allocates nothing in ${owner.name}`, async () => {
         const result = await sample();
         const failure = allocationFailure(only(result, (row) => !isAdmittedAllocationSite(row) && claimants(row).includes(owner)));
         if (failure) throw new Error(failure);
@@ -132,6 +134,7 @@ test("each group claims exactly its diagnosed rows", () => {
         ["ECS and mesh registry turnover", row([...placing, "remove src/core/mesh/mesh.ts:148:11"], 48)],
         ["ECS and mesh registry turnover", row([...placing, worldAdd, "attachComponent src/engine/ecs/table.ts:398:20", "set <native>"], 488)],
         ["ECS and mesh registry turnover", row([...placing, "add src/core/mesh/mesh.ts:117:8", "set <native>"], 936)],
+        ["forward's background path", row(background, 40)],
         ["forward's background path", row([...background, layoutResources], 112)],
         ["forward's background path", row([...background, layoutResources, "entries <native>"], 40)],
         ["forward's background path", row([...background, layoutResources, "validateMeshBindingOverrides src/standard/rendering/forward.ts:251:45", "entries <native>"], 40)],

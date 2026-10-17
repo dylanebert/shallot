@@ -674,16 +674,14 @@ function renderPrepass(
     world.gpu.indirect?.("standard:prepass", draws);
 }
 
-type BackdropPick = { bg: Background; ct: CompiledBackground };
-function backdrop(world: World, eid: number): BackdropPick | null {
+function backdrop(world: World, eid: number): Background | null {
     const _backgrounds = world.resource(Backgrounds);
 
     if (!world.has(eid, CameraBackground)) return null;
     const id = world.storage(CameraBackground).background.get(eid);
     const bg = _backgrounds.get(id);
     if (!bg) return null;
-    const ct = getBackground(world, bg) ?? compileBackground(world, bg);
-    return { bg, ct };
+    return bg;
 }
 
 // build (and cache on the CompiledBackground) a background's own group-2 bind group — slot-invariant
@@ -695,17 +693,18 @@ function backgroundGroup(
     ct: CompiledBackground,
 ): GPUBindGroup | null | "none" {
     const entries = bg.layout.entries as Record<string, object>;
-    if (Object.keys(entries).length === 0) return "none";
-    const resolved = layoutResources(world, entries, bg.bindings?.(world) ?? {}, undefined, true);
+    const bindings = bg.bindings?.(world);
+    let count = 0;
+    let same = ct.group2 !== null;
+    for (const name in entries) {
+        if (ct.group2?.resources[count] !== bindings?.[name]) same = false;
+        count++;
+    }
+    if (count === 0) return "none";
+    if (same) return ct.group2!.group;
+    const resolved = layoutResources(world, entries, bindings, undefined, true);
     if (typeof resolved === "string") {
         return warnSkip(world, `background:${bg.name}`, `binding "${resolved}" not published`);
-    }
-    if (
-        ct.group2 &&
-        ct.group2.resources.length === resolved.resources.length &&
-        ct.group2.resources.every((b, k) => b === resolved.resources[k])
-    ) {
-        return ct.group2.group;
     }
     const group = world.gpu.root.unwrap(
         world.gpu.root.createBindGroup(bg.layout, resolved.values as never),
@@ -751,7 +750,7 @@ function renderColor(
     items: FrameDraw[],
     count: number,
     encoded: GPURenderPassEncoder,
-    bg: BackdropPick | null = null,
+    bg: Background | null = null,
 ): void {
     const _render = world.resource(RenderContext);
     const _standardRendererState = world.resource(standardRendererStateKey);
@@ -789,15 +788,16 @@ function renderColor(
         // a backdrop: the shared engine group 0 (a never-read `bgQuant()` fills the meshQuant
         // slot — a background pulls no mesh), the shadow group 1 (declared-but-unused, the
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
-        const group = backgroundGroup(world, bg.bg, bg.ct);
+        const ct = getBackground(world, bg) ?? compileBackground(world, bg);
+        const group = backgroundGroup(world, bg, ct);
         if (group) {
             const step = bundleDraw(_standardRendererState.colorProgram, draws++);
-            step.pipeline = (aa ? bg.ct.color : bg.ct.single) as never;
+            step.pipeline = (aa ? ct.color : ct.single) as never;
             step.layout0 = engineLayout;
-            step.group0 = engineGroup(world, bg.ct.engineCache, view.slot, bgQuant(world));
+            step.group0 = engineGroup(world, ct.engineCache, view.slot, bgQuant(world));
             step.layout1 = shadowLayout;
             step.group1 = shadow;
-            step.layout2 = group === "none" ? null : bg.bg.layout;
+            step.layout2 = group === "none" ? null : bg.layout;
             step.group2 = group === "none" ? null : group;
             step.indirect = null;
             step.offset = 3;

@@ -59,10 +59,51 @@ test("backgrounds sharing a name retain independent identity on two cameras", as
     const frames = await Promise.all(cameras.map((camera) => captureTexture(world, camera)));
     expect(frames[0].rgba[0]).toBeGreaterThan(frames[0].rgba[1]!);
     expect(frames[1].rgba[1]).toBeGreaterThan(frames[1].rgba[0]!);
+    world.storage(CameraBackground).background.set(cameras[0]!, second);
+    world.step(0);
+    expect((await captureTexture(world, cameras[0]!)).rgba).toEqual(frames[1].rgba);
     for (const camera of cameras) world.destroy(camera);
 });
 
-test("each background owns identically named bindings and observes resource replacement", async () => {
+test("background bindings observe a resized storage resource", async () => {
+    const { world } = subjects()[0];
+    const layout = backgroundLayout({ colors: { type: "storage", element: d.vec3f } });
+    const bindings = {
+        colors: world.gpu.root
+            .createBuffer(d.arrayOf(d.vec3f, 1), [d.vec3f(1, 0, 0)])
+            .$usage("storage"),
+    };
+    const background = registerBackground(world, {
+        name: "resized",
+        layout,
+        fs: tgpu.fn(
+            [BackgroundContext],
+            d.vec3f,
+        )(() => {
+            "use gpu";
+            return layout.$.colors[0]!;
+        }),
+        bindings: () => bindings,
+    });
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera);
+    world.add(camera, StandardRenderer);
+    world.add(camera, CameraBackground, { background });
+    attachTexture(world, camera, { width: 8, height: 8 });
+    world.step(0);
+    const before = (await captureTexture(world, camera)).rgba;
+    expect(before[0]).toBeGreaterThan(before[1]!);
+    bindings.colors = world.gpu.root
+        .createBuffer(d.arrayOf(d.vec3f, 2), [d.vec3f(0, 1, 0), d.vec3f(0)])
+        .$usage("storage");
+    world.step(0);
+    const after = (await captureTexture(world, camera)).rgba;
+    expect(after[1]).toBeGreaterThan(after[0]!);
+    world.destroy(camera);
+});
+
+test("each background observes changed binding records and replaced resources", async () => {
     const { world } = subjects()[0];
     const color = d.struct({ value: d.vec3f });
     const layout = backgroundLayout({ color: { type: "uniform", struct: color } });
@@ -76,12 +117,12 @@ test("each background owns identically named bindings and observes resource repl
         "use gpu";
         return layout.$.color.value;
     });
-    const cameras = resources.map((bindings) => {
+    const cameras = resources.map((_, index) => {
         const background = registerBackground(world, {
             name: "owned",
             layout,
             fs,
-            bindings: () => bindings,
+            bindings: () => resources[index]!,
         });
         expect(world.resource(Backgrounds).get(background)?.name).toBe("owned");
         const camera = world.create();
@@ -102,5 +143,8 @@ test("each background owns identically named bindings and observes resource repl
     world.step(0);
     const replaced = (await captureTexture(world, cameras[0]!)).rgba;
     expect(replaced).toEqual(second);
+    resources[0] = { color: red };
+    world.step(0);
+    expect((await captureTexture(world, cameras[0]!)).rgba).toEqual(first);
     for (const camera of cameras) world.destroy(camera);
 });
