@@ -79,7 +79,7 @@ beforeAll(() => {
         writeFileSync(
             join(project, "packed-engine.gpu.test.ts"),
             `import { expect, setDefaultTimeout, test } from "bun:test";
-import { openGpuApp, TIMEOUT } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 setDefaultTimeout(TIMEOUT.gpu);
 import { createApp, type Plugin } from "@dylanebert/shallot/app";
 import { component, f32, Time } from "@dylanebert/shallot/ecs";
@@ -129,10 +129,7 @@ test("the packed engine refuses with Bun's optional peer fix when navigator.gpu 
 });
 
 test("the packed headless plugin set steps the world through public engine subpaths", async () => {
-    const app = await openGpuApp({
-        plugins: [Counter, { name: "PackedGpuRequirement", gpu: {} }],
-        defaults: false,
-    });
+    const app = await createApp({ plugins: [Counter], defaults: false });
     try {
         app.world.step(Time.FIXED_DT);
         expect(app.world.time.fixedTick).toBe(1);

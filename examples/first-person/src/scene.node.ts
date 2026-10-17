@@ -12,7 +12,8 @@ import {
     Time,
     Transform,
 } from "@dylanebert/shallot";
-import { openGpuApp as createApp, TIMEOUT } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { openGpuApp as createApp } from "../tests/gpu-app";
 import { Player, PlayerPlugin } from "./player";
 
 setDefaultTimeout(TIMEOUT.node);

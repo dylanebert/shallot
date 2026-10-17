@@ -4,7 +4,6 @@ import { createApp, type Plugin } from "@dylanebert/shallot";
 import { CEILING } from "@dylanebert/shallot/testing";
 import { rawDevice } from "../src/engine/runtime";
 import type { AdapterVerdict } from "../src/engine/runtime/adapter";
-import { adapterNotice } from "../src/engine/runtime/gpu";
 import { normalizePath } from "../src/project/paths";
 import { expectWarning } from "./test-console";
 
@@ -67,8 +66,8 @@ export async function createTestGpuApp(
 
 /** Declare the exact notice `stampAdapter` prints for this acquisition's verdict, if it prints one. */
 export function expectAdapterNotice(verdict: AdapterVerdict | undefined): void {
-    const notice = adapterNotice(verdict);
-    if (notice === undefined) return;
+    if (!verdict || verdict.class === "real") return;
+    const notice = `[shallot] ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}`;
     expectWarning(new RegExp(`^${notice.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
 }
 

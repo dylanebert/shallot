@@ -16,7 +16,8 @@ import {
     releaseKey,
 } from "@dylanebert/shallot/input";
 import { attachTexture, Views } from "@dylanebert/shallot/rendering";
-import { openGpuApp, TIMEOUT } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { openGpuApp } from "../tests/gpu-app";
 import { addCoin, count, Game, loadGame, newGame, saveGame, saveLabel } from "./game";
 import { COIN_CAP, COIN_DIAMETER, Coin, encode, placement, SAVE_KEY } from "./save";
 import { Scene } from "./scene";

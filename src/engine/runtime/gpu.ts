@@ -1144,11 +1144,6 @@ function adopt(
     return (value.root ??= create());
 }
 
-export function adapterNotice(verdict: AdapterVerdict | undefined): string | undefined {
-    if (!verdict || verdict.class === "real") return undefined;
-    return `[shallot] ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}`;
-}
-
 /** classify the adapter and warn once when the result is not real hardware. */
 export function stampAdapter(
     adapter?: GPUAdapter,
@@ -1161,9 +1156,10 @@ export function stampAdapter(
                   present: true,
                   info: adapter.info as AdapterInfoFacts,
               });
-    const message = adapterNotice(verdict);
-    if (message !== undefined) {
-        console.warn(message);
+    if (verdict.class !== "real") {
+        console.warn(
+            `[shallot] ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}`,
+        );
         notice?.(verdict);
     }
     return verdict;

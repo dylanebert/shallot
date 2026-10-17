@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { type createApp, DiagnosticsStore, probeBuffer, setTransform } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
-import { openGpuApp, TIMEOUT } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { openGpuApp } from "../tests/gpu-app";
 import { MOTE_COUNT, Motes, MotesPlugin } from "./motes";
 import { Room } from "./room";
 

@@ -21,7 +21,7 @@ export function buildProjectDeclaration(entry: ProjectTool): string {
                 emitDeclarationOnly: true,
                 noEmit: false,
                 outDir: outdir,
-                rootDir: resolve(ROOT, "src"),
+                rootDir: resolve(ROOT, "src/project"),
                 skipLibCheck: true,
                 typeRoots: [resolve(ROOT, "node_modules/@types"), resolve(ROOT, "node_modules")],
             },
@@ -40,13 +40,13 @@ export function buildProjectDeclaration(entry: ProjectTool): string {
                 `build-tooling: declaration emit for ${source} failed:\n${result.stdout.toString()}${result.stderr.toString()}`,
             );
         }
-        const declaration = readFileSync(join(outdir, "project", `${entry}.d.ts`), "utf8");
+        const declaration = readFileSync(join(outdir, `${entry}.d.ts`), "utf8");
         const imports = [
             ...declaration.matchAll(
                 /(?:\bfrom\s+|\bimport\s*\(\s*|<reference\s+(?:path|types)=)["']([^"']+)["']/g,
             ),
         ].map(([, specifier]) => specifier);
-        const allowed = entry === "vite" ? ["vite"] : ["playwright/test", "@dylanebert/shallot"];
+        const allowed = entry === "vite" ? ["vite"] : ["playwright/test"];
         const unexpected = imports.filter((specifier) => !allowed.includes(specifier));
         if (unexpected.length) {
             throw new Error(

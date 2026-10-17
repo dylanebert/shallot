@@ -1,7 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Materials, Meshes, MeshInstance } from "@dylanebert/shallot";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
-import { openGpuApp, TIMEOUT } from "@dylanebert/shallot/testing";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { openGpuApp } from "../tests/gpu-app";
 import { City, COLORS, cityPlugin } from "./city";
 import { layout, POPULATION, SEED } from "./layout";
 

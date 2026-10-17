@@ -17,7 +17,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { openGpuApp } from "@dylanebert/shallot/testing";
+import { openGpuApp } from "../tests/gpu-app";
 import { Route } from "./demo";
 import { APP_PLUGINS } from "./plugins";
 

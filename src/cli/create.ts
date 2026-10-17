@@ -73,8 +73,8 @@ function occupied(destination: string): boolean {
     return stat.isDirectory() ? readdirSync(destination).length > 0 : true;
 }
 
-/** Imported packages and optional peers required by a template's sources, excluding builtins. */
-function templateDependencies(root: string): Set<string> {
+/** The bare specifiers a template's sources import, `node:` and `bun:` builtins aside. */
+function bareImports(root: string): Set<string> {
     const importPattern =
         /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["']([^"'./][^"']*)["']/g;
     const specifiers = new Set<string>();
@@ -86,16 +86,8 @@ function templateDependencies(root: string): Set<string> {
             const path = join(dir, entry.name);
             if (entry.isDirectory()) pending.push(path);
             else if (entry.isFile() && /\.(?:[cm]?[jt]sx?|html|svelte)$/.test(entry.name)) {
-                const source = readFileSync(path, "utf8");
-                for (const match of source.matchAll(importPattern))
+                for (const match of readFileSync(path, "utf8").matchAll(importPattern))
                     if (!/^(?:node|bun):/.test(match[1]!)) specifiers.add(match[1]!);
-                // The testing opener acquires WebGPU through the same optional peer as /webgpu.
-                if (
-                    /\bimport\s*\{[^}]*\bopenGpuApp\b[^}]*\}\s*from\s*["']@dylanebert\/shallot\/testing["']/.test(
-                        source,
-                    )
-                )
-                    specifiers.add(`${ENGINE}/webgpu`);
             }
         }
     }
@@ -118,7 +110,7 @@ export function packageManifest(
         playwright: engine.peerDependencies.playwright,
         vite: engine.devDependencies.vite,
     };
-    const imports = templateDependencies(templateDir);
+    const imports = bareImports(templateDir);
     if (imports.has(`${ENGINE}/webgpu`)) devDependencies.webgpu = engine.peerDependencies.webgpu;
     // A template's own packages are those the engine is proved against, at the engine's range; the
     // import gate refuses a package the engine does not declare.
