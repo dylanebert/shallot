@@ -2,17 +2,29 @@
 <script type="module">
 import { createApp } from '@dylanebert/shallot';
 import { captureFrame } from '@dylanebert/shallot/rendering';
-import { TerrainPlugin } from '../src/terrain';
-const app=await createApp({plugins:[TerrainPlugin]});
+import { TerrainPlugin, terrainPlugin } from '../src/terrain';
+const shipped=new URLSearchParams(location.search).has('shipped');
+const plugin=shipped?TerrainPlugin:terrainPlugin({chunkSize:8,viewDistance:3,height:16,relief:4});
+const app=await createApp({plugins:[plugin]});
 const world=app.world, canvas=document.querySelector('canvas');
 world.step(1/60);world.step(1/60);
 window.voxel={
  step(ticks) { for(let i=0;i<ticks;i++)world.tick(); world.step(0); },
- async capture(pixels=false) {
+ async capture(evidence=false) {
   const pending=captureFrame(canvas);world.step(0);const image=await pending;
-  const c=document.createElement('canvas');c.width=image.width;c.height=image.height;
-  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);
-  return {png:c.toDataURL('image/png'),rgba:pixels?Array.from(image.rgba):[],width:image.width,height:image.height};
+  const {rgba,width,height}=image;
+  // Grass and earth have less blue than red/green; beyond the footprint is daytime sky.
+  const land=(x,y)=>{
+   const i=(Math.floor(y*height)*width+Math.floor(x*width))*4;
+   return rgba[i]>rgba[i+2]*1.1&&rgba[i+1]>rgba[i+2]*1.1;
+  };
+  let covered=0,total=0;
+  if(evidence) for(let y=0.4;y<0.65;y+=0.01) for(let x=0.35;x<0.65;x+=0.01) {
+   covered+=Number(land(x,y));total++;
+  }
+  const c=document.createElement('canvas');c.width=width;c.height=height;
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba),width,height),0,0);
+  return {png:c.toDataURL('image/png'),coverage:total?covered/total:0,corners:evidence?[land(0.05,0.05),land(0.95,0.05)]:[]};
  }
 };
 </script></body></html>

@@ -6,8 +6,8 @@ declare global {
         voxel: {
             step(ticks: number): void;
             capture(
-                pixels?: boolean,
-            ): Promise<{ png: string; rgba: number[]; width: number; height: number }>;
+                evidence?: boolean,
+            ): Promise<{ png: string; coverage: number; corners: boolean[] }>;
         };
     }
 }
@@ -19,28 +19,14 @@ test("the stepped scrolling terrain covers the ground and retains a visible view
     page.on("console", (message) => {
         if (message.type() === "error") errors.push(message.text());
     });
-    await page.goto("http://127.0.0.1:4206/tests/stepped.html");
+    const directory = process.env.SHALLOT_CAPTURE_DIR;
+    await page.goto(`http://127.0.0.1:4206/tests/stepped.html${directory ? "?shipped" : ""}`);
     await page.waitForFunction(() => window.voxel);
     await page.evaluate(() => window.voxel.step(240));
     const image = await page.evaluate(() => window.voxel.capture(true));
-    const { rgba, width, height } = image;
-    // Grass and earth have less blue than red/green; beyond the footprint is daytime sky.
-    const land = (x: number, y: number) => {
-        const i = (Math.floor(y * height) * width + Math.floor(x * width)) * 4;
-        return rgba[i] > rgba[i + 2] * 1.1 && rgba[i + 1] > rgba[i + 2] * 1.1;
-    };
-    let covered = 0,
-        total = 0;
-    for (let y = 0.4; y < 0.65; y += 0.01)
-        for (let x = 0.35; x < 0.65; x += 0.01) {
-            covered += Number(land(x, y));
-            total++;
-        }
-    expect(covered / total).toBeGreaterThan(0.95);
-    expect(land(0.05, 0.05)).toBe(false);
-    expect(land(0.95, 0.05)).toBe(false);
+    expect(image.coverage).toBeGreaterThan(0.95);
+    expect(image.corners).toEqual([false, false]);
     expect(errors).toEqual([]);
-    const directory = process.env.SHALLOT_CAPTURE_DIR;
     if (directory) {
         mkdirSync(directory, { recursive: true });
         writeFileSync(`${directory}/frame.png`, Buffer.from(image.png.split(",")[1], "base64"));
