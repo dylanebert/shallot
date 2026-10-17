@@ -79,9 +79,16 @@ export function requireLinuxPrerequisites(probe: LinuxPrerequisiteProbe = defaul
     const softwareIcd = probe.softwareVulkanIcd();
     const missingBun = ["bun", "bunx"].filter((command) => !probe.commandExists(command));
     const missingRust = ["cargo", "rustc"].filter((command) => !probe.commandExists(command));
-    const missingSystem = ["cc", "pkg-config", "cmake", "ninja", "Xvfb", "tar", "python3"].filter(
-        (command) => !probe.commandExists(command),
-    );
+    const missingSystem = [
+        "cc",
+        "pkg-config",
+        "cmake",
+        "ninja",
+        "Xvfb",
+        "xcompmgr",
+        "tar",
+        "python3",
+    ].filter((command) => !probe.commandExists(command));
     if (!probe.hasX11Headers()) missingSystem.push("X11 development headers (libx11-dev)");
     if (!softwareIcd) missingSystem.push("Mesa software Vulkan ICD (mesa-vulkan-drivers)");
 
@@ -276,6 +283,9 @@ interface MarkerReport {
     nonce: string;
     mode: string;
     href: string;
+    pixel?: number[];
+    adapter?: Record<string, string | boolean>;
+    error?: string;
 }
 
 interface Observer {
@@ -454,13 +464,109 @@ exit "$status"`;
     };
 }
 
+async function startCompositor(logs: string, env: NodeJS.ProcessEnv): Promise<() => Promise<void>> {
+    const log = createWriteStream(resolve(logs, "compositor.log"));
+    const child = spawn("xcompmgr", [], { env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout.pipe(log, { end: false });
+    child.stderr.pipe(log, { end: false });
+    let spawnError: Error | undefined;
+    child.once("error", (error) => {
+        spawnError = error;
+    });
+    const stop = async () => {
+        if (child.pid) await terminateProcessGroup(child.pid);
+        await new Promise<void>((resolveEnd) => log.end(resolveEnd));
+    };
+    try {
+        // A compositor owner makes Chromium select an ARGB visual instead of the root visual.
+        await runLogged(
+            "compositor ready",
+            "python3",
+            [
+                "-c",
+                `
+import ctypes as c, time
+x = c.CDLL("libX11.so.6")
+x.XOpenDisplay.argtypes = [c.c_char_p]
+x.XOpenDisplay.restype = c.c_void_p
+x.XInternAtom.argtypes = [c.c_void_p, c.c_char_p, c.c_int]
+x.XInternAtom.restype = c.c_ulong
+x.XGetSelectionOwner.argtypes = [c.c_void_p, c.c_ulong]
+x.XGetSelectionOwner.restype = c.c_ulong
+x.XCloseDisplay.argtypes = [c.c_void_p]
+d = x.XOpenDisplay(None)
+assert d, "cannot open smoke display"
+try:
+    atom = x.XInternAtom(d, b"_NET_WM_CM_S0", 0)
+    deadline = time.monotonic() + 5
+    while not x.XGetSelectionOwner(d, atom):
+        assert time.monotonic() < deadline, "X11 compositor did not acquire its selection"
+        time.sleep(.025)
+    print("X11 compositor selection acquired")
+finally:
+    x.XCloseDisplay(d)
+`,
+            ],
+            ROOT,
+            env,
+            logs,
+        );
+        if (spawnError) throw spawnError;
+        return stop;
+    } catch (error) {
+        await stop();
+        throw error;
+    }
+}
+
 function writePage(project: string, observer: string, mode: string, nonce: string): void {
     const report = JSON.stringify({ nonce, mode, href: "" });
-    const script = `const report = ${report}; report.href = location.href; fetch(${JSON.stringify(`${observer}/marker`)}, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(report) }).catch((error) => console.error("smoke observer", error));`;
+    const script = `const report = ${report};
+report.href = location.href;
+try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("no WebGPU adapter");
+    const { vendor, architecture, device: deviceName, description, isFallbackAdapter } = adapter.info;
+    report.adapter = { vendor, architecture, device: deviceName, description, isFallbackAdapter };
+    const device = await adapter.requestDevice();
+    const canvas = document.querySelector("canvas");
+    const context = canvas.getContext("webgpu");
+    context.configure({ device, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: "opaque" });
+    await new Promise((resolve, reject) => {
+        device.lost.then((info) => reject(new Error("WebGPU device lost: " + info.message)));
+        device.addEventListener("uncapturederror", (event) => reject(event.error));
+        requestAnimationFrame(() => {
+            try {
+                const encoder = device.createCommandEncoder();
+                const pass = encoder.beginRenderPass({ colorAttachments: [{
+                    view: context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store",
+                    clearValue: { r: 0, g: 1, b: 0, a: 1 },
+                }] });
+                pass.end();
+                device.queue.submit([encoder.finish()]);
+                const probe = document.createElement("canvas");
+                probe.width = probe.height = 1;
+                const pixels = probe.getContext("2d");
+                pixels.drawImage(canvas, 0, 0, 1, 1);
+                report.pixel = Array.from(pixels.getImageData(0, 0, 1, 1).data);
+                resolve();
+            } catch (error) { reject(error); }
+        });
+    });
+} catch (error) { report.error = String(error); }
+fetch(${JSON.stringify(`${observer}/marker`)}, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(report) }).catch((error) => console.error("smoke observer", error));`;
     writeFileSync(
         resolve(project, "index.html"),
-        `<!doctype html><html><head><meta charset="utf-8"><title>Shallot Linux smoke</title></head><body><script type="module">${script}</script></body></html>\n`,
+        `<!doctype html><html><head><meta charset="utf-8"><title>Shallot Linux smoke</title></head><body><canvas width="64" height="64"></canvas><script type="module">${script}</script></body></html>\n`,
     );
+}
+
+export function assertCanvasImage(report: Pick<MarkerReport, "pixel" | "error" | "adapter">): void {
+    if (report.error || JSON.stringify(report.pixel) !== "[0,255,0,255]") {
+        throw new Error(
+            `WebGPU canvas image failed: ${report.error ?? JSON.stringify(report.pixel)}; adapter: ${JSON.stringify(report.adapter)}`,
+        );
+    }
 }
 
 function cliUrl(output: string): string | null {
@@ -667,6 +773,15 @@ async function launchAndObserve(
             logPath,
             `observer marker did not match this launch (mode ${report.mode})`,
         );
+    try {
+        assertCanvasImage(report);
+    } catch (error) {
+        throw new SmokeFailure(
+            step,
+            logPath,
+            error instanceof Error ? error.message : String(error),
+        );
+    }
     const observedOrigin = urlOrigin(report.href, "page location.href");
     const resolvedViteOrigin = viteOrigin ?? (expected === "vite" ? cliUrl(output) : null);
     if (expected === "vite") {
@@ -691,7 +806,7 @@ async function launchAndObserve(
     const durationMs = performance.now() - (shellStartedAt ?? commandStartedAt);
     console.info(`${step}: CLI work before shell launch ${(prelaunchMs / 1000).toFixed(2)}s`);
     console.info(
-        `${step}: marker verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href} (log: ${logPath})`,
+        `${step}: WebGPU canvas image verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; adapter: ${JSON.stringify(report.adapter)} (log: ${logPath})`,
     );
     return { report, output, viteOrigin: resolvedViteOrigin };
 }
@@ -912,6 +1027,7 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
         XDG_DATA_HOME: runtimeData,
         VK_ICD_FILENAMES: icd,
         LIBGL_ALWAYS_SOFTWARE: "1",
+        XDG_SESSION_TYPE: "x11",
     });
 
     const tarball = await prepareTarball(consumer, logs, options.tarball, env);
@@ -921,9 +1037,11 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
 
     const display = await startVirtualDisplay(logs, env);
     let observer: Observer | undefined;
+    let stopCompositor: (() => Promise<void>) | undefined;
     try {
-        observer = await startObserver(logs);
         const launchEnv = cleanEnvironment(env, { DISPLAY: display.display });
+        stopCompositor = await startCompositor(logs, launchEnv);
+        observer = await startObserver(logs);
         let devOrigin: string | null = null;
         const debugNonce = randomUUID();
         writePage(project, observer.origin, "debug-preview", debugNonce);
@@ -1041,7 +1159,11 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
         try {
             if (observer) await observer.close();
         } finally {
-            await display.stop();
+            try {
+                if (stopCompositor) await stopCompositor();
+            } finally {
+                await display.stop();
+            }
         }
     }
 }
@@ -1066,11 +1188,11 @@ async function main(): Promise<void> {
     try {
         const icd = requireLinuxPrerequisites();
         console.info(
-            `setup: Xvfb + Mesa software Vulkan (${icd}); launch ceiling ${CEILING.startup}ms; CEF download and native compile use the CI job timeout`,
+            `setup: composited Xvfb + Mesa software Vulkan (${icd}); launch ceiling ${CEILING.startup}ms; CEF download and native compile use the CI job timeout`,
         );
         await runSmoke(options, icd);
         console.info(
-            "Linux packed native smoke passed: dev, debug preview, and source-release preview each reported an executed page script.",
+            "Linux packed native smoke passed: dev, debug preview, and source-release preview each verified a WebGPU canvas image on software graphics.",
         );
     } catch (error) {
         console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);

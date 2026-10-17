@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
+    assertCanvasImage,
     assertStandaloneOrigin,
     requireLinuxPrerequisites,
     startVirtualDisplay,
@@ -23,6 +24,25 @@ test("Linux smoke refuses a missing system prerequisite with the setup command",
             softwareVulkanIcd: () => "/mesa/lvp_icd.json",
         }),
     ).toThrow(/Xvfb.*system packages: `bash scripts\/native-linux-setup\.sh`/);
+});
+
+test("Linux smoke requires the compositor that exposes the X11 visual mismatch", () => {
+    expect(() =>
+        requireLinuxPrerequisites({
+            commandExists: (name) => name !== "xcompmgr",
+            hasX11Headers: () => true,
+            softwareVulkanIcd: () => "/mesa/lvp_icd.json",
+        }),
+    ).toThrow(/xcompmgr/);
+});
+
+test("an executed page is insufficient without the WebGPU canvas image", () => {
+    expect(() => assertCanvasImage({})).toThrow(/WebGPU canvas image failed/);
+    expect(() => assertCanvasImage({ pixel: [0, 0, 0, 0] })).toThrow(/WebGPU canvas image failed/);
+    expect(() => assertCanvasImage({ pixel: [0, 255, 0, 255], error: "device lost" })).toThrow(
+        /device lost/,
+    );
+    expect(() => assertCanvasImage({ pixel: [0, 255, 0, 255] })).not.toThrow();
 });
 
 test("Linux smoke names the Bun and Rust toolchain installers", () => {

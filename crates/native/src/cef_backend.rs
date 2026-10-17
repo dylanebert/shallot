@@ -63,6 +63,12 @@ fn start_asset_server() -> String {
     origin
 }
 
+#[cfg(target_os = "linux")]
+fn uses_wayland(ozone_platform: Option<&str>, session_type: Option<&str>) -> bool {
+    // Chromium resolves an absent ozone-platform from XDG_SESSION_TYPE after this callback.
+    ozone_platform.or(session_type) == Some("wayland")
+}
+
 wrap_app! {
     pub struct ShallotApp;
 
@@ -83,13 +89,21 @@ wrap_app! {
                     Some(&CefString::from("enable-dawn-features")),
                     Some(&CefString::from("allow_unsafe_apis")),
                 );
-                // ANGLE Vulkan avoids the observed stalls without forcing Chromium's Vulkan compositor,
-                // which produced transparent Wayland windows.
+                // ANGLE Vulkan avoids Wayland stalls. On composited X11 its root-visual configs
+                // can fail Chromium's ARGB visual selection.
                 #[cfg(target_os = "linux")]
-                cmd.append_switch_with_value(
-                    Some(&CefString::from("use-angle")),
-                    Some(&CefString::from("vulkan")),
-                );
+                {
+                    let ozone = CefString::from("ozone-platform");
+                    let platform = (cmd.has_switch(Some(&ozone)) != 0)
+                        .then(|| CefString::from(&cmd.switch_value(Some(&ozone))).to_string());
+                    let session_type = std::env::var("XDG_SESSION_TYPE").ok();
+                    if uses_wayland(platform.as_deref(), session_type.as_deref()) {
+                        cmd.append_switch_with_value(
+                            Some(&CefString::from("use-angle")),
+                            Some(&CefString::from("vulkan")),
+                        );
+                    }
+                }
                 // Windows: run the GPU in-process. The re-exec'd GPU subprocess can't initialize GL in
                 // this single-exe CEF build — gl::init::InitializeStaticGLBindingsOneOff fails, the GPU
                 // process exits, Chromium falls back to use-gl=disabled, and requestAdapter() returns
@@ -468,40 +482,59 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn linux_keeps_angle_vulkan_without_forcing_the_vulkan_compositor() {
-        let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
-        let mut command_line = command_line_create().expect("failed to create CEF command line");
-        let app = ShallotApp::new();
-        app.on_before_command_line_processing(None, Some(&mut command_line));
-        for process in [None, Some(CefString::from("gpu-process"))] {
-            let mut switches = command_line_create().unwrap();
-            app.on_before_command_line_processing(process.as_ref(), Some(&mut switches));
-            for name in ["enable-unsafe-webgpu", "ignore-gpu-blocklist"] {
-                assert_eq!(switches.has_switch(Some(&CefString::from(name))), 1);
-            }
-            assert_eq!(
-                CefString::from(
-                    &switches.switch_value(Some(&CefString::from("enable-dawn-features")))
-                )
-                .to_string(),
-                "allow_unsafe_apis"
-            );
+    fn wayland_selection_matches_chromium() {
+        for session in [None, Some(""), Some("tty"), Some("x11"), Some("wayland")] {
+            assert_eq!(uses_wayland(None, session), session == Some("wayland"));
+            assert!(uses_wayland(Some("wayland"), session));
+            assert!(!uses_wayland(Some("x11"), session));
+            assert!(!uses_wayland(Some(""), session));
         }
+    }
 
-        assert_eq!(
-            CefString::from(&command_line.switch_value(Some(&CefString::from("use-angle"))))
-                .to_string(),
-            "vulkan"
-        );
-        let enabled_features =
-            CefString::from(&command_line.switch_value(Some(&CefString::from("enable-features"))))
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_scopes_angle_vulkan_to_wayland_without_forcing_the_vulkan_compositor() {
+        let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
+        let app = ShallotApp::new();
+        for platform in ["x11", "wayland"] {
+            for process in [None, Some(CefString::from("gpu-process"))] {
+                let mut switches = command_line_create().unwrap();
+                switches.append_switch_with_value(
+                    Some(&CefString::from("ozone-platform")),
+                    Some(&CefString::from(platform)),
+                );
+                app.on_before_command_line_processing(process.as_ref(), Some(&mut switches));
+                assert_eq!(
+                    CefString::from(&switches.switch_value(Some(&CefString::from("use-angle"))))
+                        .to_string(),
+                    if platform == "wayland" { "vulkan" } else { "" }
+                );
+                assert_eq!(
+                    CefString::from(
+                        &switches.switch_value(Some(&CefString::from("ozone-platform")))
+                    )
+                    .to_string(),
+                    platform
+                );
+                for name in ["enable-unsafe-webgpu", "ignore-gpu-blocklist"] {
+                    assert_eq!(switches.has_switch(Some(&CefString::from(name))), 1);
+                }
+                assert_eq!(
+                    CefString::from(
+                        &switches.switch_value(Some(&CefString::from("enable-dawn-features")))
+                    )
+                    .to_string(),
+                    "allow_unsafe_apis"
+                );
+                let enabled_features = CefString::from(
+                    &switches.switch_value(Some(&CefString::from("enable-features"))),
+                )
                 .to_string();
-        assert!(
-            enabled_features
-                .split(',')
-                .all(|feature| feature != "Vulkan"),
-            "forcing the Vulkan compositor makes the Wayland window transparent"
-        );
+                assert!(enabled_features
+                    .split(',')
+                    .all(|feature| feature != "Vulkan"));
+            }
+        }
     }
 }
 

@@ -271,7 +271,7 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 - A dependency or infrastructure failure is named as such, not quarantined as a test.
 - For a red only one hosted OS shows, run that OS and tier before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`.
 - Windows GPU and Node tiers use WARP. Dawn loads only in a host named `node.exe` ([dawn-host.ts](src/engine/runtime/dawn-host.ts)), so CI runs Bun from a copy with that name.
-- `linux-native` checks packed Linux launch and process-group behavior, not WebGPU capability.
+- `linux-native` checks packed Linux launch, process-group behavior and WebGPU canvas images on composited X11 with software graphics. Canvas readback is not physical-monitor presentation or hardware qualification.
 - Release-time qualification stays outside the push sweep: hardware oracles, display runs, the packed release candidate, newest-in-range resolution and the published-pin spike. Mac/Windows native launch and software WebGPU capability also remain outside it.
 
 ## Code

@@ -13,7 +13,7 @@ check() {
     for command in cargo rustc; do
         command -v "$command" >/dev/null 2>&1 || { missing+=("$command"); missing_rust+=("$command"); }
     done
-    for command in cc pkg-config cmake ninja Xvfb tar python3; do
+    for command in cc pkg-config cmake ninja Xvfb xcompmgr tar python3; do
         command -v "$command" >/dev/null 2>&1 || { missing+=("$command"); missing_system+=("$command"); }
     done
     if ! pkg-config --exists x11 2>/dev/null; then
@@ -53,7 +53,7 @@ check() {
         fi
         return 1
     fi
-    printf 'Linux native smoke prerequisites are ready (Xvfb, X11, Mesa software Vulkan).\n'
+    printf 'Linux native smoke prerequisites are ready (Xvfb, xcompmgr, X11, Mesa software Vulkan).\n'
 }
 
 if [[ "${1:-}" == --check ]]; then
@@ -67,11 +67,11 @@ fi
 
 if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update
-    sudo apt-get install -y build-essential cmake ninja-build libx11-dev pkg-config xvfb mesa-vulkan-drivers tar python3
+    sudo apt-get install -y build-essential cmake ninja-build libx11-dev pkg-config xvfb xcompmgr libgl1-mesa-dri libegl-mesa0 mesa-vulkan-drivers tar python3
 elif command -v pacman >/dev/null 2>&1; then
-    sudo pacman -S --needed base-devel cmake ninja libx11 pkgconf xorg-server-xvfb vulkan-swrast tar python
+    sudo pacman -S --needed base-devel cmake ninja libx11 pkgconf xorg-server-xvfb xcompmgr mesa vulkan-swrast tar python
 else
-    printf 'Unsupported Linux package manager; install a C compiler, cmake, ninja, X11 development headers, pkg-config, xvfb, mesa-vulkan-drivers, tar, and python3.\n' >&2
+    printf 'Unsupported Linux package manager; install a C compiler, cmake, ninja, X11 development headers, pkg-config, xvfb, xcompmgr, Mesa OpenGL/EGL and software Vulkan drivers, tar, and python3.\n' >&2
     exit 1
 fi
 check
