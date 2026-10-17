@@ -78,6 +78,7 @@ import {
     registerMaterialType,
 } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
+import { copyMeshCount } from "./mesh-count";
 import {
     type BindResource,
     bgQuant,
@@ -1085,6 +1086,13 @@ function prepareTransparent(
         const offset = argsBase * INDIRECT_BYTES;
         const started = phase.measureTimings ? performance.now() : 0;
         world.uploadGpuTable(args, offset, state.transparentArgsStage, bytes);
+        for (let run = 0; run < runCount; run++)
+            copyMeshCount(
+                world,
+                state.transparentRunDraws[run]!.draw.mesh,
+                args,
+                state.transparentRunOffsets[run]!,
+            );
         phase.recordUpload(bytes, phase.measureTimings ? performance.now() - started : 0);
     }
 }

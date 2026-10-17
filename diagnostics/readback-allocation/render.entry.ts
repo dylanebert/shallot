@@ -1,4 +1,4 @@
-import { createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight } from "../../src/index";
+import { Meshes, createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight } from "../../src/index";
 import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
 import { ProfilePlugin } from "../../src/extras/profile";
 import { RenderContext } from "../../src/core/rendering";
@@ -73,7 +73,13 @@ export default async function create(input = "", device?: GPUDevice) {
     world.storage(Transform).translation.set(spot, -1.2, 1.3, 2.1);
     world.storage(Transform).rotation.set(spot, 0.1, 0.2, 0.3, Math.sqrt(0.86));
     world.storage(SpotLight).shadowMapsEnabled.set(spot, 1);
-    const part = world.create(); world.add(part, Transform); world.add(part, MeshInstance);
+    const meshes = world.resource(Meshes);
+    const count = world.gpu.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    world.own(count);
+    const geometry = meshes.values().next().value!;
+    world.gpu.device.queue.writeBuffer(count, 0, new Uint32Array([geometry.indexCount]));
+    const mesh = meshes.add({ ...geometry, name: "allocation-gpu-count", indirectIndexCount: { buffer: count } });
+    const part = world.create(); world.add(part, Transform); world.add(part, MeshInstance, { mesh });
     const a = new Float32Array([-1, 0, 0]);
     const b = new Float32Array([1, 0, 0]);
     const min = new Float32Array([-0.3, -0.4, -0.5]);

@@ -29,6 +29,7 @@ import { type MaterialType, MaterialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 import { ALPHA_PIPELINE_KEY_COUNT } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
+import { publishMeshCounts, rebuildMeshCounts } from "./mesh-count";
 import {
     CullParams,
     countKernel,
@@ -208,6 +209,13 @@ export const MeshPreprocessSystem: System = {
             return;
         syncBuffers(world);
         if (_meshPreprocess.pairCount === 0) return;
+        publishMeshCounts(
+            world,
+            world.gpu.root.unwrap(_meshPreprocess.meshDraws.drawArgs!),
+            _meshPreprocess.meshCount,
+            _meshPreprocess.pairCount,
+            _meshPreprocess.viewDim,
+        );
         const count = bindCount(world);
         const scan = bindScan(world);
         const scatter = bindScatter(world);
@@ -670,6 +678,7 @@ function registerDraws(world: World): void {
     // A new rejection can affect unchanged instances; ordinary frames check only marked pairings.
     if (_meshPreprocess.invalidPairs.size !== 0)
         for (const eid of world.query(MESH_INSTANCES)) warnInvalidInstance(world, eid);
+    rebuildMeshCounts(world);
     const target = world.gpu.root.unwrap(_meshDraws.drawArgs);
     for (let view = 0; view < _meshPreprocess.viewDim; view++)
         world.gpu.device.queue.writeBuffer(target, view * viewStride, slot);

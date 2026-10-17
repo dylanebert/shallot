@@ -34,7 +34,12 @@ export interface Mesh {
     quant?: MeshStorage<typeof MeshQuant>;
     indices: MeshIndex;
     indexBase: number;
+    /** Index count, or the upper bound when `indirectIndexCount` is present. */
     indexCount: number;
+    /** Producer-owned STORAGE buffer holding a u32 index count at a four-byte-aligned byte offset
+     * (default zero). Immutable while registered. Standard clamps to `indexCount` each frame without
+     * readback, after passes ordered before MeshPreprocessSystem; applies to all views and shadows. */
+    indirectIndexCount?: { buffer: GPUBuffer; offset?: number };
     /** Local-space culling sphere `[cx, cy, cz, radius]`, derived for typed-array additions.
      * GPU producers may supply it or omit it to remain always visible to standard's culler. */
     bounds?: [number, number, number, number];
