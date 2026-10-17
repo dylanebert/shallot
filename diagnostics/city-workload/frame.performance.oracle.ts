@@ -24,7 +24,7 @@ function median(values: number[]): number {
 }
 
 await setupGlobals();
-test("report the no-shadow city workload and reject a shadowed control", async () => {
+test("report no-shadow city poses and shadowed street, rejecting shadows in no-shadow records", async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("city workload requires a real adapter");
     console.info("[city-workload] adapter", adapter.info);
@@ -122,6 +122,17 @@ test("report the no-shadow city workload and reject a shadowed control", async (
                 for (const eid of world.query([DirectionalLight]))
                     lights.shadowMapsEnabled.set(eid, Number(WORKLOAD.shadowMapsEnabled));
                 for (const pose of poses) {
+                    for (const eid of world.query([DirectionalLight]))
+                        lights.shadowMapsEnabled.set(eid, Number(pose.shadows));
+                    const checkRecord = (labels: readonly string[]): void => {
+                        if (!pose.shadows) {
+                            refuseReport(false, population, instances, labels);
+                            return;
+                        }
+                        expect(instances).toBe(population);
+                        expect(labels).toContain("standard:cascaderegather");
+                        expect(labels).toContain("standard-cascadeshadow");
+                    };
                     world
                         .storage(Transform)
                         .translation.set(
@@ -171,12 +182,7 @@ test("report the no-shadow city workload and reject a shadowed control", async (
                             active = false;
                         }
                         cpu.push(performance.now() - start);
-                        refuseReport(
-                            WORKLOAD.shadowMapsEnabled,
-                            population,
-                            [...world.query([MeshInstance])].length,
-                            labels,
-                        );
+                        checkRecord(labels);
                         if (!slots) throw new Error("city workload produced no passes");
                         const encoder = createEncoder();
                         encoder.resolveQuerySet(querySet, 0, slots, resolve, 0);
@@ -211,9 +217,7 @@ test("report the no-shadow city workload and reject a shadowed control", async (
                             readback.unmap();
                         }
                     }
-                    refuseReport(WORKLOAD.shadowMapsEnabled, population, instances, [
-                        ...passes.keys(),
-                    ]);
+                    checkRecord([...passes.keys()]);
                     console.info(
                         `[city-workload] adapter=${world.gpu.adapter.identity} observed-timestamp-quantum-ns=${quantum} (GCD of observed timestamp differences)`,
                     );

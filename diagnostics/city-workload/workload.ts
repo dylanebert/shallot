@@ -19,10 +19,12 @@ export const WORKLOAD = {
             poses: [
                 {
                     name: "whole-city",
+                    shadows: false,
                     translation: [0, extent * 1.3, extent * 1.5],
                     target: [0, 0, 0],
                 },
-                { name: "street", translation: [street, 2, 0], target: [street, 2, -100] },
+                { name: "street", shadows: false, translation: [street, 2, 0], target: [street, 2, -100] },
+                { name: "shadowed-street", shadows: true, translation: [street, 2, 0], target: [street, 2, -100] },
             ],
         };
     }),

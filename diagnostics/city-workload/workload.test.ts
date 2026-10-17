@@ -18,7 +18,10 @@ test("the record doubles from 4096 through a million parts and declares the exam
 
 test("every street camera looks along a gap between building columns, not through a footprint", () => {
     for (const { population, poses } of WORKLOAD.configurations) {
-        expect(poses.map((p) => p.name)).toEqual(["whole-city", "street"]);
+        expect(poses.map((p) => p.name)).toEqual(["whole-city", "street", "shadowed-street"]);
+        expect(poses.map((p) => p.shadows)).toEqual([false, false, true]);
+        expect(poses[2].translation).toEqual(poses[1].translation);
+        expect(poses[2].target).toEqual(poses[1].target);
         const street = poses[1]!;
         const [x, y, z] = street.translation;
         const side = Math.ceil(Math.sqrt((population - 1) / 5));

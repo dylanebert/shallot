@@ -6,7 +6,12 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import type { World } from "../../engine";
-import { dispatchWorkgroups, setComputeBindGroup, setComputePipeline } from "../../engine/runtime";
+import {
+    dispatchWorkgroups,
+    dispatchWorkgroups2,
+    setComputeBindGroup,
+    setComputePipeline,
+} from "../../engine/runtime";
 import { DrawIndexedIndirect } from "./registry";
 
 // One indirect record per casting mesh; instanceCount sums combo survivors and firstInstance
@@ -46,37 +51,48 @@ export const regatherArgsWgsl = (): string =>
         names: "strict",
         externals: { DrawIndexedIndirect },
         template: /* wgsl */ `
-struct RgParams { draws: u32, combos: u32, pairCount: u32 }
+struct RgParams { draws: u32, combos: u32, pairCount: u32, phase: u32 }
 @group(0) @binding(0) var<storage, read> drawArgs: array<DrawIndexedIndirect>;
-@group(0) @binding(1) var<storage, read> rgMeta: array<u32>;       // [combo slots (C) | draw pairs (D)]
+@group(0) @binding(1) var<storage, read_write> rgMeta: array<u32>;       // [combo slots (C) | draw pairs (D)]
 @group(0) @binding(2) var<storage, read_write> shadowArgs: array<DrawIndexedIndirect>;
 @group(0) @binding(3) var<uniform> params: RgParams;
-@compute @workgroup_size(1)
-fn main() {
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let D = params.draws;
     let C = params.combos;
-    let pc = params.pairCount;
-    let slot0 = rgMeta[0]; // any combo slot carries the static lanes (the pack seeds every slot)
-    var base = 0u;       // running exclusive prefix over the per-mesh totals
-    for (var i = 0u; i < D; i = i + 1u) {
-        let pair = rgMeta[C + i];
-        var total = 0u;
-        var src = pair;
-        if (pc == 0u) {
-            total = drawArgs[src].instanceCount * C;
-        } else {
-            src = slot0 * pc + pair;
-            for (var c = 0u; c < C; c = c + 1u) {
-                total = total + drawArgs[rgMeta[c] * pc + pair].instanceCount;
-            }
-        }
-        shadowArgs[i].indexCount = drawArgs[src].indexCount;
-        shadowArgs[i].instanceCount = total;
-        shadowArgs[i].firstIndex = drawArgs[src].firstIndex;
-        shadowArgs[i].baseVertex = drawArgs[src].baseVertex;
-        shadowArgs[i].firstInstance = base;
-        base = base + total;
+    let i = gid.x;
+    if (i >= D) { return; }
+    let scratch = C + D;
+    let step = params.phase;
+    if (step != 0u) {
+        // Ping-pong inclusive scan: each dispatch observes only the preceding level.
+        let lane = countTrailingZeros(step) % 2u;
+        let src = scratch + lane * D;
+        let dst = scratch + (1u - lane) * D;
+        var total = rgMeta[src + i];
+        if (i >= step) { total += rgMeta[src + i - step]; }
+        rgMeta[dst + i] = total;
+        shadowArgs[i].firstInstance = total - shadowArgs[i].instanceCount;
+        return;
     }
+    let pc = params.pairCount;
+    let pair = rgMeta[C + i];
+    var total = 0u;
+    var src = pair;
+    if (pc == 0u) {
+        total = drawArgs[src].instanceCount * C;
+    } else {
+        src = rgMeta[0] * pc + pair;
+        for (var c = 0u; c < C; c++) {
+            total += drawArgs[rgMeta[c] * pc + pair].instanceCount;
+        }
+    }
+    shadowArgs[i].indexCount = drawArgs[src].indexCount;
+    shadowArgs[i].instanceCount = total;
+    shadowArgs[i].firstIndex = drawArgs[src].firstIndex;
+    shadowArgs[i].baseVertex = drawArgs[src].baseVertex;
+    shadowArgs[i].firstInstance = 0u;
+    rgMeta[scratch + i] = total;
 }`,
     });
 
@@ -85,7 +101,7 @@ const regatherEidsWgsl = (): string =>
         names: "strict",
         externals: { DrawIndexedIndirect },
         template: /* wgsl */ `
-struct RgParams { draws: u32, combos: u32, pairCount: u32 }
+struct RgParams { draws: u32, combos: u32, pairCount: u32, capacity: u32 }
 @group(0) @binding(0) var<storage, read> drawArgs: array<DrawIndexedIndirect>;
 @group(0) @binding(1) var<storage, read> packedEids: array<vec4u>;
 @group(0) @binding(2) var<storage, read> shadowArgs: array<DrawIndexedIndirect>;
@@ -95,28 +111,31 @@ struct RgParams { draws: u32, combos: u32, pairCount: u32 }
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let C = params.combos;
-    let t = gid.x;
-    if (t >= params.draws * C) { return; }
-    let i = t / C;
-    let c = t % C;
+    if (gid.x >= params.capacity) { return; }
+    let t = gid.x + gid.y * params.capacity;
+    let last = shadowArgs[params.draws - 1u];
+    if (t >= last.firstInstance + last.instanceCount) { return; }
+    // Upper bound skips empty mesh runs, including consecutive empty runs.
+    var lo = 0u;
+    var hi = params.draws;
+    while (lo < hi) {
+        let mid = (lo + hi) / 2u;
+        if (shadowArgs[mid].firstInstance <= t) { lo = mid + 1u; }
+        else { hi = mid; }
+    }
+    let i = lo - 1u;
     let pc = params.pairCount;
     let pair = rgMeta[C + i];
-    let idx = select(rgMeta[c] * pc + pair, pair, pc == 0u);
-    let cnt = drawArgs[idx].instanceCount;
-    if (cnt == 0u) { return; }
-    let src = drawArgs[idx].firstInstance;      // base into packedEids for (combo c, mesh i)
-    var off = 0u;                               // within-run offset: Σ earlier combos' counts for this mesh
-    if (pc == 0u) {
-        off = c * cnt;
-    } else {
-        for (var cc = 0u; cc < c; cc = cc + 1u) {
-            off = off + drawArgs[rgMeta[cc] * pc + pair].instanceCount;
+    var k = t - shadowArgs[i].firstInstance;
+    for (var c = 0u; c < C; c++) {
+        let idx = select(rgMeta[c] * pc + pair, pair, pc == 0u);
+        let count = drawArgs[idx].instanceCount;
+        if (k < count) {
+            let instance = packedEids[drawArgs[idx].firstInstance + k];
+            shadowEids[t] = vec4u(instance.xyz, c);
+            return;
         }
-    }
-    let dst = shadowArgs[i].firstInstance + off; // the mesh's run base + the combo's within-run offset
-    for (var k = 0u; k < cnt; k = k + 1u) {
-        let instance = packedEids[src + k];
-        shadowEids[dst + k] = vec4u(instance.xyz, c);
+        k -= count;
     }
 }`,
     });
@@ -140,7 +159,6 @@ export async function prepareRegather(
     regatherState(world).bLayout = null;
     regatherState(world).pipelineDevice = device;
     regatherState(world).pipelineCapacity = capacity;
-    // Small draw/combo counts permit a serial prefix sum without cross-workgroup synchronization.
     regatherState(world).aLayout = device.createBindGroupLayout({
         label: "standard-regather-a",
         entries: [
@@ -152,7 +170,7 @@ export async function prepareRegather(
             {
                 binding: 1,
                 visibility: GPUShaderStage.COMPUTE,
-                buffer: { type: "read-only-storage" },
+                buffer: { type: "storage" },
             },
             { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
             { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
@@ -292,7 +310,11 @@ export function createRegather(world: World, label: string): Regather {
         _args = world.gpu.device.createBuffer({
             label: `standard-${label}-shadow-args`,
             size: _argsCap * SHADOW_ARG_STRIDE,
-            usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            usage:
+                GPUBufferUsage.INDIRECT |
+                GPUBufferUsage.STORAGE |
+                GPUBufferUsage.COPY_DST |
+                GPUBufferUsage.COPY_SRC,
         });
         _aGroups.length = 0;
         _bGroups.length = 0;
@@ -411,7 +433,7 @@ export function createRegather(world: World, label: string): Regather {
             _eids = world.gpu.device.createBuffer({
                 label: `standard-${label}-regather-eids`,
                 size: maxCombos * _eidCapacity * 16,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             });
             _onAlloc();
         },
@@ -436,7 +458,7 @@ export function createRegather(world: World, label: string): Regather {
                     `standard ${label} re-gather run has ${D} draws after a ${_argsCap}-draw reserve`,
                 );
             }
-            const meta = ensureMeta(world, C + D, runIndex);
+            const meta = ensureMeta(world, C + 3 * D, runIndex);
             const staging = _metaStaging[runIndex];
             // meta = [combo slots (C) | draw pairs (D)]: the view slot each dense combo packed into (its
             // per-combo culled counts live in drawArgs there), and the (surface,mesh) pair each casting draw owns
@@ -449,22 +471,34 @@ export function createRegather(world: World, label: string): Regather {
                 0,
                 C + D,
             );
+            if (D === 0 || C === 0) return;
             _paramsStaging[0] = D;
             _paramsStaging[1] = C;
             _paramsStaging[2] = pairCount;
+            // Each scan level needs its own uniform: queue writes precede the whole encoder.
+            setComputePipeline(cpass, regatherState(world).aPipe!);
+            let level = 0;
+            for (let step = 0; step < D; step = step === 0 ? 1 : step * 2) {
+                const index = runIndex * 33 + level++;
+                _paramsStaging[3] = step;
+                world.gpu.device.queue.writeBuffer(
+                    params(world, index),
+                    0,
+                    _paramsStaging as Uint32Array<ArrayBuffer>,
+                );
+                setComputeBindGroup(cpass, 0, aGroup(world, drawArgs, meta, index));
+                dispatchWorkgroups(cpass, Math.ceil(D / 64));
+            }
+            const index = runIndex * 33 + 32;
+            _paramsStaging[3] = _eidCapacity;
             world.gpu.device.queue.writeBuffer(
-                params(world, runIndex),
+                params(world, index),
                 0,
                 _paramsStaging as Uint32Array<ArrayBuffer>,
             );
-            // Both dispatches share one compute pass: dispatch order makes Pass A's prefix/args writes
-            // visible to Pass B's scatter. Later atlas rendering sees those writes by encoder order.
-            setComputePipeline(cpass, regatherState(world).aPipe!);
-            setComputeBindGroup(cpass, 0, aGroup(world, drawArgs, meta, runIndex));
-            dispatchWorkgroups(cpass, 1);
             setComputePipeline(cpass, regatherState(world).bPipe!);
-            setComputeBindGroup(cpass, 0, bGroup(world, drawArgs, packedEids, meta, runIndex));
-            dispatchWorkgroups(cpass, Math.ceil((D * C) / 64));
+            setComputeBindGroup(cpass, 0, bGroup(world, drawArgs, packedEids, meta, index));
+            dispatchWorkgroups2(cpass, Math.ceil(_eidCapacity / 64), C);
         },
         reset(onAlloc: () => void): void {
             _onAlloc = onAlloc;
@@ -479,7 +513,7 @@ export function createRegather(world: World, label: string): Regather {
             _meta = [];
             _metaCap = [];
             _metaStaging = [];
-            for (const buffer of _params) buffer.destroy();
+            for (const buffer of _params) buffer?.destroy();
             _params = [];
             _aGroups = [];
             _bGroups = [];
@@ -488,7 +522,7 @@ export function createRegather(world: World, label: string): Regather {
             _eids?.destroy();
             _args?.destroy();
             for (const buffer of _meta) buffer.destroy();
-            for (const buffer of _params) buffer.destroy();
+            for (const buffer of _params) buffer?.destroy();
             _eids = null;
             _eidCapacity = 0;
             _eidCombos = 0;
