@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { ViewUniforms } from "../../core/rendering";
+import { ShadowFilteringMethodMode, ViewUniforms } from "../../core/rendering";
 import {
     clusterCell,
     IndirectLightInput,
@@ -212,7 +212,8 @@ function createFogKernel(
                         j = j + 1;
                     }
                     // Every directional light carrying VolumetricLight scatters; only the selected shadow caster
-                    // samples the directional atlas, while the other enabled lights remain unshadowed.
+                    // samples the directional atlas, while the other enabled lights remain unshadowed. Each step
+                    // takes one hardware tap, as Bevy's march does: the per-pixel jitter already softens the edge.
                     let k = d.u32(0);
                     while (k < fogLayout1.$.lighting.directionalCount) {
                         const light = fogLayout1.$.lighting.directionalLights[k];
@@ -222,7 +223,7 @@ function createFogKernel(
                                 visibility = sampleSunShadow(
                                     p,
                                     d.vec3f(0),
-                                    d.u32(layout.$.view.shadowFilteringMethod),
+                                    d.u32(ShadowFilteringMethodMode.Hardware2x2),
                                 );
                             }
                             lstep = d.vec3f(
