@@ -331,7 +331,7 @@ export function resetCount(world: World): void {
     segmentState(world).publishedCount = 0;
 }
 
-/** allocate the segment storage buffer and publish `lineSegments` */
+/** Allocate the World-owned segment storage buffer. */
 export function warmSegments(world: World): void {
     segmentState(world).capacity = INITIAL;
     segmentState(world).staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
@@ -347,11 +347,9 @@ export function warmSegments(world: World): void {
         .$usage("storage")
         .$name("shallot-line-segments");
     resources.buffer = buffer;
-    world.gpu.buffers.set("lineSegments", world.gpu.root.unwrap(buffer));
-    world.gpu.typed.set("lineSegments", buffer);
 }
 
-// Republish a grown buffer so its consumers re-resolve the binding.
+// Consumers resolve the owner's live buffer after growth.
 export function flushSegments(world: World, device: GPUDevice): void {
     const resources = segmentState(world);
     if (!resources.buffer) return;
@@ -362,8 +360,6 @@ export function flushSegments(world: World, device: GPUDevice): void {
             .$usage("storage")
             .$name("shallot-line-segments");
         resources.buffer = buffer;
-        world.gpu.buffers.set("lineSegments", world.gpu.root.unwrap(buffer));
-        world.gpu.typed.set("lineSegments", buffer);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
     const buffer = resources.buffer;

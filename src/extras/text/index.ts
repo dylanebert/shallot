@@ -170,7 +170,7 @@ interface TextState {
     viewGroups: Map<number, { buffer: GPUBuffer; quant: object; group: GPUBindGroup }>;
 }
 
-const textStateKey = { create: createTextState };
+export const textStateKey = { create: createTextState };
 
 function createTextState(): TextState {
     const staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
@@ -363,8 +363,6 @@ function updateLabels(world: World): void {
             .createBuffer(d.arrayOf(Glyph, state.cap))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        world.gpu.buffers.set("textGlyphs", world.gpu.root.unwrap(state.glyphBuf));
-        world.gpu.typed.set("textGlyphs", state.glyphBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
         dirtyStart = 0;
         dirtyEnd = state.count;
@@ -642,8 +640,6 @@ export const TextPlugin: Plugin = {
             .createBuffer(d.arrayOf(Glyph, INITIAL))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        world.gpu.buffers.set("textGlyphs", world.gpu.root.unwrap(_textState.glyphBuf));
-        world.gpu.typed.set("textGlyphs", _textState.glyphBuf);
         const format = world.resource(RenderContext).format;
         _textState.colorPipelines = {
             single: createTextPipeline(world.gpu.root, format, 1),

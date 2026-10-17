@@ -29,6 +29,8 @@ import {
     Views,
     VolumetricLight,
 } from "../../core/rendering";
+import { globalTransformTable } from "../../core/rendering/global-transform";
+import { ImageBindings } from "../../core/rendering/image";
 import { offscreenTexture } from "../../core/rendering/view";
 import { GlobalTransform } from "../../core/transform";
 import {
@@ -56,6 +58,9 @@ import {
     Vignette,
     VignettePlugin,
 } from "../../extras";
+import { segmentState } from "../../extras/lines/segments";
+import { SpriteSource } from "../../extras/sprite/material";
+import { textStateKey } from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
 import {
     DEFAULT_PLUGINS,
@@ -372,6 +377,7 @@ async function trackedDevice() {
     return {
         device,
         live,
+        origins,
         watch,
         labels,
         observeBuild(world: World): void {
@@ -619,7 +625,7 @@ function featurePlugin(subject: Plugin): Plugin {
             world.storage(Shape).radius.set(actor, 0.35);
             world.storage(Body).type.set(actor, BodyType.Kinematic);
 
-            const globalTransforms = world.gpu.buffers.get("global-transform-interpolated");
+            const globalTransforms = globalTransformTable(world).buffer;
             if (!globalTransforms)
                 throw new Error("Engine GlobalTransform did not publish its renderer buffer");
         },
@@ -861,10 +867,10 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect([...second.world.query([GlobalTransform])].length).toBeGreaterThan(0);
         }
         if (uses(subject, SpritePlugin)) {
-            const atlasA = first.world.gpu.textures.get("images");
-            const atlasB = second.world.gpu.textures.get("images");
-            const samplerA = first.world.gpu.samplers.get("imageSampler");
-            const samplerB = second.world.gpu.samplers.get("imageSampler");
+            const atlasA = first.world.resource(ImageBindings).images;
+            const atlasB = second.world.resource(ImageBindings).images;
+            const samplerA = first.world.resource(ImageBindings).imageSampler;
+            const samplerB = second.world.resource(ImageBindings).imageSampler;
             expect(atlasA).toBeDefined();
             expect(atlasB).toBeDefined();
             expect(atlasA).not.toBe(atlasB);
@@ -872,14 +878,14 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect(samplerB).toBeDefined();
             expect(samplerA).not.toBe(samplerB);
         }
-        for (const [plugin, key] of [
-            [SpritePlugin, "sprite-material"],
-            [TextPlugin, "textGlyphs"],
-            [LinesPlugin, "lineSegments"],
+        for (const [plugin, buffer] of [
+            [SpritePlugin, (world: World) => world.resource(SpriteSource).table.buffer],
+            [TextPlugin, (world: World) => world.resource(textStateKey).glyphBuf],
+            [LinesPlugin, (world: World) => segmentState(world).buffer],
         ] as const) {
             if (!uses(subject, plugin)) continue;
-            const a = first.world.gpu.buffers.get(key);
-            const b = second.world.gpu.buffers.get(key);
+            const a = buffer(first.world);
+            const b = buffer(second.world);
             expect(a).toBeDefined();
             expect(b).toBeDefined();
             expect(a).not.toBe(b);
@@ -891,8 +897,6 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
             expect(binding(first.world)).toBeDefined();
             expect(binding(second.world)).toBeDefined();
             expect(binding(first.world)).not.toBe(binding(second.world));
-            expect(first.world.gpu.buffers.has("sky")).toBe(false);
-            expect(first.world.gpu.typed.has("sky")).toBe(false);
         }
 
         const peerHashBeforeDispose = hasPhysics ? hashPhysics(second.world) : 0n;
@@ -905,22 +909,14 @@ async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Pr
                   peerPlacement.linearVelocity.column.slice(peerOffset, peerOffset + 4),
               ]
             : null;
-        const peerResources = new Set<GPUBuffer | GPUTexture>([
-            ...second.world.gpu.buffers.values(),
-            ...second.world.gpu.textures.values(),
-        ]);
-        const peerRegistries = {
-            buffers: [...second.world.gpu.buffers],
-            textures: [...second.world.gpu.textures],
-            typed: [...second.world.gpu.typed],
-        };
+        const peerResources = [...secondDevice.live].filter(
+            (resource) => secondDevice.origins.get(resource)?.owner === second!.world,
+        );
 
+        expect(peerResources.length).toBeGreaterThan(0);
         first.dispose();
         first = undefined;
-        expect([...peerResources].every((resource) => secondDevice.live.has(resource))).toBe(true);
-        expect([...second.world.gpu.buffers]).toEqual(peerRegistries.buffers);
-        expect([...second.world.gpu.textures]).toEqual(peerRegistries.textures);
-        expect([...second.world.gpu.typed]).toEqual(peerRegistries.typed);
+        expect(peerResources.every((resource) => secondDevice.live.has(resource))).toBe(true);
         if (hasPhysics) {
             expect(hashPhysics(second.world)).toBe(peerHashBeforeDispose);
             expect([

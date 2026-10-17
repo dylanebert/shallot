@@ -299,7 +299,7 @@ function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
     return recordMaterial(world, draw, type, capacity);
 }
 
-// Resolve live resources, or return the missing binding's name.
+// Resolve a live resource, or return undefined when it is missing.
 function materialResource(
     world: World,
     name: string,

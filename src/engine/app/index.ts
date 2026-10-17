@@ -238,7 +238,7 @@ let buildTail: Promise<void> = Promise.resolve();
  * build the app: collect plugins, acquire a GPU device only for declared needs or a supplied device,
  * register, run `initialize` and `warm`, returning a live {@link World} without starting a frame loop.
  * Build setup is serialized, and
- * completed Apps may coexist with separate World-owned storage and GPU registries. Plugin resources retained
+ * completed Apps may coexist with separate World-owned storage and GPU resources. Plugin resources retained
  * in module globals are not isolated by this guarantee. Drive `world.step(dt)` yourself, or use {@link runApp}
  * for the managed loop.
  */

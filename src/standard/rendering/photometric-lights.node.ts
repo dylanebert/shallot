@@ -21,6 +21,7 @@ import {
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
+import { clusterGpuKey } from "./cluster";
 import {
     Materials,
     MeshMaterial,
@@ -215,7 +216,7 @@ test("compacted spot coefficients are the CPU's for narrow, ordinary and near-ri
         spot.innerAngle.set(light, inner);
         spot.outerAngle.set(light, outer);
         world.step(0);
-        const probe = await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
+        const probe = await probeBuffer(world, world.resource(clusterGpuKey).lightCull.lights!, {
             offset: 56,
             size: 8,
         });

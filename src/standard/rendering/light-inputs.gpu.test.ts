@@ -31,12 +31,12 @@ test("render light inputs upload as active dense table rows", async () => {
         world.step(0);
         await world.gpu.device.queue.onSubmittedWorkDone();
         expect(await world.gpu.device.popErrorScope()).toBeNull();
-        const active = await probeBuffer(world, world.gpu.buffers.get("lightInputs:active-rows")!, {
+        const active = await probeBuffer(world, world.resource(lightInputKey).activeRowsBuffer!, {
             size: 8,
         });
         const [activeEid, row] = new Uint32Array(active.bytes);
         expect(activeEid).toBe(eid);
-        const record = await probeBuffer(world, world.gpu.buffers.get("lightInputs")!, {
+        const record = await probeBuffer(world, world.resource(lightInputKey).buffer, {
             offset: row * 32,
             size: 32,
         });

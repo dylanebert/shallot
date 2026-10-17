@@ -466,11 +466,6 @@ async function initRender(world: World): Promise<void> {
     _render.cullVolumeStaging = new Float32Array(MAX_SLOTS * CULL_VOLUME_FLOATS);
     _render.viewCount = 0;
     _render.shadeCount = 0;
-    world.gpu.buffers.set("cullVolumes", _render.cullVolumes);
-    world.gpu.typed.set(
-        "cullVolumes",
-        world.gpu.root.createBuffer(CullVolumes, _render.cullVolumes).$usage("uniform"),
-    );
     world.resource(Views).clear();
     clearOffscreens(world);
     clearScratch(world);

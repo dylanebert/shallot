@@ -397,8 +397,7 @@ const CLUSTER_VIEW_FLOATS = 8;
 /**
  * GPU cluster substrate. `aabbs` holds each cluster's view-space AABB as two
  * `vec4<f32>` (min, max; w unused), slot-major at
- * `(slot · CLUSTER_COUNT + cluster) · 2`, published to `world.gpu.buffers` as
- * `"clusterAabbs"`. Rebuilt by {@link UpdateLightClustersSystem} only when a view's
+ * `(slot · CLUSTER_COUNT + cluster) · 2`. Rebuilt by {@link UpdateLightClustersSystem} only when a view's
  * projection changes
  */
 export interface Clusters {
@@ -644,8 +643,6 @@ function allocateGridBuffers(world: World, capacity: number): void {
     state.typedAabbs = root.createBuffer(d.arrayOf(d.vec4f, 0), aabbs).$usage("storage");
     clusters.views = views;
     clusters.aabbs = aabbs;
-    world.gpu.buffers.set("clusterAabbs", aabbs);
-    world.gpu.typed.set("clusterAabbs", state.typedAabbs);
 }
 
 /** Allocate one initial cluster slot and compile the count-independent AABB pipeline. */
@@ -1564,7 +1561,6 @@ function allocatePerViewLightBuffers(world: World, capacity: number): void {
         args[slot * 5 + 4] = slot * Z_SLICE_CAPACITY;
     }
     world.gpu.device.queue.writeBuffer(state.rasterArgs, 0, args);
-    world.gpu.buffers.set("lightClusters", lightCull.lights);
 }
 
 /** Allocate one initial light-cluster slot and compile the count-independent pipelines. */
@@ -1593,7 +1589,6 @@ export async function warmLightCull(world: World): Promise<void> {
     );
     allocatePerViewLightBuffers(world, _clusterGpu.viewCapacity);
     _clusterGpu.lightCountValue = -1;
-    world.gpu.buffers.set("lightCount", _clusterGpu.lightCountBuffer);
 
     _clusterGpu.compactPipe = world.gpu.root
         .createComputePipeline({ compute: compactKernel() })

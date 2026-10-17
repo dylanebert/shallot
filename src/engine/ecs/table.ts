@@ -557,7 +557,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this.uploadActiveRows();
     }
 
-    /** Release this table's resources and registry entries. */
+    /** Release this table's resources. */
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
@@ -573,10 +573,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (this._mapBuffer) buffers.push(this._mapBuffer);
         if (this._activeBuffer) buffers.push(this._activeBuffer);
         for (const buffer of buffers) buffer.destroy();
-        for (const name of [this.name, this.mapName, this.activeName]) {
-            if (name && this._world.gpu.buffers.has(name)) this._world.gpu.buffers.delete(name);
-            if (name && this._world.gpu.typed.has(name)) this._world.gpu.typed.delete(name);
-        }
     }
 
     get mapName(): string | undefined {
@@ -725,13 +721,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 this._mapCapacity,
             );
         }
-        const registryName = `${this.name}:eid-to-row`;
-        const registered = this._world.gpu.buffers.get(registryName);
-        if (registered && registered !== this._mapBuffer) {
-            throw new Error(
-                `GpuTable "${this.name}": GPU registry name "${registryName}" is already in use`,
-            );
-        }
         const previous = this._mapBuffer;
         const buffer = this._world.gpu.device.createBuffer({
             label: `table-${this.name}-eid-to-row-g${this._mapGeneration + 1}`,
@@ -752,8 +741,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._mapTyped = this._world.gpu.root
             .createBuffer(d.arrayOf(d.u32, Math.max(1, this._mapCapacity)), buffer)
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
-        this._world.gpu.buffers.set(registryName, buffer);
-        this._world.gpu.typed.set(registryName, this._mapTyped);
         this._mapGeneration++;
         for (let i = 0; i < this._mapConsumers.length; i++) {
             this._mapConsumers[i](buffer, this._mapGeneration);
@@ -796,8 +783,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._typed = (this._world.gpu.root as any)
             .createBuffer(d.arrayOf(this.record, this._capacity), buffer)
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
-        this._world.gpu.buffers.set(this.name, buffer);
-        this._world.gpu.typed.set(this.name, this._typed);
         this._generation++;
         for (let i = 0; i < this._consumers.length; i++) {
             this._consumers[i](buffer, this._generation);
@@ -840,8 +825,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._activeTyped = this._world.gpu.root
             .createBuffer(d.arrayOf(ACTIVE_ROW, capacity), buffer)
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
-        this._world.gpu.buffers.set(`${this.name}:active-rows`, buffer);
-        this._world.gpu.typed.set(`${this.name}:active-rows`, this._activeTyped);
         this._activeGeneration++;
         for (let i = 0; i < this._activeConsumers.length; i++) {
             this._activeConsumers[i](buffer, this._activeGeneration);

@@ -115,12 +115,6 @@ export function meshInstanceTable(world: World) {
 function createMeshInstanceTable(world: World) {
     const table = world.table("meshInstances", MeshInstanceInput);
     table.enableEidLookup();
-    const publishMap = (buffer: GPUBuffer) => {
-        world.gpu.buffers.set("partRowMap", buffer);
-        world.gpu.typed.set("partRowMap", table.eidToRowTyped!);
-    };
-    table.subscribeMap(publishMap);
-    publishMap(table.eidToRowBuffer!);
     return table;
 }
 
@@ -460,8 +454,6 @@ function syncBuffers(world: World): void {
             .createBuffer(d.arrayOf(d.vec4u, listCapacity))
             .$usage("storage")
             .$name("shallot-packed-eids");
-        world.gpu.buffers.set("eids", world.gpu.root.unwrap(_meshDraws.packedEids));
-        world.gpu.typed.set("eids", _meshDraws.packedEids);
 
         staleTransparentEids = _meshDraws.transparentEids;
         _meshDraws.transparentEids = world.gpu.root

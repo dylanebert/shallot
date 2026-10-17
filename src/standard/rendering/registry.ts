@@ -37,7 +37,7 @@ export interface DrawArgs {
 /**
  * materialType is a registered material-type id, alphaPipelineKey selects its phase/variant,
  * mesh is a registered mesh handle, and args addresses its indirect record.
- * Other material bindings resolve by name in world.gpu's typed-buffer, texture and sampler registries.
+ * Owned material bindings resolve from mesh attributes, mesh overrides or the material type's bindings.
  */
 export interface Draw {
     name: string;

@@ -42,8 +42,9 @@ export interface Mesh {
     pending?: true;
     /**
      * per-mesh binding overrides: resources scoped to this mesh's draws, keyed by the surface's binding
-     * name. A surface binding resolves to `mesh.bindings?.[name]` when present, else the published global
-     * (`world.gpu.*`). Per-mesh resources are shared by that mesh's draws.
+     * name. Mesh attributes take precedence; otherwise a binding resolves to `mesh.bindings?.[name]`
+     * when present, else the live resources owned by the material type through its `bindings` callback.
+     * Built-ins resolve from their engine owners. Per-mesh resources are shared by that mesh's draws.
      */
     bindings?: Record<string, MeshBinding>;
     /** Named storage arrays, indexed by the same absolute vertex index as `vertices`.

@@ -9,7 +9,7 @@ import { Sprite, SpriteMaterialInput, SpriteMaterialType, SpritePlugin } from ".
 import { spriteOffset } from "../sprite/material";
 import { isolationFont } from "./font.fixture";
 import { GLYPH_AT, GLYPH_BYTES } from "./glyph";
-import { internText, registerFont, Text, TextPlugin } from "./index";
+import { internText, registerFont, Text, TextPlugin, textStateKey } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
 let font = 0;
@@ -47,9 +47,13 @@ test("sprite and label pivots follow all nine named anchors, updates, removal an
     world.add(label, Transform);
     world.add(label, Text, { content: internText(world, "i"), font });
     const glyphPosition = async () => {
-        const snapshot = await probeBuffer(world, world.gpu.buffers.get("textGlyphs")!, {
-            size: GLYPH_BYTES,
-        });
+        const snapshot = await probeBuffer(
+            world,
+            world.gpu.root.unwrap(world.resource(textStateKey).glyphBuf!),
+            {
+                size: GLYPH_BYTES,
+            },
+        );
         return new Float32Array(snapshot.bytes).slice(GLYPH_AT.pos, GLYPH_AT.pos + 2);
     };
     const spritePosition = () => {

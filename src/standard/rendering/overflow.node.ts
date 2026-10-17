@@ -5,7 +5,13 @@ import { expectAdapterNotice } from "../../../scripts/gpu.fixture";
 import { PointLight } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { probeBuffer } from "../../engine/runtime";
-import { CLUSTER_COUNT, LIGHT_GRID_OFFSET, LIGHT_POOL, requestLightOverflow } from "./cluster";
+import {
+    CLUSTER_COUNT,
+    clusterGpuKey,
+    LIGHT_GRID_OFFSET,
+    LIGHT_POOL,
+    requestLightOverflow,
+} from "./cluster";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -32,7 +38,7 @@ test("light culling clamps an overflowing index pool without readback and expose
         expect(result.frame).toBe(frame);
         expect(result.fixedTick).toBe(tick);
         expect(result.dropped).toBeGreaterThan(0);
-        const grid = await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
+        const grid = await probeBuffer(world, world.resource(clusterGpuKey).lightCull.lights!, {
             offset: LIGHT_GRID_OFFSET,
             size: CLUSTER_COUNT * 8,
             label: "clamped light grid",

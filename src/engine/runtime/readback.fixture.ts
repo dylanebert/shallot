@@ -99,10 +99,6 @@ export async function controlledReadback(
     world.attachGpu({
         device,
         frame: 0,
-        buffers: new Map(),
-        textures: new Map(),
-        samplers: new Map(),
-        typed: new Map(),
         root: {} as import("typegpu").TgpuRoot,
         pending: () => 0,
         fences: { issued: 0, completed: 0 },

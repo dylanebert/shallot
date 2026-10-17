@@ -2,6 +2,10 @@
 
 These changes require updates to a 0.9.5 app.
 
+## GPU resource ownership
+
+`WorldGpu.buffers`, `textures`, `samplers` and `typed` are removed. A custom material supplies its owned resources through `materialType`'s `bindings: (world) => Record<string, BindResource>` callback, keyed by its layout's binding names. Consumers of shared GPU state read it from its owning World resource instead of looking it up by name on `world.gpu`.
+
 ## Sprite and text pivots
 
 `Sprite.anchor` and `Text.anchor` are replaced by `Anchor` from the root or `/rendering`. Add it to the same entity with `{ offset: [p[0] - 0.5, p[1] - 0.5] }` for an old 0..1 pivot `p`. `Anchor` provides `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT`, `CENTER_LEFT`, `CENTER`, `CENTER_RIGHT`, `TOP_LEFT`, `TOP_CENTER` and `TOP_RIGHT` offsets. For example, use `{ offset: Anchor.BOTTOM_CENTER }` for the old `[0.5, 0]`. Without `Anchor`, sprites remain centred and text remains bottom-left anchored; adding `Anchor` without values centres either.

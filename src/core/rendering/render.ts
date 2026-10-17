@@ -5,7 +5,7 @@ import type { World } from "../../engine";
  * viewBuffers grows from one to MAX_VIEWS, one ViewUniforms buffer per presenting slot.
  * viewCount is the active cull-slot count; shadeCount is its presenting prefix. Depth-only slots
  * [shadeCount, viewCount) have cull volumes and staging but no view buffer.
- * world.gpu.buffers publishes cullVolumes as tagged six-plane frusta.
+ * cullVolumes holds tagged six-plane frusta.
  */
 export interface RenderContext {
     format: GPUTextureFormat;

@@ -12,7 +12,7 @@ import { StandardRenderingPlugin } from "./forward";
 import { MaterialPlugin, Materials, MeshMaterial, StandardMaterial } from "./material";
 import { materialType, materialTypeId } from "./material-type";
 import { MeshRenderPlugin } from "./mesh-render";
-import { meshInstanceTable } from "./preprocess";
+import { MeshDrawBuffers, meshInstanceTable } from "./preprocess";
 import { Draws } from "./registry";
 import "../../standard";
 
@@ -56,7 +56,7 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
         expect(globalTransforms.rowIndex(b)).not.toBe(meshInstances.rowIndex(b));
         device.pushErrorScope("validation");
         world.step();
-        const instances = world.gpu.buffers.get("eids");
+        const instances = world.gpu.root.unwrap(world.resource(MeshDrawBuffers).packedEids!);
         if (!instances) throw new Error("MeshInstance did not publish its instance list");
         const encoder = device.createCommandEncoder();
         encoder.copyBufferToBuffer(instances, 0, readback, 0, 32);

@@ -1,5 +1,5 @@
-import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
-import { type AnyData, u32 } from "typegpu/data";
+import tgpu, { type TgpuRoot } from "typegpu";
+import { u32 } from "typegpu/data";
 import type { Resource, World } from "../ecs";
 import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
 import { continueSubmissionFence, submissionFence } from "./allocation-site";
@@ -239,24 +239,6 @@ export interface WorldGpu {
     /** Completion watermarks for the existing sync fences, not additional submissions.
      * A resource used before the next sync may recycle when that fence completes. */
     readonly fences: { readonly issued: number; readonly completed: number };
-    /**
-     * World-local raw buffers published for cross-system binding lookup. GPU tables self-register;
-     * other producers publish their buffers here.
-     */
-    readonly buffers: Map<string, GPUBuffer>;
-    /**
-     * World-local textures published for cross-system binding lookup.
-     */
-    readonly textures: Map<string, GPUTexture>;
-    /**
-     * World-local samplers published for cross-system binding lookup.
-     */
-    readonly samplers: Map<string, GPUSampler>;
-    /**
-     * Typed twins of {@link buffers}, published under the same names so consumers need not redeclare
-     * layouts. Registries are fresh per GPU context; producers must republish each build.
-     */
-    readonly typed: Map<string, TgpuBuffer<AnyData>>;
     /** optional GPU timestamp slot allocator hook; returns writes for a pass descriptor */
     span?: (
         name: string,
@@ -1404,10 +1386,6 @@ export async function requestGPU(
         pending: () => inFlight,
         fences,
         sync,
-        buffers: new Map<string, GPUBuffer>(),
-        textures: new Map<string, GPUTexture>(),
-        samplers: new Map<string, GPUSampler>(),
-        typed: new Map<string, TgpuBuffer<AnyData>>(),
     };
 
     owner?.prepare?.(compute);

@@ -566,14 +566,6 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
     clearPointParams(world);
     device.queue.writeBuffer(_atlasState.pointParams, 0, _atlasState.pointBuf);
     _atlasState.pointCleared = true;
-    world.gpu.buffers.set("pointShadows", _atlasState.pointParams);
-    world.gpu.typed.set(
-        "pointShadows",
-        world.gpu.root
-            .createBuffer(_shadowCasters, _atlasState.pointParams)
-            .$usage("uniform")
-            .$name("standard-point-shadow-params"),
-    );
     // Both receiver sampling and atlas seam-discard must use the same tile rects.
     _atlasState.pointTileRects?.destroy();
     _atlasState.pointTileRects = device.createBuffer({
@@ -585,14 +577,6 @@ export function resetShadowAtlas(world: World, device: GPUDevice): void {
         _atlasState.pointTileRects,
         0,
         new Float32Array(MAX_POINT_CASTERS * 6 * 4),
-    );
-    world.gpu.buffers.set("pointTileRects", _atlasState.pointTileRects);
-    world.gpu.typed.set(
-        "pointTileRects",
-        world.gpu.root
-            .createBuffer(_shadowRects, _atlasState.pointTileRects)
-            .$usage("uniform")
-            .$name("standard-point-tilerects"),
     );
 
     _atlasState.faceVP?.destroy();

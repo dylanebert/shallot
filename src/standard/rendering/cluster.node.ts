@@ -23,6 +23,7 @@ import {
     CLUSTER_Z,
     Clusters,
     clusterCoord,
+    clusterGpuKey,
     clusterView,
     LIGHT_GRID_OFFSET,
     LIGHT_INDICES_OFFSET,
@@ -161,7 +162,7 @@ async function checkScene(
         world.step(1 / 60);
         expect(world.resource(RenderContext).shadeCount).toBe(cameras.length);
         await world.gpu.device.queue.onSubmittedWorkDone();
-        const output = await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
+        const output = await probeBuffer(world, world.resource(clusterGpuKey).lightCull.lights!, {
             size: LIGHT_GRID_OFFSET + cameras.length * CLUSTER_COUNT * 8,
             label: `cluster oracle ${inputs.length}`,
         });
@@ -414,7 +415,7 @@ async function checkClusterScene(world: World): Promise<void> {
 
     // A propagated draw failure discards the encoded AABB rebuild. Its dirty key must remain old
     // until the same projection is successfully submitted on the following frame.
-    const aabbs = world.gpu.buffers.get("clusterAabbs")!;
+    const aabbs = world.resource(clusterGpuKey).clusters.aabbs!;
     const before = await probeBuffer(world, aabbs, {
         size: CLUSTER_COUNT * 2 * 16,
         label: "cluster grid before aborted projection",

@@ -7,7 +7,7 @@ import { probeBuffer } from "../../engine/runtime";
 import * as atlas from "./atlas";
 import { isolationFont } from "./font.fixture";
 import { GLYPH_AT, GLYPH_BYTES, GLYPH_FLOATS } from "./glyph";
-import { internText, Justify, registerFont, Text, TextPlugin } from "./index";
+import { internText, Justify, registerFont, Text, TextPlugin, textStateKey } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
 let font = 0;
@@ -42,7 +42,7 @@ test("one changed label among 1,000 lays out once; unchanged and placement-only 
         writes.push([buffer, offset, size]);
         writeBuffer(buffer, offset, data, dataOffset, size);
     };
-    const buffer = () => world.gpu.buffers.get("textGlyphs")!;
+    const buffer = () => world.gpu.root.unwrap(world.resource(textStateKey).glyphBuf!);
     const glyphWrites = () => writes.filter((call) => call[0] === buffer());
     try {
         world.step(0);

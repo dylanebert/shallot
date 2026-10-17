@@ -72,8 +72,6 @@ export async function warmImages(world: World): Promise<void> {
         magFilter: "linear",
         minFilter: "linear",
     });
-    world.gpu.textures.set("images", texture);
-    world.gpu.samplers.set("imageSampler", bindings.imageSampler);
 }
 
 /** mip levels for a square texture of `size` px: the full chain down to 1×1. */

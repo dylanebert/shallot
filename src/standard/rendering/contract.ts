@@ -122,7 +122,7 @@ function assertOwnFn(label: string, fn: unknown): void {
 
 /** Add a background for the lifetime of its owning World. Every call returns a distinct handle,
  * including calls with the same name. Cameras select it through CameraBackground.background.
- * Bindings resolve only from this recipe, never from the World's named GPU registries. */
+ * Bindings resolve only from this recipe. */
 export function registerBackground<B extends Record<string, MaterialBinding>>(
     world: World,
     spec: Background<B>,

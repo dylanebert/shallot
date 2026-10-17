@@ -201,15 +201,7 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         });
         previous.bindMembership(GlobalTransform);
         render.bindMembership(GlobalTransform);
-        render.subscribe((buffer) => {
-            world.gpu.buffers.set("globalTransforms", buffer);
-            world.gpu.typed.set("globalTransforms", render.typed);
-        });
         render.enableEidLookup();
-        render.subscribeMap((buffer) => {
-            world.gpu.buffers.set("globalTransformRows", buffer);
-            world.gpu.typed.set("globalTransformRows", render.eidToRowTyped!);
-        });
         if (!runtime.params) {
             const params = world.gpu.root.createBuffer(d.vec4f).$usage("uniform");
             runtime.params = world.gpu.root.unwrap(params);

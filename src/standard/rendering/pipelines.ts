@@ -190,8 +190,8 @@ export type MaterialGroupEntry = {
     eids: GPUBuffer | null;
     engineCache: Map<number, GPUBindGroup>;
     resources: BindResource[];
-    /** the layout's own binding names in `resources` order (after the four mesh streams), each with the
-     * registry it resolves from, so a steady frame compares live identities without re-resolving. */
+    /** the layout's own binding names in `resources` order (after the four mesh streams), used to
+     * compare live resource identities on each draw. */
     names: string[];
     /** per compiled pipeline, that pipeline with this entry's group 2 and index buffer bound, built on the
      * entry's first draw through it (the pass binds groups 0 and 1 per draw). */

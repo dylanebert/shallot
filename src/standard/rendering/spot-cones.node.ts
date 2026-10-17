@@ -16,6 +16,7 @@ import {
 import { Transform } from "../../core/transform";
 import { lookAtRotation } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
+import { clusterGpuKey } from "./cluster";
 import { StandardRenderer } from "./forward";
 import { StandardRenderingPlugin } from "./index";
 import { spotParams } from "./lighting";
@@ -91,7 +92,7 @@ for (const method of methods) {
         const packedParams = async () =>
             new Float32Array(
                 (
-                    await probeBuffer(world, world.gpu.buffers.get("lightClusters")!, {
+                    await probeBuffer(world, world.resource(clusterGpuKey).lightCull.lights!, {
                         offset: 56,
                         size: 8,
                     })

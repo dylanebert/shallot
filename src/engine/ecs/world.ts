@@ -158,7 +158,7 @@ export class World {
         return this._frameFence;
     }
 
-    /** this world's GPU device, registries, typed handles and frame state; unavailable when the build acquired no device. */
+    /** this world's GPU device, typed root and frame state; unavailable when the build acquired no device. */
     get gpu(): WorldGpu {
         if (!this._gpu)
             throw new Error(
@@ -450,14 +450,6 @@ export class World {
         options?: GpuTableOptions,
     ): GpuTable<T> {
         if (this._tables.has(name)) throw new Error(`World.table: duplicate table "${name}"`);
-        const registry = this._gpu?.buffers;
-        if (
-            registry?.has(name) ||
-            registry?.has(`${name}:eid-to-row`) ||
-            registry?.has(`${name}:active-rows`)
-        ) {
-            throw new Error(`World.table: GPU registry name "${name}" is already in use`);
-        }
         const table = new GpuTable(this, name, record, options);
         this._tables.set(name, table);
         return table;
@@ -990,9 +982,5 @@ export class World {
             }
         }
         this._gpuResources.clear();
-        this._gpu?.buffers.clear();
-        this._gpu?.textures.clear();
-        this._gpu?.samplers.clear();
-        this._gpu?.typed.clear();
     }
 }

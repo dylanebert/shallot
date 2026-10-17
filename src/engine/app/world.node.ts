@@ -10,10 +10,21 @@ setDefaultTimeout(TIMEOUT.node);
 import * as d from "typegpu/data";
 import { Meshes } from "../../core/mesh";
 import { Images, registerImage } from "../../core/rendering";
+import { GlobalTransformHistory } from "../../core/rendering/global-transform";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "../../extras/lines";
+import { segmentState } from "../../extras/lines/segments";
 import { Sprite, SpritePlugin } from "../../extras/sprite";
-import { Content, Fonts, internText, registerFont, Text, TextPlugin } from "../../extras/text";
+import { SpriteSource } from "../../extras/sprite/material";
+import {
+    Content,
+    Fonts,
+    internText,
+    registerFont,
+    Text,
+    TextPlugin,
+    textStateKey,
+} from "../../extras/text";
 import { isolationFont } from "../../extras/text/font.fixture";
 import { Draws } from "../../standard/rendering";
 import { f32, probeBuffer, requestGPU, Time, World } from "../index";
@@ -36,18 +47,16 @@ const textureKey = {
             usage: GPUTextureUsage.TEXTURE_BINDING,
         }),
 };
+const typedKey = {
+    create: (world: World) => world.gpu.root.createBuffer(d.arrayOf(d.u32, 1)).$usage("storage"),
+};
 const ResourcePlugin = {
     name: "WorldResourceProbe",
     gpu: {},
     initialize(world: World) {
-        const buffer = world.resource(resourceKey);
-        const texture = world.resource(textureKey);
-        const typed = world.gpu.root.createBuffer(d.arrayOf(d.u32, 1)).$usage("storage");
-        const typedBuffer = world.gpu.root.unwrap(typed);
-        world.gpu.buffers.set("world-probe", buffer);
-        world.gpu.buffers.set("world-probe-typed", typedBuffer);
-        world.gpu.textures.set("world-probe", texture);
-        world.gpu.typed.set("world-probe-typed", typed);
+        world.resource(resourceKey);
+        world.resource(textureKey);
+        world.resource(typedKey);
     },
 };
 let apps: Awaited<ReturnType<typeof createApp>>[] = [];
@@ -146,17 +155,13 @@ test("live and later worlds keep component columns separate", async () => {
     expect(amount(second.world).get(b)).toBe(0);
     amount(second.world).set(b, 22);
     expect(amount(first.world).get(a)).toBe(11);
-    const firstBuffer = first.world.gpu.buffers.get("world-probe");
-    const secondBuffer = second.world.gpu.buffers.get("world-probe");
+    const firstBuffer = first.world.resource(resourceKey);
+    const secondBuffer = second.world.resource(resourceKey);
     expect(firstBuffer).toBeDefined();
     expect(secondBuffer).toBeDefined();
     expect(secondBuffer).not.toBe(firstBuffer);
-    expect(second.world.gpu.textures.get("world-probe")).not.toBe(
-        first.world.gpu.textures.get("world-probe"),
-    );
-    expect(first.world.gpu.typed.get("world-probe-typed")).not.toBe(
-        second.world.gpu.typed.get("world-probe-typed"),
-    );
+    expect(second.world.resource(textureKey)).not.toBe(first.world.resource(textureKey));
+    expect(first.world.resource(typedKey)).not.toBe(second.world.resource(typedKey));
 
     first.dispose();
     apps = apps.filter((app) => app !== first);
@@ -166,13 +171,9 @@ test("live and later worlds keep component columns separate", async () => {
     later.world.add(c, Value);
     expect(c).toBe(a);
     expect(amount(later.world).get(c)).toBe(0);
-    expect(later.world.gpu.buffers.get("world-probe")).not.toBe(secondBuffer);
-    expect(later.world.gpu.textures.get("world-probe")).not.toBe(
-        second.world.gpu.textures.get("world-probe"),
-    );
-    expect(later.world.gpu.typed.get("world-probe-typed")).not.toBe(
-        second.world.gpu.typed.get("world-probe-typed"),
-    );
+    expect(later.world.resource(resourceKey)).not.toBe(secondBuffer);
+    expect(later.world.resource(textureKey)).not.toBe(second.world.resource(textureKey));
+    expect(later.world.resource(typedKey)).not.toBe(second.world.resource(typedKey));
 });
 
 test("component registrations and defaults belong to each world", async () => {
@@ -207,7 +208,7 @@ test("component registrations and defaults belong to each world", async () => {
     expect(second.world.storage(secondComponents.Value).amount.get(secondEid)).toBe(22);
 });
 
-test("world GPU registries and owned resources are isolated and released on dispose", async () => {
+test("world-owned GPU resources are isolated and released on dispose", async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("Dawn adapter unavailable");
     const device = await adapter.requestDevice();
@@ -247,9 +248,9 @@ test("world GPU registries and owned resources are isolated and released on disp
         device: wrappedDevice,
     });
     apps.push(first);
-    const firstBuffer = first.world.gpu.buffers.get("world-probe");
-    const firstTypedBuffer = first.world.gpu.buffers.get("world-probe-typed");
-    const firstTexture = first.world.gpu.textures.get("world-probe");
+    const firstBuffer = first.world.resource(resourceKey);
+    const firstTypedBuffer = first.world.gpu.root.unwrap(first.world.resource(typedKey));
+    const firstTexture = first.world.resource(textureKey);
     expect(firstBuffer).toBeDefined();
     expect(firstTypedBuffer).toBeDefined();
     expect(firstTexture).toBeDefined();
@@ -260,16 +261,16 @@ test("world GPU registries and owned resources are isolated and released on disp
         device: wrappedDevice,
     });
     apps.push(second);
-    const secondBuffer = second.world.gpu.buffers.get("world-probe");
-    const secondTypedBuffer = second.world.gpu.buffers.get("world-probe-typed");
-    const secondTexture = second.world.gpu.textures.get("world-probe");
+    const secondBuffer = second.world.resource(resourceKey);
+    const secondTypedBuffer = second.world.gpu.root.unwrap(second.world.resource(typedKey));
+    const secondTexture = second.world.resource(textureKey);
     expect(secondBuffer).toBeDefined();
     expect(secondBuffer).not.toBe(firstBuffer);
     expect(secondTypedBuffer).toBeDefined();
     expect(secondTypedBuffer).not.toBe(firstTypedBuffer);
     expect(secondTexture).toBeDefined();
     expect(secondTexture).not.toBe(firstTexture);
-    expect(first.world.gpu.buffers.get("world-probe")).toBe(firstBuffer);
+    expect(first.world.resource(resourceKey)).toBe(firstBuffer);
 
     first.dispose();
     apps = apps.filter((app) => app !== first);
@@ -345,9 +346,12 @@ async function compositionFrame(world: World, offset: number, frame: number) {
         sprite: world.has(eid, Sprite) ? world.storage(Sprite).image.get(eid) : null,
     }));
     const buffers: Record<string, number[]> = {};
-    for (const name of ["global-transform", "textGlyphs", "sprite-material", "lineSegments"]) {
-        const buffer = world.gpu.buffers.get(name);
-        if (!buffer) throw new Error(`ownership composition did not publish ${name}`);
+    for (const [name, buffer] of [
+        ["global-transform", world.resource(GlobalTransformHistory).current!.buffer],
+        ["textGlyphs", world.gpu.root.unwrap(world.resource(textStateKey).glyphBuf!)],
+        ["sprite-material", world.resource(SpriteSource).table.buffer],
+        ["lineSegments", world.gpu.root.unwrap(segmentState(world).buffer!)],
+    ] as const) {
         const probe = await probeBuffer(world, buffer, { size: Math.min(buffer.size, 2048) });
         buffers[name] = Array.from(new Uint8Array(probe.bytes));
     }
