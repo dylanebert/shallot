@@ -125,6 +125,7 @@ export const RoomPlugin: Plugin = {
             lightIntensity: 1 / Math.PI,
             scatteringAsymmetry: 0.4,
             heightFalloff: 0,
+            stepCount: 32,
         });
     },
 };

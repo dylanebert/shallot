@@ -3,7 +3,7 @@
 import { createApp, Camera, GlobalTransform, pressKey, releaseKey, setInputEnabled } from '@dylanebert/shallot';
 import { attachTexture, detachView, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { DiagnosticsStore } from '@dylanebert/shallot';
-import { NoFog, showProfiler } from '@dylanebert/shallot/extras';
+import { showProfiler } from '@dylanebert/shallot/extras';
 import { Motes, MotesPlugin } from '../src/motes';
 import { Room } from '../src/room';
 const requests=[];
@@ -30,9 +30,6 @@ window.particles={
   const on=(await render()).rgba;
   motes.visible=false;
   const off=(await render()).rgba;
-  world.add(room.camera,NoFog);
-  const clear=(await render()).rgba;
-  world.remove(room.camera,NoFog);
   motes.visible=true;
   let increase=0,changed=0,count=0;
   // The central window and the shaft below it, not the room's unlit corners.
@@ -51,11 +48,11 @@ window.particles={
   };
   const linear=value=>{const s=value/255;return s<=0.04045?s/12.92:((s+0.055)/1.055)**2.4;};
   const luminance=(r,g,b)=>0.2126*linear(r)+0.7152*linear(g)+0.0722*linear(b);
-  const regionLuminance=(left,right,top,bottom,image=off)=>{
+  const regionLuminance=(left,right,top,bottom)=>{
    let sum=0,count=0;
    for(let y=top;y<bottom;y++) for(let x=left;x<right;x++) {
     const i=(y*320+x)*4;
-    sum+=luminance(image[i],image[i+1],image[i+2]);count++;
+    sum+=luminance(off[i],off[i+1],off[i+2]);count++;
    }
    return sum/count;
   };
@@ -64,8 +61,6 @@ window.particles={
    wallLuminance:regionLuminance(100,120,75,95),
    floorLuminance:regionLuminance(140,180,173,178),
    clearLuminance:luminance(0x19,0x18,0x16),
-   hazeBeam:regionLuminance(150,170,115,140)-regionLuminance(150,170,115,140,clear),
-   hazeShade:regionLuminance(70,85,115,140)-regionLuminance(70,85,115,140,clear),
   };
  },
  walk(count=45) {

@@ -57,6 +57,8 @@ function scene(scatteringAsymmetry = 0) {
         scattering: 1,
         lightIntensity: 10 / Math.PI,
         scatteringAsymmetry,
+        stepCount: 64,
+        jitter: 0,
     });
     return camera;
 }

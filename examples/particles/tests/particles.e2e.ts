@@ -14,8 +14,6 @@ declare global {
                 wallLuminance: number;
                 floorLuminance: number;
                 clearLuminance: number;
-                hazeBeam: number;
-                hazeShade: number;
             }>;
             walk(count?: number): { before: number; after: number };
             profiler(): void;
@@ -62,7 +60,6 @@ test("the floor beam outshines adjacent shade, motes brighten the shared view, a
     expect(evidence.increase).toBeGreaterThan(0.02);
     expect(evidence.changed).toBeGreaterThan(5);
     expect(evidence.floorBeam).toBeGreaterThan(evidence.floorShade + 20);
-    expect(evidence.hazeBeam).toBeGreaterThan(evidence.hazeShade + 0.04);
     expect(evidence.wallLuminance).toBeGreaterThan(evidence.clearLuminance);
     expect(evidence.wallLuminance).toBeLessThan(evidence.floorLuminance);
     const walk = await page.evaluate(() => window.particles.walk());

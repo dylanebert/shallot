@@ -112,7 +112,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             const world = app.world;
             const first = renderedCamera(world, antialias, true, -3);
             const fog = world.create();
-            world.add(fog, Fog, { density: 0.3 });
+            world.add(fog, Fog, { density: 0.3, stepCount: 16, jitter: 0 });
             for (const [x, color] of [
                 [-3, [0.85, 0.08, 0.02, 1]],
                 [3, [0.02, 0.08, 0.85, 1]],
@@ -203,7 +203,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
                 expect(lit[slot]).not.toEqual(litCenter(withoutFog[slot]!.rgba));
             }
 
-            world.add(fog, Fog, { density: 0.3 });
+            world.add(fog, Fog, { density: 0.3, stepCount: 16, jitter: 0 });
             world.remove(points[0]!, PointLight);
             world.step(0);
             world.step(0);

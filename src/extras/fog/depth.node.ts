@@ -9,7 +9,7 @@ import { DEFAULT_PLUGINS } from "../../standard";
 import { StandardRenderer } from "../../standard/rendering";
 import { maskLayoutOcclude, maskLayoutOccludeMultisampled } from "../outline/passes";
 import { Fog, FogPlugin, NoFog } from ".";
-import { fogGridLayout, fogLayout0, fogLayout0Multisampled, fogLayout1 } from "./pipeline";
+import { fogLayout0, fogLayout0Multisampled, fogLayout1 } from "./pipeline";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -47,10 +47,9 @@ function maximumDifference(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
 
 test("depth-reader variants keep their per-stage storage-buffer counts", () => {
     const counts = {
-        fogGridCompute:
-            storageCount(fogGridLayout, "compute") + storageCount(fogLayout1, "compute"),
-        fogCompute: storageCount(fogLayout0, "compute"),
-        fogMultisampledCompute: storageCount(fogLayout0Multisampled, "compute"),
+        fogCompute: storageCount(fogLayout0, "compute") + storageCount(fogLayout1, "compute"),
+        fogMultisampledCompute:
+            storageCount(fogLayout0Multisampled, "compute") + storageCount(fogLayout1, "compute"),
         outlineVertex: storageCount(maskLayoutOcclude, "vertex"),
         outlineFragment: storageCount(maskLayoutOcclude, "fragment"),
         outlineMultisampledVertex: storageCount(maskLayoutOccludeMultisampled, "vertex"),
@@ -58,9 +57,8 @@ test("depth-reader variants keep their per-stage storage-buffer counts", () => {
     };
     console.log("shared depth layout storage buffers", counts);
     expect(counts).toEqual({
-        fogGridCompute: 1,
-        fogCompute: 0,
-        fogMultisampledCompute: 0,
+        fogCompute: 1,
+        fogMultisampledCompute: 1,
         outlineVertex: 6,
         outlineFragment: 1,
         outlineMultisampledVertex: 6,
@@ -77,7 +75,7 @@ test("fog requests a multisampled depth lane without DepthPrepass and skips NoFo
     world.add(mesh, Transform);
     world.add(mesh, MeshInstance);
     const fog = world.create();
-    world.add(fog, Fog, { density: 0.5, color: 0xff0000 });
+    world.add(fog, Fog, { density: 0.5, color: 0xff0000, stepCount: 16, jitter: 0 });
 
     const created: { label: string | undefined; sampleCount: number }[] = [];
     const device = world.gpu.device;
@@ -111,7 +109,7 @@ test("NoFog opts out even when the user explicitly requests DepthPrepass", async
     world.add(mesh, Transform);
     world.add(mesh, MeshInstance);
     const fog = world.create();
-    world.add(fog, Fog, { density: 0.5, color: 0xff0000 });
+    world.add(fog, Fog, { density: 0.5, color: 0xff0000, stepCount: 16, jitter: 0 });
     world.step(0);
     world.step(0);
     const fogged = await captureTexture(world, camera);
@@ -120,7 +118,7 @@ test("NoFog opts out even when the user explicitly requests DepthPrepass", async
     world.step(0);
     const clear = await captureTexture(world, camera);
 
-    world.add(fog, Fog, { density: 0.5, color: 0xff0000 });
+    world.add(fog, Fog, { density: 0.5, color: 0xff0000, stepCount: 16, jitter: 0 });
     world.add(camera, NoFog);
     world.step(0);
     const optedOut = await captureTexture(world, camera);

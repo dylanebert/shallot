@@ -159,15 +159,11 @@ To preserve an old fog with absorption `a` in [0,1], scattering `s` and scatterI
 density and write `absorption: a`, `scattering: 1 - a`, `lightIntensity: s * i / Math.PI`.
 Old absorption values outside [0,1] need retuning because the new coefficients are nonnegative.
 Use the old defaults for omitted values: `a = 0`, `s = 1`, `i = 1`.
-Rename `anisotropy` to `scatteringAsymmetry` without changing its value.
-`scatterIntensity` is removed; `lightIntensity` is the one nonphysical light scale.
+Rename `anisotropy` to `scatteringAsymmetry` and `steps` to `stepCount` without changing their
+values. `scatterIntensity` is removed; `lightIntensity` is the one nonphysical light scale.
 The new default coefficients are absorption 0 and scattering 1, with lightIntensity `1 / Math.PI`
 as a tuned look value; lightIntensity 1 means no adjustment.
-Height falloff and fade `color` are unchanged. Fog now lights a frustum grid and applies its
-integrated radiance and transmittance at each opaque surface. Remove `steps`, `stepCount` and
-`jitter` from fog authoring; `Fog.stepCount` and `Fog.jitter` have no replacements. The grid's
-cell and slice counts are internal constants. `Fog.viewDistance` is new, defaulting to 64 world
-units: it sets the far view-space depth of the grid. Surfaces beyond it use the last slice.
+Height falloff, fade `color`, and jitter as a fraction of one step are unchanged.
 
 For perspective cameras, infinite reverse-Z makes depth zero mean no opaque surface, so the
 fog pass leaves those background pixels unchanged rather than unprojecting them as a finite
@@ -440,7 +436,7 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `FogSun` | No public replacement; fog integration is internal. |
 | `FOG_BYTES` | No public replacement; fog uniforms are internal. |
 | `FOG_FLOATS` | No public replacement; fog uniforms are internal. |
-| `FOG_MAX_STEPS` | No public replacement; fog grid dimensions are internal. |
+| `FOG_MAX_STEPS` | Use `Fog.stepCount`; the pass clamps it. |
 | `FogGpu` | Author `Fog`; the pass owns its GPU layout. |
 | `fogComposite` | No public replacement; fog integration is internal. |
 | `fogDensity` | No public replacement; fog integration is internal. |
