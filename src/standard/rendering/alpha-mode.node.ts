@@ -286,8 +286,34 @@ test("a reassigned material row's alpha mode selects the entity's draw on the ne
     world.step(0);
     await expectGlass(switched);
 
+    world.storage(MeshMaterial).alphaMode.set(switched, opaque.alphaMode);
+    world.step(0);
+    await expectGlass(switched);
+
+    world.storage(MeshMaterial).material.set(switched, opaque.material);
+    const lateReassignment = {
+        group: "draw" as const,
+        update() {
+            world.storage(MeshMaterial).material.set(switched, glass.material);
+        },
+    };
+    world.addSystem(lateReassignment);
+    world.step(0);
+    world.removeSystem(lateReassignment);
+    expect(world.storage(MeshMaterial).alphaMode.get(switched)).toBe(opaque.alphaMode);
+    world.step(0);
+    await expectGlass(switched);
+
+    materials.update(glass, {}, { alphaMode: AlphaMode.Opaque });
+    world.step(0);
+    expect(world.resource(TransparentPhases).get(camera)!.length).toBe(0);
+    materials.update(glass, {}, { alphaMode: AlphaMode.Blend });
+    world.step(0);
+    await expectGlass(switched);
+
     world.destroy(switched);
     const added = world.create();
+    expect(added).toBe(switched);
     world.add(added, Transform, { scale: [2, 2, 2, 0] });
     world.add(added, MeshInstance);
     world.add(added, MeshMaterial, { type: glass.type, material: glass.material });

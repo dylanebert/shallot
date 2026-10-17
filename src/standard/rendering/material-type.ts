@@ -528,7 +528,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         const declaresMeshMaterial = [...this._world.registry.entries()].some(
             ({ component }) => component === MeshMaterial,
         );
-        if (declaresMeshMaterial) copyMeshAlpha(this._world);
+        if (declaresMeshMaterial) copyMeshAlpha(this._world, true);
     }
 
     /** Copy this type's row alpha into the entity's MeshMaterial where they differ; an unknown row is left. @internal */
@@ -644,20 +644,37 @@ const materialTypesKey = {
 const MESH_MATERIALS = [MeshMaterial];
 
 // The row owns alpha; MeshMaterial's alphaMode and alphaCutoff are its copy for the mesh table's bulk fill.
-// Field change marks belong to the frame upload, so this compares the copy with its row instead.
-function copyMeshAlpha(world: World): void {
-    const assets = world.resource(MaterialTypes).assets;
+function copyMeshAlpha(world: World, all = false): void {
+    const { assets, types } = world.resource(MaterialTypes);
     const storage = world.storage(MeshMaterial);
-    for (const eid of world.query(MESH_MATERIALS)) {
-        const type = storage.type.get(eid);
-        if (!world.resource(MaterialTypes).types[type]?.source)
-            assets[type]?.copyAlpha(storage, eid);
+    if (all) {
+        for (const eid of world.query(MESH_MATERIALS)) {
+            const type = storage.type.get(eid);
+            if (!types[type]?.source) assets[type]?.copyAlpha(storage, eid);
+        }
+        return;
+    }
+    const type = world.fieldStorage(MeshMaterial, "type").dirty;
+    const material = world.fieldStorage(MeshMaterial, "material").dirty;
+    const mode = world.fieldStorage(MeshMaterial, "alphaMode").dirty;
+    const cutoff = world.fieldStorage(MeshMaterial, "alphaCutoff").dirty;
+    for (let word = 0; word < type.length; word++) {
+        let bits = type[word] | material[word] | mode[word] | cutoff[word];
+        while (bits !== 0) {
+            const bit = 31 - Math.clz32(bits & -bits);
+            const eid = (word << 5) + bit;
+            bits &= bits - 1;
+            if (!world.has(eid, MeshMaterial)) continue;
+            const id = storage.type.get(eid);
+            if (!types[id]?.source) assets[id]?.copyAlpha(storage, eid);
+        }
     }
 }
 
 /**
- * Copies each MeshMaterial's row alpha into its `alphaMode` and `alphaCutoff` after simulation, so a
- * reassigned `type` or `material` takes its row's alpha mode in the same frame's upload.
+ * Copies changed MeshMaterial members' row alpha into their `alphaMode` and `alphaCutoff` after
+ * simulation, including frames without a fixed tick. A reassigned `type` or `material` takes its
+ * row's alpha mode in the same frame's upload. Draw writes after upload reconcile next frame.
  * External table owners publish directly into the GPU mesh table after their table upload.
  */
 export const MeshMaterialAlphaSystem: System = {
