@@ -1,5 +1,6 @@
 import { createApp, Meshes } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
+import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 import { Terrain, terrainPlugin } from "../../examples/voxel/src/terrain";
 
 let grow: () => void;
@@ -17,8 +18,13 @@ export default async function create() {
         world.step(0);
     };
     return {
+        world,
+        terrain,
         warmSamplingSessions: true,
         samplingWarmFrames: 2_400,
+        // Unoptimized wrappers keep their WebGPU allocations off the callers that would inline them.
+        allocationExpressions: gpuAllocationExpressions,
+        allocationFunctions: [world.gpu.sync],
         step() {
             terrain.viewer += config.chunkSize;
             world.tick();
