@@ -18,7 +18,7 @@ interface Entry {
 }
 
 interface DefaultsPlan {
-    fields: { name: string; values: number[] }[];
+    fields: { name: string; write(eid: number): void }[];
 }
 
 export class ComponentRegistry {
@@ -50,17 +50,20 @@ export class ComponentRegistry {
     }
 
     /** write default values into this world's field columns. */
-    applyDefaults(world: World, component: Component, eid: number): void {
+    applyDefaults(
+        world: World,
+        component: Component,
+        eid: number,
+        supplied?: Record<string, unknown>,
+    ): void {
         const entry = this._byId.get(idOf(component));
         if (!entry) return;
         let plan = entry.plan;
         if (plan === undefined) plan = entry.plan = compilePlan(entry, world);
         if (!plan) return;
-        const storage = world.storage(component) as Record<
-            string,
-            { set(eid: number, ...values: number[]): void }
-        >;
-        for (const { name, values } of plan.fields) storage[name].set(eid, ...values);
+        for (const field of plan.fields) {
+            if (supplied?.[field.name] === undefined) field.write(eid);
+        }
     }
 
     clear(): void {
@@ -100,7 +103,22 @@ function compilePlan(entry: Entry, world: World): DefaultsPlan | null {
         }
     }
 
-    return fields.size === 0
-        ? null
-        : { fields: [...fields].map(([name, values]) => ({ name, values })) };
+    if (fields.size === 0) return null;
+    const storage = world.storage(entry.component) as Record<
+        string,
+        { set(eid: number, x: number, y?: number, z?: number, w?: number): void }
+    >;
+    return {
+        fields: [...fields].map(([name, values]) => {
+            const field = storage[name];
+            const [x, y, z, w] = values;
+            const write =
+                values.length === 1
+                    ? (eid: number) => field.set(eid, x)
+                    : values.length === 2
+                      ? (eid: number) => field.set(eid, x, y)
+                      : (eid: number) => field.set(eid, x, y, z, w);
+            return { name, write };
+        }),
+    };
 }

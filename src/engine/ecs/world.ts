@@ -799,7 +799,7 @@ export class World {
             for (const required of this.registry.getRequirements(component as Component)) {
                 if (!this.has(eid, required)) this.add(eid, required);
             }
-            this.registry.applyDefaults(this, component as Component, eid);
+            this.registry.applyDefaults(this, component as Component, eid, values);
             if (values) {
                 for (const name in values) {
                     const value = values[name];

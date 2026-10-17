@@ -25,6 +25,11 @@ test("add writes starting values through world storage and keeps omitted default
     expect(storage.scalar.get(defaultEid)).toBe(10);
     expect(storage.omitted.get(defaultEid)).toBe(42);
     expect(storage.pair.x.get(defaultEid)).toBe(0);
+    for (const name of ["scalar", "pair", "quad", "half", "omitted"]) {
+        expect(world.fieldStorage(Component, name).dirty[eid >>> 5] & (1 << (eid & 31))).not.toBe(
+            0,
+        );
+    }
     world.dispose();
 });
 
@@ -50,6 +55,11 @@ test("add treats undefined starting values as omitted and keeps their defaults",
         expect(Array.from(storage.pair.read(eid, new Float32Array(2)))).toEqual([2, 3]);
         expect(Array.from(storage.quad.read(eid, new Float32Array(4)))).toEqual([4, 5, 6, 7]);
         expect(storage.half.get(eid)).toBe(1.5);
+        for (const name of ["scalar", "pair", "quad", "half"]) {
+            expect(
+                world.fieldStorage(Component, name).dirty[eid >>> 5] & (1 << (eid & 31)),
+            ).not.toBe(0);
+        }
     } finally {
         world.dispose();
     }
