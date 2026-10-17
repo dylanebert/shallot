@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { removeTestDirectory } from "../../scripts/test-directory";
 import { normalizePath } from "../project/paths";
 import { cargoRuntimeDir } from "./provenance.js";
 
@@ -43,7 +44,7 @@ beforeAll(async () => {
 }, TIMEOUT.startup);
 
 afterAll(() => {
-    rmSync(packedPackageDir, { recursive: true, force: true });
+    removeTestDirectory(packedPackageDir);
 });
 
 function fixture() {
@@ -369,7 +370,7 @@ function assetBundle(
         if (platform === "mac")
             expect(readFileSync(resolve(f.root, "mac-icon.png"))).toEqual(expected);
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 }
 
@@ -442,7 +443,7 @@ for (const portable of [false, true]) {
                 );
                 expect(readFileSync(cached, "utf8")).toBe("shell");
             } finally {
-                rmSync(f.root, { recursive: true, force: true });
+                removeTestDirectory(f.root);
             }
         });
     }
@@ -459,7 +460,7 @@ for (const platform of ["linux", "mac", "windows"]) {
             expect(result.stderr).toContain("vite build produced no dist/index.html");
             expect(existsSync(output)).toBe(false);
         } finally {
-            rmSync(f.root, { recursive: true, force: true });
+            removeTestDirectory(f.root);
         }
     });
 }
@@ -474,7 +475,7 @@ test("native source release refuses without dist/index.html", () => {
         expect(result.stderr).toContain("vite build produced no dist/index.html");
         expect(existsSync(output)).toBe(false);
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });
 
@@ -489,7 +490,7 @@ test("native standalone build keeps the absent-directory refusal", () => {
         expect(result.stderr).not.toContain("vite build produced no dist/index.html");
         expect(existsSync(output)).toBe(false);
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });
 
@@ -542,7 +543,7 @@ test("native dev builds preserve the standalone bundle and preview launches the 
         expect(launches[1].executable).toBe(standaloneLaunch);
         expect(launches[1].devUrl).toBeUndefined();
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });
 
@@ -573,7 +574,7 @@ function staleLinuxBundle(includeRelease: boolean) {
                 : null,
         };
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 }
 
@@ -618,7 +619,7 @@ test("Windows and Mac source bundle consumers copy their selected native markers
             ),
         ).toBe("mac");
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });
 
@@ -653,7 +654,7 @@ test("explicit CEF_PATH is a Cargo build input; system mode needs no CEF; missin
         expect(missing.code, missing.stderr).toBe(0);
         expect(existsSync(missingOut)).toBe(false);
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });
 
@@ -690,7 +691,7 @@ test("prebuilt hit and subsequent Cargo fallback preserve the caller's CEF_PATH"
         expect(readFileSync(resolve(output, "cef/libcef.so"), "utf8")).toBe("caller");
         expect(readFileSync(resolve(f.root, "cargo.log"), "utf8")).toBe("cargo\n");
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });
 
@@ -773,7 +774,7 @@ test("prebuilt Linux, Mac, and Windows shells bundle their archived runtime with
             }
         }
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });
 
@@ -812,7 +813,7 @@ test("WSL Windows bundler translates Cargo's runtime path before copying", () =>
         expect(result.code, result.stderr).toBe(0);
         expect(readFileSync(resolve(output, "libcef.dll"), "utf8")).toBe("translated runtime");
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });
 
@@ -988,6 +989,6 @@ test("release archive assembly writes the selected Mac framework at the required
         expect(refused.exitCode).not.toBe(0);
         expect(existsSync(output)).toBe(false);
     } finally {
-        rmSync(f.root, { recursive: true, force: true });
+        removeTestDirectory(f.root);
     }
 });

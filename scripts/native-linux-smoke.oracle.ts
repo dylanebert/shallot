@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -13,6 +13,7 @@ import {
     streamLines,
     terminateProcessGroup,
 } from "./native-linux-smoke";
+import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -131,7 +132,7 @@ while True: time.sleep(1)
             }),
         ).rejects.toThrow(/no unused display number/);
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });
 
@@ -178,7 +179,7 @@ test("Linux smoke cleanup terminates the whole detached process group", async ()
         expect(running(grandchildPid)).toBe(false);
     } finally {
         if (parent.pid) await terminateProcessGroup(parent.pid, 100);
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });
 

@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "../../scripts/bun-child";
+import { removeTestDirectory } from "../../scripts/test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -10,7 +11,6 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
-    rmSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,7 +63,7 @@ test("a native debug process receives the Vite URL instead of its packaged asset
         expect(status).toBe(0);
         expect(readFileSync(observed, "utf8")).toBe("http://localhost:5173/");
     } finally {
-        rmSync(project, { recursive: true, force: true, maxRetries: 10 });
+        removeTestDirectory(project);
     }
 });
 
@@ -132,6 +132,7 @@ test("native preview streams the shell's output while the shell runs", async () 
         expect(await cli.exited).toBe(0);
     } finally {
         cli.kill();
-        rmSync(project, { recursive: true, force: true, maxRetries: 10 });
+        await cli.exited;
+        removeTestDirectory(project);
     }
 });

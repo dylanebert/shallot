@@ -1,6 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+import { removeTestDirectory } from "./test-directory";
 
 const ROOT = resolve(import.meta.dir, "..");
 type ProjectTool = "testing" | "vite";
@@ -55,6 +57,6 @@ export function buildProjectDeclaration(entry: ProjectTool): string {
         }
         return declaration;
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 }

@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { removeTestDirectory } from "../../scripts/test-directory";
 import { type AdapterFacts, classifyAdapter } from "../../src/engine/runtime";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "@dylanebert/shallot/rendering";
@@ -724,7 +725,7 @@ export async function samplePage(
     } finally {
         await browser?.close();
         await preview?.close();
-        rmSync(outDir, { recursive: true, force: true });
+        removeTestDirectory(outDir);
     }
 }
 

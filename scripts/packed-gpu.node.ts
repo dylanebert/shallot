@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
 import { packedInstall } from "./packed-install-spawn";
+import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -11,7 +12,6 @@ import {
     mkdtempSync,
     readFileSync,
     realpathSync,
-    rmSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -156,12 +156,12 @@ test("the packed headless plugin set steps the world through public engine subpa
             "installing packed project and webgpu",
         );
     } catch (error) {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
         throw error;
     }
 }, TIMEOUT.startup);
 
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+afterAll(() => removeTestDirectory(scratch));
 
 test("a packed headless app steps on a GPU and refuses without navigator.gpu", () => {
     expect(existsSync(join(project, "node_modules/webgpu/package.json"))).toBe(true);

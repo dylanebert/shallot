@@ -4,10 +4,11 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(TIMEOUT.node);
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { checkImports } from "./import-boundary";
+import { removeTestDirectory } from "./test-directory";
 
 let repositoryFindings: string[];
 beforeAll(() => {
@@ -40,7 +41,7 @@ function withFixture(run: (root: string) => void): void {
     try {
         run(root);
     } finally {
-        rmSync(root, { recursive: true, force: true });
+        removeTestDirectory(root);
     }
 }
 

@@ -172,6 +172,7 @@ bun run format                  # biome
 ```
 
 - Bun child processes spread [the executable and host identity](scripts/bun-child.ts) into object-form spawn options.
+- After a test child exits, remove directories it used with [removeTestDirectory](scripts/test-directory.ts); Windows can release its file locks after the exit is observed.
 - Iterate on selected files or subjects.
 - Before it lands, a change runs every repository policy.
 - The import gate (`bun test --todo ./scripts/check-imports.node.ts`) admits only the debts its todos name, each leaving with its migration; every other finding fails, a passing todo fails until its scope is retired, and no new exception becomes a todo.

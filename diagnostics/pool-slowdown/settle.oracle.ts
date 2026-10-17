@@ -8,9 +8,11 @@
 // POOL_THREADS (4), POOL_VARIANTS (comma list of the names below), POOL_RUNTIME (bun or node),
 // POOL_SCENE (large or small, pyramid.entry.ts).
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+import { removeTestDirectory } from "../../scripts/test-directory";
 
 const JOIN = [
     "            if (HAS_PAUSE) {",
@@ -125,6 +127,6 @@ test("report step times per join variant, interleaved", async () => {
                 rows.join("\n"),
         );
     } finally {
-        rmSync(dir, { recursive: true, force: true });
+        removeTestDirectory(dir);
     }
 }, 0);

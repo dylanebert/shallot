@@ -1,8 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { removeTestDirectory } from "../../scripts/test-directory";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { allocationFailure, measuredIsolateTrace, tracedSample, TIER_FLAGS } from "./allocation";
 
@@ -78,6 +79,6 @@ console.log(JSON.stringify({ runtime: "isolates", warm: 120, frames: 120, contro
         expect(allocationFailure(result)).toContain("after warm 240; optimized late");
         expect(allocationFailure(result)).not.toContain("after warm 120");
     } finally {
-        rmSync(dir, { recursive: true, force: true });
+        removeTestDirectory(dir);
     }
 });

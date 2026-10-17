@@ -1,9 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
+import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -71,6 +72,6 @@ test("a missing or malformed browser JUnit report fails instead of losing the wa
         expect(flaky.stdout.toString()).toContain("failed then passed on retry");
         expect(readFileSync(output, "utf8")).toBe("existing=value\nflaky=true\n");
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });

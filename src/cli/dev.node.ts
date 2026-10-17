@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { removeTestDirectory } from "../../scripts/test-directory";
 import {
     resolveViteCli,
     startViteDev,
@@ -74,7 +75,7 @@ test("native dev refuses a project with no resolvable Vite and names the devDepe
         expect(result.stderr.toString()).toContain("bun add -d vite");
         expect(existsSync(join(project, "dist"))).toBe(false);
     } finally {
-        rmSync(project, { recursive: true, force: true });
+        removeTestDirectory(project);
     }
 });
 
@@ -105,7 +106,7 @@ test("native dev in a bun-linked Shallot consumer without Vite names the devDepe
         expect(result.stderr.toString()).toContain("bun add -d vite");
         expect(existsSync(join(consumer, "dist"))).toBe(false);
     } finally {
-        rmSync(consumer, { recursive: true, force: true });
+        removeTestDirectory(consumer);
     }
 });
 
@@ -171,7 +172,7 @@ test("native dev loads the complete local Vite URL when the project uses a base 
         expect(await response.text()).toContain("BASE PATH");
     } finally {
         await server?.close();
-        rmSync(project, { recursive: true, force: true });
+        removeTestDirectory(project);
     }
 });
 
@@ -192,6 +193,6 @@ test("native dev receives the actual local URL reported by the project's Vite se
         expect(await response.text()).toContain("VITE URL");
     } finally {
         await server?.close();
-        rmSync(project, { recursive: true, force: true });
+        removeTestDirectory(project);
     }
 });

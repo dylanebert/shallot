@@ -1,5 +1,5 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -7,6 +7,7 @@ import {
     allocationFailure,
     sampleAllocation,
 } from "../../../diagnostics/first-person-allocation/allocation";
+import { removeTestDirectory } from "../../../scripts/test-directory";
 import { clockImport, type Kernel, kernelState } from "./kernel/kernel";
 import { mutationAllocationSubject } from "./mutation-allocation.fixture";
 import { createTestWorld, destroyTestWorld } from "./testing";
@@ -39,7 +40,7 @@ beforeAll(async () => {
             join(dir, "wasm32-unknown-unknown/release/shallot_physics.wasm"),
         ).arrayBuffer();
     } finally {
-        rmSync(dir, { recursive: true, force: true });
+        removeTestDirectory(dir);
     }
 }, TIMEOUT.startup);
 

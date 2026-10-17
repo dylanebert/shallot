@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { normalizePath } from "../src/project/paths";
 import { bunChild } from "./bun-child";
 import { spawnPackedInstall } from "./packed-install-spawn";
+import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 const ROOT = resolve(import.meta.dir, "..");
@@ -39,7 +40,7 @@ for (const subject of ["pin", "overlay", "restore"] as const) {
                 ),
             ).version;
 
-        afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+        afterAll(() => removeTestDirectory(scratch));
         beforeAll(() => {
             mkdirSync(project);
             run(
@@ -154,7 +155,7 @@ test(
                 run(["bun", "run", "typecheck"], project, "typechecking stranger hud copy"),
             ).toContain("svelte-check found 0 errors");
         } finally {
-            rmSync(scratch, { recursive: true, force: true });
+            removeTestDirectory(scratch);
         }
     },
     TIMEOUT.startup,

@@ -1,10 +1,11 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "../browser.fixture";
+import { removeTestDirectory } from "../test-directory";
 
 const SUBJECT = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SUBJECT, "../..");
@@ -147,6 +148,6 @@ document.querySelector("#result")!.textContent = JSON.stringify({
             else preview.kill("SIGTERM");
             await exited;
         }
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });

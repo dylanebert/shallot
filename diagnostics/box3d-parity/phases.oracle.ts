@@ -8,9 +8,10 @@
 // main-thread CPU profiling (cpu.ts) and reports timings, never asserts them.
 // PHASE_THREADS (comma list, "1,4") picks the thread counts.
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTestDirectory } from "../../scripts/test-directory";
 import { nativeBinary } from "./native";
 import { WINDOWS } from "./windows";
 
@@ -56,7 +57,7 @@ const built = await Bun.build({
 });
 if (!built.success) throw new Error(built.logs.join("\n"));
 const bundle = join(dir, "scenes.js");
-process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
+process.on("exit", () => removeTestDirectory(dir));
 
 const median = (a: number[]) => {
     const s = [...a].sort((x, y) => x - y);

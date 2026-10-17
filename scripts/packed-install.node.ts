@@ -11,13 +11,13 @@ import {
     readdirSync,
     readFileSync,
     realpathSync,
-    rmSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { normalizePath } from "../src/project/paths";
 import { packedInstall as runPackedInstall } from "./packed-install-spawn";
+import { removeTestDirectory } from "./test-directory";
 
 const ROOT = resolve(import.meta.dir, "..");
 const examples = readdirSync(join(ROOT, "examples"), { withFileTypes: true })
@@ -120,13 +120,13 @@ beforeAll(() => {
             cliInstall,
         };
     } catch (error) {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
         throw error;
     }
 }, TIMEOUT.startup);
 
 afterAll(() => {
-    if (install) rmSync(install.scratch, { recursive: true, force: true });
+    if (install) removeTestDirectory(install.scratch);
 });
 
 test("the packed CLI exposes the public package and its installed examples", () => {

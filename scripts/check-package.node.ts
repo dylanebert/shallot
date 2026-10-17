@@ -4,10 +4,11 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(TIMEOUT.node);
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { removeTestDirectory } from "./test-directory";
 
 test("the packed package passes size, publint and declaration checks", () => {
     const MaxUnpackedBytes = 8_000_000;
@@ -93,6 +94,6 @@ test("the packed package passes size, publint and declaration checks", () => {
         console.log(`✓ publint (${publintSeconds}s)`);
         console.log(`✓ @arethetypeswrong/cli (${attwSeconds}s)`);
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });

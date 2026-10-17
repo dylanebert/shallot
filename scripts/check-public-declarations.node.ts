@@ -4,11 +4,12 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(TIMEOUT.node);
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
 import { normalizePath } from "../src/project/paths";
+import { removeTestDirectory } from "./test-directory";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
@@ -379,6 +380,6 @@ test("public declarations do not expose private solver handles", () => {
             `solver handles leak through ${entries.length} emitted package declarations`,
         ).toEqual([]);
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });

@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { removeTestDirectory } from "../../scripts/test-directory";
 import { readProjectPolicy } from "./policy";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -25,6 +26,6 @@ test("project policy keeps tracked diagnostics source tools, never run output", 
                 .sort(),
         );
     } finally {
-        rmSync(tree, { recursive: true, force: true });
+        removeTestDirectory(tree);
     }
 });

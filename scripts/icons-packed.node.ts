@@ -5,7 +5,6 @@ import {
     mkdtempSync,
     readFileSync,
     realpathSync,
-    rmSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +12,7 @@ import { basename, delimiter, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
 import { packedInstall } from "./packed-install-spawn";
+import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 const repo = resolve(import.meta.dir, "..");
@@ -132,6 +132,6 @@ console.log(JSON.stringify({reason:'build-script-executed',package_id:'path+file
             "packed consumer: installed tarball, public CLI create/build, nested favicon default/custom, no injected favicon, native PNG default/custom; fake Cargo, no launch",
         );
     } finally {
-        rmSync(root, { recursive: true, force: true });
+        removeTestDirectory(root);
     }
 });

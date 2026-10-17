@@ -4,9 +4,11 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(TIMEOUT.node);
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+import { removeTestDirectory } from "./test-directory";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -36,6 +38,6 @@ test("the test script's default rejects a cheap test that runs longer than 250 m
         expect(result.exitCode, output).toBe(1);
         expect(output).toContain("timed out after 250ms");
     } finally {
-        rmSync(fixture, { recursive: true, force: true });
+        removeTestDirectory(fixture);
     }
 });

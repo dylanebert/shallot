@@ -6,7 +6,6 @@ import {
     mkdtempSync,
     readdirSync,
     realpathSync,
-    rmSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
@@ -15,6 +14,7 @@ import { join } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { bunChild } from "./bun-child";
 import { packedInstall, spawnPackedInstall } from "./packed-install-spawn";
+import { removeTestDirectory } from "./test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -39,7 +39,7 @@ test("Bun children keep their host identity under a copy named node", () => {
         });
         expect(result.exitCode, `${result.stdout}${result.stderr}`).toBe(0);
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });
 
@@ -182,7 +182,7 @@ function offlineFixture(
     } finally {
         for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
         Object.assign(process.env, previous);
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 }
 const engine = { name: "@dylanebert/shallot", version: "0.0.0" };

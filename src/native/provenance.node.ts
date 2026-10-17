@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { removeTestDirectory } from "../../scripts/test-directory";
 import { cargoRuntimeDir } from "./provenance.js";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -55,7 +56,7 @@ beforeAll(() => {
 }, TIMEOUT.startup);
 
 afterAll(() => {
-    rmSync(cargoRoot, { recursive: true, force: true });
+    removeTestDirectory(cargoRoot);
 });
 
 function runtime(name: string, contents: string) {

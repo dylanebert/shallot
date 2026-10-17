@@ -1,6 +1,7 @@
 import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { removeTestDirectory } from "../../scripts/test-directory";
 import { DEFERRED_TURBOFAN_FLAGS, SAMPLE_RESULT } from "./allocation-sampler.mjs";
 
 export interface AllocationFrame {
@@ -201,7 +202,7 @@ export async function prepareAllocationSampler(entry: string): Promise<PreparedA
         dispose() {
             if (disposed) return;
             disposed = true;
-            rmSync(bundle.dir, { recursive: true, force: true });
+            removeTestDirectory(bundle.dir);
         },
     };
 }
@@ -216,7 +217,7 @@ async function runSampler(
     try {
         return await runBuiltSampler(bundle, options, mode, retainOptimizedSites);
     } finally {
-        rmSync(bundle.dir, { recursive: true, force: true });
+        removeTestDirectory(bundle.dir);
     }
 }
 
@@ -292,7 +293,7 @@ async function runBuiltSampler(
             retainOptimizedSites,
         });
     } finally {
-        rmSync(dir, { recursive: true, force: true });
+        removeTestDirectory(dir);
     }
 }
 

@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+
+import { removeTestDirectory } from "../../scripts/test-directory";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -29,7 +31,7 @@ beforeAll(() => {
 }, TIMEOUT.startup);
 
 afterAll(() => {
-    rmSync(temp, { recursive: true, force: true });
+    removeTestDirectory(temp);
 });
 
 function runBuild(label: string, vars: Record<string, string | undefined> = {}) {

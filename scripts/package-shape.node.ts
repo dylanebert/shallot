@@ -10,13 +10,13 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
-    rmSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { normalizePath } from "../src/project/paths";
+import { removeTestDirectory } from "./test-directory";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
@@ -194,7 +194,7 @@ test("the Bun preload dedupes linked-engine TypeGPU imports to the consumer peer
         expect(output).toContain("1 pass");
         expect(output).not.toContain("Found duplicate TypeGPU version");
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });
 
@@ -223,7 +223,7 @@ test("a Bun test from the workspace root resolves TypeGPU from the package that 
         expect(output).toContain("1 pass");
         expect(output).not.toContain("Found duplicate TypeGPU version");
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });
 
@@ -257,7 +257,7 @@ test("an out-of-range project TypeGPU fails before either module evaluates", () 
         expect(output).not.toContain("TYPEGPU_PROJECT_COPY_EVALUATED");
         expect(output).not.toContain("TEST_MODULE_EVALUATED");
     } finally {
-        rmSync(scratch, { recursive: true, force: true });
+        removeTestDirectory(scratch);
     }
 });
 

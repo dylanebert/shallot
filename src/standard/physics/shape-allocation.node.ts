@@ -1,5 +1,5 @@
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -7,6 +7,7 @@ import {
     allocationFailure,
     sampleAllocation,
 } from "../../../diagnostics/first-person-allocation/allocation";
+import { removeTestDirectory } from "../../../scripts/test-directory";
 import { BodyType, defaultSurfaceMaterial, ShapeType } from "./common/types";
 import { BodyField, setBodyField } from "./kernel/bodyrecords";
 import { hullDatabaseIndex } from "./kernel/geocolumns";
@@ -57,7 +58,7 @@ beforeAll(async () => {
             join(dir, "wasm32-unknown-unknown/release/shallot_physics.wasm"),
         ).arrayBuffer();
     } finally {
-        rmSync(dir, { recursive: true, force: true });
+        removeTestDirectory(dir);
     }
 }, TIMEOUT.startup);
 
