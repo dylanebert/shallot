@@ -313,10 +313,53 @@ function createApplyKernel(
                 d.vec3f(uv, z),
                 0,
             );
-            const outc = std.add(
-                fogComposite(scn, layout.$.fog.color.xyz, integrated.w),
-                integrated.xyz,
-            );
+            let trans = integrated.w;
+            let radiance = integrated.xyz;
+            if (viewZ > layout.$.fog.medium.w) {
+                const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+                const dir = std.normalize(std.sub(p, nearWorld));
+                const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
+                const start = std.add(nearWorld, std.mul(dir, extent * rayScale));
+                const distance = (viewZ - layout.$.fog.medium.w) * rayScale;
+                const cfg = layout.$.fog;
+                const x = cfg.medium.z * dir.y * distance;
+                // The series avoids cancellation for horizontal rays and zero height falloff.
+                let integral = d.f32(1 - x * 0.5 + (x * x) / 6);
+                if (std.abs(x) > 0.001) integral = (1 - std.exp(-x)) / x;
+                const opticalDepth =
+                    fogDensity(start, cfg.medium.x, cfg.medium.y, cfg.medium.z) *
+                    distance *
+                    integral;
+                const tailTrans = std.exp(-opticalDepth);
+                // The distant medium has no resolved occluders or local lights.
+                let light = std.mul(camView.ambientColor.rgb, camView.exposure / (4 * Math.PI));
+                let k = d.u32(0);
+                while (k < fogLayout1.$.lighting.directionalCount) {
+                    const sun = fogLayout1.$.lighting.directionalLights[k];
+                    if (sun.params.z > 0) {
+                        light = d.vec3f(
+                            std.add(
+                                light,
+                                directionalInScatter(
+                                    std.mul(sun.color.rgb, sun.params.x * camView.exposure),
+                                    sun.direction.xyz,
+                                    dir,
+                                    cfg.extra.y,
+                                ),
+                            ),
+                        );
+                    }
+                    k = k + 1;
+                }
+                radiance = d.vec3f(
+                    std.add(
+                        radiance,
+                        std.mul(light, trans * cfg.extra.z * cfg.extra.w * (1 - tailTrans)),
+                    ),
+                );
+                trans = trans * tailTrans;
+            }
+            const outc = std.add(fogComposite(scn, layout.$.fog.color.xyz, trans), radiance);
             std.textureStore(layout.$.output, px, d.vec4f(outc, 1));
         })
         .$name("fogApply");

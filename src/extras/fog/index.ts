@@ -48,7 +48,8 @@ import {
 
 /**
  * The scene's volumetric atmosphere: one per scene (a singleton). A frustum grid accumulates extinction
- * and in-scattered light up to `viewDistance`; surfaces beyond it read the last slice. `density` is the
+ * and in-scattered light up to `viewDistance`; beyond it, analytic height fog continues with unshadowed
+ * ambient and directional in-scatter. `density` is the
  * base haze thickness; `heightFalloff` makes it an exponential height fog (denser low, thinning with
  * altitude above `heightBase`). Extinction is
  * density × (absorption + scattering); the scattered fraction is scattering / (absorption + scattering).
@@ -70,7 +71,7 @@ export const Fog = component(
         heightBase: f32,
         /** exponential density falloff per world unit above `heightBase` (0 = uniform haze, no height fog) */
         heightFalloff: f32,
-        /** Far view-space depth of the volumetric grid, in world units. Surfaces beyond it read its last slice. */
+        /** Far view-space depth of the shadowed volumetric grid, in world units; unshadowed height fog continues beyond it. */
         viewDistance: f32,
         /** Nonphysical multiplier on direct and ambient in-scattered light; 1 leaves the light unadjusted.
          * Defaults to 1/π as a tuned look value. */
@@ -316,6 +317,7 @@ const FogSystem: System = {
             const pass = beginComputePass(world.frameEncoder()!, cam.pass);
             setComputePipeline(pass, world.gpu.root.unwrap(pipeline));
             setComputeBindGroup(pass, 0, cam.bindGroup);
+            setComputeBindGroup(pass, 1, lights);
             dispatchWorkgroups2(
                 pass,
                 Math.ceil(view.width / WORKGROUP),

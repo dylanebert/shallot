@@ -1,7 +1,9 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import { MeshInstance } from "../../core/mesh";
 import {
+    AmbientLight,
     attachTexture,
     Camera,
     CameraMode,
@@ -11,7 +13,12 @@ import {
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { DEFAULT_PLUGINS } from "../../standard";
-import { StandardRenderer } from "../../standard/rendering";
+import {
+    Materials,
+    MeshMaterial,
+    StandardMaterial,
+    StandardRenderer,
+} from "../../standard/rendering";
 import { Fog, FogPlugin } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -25,7 +32,7 @@ function encode(linear: number): number {
     );
 }
 
-test("uniform extinction matches Beer-Lambert at the surface and clamps beyond the grid range", async () => {
+test("uniform extinction matches Beer-Lambert inside and beyond the grid range", async () => {
     const { world } = subjects()[0]!;
     const camera = world.create();
     world.add(camera, Transform);
@@ -47,13 +54,77 @@ test("uniform extinction matches Beer-Lambert at the surface and clamps beyond t
         return (await captureTexture(world, camera)).rgba[4 * (8 * 16 + 8)]!;
     };
     const atRange = await pixel();
-    expect(Math.abs(atRange - encode(1 - Math.exp(-0.02 * (8 - 0.1))))).toBeLessThanOrEqual(1);
+    expect(Math.abs(atRange - encode(1 - Math.exp(-0.02 * (20 - 0.1))))).toBeLessThanOrEqual(1);
     world.storage(Camera).far.set(camera, 40);
-    expect(await pixel()).toBe(atRange);
+    const beyond = await pixel();
+    expect(Math.abs(beyond - encode(1 - Math.exp(-0.02 * (40 - 0.1))))).toBeLessThanOrEqual(1);
     world.storage(Fog).viewDistance.set(fog, 64);
     const atSurface = await pixel();
     expect(Math.abs(atSurface - encode(1 - Math.exp(-0.02 * (40 - 0.1))))).toBeLessThanOrEqual(1);
-    expect(atSurface).toBeGreaterThan(atRange + 50);
+    expect(atSurface).toBe(beyond);
+    expect(atSurface).toBeGreaterThan(atRange + 30);
     world.storage(Fog).density.set(fog, 0);
     expect(await pixel()).toBe(0);
+    world.destroy(camera);
+    world.destroy(fog);
+});
+
+test("height fog crosses viewDistance on a long ground plane without a luminance or in-scatter seam", async () => {
+    const { world } = subjects()[0]!;
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 2, 0, 0] });
+    world.add(camera, Camera, { near: 0.1, far: 150, fov: 60, clearColor: 0 });
+    world.add(camera, AmbientLight, { color: 0x0000ff, brightness: 160 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+    attachTexture(world, camera, { width: 128, height: 128 });
+    const ground = world.create();
+    world.add(ground, Transform, { translation: [0, -0.5, -75, 0], scale: [300, 1, 300, 0] });
+    world.add(ground, MeshInstance);
+    world.add(
+        ground,
+        MeshMaterial,
+        world.resource(Materials).add(StandardMaterial({ baseColor: [0, 0, 0, 1] })),
+    );
+    const fog = world.create();
+    world.add(fog, Fog, {
+        color: 0xff0000,
+        density: 0.06,
+        heightFalloff: 0.3,
+        absorption: 0.4,
+        scattering: 0.6,
+        lightIntensity: 20,
+        viewDistance: 128,
+    });
+    const frame = async () => {
+        world.step(0);
+        world.step(0);
+        return (await captureTexture(world, camera)).rgba;
+    };
+    // A fully numerical column is the independent reference for the analytic continuation.
+    // Red isolates transmittance; blue isolates nonzero ambient in-scatter.
+    const numerical = await frame();
+    world.storage(Fog).viewDistance.set(fog, 8);
+    const continued = await frame();
+    for (let y = 72; y < 118; y++) {
+        const at = (y * 128 + 64) * 4;
+        for (const channel of [0, 2]) {
+            expect(numerical[at + channel]!).toBeGreaterThan(30);
+            expect(
+                Math.abs(continued[at + channel]! - numerical[at + channel]!),
+            ).toBeLessThanOrEqual(2);
+        }
+        if (y > 72) {
+            const luminance = (pixels: Uint8ClampedArray, row: number) => {
+                const i = (row * 128 + 64) * 4;
+                return 0.2126 * pixels[i]! + 0.0722 * pixels[i + 2]!;
+            };
+            const slope = (pixels: Uint8ClampedArray) =>
+                luminance(pixels, y) - luminance(pixels, y - 1);
+            expect(Math.abs(slope(continued) - slope(numerical))).toBeLessThan(0.5);
+        }
+    }
+    world.destroy(camera);
+    world.destroy(ground);
+    world.destroy(fog);
 });
