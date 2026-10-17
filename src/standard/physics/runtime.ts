@@ -8,7 +8,14 @@ import {
     resetInterpolation,
     Transform,
 } from "../../core/transform";
-import { type EntityRef, type Plugin, type System, Time, type World } from "../../engine";
+import {
+    type EntityRef,
+    type Plugin,
+    type System,
+    sampleDiagnosticTime,
+    Time,
+    type World,
+} from "../../engine";
 import { clamp } from "../../engine/utils";
 import type { AABB, Pos, Quat, Vec3, WorldState, WorldTransform } from "./api";
 import { init, type PhysicsSnapshot, shutdown } from "./api";
@@ -1558,9 +1565,14 @@ export const StepPhysicsSystem: System = {
         if (record) {
             readStepProfile(physicsWorld);
             const profile = physicsWorld.profile;
+            const measurement = world.resource(phaseMeasurement);
+            sampleDiagnosticTime(measurement);
             for (let i = 0; i < phaseFields.length; i++) {
                 const ms = profile[phaseFields[i]];
-                if (ms !== 0) record(phaseNames[i], ms);
+                if (ms !== 0) {
+                    measurement[1] = ms;
+                    record(phaseNames[i], measurement);
+                }
             }
         }
         runtime.counters.bytesUploaded = 0;
@@ -1961,6 +1973,7 @@ export const StandardPhysicsPlugin: Plugin = {
     },
 };
 
+const phaseMeasurement = { create: () => new Float64Array(2) };
 const phaseFields = PROFILE_FIELDS.filter((field) => field !== "step");
 const phaseNames = phaseFields.map(
     (field) => `${StandardPhysicsPlugin.name}/${StepPhysicsSystem.name}/${field}`,

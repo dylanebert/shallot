@@ -1,3 +1,4 @@
+import { sampleDiagnosticTime } from "../diagnostics";
 import type { World } from "./world";
 
 function invalidDelta(): never {
@@ -90,8 +91,9 @@ export class Scheduler {
     };
     private readonly _names = new Map<System, string>();
     private readonly _nameCounters = new Map<string, number>();
-    /** optional CPU timing sink — installed by the profile plugin */
-    record?: (name: string, ms: number) => void;
+    private readonly _measurement = new Float64Array(2);
+    /** Borrowed [monotonic seconds, CPU milliseconds], reused after the callback. */
+    record?: (name: string, measurement: Readonly<Float64Array>) => void;
     /** optional fence-wait telemetry sink — installed by the profile plugin */
     fenceWait?: (ms: number) => void;
 
@@ -248,9 +250,12 @@ export class Scheduler {
                 }
                 if (system.update) {
                     if (record) {
-                        const t0 = performance.now();
+                        sampleDiagnosticTime(this._measurement);
+                        const t0 = this._measurement[0];
                         system.update(world);
-                        record(this._names.get(system) ?? "?", performance.now() - t0);
+                        sampleDiagnosticTime(this._measurement);
+                        this._measurement[1] = (this._measurement[0] - t0) * 1000;
+                        record(this._names.get(system) ?? "?", this._measurement);
                     } else {
                         system.update(world);
                     }

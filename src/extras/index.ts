@@ -22,7 +22,7 @@ export {
     OutlinePlugin,
 } from "./outline";
 export {
-    Profile,
+    DiagnosticsOverlayPlugin,
     ProfilePlugin,
     showProfiler,
 } from "./profile";

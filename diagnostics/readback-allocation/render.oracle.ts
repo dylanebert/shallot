@@ -238,7 +238,7 @@ test("the sampler admits a wrapper only at its declaration position", () => {
     expect(attributeAt()?.boundary).toBeUndefined();
 });
 
-test("steady rendering allocates no JavaScript heap beyond source-checked GPU and fence wrappers", async () => {
+test.each(["render", "profile"])("steady %s allocates no JavaScript heap beyond source-checked GPU and fence wrappers", async (composition) => {
     // The first frame after each profiler-session idle gap is collected but unprofiled.
     // Session setup and post-idle work land together on it, so timing cannot separate them;
     // one bounded allocation per gap is not the per-frame allocation that drives GC hitches.
@@ -247,6 +247,7 @@ test("steady rendering allocates no JavaScript heap beyond source-checked GPU an
         // The composed gizmo and shadow paths finish optimizing after 12,000 frames.
         warm: 24_000,
         frames: 600,
+        input: composition,
     });
     if (windowBytes({ sites: sample.control }) === 0) throw new Error("allocation control was invisible");
     for (const window of sample.windows) {
@@ -266,7 +267,7 @@ test("steady rendering allocates no JavaScript heap beyond source-checked GPU an
             sites: window.sites.filter((row) => !isAdmittedAllocationSite(row)),
         })),
     });
-    console.info("render allocation", {
+    console.info(`${composition} allocation`, {
         controlBytes: windowBytes({ sites: sample.control }),
         windows: sample.windows.map((window) => ({
             label: window.label,

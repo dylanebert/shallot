@@ -21,7 +21,7 @@ import {
     VolumetricLight,
     type World,
 } from "@dylanebert/shallot";
-import { Fog, FogPlugin, ProfilePlugin } from "@dylanebert/shallot/extras";
+import { DiagnosticsOverlayPlugin, Fog, FogPlugin } from "@dylanebert/shallot/extras";
 import { LocalPlayer, Player, PlayerPlugin } from "./player";
 
 export const Room: Resource<{ camera: number; player: number }> = {
@@ -45,7 +45,7 @@ function block(
 }
 export const RoomPlugin: Plugin = {
     name: "Room",
-    dependencies: [StandardPhysicsPlugin, PlayerPlugin, FogPlugin, ProfilePlugin],
+    dependencies: [StandardPhysicsPlugin, PlayerPlugin, FogPlugin, DiagnosticsOverlayPlugin],
     initialize(world) {
         const ambient = world.resource(GlobalAmbientLight);
         ambient.color = 0xd8e4ff;

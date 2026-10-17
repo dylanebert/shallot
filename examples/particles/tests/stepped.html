@@ -2,7 +2,8 @@
 <script type="module">
 import { createApp, Camera, GlobalTransform, pressKey, releaseKey, setInputEnabled } from '@dylanebert/shallot';
 import { attachTexture, detachView, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
-import { Profile, showProfiler } from '@dylanebert/shallot/extras';
+import { DiagnosticsStore } from '@dylanebert/shallot';
+import { showProfiler } from '@dylanebert/shallot/extras';
 import { Motes, MotesPlugin } from '../src/motes';
 import { Room } from '../src/room';
 const requests=[];
@@ -75,11 +76,12 @@ window.particles={
  },
  async profile() {
   world.step(0);
-  const stats=world.resource(Profile);
-  if(stats.gpuTiming==='available') while(!stats.gpuTime.has('particles:advance')) {
+  const stats=world.resource(DiagnosticsStore);
+  const gpuTiming=world.gpu.device.features.has('timestamp-query')?'available':'requires timestamp-query';
+  if(gpuTiming==='available') while(!stats.get('render/particles:advance/elapsed_gpu')) {
    world.step(0);await world.gpu.sync();await new Promise(resolve=>setTimeout(resolve,0));
   }
-  return {gpuTiming:stats.gpuTiming,passes:[...stats.gpuTime.keys()]};
+  return {gpuTiming,passes:[...stats.iter()].filter(d=>d.path.path.endsWith('/elapsed_gpu')).map(d=>d.path.path.slice(7,-12))};
  },
  profiler() {showProfiler(world);world.step(0);},
  async capture() {

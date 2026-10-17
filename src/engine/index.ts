@@ -17,6 +17,13 @@ export {
     warmPlugins,
 } from "./app";
 export {
+    Diagnostic,
+    type DiagnosticMeasurement,
+    DiagnosticPath,
+    DiagnosticsStore,
+    sampleDiagnosticTime,
+} from "./diagnostics";
+export {
     and,
     type Component,
     component,

@@ -97,6 +97,14 @@ for (const timestamps of ["adapter", "withheld"] as const) {
             "data-gpu-timing",
             /available|requires timestamp-query/,
         );
+        await expect(profiler).toHaveCSS("font-size", "10px");
+        await expect(profiler).toHaveCSS("min-width", "220px");
+        expect(
+            await profiler.evaluate(
+                (element) =>
+                    element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth,
+            ),
+        ).toBeCloseTo(1, 2);
         if (timestamps === "withheld") {
             await expect(profiler).toHaveAttribute("data-gpu-timing", "requires timestamp-query");
         }

@@ -1,5 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
+import { DiagnosticsStore } from "@dylanebert/shallot";
+import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -36,7 +37,12 @@ test("composed physics records phases as parts of its scheduler timing", async (
     } finally {
         now.mockRestore();
     }
-    const cpu = world.resource(Profile).cpu;
+    const cpu = new Map<string, number>();
+    for (const diagnostic of world.resource(DiagnosticsStore).iter()) {
+        const path = diagnostic.path.path;
+        if (path.startsWith("render/") && path.endsWith("/elapsed_cpu"))
+            cpu.set(decodeURIComponent(path.slice(7, -12)), diagnostic.value()!);
+    }
     expect(cpu.get("StandardPhysics/step/collide")).toBeGreaterThan(0);
     expect(cpu.get("StandardPhysics/step/solve")).toBeGreaterThan(0);
     let outer = 0;

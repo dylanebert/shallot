@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { createApp, probeBuffer, setTransform } from "@dylanebert/shallot";
-import { Profile } from "@dylanebert/shallot/extras";
+import { type createApp, DiagnosticsStore, probeBuffer, setTransform } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "../tests/gpu-app";
@@ -42,10 +41,10 @@ afterAll(async () => {
 });
 test("the example compiles its compute and draw pipelines and counts its storage and uniform bytes", () => {
     app.world.step(0);
-    const profile = app.world.resource(Profile);
-    expect(profile.bufferBytes).toBeGreaterThanOrEqual(MOTE_COUNT * 16 + 32);
-    expect(profile.compile.has("particles:compute")).toBe(true);
-    expect(profile.compile.has("particles:draw")).toBe(true);
+    const profile = app.world.resource(DiagnosticsStore);
+    expect(profile.get("memory/bufferBytes")?.value()).toBeGreaterThanOrEqual(MOTE_COUNT * 16 + 32);
+    expect(!!profile.get("compile/particles:compute/elapsed")).toBe(true);
+    expect(!!profile.get("compile/particles:draw/elapsed")).toBe(true);
 });
 test("motes near a moving player's fixed path end farther from the path than with the player still", async () => {
     const world = app.world;
@@ -97,38 +96,36 @@ test("motes near a moving player's fixed path end farther from the path than wit
 });
 test("the profiler lists the motes compute pass when the adapter grants timestamp-query", async () => {
     const { world } = app;
-    const stats = world.resource(Profile);
+    const stats = world.resource(DiagnosticsStore);
     if (!world.gpu.device.features.has("timestamp-query")) {
-        expect(stats.gpuTiming).toBe("requires timestamp-query");
+        expect(stats.get("render/particles:advance/elapsed_gpu")).toBeUndefined();
         return;
     }
-    expect(stats.gpuTiming).toBe("available");
-    while (!stats.gpuTime.has("particles:advance")) {
+    while (!stats.get("render/particles:advance/elapsed_gpu")) {
         world.step(0);
         await world.gpu.sync();
         await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    expect(stats.gpuFires.get("particles:advance")).toBeGreaterThan(0);
-    expect(Number.isFinite(stats.gpuTime.get("particles:advance"))).toBe(true);
+    expect(stats.get("render/particles:advance/elapsed_gpu")!.historyLength).toBeGreaterThan(0);
+    expect(Number.isFinite(stats.get("render/particles:advance/elapsed_gpu")!.value())).toBe(true);
 });
 test("without timestamp-query the example draws and reports requires timestamp-query rather than zero GPU timings", async () => {
     const { world } = untimed;
     world.step(1 / 60);
     await world.gpu.sync();
     world.step(0);
-    const stats = world.resource(Profile);
+    const stats = world.resource(DiagnosticsStore);
     expect(world.gpu.device.features.has("timestamp-query")).toBe(false);
-    expect(stats.gpuTiming).toBe("requires timestamp-query");
-    expect(stats.gpu.has("particles:advance")).toBe(false);
-    expect(stats.compile.has("particles:compute")).toBe(true);
-    expect(stats.compile.has("particles:draw")).toBe(true);
+    expect(stats.get("render/particles:advance/elapsed_gpu")).toBeUndefined();
+    expect(stats.get("compile/particles:compute/elapsed")).toBeDefined();
+    expect(stats.get("compile/particles:draw/elapsed")).toBeDefined();
 });
 test("the profiler buffer total includes exactly the motes storage and frame uniform allocations", () => {
     const { world } = app;
-    const stats = world.resource(Profile);
-    const before = stats.bufferBytes;
+    const stats = world.resource(DiagnosticsStore);
+    const before = stats.get("memory/bufferBytes")!.value()!;
     const motes = world.resource(Motes);
     motes.positions!.destroy();
     motes.frame!.destroy();
-    expect(before - stats.bufferBytes).toBe(MOTE_COUNT * 16 + 32);
+    expect(before - stats.get("memory/bufferBytes")!.value()!).toBe(MOTE_COUNT * 16 + 32);
 });

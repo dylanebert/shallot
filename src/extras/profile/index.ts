@@ -1,49 +1,29 @@
 import type { Plugin, System, World } from "../../engine";
-import { mountOverlay } from "../../engine";
+import { Diagnostic, DiagnosticsStore, mountOverlay, sampleDiagnosticTime } from "../../engine";
 import { cpuTotal } from "./cpu";
 import { reorderRows } from "./reorder";
 
 const INDIRECT_FLOOR_US = 1;
 
-/**
- * live read-only view of the profiler: per-frame CPU and GPU pass timings, memory, and one-shot compile timings. Populated by {@link ProfilePlugin}; empty without it.
- * @expand
- */
-export interface Profile {
-    /** Whether this device grants the optional GPU timing capability. */
-    readonly gpuTiming: "available" | "requires timestamp-query";
-    /** Per-system CPU timings for the current frame, in milliseconds. A recorded name extending
-     * another recorded name past a `/` is part of that timing; totals count only outermost timings.
-     */
-    readonly cpu: ReadonlyMap<string, number>;
-    /** Per-pass GPU milliseconds summed within a drained frame, held across absent frames for display
-     * until eviction. {@link gpuTime} accumulates durations; {@link gpuFires} counts frames containing a pass. */
-    readonly gpu: ReadonlyMap<string, number>;
-    /** cumulative GPU time per pass since attach, in milliseconds, summed over every occurrence. */
-    readonly gpuTime: ReadonlyMap<string, number>;
-    /** Number of drained frames containing each pass since attach; repeated occurrences in a frame count once. */
-    readonly gpuFires: ReadonlyMap<string, number>;
-    /** Per-pipeline compile durations from app startup, in milliseconds, keyed by descriptor label.
-     *  A repeated named label overwrites. TypeGPU's synchronous constructors return before the driver
-     *  finishes compiling, so their duration is near-zero; a `precompile` scope can measure the later
-     *  completion under the pipeline's own label. */
-    readonly compile: ReadonlyMap<string, number>;
-    /** wall-clock span from the first pipeline build start to the last build end */
-    readonly compileMs: number;
-    /** ms spent awaiting the prior frame's GPU fence before this frame began */
-    readonly fenceWaitMs: number;
-    /** live GPU buffer bytes, summed over every buffer allocated through this World's device from acquisition and decremented on
-     *  `destroy()`. */
-    readonly bufferBytes: number;
-    /** live GPU texture bytes, summed over every texture allocated through this World's device from acquisition and decremented on
-     *  `destroy()`. */
-    readonly textureBytes: number;
+// Bevy joins span names as path components. WebGPU labels need not be valid components:
+// escape separators and percent signs, reserving a lone percent sign for the empty label.
+function encodeLabel(label: string): string {
+    return label.replaceAll("%", "%25").replaceAll("/", "%2F") || "%";
+}
+
+function decodeLabel(label: string): string {
+    if (label === "%") return "(unlabeled)";
+    return label.replace(/%25|%2F/g, (code) => (code === "%25" ? "%" : "/"));
+}
+
+interface LabelPaths {
+    cpu: string;
+    gpu: string;
+    indirect: string;
+    compile: string;
 }
 
 interface ResourceAlloc {
-    label: string;
-    bytes: number;
-    kind: "buffer" | "texture";
     destroy: () => void;
 }
 
@@ -55,43 +35,28 @@ interface ReadSlot {
     count: number;
 }
 
-// Hold absent passes' last durations to smooth uneven fixed-step scheduling.
-// Eviction counts drained frames, not display frames; cumulative totals are unaffected.
-const GPU_HOLD_DRAINS = 8;
-
 // Bound the number of timestamp requests in flight. Metadata returns after the result is drained;
 // the world's pool owns mapping and staging reuse. Saturation skips a profiling sample, not gameplay.
 const READ_RING = 4;
 
 // GPU timings are optional; CPU timings and resource tracking work without them.
 const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
-/** The profiler value owned by this World, populated by ProfilePlugin. */
-export const Profile: import("../../engine").Resource<Profile> = {
-    create: () => new ProfileImpl(),
+const recorder = {
+    create: () => new DiagnosticsRecorder(),
 };
 
-class ProfileImpl implements Profile {
-    gpuTiming: Profile["gpuTiming"] = "requires timestamp-query";
-    readonly cpu = new Map<string, number>();
-    readonly gpu = new Map<string, number>();
-    readonly gpuTime = new Map<string, number>();
-    readonly gpuFires = new Map<string, number>();
+class DiagnosticsRecorder {
+    store!: DiagnosticsStore;
+    gpuTiming: "available" | "requires timestamp-query" = "requires timestamp-query";
     // Per-frame CPU-counted indirect draws for the overlay's validation-floor estimate.
     readonly indirect = new Map<string, number>();
-    readonly compile = new Map<string, number>();
-    compileMs = 0;
-    fenceWaitMs = 0;
-    // The gpu map persists between drains; this prevents the overlay from counting a sample again.
-    drainCount = 0;
-
     readonly sizes = new Map<object, ResourceAlloc>();
-    bufferBytes = 0;
-    textureBytes = 0;
+    readonly measurement = new Float64Array(2);
 
+    private readonly _paths = new Map<string, LabelPaths>();
+    private _allocationId = 0;
     private _compileEarliest = Infinity;
     private _compileLatest = -Infinity;
-    // Unlabelled compile records need unique map keys.
-    private _unlabeledCompileCount = 0;
 
     private _querySet: GPUQuerySet | null = null;
     private _resolveBuffer: GPUBuffer | null = null;
@@ -99,8 +64,6 @@ class ProfileImpl implements Profile {
     private _nextSlot = 0;
     private readonly _passes: string[] = [];
     private readonly _slotCache: GPUComputePassTimestampWrites[] = [];
-    // drains since each pass last fired, for the greedy hold + eviction (see GPU_HOLD_DRAINS)
-    private readonly _gpuMiss = new Map<string, number>();
     private _readbackError: unknown;
     private _readbackFailed = false;
     // reused scratch: one drained frame's per-pass summed time (cleared per slot, no per-frame alloc)
@@ -112,11 +75,32 @@ class ProfileImpl implements Profile {
     private readonly _restorePatches: (() => void)[] = [];
     private _disposed = false;
 
+    private paths(label: string): LabelPaths {
+        return this._paths.get(label) ?? this.createPaths(label);
+    }
+
+    private createPaths(label: string): LabelPaths {
+        const component = encodeLabel(label);
+        const paths = {
+            cpu: `render/${component}/elapsed_cpu`,
+            gpu: `render/${component}/elapsed_gpu`,
+            indirect: `render/${component}/indirect`,
+            compile: `compile/${component}/elapsed`,
+        };
+        this._paths.set(label, paths);
+        return paths;
+    }
+
     attach(device: GPUDevice, capacity = 2048): void {
         if (this._querySet) return;
         this.gpuTiming = device.features.has("timestamp-query")
             ? "available"
             : "requires timestamp-query";
+        this.store.record("render/timestamp_query", this.gpuTiming === "available" ? 1 : 0);
+        for (const path of ["fps", "frame_time", "fixed_steps", "pending", "throttled"]) {
+            if (!this.store.get(path))
+                this.store.add(new Diagnostic(path, { suffix: path === "frame_time" ? "ms" : "" }));
+        }
         const origCompute = device.createComputePipelineAsync.bind(device);
         device.createComputePipelineAsync = async (desc: GPUComputePipelineDescriptor) => {
             const start = performance.now();
@@ -203,13 +187,27 @@ class ProfileImpl implements Profile {
     ): T {
         const totals = kind === "buffer" ? "bufferBytes" : "textureBytes";
         const origDestroy = obj.destroy.bind(obj);
-        const allocation: ResourceAlloc = { label, bytes, kind, destroy: origDestroy };
-        this[totals] += bytes;
+        const path = `memory/allocations/${kind}/${encodeLabel(label)}#${this._allocationId++}`;
+        const allocation: ResourceAlloc = { destroy: origDestroy };
+        this.store.record(path, bytes, undefined, "B");
+        const totalPath = `memory/${totals}`;
+        this.store.record(
+            totalPath,
+            (this.store.get(totalPath)?.value() ?? 0) + bytes,
+            undefined,
+            "B",
+        );
         this.sizes.set(obj, allocation);
         (obj as { destroy: () => void }).destroy = () => {
             if (this.sizes.get(obj) !== allocation) return;
-            this[totals] -= bytes;
+            this.store.record(
+                totalPath,
+                this.store.get(totalPath)!.value()! - bytes,
+                undefined,
+                "B",
+            );
             this.sizes.delete(obj);
+            this.store.remove(path);
             origDestroy();
         };
         return obj;
@@ -231,30 +229,38 @@ class ProfileImpl implements Profile {
             (resource as { destroy: () => void }).destroy = allocation.destroy;
         }
         this.sizes.clear();
-        this.cpu.clear();
-        this.gpu.clear();
-        this.gpuTime.clear();
-        this.gpuFires.clear();
+        for (const diagnostic of this.store.iter()) {
+            if (diagnostic.path.path.startsWith("memory/allocations/"))
+                this.store.remove(diagnostic.path);
+        }
         this.indirect.clear();
-        this.compile.clear();
+        this._paths.clear();
         this._slotCache.length = 0;
         this._passes.length = 0;
         this._capacity = 0;
-        this.bufferBytes = 0;
-        this.textureBytes = 0;
+        this.store.record("memory/bufferBytes", 0, undefined, "B");
+        this.store.record("memory/textureBytes", 0, undefined, "B");
     }
 
-    record(name: string, ms: number): void {
-        this.cpu.set(name, (this.cpu.get(name) ?? 0) + ms);
+    record(name: string, measurement: Readonly<Float64Array>): void {
+        const path = this.paths(name).cpu;
+        const diagnostic = this.store.get(path) ?? this.registerCpu(path);
+        diagnostic.addMeasurementBuffer(measurement);
+    }
+
+    private registerCpu(path: string): Diagnostic {
+        const diagnostic = new Diagnostic(path, { suffix: "ms" });
+        this.store.add(diagnostic);
+        return diagnostic;
     }
 
     recordIndirect(name: string, count: number): void {
         this.indirect.set(name, (this.indirect.get(name) ?? 0) + count);
+        this.store.record(this.paths(name).indirect, this.indirect.get(name)!);
     }
 
     reset(): void {
-        this.indirect.clear();
-        this.cpu.clear();
+        if (this.indirect.size) this.indirect.clear();
         this._nextSlot = 0;
     }
 
@@ -326,43 +332,24 @@ class ProfileImpl implements Profile {
                 );
             }
             this._free.push(slot);
-            // Count each pass once per drained frame, independently of the display hold.
+            const time = performance.now() / 1000;
             for (const [name, ms] of fired) {
-                this.gpuTime.set(name, (this.gpuTime.get(name) ?? 0) + ms);
-                this.gpuFires.set(name, (this.gpuFires.get(name) ?? 0) + 1);
+                this.store.record(this.paths(name).gpu, ms, time, "ms");
             }
-            for (const [name, ms] of fired) {
-                this.gpu.set(name, ms);
-                this._gpuMiss.set(name, 0);
-            }
-            for (const name of this.gpu.keys()) {
-                if (fired.has(name)) continue;
-                const miss = (this._gpuMiss.get(name) ?? 0) + 1;
-                if (miss > GPU_HOLD_DRAINS) {
-                    this.gpu.delete(name);
-                    this._gpuMiss.delete(name);
-                } else {
-                    this._gpuMiss.set(name, miss);
-                }
-            }
-            this.drainCount++;
         }
     }
 
     /** @internal — also the `world.gpu.precompiled` sink for typed pipelines. */
     recordCompile(label: string, start: number, end: number): void {
-        // Repeated named labels share an entry; unlabelled compile records get distinct keys.
-        let key: string;
-        if (label) {
-            key = label;
-        } else {
-            const seen = ++this._unlabeledCompileCount;
-            key = seen === 1 ? "(unlabeled)" : `(unlabeled)#${seen}`;
-        }
-        this.compile.set(key, end - start);
+        this.store.record(this.paths(label).compile, end - start, end / 1000, "ms");
         if (start < this._compileEarliest) this._compileEarliest = start;
         if (end > this._compileLatest) this._compileLatest = end;
-        this.compileMs = this._compileLatest - this._compileEarliest;
+        this.store.record(
+            "compile/elapsed",
+            this._compileLatest - this._compileEarliest,
+            end / 1000,
+            "ms",
+        );
     }
 }
 
@@ -424,7 +411,7 @@ interface OverlayData {
 }
 
 interface Overlay {
-    update(world: World, profile: ProfileImpl): void;
+    update(world: World, store: DiagnosticsStore): void;
     destroy(): void;
 }
 
@@ -485,14 +472,7 @@ interface RowPool {
     container: HTMLElement;
     rows: { label: HTMLElement; value: HTMLElement; row: HTMLElement }[];
     order: string[];
-    // per-name sum of values seen in the current refresh window.
-    accum: Map<string, number>;
-    // number of frames sampled into accum since last flush.
-    frames: number;
-    // EMA of window means, so sparse timings retain their time-average.
-    smoothed: Map<string, number>;
-    // refresh windows since each name last fired, used to evict dead entries.
-    misses: Map<string, number>;
+    values: Map<string, number>;
 }
 
 function createRowPool(parent: HTMLElement, initial: number): RowPool {
@@ -508,27 +488,13 @@ function createRowPool(parent: HTMLElement, initial: number): RowPool {
         container,
         rows,
         order: [],
-        accum: new Map(),
-        frames: 0,
-        smoothed: new Map(),
-        misses: new Map(),
+        values: new Map(),
     };
 }
 
-// Smooth refresh-window means so sparse signals do not flicker.
-const WINDOW_ALPHA = 0.4;
-// max consecutive refresh windows with no fire before the row is dropped.
-const MAX_MISS_WINDOWS = 12;
-// rounds to "0.00 ms" at this magnitude — safe to evict without visible flicker.
-const EVICT_BELOW = 0.001;
-const HERO_ALPHA = 0.15;
-
-// Consume live maps without copying on the frame path.
 function tickPool(pool: RowPool, entries: Iterable<[string, number]>): void {
-    for (const [name, raw] of entries) {
-        pool.accum.set(name, (pool.accum.get(name) ?? 0) + raw);
-    }
-    pool.frames++;
+    pool.values.clear();
+    for (const [name, value] of entries) pool.values.set(name, value);
 }
 
 function flushPool(
@@ -536,35 +502,9 @@ function flushPool(
     fmt: (v: number) => string,
     cpu = false,
 ): { rows: [string, string][]; total: number } {
-    const frames = pool.frames || 1;
-    const seen = new Set<string>();
-    for (const [name, sum] of pool.accum) {
-        const mean = sum / frames;
-        seen.add(name);
-        const prev = pool.smoothed.get(name) ?? 0;
-        pool.smoothed.set(name, prev + WINDOW_ALPHA * (mean - prev));
-        pool.misses.set(name, 0);
-    }
-    for (const [name, value] of pool.smoothed) {
-        if (seen.has(name)) continue;
-        const next = value * (1 - WINDOW_ALPHA);
-        const misses = (pool.misses.get(name) ?? 0) + 1;
-        if (next < EVICT_BELOW || misses > MAX_MISS_WINDOWS) {
-            pool.smoothed.delete(name);
-            pool.misses.delete(name);
-            const idx = pool.order.indexOf(name);
-            if (idx !== -1) pool.order.splice(idx, 1);
-        } else {
-            pool.smoothed.set(name, next);
-            pool.misses.set(name, misses);
-        }
-    }
-    pool.accum.clear();
-    pool.frames = 0;
-
-    let total = cpu ? cpuTotal(pool.smoothed) : 0;
+    let total = cpu ? cpuTotal(pool.values) : 0;
     const live: [string, string, number][] = [];
-    for (const [name, value] of pool.smoothed) {
+    for (const [name, value] of pool.values) {
         if (!cpu) total += value;
         live.push([name, fmt(value), value]);
     }
@@ -801,44 +741,26 @@ function createOverlay(opts?: OverlayOptions): Overlay {
 
     parent.append(root);
 
-    let emaFps = -1;
-    let emaFt = -1;
-    let emaFence = -1;
-    let fenceSum = 0;
-    let fenceCount = 0;
-    let lastDrainCount = -1;
     let lastRender = -Infinity;
 
     return {
-        update(world: World, profile: ProfileImpl) {
-            // Defer layout reads and allocating snapshots to the throttled render.
-            tickPool(cpuPool, profile.cpu);
-            // CPU-counted indirect draws are current-frame data, independent of GPU readback.
-            tickPool(indirectPool, profile.indirect);
-            if (profile.drainCount !== lastDrainCount) {
-                lastDrainCount = profile.drainCount;
-                tickPool(gpuPool, profile.gpu);
-            }
-            // Average fence wait across the window to avoid aliasing a single throttled sample.
-            fenceSum += profile.fenceWaitMs;
-            fenceCount++;
-
+        update(_world: World, store: DiagnosticsStore) {
             const now = performance.now();
             if (now - lastRender < 250) return;
             lastRender = now;
-
-            const data = collectStats(world, profile);
-            emaFps = emaFps < 0 ? data.fps : emaFps + HERO_ALPHA * (data.fps - emaFps);
-            emaFt = emaFt < 0 ? data.frameTime : emaFt + HERO_ALPHA * (data.frameTime - emaFt);
-            fpsEl.textContent = pad(emaFps > 0 ? emaFps.toFixed(0) : "--", 3) + " fps";
-            ftEl.textContent = (emaFt > 0 ? emaFt.toFixed(1) : "--") + " ms";
+            tickPool(cpuPool, diagnosticEntries(store, "render/", "/elapsed_cpu"));
+            tickPool(gpuPool, diagnosticEntries(store, "render/", "/elapsed_gpu"));
+            tickPool(indirectPool, diagnosticEntries(store, "render/", "/indirect"));
+            const gpuTiming =
+                store.get("render/timestamp_query")?.value() === 1
+                    ? "available"
+                    : "requires timestamp-query";
+            const data = collectStats(store);
+            fpsEl.textContent = pad(data.fps > 0 ? data.fps.toFixed(0) : "--", 3) + " fps";
+            ftEl.textContent = (data.frameTime > 0 ? data.frameTime.toFixed(1) : "--") + " ms";
             warnEl.textContent = data.throttled ? "throttled" : "";
 
-            const winFence = fenceSum / fenceCount;
-            fenceSum = 0;
-            fenceCount = 0;
-            emaFence = emaFence < 0 ? winFence : emaFence + HERO_ALPHA * (winFence - emaFence);
-            fenceRow.value.textContent = emaFence.toFixed(2) + " ms";
+            fenceRow.value.textContent = data.fenceWaitMs.toFixed(2) + " ms";
             gapRow.value.textContent = data.gapMs.toFixed(2) + " ms";
             fixedRow.value.textContent = String(data.fixedSteps);
             pendingRow.value.textContent = String(data.pending);
@@ -854,11 +776,9 @@ function createOverlay(opts?: OverlayOptions): Overlay {
             }
 
             const gpuFlush = flushPool(gpuPool, msFmt);
-            root.dataset.gpuTiming = profile.gpuTiming;
+            root.dataset.gpuTiming = gpuTiming;
             gpu.totalEl.textContent =
-                profile.gpuTiming === "available"
-                    ? gpuFlush.total.toFixed(2) + " ms"
-                    : profile.gpuTiming;
+                gpuTiming === "available" ? gpuFlush.total.toFixed(2) + " ms" : gpuTiming;
             renderPool(gpuPool, gpuFlush.rows);
 
             const indirectFlush = flushPool(indirectPool, (v) =>
@@ -919,29 +839,57 @@ function collectViewport(): ViewportData | null {
     };
 }
 
-function collectStats(s: World, profile: ProfileImpl): OverlayData {
-    const t = s.time;
-    const rawDt = t.rawDeltaTime;
-    const fenceWaitMs = profile.fenceWaitMs;
-    const rawMs = rawDt * 1000;
+function* diagnosticEntries(
+    store: DiagnosticsStore,
+    prefix: string,
+    field: string,
+): IterableIterator<[string, number]> {
+    for (const diagnostic of store.iter()) {
+        const path = diagnostic.path.path;
+        if (path.startsWith(prefix) && path.endsWith(field)) {
+            const value = diagnostic.smoothed();
+            if (value !== undefined)
+                yield [decodeLabel(path.slice(prefix.length, -field.length)), value];
+        }
+    }
+}
 
-    const total = cpuTotal(profile.cpu);
-
+function collectStats(store: DiagnosticsStore): OverlayData {
+    const value = (path: string) => store.get(path)?.value() ?? 0;
+    const rawMs = store.get("frame_time")?.smoothed() ?? 0;
+    const fenceWaitMs = store.get("frame/fence_wait")?.smoothed() ?? 0;
+    const memDetails: OverlayData["memDetails"] = [];
+    for (const diagnostic of store.iter()) {
+        const path = diagnostic.path.path;
+        const bytes = diagnostic.value() ?? 0;
+        if (!path.startsWith("memory/allocations/") || bytes === 0) continue;
+        const parts = path.slice(19).split("/");
+        memDetails.push({
+            kind: parts[0],
+            label: decodeLabel(parts[1].replace(/#\d+$/, "")),
+            bytes,
+        });
+    }
     return {
-        fps: rawDt > 0 ? 1 / rawDt : 0,
+        fps: store.get("fps")?.smoothed() ?? 0,
         frameTime: rawMs,
         fenceWaitMs,
-        gapMs: Math.max(0, rawMs - total - fenceWaitMs),
-        fixedSteps: t.fixedSteps,
-        throttled: t.throttled,
-        pending: s.gpu.pending(),
-        memBuffers: profile.bufferBytes / MB,
-        memTextures: profile.textureBytes / MB,
-        memTotal: (profile.bufferBytes + profile.textureBytes) / MB,
-        memCount: profile.sizes.size,
-        memDetails: [...profile.sizes.values()].sort((a, b) => b.bytes - a.bytes),
-        compileEntries: [...profile.compile.entries()],
-        compileTotalMs: profile.compileMs,
+        gapMs: Math.max(
+            0,
+            rawMs -
+                cpuTotal(new Map(diagnosticEntries(store, "render/", "/elapsed_cpu"))) -
+                fenceWaitMs,
+        ),
+        fixedSteps: value("fixed_steps"),
+        throttled: value("throttled") !== 0,
+        pending: value("pending"),
+        memBuffers: value("memory/bufferBytes") / MB,
+        memTextures: value("memory/textureBytes") / MB,
+        memTotal: (value("memory/bufferBytes") + value("memory/textureBytes")) / MB,
+        memCount: memDetails.length,
+        memDetails: memDetails.sort((a, b) => b.bytes - a.bytes),
+        compileEntries: [...diagnosticEntries(store, "compile/", "/elapsed")],
+        compileTotalMs: value("compile/elapsed"),
         viewport: collectViewport(),
     };
 }
@@ -956,7 +904,7 @@ const profileUi = {
 /**
  * show or hide the profiler overlay — the same HUD F3 toggles, driven from code. Off by default; call
  * `showProfiler(world)` in a plugin `warm` to surface the numbers on open without a keypress. F3 still toggles
- * it alongside. No-op without {@link ProfilePlugin} (nothing populates the overlay).
+ * it alongside. Requires {@link DiagnosticsOverlayPlugin}.
  */
 export function showProfiler(world: World, show = true): void {
     const _profileUi = world.resource(profileUi);
@@ -974,10 +922,33 @@ const ProfileFrameBeginSystem: System = {
     group: "setup",
     first: true,
     update(world: World) {
-        const profiler = world.resource(Profile) as ProfileImpl;
+        const profiler = world.resource(recorder);
         profiler.drain();
         profiler.resolve(world);
         profiler.reset();
+    },
+};
+
+const ProfileFrameStatsSystem: System = {
+    group: "simulation",
+    first: true,
+    update(world) {
+        const t = world.time;
+        const store = world.resource(DiagnosticsStore);
+        const measurement = world.resource(recorder).measurement;
+        sampleDiagnosticTime(measurement);
+        if (t.rawDeltaTime > 0) {
+            measurement[1] = 1 / t.rawDeltaTime;
+            store.get("fps")!.addMeasurementBuffer(measurement);
+            measurement[1] = t.rawDeltaTime * 1000;
+            store.get("frame_time")!.addMeasurementBuffer(measurement);
+        }
+        measurement[1] = t.fixedSteps;
+        store.get("fixed_steps")!.addMeasurementBuffer(measurement);
+        measurement[1] = world.gpu.pending();
+        store.get("pending")!.addMeasurementBuffer(measurement);
+        measurement[1] = Number(t.throttled);
+        store.get("throttled")!.addMeasurementBuffer(measurement);
     },
 };
 
@@ -991,37 +962,52 @@ const ProfileRenderSystem: System = {
 
         if (typeof document === "undefined" || !_profileUi.visible) return;
         if (!_profileUi.overlay) _profileUi.overlay = createOverlay();
-        _profileUi.overlay.update(world, world.resource(Profile) as ProfileImpl);
+        _profileUi.overlay.update(world, world.resource(DiagnosticsStore));
     },
 };
 
 /**
- * performance profiler: an F3-toggled stats overlay (FPS, per-pass GPU/CPU timings, memory, shader
- * compile) plus the World-owned {@link Profile} view. Off by default: add it and press F3 to show the
- * overlay; the data is on `Profile` whether it's shown or not.
+ * Records CPU/GPU spans, memory and pipeline compilation into the World's DiagnosticsStore.
+ * Add DiagnosticsOverlayPlugin separately for the F3 HUD.
  * Tracking starts at device acquisition, independent of plugin order. Composed systems
  * may record phase timings through the world's record sink; this plugin adds no simulation.
  */
 export const ProfilePlugin: Plugin = {
     name: "Profile",
     gpu: { preferredFeatures: TIMESTAMP },
-    systems: [ProfileFrameBeginSystem, ProfileRenderSystem],
+    systems: [ProfileFrameBeginSystem, ProfileFrameStatsSystem],
     dependencies: [],
 
     prepareGpu(world, compute) {
-        const profiler = world.resource(Profile) as ProfileImpl;
+        const profiler = world.resource(recorder);
+        profiler.store = world.resource(DiagnosticsStore);
         world.onDispose(() => profiler.dispose());
         profiler.attach(compute.device);
 
         compute.span = (name) => profiler.span(name);
         compute.indirect = (name, count) => profiler.recordIndirect(name, count);
         compute.precompiled = (label, start, end) => profiler.recordCompile(label, start, end);
-        world.recordSink = (name, ms) => profiler.record(name, ms);
+        world.recordSink = (name, measurement) => profiler.record(name, measurement);
         world.fenceWaitSink = (ms) => {
-            profiler.fenceWaitMs = ms;
+            profiler.store.record("frame/fence_wait", ms, undefined, "ms");
         };
     },
 
+    dispose(world: World) {
+        const compute = world.gpu;
+        compute.span = undefined;
+        compute.indirect = undefined;
+        compute.precompiled = undefined;
+        world.recordSink = undefined;
+        world.fenceWaitSink = undefined;
+    },
+};
+
+/** Optional F3 overlay reading the diagnostics collected by ProfilePlugin. */
+export const DiagnosticsOverlayPlugin: Plugin = {
+    name: "DiagnosticsOverlay",
+    dependencies: [ProfilePlugin],
+    systems: [ProfileRenderSystem],
     initialize(world: World) {
         const ui = world.resource(profileUi);
         // World disposal must remove the DOM mount even without App.dispose().
@@ -1041,14 +1027,5 @@ export const ProfilePlugin: Plugin = {
                 { signal: world.signal },
             );
         }
-    },
-
-    dispose(world: World) {
-        const compute = world.gpu;
-        compute.span = undefined;
-        compute.indirect = undefined;
-        compute.precompiled = undefined;
-        world.recordSink = undefined;
-        world.fenceWaitSink = undefined;
     },
 };

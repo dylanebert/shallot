@@ -753,31 +753,45 @@ Replace the process-level `Compute` registries with the owning `world.gpu`. Help
 
 These helpers use the owning World:
 
-- `Profile` data is read with `world.resource(Profile)`.
+- Profiler measurements are read with `world.resource(DiagnosticsStore)` (root export).
 - `cascadeComboEids()` and `pointComboEids()` take World first; `cascadeCount()` and `pointComboCount()` are removed.
 - The cameras `cascadeComboEids()` and `pointComboEids()` return carry `GlobalTransform` only, no longer `Transform`. Read their placement from `GlobalTransform`, and query them with `GlobalTransform`, not `Transform`.
 
-## Profile no longer exposes benchmark windows
+## Profiler measurements use diagnostics; the HUD is optional
 
-`ProfilePlugin` still provides its live profiler overlay and `Profile` resource, but no longer installs a measurement-window global or tracks benchmark-only counters.
+Replace `Profile` with the root `DiagnosticsStore` resource. `ProfilePlugin` records measurements without a HUD; add `DiagnosticsOverlayPlugin` from `/extras` for the same F3 overlay and `showProfiler(world)` control.
+
+Read a diagnostic with `world.resource(DiagnosticsStore).get(path)`: `value()` returns the latest sample, `smoothed()` the time-weighted exponential average, and `measurements()` the bounded history (oldest first, times in monotonic seconds). CPU and GPU spans use `render/<span>/elapsed_cpu` and `render/<span>/elapsed_gpu`, in milliseconds. Absent spans retain their history rather than expiring after a display hold. In label-derived components, `%` becomes `%25` and `/` becomes `%2F`; an empty label uses `%`. The HUD decodes these components for display.
+
+| Former `Profile` field | Diagnostic path / replacement |
+|---|---|
+| `cpu`, `gpu` | `render/<name>/elapsed_cpu`, `render/<name>/elapsed_gpu` |
+| `compile`, `compileMs` | `compile/<label>/elapsed`, `compile/elapsed` (milliseconds) |
+| `fenceWaitMs` | `frame/fence_wait` (milliseconds) |
+| `bufferBytes`, `textureBytes` | `memory/bufferBytes`, `memory/textureBytes` (bytes; read `value()` for live totals) |
+| `gpuTime`, `gpuFires` | Removed; diagnostics retain bounded history, not lifetime benchmark counters. |
+
+Custom CPU timing sinks (`recordSink`) now receive a borrowed `Float64Array` containing `[monotonicSeconds, elapsedMilliseconds]`, not a scalar duration. To retain a measurement, copy its values before returning. Producers can reuse a two-cell buffer and stamp its time with the root `sampleDiagnosticTime(buffer)` helper.
+
+The measurement-window global and benchmark-only counters are removed.
 
 | v0.9.5 export or field (path) | 0.10 replacement |
 |---|---|
-| `window.__benchmark` | Removed; read live data through `world.resource(Profile)`. |
+| `window.__benchmark` | Removed; read diagnostics through `world.resource(DiagnosticsStore)`. |
 | Root and `/extras` `BenchmarkAPI` | Removed; there is no measurement-window API. |
-| Root and `/extras` `BenchmarkCompileStats` | Removed; inspect `Profile.compile` and `Profile.compileMs` for live compile data. |
-| Root and `/extras` `BenchmarkCpuStats` | Removed; inspect `Profile.cpu` for current-frame timings. |
+| Root and `/extras` `BenchmarkCompileStats` | Removed; read `compile/<label>/elapsed` and `compile/elapsed` diagnostics. |
+| Root and `/extras` `BenchmarkCpuStats` | Removed; read `render/<span>/elapsed_cpu` diagnostics. |
 | Root and `/extras` `BenchmarkFrameStats` | Removed; frame-window summaries are no longer provided. |
-| Root and `/extras` `BenchmarkGpuStats` | Removed; inspect `Profile.gpu` for displayed pass timings. |
+| Root and `/extras` `BenchmarkGpuStats` | Removed; read `render/<span>/elapsed_gpu` diagnostics. |
 | Root and `/extras` `BenchmarkMeasurement` | Removed; there is no measurement-window API. |
-| Root and `/extras` `BenchmarkMemoryStats` | Removed; inspect `Profile.bufferBytes` and `Profile.textureBytes` for live totals. |
+| Root and `/extras` `BenchmarkMemoryStats` | Removed; read the latest `memory/bufferBytes` and `memory/textureBytes` diagnostics. |
 | `Profile.indirectCount` | Removed; indirect-draw windows are no longer tracked. |
 | `Profile.indirectFires` | Removed; indirect-draw windows are no longer tracked. |
 | `Profile.compiledPipelines` | Removed; pipeline-only counts are no longer tracked. |
 | `Profile.pipelineCalls` | Removed; pipeline-constructor counts are no longer tracked. |
 | `Profile.submitCount` | Removed; submit counts are no longer tracked. |
 | `Profile.allocBytes` | Removed; use the overlay's per-allocation memory details. |
-| `Profile.lazyBytes` | Removed; lazy allocations are included in `Profile.bufferBytes` and `Profile.textureBytes`. |
+| `Profile.lazyBytes` | Removed; lazy allocations are included in the memory diagnostics. |
 | Root and `/runtime` `LazyAlloc` | Removed; remove `lazy` metadata used only for profiler accounting. |
 
 ## Character movement and player feel

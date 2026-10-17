@@ -1,5 +1,6 @@
 import { createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight } from "../../src/index";
 import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
+import { ProfilePlugin } from "../../src/extras/profile";
 import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
@@ -24,7 +25,17 @@ import {
 export let controlSink: object;
 export function control() { controlSink = { frame: 0 }; }
 
-export default async function create(_input = "", device?: GPUDevice) {
+export default async function create(input = "", device?: GPUDevice) {
+    if (input === "profile") {
+        const app = await createApp({ defaults: false, plugins: [ProfilePlugin], device });
+        return {
+            world: app.world,
+            warmSamplingSessions: true,
+            step: () => app.world.step(1 / 60),
+            wait: async () => {},
+            dispose: () => app.dispose(),
+        };
+    }
     const resizeObserver = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
     globalThis.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
     const app = await createApp({ plugins: [LinesPlugin], device });

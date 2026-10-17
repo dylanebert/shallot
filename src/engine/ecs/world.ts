@@ -891,13 +891,14 @@ export class World {
 
     /**
      * the CPU timing sink, or `undefined` when profiling is off. Hot-path
-     * callers can read this once and skip timed work entirely when absent.
+     * callers can read this once and skip timed work entirely when absent. The callback borrows
+     * [monotonic seconds, CPU milliseconds]; it must copy values before returning.
      */
-    get recordSink(): ((name: string, ms: number) => void) | undefined {
+    get recordSink(): ((name: string, measurement: Readonly<Float64Array>) => void) | undefined {
         return this._scheduler.record;
     }
 
-    set recordSink(fn: ((name: string, ms: number) => void) | undefined) {
+    set recordSink(fn: ((name: string, measurement: Readonly<Float64Array>) => void) | undefined) {
         this._scheduler.record = fn;
     }
 

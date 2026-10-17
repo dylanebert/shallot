@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { component, f32 } from "./component";
 import { Scheduler, type System } from "./scheduler";
 import { World } from "./world";
@@ -84,6 +84,29 @@ test("a failed frame carries field marks into the next frame", () => {
     } finally {
         world.dispose();
     }
+});
+
+test("CPU timing borrows one reusable timestamp-and-duration buffer without losing precision", () => {
+    const scheduler = new Scheduler();
+    scheduler.register({ name: "work", group: "simulation", update() {} }, "owner");
+    let borrowed: Readonly<Float64Array> | undefined;
+    const samples: number[][] = [];
+    scheduler.record = (name, measurement) => {
+        expect(name).toBe("owner/work");
+        if (borrowed) expect(measurement).toBe(borrowed);
+        borrowed = measurement;
+        samples.push([...measurement]);
+    };
+    let clock = 0;
+    const now = spyOn(performance, "now").mockImplementation(() => ++clock);
+    try {
+        scheduler.step({} as World, { deltaTime: 0 });
+        scheduler.step({} as World, { deltaTime: 0 });
+    } finally {
+        now.mockRestore();
+    }
+    expect(samples.map((sample) => sample[0])).toEqual([0.002, 0.004]);
+    for (const sample of samples) expect(sample[1]).toBeCloseTo(1, 12);
 });
 
 test("the scheduler consumes each updated duration from its lifetime frame input", () => {
