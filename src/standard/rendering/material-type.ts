@@ -3,7 +3,7 @@ import tgpu, { readFromArrayBuffer, writeToArrayBuffer } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Xform } from "../../core/rendering";
-import type { GpuTable, Plugin, Resource, System, World } from "../../engine";
+import type { GpuTable, Plugin, Resource, World } from "../../engine";
 import type { ComponentStorage } from "../../engine/ecs";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 
@@ -643,8 +643,8 @@ const materialTypesKey = {
 
 const MESH_MATERIALS = [MeshMaterial];
 
-// The row owns alpha; MeshMaterial's alphaMode and alphaCutoff are its copy for the mesh table's bulk fill.
-function copyMeshAlpha(world: World, all = false): void {
+/** Reconcile marked MeshMaterial alpha copies before the mesh table gathers fields. @internal */
+export function copyMeshAlpha(world: World, all = false): void {
     const { assets, types } = world.resource(MaterialTypes);
     const storage = world.storage(MeshMaterial);
     if (all) {
@@ -670,19 +670,6 @@ function copyMeshAlpha(world: World, all = false): void {
         }
     }
 }
-
-/**
- * Copies changed MeshMaterial members' row alpha into their `alphaMode` and `alphaCutoff` after
- * simulation, including frames without a fixed tick. A reassigned `type` or `material` takes its
- * row's alpha mode in the same frame's upload. Draw writes after upload reconcile next frame.
- * External table owners publish directly into the GPU mesh table after their table upload.
- */
-export const MeshMaterialAlphaSystem: System = {
-    name: "mesh-material-alpha",
-    group: "simulation",
-    last: true,
-    update: copyMeshAlpha,
-};
 
 /** Every material type registered in this World, with StandardMaterial reserved at type zero. */
 export const MaterialTypes: Resource<MaterialTypeState> = {

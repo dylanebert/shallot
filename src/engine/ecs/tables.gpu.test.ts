@@ -55,6 +55,47 @@ async function stepAndValidate(world: World, label: string): Promise<void> {
 const Record = d.struct({ amount: d.f32, tag: d.u32 });
 const Rows = { amount: f32, tag: u32 };
 
+const Reconciled = component("ReconciledUpload", { amount: f32 });
+const reconciliation = { create: () => ({ eid: 0, calls: 0 }) };
+const reconciledUpload = subject("ReconciledUpload", [Reconciled], (world) => {
+    const table = world.table("reconciled", d.struct({ amount: d.f32 }), {
+        beforeUpload(owner) {
+            const state = owner.resource(reconciliation);
+            state.calls++;
+            owner.storage(Reconciled).amount.set(state.eid, state.calls);
+        },
+    });
+    table.bindComponent(Reconciled, { amount: "amount" });
+    return table;
+});
+
+test("table preparation reconciles fields before gathering, once per prepared upload", () => {
+    const { world, table } = reconciledUpload();
+    const state = world.resource(reconciliation);
+    state.eid = world.create();
+    world.add(state.eid, Reconciled);
+    const row = table.rowIndex(state.eid)!;
+    const amount = () => new DataView(table.bytes.buffer).getFloat32(row * table.rowBytes, true);
+    table.prepareUpload();
+    expect(state.calls).toBe(1);
+    expect(amount()).toBe(1);
+    table.upload();
+    expect(state.calls).toBe(1);
+    world.clearChanges();
+    world.uploadTables();
+    expect(state.calls).toBe(2);
+    expect(amount()).toBe(2);
+    table.prepareUpload();
+    expect(state.calls).toBe(3);
+    expect(amount()).toBe(3);
+    table.upload();
+    expect(state.calls).toBe(3);
+    table.dispose();
+    table.prepareUpload();
+    table.upload();
+    expect(state.calls).toBe(3);
+});
+
 for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
     const upload = subject("TableUploadProbe", [component("Rows", Rows)], (world) =>
         world.table("table-upload-probe", Record),

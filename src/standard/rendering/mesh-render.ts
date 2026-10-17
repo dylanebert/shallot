@@ -2,7 +2,6 @@ import { MeshPlugin } from "../../core/mesh";
 import { RenderingPlugin } from "../../core/rendering";
 import type { Plugin } from "../../engine";
 import { MeshMaterial } from "./material";
-import { MeshMaterialAlphaSystem } from "./material-type";
 import {
     initializeMeshPreprocess,
     initMeshPreprocess,
@@ -15,7 +14,7 @@ import {
 export const MeshRenderPlugin: Plugin = {
     gpu: {},
     name: "MeshRender",
-    systems: [MeshMaterialAlphaSystem, MeshPairingSystem, MeshPreprocessSystem],
+    systems: [MeshPairingSystem, MeshPreprocessSystem],
     components: [MeshMaterial],
     dependencies: [RenderingPlugin, MeshPlugin],
     initialize(world) {

@@ -27,7 +27,7 @@ import {
 } from "../../engine/runtime";
 import { type MaterialType, MaterialTypes } from "./material";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
-import { ALPHA_PIPELINE_KEY_COUNT } from "./material-type";
+import { ALPHA_PIPELINE_KEY_COUNT, copyMeshAlpha } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
 import { publishMeshCounts, rebuildMeshCounts } from "./mesh-count";
 import {
@@ -116,7 +116,7 @@ export function meshInstanceTable(world: World) {
 }
 
 function createMeshInstanceTable(world: World) {
-    const table = world.table("meshInstances", MeshInstanceInput);
+    const table = world.table("meshInstances", MeshInstanceInput, { beforeUpload: copyMeshAlpha });
     table.enableEidLookup();
     return table;
 }

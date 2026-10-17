@@ -2,6 +2,8 @@ import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
+import type { System } from "../../engine";
+import { ClearChangeMarksSystem } from "../../engine/app";
 import {
     AlphaMode,
     MaterialPlugin,
@@ -30,6 +32,44 @@ const subjects = gpuApps(import.meta.path, [
         plugins: [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(OtherMaterial)],
     },
 ]);
+
+for (const [schedule, order] of [
+    ["simulation-last", { group: "simulation", last: true }],
+    ["simulation-terminal", { group: "simulation", terminal: true }],
+    ["draw-before-upload", { group: "draw", first: true, before: [ClearChangeMarksSystem] }],
+] as const) {
+    for (const field of ["material", "alphaMode"] as const) {
+        test(`${schedule} ${field} writes reconcile by the next frame`, () => {
+            const { world } = subjects()[0];
+            const materials = world.resource(Materials);
+            const opaque = materials.add(StandardMaterial());
+            const glass = materials.add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
+            const storage = world.storage(MeshMaterial);
+            const eid = world.create();
+            world.add(eid, MeshMaterial, field === "material" ? opaque : glass);
+            world.step(0);
+            let pending = true;
+            const writer: System = {
+                ...order,
+                update() {
+                    if (!pending) return;
+                    pending = false;
+                    if (field === "material") storage.material.set(eid, glass.material);
+                    else storage.alphaMode.set(eid, opaque.alphaMode);
+                },
+            };
+            world.addSystem(writer);
+            try {
+                world.step(0);
+                world.step(0);
+                expect(storage.alphaMode.get(eid)).toBe(glass.alphaMode);
+            } finally {
+                world.removeSystem(writer);
+                world.destroy(eid);
+            }
+        });
+    }
+}
 
 test("alpha preparation reads only changed members, including joins, late writes and reused eids", () => {
     const { world } = subjects()[0];

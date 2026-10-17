@@ -17,10 +17,12 @@ export const MeshInstanceInput = d
 /**
  * Selects one material row from one World-local material type. `type` identifies the shader and typed
  * parameter table; `material` is a row in that table. `alphaMode` and `alphaCutoff` copy that row's alpha
- * into the dense mesh table; the row owns it, and the copy is rewritten from the row after simulation,
- * so a write to either is replaced. External parameter sources instead publish alpha
- * directly into the GPU mesh table; their CPU copy is not authoritative. Draws group by `(type, alpha pipeline key, mesh)`. Missing MeshMaterial
- * selects StandardMaterial type 0, row 0 with Opaque mode.
+ * into the dense mesh table; the row owns it, and marked copies reconcile immediately before that
+ * table gathers fields for upload. A direct write to either is replaced at the next upload, including
+ * frames without a fixed tick. Writes after upload reconcile next frame. External parameter sources
+ * instead publish alpha directly into the GPU mesh table; their CPU copy is not authoritative.
+ * Draws group by `(type, alpha pipeline key, mesh)`. Missing MeshMaterial selects StandardMaterial
+ * type 0, row 0 with Opaque mode.
  */
 export const MeshMaterial = component(
     "MeshMaterial",
