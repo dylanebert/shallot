@@ -10,7 +10,16 @@ import {
     resetInterpolation,
     TransformRuntime,
 } from "../transform";
+import { PointLight, SpotLight } from "./lighting";
 import { Xform } from "./xform";
+
+type LightHistory = {
+    eid: number;
+    captured: boolean;
+    stages: Float32Array[];
+    current: Float32Array;
+    previous: Float32Array;
+};
 
 const terms = [GlobalTransform];
 const layout = tgpu.bindGroupLayout({
@@ -53,9 +62,7 @@ export interface GlobalTransformRuntime {
     tickCount: number;
     stages: (GPUBuffer | undefined)[];
     cpuPrepared: boolean;
-    cpuStages: Float32Array[];
-    cpuCurrent: Float32Array;
-    cpuPrevious: Float32Array;
+    lights: LightHistory[];
     source: Float32Array;
     ranges: Uint32Array;
     pipeline?: GPUComputePipeline;
@@ -78,9 +85,7 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
             tickCount: 0,
             stages: new Array(2),
             cpuPrepared: false,
-            cpuStages: [new Float32Array(0), new Float32Array(0)],
-            cpuCurrent: new Float32Array(0),
-            cpuPrevious: new Float32Array(0),
+            lights: [],
             source: new Float32Array(0),
             ranges: new Uint32Array(4),
             generation: -1,
@@ -101,9 +106,30 @@ export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
         world.observeMembership(GlobalTransform, (eid, present) => {
             if (present && runtime.enabled) resetInterpolation(world, eid);
         });
+        const observeLight = (eid: number) => {
+            if (!runtime.enabled) return;
+            const index = runtime.lights.findIndex((light) => light.eid === eid);
+            if (world.has(eid, PointLight) || world.has(eid, SpotLight)) {
+                if (index < 0) addLightHistory(runtime, eid);
+            } else if (index >= 0) {
+                runtime.lights[index] = runtime.lights[runtime.lights.length - 1]!;
+                runtime.lights.pop();
+            }
+        };
+        world.observeMembership(PointLight, observeLight);
+        world.observeMembership(SpotLight, observeLight);
         return runtime;
     },
 };
+function addLightHistory(runtime: GlobalTransformRuntime, eid: number): void {
+    runtime.lights.push({
+        eid,
+        captured: false,
+        stages: [new Float32Array(12), new Float32Array(12)],
+        current: new Float32Array(12),
+        previous: new Float32Array(12),
+    });
+}
 /** Captures initial derived placement before every ordinary fixed system. */
 export const GlobalTransformHistoryStartSystem: System = {
     group: "fixed",
@@ -210,23 +236,43 @@ export function globalTransformTable(world: World): GpuTable<typeof Xform> {
         runtime.pipeline = world.gpu.root.unwrap(
             world.gpu.root.createComputePipeline({ compute: kernel }),
         );
-        for (const eid of world.query(terms)) resetInterpolation(world, eid);
+        for (const eid of world.query(terms)) {
+            resetInterpolation(world, eid);
+            if (world.has(eid, PointLight) || world.has(eid, SpotLight))
+                addLightHistory(runtime, eid);
+        }
     }
     return runtime.render!;
 }
-/** Reads drawn placement into a caller-owned 12-float Xform record (position at 0, xyzw quaternion
- * at 4, scale at 8). Requires an enabled globalTransformTable and the draw placement boundary.
- * Uses the GPU history's fixedAlpha, linear position/scale and shortest-path normalized quaternion
- * blend; no GPU readback is performed. */
+/** @internal Reads shadow placement for PointLight or SpotLight holders into a caller-owned
+ * 12-float Xform record (position at 0, xyzw quaternion at 4, scale at 8).
+ * Refuses entities holding neither PointLight nor SpotLight. Requires an enabled
+ * globalTransformTable and the draw placement boundary. A newly attached or reattached
+ * light reads current placement until the next fixed tick captures its history; thereafter
+ * it matches drawn placement, using fixedAlpha, linear position/scale and shortest-path
+ * normalized quaternion blend. No GPU readback is performed. */
 export function readRenderGlobalTransform(world: World, eid: number, out: Float32Array): void {
     const runtime = world.resource(GlobalTransformHistory);
+    if (!world.has(eid, PointLight) && !world.has(eid, SpotLight))
+        throw new Error("readRenderGlobalTransform requires PointLight or SpotLight");
     prepareCpuFrame(world, runtime);
     const row = runtime.current?.rowIndex(eid) ?? -1;
     if (row < 0)
         throw new Error("readRenderGlobalTransform requires a captured GlobalTransform row");
-    const offset = row * 12;
-    const current = runtime.cpuCurrent,
-        previous = runtime.cpuPrevious;
+    let light: LightHistory | undefined;
+    for (let i = 0; i < runtime.lights.length; i++)
+        if (runtime.lights[i]!.eid === eid) {
+            light = runtime.lights[i];
+            break;
+        }
+    if (!light) throw new Error("readRenderGlobalTransform requires captured light membership");
+    if (!light.captured) {
+        for (let i = 0; i < 12; i++) out[i] = runtime.source[row * 12 + i]!;
+        return;
+    }
+    const offset = 0;
+    const current = light.current,
+        previous = light.previous;
     const alpha = world.time.fixedAlpha;
     for (let i = 0; i < 12; i++)
         out[i] = previous[offset + i]! * (1 - alpha) + current[offset + i]! * alpha;
@@ -303,17 +349,6 @@ function captureCurrent(world: World, phase: number): void {
             current.bytes.byteOffset,
             current.bytes.byteLength / 4,
         );
-        for (let i = 0; i < 2; i++) {
-            const next = new Float32Array(runtime.source.length);
-            next.set(runtime.cpuStages[i]!);
-            runtime.cpuStages[i] = next;
-        }
-        const present = new Float32Array(runtime.source.length);
-        present.set(runtime.cpuCurrent);
-        runtime.cpuCurrent = present;
-        const previous = new Float32Array(runtime.source.length);
-        previous.set(runtime.cpuPrevious);
-        runtime.cpuPrevious = previous;
     }
     // Reused stages retain earlier changed rows, including gaps in their range.
     if (current.pendingUploadSize && runtime.ranges[phase * 2 + 1])
@@ -337,9 +372,24 @@ function captureCurrent(world: World, phase: number): void {
         current.upload(buffer, true);
         runtime.ranges[phase * 2] = current.lastUploadOffset;
         runtime.ranges[phase * 2 + 1] = size;
-        const start = current.lastUploadOffset / 4;
-        for (let i = start; i < start + size / 4; i++)
-            runtime.cpuStages[phase]![i] = runtime.source[i]!;
+    }
+    const start = runtime.ranges[phase * 2] / 4;
+    const end = start + runtime.ranges[phase * 2 + 1] / 4;
+    for (let index = 0; index < runtime.lights.length; index++) {
+        const light = runtime.lights[index]!;
+        const row = current.rowIndex(light.eid);
+        if (row < 0) continue;
+        const offset = row * 12;
+        if (phase === 0 && !light.captured) {
+            for (let i = 0; i < 12; i++) {
+                const value = runtime.source[offset + i]!;
+                light.current[i] = light.previous[i] = value;
+                light.stages[0]![i] = light.stages[1]![i] = value;
+            }
+            light.captured = true;
+        }
+        if (size && offset >= start && offset < end)
+            for (let i = 0; i < 12; i++) light.stages[phase]![i] = runtime.source[offset + i]!;
     }
 }
 function copyPhase(
@@ -393,27 +443,27 @@ function copyPhase(
 function prepareCpuFrame(world: World, runtime: GlobalTransformRuntime): void {
     if (runtime.cpuPrepared || !runtime.enabled) return;
     runtime.cpuPrepared = true;
-    for (let phase = 0; phase < 2; phase++) {
-        if (phase === 0 && !runtime.tickCount) continue;
-        const offset = runtime.ranges[phase * 2] / 4;
-        const size = runtime.ranges[phase * 2 + 1] / 4;
-        for (let i = offset; i < offset + size; i++)
-            runtime.cpuCurrent[i] = runtime.cpuStages[phase]![i]!;
-        if (
-            (phase === 0 && (runtime.historyNeedsPromotion || size > 0)) ||
-            (phase === 1 && runtime.historyDiscarded)
-        )
-            runtime.cpuPrevious.set(runtime.cpuCurrent);
-    }
     const marks = world.resource(TransformRuntime).discontinuities;
     const pending = runtime.historyDiscontinuitiesOnSubmit;
-    for (let word = 0; word < Math.max(marks.length, pending.length); word++) {
-        for (let bits = marks[word] | pending[word]; bits !== 0; bits &= bits - 1) {
-            const row = runtime.current!.rowIndex((word << 5) | (31 - Math.clz32(bits & -bits)));
-            if (row >= 0)
-                for (let i = row * 12; i < row * 12 + 12; i++)
-                    runtime.cpuPrevious[i] = runtime.cpuCurrent[i]!;
+    for (let index = 0; index < runtime.lights.length; index++) {
+        const light = runtime.lights[index]!;
+        if (!light.captured) continue;
+        const offset = runtime.current!.rowIndex(light.eid) * 12;
+        if (offset < 0) continue;
+        for (let phase = 0; phase < 2; phase++) {
+            if (phase === 0 && !runtime.tickCount) continue;
+            const start = runtime.ranges[phase * 2] / 4;
+            const size = runtime.ranges[phase * 2 + 1] / 4;
+            if (offset >= start && offset < start + size) light.current.set(light.stages[phase]!);
+            if (
+                (phase === 0 && (runtime.historyNeedsPromotion || size > 0)) ||
+                (phase === 1 && runtime.historyDiscarded)
+            )
+                light.previous.set(light.current);
         }
+        const word = light.eid >>> 5;
+        if (((marks[word] | pending[word]) & (1 << (light.eid & 31))) !== 0)
+            light.previous.set(light.current);
     }
 }
 /** @internal Records pending history work through the World's draw encoder. */

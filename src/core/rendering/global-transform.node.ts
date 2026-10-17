@@ -6,7 +6,9 @@ import { Body, BodyType } from "../../core/physics";
 import {
     attachCanvas,
     Camera,
+    PointLight,
     RenderingPlugin,
+    SpotLight,
     Views,
     viewportToWorld,
 } from "../../core/rendering";
@@ -240,10 +242,11 @@ async function renderedX(
     expect(row).toBeGreaterThanOrEqual(0);
     const result = await probeBuffer(world, table.buffer, { size: table.buffer.size });
     const gpu = new Float32Array(result.bytes);
-    const cpu = new Float32Array(12);
-    readRenderGlobalTransform(world, eid, cpu);
-    for (const lane of [0, 1, 2, 4, 5, 6, 7, 8, 9, 10]) {
-        expect(cpu[lane]).toBeCloseTo(gpu[row * 12 + lane]!, 5);
+    if (world.has(eid, PointLight) || world.has(eid, SpotLight)) {
+        const cpu = new Float32Array(12);
+        readRenderGlobalTransform(world, eid, cpu);
+        for (const lane of [0, 1, 2, 4, 5, 6, 7, 8, 9, 10])
+            expect(cpu[lane]).toBeCloseTo(gpu[row * 12 + lane]!, 5);
     }
     return gpu[row * 12];
 }
@@ -301,7 +304,7 @@ async function placementHistoryApp(): Promise<{
     });
     const world = app.world;
     eid = world.create();
-    world.add(eid, Transform);
+    world.add(eid, PointLight);
     globalTransformTable(world);
     world.step(0);
     await world.gpu.device.queue.onSubmittedWorkDone();
@@ -456,10 +459,15 @@ test("aborted GlobalTransform history matches across fixed, restore, and interpo
                 const values = new Float32Array(result.bytes);
                 return Array.from(values.subarray(index * 12, index * 12 + 12));
             }
+            const render = await row(runtime.render);
+            const cpu = new Float32Array(12);
+            readRenderGlobalTransform(world, eid, cpu);
+            for (const lane of [0, 1, 2, 4, 5, 6, 7, 8, 9, 10])
+                expect(cpu[lane]).toBeCloseTo(render[lane]!, 5);
             return {
                 current: await row(runtime.current),
                 previous: await row(runtime.previous),
-                render: await row(runtime.render),
+                render,
                 flags: {
                     tickCount: runtime.tickCount,
                     ranges: Array.from(runtime.ranges),
