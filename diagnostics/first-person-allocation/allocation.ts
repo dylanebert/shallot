@@ -147,6 +147,9 @@ export function allocationFailure(
  * Bundle `entry` for Node, build its default export with `input`, step it `warm` frames, collect,
  * then sample `frames` more under V8's sampling heap profiler. Only the harness's chunk loops are
  * kept unoptimized; the subject tiers normally. Needs the `node` requirement resolved.
+ * A subject that submits GPU work returns `allocationExpressions: gpuAllocationExpressions` and
+ * `allocationFunctions: [world.gpu.sync]`: an undeclared wrapper is inlined, and WebGPU's pass,
+ * encoder and fence objects are then charged to its callers instead of admitted.
  */
 export function sampleAllocation(
     entry: string,
