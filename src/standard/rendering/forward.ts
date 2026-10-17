@@ -78,7 +78,7 @@ import {
     registerMaterialType,
 } from "./material-type";
 import { materialAttributeError } from "./mesh-attributes";
-import { copyMeshCount } from "./mesh-count";
+import { publishTransparentCounts } from "./mesh-count";
 import {
     type BindResource,
     bgQuant,
@@ -132,6 +132,8 @@ interface StandardRendererState {
     transparentArgsU32: Uint32Array;
     transparentRunStarts: number[];
     transparentRunOffsets: number[];
+    transparentRunRecords: number[];
+    transparentCountOffsets: number[];
     transparentRunDraws: (FrameDraw | undefined)[];
     transparentRunCount: number;
     transparentRunCursor: number;
@@ -174,6 +176,8 @@ function createStandardRendererState(): StandardRendererState {
         transparentArgsU32: new Uint32Array(0),
         transparentRunStarts: [],
         transparentRunOffsets: [],
+        transparentRunRecords: [],
+        transparentCountOffsets: [],
         transparentRunDraws: [],
         transparentRunCount: 0,
         transparentRunCursor: 0,
@@ -954,6 +958,8 @@ function ensureTransparentRunCapacity(state: StandardRendererState, required: nu
     while (capacity < required) capacity *= 2;
     state.transparentRunStarts.length = capacity;
     state.transparentRunOffsets.length = capacity;
+    state.transparentRunRecords.length = capacity;
+    state.transparentCountOffsets.length = capacity;
     state.transparentRunDraws.length = capacity;
 }
 
@@ -1000,6 +1006,7 @@ function prepareTransparent(
     let itemStart = 0;
     let eidCount = 0;
     let runCount = 0;
+    let counted = 0;
     const antialias = world.storage(Camera).antialias.get(eid) !== 0;
     state.lastTransparentPipeline = null;
     state.lastTransparentGroup0 = null;
@@ -1043,6 +1050,11 @@ function prepareTransparent(
         state.transparentRunStarts[runCount] = itemStart;
         state.transparentRunOffsets[runCount] = (argsBase + runCount) * INDIRECT_BYTES;
         state.transparentRunDraws[runCount] = draw;
+        if (mesh.indirectIndexCount) {
+            state.transparentRunRecords[counted] = draw.draw.args.offset! / INDIRECT_BYTES;
+            state.transparentCountOffsets[counted] = (argsBase + runCount) * INDIRECT_BYTES;
+            counted++;
+        }
         const firstInstance = eidsBase + eidCount;
         for (let i = itemStart; i < end; i++) {
             const instanceEid = phase.item(i).draw;
@@ -1086,12 +1098,14 @@ function prepareTransparent(
         const offset = argsBase * INDIRECT_BYTES;
         const started = phase.measureTimings ? performance.now() : 0;
         world.uploadGpuTable(args, offset, state.transparentArgsStage, bytes);
-        for (let run = 0; run < runCount; run++)
-            copyMeshCount(
+        if (counted)
+            publishTransparentCounts(
                 world,
-                state.transparentRunDraws[run]!.draw.mesh,
+                world.gpu.root.unwrap(draws.drawArgs!),
                 args,
-                state.transparentRunOffsets[run]!,
+                state.transparentRunRecords,
+                state.transparentCountOffsets,
+                counted,
             );
         phase.recordUpload(bytes, phase.measureTimings ? performance.now() - started : 0);
     }

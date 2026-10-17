@@ -209,13 +209,7 @@ export const MeshPreprocessSystem: System = {
             return;
         syncBuffers(world);
         if (_meshPreprocess.pairCount === 0) return;
-        publishMeshCounts(
-            world,
-            world.gpu.root.unwrap(_meshPreprocess.meshDraws.drawArgs!),
-            _meshPreprocess.meshCount,
-            _meshPreprocess.pairCount,
-            _meshPreprocess.viewDim,
-        );
+        publishMeshCounts(world, world.gpu.root.unwrap(_meshPreprocess.meshDraws.drawArgs!));
         const count = bindCount(world);
         const scan = bindScan(world);
         const scatter = bindScatter(world);
@@ -420,13 +414,24 @@ function syncBuffers(world: World): void {
     const meshes = world.resource(meshResourcesKey).meshes;
     const meshCount = meshes.capacity;
     const changedMeshes = meshes.version !== _meshPreprocess.meshVersion;
-    _meshPreprocess.meshVersion = meshes.version;
     const viewCount = Math.max(1, world.resource(RenderContext).viewCount);
     const rowCapacity = meshInstanceTable(world).capacity;
     const growMesh = meshCount > _meshPreprocess.meshCount;
     const growView = viewCount > _meshPreprocess.viewDim;
     const growRows = rowCapacity > _meshPreprocess.rowCapacity;
     const growKeys = syncAlphaKeys(world);
+    if (changedMeshes || growMesh || growView || growKeys) {
+        const meshDim = Math.max(_meshPreprocess.meshCount, meshCount);
+        const viewDim = growView
+            ? Math.min(MAX_SLOTS, Math.max(viewCount, _meshPreprocess.viewDim * 2))
+            : _meshPreprocess.viewDim;
+        rebuildMeshCounts(
+            world,
+            meshDim,
+            _meshPreprocess.materialTypeCount * ALPHA_PIPELINE_KEY_COUNT * meshDim,
+            viewDim,
+        );
+    }
     if (!changedMeshes && !growMesh && !growView && !growRows && _meshDraws.drawArgs) {
         if (growKeys) registerDraws(world);
         return;
@@ -479,7 +484,7 @@ function syncBuffers(world: World): void {
         _meshDraws.transparentArgs = device.createBuffer({
             label: "shallot-transparent-args",
             size: Math.max(20, listCapacity * d.sizeOf(DrawIndexedIndirect)),
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.INDIRECT,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE,
         });
         world.own(_meshDraws.transparentArgs);
     }
@@ -499,6 +504,7 @@ function syncBuffers(world: World): void {
     // draw records depend only on the meshes, the types' alpha keys and the args buffer, so rows
     // growth keeps them
     if (changedMeshes || replaceArgs || growKeys) registerDraws(world);
+    _meshPreprocess.meshVersion = meshes.version;
 
     const stale = [...staleArgs, stalePacked, staleTransparentEids, staleBounds];
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
@@ -678,7 +684,6 @@ function registerDraws(world: World): void {
     // A new rejection can affect unchanged instances; ordinary frames check only marked pairings.
     if (_meshPreprocess.invalidPairs.size !== 0)
         for (const eid of world.query(MESH_INSTANCES)) warnInvalidInstance(world, eid);
-    rebuildMeshCounts(world);
     const target = world.gpu.root.unwrap(_meshDraws.drawArgs);
     for (let view = 0; view < _meshPreprocess.viewDim; view++)
         world.gpu.device.queue.writeBuffer(target, view * viewStride, slot);

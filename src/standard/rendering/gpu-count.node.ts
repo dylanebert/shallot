@@ -166,3 +166,13 @@ test("a GPU index count above the mesh bound cannot draw beyond it", async () =>
     expect(await draw(6)).toBe(6);
     expect(await draw(99)).toBe(12);
 });
+test("a reused count-bearing handle draws its successor's different triangle count", async () => {
+    scene ??= await setup();
+    const { world, mesh, buffer } = scene;
+    const meshes = world.resource(Meshes);
+    const previous = meshes.remove(mesh)!;
+    world.gpu.device.queue.writeBuffer(buffer, 0, new Uint32Array([6]));
+    expect(meshes.add({ ...previous, indirectIndexCount: { buffer, offset: 0 } })).toBe(mesh);
+    world.step(0);
+    expect(await draw(6)).toBe(6);
+});

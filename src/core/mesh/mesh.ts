@@ -117,6 +117,20 @@ class MeshRegistryImpl implements MeshRegistry {
     add(mesh: MeshData | Mesh): MeshHandle {
         // ArrayBuffer.isView also recognizes typed arrays from another realm.
         if (ArrayBuffer.isView(mesh.vertices)) return addMesh(this._world, mesh as MeshData);
+        const source = (mesh as Mesh).indirectIndexCount;
+        if (source) {
+            const offset = source.offset ?? 0;
+            if (
+                !Number.isFinite(offset) ||
+                offset < 0 ||
+                offset % 4 !== 0 ||
+                offset + 4 > source.buffer.size ||
+                !(source.buffer.usage & GPUBufferUsage.STORAGE)
+            )
+                throw new Error(
+                    `mesh ${mesh.name}: indirectIndexCount requires a STORAGE buffer and a finite, aligned in-range u32 byte offset`,
+                );
+        }
         const handle = this._freeHandle as MeshHandle;
         this._nextHandle = Math.max(this._nextHandle, handle + 1);
         this._entriesByHandle.set(handle, mesh as Mesh);
