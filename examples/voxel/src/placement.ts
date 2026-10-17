@@ -1,5 +1,6 @@
 import type { World } from "@dylanebert/shallot";
 import { Xform } from "@dylanebert/shallot/rendering";
+import { beginComputePass, endComputePass } from "@dylanebert/shallot/runtime";
 import { MeshInstanceInput, registerProducerTable } from "@dylanebert/shallot/standard/rendering";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -128,11 +129,11 @@ export function placement(
             const encoder = world.frameEncoder()!;
             encoder.clearBuffer(root.unwrap(table.count));
             descriptor.timestampWrites = world.gpu.span?.("voxel:place");
-            const pass = encoder.beginComputePass(descriptor);
+            const pass = beginComputePass(encoder, descriptor);
             pass.setPipeline(pipe);
             pass.setBindGroup(0, group);
             pass.dispatchWorkgroups(Math.ceil((slots * columns) / 64));
-            pass.end();
+            endComputePass(pass);
         },
     };
 }

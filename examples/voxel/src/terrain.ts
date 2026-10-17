@@ -22,6 +22,7 @@ import {
     skyBackgroundHandle,
 } from "@dylanebert/shallot/extras";
 import { type MeshHandle, MeshPlugin, MeshQuant } from "@dylanebert/shallot/mesh";
+import { beginComputePass, endComputePass } from "@dylanebert/shallot/runtime";
 import {
     CameraBackground,
     type MaterialHandle,
@@ -310,7 +311,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                         world.gpu.device.queue.writeBuffer(geometry.uniform, 0, geometry.input);
                         if (!pass) {
                             s.emitPass.timestampWrites = world.gpu.span?.("voxel:emit");
-                            pass = world.frameEncoder()!.beginComputePass(s.emitPass);
+                            pass = beginComputePass(world.frameEncoder()!, s.emitPass);
                         }
                         pass.setPipeline(s.pipeline!);
                         pass.setBindGroup(0, geometry.group);
@@ -320,7 +321,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                         pass.dispatchWorkgroups(Math.ceil(size / 4), Math.ceil(size / 4));
                         slot.dirty = false;
                     }
-                    pass?.end();
+                    if (pass) endComputePass(pass);
                 },
             },
             placeDetails,
