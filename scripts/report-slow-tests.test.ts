@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { flakyTests, flakyWarning, slowTests, warningAnnotation } from "./report-slow-tests";
+import {
+    flakyTests,
+    flakyWarning,
+    slowBrowserTests,
+    slowTests,
+    warningAnnotation,
+} from "./report-slow-tests";
 
 test("recorded Playwright JSON warns for a flake with trace off and XML-like stdout", async () => {
     const json = await Bun.file(new URL("./browser-flaky.json", import.meta.url)).text();
@@ -11,6 +17,29 @@ test("recorded Playwright JSON warns for a flake with trace off and XML-like std
     );
     for (const status of ["expected", "unexpected", "skipped"])
         expect(flakyTests(json.replace('"status": "flaky"', `"status": "${status}"`))).toEqual([]);
+});
+
+test("recorded Playwright durations warn only above half the matching project's timeout", async () => {
+    const recorded = await Bun.file(new URL("./browser-flaky.json", import.meta.url)).text();
+    // The recorded retry's longest attempt is 229 ms; its test timeout stays 30 s.
+    const report = recorded.replace('"timeout": 30000', '"timeout": 456');
+    const slow = slowBrowserTests(report, "examples/minimal");
+    expect(slow).toEqual([
+        {
+            name: "retry-spike.e2e.ts › nested › retry spike",
+            file: "retry-spike.e2e.ts",
+            tier: "browser",
+            timeMs: 229,
+            budget: 456,
+            subject: "examples/minimal",
+        },
+    ]);
+    expect(warningAnnotation(slow[0]!, "Linux")).toBe(
+        '::warning title=Slow test%3A retry-spike.e2e.ts › nested › retry spike::subject "examples/minimal"; test "retry-spike.e2e.ts › nested › retry spike" took 229.00 ms; over half its Playwright project timeout 456 ms; host Linux; if it recurs on other runs, make it cheaper, split it or move it to a heavier tier; one slow runner needs nothing',
+    );
+    expect(
+        slowBrowserTests(report.replace('"timeout": 456', '"timeout": 458'), "examples/minimal"),
+    ).toEqual([]);
 });
 
 const report = `<?xml version="1.0"?>

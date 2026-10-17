@@ -12,6 +12,7 @@ export interface SlowTest {
     timeMs: number;
     budget: number;
     adapter?: string;
+    subject?: string;
 }
 
 function decodeXml(value: string): string {
@@ -143,6 +144,38 @@ export function slowTests(report: string, log = "", subject?: string): SlowTest[
     return slow;
 }
 
+export function slowBrowserTests(report: string, subject: string): SlowTest[] {
+    const json: JSONReport = JSON.parse(report);
+    const slow: SlowTest[] = [];
+    const visit = (suite: JSONReportSuite, parents: string[]): void => {
+        const titles = [...parents, suite.title];
+        for (const spec of suite.specs) {
+            for (const test of spec.tests) {
+                const project = json.config.projects.find(({ id }) => id === test.projectId);
+                if (!project || !Number.isFinite(project.timeout) || project.timeout < 0)
+                    throw new Error(`invalid Playwright project timeout: ${test.projectId}`);
+                const timeMs = Math.max(0, ...test.results.map(({ duration }) => duration));
+                if (timeMs <= project.timeout / 2) continue;
+                slow.push({
+                    name: [
+                        ...titles,
+                        spec.title,
+                        ...(test.projectName ? [test.projectName] : []),
+                    ].join(" › "),
+                    file: spec.file,
+                    tier: "browser",
+                    timeMs,
+                    budget: project.timeout,
+                    subject,
+                });
+            }
+        }
+        for (const child of suite.suites ?? []) visit(child, titles);
+    };
+    for (const suite of json.suites) visit(suite, []);
+    return slow;
+}
+
 export function flakyTests(report: string): string[] {
     const json: JSONReport = JSON.parse(report);
     const flaky: string[] = [];
@@ -183,8 +216,11 @@ const REMEDY =
 export function warningAnnotation(test: SlowTest, host: string): string {
     const duration = `${test.timeMs.toFixed(2)} ms`;
     const message = [
-        `${test.tier === "browser" ? "subject" : "test"} ${JSON.stringify(test.name)} took ${duration}`,
-        `over half its ${test.tier} speed budget ${test.budget} ms`,
+        ...(test.subject ? [`subject ${JSON.stringify(test.subject)}`] : []),
+        `${test.tier === "browser" && !test.subject ? "subject" : "test"} ${JSON.stringify(test.name)} took ${duration}`,
+        test.subject
+            ? `over half its Playwright project timeout ${test.budget} ms`
+            : `over half its ${test.tier} speed budget ${test.budget} ms`,
         `host ${host}`,
         ...(test.adapter ? [`adapter ${test.adapter}`] : []),
         REMEDY,
@@ -214,7 +250,10 @@ if (import.meta.main) {
                     console.log(warningAnnotation(test, host));
                 if (subject !== undefined) {
                     if (!jsonPath) throw new Error("missing Playwright JSON report");
-                    const flaky = flakyTests(await Bun.file(jsonPath).text());
+                    const json = await Bun.file(jsonPath).text();
+                    for (const test of slowBrowserTests(json, subject))
+                        console.log(warningAnnotation(test, host));
+                    const flaky = flakyTests(json);
                     for (const test of flaky) console.log(flakyWarning(test, subject, host));
                     if (flaky.length && process.env.GITHUB_OUTPUT)
                         appendFileSync(process.env.GITHUB_OUTPUT, "flaky=true\n");

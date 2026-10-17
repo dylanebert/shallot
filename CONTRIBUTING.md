@@ -182,7 +182,7 @@ bun run format                  # biome
 
 - Module promises are tested beside their owners and through public examples; test names state claims.
 - A change to an example also runs the engine tests that read it, `rg -l 'examples/<name>' src scripts diagnostics`, apart from manual oracles.
-- The engine owns its test ceilings and publishes them in [the `./testing` subpath](src/project/testing.js) alongside shared browser configuration; those ceilings are hang and runaway backstops, not performance targets. The same subpath publishes `BUDGET` for local iteration and `TIMEOUT`, which uses `CEILING` when `CI` is nonempty and tier budgets otherwise; startup always uses `CEILING.startup`. Local runs fail over budget; CI warns above half a budget, including a whole browser subject. Work warned on more than one run is made cheaper, split or moved to a heavier tier; a single slow run needs nothing.
+- The engine owns its test ceilings and publishes them in [the `./testing` subpath](src/project/testing.js) alongside shared browser configuration; those ceilings are hang and runaway backstops, not performance targets. The same subpath publishes `BUDGET` for local iteration and `TIMEOUT`, which uses `CEILING` when `CI` is nonempty and tier budgets otherwise; startup always uses `CEILING.startup`. Local runs fail over budget; CI warns above half a budget, including a whole browser subject, and for each browser test above half its project's recorded Playwright timeout. Work warned on more than one run is made cheaper, split or moved to a heavier tier; a single slow run needs nothing.
 
 | Tier | Files | Hang ceiling | Speed budget |
 |---|---|---|---|
