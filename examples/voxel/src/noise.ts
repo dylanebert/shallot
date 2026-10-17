@@ -40,7 +40,15 @@ export function faces(cx: number, cz: number, config: TerrainConfig, allFaces = 
         for (let x = cx * size; x < (cx + 1) * size; x++) {
             const h = height(x, z, config);
             if (allFaces) {
-                count += h * 6;
+                const lowestTop =
+                    Math.min(
+                        height(x + 1, z, config),
+                        height(x - 1, z, config),
+                        height(x, z + 1, config),
+                        height(x, z - 1, config),
+                    ) - 1;
+                const bottom = Math.max(0, Math.min(h - 1, lowestTop - 1));
+                count += (h - bottom) * 6;
                 continue;
             }
             count +=

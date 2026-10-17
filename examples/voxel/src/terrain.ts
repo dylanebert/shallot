@@ -55,6 +55,7 @@ export const Terrain: Resource<{
     slots: Slot[];
     counts: GPUBuffer | null;
     pipeline: GPUComputePipeline | null;
+    emitPass: GPUComputePassDescriptor;
     surface: Geometry[];
     revealed: Geometry[];
 }> = {
@@ -65,12 +66,12 @@ export const Terrain: Resource<{
         slots: [],
         counts: null,
         pipeline: null,
+        emitPass: { label: "voxel:emit" },
         surface: [],
         revealed: [],
     }),
 };
 const ZERO = new Uint32Array(1);
-const EMIT_PASS = { label: "voxel:emit" };
 
 function chunk(world: World, mesh: MeshHandle, material: MaterialHandle): number {
     const eid = world.create();
@@ -257,7 +258,10 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                         geometry.input[1] = slot.z;
                         geometry.input[2] = i;
                         world.gpu.device.queue.writeBuffer(geometry.uniform, 0, geometry.input);
-                        pass ??= world.frameEncoder()!.beginComputePass(EMIT_PASS);
+                        if (!pass) {
+                            s.emitPass.timestampWrites = world.gpu.span?.("voxel:emit");
+                            pass = world.frameEncoder()!.beginComputePass(s.emitPass);
+                        }
                         pass.setPipeline(s.pipeline!);
                         pass.setBindGroup(0, geometry.group);
                         pass.dispatchWorkgroups(size / 4, size / 4);

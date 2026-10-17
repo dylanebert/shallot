@@ -69,15 +69,27 @@ test("the full-face pool's area bound covers every ring assignment across a chun
     }
 });
 
-test("revealed chunks emit all six faces per solid voxel, within the height-derived capacity", () => {
+test("revealed chunks emit six faces per surface-band voxel, within the slope-derived capacity", () => {
     for (const chunk of chunks(config)) {
         let voxels = 0;
         for (let x = chunk.x * 8; x < (chunk.x + 1) * 8; x++)
             for (let z = chunk.z * 8; z < (chunk.z + 1) * 8; z++) {
-                for (let y = 0; y < config.height; y++) if (y < height(x, z, config)) voxels++;
+                const top = height(x, z, config) - 1;
+                const lowestTop =
+                    Math.min(
+                        height(x + 1, z, config),
+                        height(x - 1, z, config),
+                        height(x, z + 1, config),
+                        height(x, z - 1, config),
+                    ) - 1;
+                for (let y = 0; y < config.height; y++) {
+                    if (y <= top && (y >= lowestTop - 1 || y === top)) voxels++;
+                }
             }
         expect(faces(chunk.x, chunk.z, config, true)).toBe(voxels * 6);
         expect(faces(chunk.x, chunk.z, config, true)).toBeLessThan(capacity(config, true));
         expect(faces(chunk.x, chunk.z, config)).toBeLessThan(faces(chunk.x, chunk.z, config, true));
     }
+    expect(faces(0, 0, { ...config, relief: 0 }, true)).toBe(8 * 8 * 2 * 6);
+    expect(faces(0, 0, { ...config, height: 2, relief: 0 }, true)).toBe(8 * 8 * 6);
 });

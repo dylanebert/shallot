@@ -13,11 +13,11 @@ export function slotCount(config: TerrainConfig): number {
 }
 
 export function capacity(config: TerrainConfig, allFaces = false): number {
-    if (allFaces) return config.chunkSize ** 2 * Math.ceil(config.height / 2 + config.relief) * 6;
     // Unit-gradient Perlin has |derivative| < 8. Integer heights add at most one
     // face to that slope bound; each column emits top, bottom and four side strips.
     const slope = Math.ceil((8 * config.relief) / 32) + 1;
-    return config.chunkSize ** 2 * (2 + 4 * slope);
+    // The transition reaches one voxel below the lowest neighbouring top.
+    return config.chunkSize ** 2 * (allFaces ? 6 * (slope + 2) : 2 + 4 * slope);
 }
 
 export function chunkX(x: number, viewer: number, config: TerrainConfig): number {

@@ -89,7 +89,13 @@ export function mesher(config: TerrainConfig) {
                 const px = d.f32(x);
                 const pz = d.f32(z);
                 if (layout.$.chunk.w !== 0) {
-                    for (let y = d.i32(0); y < h; y++) {
+                    const lowestTop =
+                        std.min(
+                            std.min(height(wx + 1, wz), height(wx - 1, wz)),
+                            std.min(height(wx, wz + 1), height(wx, wz - 1)),
+                        ) - 1;
+                    const bottom = std.max(0, std.min(h - 1, lowestTop - 1));
+                    for (let y = bottom; y < h; y++) {
                         const py = d.f32(y);
                         quad(d.vec3f(px, py + 1, pz), d.vec3f(0, 0, 1), d.vec3f(1, 0, 0));
                         quad(d.vec3f(px, py, pz), d.vec3f(1, 0, 0), d.vec3f(0, 0, 1));
