@@ -113,7 +113,11 @@ function expectedJobs(templateFiles: string[]): string[] {
         .map((tier) => tier.name);
 }
 
-function assertProject(destination: string, templateFiles: string[]): void {
+function assertProject(
+    destination: string,
+    templateFiles: string[],
+    template = basename(destination),
+): void {
     for (const path of UNWANTED_FILES) expect(existsSync(join(destination, path))).toBe(false);
 
     const workflow = readFileSync(join(destination, ".github/workflows/test.yml"), "utf8");
@@ -124,12 +128,18 @@ function assertProject(destination: string, templateFiles: string[]): void {
 
     const manifest = JSON.parse(readFileSync(join(destination, "package.json"), "utf8"));
     expect(manifest.name).toBe(basename(destination));
-    expect(manifest.dependencies["@dylanebert/shallot"]).toBe(ENGINE.version);
-    expect(manifest.devDependencies["@types/bun"]).toBe(ENGINE.devDependencies["@types/bun"]);
-    expect(manifest.devDependencies.playwright).toBe(ENGINE.peerDependencies.playwright);
-    expect(manifest.devDependencies.vite).toBe(ENGINE.devDependencies.vite);
+    expect(manifest.dependencies["@dylanebert/shallot"], `${template}: @dylanebert/shallot`).toBe(
+        ENGINE.version,
+    );
+    expect(manifest.devDependencies["@types/bun"], `${template}: @types/bun`).toBe(
+        ENGINE.devDependencies["@types/bun"],
+    );
+    expect(manifest.devDependencies.playwright, `${template}: playwright`).toBe(
+        ENGINE.peerDependencies.playwright,
+    );
+    expect(manifest.devDependencies.vite, `${template}: vite`).toBe(ENGINE.devDependencies.vite);
     const hasComponents = templateFiles.some((file) => file.endsWith(".svelte"));
-    expect(manifest.scripts).toEqual({
+    expect(manifest.scripts, `${template}: scripts dev/build/preview/typecheck`).toEqual({
         dev: "vite --host 127.0.0.1",
         build: "vite build",
         preview: "vite preview --host 127.0.0.1",
@@ -156,7 +166,7 @@ function assertProject(destination: string, templateFiles: string[]): void {
         .filter((file) => /\.(?:[cm]?[jt]sx?|html|svelte)$/.test(file))
         .map((file) => readFileSync(join(destination, file), "utf8"))
         .join("\n");
-    expect(manifest.devDependencies.webgpu).toBe(
+    expect(manifest.devDependencies.webgpu, `${template}: webgpu`).toBe(
         source.includes("@dylanebert/shallot/webgpu") ||
             source.includes("@dylanebert/shallot/testing/gpu")
             ? ENGINE.peerDependencies.webgpu
@@ -168,26 +178,33 @@ function assertProject(destination: string, templateFiles: string[]): void {
                 /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["']([^"'./][^"']*)["']/g,
             ),
         ].some((match) => match[1] === dependency || match[1]?.startsWith(`${dependency}/`));
-        expect(manifest.devDependencies[dependency]).toBe(
+        expect(manifest.devDependencies[dependency], `${template}: ${dependency}`).toBe(
             imports ? ENGINE.devDependencies[dependency] : undefined,
         );
     }
-    expect(manifest.devDependencies["svelte-check"]).toBe(
+    expect(manifest.devDependencies["svelte-check"], `${template}: svelte-check`).toBe(
         hasComponents ? ENGINE.devDependencies["svelte-check"] : undefined,
     );
-    expect(manifest.devDependencies.typegpu).toBe(
+    expect(manifest.devDependencies.typegpu, `${template}: typegpu`).toBe(
         /(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']typegpu(?:\/[^"']*)?["']/.test(source)
             ? ENGINE.peerDependencies.typegpu
             : undefined,
     );
 }
 
+test("each shipped scaffold's manifest derives from its template", () => {
+    for (const template of readdirSync(join(ROOT, "examples"))) {
+        const destination = join(SCRATCH, `manifest-${template}`);
+        expect(runCreate([destination, "--template", template])).toBe(0);
+        assertProject(destination, files(join(ROOT, "examples", template)), template);
+    }
+});
+
 test("every shipped scaffold owns the replaceable standard favicon and HTML link", () => {
     const standard = readFileSync(join(ROOT, "examples/minimal/public/icon.svg"));
     for (const template of readdirSync(join(ROOT, "examples"))) {
         const destination = join(SCRATCH, `icon-${template}`);
         expect(runCreate([destination, "--template", template])).toBe(0);
-        assertProject(destination, files(join(ROOT, "examples", template)));
         expect(readFileSync(join(destination, "public/icon.svg"))).toEqual(standard);
         expect(readFileSync(join(destination, "index.html"), "utf8")).toContain(
             'rel="icon" type="image/svg+xml" href="/icon.svg"',
@@ -215,7 +232,7 @@ test("create copies each first-person template file unchanged except the project
                 : original,
         );
     }
-    assertProject(destination, FIRST_PERSON_TEMPLATE_FILES);
+    assertProject(destination, FIRST_PERSON_TEMPLATE_FILES, "first-person");
 });
 
 test("create refuses an occupied destination without changing it", () => {
@@ -311,7 +328,7 @@ test("create detects conditional imports in inline module scripts", () => {
     ).toBe(0);
     const manifest = JSON.parse(readFileSync(join(destination, "package.json"), "utf8"));
     expect(manifest.devDependencies.typegpu).toBe(ENGINE.peerDependencies.typegpu);
-    assertProject(destination, ["index.html"]);
+    assertProject(destination, ["index.html"], "html-import");
 });
 
 test("an unknown template names installed examples and their descriptions", () => {
