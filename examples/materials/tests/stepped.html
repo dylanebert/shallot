@@ -57,10 +57,11 @@ window.boxes=()=>{
  };
 };
 window.advance=async(seconds)=>{
+ // Both shaders read elapsed frame time; no intermediate image is observed.
  for(let elapsed=0;elapsed<seconds;){
-  const delta=Math.min(1/60,seconds-elapsed);
+  const delta=Math.min(4/60,seconds-elapsed);
   world.step(delta);
-  await world.gpu.device.queue.onSubmittedWorkDone();
+  await world.frameFence;
   elapsed+=delta;
  }
 };
