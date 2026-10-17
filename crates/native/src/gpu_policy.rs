@@ -34,15 +34,15 @@ pub fn configure_linux(
     });
     match platform {
         "wayland" => {
-            // ANGLE Vulkan avoids Wayland stalls; its X11 configs can lack the ARGB root visual.
+            // ANGLE Vulkan avoids Wayland stalls, but its X11 configs can lack Chromium's ARGB visual.
             cmd.append_switch_with_value(
                 Some(&CefString::from("use-angle")),
                 Some(&CefString::from("vulkan")),
             );
         }
         "x11" if hardware => {
-            // This CEF build gates native GL/WebGPU interop at compile time. Vulkan composition
-            // supplies the Vulkan provider required by the hardware WebGPU decoder instead.
+            // Vulkan composition supplies the provider needed for hardware WebGPU without
+            // ANGLE Vulkan's X11 visual mismatch.
             // FeatureList gives disables precedence, so remove only Vulkan's disable entry.
             for (switch, enable) in [("disable-features", false), ("enable-features", true)] {
                 let key = CefString::from(switch);
