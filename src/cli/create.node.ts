@@ -128,10 +128,12 @@ function assertProject(destination: string, templateFiles: string[]): void {
     expect(manifest.devDependencies["@types/bun"]).toBe(ENGINE.devDependencies["@types/bun"]);
     expect(manifest.devDependencies.playwright).toBe(ENGINE.peerDependencies.playwright);
     expect(manifest.devDependencies.vite).toBe(ENGINE.devDependencies.vite);
+    const hasComponents = templateFiles.some((file) => file.endsWith(".svelte"));
     expect(manifest.scripts).toEqual({
         dev: "vite --host 127.0.0.1",
         build: "vite build",
         preview: "vite preview --host 127.0.0.1",
+        ...(hasComponents ? { typecheck: "svelte-check" } : {}),
     });
     expect(readFileSync(join(destination, "bunfig.toml"), "utf8")).toBe(
         '[test]\npreload = ["./tests/preload.ts"]\n',
@@ -151,7 +153,7 @@ function assertProject(destination: string, templateFiles: string[]): void {
     expect(readme).not.toContain("publish targets");
 
     const source = files(destination)
-        .filter((file) => /\.(?:[cm]?[jt]sx?|html)$/.test(file))
+        .filter((file) => /\.(?:[cm]?[jt]sx?|html|svelte)$/.test(file))
         .map((file) => readFileSync(join(destination, file), "utf8"))
         .join("\n");
     expect(manifest.devDependencies.webgpu).toBe(
@@ -159,6 +161,19 @@ function assertProject(destination: string, templateFiles: string[]): void {
             source.includes("@dylanebert/shallot/testing/gpu")
             ? ENGINE.peerDependencies.webgpu
             : undefined,
+    );
+    for (const dependency of ["svelte", "@sveltejs/vite-plugin-svelte"]) {
+        const imports = [
+            ...source.matchAll(
+                /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["']([^"'./][^"']*)["']/g,
+            ),
+        ].some((match) => match[1] === dependency || match[1]?.startsWith(`${dependency}/`));
+        expect(manifest.devDependencies[dependency]).toBe(
+            imports ? ENGINE.devDependencies[dependency] : undefined,
+        );
+    }
+    expect(manifest.devDependencies["svelte-check"]).toBe(
+        hasComponents ? ENGINE.devDependencies["svelte-check"] : undefined,
     );
     expect(manifest.devDependencies.typegpu).toBe(
         /(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']typegpu(?:\/[^"']*)?["']/.test(source)
@@ -172,6 +187,7 @@ test("every shipped scaffold owns the replaceable standard favicon and HTML link
     for (const template of readdirSync(join(ROOT, "examples"))) {
         const destination = join(SCRATCH, `icon-${template}`);
         expect(runCreate([destination, "--template", template])).toBe(0);
+        assertProject(destination, files(join(ROOT, "examples", template)));
         expect(readFileSync(join(destination, "public/icon.svg"))).toEqual(standard);
         expect(readFileSync(join(destination, "index.html"), "utf8")).toContain(
             'rel="icon" type="image/svg+xml" href="/icon.svg"',
