@@ -138,8 +138,8 @@ import { resolve } from "node:path";
 const manifest = JSON.parse(readFileSync(resolve(import.meta.dir, "node_modules/@dylanebert/shallot/package.json"), "utf8"));
 
 test("the packed engine exposes no test-support namespace or capture helpers", () => {
-    // ./testing is the published test policy; only the retired harness and testing/* namespaces are refused.
-    expect(Object.keys(manifest.exports).some((path) => /^\\.\\/(?:harness(?:\\/|$)|testing\\/)/.test(path))).toBe(false);
+    // ./testing and ./testing/gpu are the published test policy and opener; the retired harness and other testing/* namespaces are refused.
+    expect(Object.keys(manifest.exports).some((path) => path !== "./testing/gpu" && /^\\.\\/(?:harness(?:\\/|$)|testing\\/)/.test(path))).toBe(false);
     expect(existsSync(resolve(import.meta.dir, "node_modules/@dylanebert/shallot/src/harness"))).toBe(false);
     expect("captureArtifact" in Rendering).toBe(false);
     expect("captureIdentityLabel" in Rendering).toBe(false);
