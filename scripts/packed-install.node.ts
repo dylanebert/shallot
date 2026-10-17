@@ -253,6 +253,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         "particles",
         "save-and-load",
         "sound",
+        "voxel",
         "world-ui",
     ]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
@@ -273,6 +274,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.stdout.toString()).toContain("examples/world-ui/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/save-and-load/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/particles/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/voxel/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/lit-interior/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/materials/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
@@ -296,6 +298,7 @@ type Example =
     | "world-ui"
     | "save-and-load"
     | "particles"
+    | "voxel"
     | "lit-interior"
     | "materials";
 
@@ -354,7 +357,7 @@ function assertCreatedExample(name: Example): void {
     expect(manifest.devDependencies.playwright).toBe(rootPackage.peerDependencies.playwright);
     expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
     expect(manifest.devDependencies.typegpu).toBe(
-        name === "materials" || name === "particles"
+        name === "materials" || name === "particles" || name === "voxel"
             ? rootPackage.peerDependencies.typegpu
             : undefined,
     );
@@ -364,7 +367,8 @@ function assertCreatedExample(name: Example): void {
             name === "save-and-load" ||
             name === "materials" ||
             name === "particles" ||
-            name === "city"
+            name === "city" ||
+            name === "voxel"
             ? rootPackage.peerDependencies.webgpu
             : undefined,
     );
@@ -391,6 +395,7 @@ for (const name of [
     "world-ui",
     "save-and-load",
     "particles",
+    "voxel",
     "lit-interior",
     "sound",
     "materials",

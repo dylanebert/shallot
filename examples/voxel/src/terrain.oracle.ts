@@ -1,15 +1,14 @@
 import { setDefaultTimeout, test } from "bun:test";
-import { createApp, Meshes } from "@dylanebert/shallot";
+import { Meshes } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { openGpuApp } from "../tests/gpu-app";
 import { Terrain, TerrainPlugin } from "./terrain";
 import { CONFIG } from "./terrain-data";
 
 setDefaultTimeout(TIMEOUT.node);
 test("report the shipped terrain's fenced step time without a performance assertion", async () => {
-    await setupGlobals();
-    const app = await createApp({ plugins: [TerrainPlugin] });
+    const app = await openGpuApp({ plugins: [TerrainPlugin] });
     try {
         const { world } = app;
         const terrain = world.resource(Terrain);
