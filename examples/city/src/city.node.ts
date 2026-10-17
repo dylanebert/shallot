@@ -12,7 +12,7 @@ test("layout is seeded, nonempty and composed from the bounded kit", () => {
     expect(a).toHaveLength(POPULATION);
     expect(layout(SEED, POPULATION)).toEqual(a);
     expect(layout(SEED + 1, POPULATION)).not.toEqual(a);
-    expect(new Set(a.map((p) => p.part))).toEqual(new Set(["block"]));
+    expect(new Set(a.map((p) => p.part))).toEqual(new Set(["block", "dome"]));
     expect(new Set(a.map((p) => p.material)).size).toBe(COLORS.length);
 });
 test("doubling parts preserves kit sizes and a fixed camera draws buildings across the centre", async () => {
@@ -23,7 +23,17 @@ test("doubling parts preserves kit sizes and a fixed camera draws buildings acro
             const { world } = app;
             console.info("city adapter", world.gpu.adapter);
             expect([...world.query([MeshInstance])]).toHaveLength(layout(SEED, population).length);
-            expect(world.resource(Meshes).size).toBe(1);
+            expect(world.resource(Meshes).size).toBe(2);
+            const groups = new Map<number, number>();
+            for (const eid of world.query([MeshInstance])) {
+                const mesh = world.storage(MeshInstance).mesh.get(eid);
+                groups.set(mesh, (groups.get(mesh) ?? 0) + 1);
+            }
+            expect(groups.size).toBe(2);
+            expect([...groups.values()].sort((a, b) => a - b)).toEqual([
+                layout(SEED, population).filter((p) => p.part === "dome").length,
+                layout(SEED, population).filter((p) => p.part === "block").length,
+            ]);
             // Row zero is the renderer's built-in default material.
             expect(world.resource(Materials).table.highWater).toBe(COLORS.length + 1);
             const camera = world.resource(City).camera;

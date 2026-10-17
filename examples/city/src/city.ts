@@ -4,12 +4,15 @@ import {
     GlobalAmbientLight,
     lookAtRotation,
     Materials,
+    Meshes,
+    type MeshHandle,
     MeshInstance,
     MeshMaterial,
     type Plugin,
     type Resource,
     StandardMaterial,
     StandardRenderer,
+    sphere,
     Transform,
     type World,
 } from "@dylanebert/shallot";
@@ -27,14 +30,19 @@ export const COLORS = [
 ] as const;
 export const City: Resource<{ camera: number }> = { create: () => ({ camera: 0 }) };
 
-function spawn(world: World, placement: Placement, materials: MaterialHandle[]): number {
+function spawn(
+    world: World,
+    placement: Placement,
+    dome: MeshHandle,
+    materials: MaterialHandle[],
+): number {
     const eid = world.create();
     world.add(eid, Transform, {
         translation: placement.translation,
         rotation: [0, Math.sin(placement.yaw / 2), 0, Math.cos(placement.yaw / 2)],
         scale: placement.scale,
     });
-    world.add(eid, MeshInstance);
+    world.add(eid, MeshInstance, placement.part === "dome" ? { mesh: dome } : {});
     world.add(eid, MeshMaterial, materials[placement.material]);
     return eid;
 }
@@ -49,7 +57,11 @@ export function cityPlugin(seed = SEED, population = POPULATION): Plugin {
                     .resource(Materials)
                     .add(StandardMaterial({ baseColor, perceptualRoughness: 0.7 })),
             );
-            for (const placement of layout(seed, population)) spawn(world, placement, materials);
+            const dome = world
+                .resource(Meshes)
+                .add({ name: "rooftop dome", ...sphere(0.5, 12, 6) });
+            for (const placement of layout(seed, population))
+                spawn(world, placement, dome, materials);
             Object.assign(world.resource(GlobalAmbientLight), { color: 0xd8e4ff, brightness: 380 });
             const sun = world.create();
             world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, 1, -2, -0.35) });
@@ -57,13 +69,13 @@ export function cityPlugin(seed = SEED, population = POPULATION): Plugin {
                 color: 0xffe8cc,
                 illuminance: 6000,
                 shadowMapsEnabled: 1,
-                maximumDistance: 600,
+                maximumDistance: 1000,
             });
             const camera = world.create();
             world.add(camera, Camera, { clearColor: 0x191816, far: 2000 });
             world.add(camera, StandardRenderer);
             world.add(camera, Transform);
-            world.add(camera, Orbit, { distance: 260, yaw: 0.65, pitch: 0.6, flySpeed: 35 });
+            world.add(camera, Orbit, { distance: 520, yaw: 0.65, pitch: 0.6, flySpeed: 35 });
             world.resource(City).camera = camera;
         },
     };

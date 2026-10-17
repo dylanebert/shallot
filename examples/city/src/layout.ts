@@ -1,7 +1,7 @@
 export const SEED = 173;
-export const POPULATION = 4096;
+export const POPULATION = 16384;
 export type Placement = {
-    part: "block";
+    part: "block" | "dome";
     material: number;
     translation: [number, number, number];
     yaw: number;
@@ -65,11 +65,11 @@ export function layout(seed: number, population: number): Placement[] {
                 scale: [width + 1, 0.8, depth + 1],
             },
             {
-                part: "block",
-                material: 2,
-                translation: [x, height + 1, z],
+                part: "dome",
+                material: accent,
+                translation: [x, height + 0.5, z],
                 yaw,
-                scale: [width * 0.4, 1, depth * 0.4],
+                scale: [width * 0.65, 3, depth * 0.65],
             },
         ];
         result.push(...parts.slice(0, population - result.length));
