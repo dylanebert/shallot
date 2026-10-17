@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { type createApp, Meshes, probeBuffer } from "@dylanebert/shallot";
+import { type createApp, Meshes, MeshInstance, probeBuffer } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "../tests/gpu-app";
 import { faces } from "./noise";
 import { Terrain, terrainPlugin } from "./terrain";
-import { slotCount, type TerrainConfig } from "./terrain-data";
+import { inRing, slotCount, type TerrainConfig } from "./terrain-data";
 
 setDefaultTimeout(TIMEOUT.node);
 const config: TerrainConfig = { chunkSize: 8, viewDistance: 1, height: 16, relief: 4 };
@@ -25,8 +25,12 @@ async function countsMatch() {
     expect(s.slots).toHaveLength(slotCount(config));
     // MeshPlugin's built-in cube is registered even when no entity draws it.
     expect(world.resource(Meshes).size).toBe(s.slots.length + 1);
-    for (const [i, slot] of s.slots.entries())
-        expect(counts[i] / 6).toBe(faces(slot.x, slot.z, config));
+    expect(new Set(s.slots.map((slot) => slot.geometry!.allFaces))).toEqual(new Set([false, true]));
+    for (const [i, slot] of s.slots.entries()) {
+        expect(slot.geometry!.allFaces).toBe(inRing(slot.x, slot.z, s.viewer, config));
+        expect(counts[i] / 6).toBe(faces(slot.x, slot.z, config, slot.geometry!.allFaces));
+        expect(counts[i]).toBeLessThan(slot.geometry!.mesh.indexCount);
+    }
 }
 
 test("small-world GPU counts match the oracle after fixed ticks and streaming; 100 warm turnovers create no buffers or bind groups", async () => {
@@ -35,12 +39,21 @@ test("small-world GPU counts match the oracle after fixed ticks and streaming; 1
     for (let i = 0; i < 120; i++) world.tick();
     world.step(0);
     await countsMatch();
+    const coordinates = s.slots.map((slot) => slot.x);
+    const rules = s.slots.map((slot) => slot.geometry!.allFaces);
+    s.viewer += config.chunkSize / 2;
+    world.tick();
+    world.step(0);
+    expect(s.slots.map((slot) => slot.x)).toEqual(coordinates);
+    expect(s.slots.some((slot, i) => slot.geometry!.allFaces !== rules[i])).toBe(true);
+    await countsMatch();
     for (let i = 0; i < 4; i++) {
         s.viewer += config.chunkSize;
         world.tick();
         world.step(0);
         await world.gpu.sync();
     }
+    const snapshot = world.snapshot();
     const start = s.turnovers;
     const buffers = spyOn(world.gpu.device, "createBuffer");
     const groups = spyOn(world.gpu.device, "createBindGroup");
@@ -59,4 +72,9 @@ test("small-world GPU counts match the oracle after fixed ticks and streaming; 1
         groups.mockRestore();
     }
     await countsMatch();
+    world.restore(snapshot);
+    world.step(0);
+    await countsMatch();
+    for (const slot of s.slots)
+        expect(world.storage(MeshInstance).mesh.get(slot.eid)).toBe(slot.instance.mesh);
 });

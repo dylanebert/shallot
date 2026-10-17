@@ -1,10 +1,10 @@
 import { setDefaultTimeout, test } from "bun:test";
-import { Meshes } from "@dylanebert/shallot";
+import { Meshes, probeBuffer } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "../tests/gpu-app";
 import { Terrain, TerrainPlugin } from "./terrain";
-import { CONFIG } from "./terrain-data";
+import { CONFIG, capacity, ringSlots, slotCount } from "./terrain-data";
 
 setDefaultTimeout(TIMEOUT.node);
 test("report the shipped terrain's fenced step time without a performance assertion", async () => {
@@ -24,12 +24,21 @@ test("report the shipped terrain's fenced step time without a performance assert
             world.step(1 / 60);
             await world.gpu.sync();
         }
+        const meanFencedStepMs = (performance.now() - start) / frames;
+        const indices = new Uint32Array((await probeBuffer(world, terrain.counts!)).bytes);
+        const reservedGeometryBytes =
+            (slotCount(CONFIG) * capacity(CONFIG) + ringSlots(CONFIG) * capacity(CONFIG, true)) *
+                136 +
+            (slotCount(CONFIG) + ringSlots(CONFIG)) * 16;
         console.log({
             adapter: world.gpu.adapter,
             config: CONFIG,
             resolution: "1280x720 offscreen",
             frames,
-            meanFencedStepMs: (performance.now() - start) / frames,
+            meanFencedStepMs,
+            reservedGeometryBytes,
+            transitionChunks: terrain.slots.filter((slot) => slot.geometry!.allFaces).length,
+            emittedFaces: indices.reduce((sum, count) => sum + count / 6, 0),
             loadedChunks: terrain.slots.length,
             meshes: world.resource(Meshes).size,
             turnovers: terrain.turnovers - turnovers,

@@ -14,7 +14,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { Sky, SkyPlugin, skyBackgroundHandle } from "@dylanebert/shallot/extras";
-import { type Mesh, type MeshHandle, MeshPlugin, MeshQuant } from "@dylanebert/shallot/mesh";
+import { type MeshHandle, MeshPlugin, MeshQuant } from "@dylanebert/shallot/mesh";
 import {
     CameraBackground,
     type MaterialHandle,
@@ -25,12 +25,15 @@ import {
 import * as d from "typegpu/data";
 import { TerrainMaterial, TerrainMaterialPlugin } from "./material";
 import { mesher } from "./mesher";
+import { type Geometry, pool } from "./pool";
 import {
     CONFIG,
-    capacity,
     chunks,
     translation as chunkTranslation,
     chunkX,
+    inRing,
+    radii,
+    ringSlots,
     SPEED,
     slotCount,
     type TerrainConfig,
@@ -41,10 +44,8 @@ type Slot = {
     z: number;
     eid: number;
     instance: { mesh: MeshHandle };
-    mesh: Mesh;
-    uniform: GPUBuffer;
-    input: Int32Array;
-    group: GPUBindGroup;
+    geometry: Geometry | null;
+    registered: boolean;
     dirty: boolean;
 };
 export const Terrain: Resource<{
@@ -54,8 +55,19 @@ export const Terrain: Resource<{
     slots: Slot[];
     counts: GPUBuffer | null;
     pipeline: GPUComputePipeline | null;
+    surface: Geometry[];
+    revealed: Geometry[];
 }> = {
-    create: () => ({ viewer: 0, camera: 0, turnovers: 0, slots: [], counts: null, pipeline: null }),
+    create: () => ({
+        viewer: 0,
+        camera: 0,
+        turnovers: 0,
+        slots: [],
+        counts: null,
+        pipeline: null,
+        surface: [],
+        revealed: [],
+    }),
 };
 const ZERO = new Uint32Array(1);
 const EMIT_PASS = { label: "voxel:emit" };
@@ -72,17 +84,38 @@ function place(world: World, config: TerrainConfig): void {
     const s = world.resource(Terrain);
     const meshes = world.resource(Meshes);
     const translation = world.storage(Transform).translation;
+    // Return all changing geometry before borrowing, including after a distant restore.
     for (const slot of s.slots) {
         const x = chunkX(slot.x, s.viewer, config);
-        if (x !== slot.x) {
+        const allFaces = inRing(x, slot.z, s.viewer, config);
+        const geometry = slot.geometry!;
+        const moved = x !== slot.x;
+        if (moved || allFaces !== geometry.allFaces) {
             world.remove(slot.eid, MeshInstance);
             meshes.remove(slot.instance.mesh);
-            slot.instance.mesh = meshes.add(slot.mesh);
-            world.add(slot.eid, MeshInstance, slot.instance);
-            slot.x = x;
+            slot.registered = false;
+            if (allFaces !== geometry.allFaces) {
+                (geometry.allFaces ? s.revealed : s.surface).push(geometry);
+                slot.geometry = null;
+            }
             slot.dirty = true;
-            resetInterpolation(world, slot.eid);
-            s.turnovers++;
+            if (moved) {
+                resetInterpolation(world, slot.eid);
+                s.turnovers++;
+            }
+            slot.x = x;
+        }
+    }
+    for (let i = 0; i < s.slots.length; i++) {
+        const slot = s.slots[i];
+        if (!slot.registered) {
+            slot.geometry ??=
+                (inRing(slot.x, slot.z, s.viewer, config) ? s.revealed : s.surface).pop() ?? null;
+            if (!slot.geometry) throw new Error("voxel transition geometry pool exhausted");
+            slot.geometry.mesh.indirectIndexCount!.offset = i * 4;
+            slot.instance.mesh = meshes.add(slot.geometry.mesh);
+            world.add(slot.eid, MeshInstance, slot.instance);
+            slot.registered = true;
         }
         translation.set(
             slot.eid,
@@ -94,11 +127,9 @@ function place(world: World, config: TerrainConfig): void {
 }
 
 export function terrainPlugin(config: TerrainConfig): Plugin {
-    const Chunk = config.chunkSize;
-    const Capacity = capacity(config);
-    const Slots = slotCount(config);
-    const span = (config.viewDistance * 2 + 1) * Chunk;
-    const camera = [span * 0.72, span * 0.68, span * 0.9] as const;
+    const size = config.chunkSize;
+    const span = (config.viewDistance * 2 + 1) * size;
+    const camera = [span * 0.5, span * 0.48, span * 0.63] as const;
     return {
         name: "Terrain",
         gpu: {},
@@ -119,77 +150,54 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 const terrain = world.resource(Terrain);
                 terrain.viewer = saved.viewer;
                 place(world, config);
+                const instances = world.storage(MeshInstance).mesh;
+                for (const slot of terrain.slots) {
+                    instances.set(slot.eid, slot.instance.mesh);
+                    slot.dirty = true;
+                }
                 terrain.turnovers = saved.turnovers;
             },
         }),
         initialize(world) {
             const s = world.resource(Terrain);
             const { device, root } = world.gpu;
-            const buffer = (size: number, usage: GPUBufferUsageFlags) => {
-                const value = device.createBuffer({ size, usage });
-                world.own(value);
-                return value;
-            };
-            s.counts = buffer(
-                Slots * 4,
-                GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-            );
-            const q = buffer(48, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+            s.counts = device.createBuffer({
+                size: slotCount(config) * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+            });
+            world.own(s.counts);
+            const q = device.createBuffer({
+                size: 48,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+            world.own(q);
             const { emit, quantData } = mesher(config);
             device.queue.writeBuffer(q, 0, quantData);
             const quant = root.createBuffer(d.arrayOf(MeshQuant, 1), q).$usage("storage");
             s.pipeline = root.unwrap(
                 root.createComputePipeline({ compute: emit }).$name("voxel:emit"),
             );
-            const material = world.resource(TerrainMaterial).add(TerrainMaterial.defaults!);
+            s.surface = pool(world, config, s.counts, quant, s.pipeline, slotCount(config), false);
+            s.revealed = pool(world, config, s.counts, quant, s.pipeline, ringSlots(config), true);
+            const { inner, outer } = radii(config);
+            const material = world
+                .resource(TerrainMaterial)
+                .add({ ...TerrainMaterial.defaults!, inner, outer });
             for (const { x, z } of chunks(config)) {
                 const i = s.slots.length;
-                const vertices = buffer(Capacity * 4 * 16, GPUBufferUsage.STORAGE);
-                const position = buffer(Capacity * 4 * 8, GPUBufferUsage.STORAGE);
-                const indices = buffer(
-                    Capacity * 6 * 4,
-                    GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX,
-                );
-                const uniform = buffer(16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-                const mesh: Mesh = {
-                    name: "chunk",
-                    vertices: root
-                        .createBuffer(d.arrayOf(d.vec4u, Capacity * 4), vertices)
-                        .$usage("storage"),
-                    position: root
-                        .createBuffer(d.arrayOf(d.vec2u, Capacity * 4), position)
-                        .$usage("storage"),
-                    indices: root
-                        .createBuffer(d.arrayOf(d.u32, Capacity * 6), indices)
-                        .$usage("storage", "index"),
-                    quant,
-                    indexBase: 0,
-                    indexCount: Capacity * 6,
-                    indirectIndexCount: { buffer: s.counts, offset: i * 4 },
-                    bounds: [
-                        Chunk / 2,
-                        config.height / 2,
-                        Chunk / 2,
-                        Math.hypot(Chunk, config.height, Chunk) / 2,
-                    ],
-                };
-                const handle = world.resource(Meshes).add(mesh);
+                const geometry = (inRing(x, z, s.viewer, config) ? s.revealed : s.surface).pop();
+                if (!geometry)
+                    throw new Error("voxel transition geometry pool exhausted at startup");
+                geometry.mesh.indirectIndexCount!.offset = i * 4;
+                const handle = world.resource(Meshes).add(geometry.mesh);
                 const eid = chunk(world, handle, material);
-                const group = device.createBindGroup({
-                    layout: s.pipeline.getBindGroupLayout(0),
-                    entries: [vertices, position, indices, s.counts, uniform].map(
-                        (buffer, binding) => ({ binding, resource: { buffer } }),
-                    ),
-                });
                 s.slots.push({
                     x,
                     z,
                     eid,
                     instance: { mesh: handle },
-                    mesh,
-                    uniform,
-                    input: new Int32Array([x, z, i, 0]),
-                    group,
+                    geometry,
+                    registered: true,
                     dirty: true,
                 });
             }
@@ -203,8 +211,8 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 color: 0xffe8cc,
                 illuminance: 8000,
                 shadowMapsEnabled: 1,
-                maximumDistance: span * 2.5,
-                firstCascadeFarBound: span,
+                maximumDistance: span * 1.65,
+                firstCascadeFarBound: span * 0.625,
                 depthBias: 0.04,
                 shadowNormalBias: 1,
             });
@@ -243,14 +251,16 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                     for (let i = 0; i < s.slots.length; i++) {
                         const slot = s.slots[i];
                         if (!slot.dirty) continue;
+                        const geometry = slot.geometry!;
                         world.gpu.device.queue.writeBuffer(s.counts!, i * 4, ZERO);
-                        slot.input[0] = slot.x;
-                        slot.input[1] = slot.z;
-                        world.gpu.device.queue.writeBuffer(slot.uniform, 0, slot.input);
+                        geometry.input[0] = slot.x;
+                        geometry.input[1] = slot.z;
+                        geometry.input[2] = i;
+                        world.gpu.device.queue.writeBuffer(geometry.uniform, 0, geometry.input);
                         pass ??= world.frameEncoder()!.beginComputePass(EMIT_PASS);
                         pass.setPipeline(s.pipeline!);
-                        pass.setBindGroup(0, slot.group);
-                        pass.dispatchWorkgroups(Chunk / 4, Chunk / 4);
+                        pass.setBindGroup(0, geometry.group);
+                        pass.dispatchWorkgroups(size / 4, size / 4);
                         slot.dirty = false;
                     }
                     pass?.end();

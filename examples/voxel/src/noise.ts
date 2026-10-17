@@ -33,12 +33,16 @@ export function height(x: number, z: number, config: TerrainConfig): number {
 }
 
 // Scalar oracle: no producer grid, packed stream or GPU helper enters this count.
-export function faces(cx: number, cz: number, config: TerrainConfig): number {
+export function faces(cx: number, cz: number, config: TerrainConfig, allFaces = false): number {
     let count = 0;
     const size = config.chunkSize;
     for (let z = cz * size; z < (cz + 1) * size; z++) {
         for (let x = cx * size; x < (cx + 1) * size; x++) {
             const h = height(x, z, config);
+            if (allFaces) {
+                count += h * 6;
+                continue;
+            }
             count +=
                 2 +
                 Math.max(0, h - height(x + 1, z, config)) +

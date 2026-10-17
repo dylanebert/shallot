@@ -10,12 +10,16 @@ const layout = tgpu.bindGroupLayout({
     vertices: { storage: d.arrayOf(d.vec4u), access: "mutable" },
     position: { storage: d.arrayOf(d.vec2u), access: "mutable" },
     indices: { storage: d.arrayOf(d.u32), access: "mutable" },
+    voxel: { storage: d.arrayOf(d.u32), access: "mutable" },
     counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
     chunk: { uniform: d.vec4i },
 });
 export function mesher(config: TerrainConfig) {
+    if (config.chunkSize > 256 || config.height > 256)
+        throw new Error("voxel packed centres require chunkSize and height at most 256");
     const Chunk = config.chunkSize;
     const Capacity = capacity(config);
+    const fullCapacity = capacity(config, true);
     const Height = config.height;
     const Relief = config.relief;
     const height = tgpu.fn(
@@ -37,14 +41,27 @@ export function mesher(config: TerrainConfig) {
     )((origin, u, v) => {
         "use gpu";
         const index = std.atomicAdd(layout.$.counts[d.u32(layout.$.chunk.z)], 6);
-        if (index >= Capacity * 6) return;
+        let limit = d.u32(Capacity * 6);
+        if (layout.$.chunk.w !== 0) limit = d.u32(fullCapacity * 6);
+        if (index >= limit) return;
         const vertex = d.u32(index / d.u32(6)) * d.u32(4);
-        const normal = octEncodeNormal(std.normalize(std.cross(u, v)));
+        const direction = std.normalize(std.cross(u, v));
+        const normal = octEncodeNormal(direction);
+        const center = std.floor(origin.add(u.mul(0.5)).add(v.mul(0.5)).sub(direction.mul(0.5)));
+        let face = d.u32(0);
+        if (direction.x < 0) face = d.u32(1);
+        if (direction.y > 0) face = d.u32(2);
+        if (direction.y < 0) face = d.u32(3);
+        if (direction.z > 0) face = d.u32(4);
+        if (direction.z < 0) face = d.u32(5);
+        const voxel =
+            d.u32(center.x) | (d.u32(center.y) << 8) | (d.u32(center.z) << 16) | (face << 24);
         for (let i = d.u32(0); i < 4; i++) {
             const p = origin
                 .add(u.mul(std.select(d.f32(0), d.f32(1), i === 1 || i === 2)))
                 .add(v.mul(std.select(d.f32(0), d.f32(1), i >= 2)));
             const packed = encodePos(p, 0, quant);
+            layout.$.voxel[vertex + i] = voxel;
             layout.$.position[vertex + i] = d.vec2u(packed);
             layout.$.vertices[vertex + i] = d.vec4u(
                 packed.x,
@@ -71,6 +88,18 @@ export function mesher(config: TerrainConfig) {
                 const h = height(wx, wz);
                 const px = d.f32(x);
                 const pz = d.f32(z);
+                if (layout.$.chunk.w !== 0) {
+                    for (let y = d.i32(0); y < h; y++) {
+                        const py = d.f32(y);
+                        quad(d.vec3f(px, py + 1, pz), d.vec3f(0, 0, 1), d.vec3f(1, 0, 0));
+                        quad(d.vec3f(px, py, pz), d.vec3f(1, 0, 0), d.vec3f(0, 0, 1));
+                        quad(d.vec3f(px + 1, py, pz), d.vec3f(0, 1, 0), d.vec3f(0, 0, 1));
+                        quad(d.vec3f(px, py, pz), d.vec3f(0, 0, 1), d.vec3f(0, 1, 0));
+                        quad(d.vec3f(px, py, pz + 1), d.vec3f(1, 0, 0), d.vec3f(0, 1, 0));
+                        quad(d.vec3f(px, py, pz), d.vec3f(0, 1, 0), d.vec3f(1, 0, 0));
+                    }
+                    return;
+                }
                 quad(d.vec3f(px, d.f32(h), pz), d.vec3f(0, 0, 1), d.vec3f(1, 0, 0));
                 quad(d.vec3f(px, 0, pz), d.vec3f(1, 0, 0), d.vec3f(0, 0, 1));
                 for (let y = height(wx + 1, wz); y < h; y++)
