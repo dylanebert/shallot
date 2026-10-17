@@ -90,8 +90,6 @@ test("Fog tints a distant surface, preserves a near surface, and leaves NoFog un
         color: 0xff0000,
         absorption: 1,
         scattering: 0,
-        stepCount: 32,
-        jitter: 0,
     });
     world.step(0);
     world.step(0);
