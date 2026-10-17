@@ -305,10 +305,19 @@ const identityXform = tgpu
     })
     .$name("identityXform");
 
-// Reserve locations after the fixed fragment fields to prevent custom varying collisions.
-const VARYING_BASE = 7;
+const producerRow = tgpu.fn(
+    [d.vec4u],
+    d.u32,
+)((instance) => {
+    "use gpu";
+    return instance.x === 0xffffffff ? instance.z - 1 : d.u32(0xffffffff);
+});
 
-// the hard budget: 4 custom interpolator slots per material type. The vs side is N-general (the
+// Reserve locations after the fixed fragment fields to prevent custom varying collisions.
+const VARYING_BASE = 8;
+
+// Eight fixed locations, uv + localPos and four custom varyings use 14 of WebGPU's default
+// 16 inter-stage variables. The vs side is N-general (the
 // copier templates over `Object.keys`), so this bound is the fragment entry's — its transpiled body must
 // statically name `input.v0`…`input.v3`, one arm per count (`varyingFs`)
 const MAX_VARYINGS = 4;
@@ -338,6 +347,7 @@ const MaterialTypeVertex = d
         pos: d.vec4f,
         worldNormal: d.vec3f,
         eid: d.u32,
+        row: d.u32,
         world: d.vec3f,
         uv: d.vec2f,
         localPos: d.vec3f,
@@ -385,6 +395,7 @@ function materialVertexFunction(surface: AnyMaterialType) {
                 uv: input.uv,
                 vidx: input.vidx,
                 eid: input.eid,
+                row: input.row,
                 iid: input.iid,
                 xform: input.xform,
                 world: input.world,
@@ -419,6 +430,7 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
             const localPos = decodePos(v.x, v.y, mq);
             const localNormal = octDecodeNormal(v.z);
             const uv = decodeUv(v.w, mq);
+            let row = d.u32(0xffffffff);
             let eid = d.u32(0);
             let world = d.vec4f(localPos, 1);
             let worldNormal = d.vec3f(localNormal);
@@ -430,6 +442,7 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
             if (instanced) {
                 const instance = bound.eids[iid];
                 eid = instance.x;
+                row = producerRow(instance);
                 const encodedMeshInstance = instance.z;
                 if (encodedMeshInstance !== 0) {
                     const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
@@ -450,6 +463,7 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
                         uv,
                         vidx,
                         eid,
+                        row,
                         iid,
                         xform,
                         world,
@@ -467,6 +481,7 @@ function colorVertex(surface: AnyMaterialType, clip: boolean, suffix = clip ? "C
                 pos,
                 worldNormal: std.normalize(worldNormal),
                 eid,
+                row,
                 world: world.xyz,
                 uv,
                 localPos,
@@ -487,6 +502,7 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
         pos: d.builtin.position,
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
+        row: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
         material: d.interpolate("flat", d.u32),
@@ -504,6 +520,7 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
                     pos: v.pos,
                     worldNormal: v.worldNormal,
                     eid: v.eid,
+                    row: v.row,
                     world: v.world,
                     uv: v.uv,
                     localPos: v.localPos,
@@ -524,6 +541,7 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
                     pos: v.pos,
                     worldNormal: v.worldNormal,
                     eid: v.eid,
+                    row: v.row,
                     world: v.world,
                     uv: v.uv,
                     color: v.color,
@@ -543,6 +561,7 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
                     pos: v.pos,
                     worldNormal: v.worldNormal,
                     eid: v.eid,
+                    row: v.row,
                     world: v.world,
                     localPos: v.localPos,
                     color: v.color,
@@ -561,6 +580,7 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
                 pos: v.pos,
                 worldNormal: v.worldNormal,
                 eid: v.eid,
+                row: v.row,
                 world: v.world,
                 color: v.color,
                 material: v.material,
@@ -581,6 +601,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
         pos: d.builtin.position,
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
+        row: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
         material: d.interpolate("flat", d.u32),
@@ -627,6 +648,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
             // these known fields in TypeScript; the cast does not change the actual WGSL context schema.
             const ctx = CtxSchema({
                 eid: input.eid,
+                row: input.row,
                 world: input.world,
                 worldNormal,
                 uv: needUv ? input.uv : d.vec2f(0),
@@ -677,6 +699,7 @@ function prepassVs(surface: AnyMaterialType) {
             // not the transformed `worldNormal`
             const localNormal = d.vec3f(0, 0, 1);
             const uv = d.vec2f(0, 0);
+            let row = d.u32(0xffffffff);
             let eid = d.u32(0);
             let world = d.vec4f(localPos, 1);
             let worldNormal = d.vec3f(localNormal);
@@ -686,6 +709,7 @@ function prepassVs(surface: AnyMaterialType) {
             if (instanced) {
                 const instance = bound.eids[input.iid];
                 eid = instance.x;
+                row = producerRow(instance);
                 const encodedMeshInstance = instance.z;
                 if (encodedMeshInstance !== 0) {
                     const meshInstance = bound.meshInstances[encodedMeshInstance - 1];
@@ -704,6 +728,7 @@ function prepassVs(surface: AnyMaterialType) {
                         uv,
                         vidx: input.vidx,
                         eid,
+                        row,
                         iid: input.iid,
                         xform,
                         world,
@@ -733,6 +758,7 @@ function clipFs(surface: AnyMaterialType) {
     const input = {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
+        row: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
         material: d.interpolate("flat", d.u32),
@@ -745,6 +771,7 @@ function clipFs(surface: AnyMaterialType) {
             "use gpu";
             const ctx = Ctx({
                 eid: fin.eid,
+                row: fin.row,
                 world: fin.world,
                 worldNormal: std.normalize(fin.worldNormal),
                 uv: needUv ? (fin as any).uv : d.vec2f(0),
@@ -778,10 +805,10 @@ function clipVaryingCopier(surface: AnyMaterialType) {
     const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
     const copier = tgpu
         .fn(
-            [d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.u32, varyingSchema],
+            [d.vec3f, d.u32, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.u32, varyingSchema],
             d.vec4f,
-        )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, v0: ${varyingType}) -> vec4f {
-    let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, color, material, 0u, 0.5f, v0);
+        )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, row: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, v0: ${varyingType}) -> vec4f {
+    let ctx = Ctx(eid, row, world, normalize(worldNormalIn), uv, localPos, color, material, 0u, 0.5f, v0);
     return fs(ctx);
 }`)
         .$uses({ Ctx: CtxSchema, fs: fsFn })
@@ -796,6 +823,7 @@ function varyingClipFs(surface: AnyMaterialType) {
     const entryIn = {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
+        row: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
         material: d.interpolate("flat", d.u32),
@@ -812,6 +840,7 @@ function varyingClipFs(surface: AnyMaterialType) {
             const color = copier(
                 input.worldNormal,
                 input.eid,
+                input.row,
                 input.world,
                 needUv ? (input as any).uv : d.vec2f(0),
                 needLocalPos ? (input as any).localPos : d.vec3f(0),
@@ -868,6 +897,7 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
         meshIdOf,
         octDecodeNormal,
         Xform,
+        producerRow,
     };
     if (hasVs) {
         uses.MaterialVertexInput = MaterialVertexInput;
@@ -887,6 +917,7 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
                 pos: d.builtin.position,
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
+                row: d.interpolate("flat", d.u32),
                 world: d.vec3f,
                 color: d.vec4f,
                 material: d.interpolate("flat", d.u32),
@@ -904,6 +935,7 @@ function varyingVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip
     let localNormal = octDecodeNormal(v.z);
     let uv = decodeUv(v.w, mq);
     var eid: u32 = 0u;
+    var row: u32 = 0xFFFFFFFFu;
     var xform = Xform(vec3f(0.0), vec4f(0.0, 0.0, 0.0, 1.0), vec3f(1.0));
     var world = vec4f(localPos, 1.0);
     var worldNormal = vec3f(localNormal);
@@ -915,6 +947,7 @@ ${
     instanced
         ? `    let instance = bound.eids[in.iid];
     eid = instance.x;
+    row = producerRow(instance);
     let encodedMeshInstance = instance.z;
     if (encodedMeshInstance != 0u) {
         let meshInstance = bound.meshInstances[encodedMeshInstance - 1u];
@@ -929,7 +962,7 @@ ${
         : ""
 }${
     hasVs
-        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal, color, material));
+        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, row, iid, xform, world, worldNormal, color, material));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -939,6 +972,7 @@ ${
     out.pos = engine.view.viewProj * world${clip ? " + vec4f(shadowG.tileRects.rects[0].x * 0.0)" : ""};
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
+    out.row = row;
     out.world = world.xyz;
     out.color = color;
     out.material = material;
@@ -1006,11 +1040,11 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
     const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
     const copier = tgpu
         .fn(
-            [d.vec4f, d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.u32, ...schemas],
+            [d.vec4f, d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.u32, ...schemas, d.u32],
             d.vec4f,
-        )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, ${params}) -> vec4f {
+        )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: u32, ${params}, row: u32) -> vec4f {
     let worldNormal = normalize(worldNormalIn);
-    let ctx = Ctx(eid, world, worldNormal, uv, localPos, color, material, 0u, 0.5f, ${schemas.map((_, i) => `v${i}`).join(", ")});
+    let ctx = Ctx(eid, row, world, worldNormal, uv, localPos, color, material, 0u, 0.5f, ${schemas.map((_, i) => `v${i}`).join(", ")});
     return fs(ctx);
 }`)
         .$uses({ Ctx: CtxSchema, fs: fsFn })
@@ -1024,6 +1058,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
         pos: d.builtin.position,
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
+        row: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
         material: d.interpolate("flat", d.u32),
@@ -1047,6 +1082,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                     input.color,
                     input.material,
                     input.v0,
+                    input.row,
                 );
                 const shaded = d.vec4f(std.add(col, d.vec4f(shadowForce())));
                 const output = alphaColorOutput(
@@ -1080,6 +1116,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                     input.material,
                     input.v0,
                     input.v1,
+                    input.row,
                 );
                 const shaded = d.vec4f(std.add(col, d.vec4f(shadowForce())));
                 const output = alphaColorOutput(
@@ -1120,6 +1157,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                     input.v0,
                     input.v1,
                     input.v2,
+                    input.row,
                 );
                 const shaded = d.vec4f(std.add(col, d.vec4f(shadowForce())));
                 const output = alphaColorOutput(
@@ -1157,6 +1195,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 input.v1,
                 input.v2,
                 input.v3,
+                input.row,
             );
             const shaded = d.vec4f(std.add(col, d.vec4f(shadowForce())));
             const output = alphaColorOutput(
@@ -1409,6 +1448,7 @@ function shadowVs(
             const uv = d.vec2f(0, 0);
             const instance = bound.eids[input.iid];
             const eid = instance.x;
+            const row = producerRow(instance);
             const combo = instance.w;
             const color = d.vec4f(1);
             let material = d.u32(0);
@@ -1428,6 +1468,7 @@ function shadowVs(
                         uv,
                         vidx: input.vidx,
                         eid,
+                        row,
                         iid: input.iid,
                         xform,
                         world,
@@ -1457,6 +1498,7 @@ const ClipShadowVertex = d
         tileBox: d.vec4f,
         worldNormal: d.vec3f,
         eid: d.u32,
+        row: d.u32,
         world: d.vec3f,
         uv: d.vec2f,
         localPos: d.vec3f,
@@ -1500,6 +1542,7 @@ function clipShadowVertex(
             const uv = decodeUv(v.w, mq);
             const instance = bound.eids[iid];
             const eid = instance.x;
+            const row = producerRow(instance);
             const combo = instance.w;
             const color = d.vec4f(1);
             let material = d.u32(0);
@@ -1521,6 +1564,7 @@ function clipShadowVertex(
                         uv,
                         vidx,
                         eid,
+                        row,
                         iid,
                         xform,
                         world,
@@ -1542,6 +1586,7 @@ function clipShadowVertex(
                 tileBox: d.vec4f(std.mul(side, rect.xy), rect.z * side, 0),
                 worldNormal: std.normalize(worldNormal),
                 eid,
+                row,
                 world: world.xyz,
                 uv,
                 localPos,
@@ -1567,6 +1612,7 @@ function clipShadowVs(
         tileBox: d.interpolate("flat", d.vec4f),
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
+        row: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
         material: d.interpolate("flat", d.u32),
@@ -1584,6 +1630,7 @@ function clipShadowVs(
                     tileBox: v.tileBox,
                     worldNormal: v.worldNormal,
                     eid: v.eid,
+                    row: v.row,
                     world: v.world,
                     uv: v.uv,
                     localPos: v.localPos,
@@ -1604,6 +1651,7 @@ function clipShadowVs(
                     tileBox: v.tileBox,
                     worldNormal: v.worldNormal,
                     eid: v.eid,
+                    row: v.row,
                     world: v.world,
                     uv: v.uv,
                     color: v.color,
@@ -1623,6 +1671,7 @@ function clipShadowVs(
                     tileBox: v.tileBox,
                     worldNormal: v.worldNormal,
                     eid: v.eid,
+                    row: v.row,
                     world: v.world,
                     localPos: v.localPos,
                     color: v.color,
@@ -1641,6 +1690,7 @@ function clipShadowVs(
                 tileBox: v.tileBox,
                 worldNormal: v.worldNormal,
                 eid: v.eid,
+                row: v.row,
                 world: v.world,
                 color: v.color,
                 material: v.material,
@@ -1679,6 +1729,7 @@ function varyingShadowVs(
             tileBox: d.vec4f,
             worldNormal: d.vec3f,
             eid: d.u32,
+            row: d.u32,
             world: d.vec3f,
             color: d.vec4f,
             material: d.u32,
@@ -1702,6 +1753,7 @@ function varyingShadowVs(
     let uv = decodeUv(v.w, mq);
     let instance = bound.eids[iid];
     let eid = instance.x;
+    let row = producerRow(instance);
     let combo = instance.w;
     let encodedMeshInstance = instance.z;
     var color = vec4f(1.0);
@@ -1717,7 +1769,7 @@ function varyingShadowVs(
     var worldNormal = vec3f(xformNormal(xform, localNormal));
 ${
     hasVs
-        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal, color, material));
+        ? `    let patched = vs(MaterialVertexInput(localPos, localNormal, uv, vidx, eid, row, iid, xform, world, worldNormal, color, material));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -1730,6 +1782,7 @@ ${
     out.tileBox = vec4f(f32(m.z) * rect.xy, rect.z * f32(m.z), 0.0);
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
+    out.row = row;
     out.world = world.xyz;
     out.color = color;
     out.material = material;
@@ -1749,6 +1802,7 @@ ${assigns}
             octDecodeNormal,
             xformPoint,
             xformNormal,
+            producerRow,
             ...(hasVs ? { MaterialVertexInput, vs: materialVertexFunction(surface) } : {}),
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipCopier`);
@@ -1763,6 +1817,7 @@ ${assigns}
         "tileBox",
         "worldNormal",
         "eid",
+        "row",
         "world",
         "color",
         "material",
@@ -1781,6 +1836,7 @@ ${assigns}
                 tileBox: d.interpolate("flat", d.vec4f),
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
+                row: d.interpolate("flat", d.u32),
                 world: d.vec3f,
                 color: d.vec4f,
                 material: d.interpolate("flat", d.u32),
@@ -1807,6 +1863,7 @@ function varyingShadowFs(surface: AnyMaterialType) {
         tileBox: d.interpolate("flat", d.vec4f),
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
+        row: d.interpolate("flat", d.u32),
         world: d.vec3f,
         color: d.vec4f,
         material: d.interpolate("flat", d.u32),
@@ -1829,6 +1886,7 @@ function varyingShadowFs(surface: AnyMaterialType) {
             const color = copier(
                 input.worldNormal,
                 input.eid,
+                input.row,
                 input.world,
                 needUv ? (input as any).uv : d.vec2f(0),
                 needLocalPos ? (input as any).localPos : d.vec3f(0),
@@ -1856,6 +1914,7 @@ function clipShadowFs(surface: AnyMaterialType) {
                 tileBox: d.interpolate("flat", d.vec4f),
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
+                row: d.interpolate("flat", d.u32),
                 world: d.vec3f,
                 color: d.vec4f,
                 material: d.interpolate("flat", d.u32),
@@ -1873,6 +1932,7 @@ function clipShadowFs(surface: AnyMaterialType) {
             }
             const ctx = Ctx({
                 eid: input.eid,
+                row: input.row,
                 world: input.world,
                 worldNormal: std.normalize(input.worldNormal),
                 uv: needUv ? (input as any).uv : d.vec2f(0),

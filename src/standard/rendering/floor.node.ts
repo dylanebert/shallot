@@ -2,6 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu, { readFromArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { create, globals } from "webgpu";
 import {
     createTestGpuApp as createApp,
@@ -75,9 +76,25 @@ const attributeLayout = materialLayout(FloorParameters, {
 const FloorMaterial = materialType({
     name: "FloorCustomMaterial",
     parameters: FloorParameters,
+    fragmentInputs: { uv: true, localPos: true },
+    varyings: { a: d.vec4f, b: d.vec4f, c: d.vec4f, tint: d.vec4f },
+    vertex: (input) => {
+        "use gpu";
+        return {
+            world: input.world,
+            worldNormal: input.worldNormal,
+            a: d.vec4f(input.uv, 0, 0),
+            b: d.vec4f(input.localPos, 0),
+            c: d.vec4f(d.f32(input.row), d.f32(input.eid), 0, 0),
+            tint: input.parameters.color,
+        };
+    },
     fragment: (ctx) => {
         "use gpu";
-        return d.vec4f(ctx.parameters.color);
+        return std.add(
+            ctx.tint,
+            d.vec4f((ctx.a.x + ctx.b.x + ctx.c.x + ctx.uv.x + ctx.localPos.x) * 0),
+        );
     },
     defaults: { color: d.vec4f(1) },
 });

@@ -31,7 +31,8 @@ export interface ProducerEntry {
  * Register fixed-capacity GPU-only instance columns owned by this World; there is no removal API.
  * Write rows [0, count) before MeshPreprocessSystem on world.frameEncoder(), or during fixed.
  * Standard clamps count to capacity. Placement rows use Xform; meshInstances use MeshInstanceInput.
- * A material shader's eid is the row index within this table, not an entity identity.
+ * Material shaders read eid as 0xFFFFFFFF (the invalid entity id) and row as this table's row index.
+ * Entity rows instead read their entity id in eid and 0xFFFFFFFF in row.
  * CPU picking, interpolation and snapshots do not include these rows. Blended materials are refused
  * because transparent sorting is on the CPU. Only declared mesh and material-type/alpha pairs draw.
  */
@@ -173,7 +174,7 @@ export const producerScatterKernel = tgpu.computeFn({
     const idx = gid.y * producerCullLayout.$.params.pairCount + pair;
     const remaining = std.atomicSub(scatterLayout.$.drawArgs[idx].instanceCount, 1);
     const target = scatterLayout.$.drawArgs[idx].firstInstance + remaining - 1;
-    scatterLayout.$.packedEids[target] = d.vec4u(gid.x, gid.x, gid.x + 1, 0);
+    scatterLayout.$.packedEids[target] = d.vec4u(0xffffffff, gid.x, gid.x + 1, 0);
     if (remaining === 1) {
         const count = d.u32(scatterLayout.$.drawArgs[idx].baseVertex);
         scatterLayout.$.drawArgs[idx].baseVertex = 0;

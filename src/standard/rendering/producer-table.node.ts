@@ -32,10 +32,25 @@ import { Draws } from "./registry";
 setDefaultTimeout(TIMEOUT.node);
 const material = materialType({
     name: "ProducerProof",
-    layout: materialLayout(d.struct({ color: d.vec4f }), {}),
-    defaults: { color: d.vec4f(1, 0, 0, 1) },
+    layout: materialLayout(d.struct({ color: d.vec4f, eid: d.u32, row: d.u32 }), {}),
+    defaults: { color: d.vec4f(1, 0, 0, 1), eid: 0, row: 0 },
+    vertex: (input) => {
+        "use gpu";
+        let world = d.vec4f(input.world);
+        if (
+            input.parameters.eid !== 0 &&
+            (input.eid !== input.parameters.eid || input.row !== input.parameters.row)
+        )
+            world = d.vec4f(10000, 0, 0, 1);
+        return { world, worldNormal: input.worldNormal };
+    },
     fragment: (ctx) => {
         "use gpu";
+        if (
+            ctx.parameters.eid !== 0 &&
+            (ctx.eid !== ctx.parameters.eid || ctx.row !== ctx.parameters.row)
+        )
+            return d.vec4f(0, 1, 0, 1);
         return d.vec4f(ctx.parameters.color);
     },
     depthPass: { shadows: true },
@@ -99,7 +114,7 @@ const depthKernel = tgpu
 const state = {
     create(world: World) {
         const assets = world.resource(material);
-        const red = assets.add({ color: d.vec4f(1, 0, 0, 1) });
+        const red = assets.add({ color: d.vec4f(1, 0, 0, 1), eid: 0, row: 0 });
         const blue = world.resource(secondMaterial).add({ color: d.vec4f(0, 0, 1, 1) });
         const mesh = [...world.resource(Meshes).entries()][0]![0];
         const otherMesh = world
@@ -232,7 +247,7 @@ test("compute-written producer placements draw exactly the entity colour and sun
     const ec = scene(entity);
     const pc = scene(producer);
     producer.resource(state).camera = pc;
-    const red = entity.resource(material).add({ color: d.vec4f(1, 0, 0, 1) });
+    const red = entity.resource(material).add({ color: d.vec4f(1, 0, 0, 1), eid: 0, row: 0 });
     for (const x of [-1.2, 1.2, 100]) {
         const eid = entity.create();
         entity.add(eid, Transform, { translation: [x, 0, 0] });
@@ -276,9 +291,9 @@ test("producer rows outside the camera frustum are absent from its packed list",
     world.step(0);
     const { args, packed } = await producerArgs(world);
     expect(args[1]).toBe(2);
-    expect([packed[0], packed[4]].sort()).toEqual([0, 1]);
-    expect(packed[1]).toBe(packed[0]);
-    expect(packed[2]).toBe(packed[0]! + 1);
+    expect([packed[0], packed[4]]).toEqual([0xffffffff, 0xffffffff]);
+    expect([packed[1], packed[5]].sort()).toEqual([0, 1]);
+    expect(packed[2]).toBe(packed[1]! + 1);
 });
 test("different producer meshes and material types have their own indirect draw groups", async () => {
     const world = apps()[1].world;
@@ -361,11 +376,82 @@ test("a second table registered after warm has a separate pair region and clamps
     expect(new Uint32Array((await probeBuffer(world, root.unwrap(late.count))).bytes)[0]).toBe(3);
 });
 
+test("material vertex and fragment inputs keep entity ids separate from producer table rows", async () => {
+    const entity = apps()[0].world;
+    const producer = apps()[1].world;
+    const s = producer.resource(state);
+    entity.step(0);
+    producer.step(0);
+    const entityCamera = [...entity.query([Camera])][0]!;
+    const expectedEntity = (await captureTexture(entity, entityCamera)).rgba;
+    const expectedProducer = (await captureTexture(producer, s.camera)).rgba;
+    const originals = new Map<number, number>();
+    for (const eid of entity.query([MeshInstance, MeshMaterial])) {
+        originals.set(eid, entity.storage(MeshMaterial).material.get(eid));
+        const handle = entity
+            .resource(material)
+            .add({ color: d.vec4f(1, 0, 0, 1), eid, row: 0xffffffff });
+        entity.storage(MeshMaterial).material.set(eid, handle.material);
+    }
+    const zero = producer
+        .resource(material)
+        .add({ color: d.vec4f(1, 0, 0, 1), eid: 0xffffffff, row: 0 });
+    const one = producer
+        .resource(material)
+        .add({ color: d.vec4f(1, 0, 0, 1), eid: 0xffffffff, row: 1 });
+    s.config.write(d.vec4u(3, s.mesh, zero.type, zero.material));
+    s.other.write(d.vec3u(s.mesh, one.type, one.material));
+    entity.step(0);
+    producer.step(0);
+    expect((await captureTexture(entity, entityCamera)).rgba).toEqual(expectedEntity);
+    expect((await captureTexture(producer, s.camera)).rgba).toEqual(expectedProducer);
+    for (const [eid, row] of originals) entity.storage(MeshMaterial).material.set(eid, row);
+    s.config.write(d.vec4u(3, s.mesh, s.red.type, s.red.material));
+    s.other.write(d.vec3u(s.mesh, s.red.type, s.red.material));
+});
+
+test("mesh growth refreshes live producer pair offsets and draw buffers", async () => {
+    const world = apps()[1].world;
+    const s = world.resource(state);
+    s.other.write(d.vec3u(s.otherMesh, s.blue.type, s.blue.material));
+    world.step(0);
+    const before = [...world.resource(Draws)].find((draw) =>
+        draw.name.startsWith("producer:proof:"),
+    )!;
+    const oldBuffer = before.args.indirect;
+    const oldOffset = before.args.offset!;
+    const meshes = world.resource(Meshes);
+    meshes.add({ name: "late-producer-mesh", ...cube([1, 1, 1]) });
+    world.step(0);
+    const draws = [...world.resource(Draws)].filter((draw) =>
+        draw.name.startsWith("producer:proof:"),
+    );
+    expect(draws[0]!.args.indirect).not.toBe(oldBuffer);
+    expect(draws[0]!.args.offset!).toBeGreaterThan(oldOffset);
+    for (const draw of draws) {
+        const args = new Uint32Array(
+            (
+                await probeBuffer(world, world.gpu.root.unwrap(draw.args.indirect), {
+                    offset: draw.args.offset!,
+                    size: 20,
+                })
+            ).bytes,
+        );
+        expect(args[1]).toBe(
+            (draw.mesh === s.mesh && draw.materialType === s.red.type) ||
+                (draw.mesh === s.otherMesh && draw.materialType === s.blue.type)
+                ? 1
+                : 0,
+        );
+    }
+    s.other.write(d.vec3u(s.mesh, s.red.type, s.red.material));
+});
+
 test("registration refuses blended producer materials because transparent sorting is on the CPU", () => {
     const world = apps()[1].world;
     const blended = world
         .resource(material)
-        .add({ color: d.vec4f(1) }, { alphaMode: AlphaMode.Blend });
+        .add({ color: d.vec4f(1), eid: 0, row: 0 }, { alphaMode: AlphaMode.Blend });
     expect(() =>
         registerProducerTable(world, {
             name: "blended-proof",
