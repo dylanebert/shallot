@@ -1,6 +1,6 @@
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { ImageBindings } from "../../core/rendering";
+import { ImageBindings, sampleImage } from "../../core/rendering";
 import { litPbr } from "./engine";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
 import { AlphaModeCode, materialLayout, materialType } from "./material-type";
@@ -9,6 +9,7 @@ import { Pbr } from "./shade";
 const standardLayout = materialLayout(StandardMaterialInput, {
     images: { type: "texture-2d-array" },
     imageSampler: { type: "sampler" },
+    imageSettings: { type: "texture-2d" },
 });
 /** The built-in mesh material type. Its type-local table is the sole source of its PBR parameters. */
 export const Materials = materialType({
@@ -27,9 +28,10 @@ export const Materials = materialType({
         if (material.baseColorTexture >= 0) {
             baseColor = std.mul(
                 baseColor,
-                std.textureSampleGrad(
+                sampleImage(
                     standardLayout.$.images,
                     standardLayout.$.imageSampler,
+                    standardLayout.$.imageSettings,
                     ctx.uv,
                     material.baseColorTexture,
                     uvDx,

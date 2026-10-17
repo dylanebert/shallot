@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { World } from "../../engine";
-import { registerImage } from "./image";
+import { ImageAddressMode, ImageFilterMode, registerImage } from "./image";
 
 test("image registration accepts a source without a name", () => {
     const world = new World();
@@ -14,6 +14,32 @@ test("one image URL returns one id and two URLs return two", () => {
     const first = registerImage(world, "first.png");
     expect(registerImage(world, "first.png")).toBe(first);
     expect(registerImage(world, "second.png")).not.toBe(first);
+    world.dispose();
+});
+
+test("URL identity includes the effective sampler and omitted fields equal defaults", () => {
+    const world = new World();
+    const first = registerImage(world, "image.png");
+    expect(
+        registerImage(world, "image.png", {
+            sampler: {
+                addressModeU: ImageAddressMode.ClampToEdge,
+                addressModeV: ImageAddressMode.ClampToEdge,
+                magFilter: ImageFilterMode.Linear,
+                minFilter: ImageFilterMode.Linear,
+            },
+        }),
+    ).toBe(first);
+    for (const sampler of [
+        { addressModeU: ImageAddressMode.Repeat },
+        { addressModeV: ImageAddressMode.MirrorRepeat },
+        { magFilter: ImageFilterMode.Nearest },
+        { minFilter: ImageFilterMode.Nearest },
+    ]) {
+        const id = registerImage(world, "image.png", { sampler });
+        expect(id).not.toBe(first);
+        expect(registerImage(world, "image.png", { sampler })).toBe(id);
+    }
     world.dispose();
 });
 

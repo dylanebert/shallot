@@ -1,7 +1,13 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Billboard, billboardCorner, ImageBindings, xformMat } from "../../core/rendering";
+import {
+    Billboard,
+    billboardCorner,
+    ImageBindings,
+    sampleImage,
+    xformMat,
+} from "../../core/rendering";
 import type { World } from "../../engine";
 import { engineLayout, materialLayout, materialType } from "../../standard/rendering";
 import { createSpriteSource } from "./table";
@@ -41,6 +47,7 @@ export const SpriteSource = {
 const layout = materialLayout(SpriteMaterialInput, {
     images: { type: "texture-2d-array" },
     imageSampler: { type: "sampler" },
+    imageSettings: { type: "texture-2d" },
 });
 
 const spriteSrgbToLinear = tgpu
@@ -118,11 +125,14 @@ export const SpriteMaterialType = materialType({
         "use gpu";
         const sprite = ctx.parameters;
         const uv = d.vec2f(ctx.localPos.x, 1 - ctx.localPos.y);
-        const texel = std.textureSample(
+        const texel = sampleImage(
             layout.$.images,
             layout.$.imageSampler,
+            layout.$.imageSettings,
             uv,
             d.i32(sprite.image),
+            std.dpdx(uv),
+            std.dpdy(uv),
         );
         const hex = d.u32(sprite.color);
         const tint = d.vec4f(

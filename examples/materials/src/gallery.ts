@@ -3,6 +3,7 @@ import {
     Camera,
     DirectionalLight,
     GlobalAmbientLight,
+    ImageAddressMode,
     lookAtRotation,
     Materials,
     Meshes,
@@ -103,7 +104,9 @@ function backdrop(world: World) {
 function surfaces(world: World) {
     const gallery = world.resource(Gallery);
     const materials = world.resource(Materials);
-    const wood = registerImage(world, "/wood.jpg");
+    const wood = registerImage(world, "/wood.jpg", {
+        sampler: { addressModeU: ImageAddressMode.Repeat, addressModeV: ImageAddressMode.Repeat },
+    });
     const handles = presets.map((preset) =>
         materials.add(StandardMaterial(preset), {
             alphaMode: preset.name === "Glass" ? AlphaMode.Blend : AlphaMode.Opaque,
@@ -115,6 +118,16 @@ function surfaces(world: World) {
     handles.push(gallery.checker!, gallery.wave!);
     const geometry = sphere(0.65, 64, 32);
     const ball = world.resource(Meshes).add({ name: "Gallery sphere", ...geometry });
+    const woodVertices = geometry.vertices.slice();
+    for (let i = 0; i < woodVertices.length; i += 8) {
+        woodVertices[i + 3] *= 6;
+        woodVertices[i + 7] *= 4;
+    }
+    const woodBall = world.resource(Meshes).add({
+        name: "Tiled wood sphere",
+        vertices: woodVertices,
+        indices: geometry.indices,
+    });
     const phases = new Float32Array(geometry.vertices.length / 8);
     for (let i = 0; i < phases.length; i++)
         phases[i] =
@@ -137,7 +150,7 @@ function surfaces(world: World) {
         const eid = world.create();
         gallery.spheres.push(eid);
         world.add(eid, Transform, { translation: [x, 1.05, 0] });
-        world.add(eid, MeshInstance, { mesh: i === 6 ? waveBall : ball });
+        world.add(eid, MeshInstance, { mesh: i === 6 ? waveBall : i === 4 ? woodBall : ball });
         world.add(eid, MeshMaterial, handle);
         const label = world.create();
         gallery.names.push(label);

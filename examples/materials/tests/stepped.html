@@ -88,6 +88,7 @@ window.pixels=async()=>Array.from((await render()).rgba);
 window.capture=async()=>{const frame=await render();const output=document.createElement('canvas');output.width=frame.width;output.height=frame.height;output.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(frame.rgba),frame.width,frame.height),0,0);return output.toDataURL('image/png');};
 window.hide=(index,hidden)=>{world.storage(Transform).scale.set(gallery.spheres[index],...(hidden?[0,0,0]:[1,1,1]));world.step(1/60);world.step(1/60);};
 function replace(index,handle){const storage=world.storage(MeshMaterial);storage.type.set(gallery.spheres[index],handle.type);storage.material.set(gallery.spheres[index],handle.material);}
+window.woodUnlit=(unlit)=>world.resource(Materials).update(world.storage(MeshMaterial).material.get(gallery.spheres[4]),{unlit});
 window.woodOff=()=>replace(4,world.resource(Materials).add(StandardMaterial({perceptualRoughness:0.72})));
 window.checkerBlue=()=>world.resource(CheckerMaterial).update(gallery.checker,{lightColor:[0.02,0.1,0.95]});
 window.glassOpaque=()=>replace(3,world.resource(Materials).add(StandardMaterial({baseColor:[0.04,0.43,0.53,1],perceptualRoughness:0.08})));

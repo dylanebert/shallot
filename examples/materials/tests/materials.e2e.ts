@@ -33,7 +33,7 @@ test("world names cover pixels within separate projected boxes above the spheres
     }
 });
 
-test("stepped draws show blended glass, decoded wood, animated and row-coloured checker pixels, wave silhouette and registered background", async ({
+test("stepped draws show blended glass, repeating wood, animated and row-coloured checker pixels, wave silhouette and registered background", async ({
     page,
 }) => {
     const errors: string[] = [];
@@ -81,6 +81,23 @@ test("stepped draws show blended glass, decoded wood, animated and row-coloured 
         );
     await aim(4);
     const wood = await pixels();
+    await page.evaluate(() => (window as any).woodUnlit(true));
+    const tiled = await pixels();
+    // The central wood patch has both UV coordinates above 1. Without lighting, clamp is flat.
+    const grain = new Set<string>();
+    for (let y = 80; y < 100; y++)
+        for (let x = 150; x < 170; x++) {
+            const i = (y * 320 + x) * 4;
+            grain.add(
+                tiled
+                    .slice(i, i + 3)
+                    .map((c) => Math.round(c / 4))
+                    .join(","),
+            );
+        }
+    expect(grain.size, "wood grain beyond [0, 1] must repeat rather than clamp").toBeGreaterThan(
+        30,
+    );
     await page.evaluate(() => (window as any).woodOff());
     expect(changed(wood, await pixels())).toBeGreaterThan(500);
     await aim(5);

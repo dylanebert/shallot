@@ -5,7 +5,14 @@ export {
     globalTransformTable,
     readRenderGlobalTransform,
 } from "./global-transform";
-export { ImageBindings } from "./image";
+export {
+    ImageAddressMode,
+    ImageBindings,
+    ImageFilterMode,
+    type ImageLoaderSettings,
+    type ImageSamplerDescriptor,
+} from "./image";
+export { sampleImage } from "./image-sampling";
 export {
     CorePipelinePlugin,
     MainPassSystem,

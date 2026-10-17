@@ -9,23 +9,69 @@ import { checkTextureLimits, Registry, type World } from "../../engine";
 
 /** World-local decoded image array and sampler, populated at RenderingPlugin warm. */
 export const ImageBindings = {
-    create: () => ({ images: null! as GPUTexture, imageSampler: null! as GPUSampler }),
+    create: () => ({
+        images: null! as GPUTexture,
+        imageSampler: null! as GPUSampler,
+        imageSettings: null! as GPUTexture,
+    }),
 };
 
+/** Addressing outside the image, matching Bevy's ImageAddressMode. */
+export const ImageAddressMode = { ClampToEdge: 0, Repeat: 1, MirrorRepeat: 2 } as const;
+export type ImageAddressMode = (typeof ImageAddressMode)[keyof typeof ImageAddressMode];
+
+/** Texel mixing, matching Bevy's ImageFilterMode. */
+export const ImageFilterMode = { Nearest: 0, Linear: 1 } as const;
+export type ImageFilterMode = (typeof ImageFilterMode)[keyof typeof ImageFilterMode];
+
+/** The 2D addressing and texel filters of Bevy's ImageSamplerDescriptor. */
+export interface ImageSamplerDescriptor {
+    addressModeU?: ImageAddressMode;
+    addressModeV?: ImageAddressMode;
+    magFilter?: ImageFilterMode;
+    minFilter?: ImageFilterMode;
+}
+
+/** Registration settings, matching the sampler field of Bevy's ImageLoaderSettings. */
+export interface ImageLoaderSettings {
+    sampler?: ImageSamplerDescriptor;
+}
+
 /** World-local image sources. An empty registry still allocates one fallback layer at warm. */
-export const Images = { create: () => new Registry<{ name: string; source: string | Blob }>() };
+export const Images = {
+    create: () => new Registry<{ name: string; source: string | Blob; sampler: number[] }>(),
+};
 
 /**
  * Register before warm, normally in a plugin's initialize. The returned id selects a layer of the
  * world's shared sRGB image array, used by Sprite and StandardMaterial.baseColorTexture.
- * Repeated URLs return the same id; each Blob registration returns a new id, distinct from all URLs.
+ * URLs with the same effective sampler return the same id; different samplers return distinct ids.
+ * Each Blob registration returns a new id, distinct from all URLs. Omitted sampler fields use
+ * clamp-to-edge and linear texel filtering; mip selection remains nearest, with the full mip chain.
  */
-export function registerImage(world: World, source: string | Blob): number {
+export function registerImage(
+    world: World,
+    source: string | Blob,
+    settings: ImageLoaderSettings = {},
+): number {
     const images = world.resource(Images);
-    if (typeof source === "string") return images.register({ name: `url:${source}`, source });
+    const s = settings.sampler;
+    const sampler = [
+        s?.addressModeU ?? 0,
+        s?.addressModeV ?? 0,
+        s?.magFilter ?? 1,
+        s?.minFilter ?? 1,
+    ];
+    if (typeof source === "string") {
+        return images.register({
+            name: `url:${JSON.stringify([source, sampler])}`,
+            source,
+            sampler,
+        });
+    }
     let next = images.size;
     while (images.id(`blob:${next}`) !== undefined) next++;
-    return images.register({ name: `blob:${next}`, source });
+    return images.register({ name: `blob:${next}`, source, sampler });
 }
 
 const PIXEL_PNG =
@@ -67,6 +113,24 @@ export async function warmImages(world: World): Promise<void> {
     world.own(texture);
     const bindings = world.resource(ImageBindings);
     bindings.images = texture;
+    // A sampled texture keeps sampler metadata out of the storage-buffer binding floor.
+    const imageSettings = device.createTexture({
+        label: "image-settings",
+        size: [1, Math.max(1, images.size)],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    const data = new Uint8Array(Math.max(1, images.size) * 4);
+    data.set([0, 0, 1, 1]);
+    for (let id = 0; id < images.size; id++) {
+        data.set(images.get(images.name(id)!)!.sampler, id * 4);
+    }
+    device.queue.writeTexture({ texture: imageSettings }, data, { bytesPerRow: 4 }, [
+        1,
+        Math.max(1, images.size),
+    ]);
+    world.own(imageSettings);
+    bindings.imageSettings = imageSettings;
     bindings.imageSampler = device.createSampler({
         label: "images",
         magFilter: "linear",
