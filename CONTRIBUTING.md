@@ -340,7 +340,7 @@ A choice the pillars leave open is taste, and goes to the person.
 ### Plugin packages
 
 - A plugin package declares `@dylanebert/shallot` as a peer; the range is its compatibility, and `shallot()` shares the project's engine instance only with packages that declare it.
-- It carries the npm keyword `shallot-plugin`, and its README shows the install and the one import and `plugins` entry that enable it.
+- It carries the npm keyword `shallot-plugin`, and its README shows the install and the code a game adds to use it.
 
 ### Changing and publishing
 
