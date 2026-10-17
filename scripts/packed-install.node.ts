@@ -240,6 +240,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         .map((entry) => entry.name)
         .sort();
     expect(recipes).toEqual([
+        "city",
         "day-night-cycle",
         "embedded-scene",
         "first-person",
@@ -265,6 +266,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
     expect(packed.exitCode).toBe(0);
     expect(packed.stdout.toString()).toContain("tsconfig.base.json");
     expect(packed.stdout.toString()).toContain("examples/minimal/tsconfig.json");
+    expect(packed.stdout.toString()).toContain("examples/city/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/minimal/src/welcome/welcome.test.ts");
     expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
     expect(packed.stdout.toString()).toContain("examples/interact/tsconfig.json");
@@ -283,6 +285,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
 
 type Example =
     | "minimal"
+    | "city"
     | "first-person"
     | "loading-screen"
     | "embedded-scene"
@@ -360,7 +363,8 @@ function assertCreatedExample(name: Example): void {
             name === "embedded-scene" ||
             name === "save-and-load" ||
             name === "materials" ||
-            name === "particles"
+            name === "particles" ||
+            name === "city"
             ? rootPackage.peerDependencies.webgpu
             : undefined,
     );
@@ -377,6 +381,7 @@ function assertCreatedExample(name: Example): void {
 // Each example owns its setup so a selected subject never depends on an earlier test.
 for (const name of [
     "minimal",
+    "city",
     "first-person",
     "loading-screen",
     "embedded-scene",

@@ -1,17 +1,16 @@
-import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { createApp, Materials, Meshes, MeshInstance } from "@dylanebert/shallot";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { Materials, Meshes, MeshInstance } from "@dylanebert/shallot";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { openGpuApp } from "../tests/gpu-app";
 import { City, COLORS, cityPlugin } from "./city";
 import { layout, POPULATION, SEED } from "./layout";
 
 setDefaultTimeout(TIMEOUT.node);
-beforeAll(() => setupGlobals());
 
 test("doubling a small population preserves kit sizes and exact per-mesh group counts", async () => {
     for (const population of [128, 256]) {
-        const app = await createApp({ plugins: [cityPlugin(SEED, population)] });
+        const app = await openGpuApp({ plugins: [cityPlugin(SEED, population)] });
         try {
             const { world } = app;
             console.info("city adapter", world.gpu.adapter);
@@ -37,7 +36,7 @@ test("doubling a small population preserves kit sizes and exact per-mesh group c
 });
 
 test("a fixed camera draws the default population's buildings across the centre", async () => {
-    const app = await createApp({ plugins: [cityPlugin()] });
+    const app = await openGpuApp({ plugins: [cityPlugin()] });
     try {
         const { world } = app;
         console.info("city frame adapter", world.gpu.adapter);
