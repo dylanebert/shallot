@@ -58,12 +58,11 @@ const Rows = { amount: f32, tag: u32 };
 const Reconciled = component("ReconciledUpload", { amount: f32 });
 const reconciliation = { create: () => ({ eid: 0, calls: 0 }) };
 const reconciledUpload = subject("ReconciledUpload", [Reconciled], (world) => {
-    const table = world.table("reconciled", d.struct({ amount: d.f32 }), {
-        beforeUpload(owner) {
-            const state = owner.resource(reconciliation);
-            state.calls++;
-            owner.storage(Reconciled).amount.set(state.eid, state.calls);
-        },
+    const table = world.table("reconciled", d.struct({ amount: d.f32 }));
+    table.setUploadPreparation((owner) => {
+        const state = owner.resource(reconciliation);
+        state.calls++;
+        owner.storage(Reconciled).amount.set(state.eid, state.calls);
     });
     table.bindComponent(Reconciled, { amount: "amount" });
     return table;

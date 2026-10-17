@@ -116,7 +116,8 @@ export function meshInstanceTable(world: World) {
 }
 
 function createMeshInstanceTable(world: World) {
-    const table = world.table("meshInstances", MeshInstanceInput, { beforeUpload: copyMeshAlpha });
+    const table = world.table("meshInstances", MeshInstanceInput);
+    table.setUploadPreparation(copyMeshAlpha);
     table.enableEidLookup();
     return table;
 }

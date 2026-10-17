@@ -8,9 +8,6 @@ export type TableUploadPath = "none" | "writeBuffer";
 export interface GpuTableOptions {
     /** No CPU backing or upload path; a GPU pass owns every row write. */
     gpuOnly?: boolean;
-    /** Reconcile CPU fields immediately before gathering them, including explicit prepareUpload calls.
-     * Runs even without marked fields; an upload of already prepared fields does not call it again. */
-    beforeUpload?: (world: World) => void;
 }
 
 type Consumer = (buffer: GPUBuffer, generation: number) => void;
@@ -48,7 +45,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     readonly maxEntityRows: number;
     readonly gpuOnly: boolean;
     private readonly _world: World;
-    private readonly _beforeUpload: GpuTableOptions["beforeUpload"];
+    private _uploadPreparation: ((world: World) => void) | undefined;
     private _capacity = 0;
     private _highWater = 1;
     private _generation = 0;
@@ -97,7 +94,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     constructor(world: World, name: string, record: T, options: GpuTableOptions = {}) {
         if (!name) throw new Error("GpuTable: name must not be empty");
         this._world = world;
-        this._beforeUpload = options.beforeUpload;
         this.name = name;
         this.record = record;
         this.rowBytes = d.sizeOf(record);
@@ -497,10 +493,17 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         return () => removeConsumer(this._activeConsumers, consumer);
     }
 
+    /** Register reconciliation of fields derived only for this table, immediately before gathering them.
+     * Runs even without marked fields, including explicit prepareUpload calls; uploading already prepared
+     * fields does not call it again. Must not change another table's inputs. @internal */
+    setUploadPreparation(prepare: (world: World) => void): void {
+        this._uploadPreparation = prepare;
+    }
+
     /** Gather changed component records without choosing their upload target. @internal */
     prepareUpload(): void {
         if (this._disposed) return;
-        this._beforeUpload?.(this._world);
+        this._uploadPreparation?.(this._world);
         this.fillBoundFields();
         this._boundFieldsPrepared = true;
     }
