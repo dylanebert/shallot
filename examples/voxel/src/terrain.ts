@@ -13,7 +13,13 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { Sky, SkyPlugin, skyBackgroundHandle } from "@dylanebert/shallot/extras";
+import {
+    Orbit,
+    OrbitPlugin,
+    Sky,
+    SkyPlugin,
+    skyBackgroundHandle,
+} from "@dylanebert/shallot/extras";
 import { type MeshHandle, MeshPlugin, MeshQuant } from "@dylanebert/shallot/mesh";
 import {
     CameraBackground,
@@ -120,6 +126,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
             StandardRenderingPlugin,
             TerrainMaterialPlugin,
             SkyPlugin,
+            OrbitPlugin,
         ],
         recovery: (world) => ({
             snapshot: () => {
@@ -209,9 +216,21 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 starIntensity: 0,
             });
             world.add(s.camera, StandardRenderer);
-            world.add(s.camera, Transform, {
-                translation: camera,
-                rotation: lookAtRotation(...camera, ...target),
+            world.add(s.camera, Transform);
+            world.add(s.camera, Orbit, {
+                pan: target,
+                distance: Math.hypot(
+                    camera[0] - target[0],
+                    camera[1] - target[1],
+                    camera[2] - target[2],
+                ),
+                yaw: Math.atan2(camera[0] - target[0], camera[2] - target[2]),
+                pitch: Math.atan2(
+                    camera[1] - target[1],
+                    Math.hypot(camera[0] - target[0], camera[2] - target[2]),
+                ),
+                maxDistance: span * 2,
+                flySpeed: size,
             });
         },
         systems: [

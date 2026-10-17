@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { type createApp, Meshes, MeshInstance, probeBuffer } from "@dylanebert/shallot";
+import {
+    type createApp,
+    lookAtRotation,
+    Meshes,
+    MeshInstance,
+    probeBuffer,
+    Transform,
+} from "@dylanebert/shallot";
+import { Orbit } from "@dylanebert/shallot/extras";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
@@ -17,6 +25,34 @@ beforeAll(async () => {
     app.world.step(1 / 60);
 });
 afterAll(() => app?.dispose());
+
+test("orbit opens at the fixed terrain camera pose and stays put while terrain scrolls", () => {
+    const world = app.world;
+    const camera = world.resource(Terrain).camera;
+    const span = (config.viewDistance * 2 + 1) * config.chunkSize;
+    const position = [span * 0.45, span * 0.1375, span * 0.6] as const;
+    const target = [-position[0], span * 0.0625, -position[2]] as const;
+    const rotation = lookAtRotation(...position, ...target);
+    const orbit = world.storage(Orbit);
+    for (const [i, lane] of [orbit.pan.x, orbit.pan.y, orbit.pan.z].entries())
+        expect(lane.get(camera)).toBeCloseTo(target[i], 5);
+    expect(orbit.distance.get(camera)).toBeCloseTo(span * Math.hypot(0.9, 0.075, 1.2), 4);
+    expect(orbit.yaw.get(camera)).toBeCloseTo(Math.atan2(0.9, 1.2), 6);
+    expect(orbit.pitch.get(camera)).toBeCloseTo(Math.atan2(0.075, 1.5), 6);
+    const assertPose = () => {
+        const transform = world.storage(Transform);
+        const { translation: t, rotation: r } = transform;
+        for (const [i, lane] of [t.x, t.y, t.z].entries())
+            expect(lane.get(camera)).toBeCloseTo(position[i], 4);
+        for (const [i, lane] of [r.x, r.y, r.z, r.w].entries())
+            expect(lane.get(camera)).toBeCloseTo(rotation[i], 6);
+    };
+    assertPose();
+    const viewer = world.resource(Terrain).viewer;
+    world.step(1 / 60);
+    expect(world.resource(Terrain).viewer).toBeGreaterThan(viewer);
+    assertPose();
+});
 
 async function countsMatch() {
     const world = app.world,
