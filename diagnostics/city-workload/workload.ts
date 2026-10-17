@@ -8,7 +8,6 @@ export const WORKLOAD = {
     kit: { meshes: 2, materials: 6 },
     width: 1280,
     height: 720,
-    shadowMapsEnabled: false,
     configurations: populations.map((population) => {
         const side = Math.ceil(Math.sqrt((population - 1) / 5));
         const extent = side * 12 + 12;

@@ -119,8 +119,6 @@ test("report no-shadow city poses and shadowed street, rejecting shadows in no-s
                 world.remove(camera, Orbit);
                 attachTexture(world, camera, { width: WORKLOAD.width, height: WORKLOAD.height });
                 const lights = world.storage(DirectionalLight);
-                for (const eid of world.query([DirectionalLight]))
-                    lights.shadowMapsEnabled.set(eid, Number(WORKLOAD.shadowMapsEnabled));
                 for (const pose of poses) {
                     for (const eid of world.query([DirectionalLight]))
                         lights.shadowMapsEnabled.set(eid, Number(pose.shadows));

@@ -13,7 +13,6 @@ test("the record doubles from 4096 through a million parts and declares the exam
     expect(WORKLOAD.kit.materials).toBe(COLORS.length);
     expect([WORKLOAD.width, WORKLOAD.height]).toEqual([1280, 720]);
     expect(WORKLOAD.configurations.map((c) => c.population)).toEqual(WORKLOAD.populations);
-    expect(WORKLOAD.shadowMapsEnabled).toBe(false);
 });
 
 test("every street camera looks along a gap between building columns, not through a footprint", () => {
