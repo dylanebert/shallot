@@ -3,26 +3,27 @@ import {
     DirectionalLight,
     GlobalAmbientLight,
     lookAtRotation,
-    Materials,
     Meshes,
     MeshInstance,
     MeshMaterial,
     type Plugin,
     type Resource,
     resetInterpolation,
-    StandardMaterial,
     StandardRenderer,
     Transform,
     type World,
 } from "@dylanebert/shallot";
+import { Sky, SkyPlugin, skyBackgroundHandle } from "@dylanebert/shallot/extras";
 import { type Mesh, type MeshHandle, MeshPlugin, MeshQuant } from "@dylanebert/shallot/mesh";
 import {
+    CameraBackground,
     type MaterialHandle,
     MeshPreprocessSystem,
     MeshRenderPlugin,
     StandardRenderingPlugin,
 } from "@dylanebert/shallot/standard/rendering";
 import * as d from "typegpu/data";
+import { TerrainMaterial, TerrainMaterialPlugin } from "./material";
 import { mesher } from "./mesher";
 import {
     CONFIG,
@@ -101,7 +102,13 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
     return {
         name: "Terrain",
         gpu: {},
-        dependencies: [MeshPlugin, MeshRenderPlugin, StandardRenderingPlugin],
+        dependencies: [
+            MeshPlugin,
+            MeshRenderPlugin,
+            StandardRenderingPlugin,
+            TerrainMaterialPlugin,
+            SkyPlugin,
+        ],
         recovery: (world) => ({
             snapshot: () => {
                 const { viewer, turnovers } = world.resource(Terrain);
@@ -134,12 +141,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
             s.pipeline = root.unwrap(
                 root.createComputePipeline({ compute: emit }).$name("voxel:emit"),
             );
-            const material = world.resource(Materials).add(
-                StandardMaterial({
-                    baseColor: [0.72, 0.4, 0.05, 1],
-                    perceptualRoughness: 0.88,
-                }),
-            );
+            const material = world.resource(TerrainMaterial).add(TerrainMaterial.defaults!);
             for (const { x, z } of chunks(config)) {
                 const i = s.slots.length;
                 const vertices = buffer(Capacity * 4 * 16, GPUBufferUsage.STORAGE);
@@ -207,7 +209,15 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 shadowNormalBias: 1,
             });
             s.camera = world.create();
-            world.add(s.camera, Camera, { clearColor: 0x191816, fov: 55, far: span * 3 });
+            world.add(s.camera, Camera, { clearColor: 0x89b6e9, fov: 55, far: span * 3 });
+            world.add(s.camera, CameraBackground, { background: skyBackgroundHandle(world) });
+            const sky = world.create();
+            world.add(sky, Sky, {
+                horizon: 0x8dbde8,
+                hazeDensity: 0,
+                cloudCoverage: 0,
+                starIntensity: 0,
+            });
             world.add(s.camera, StandardRenderer);
             world.add(s.camera, Transform, {
                 translation: camera,

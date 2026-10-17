@@ -24,12 +24,10 @@ test("the stepped scrolling terrain covers the ground and retains a visible view
     await page.evaluate(() => window.voxel.step(240));
     const image = await page.evaluate(() => window.voxel.capture(true));
     const { rgba, width, height } = image;
-    // The footprint centre is land; the upper corners are the carbon clear beyond its edge.
+    // Grass and earth have less blue than red/green; beyond the footprint is daytime sky.
     const land = (x: number, y: number) => {
         const i = (Math.floor(y * height) * width + Math.floor(x * width)) * 4;
-        return (
-            Math.abs(rgba[i] - 25) + Math.abs(rgba[i + 1] - 24) + Math.abs(rgba[i + 2] - 22) > 25
-        );
+        return rgba[i] > rgba[i + 2] * 1.1 && rgba[i + 1] > rgba[i + 2] * 1.1;
     };
     let covered = 0,
         total = 0;
