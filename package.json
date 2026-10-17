@@ -39,6 +39,7 @@
             "default": "./src/project/vite.js"
         },
         "./runtime": "./src/engine/runtime/index.ts",
+        "./testing/gpu": "./src/project/testing-gpu.ts",
         "./webgpu": "./src/engine/runtime/webgpu.ts",
         "./ecs": "./src/engine/ecs/index.ts",
         "./utils": "./src/engine/utils/index.ts",

@@ -146,7 +146,9 @@ test("the npm package contains only declared files and required consumers", asyn
             );
 
     const removedTestSupport = Object.keys(packageManifest.exports ?? {}).filter(
-        (entry) => /^\.\/harness(?:\/|$)/.test(entry) || entry.startsWith("./testing/"),
+        (entry) =>
+            /^\.\/harness(?:\/|$)/.test(entry) ||
+            (entry.startsWith("./testing/") && entry !== "./testing/gpu"),
     );
     for (const entry of removedTestSupport) violations.push(`${entry} (test-support export)`);
 

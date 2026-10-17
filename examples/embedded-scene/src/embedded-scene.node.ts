@@ -2,7 +2,7 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { Camera } from "@dylanebert/shallot";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { openGpuApp as createApp } from "../tests/gpu-app";
+import { openGpuApp as createApp } from "@dylanebert/shallot/testing/gpu";
 import { LoadingWorld } from "./scene";
 
 setDefaultTimeout(TIMEOUT.node);

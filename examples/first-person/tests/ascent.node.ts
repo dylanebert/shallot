@@ -13,11 +13,11 @@ import {
     Transform,
 } from "@dylanebert/shallot";
 import { attachTexture, Camera, type Capture, captureTexture } from "@dylanebert/shallot/rendering";
+import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
 import { Route } from "../src/demo";
 import { PlayerInput } from "../src/player";
 import { APP_PLUGINS } from "../src/plugins";
-import { openGpuApp } from "./gpu-app";
 
 // Before openApp, which wraps GPUAdapter's requestDevice to record the floor request.
 await setupGlobals();

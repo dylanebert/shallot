@@ -111,7 +111,8 @@ export function packageManifest(
         vite: engine.devDependencies.vite,
     };
     const imports = bareImports(templateDir);
-    if (imports.has(`${ENGINE}/webgpu`)) devDependencies.webgpu = engine.peerDependencies.webgpu;
+    if (imports.has(`${ENGINE}/webgpu`) || imports.has(`${ENGINE}/testing/gpu`))
+        devDependencies.webgpu = engine.peerDependencies.webgpu;
     // A template's own packages are those the engine is proved against, at the engine's range; the
     // import gate refuses a package the engine does not declare.
     for (const name of new Set([...imports].map(packageName))) {

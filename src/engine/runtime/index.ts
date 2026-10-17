@@ -24,6 +24,7 @@ export {
     submitFrame,
 } from "./allocation-site";
 export {
+    adapterNotice,
     checkStorageBinding,
     checkTextureLimits,
     checkTgsl,

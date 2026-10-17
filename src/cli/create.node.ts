@@ -81,7 +81,6 @@ const FIRST_PERSON_TEMPLATE_FILES = [
     "tests/browser-setup.ts",
     "tests/capture-page.ts",
     "tests/controls.e2e.ts",
-    "tests/gpu-app.ts",
     "tests/stepped.html",
     "tsconfig.json",
     "vite.config.ts",
@@ -156,7 +155,10 @@ function assertProject(destination: string, templateFiles: string[]): void {
         .map((file) => readFileSync(join(destination, file), "utf8"))
         .join("\n");
     expect(manifest.devDependencies.webgpu).toBe(
-        source.includes("@dylanebert/shallot/webgpu") ? ENGINE.peerDependencies.webgpu : undefined,
+        source.includes("@dylanebert/shallot/webgpu") ||
+            source.includes("@dylanebert/shallot/testing/gpu")
+            ? ENGINE.peerDependencies.webgpu
+            : undefined,
     );
     expect(manifest.devDependencies.typegpu).toBe(
         /(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']typegpu(?:\/[^"']*)?["']/.test(source)
