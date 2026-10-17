@@ -83,6 +83,6 @@ export class Registry<T extends { name: string }> {
     }
 
     [Symbol.iterator](): IterableIterator<T> {
-        return this._values.values();
+        return this.values();
     }
 }

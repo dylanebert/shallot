@@ -13,7 +13,7 @@ import {
     StandardRenderingPlugin,
 } from "./index";
 import { MeshDrawBuffers, meshPreprocessKey } from "./preprocess";
-import { Draws } from "./registry";
+import { type Draw, Draws } from "./registry";
 
 setDefaultTimeout(TIMEOUT.node);
 const apps = gpuApps(import.meta.path, [
@@ -60,7 +60,23 @@ test("freed mesh handles clear bounds and entity/producer records, then publish 
     world.remove(eid, MeshInstance);
     world.step(0);
     expect(await bounds()).toEqual(new Float32Array(4));
-    for (const draw of draws) expect(world.resource(Draws).has(draw.name)).toBe(false);
+    const registry = world.resource(Draws);
+    expect([...registry].some((draw) => draw.mesh === handle)).toBe(false);
+    const survivors = [...registry.values()];
+    expect(Array.from(registry)).toEqual(survivors);
+    const live: Draw[] = [];
+    for (const draw of registry) live.push(draw);
+    expect(live).toEqual(survivors);
+    const visited: Draw[] = [];
+    registry.forEach((draw) => {
+        visited.push(draw);
+    });
+    expect(visited).toEqual(survivors);
+    expect(registry.size).toBe(survivors.length);
+    for (const draw of draws) {
+        expect(registry.has(draw.name)).toBe(false);
+        expect(registry.get(draw.name)).toBeUndefined();
+    }
     const empty = await records();
     for (const draw of draws) {
         const offset = draw.args.offset! / 4;
@@ -77,6 +93,16 @@ test("freed mesh handles clear bounds and entity/producer records, then publish 
     world.add(eid, MeshInstance, { mesh: handle });
     world.step(0);
     expect(await bounds()).toEqual(new Float32Array(successor.bounds));
+    const expectedOrder = [...survivors, ...draws];
+    expect([...registry]).toEqual(expectedOrder);
+    expect(Array.from(registry)).toEqual(expectedOrder);
+    expect([...registry.values()]).toEqual(expectedOrder);
+    const registered: Draw[] = [];
+    registry.forEach((draw) => {
+        registered.push(draw);
+    });
+    expect(registered).toEqual(expectedOrder);
+    expect(registry.size).toBe(expectedOrder.length);
     const current = await records();
     for (const draw of draws) {
         expect(world.resource(Draws).get(draw.name)).toBe(draw);
