@@ -63,12 +63,6 @@ fn start_asset_server() -> String {
     origin
 }
 
-#[cfg(target_os = "linux")]
-fn uses_wayland(ozone_platform: Option<&str>, session_type: Option<&str>) -> bool {
-    // Chromium resolves an absent ozone-platform from XDG_SESSION_TYPE after this callback.
-    ozone_platform.or(session_type) == Some("wayland")
-}
-
 wrap_app! {
     pub struct ShallotApp;
 
@@ -89,24 +83,26 @@ wrap_app! {
                 // an engine plugin may require (timestamp-query, which ProfilePlugin declares).
                 cmd.append_switch(Some(&CefString::from("enable-unsafe-webgpu")));
                 cmd.append_switch(Some(&CefString::from("ignore-gpu-blocklist")));
-                cmd.append_switch_with_value(
-                    Some(&CefString::from("enable-dawn-features")),
-                    Some(&CefString::from("allow_unsafe_apis")),
-                );
-                // ANGLE Vulkan avoids Wayland stalls. On composited X11 its root-visual configs
-                // can fail Chromium's ARGB visual selection.
+                let dawn = CefString::from("enable-dawn-features");
+                let value = CefString::from(&cmd.switch_value(Some(&dawn))).to_string();
+                if !value.split(',').any(|feature| feature == "allow_unsafe_apis") {
+                    let value = if value.is_empty() {
+                        "allow_unsafe_apis".to_string()
+                    } else {
+                        format!("{value},allow_unsafe_apis")
+                    };
+                    cmd.append_switch_with_value(Some(&dawn), Some(&CefString::from(value.as_str())));
+                }
                 #[cfg(target_os = "linux")]
                 {
                     let ozone = CefString::from("ozone-platform");
                     let platform = (cmd.has_switch(Some(&ozone)) != 0)
                         .then(|| CefString::from(&cmd.switch_value(Some(&ozone))).to_string());
                     let session_type = std::env::var("XDG_SESSION_TYPE").ok();
-                    if uses_wayland(platform.as_deref(), session_type.as_deref()) {
-                        cmd.append_switch_with_value(
-                            Some(&CefString::from("use-angle")),
-                            Some(&CefString::from("vulkan")),
-                        );
-                    }
+                    crate::gpu_policy::configure_linux(
+                        cmd, platform.as_deref(), session_type.as_deref(),
+                        crate::gpu_policy::require_hardware(),
+                    );
                 }
                 // Windows: run the GPU in-process. The re-exec'd GPU subprocess can't initialize GL in
                 // this single-exe CEF build — gl::init::InitializeStaticGLBindingsOneOff fails, the GPU
@@ -491,18 +487,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn wayland_selection_matches_chromium() {
-        for session in [None, Some(""), Some("tty"), Some("x11"), Some("wayland")] {
-            assert_eq!(uses_wayland(None, session), session == Some("wayland"));
-            assert!(uses_wayland(Some("wayland"), session));
-            assert!(!uses_wayland(Some("x11"), session));
-            assert!(!uses_wayland(Some(""), session));
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_scopes_angle_vulkan_to_wayland_without_forcing_the_vulkan_compositor() {
+    fn linux_selects_vulkan_composition_only_for_hardware_x11() {
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
         let app = ShallotApp::new();
         for platform in ["x11", "wayland"] {
@@ -512,7 +497,13 @@ mod tests {
                     Some(&CefString::from("ozone-platform")),
                     Some(&CefString::from(platform)),
                 );
-                app.on_before_command_line_processing(process.as_ref(), Some(&mut switches));
+                switches.append_switch_with_value(
+                    Some(&CefString::from("enable-dawn-features")),
+                    Some(&CefString::from("unrelated_feature")),
+                );
+                for _ in 0..2 {
+                    app.on_before_command_line_processing(process.as_ref(), Some(&mut switches));
+                }
                 assert_eq!(
                     CefString::from(&switches.switch_value(Some(&CefString::from("use-angle"))))
                         .to_string(),
@@ -533,15 +524,18 @@ mod tests {
                         &switches.switch_value(Some(&CefString::from("enable-dawn-features")))
                     )
                     .to_string(),
-                    "allow_unsafe_apis"
+                    "unrelated_feature,allow_unsafe_apis"
                 );
                 let enabled_features = CefString::from(
                     &switches.switch_value(Some(&CefString::from("enable-features"))),
                 )
                 .to_string();
-                assert!(enabled_features
-                    .split(',')
-                    .all(|feature| feature != "Vulkan"));
+                assert_eq!(
+                    enabled_features
+                        .split(',')
+                        .any(|feature| feature == "Vulkan"),
+                    platform == "x11" && crate::gpu_policy::require_hardware()
+                );
             }
         }
     }

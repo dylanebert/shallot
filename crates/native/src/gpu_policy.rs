@@ -18,6 +18,61 @@ fn script(require_hardware: bool) -> &'static str {
     }
 }
 
+#[cfg(all(target_os = "linux", feature = "portable"))]
+pub fn configure_linux(
+    cmd: &mut cef::CommandLine,
+    platform: Option<&str>,
+    session: Option<&str>,
+    hardware: bool,
+) {
+    use cef::{CefString, ImplCommandLine};
+    // Chromium resolves an absent Ozone platform from the session, defaulting to X11.
+    let platform = platform.unwrap_or(if session == Some("wayland") {
+        "wayland"
+    } else {
+        "x11"
+    });
+    match platform {
+        "wayland" => {
+            // ANGLE Vulkan avoids Wayland stalls; its X11 configs can lack the ARGB root visual.
+            cmd.append_switch_with_value(
+                Some(&CefString::from("use-angle")),
+                Some(&CefString::from("vulkan")),
+            );
+        }
+        "x11" if hardware => {
+            // This CEF build gates native GL/WebGPU interop at compile time. Vulkan composition
+            // supplies the Vulkan provider required by the hardware WebGPU decoder instead.
+            // FeatureList gives disables precedence, so remove only Vulkan's disable entry.
+            for (switch, enable) in [("disable-features", false), ("enable-features", true)] {
+                let key = CefString::from(switch);
+                let value = CefString::from(&cmd.switch_value(Some(&key))).to_string();
+                let mut entries: Vec<&str> = value
+                    .split(',')
+                    .filter(|entry| {
+                        !entry.is_empty()
+                            && (enable || entry.split(['<', ':']).next() != Some("Vulkan"))
+                    })
+                    .collect();
+                if enable
+                    && !entries
+                        .iter()
+                        .any(|entry| entry.split(['<', ':']).next() == Some("Vulkan"))
+                {
+                    entries.push("Vulkan");
+                }
+                if !value.is_empty() || enable {
+                    cmd.append_switch_with_value(
+                        Some(&key),
+                        Some(&CefString::from(entries.join(",").as_str())),
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(feature = "portable")]
 mod cef_context {
     use cef::*;
@@ -62,6 +117,88 @@ pub use cef_context::PolicyHandler;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(target_os = "linux", feature = "portable"))]
+    #[test]
+    fn linux_launch_preserves_features_and_platform_across_callbacks() {
+        use cef::*;
+        let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
+        for platform in [
+            None,
+            Some("x11"),
+            Some("wayland"),
+            Some("headless"),
+            Some(""),
+        ] {
+            for session in [None, Some("tty"), Some("x11"), Some("wayland")] {
+                for hardware in [false, true] {
+                    let mut cmd = command_line_create().unwrap();
+                    for (key, value) in [
+                        ("enable-features", "Other:param/value"),
+                        ("disable-features", "Unrelated<Trial,Vulkan:param/value"),
+                    ] {
+                        cmd.append_switch_with_value(
+                            Some(&CefString::from(key)),
+                            Some(&CefString::from(value)),
+                        );
+                    }
+                    let effective = platform.unwrap_or(if session == Some("wayland") {
+                        "wayland"
+                    } else {
+                        "x11"
+                    });
+                    for _ in 0..2 {
+                        super::configure_linux(&mut cmd, platform, session, hardware);
+                        let get = |key: &str| {
+                            CefString::from(&cmd.switch_value(Some(&CefString::from(key))))
+                                .to_string()
+                        };
+                        assert_eq!(
+                            get("use-angle"),
+                            if effective == "wayland" { "vulkan" } else { "" }
+                        );
+                        let composition = effective == "x11" && hardware;
+                        assert_eq!(
+                            get("enable-features"),
+                            if composition {
+                                "Other:param/value,Vulkan"
+                            } else {
+                                "Other:param/value"
+                            }
+                        );
+                        assert_eq!(
+                            get("disable-features"),
+                            if composition {
+                                "Unrelated<Trial"
+                            } else {
+                                "Unrelated<Trial,Vulkan:param/value"
+                            }
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(all(target_os = "linux", feature = "portable"))]
+    #[test]
+    fn existing_vulkan_feature_parameters_survive() {
+        use cef::*;
+        let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
+        let mut cmd = command_line_create().unwrap();
+        let key = CefString::from("enable-features");
+        cmd.append_switch_with_value(
+            Some(&key),
+            Some(&CefString::from("Vulkan<Trial:param/value,Other")),
+        );
+        for _ in 0..2 {
+            super::configure_linux(&mut cmd, Some("x11"), None, true);
+            assert_eq!(
+                CefString::from(&cmd.switch_value(Some(&key))).to_string(),
+                "Vulkan<Trial:param/value,Other"
+            );
+        }
+    }
+
     #[test]
     fn contexts_receive_readonly_policy_data() {
         assert_eq!(
