@@ -43,30 +43,19 @@ pub fn configure_linux(
         "x11" if hardware => {
             // Vulkan composition supplies the provider needed for hardware WebGPU without
             // ANGLE Vulkan's X11 visual mismatch.
-            // FeatureList gives disables precedence, so remove only Vulkan's disable entry.
-            for (switch, enable) in [("disable-features", false), ("enable-features", true)] {
-                let key = CefString::from(switch);
-                let value = CefString::from(&cmd.switch_value(Some(&key))).to_string();
-                let mut entries: Vec<&str> = value
-                    .split(',')
-                    .filter(|entry| {
-                        !entry.is_empty()
-                            && (enable || entry.split(['<', ':']).next() != Some("Vulkan"))
-                    })
-                    .collect();
-                if enable
-                    && !entries
-                        .iter()
-                        .any(|entry| entry.split(['<', ':']).next() == Some("Vulkan"))
-                {
-                    entries.push("Vulkan");
-                }
-                if !value.is_empty() || enable {
-                    cmd.append_switch_with_value(
-                        Some(&key),
-                        Some(&CefString::from(entries.join(",").as_str())),
-                    );
-                }
+            let key = CefString::from("enable-features");
+            let value = CefString::from(&cmd.switch_value(Some(&key))).to_string();
+            if !value.split(',').any(|entry| {
+                let entry = entry.trim_ascii();
+                let entry = entry.strip_prefix('*').unwrap_or(entry);
+                entry.split(['<', ':']).next() == Some("Vulkan")
+            }) {
+                let value = if value.is_empty() {
+                    "Vulkan".to_string()
+                } else {
+                    format!("{value},Vulkan")
+                };
+                cmd.append_switch_with_value(Some(&key), Some(&CefString::from(value.as_str())));
             }
         }
         _ => {}
@@ -167,11 +156,14 @@ mod tests {
                         );
                         assert_eq!(
                             get("disable-features"),
-                            if composition {
-                                "Unrelated<Trial"
-                            } else {
-                                "Unrelated<Trial,Vulkan:param/value"
-                            }
+                            "Unrelated<Trial,Vulkan:param/value"
+                        );
+                        assert_eq!(
+                            CefString::from(&cmd.command_line_string())
+                                .to_string()
+                                .matches("--disable-features=")
+                                .count(),
+                            1
                         );
                     }
                 }
@@ -186,16 +178,19 @@ mod tests {
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
         let mut cmd = command_line_create().unwrap();
         let key = CefString::from("enable-features");
-        cmd.append_switch_with_value(
-            Some(&key),
-            Some(&CefString::from("Vulkan<Trial:param/value,Other")),
-        );
-        for _ in 0..2 {
-            super::configure_linux(&mut cmd, Some("x11"), None, true);
-            assert_eq!(
-                CefString::from(&cmd.switch_value(Some(&key))).to_string(),
-                "Vulkan<Trial:param/value,Other"
-            );
+        for value in [
+            "Vulkan<Trial:param/value,Other",
+            "Vulkan:param/value,Other",
+            " *Vulkan<Trial,Other ",
+        ] {
+            cmd.append_switch_with_value(Some(&key), Some(&CefString::from(value)));
+            for _ in 0..2 {
+                super::configure_linux(&mut cmd, Some("x11"), None, true);
+                assert_eq!(
+                    CefString::from(&cmd.switch_value(Some(&key))).to_string(),
+                    value
+                );
+            }
         }
     }
 
