@@ -62,15 +62,18 @@ test("the built page opens a new game with clear controls and Load disabled unti
     expect(errors).toEqual([]);
 });
 
-test("three clicks, Save, New game and Load restore the pile and shown count, also after page reload", async ({
-    page,
-}) => {
-    const errors: string[] = [];
+// Ubuntu CI runs these about five times slower than macOS; the reload is its own test to stay inside the 30 s timeout.
+async function open(page: Page, errors: string[]) {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(
         `http://127.0.0.1:4190/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`,
     );
     await page.waitForFunction(() => !!window.saveAndLoad);
+}
+
+test("three clicks, Save, New game and Load restore the pile and shown count", async ({ page }) => {
+    const errors: string[] = [];
+    await open(page, errors);
     await count(page, 0);
     await expect(page.getByRole("button", { name: "Load L" })).toBeDisabled();
     await page.evaluate(() => window.saveAndLoad.hover());
@@ -96,6 +99,21 @@ test("three clicks, Save, New game and Load restore the pile and shown count, al
         expect.arrayContaining(saved.entities),
     );
     await capture(page, "04-loaded");
+    expect(errors).toEqual([]);
+});
+
+test("a save survives a page reload, and Load restores its pile and shown count", async ({
+    page,
+}) => {
+    const errors: string[] = [];
+    await open(page, errors);
+    for (let i = 1; i <= 3; i++) await page.evaluate(() => window.saveAndLoad.click());
+    await count(page, 3);
+    await page.evaluate(() => window.saveAndLoad.advance(60));
+    await button(page, "Save S");
+    await expect(page.getByRole("button", { name: "Saved S", exact: true })).toBeVisible();
+    const saved = await page.evaluate(() => window.saveAndLoad.state().save);
+    expect(saved.entities).toHaveLength(3);
     await page.reload();
     await page.waitForFunction(() => !!window.saveAndLoad);
     await count(page, 0);
