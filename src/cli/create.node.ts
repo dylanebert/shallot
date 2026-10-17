@@ -81,7 +81,6 @@ const FIRST_PERSON_TEMPLATE_FILES = [
     "tests/browser-setup.ts",
     "tests/capture-page.ts",
     "tests/controls.e2e.ts",
-    "tests/gpu-app.ts",
     "tests/stepped.html",
     "tsconfig.json",
     "vite.config.ts",
