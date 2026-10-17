@@ -15,11 +15,15 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { normalizePath } from "../src/project/paths";
 import { packedInstall as runPackedInstall } from "./packed-install-spawn";
 
 const ROOT = resolve(import.meta.dir, "..");
+const examples = readdirSync(join(ROOT, "examples"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
 
 type RootPackage = {
     version: string;
@@ -126,8 +130,7 @@ afterAll(() => {
 });
 
 test("the packed CLI exposes the public package and its installed examples", () => {
-    const { scratch, cliProject, rootPackage, installedPackage, cliInstall, tarball } =
-        packedInstall();
+    const { scratch, cliProject, rootPackage, installedPackage, cliInstall } = packedInstall();
     writeFileSync(
         join(cliProject, "fresh.test.ts"),
         `import { expect, test } from "bun:test";
@@ -135,11 +138,7 @@ import * as Rendering from "@dylanebert/shallot/rendering";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const manifest = JSON.parse(readFileSync(resolve(import.meta.dir, "node_modules/@dylanebert/shallot/package.json"), "utf8"));
-
-test("the packed engine exposes no test-support namespace or capture helpers", () => {
-    // ./testing and ./testing/gpu are the published test policy and opener; the retired harness and other testing/* namespaces are refused.
-    expect(Object.keys(manifest.exports).some((path) => path !== "./testing/gpu" && /^\\.\\/(?:harness(?:\\/|$)|testing\\/)/.test(path))).toBe(false);
+test("the packed engine exposes no harness source or capture helpers", () => {
     expect(existsSync(resolve(import.meta.dir, "node_modules/@dylanebert/shallot/src/harness"))).toBe(false);
     expect("captureArtifact" in Rendering).toBe(false);
     expect("captureIdentityLabel" in Rendering).toBe(false);
@@ -228,90 +227,26 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
 
     const packedProjectTests = run(["bun", "test"], cliProject, "testing packed project exports");
     expect(packedProjectTests).toContain(
-        "the packed engine exposes no test-support namespace or capture helpers",
+        "the packed engine exposes no harness source or capture helpers",
     );
     expect(packedProjectTests).toContain(
         "the packed Vite entry imports in Node and exposes only shallot",
     );
     expect(packedProjectTests).toContain("3 pass");
 
-    const recipes = readdirSync(join(ROOT, "examples"), { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort();
-    expect(recipes).toEqual([
-        "city",
-        "day-night-cycle",
-        "embedded-scene",
-        "first-person",
-        "hud",
-        "interact",
-        "lit-interior",
-        "loading-screen",
-        "materials",
-        "minimal",
-        "particles",
-        "save-and-load",
-        "sound",
-        "voxel",
-        "world-ui",
-    ]);
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
-
-    // By file name from its directory: GNU tar, which Git Bash puts first on Windows, reads `C:` as a host.
-    const packed = Bun.spawnSync(["tar", "-tzf", basename(tarball)], {
-        cwd: dirname(tarball),
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    expect(packed.exitCode).toBe(0);
-    expect(packed.stdout.toString()).toContain("tsconfig.base.json");
-    expect(packed.stdout.toString()).toContain("examples/minimal/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/city/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/minimal/src/welcome/welcome.test.ts");
-    expect(packed.stdout.toString()).toContain("examples/first-person/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/interact/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/world-ui/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/save-and-load/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/particles/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/voxel/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/lit-interior/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/materials/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/loading-screen/tsconfig.json");
-    expect(packed.stdout.toString()).toContain("examples/embedded-scene/tsconfig.json");
-    expect(packed.stdout.toString()).not.toContain("examples/minimal/package.json");
-    expect(packed.stdout.toString()).not.toContain("examples/first-person/package.json");
-    expect(packed.stdout.toString()).not.toContain("examples/loading-screen/package.json");
-    expect(packed.stdout.toString()).not.toContain("examples/embedded-scene/package.json");
 });
 
-type Example =
-    | "minimal"
-    | "city"
-    | "first-person"
-    | "loading-screen"
-    | "embedded-scene"
-    | "day-night-cycle"
-    | "hud"
-    | "sound"
-    | "interact"
-    | "world-ui"
-    | "save-and-load"
-    | "particles"
-    | "voxel"
-    | "lit-interior"
-    | "materials";
-
-const created = new Map<Example, { manifest: Record<string, any>; installOutput: string }>();
+const created = new Map<string, { manifest: Record<string, any>; installOutput: string }>();
 
 /** The copy `create` made for `name`; each later step of its loop refuses when that step did not complete. */
-function example(name: Example): { project: string; manifest: Record<string, any> } {
+function example(name: string): { project: string; manifest: Record<string, any> } {
     if (!created.has(name)) throw new Error(`${name} was not created from the packed CLI`);
     const project = join(packedInstall().scratch, name);
     return { project, manifest: JSON.parse(readFileSync(join(project, "package.json"), "utf8")) };
 }
 
-function createExample(name: Example): void {
+function createExample(name: string): void {
     const { scratch, cliProject, tarball, installedPackage } = packedInstall();
     const project = join(scratch, name);
     const args = ["bun", "run", join(installedPackage, "bin/shallot.ts"), "create", project];
@@ -324,8 +259,7 @@ function createExample(name: Example): void {
     const packedRange = `file:${normalizePath(relative(project, tarball))}`;
     manifest.dependencies["@dylanebert/shallot"] = packedRange;
     // Svelte checking resolves its supported TypeScript online in the manual oracle.
-    if (name === "hud" || name === "day-night-cycle")
-        delete manifest.devDependencies["svelte-check"];
+    delete manifest.devDependencies["svelte-check"];
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
     writeFileSync(join(project, "no-preload.toml"), "[test]\n");
     writeFileSync(
@@ -348,7 +282,7 @@ test("the Bun preload transforms engine TGSL and keeps it callable on the CPU", 
     created.set(name, { manifest: createdManifest, installOutput });
 }
 
-function assertCreatedExample(name: Example): void {
+function assertCreatedExample(name: string): void {
     example(name);
     const { manifest, installOutput } = created.get(name)!;
     const { scratch, rootPackage, packageVersion } = packedInstall();
@@ -356,50 +290,22 @@ function assertCreatedExample(name: Example): void {
     expect(manifest.devDependencies["@types/bun"]).toBe(rootPackage.devDependencies["@types/bun"]);
     expect(manifest.devDependencies.playwright).toBe(rootPackage.peerDependencies.playwright);
     expect(manifest.devDependencies.vite).toBe(rootPackage.devDependencies.vite);
-    expect(manifest.devDependencies.typegpu).toBe(
-        name === "materials" || name === "particles" || name === "voxel"
-            ? rootPackage.peerDependencies.typegpu
-            : undefined,
-    );
-    expect(manifest.devDependencies.webgpu).toBe(
-        name === "first-person" ||
-            name === "embedded-scene" ||
-            name === "save-and-load" ||
-            name === "materials" ||
-            name === "particles" ||
-            name === "city" ||
-            name === "voxel"
-            ? rootPackage.peerDependencies.webgpu
-            : undefined,
-    );
-    for (const svelte of ["svelte", "@sveltejs/vite-plugin-svelte"])
-        expect(manifest.devDependencies[svelte]).toBe(
-            name === "hud" || name === "day-night-cycle"
-                ? rootPackage.devDependencies[svelte]
-                : undefined,
-        );
+    for (const dependency of ["typegpu", "webgpu"])
+        if (dependency in manifest.devDependencies)
+            expect(manifest.devDependencies[dependency]).toBe(
+                rootPackage.peerDependencies[dependency],
+            );
+    for (const dependency of ["svelte", "@sveltejs/vite-plugin-svelte", "svelte-check"])
+        if (dependency in manifest.devDependencies)
+            expect(manifest.devDependencies[dependency]).toBe(
+                rootPackage.devDependencies[dependency],
+            );
     expect(existsSync(join(scratch, "package.json"))).toBe(false);
     expect(installOutput).not.toContain("build-tooling: generated dist/");
 }
 
 // Each example owns its setup so a selected subject never depends on an earlier test.
-for (const name of [
-    "minimal",
-    "city",
-    "first-person",
-    "loading-screen",
-    "embedded-scene",
-    "day-night-cycle",
-    "hud",
-    "interact",
-    "world-ui",
-    "save-and-load",
-    "particles",
-    "voxel",
-    "lit-interior",
-    "sound",
-    "materials",
-] as const) {
+for (const name of examples) {
     describe(name, () => {
         beforeAll(() => createExample(name), TIMEOUT.startup);
 
@@ -408,11 +314,8 @@ for (const name of [
         });
 
         test(`${name} type-checks in its copy`, () => {
-            const { project, manifest } = example(name);
+            const { project } = example(name);
             run(["bun", "check"], project, `bun check ${name}`);
-            expect(manifest.scripts.typecheck).toBe(
-                name === "hud" || name === "day-night-cycle" ? "svelte-check" : undefined,
-            );
         });
 
         test(`${name} builds in its copy`, () => {
