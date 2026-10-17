@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>City, stepped</title><link rel="icon" href="/icon.svg"/><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas>
+<script type="module">
+import { createApp } from '@dylanebert/shallot';
+import { captureFrame } from '@dylanebert/shallot/rendering';
+import { CityPlugin } from '../src/city';
+const app=await createApp({plugins:[CityPlugin]});
+const world=app.world, canvas=document.querySelector('canvas');
+world.step(1/60);world.step(1/60);
+window.city={
+ async capture() {
+  const pending=captureFrame(canvas);world.step(0);const image=await pending;
+  const c=document.createElement('canvas');c.width=image.width;c.height=image.height;
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);
+  return {png:c.toDataURL('image/png'),rgba:Array.from(image.rgba),width:image.width,height:image.height};
+ }
+};
+</script></body></html>
