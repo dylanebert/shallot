@@ -78,6 +78,7 @@
         "examples/save-and-load",
         "examples/particles",
         "examples/city",
+        "examples/voxel",
         "examples/lit-interior",
         "examples/sound",
         "examples/materials",
