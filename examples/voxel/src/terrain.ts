@@ -33,7 +33,6 @@ import {
     chunkX,
     inRing,
     radii,
-    ringSlots,
     SPEED,
     slotCount,
     type TerrainConfig,
@@ -44,8 +43,7 @@ type Slot = {
     z: number;
     eid: number;
     instance: { mesh: MeshHandle };
-    geometry: Geometry | null;
-    registered: boolean;
+    geometry: Geometry;
     dirty: boolean;
 };
 export const Terrain: Resource<{
@@ -56,8 +54,6 @@ export const Terrain: Resource<{
     counts: GPUBuffer | null;
     pipeline: GPUComputePipeline | null;
     emitPass: GPUComputePassDescriptor;
-    surface: Geometry[];
-    revealed: Geometry[];
 }> = {
     create: () => ({
         viewer: 0,
@@ -67,8 +63,6 @@ export const Terrain: Resource<{
         counts: null,
         pipeline: null,
         emitPass: { label: "voxel:emit" },
-        surface: [],
-        revealed: [],
     }),
 };
 const ZERO = new Uint32Array(1);
@@ -85,38 +79,23 @@ function place(world: World, config: TerrainConfig): void {
     const s = world.resource(Terrain);
     const meshes = world.resource(Meshes);
     const translation = world.storage(Transform).translation;
-    // Return all changing geometry before borrowing, including after a distant restore.
     for (const slot of s.slots) {
         const x = chunkX(slot.x, s.viewer, config);
         const allFaces = inRing(x, slot.z, s.viewer, config);
-        const geometry = slot.geometry!;
-        const moved = x !== slot.x;
-        if (moved || allFaces !== geometry.allFaces) {
+        const geometry = slot.geometry;
+        if (x !== slot.x) {
             world.remove(slot.eid, MeshInstance);
             meshes.remove(slot.instance.mesh);
-            slot.registered = false;
-            if (allFaces !== geometry.allFaces) {
-                (geometry.allFaces ? s.revealed : s.surface).push(geometry);
-                slot.geometry = null;
-            }
-            slot.dirty = true;
-            if (moved) {
-                resetInterpolation(world, slot.eid);
-                s.turnovers++;
-            }
-            slot.x = x;
-        }
-    }
-    for (let i = 0; i < s.slots.length; i++) {
-        const slot = s.slots[i];
-        if (!slot.registered) {
-            slot.geometry ??=
-                (inRing(slot.x, slot.z, s.viewer, config) ? s.revealed : s.surface).pop() ?? null;
-            if (!slot.geometry) throw new Error("voxel transition geometry pool exhausted");
-            slot.geometry.mesh.indirectIndexCount!.offset = i * 4;
-            slot.instance.mesh = meshes.add(slot.geometry.mesh);
+            slot.instance.mesh = meshes.add(geometry.mesh);
             world.add(slot.eid, MeshInstance, slot.instance);
-            slot.registered = true;
+            resetInterpolation(world, slot.eid);
+            s.turnovers++;
+            slot.x = x;
+            slot.dirty = true;
+        }
+        if (allFaces !== geometry.allFaces) {
+            geometry.allFaces = allFaces;
+            slot.dirty = true;
         }
         translation.set(
             slot.eid,
@@ -178,17 +157,15 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
             s.pipeline = root.unwrap(
                 root.createComputePipeline({ compute: emit }).$name("voxel:emit"),
             );
-            s.surface = pool(world, config, s.counts, quant, s.pipeline, slotCount(config), false);
-            s.revealed = pool(world, config, s.counts, quant, s.pipeline, ringSlots(config), true);
+            const geometries = pool(world, config, s.counts, quant, s.pipeline, slotCount(config));
             const { inner, outer } = radii(config);
             const material = world
                 .resource(TerrainMaterial)
                 .add({ ...TerrainMaterial.defaults!, inner, outer });
             for (const { x, z } of chunks(config)) {
                 const i = s.slots.length;
-                const geometry = (inRing(x, z, s.viewer, config) ? s.revealed : s.surface).pop();
-                if (!geometry)
-                    throw new Error("voxel transition geometry pool exhausted at startup");
+                const geometry = geometries[i];
+                geometry.allFaces = inRing(x, z, s.viewer, config);
                 geometry.mesh.indirectIndexCount!.offset = i * 4;
                 const handle = world.resource(Meshes).add(geometry.mesh);
                 const eid = chunk(world, handle, material);
@@ -198,7 +175,6 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                     eid,
                     instance: { mesh: handle },
                     geometry,
-                    registered: true,
                     dirty: true,
                 });
             }
@@ -257,6 +233,7 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                         geometry.input[0] = slot.x;
                         geometry.input[1] = slot.z;
                         geometry.input[2] = i;
+                        geometry.input[3] = Number(geometry.allFaces);
                         world.gpu.device.queue.writeBuffer(geometry.uniform, 0, geometry.input);
                         if (!pass) {
                             s.emitPass.timestampWrites = world.gpu.span?.("voxel:emit");

@@ -13,9 +13,10 @@ export function slotCount(config: TerrainConfig): number {
 }
 
 export function capacity(config: TerrainConfig, allFaces = false): number {
-    // Unit-gradient Perlin has |derivative| < 8. Integer heights add at most one
-    // face to that slope bound; each column emits top, bottom and four side strips.
-    const slope = Math.ceil((8 * config.relief) / 32) + 1;
+    // Cardinal gradients have components <= 1 and values in [-1,1] per cell.
+    // Fade's derivative is <= 15/8, so each noise derivative is <= 1 + 2*15/8.
+    // Ceil bounds the difference of floored heights across one voxel.
+    const slope = Math.ceil((4.75 * config.relief) / 32);
     // The transition reaches one voxel below the lowest neighbouring top.
     return config.chunkSize ** 2 * (allFaces ? 6 * (slope + 2) : 2 + 4 * slope);
 }

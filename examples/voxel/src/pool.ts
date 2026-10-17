@@ -18,7 +18,6 @@ export function pool(
     quant: NonNullable<Mesh["quant"]>,
     pipeline: GPUComputePipeline,
     count: number,
-    allFaces: boolean,
 ): Geometry[] {
     const { device, root } = world.gpu;
     const allocate = (size: number, usage: GPUBufferUsageFlags) => {
@@ -27,7 +26,7 @@ export function pool(
         return buffer;
     };
     const result: Geometry[] = [];
-    const maxFaces = capacity(config, allFaces);
+    const maxFaces = Math.max(capacity(config), capacity(config, true));
     for (let i = 0; i < count; i++) {
         const vertices = allocate(maxFaces * 4 * 16, GPUBufferUsage.STORAGE);
         const position = allocate(maxFaces * 4 * 8, GPUBufferUsage.STORAGE);
@@ -35,7 +34,7 @@ export function pool(
         const voxel = allocate(maxFaces * 4 * 4, GPUBufferUsage.STORAGE);
         const uniform = allocate(16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
         const mesh: Mesh = {
-            name: allFaces ? "transition-chunk" : "chunk",
+            name: "chunk",
             vertices: root
                 .createBuffer(d.arrayOf(d.vec4u, maxFaces * 4), vertices)
                 .$usage("storage"),
@@ -68,9 +67,9 @@ export function pool(
         result.push({
             mesh,
             uniform,
-            input: new Int32Array([0, 0, 0, Number(allFaces)]),
+            input: new Int32Array(4),
             group,
-            allFaces,
+            allFaces: false,
         });
     }
     return result;
