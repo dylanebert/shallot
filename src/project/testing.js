@@ -17,6 +17,8 @@ export const BUDGET = /** @type {const} */ ({
 /** CI tolerates host variance up to the hang ceiling; local runs enforce speed budgets. */
 export const TIMEOUT = process.env.CI ? CEILING : { ...BUDGET, startup: CEILING.startup };
 
+// Linux stays on SwiftShader even where Mesa's llvmpipe is installed: Chromium only accepts a non-SwiftShader
+// Dawn adapter that imports external images, which on desktop Linux needs opaque-FD semaphores llvmpipe lacks.
 const chromiumArgs =
     process.platform === "linux"
         ? [
