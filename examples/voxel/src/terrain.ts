@@ -96,6 +96,8 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
     const Chunk = config.chunkSize;
     const Capacity = capacity(config);
     const Slots = slotCount(config);
+    const span = (config.viewDistance * 2 + 1) * Chunk;
+    const camera = [span * 0.72, span * 0.68, span * 0.9] as const;
     return {
         name: "Terrain",
         gpu: {},
@@ -199,17 +201,17 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
                 color: 0xffe8cc,
                 illuminance: 8000,
                 shadowMapsEnabled: 1,
-                maximumDistance: 260,
-                firstCascadeFarBound: 100,
+                maximumDistance: span * 2.5,
+                firstCascadeFarBound: span,
                 depthBias: 0.04,
                 shadowNormalBias: 1,
             });
             s.camera = world.create();
-            world.add(s.camera, Camera, { clearColor: 0x191816, fov: 55, far: 300 });
+            world.add(s.camera, Camera, { clearColor: 0x191816, fov: 55, far: span * 3 });
             world.add(s.camera, StandardRenderer);
             world.add(s.camera, Transform, {
-                translation: [82, 76, 100],
-                rotation: lookAtRotation(82, 76, 100, 0, -3, 0),
+                translation: camera,
+                rotation: lookAtRotation(...camera, 0, -3, 0),
             });
         },
         systems: [

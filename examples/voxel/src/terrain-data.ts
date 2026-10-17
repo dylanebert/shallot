@@ -4,7 +4,7 @@ export type TerrainConfig = {
     height: number;
     relief: number;
 };
-export const CONFIG: TerrainConfig = { chunkSize: 16, viewDistance: 3, height: 32, relief: 12 };
+export const CONFIG: TerrainConfig = { chunkSize: 16, viewDistance: 12, height: 32, relief: 12 };
 export const SEED = 173;
 export const SPEED = 32;
 

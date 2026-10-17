@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { faces, height, perlin } from "./noise";
 import {
-    CONFIG,
     capacity,
     chunks,
     chunkX,
@@ -10,6 +9,8 @@ import {
     type TerrainConfig,
     translation,
 } from "./terrain-data";
+
+const CONFIG: TerrainConfig = { chunkSize: 16, viewDistance: 3, height: 32, relief: 12 };
 
 test("seeded Perlin is continuous at integer lattice seams and preserves fractional voxels beyond 2^24", () => {
     expect(perlin(0, 0)).toBe(0);
