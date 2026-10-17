@@ -62,7 +62,9 @@ test("default native startup needs observed CPU startup and splash refusal, not 
         /refusal was not observed/,
     );
     expect(() => assertStartup({ ...report, hooks: ["prepare"] })).toThrow(/before plugin hooks/);
-    expect(() => assertStartup({ ...report, cpuReady: false })).toThrow(/CPU startup failed/);
+    expect(() => assertStartup({ ...report, cpuReady: false })).toThrow(
+        /CPU-only startup was not observed/,
+    );
     expect(() => assertStartup({ ...report, error: "page failed" })).toThrow(/page failed/);
     expect(() => assertStartup({ ...report, requireHardware: undefined })).toThrow(
         /policy was not published/,

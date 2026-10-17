@@ -1195,7 +1195,7 @@ export async function requestGPU(
     ) {
         if (device === undefined) d.destroy();
         throw new Error(
-            `Hardware WebGPU is required: ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}. Check your graphics driver and GPU availability.`,
+            `Hardware WebGPU is required: ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}. Startup stopped before plugin initialization.`,
         );
     }
     observeDevice(d);

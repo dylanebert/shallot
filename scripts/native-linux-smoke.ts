@@ -612,7 +612,7 @@ export function assertStartup(
     >,
 ): void {
     if (report.error || report.cpuReady !== true)
-        throw new Error(`Native CPU startup failed: ${report.error ?? "not observed"}`);
+        throw new Error(`Native startup failed: ${report.error ?? "CPU-only startup was not observed"}`);
     if (report.requireHardware === true) {
         if (
             JSON.stringify(report.hooks) !== "[]" ||
@@ -868,7 +868,7 @@ async function launchAndObserve(
     const durationMs = performance.now() - (shellStartedAt ?? commandStartedAt);
     console.info(`${step}: CLI work before shell launch ${(prelaunchMs / 1000).toFixed(2)}s`);
     console.info(
-        `${step}: CPU startup, ${report.requireHardware ? "software refusal before plugin hooks" : "deliberate software startup and WebGPU canvas image"} verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; GPU: ${report.refusal ?? JSON.stringify(report.adapter)} (log: ${logPath})`,
+        `${step}: CPU startup, ${report.requireHardware ? "software refusal before plugin hooks" : "deliberate software startup and WebGPU canvas readback"} verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; GPU: ${report.refusal ?? JSON.stringify(report.adapter)} (log: ${logPath})`,
     );
     return { report, output, viteOrigin: resolvedViteOrigin };
 }
