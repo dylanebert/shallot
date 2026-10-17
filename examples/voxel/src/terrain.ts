@@ -194,12 +194,15 @@ export function terrainPlugin(config: TerrainConfig): Plugin {
             ambient.color = 0xd8e4ff;
             ambient.brightness = 380;
             const sun = world.create();
-            world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, 1, -2, -0.7) });
+            world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, 1, -0.65, -0.7) });
             world.add(sun, DirectionalLight, {
                 color: 0xffe8cc,
                 illuminance: 8000,
                 shadowMapsEnabled: 1,
-                maximumDistance: 180,
+                maximumDistance: 260,
+                firstCascadeFarBound: 100,
+                depthBias: 0.04,
+                shadowNormalBias: 1,
             });
             s.camera = world.create();
             world.add(s.camera, Camera, { clearColor: 0x191816, fov: 55, far: 300 });
