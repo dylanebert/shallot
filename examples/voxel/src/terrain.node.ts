@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import {
     type createApp,
     lookAtRotation,
@@ -212,8 +212,22 @@ test("small-world GPU counts match the oracle after fixed ticks and streaming; 1
     }
     const snapshot = world.snapshot();
     const start = s.turnovers;
-    const buffers = spyOn(world.gpu.device, "createBuffer");
-    const groups = spyOn(world.gpu.device, "createBindGroup");
+    const device = world.gpu.device;
+    // TypeGPU unwraps buffers and bind groups through the same device as direct calls.
+    expect(world.gpu.root.device).toBe(device);
+    const createBuffer = device.createBuffer;
+    const createBindGroup = device.createBindGroup;
+    let buffers = 0;
+    let groups = 0;
+    // Assignment reaches the world's device overrides; spyOn does not replace its getters.
+    device.createBuffer = (descriptor) => {
+        buffers++;
+        return createBuffer.call(device, descriptor);
+    };
+    device.createBindGroup = (descriptor) => {
+        groups++;
+        return createBindGroup.call(device, descriptor);
+    };
     try {
         while (s.turnovers - start < 100) {
             s.viewer += config.chunkSize;
@@ -222,11 +236,11 @@ test("small-world GPU counts match the oracle after fixed ticks and streaming; 1
             await world.gpu.sync();
             expect(world.resource(Meshes).size).toBe(s.slots.length + 8);
         }
-        expect(buffers).not.toHaveBeenCalled();
-        expect(groups).not.toHaveBeenCalled();
+        expect(buffers, "device buffers created during 100 warm turnovers").toBe(0);
+        expect(groups, "device bind groups created during 100 warm turnovers").toBe(0);
     } finally {
-        buffers.mockRestore();
-        groups.mockRestore();
+        device.createBuffer = createBuffer;
+        device.createBindGroup = createBindGroup;
     }
     await countsMatch();
     world.restore(snapshot);
