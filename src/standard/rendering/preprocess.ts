@@ -87,6 +87,7 @@ interface MeshPreprocessState {
     invalidPairs: Map<number, Map<number, { name: string; cause: string }>>;
     warnedPairs: Set<string>;
     meshCount: number;
+    meshVersion: number;
     pairCount: number;
     viewDim: number;
     packPass: GPUComputePassDescriptor;
@@ -141,6 +142,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
         invalidPairs: new Map(),
         warnedPairs: new Set(),
         meshCount: 0,
+        meshVersion: -1,
         pairCount: 0,
         viewDim: 1,
         packPass: { label: "shallot-mesh-preprocess" },
@@ -405,14 +407,17 @@ function syncBuffers(world: World): void {
     const _meshDraws = world.resource(MeshDrawBuffers);
 
     if (_meshPreprocess.materialTypeCount === 0) return;
-    const meshCount = world.resource(Meshes).size;
+    const meshes = world.resource(Meshes);
+    const meshCount = meshes.capacity;
+    const changedMeshes = meshes.version !== _meshPreprocess.meshVersion;
+    _meshPreprocess.meshVersion = meshes.version;
     const viewCount = Math.max(1, world.resource(RenderContext).viewCount);
     const rowCapacity = meshInstanceTable(world).capacity;
     const growMesh = meshCount > _meshPreprocess.meshCount;
     const growView = viewCount > _meshPreprocess.viewDim;
     const growRows = rowCapacity > _meshPreprocess.rowCapacity;
     const growKeys = syncAlphaKeys(world);
-    if (!growMesh && !growView && !growRows && _meshDraws.drawArgs) {
+    if (!changedMeshes && !growMesh && !growView && !growRows && _meshDraws.drawArgs) {
         if (growKeys) registerDraws(world);
         return;
     }
@@ -469,9 +474,9 @@ function syncBuffers(world: World): void {
         world.own(_meshDraws.transparentArgs);
     }
 
-    // meshBounds is indexed by mesh handle — rebuild only when a mesh registers
+    // Bounds follow membership even when a freed handle is reused without growth.
     let staleBounds: Vec4fBuffer | null = null;
-    if (growMesh || !_meshPreprocess.meshBounds) {
+    if (changedMeshes || !_meshPreprocess.meshBounds) {
         staleBounds = _meshPreprocess.meshBounds;
         _meshPreprocess.meshBounds = writeMeshBounds(world, device);
     }
@@ -479,7 +484,7 @@ function syncBuffers(world: World): void {
     unbind(world);
     // draw records depend only on the meshes, the types' alpha keys and the args buffer, so rows
     // growth keeps them
-    if (replaceArgs || growKeys) registerDraws(world);
+    if (changedMeshes || replaceArgs || growKeys) registerDraws(world);
 
     const stale = [...staleArgs, stalePacked, staleTransparentEids, staleBounds];
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
@@ -556,6 +561,7 @@ export function publishMeshInstanceDraws(
     const { materialTypes, sources, meshes, draws } = registries;
     const invalidPairs = world.resource(meshPreprocessKey).invalidPairs;
     invalidPairs.clear();
+    draws.clear();
     const writes: { offset: number; args: DrawRecord }[] = [];
     const viewStride = pairCount * DRAW_ARG_STRIDE;
     for (const [materialType, definition] of materialTypes.entries()) {
@@ -580,7 +586,7 @@ export function publishMeshInstanceDraws(
                     continue;
                 }
                 const pair =
-                    (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) * meshes.size +
+                    (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) * meshes.capacity +
                     handle;
                 const offset = pair * DRAW_ARG_STRIDE;
                 // Indices are absolute vertex positions, so baseVertex remains zero.

@@ -16,7 +16,7 @@ export type MeshBinding =
 
 declare const meshHandleBrand: unique symbol;
 
-/** Stable, world-local identity returned by `Meshes.add`. */
+/** World-local identity returned by `Meshes.add`, valid until removal or clear. */
 export type MeshHandle = number & { readonly [meshHandleBrand]: true };
 const DEFAULT_MESH_HANDLE = 0 as MeshHandle;
 
@@ -86,17 +86,27 @@ interface MeshRegistry extends Iterable<Mesh> {
      * them and an indirect draw may size them each frame. Nothing is staged or packed.
      */
     add(mesh: Mesh): MeshHandle;
+    /** Removes and returns the mesh, if present, without destroying its buffers. Typed-array
+     * families retain their slices until `clearMeshes`. A later add reissues the lowest free
+     * handle: remove the mesh's instances too, or they will reference its successor. */
+    remove(handle: MeshHandle): Mesh | undefined;
     get(handle: MeshHandle): Mesh | undefined;
     has(handle: MeshHandle): boolean;
     entries(): IterableIterator<[MeshHandle, Mesh]>;
     values(): IterableIterator<Mesh>;
     readonly size: number;
+    /** Handle high-water mark; bounds handle-indexed storage independently of live membership. */
+    readonly capacity: number;
+    /** Changes when membership or packed geometry changes. */
+    readonly version: number;
     clear(): void;
 }
 
 class MeshRegistryImpl implements MeshRegistry {
     private readonly _world: World;
     private _nextHandle = 0;
+    private _freeHandle = 0;
+    version = 0;
     private readonly _entriesByHandle = new Map<MeshHandle, Mesh>();
 
     constructor(world: World) {
@@ -106,14 +116,30 @@ class MeshRegistryImpl implements MeshRegistry {
     add(mesh: MeshData | Mesh): MeshHandle {
         // ArrayBuffer.isView also recognizes typed arrays from another realm.
         if (ArrayBuffer.isView(mesh.vertices)) return addMesh(this._world, mesh as MeshData);
-        const handle = this._nextHandle++ as MeshHandle;
+        const handle = this._freeHandle as MeshHandle;
+        this._nextHandle = Math.max(this._nextHandle, handle + 1);
         this._entriesByHandle.set(handle, mesh as Mesh);
+        while (this._entriesByHandle.has(this._freeHandle as MeshHandle)) this._freeHandle++;
+        this.version++;
         return handle;
     }
 
     replace(handle: MeshHandle, mesh: Mesh): void {
         if (!this._entriesByHandle.has(handle)) throw new Error(`unknown mesh handle ${handle}`);
         this._entriesByHandle.set(handle, mesh);
+        this.version++;
+    }
+
+    remove(handle: MeshHandle): Mesh | undefined {
+        const mesh = this._entriesByHandle.get(handle);
+        if (!mesh) return undefined;
+        this._entriesByHandle.delete(handle);
+        this._freeHandle = Math.min(this._freeHandle, handle);
+        const pending = this._world.resource(meshResourcesKey).pending;
+        const index = pending.findIndex((entry) => entry.handle === handle);
+        if (index !== -1) pending.splice(index, 1);
+        this.version++;
+        return mesh;
     }
 
     get(handle: MeshHandle): Mesh | undefined {
@@ -140,9 +166,15 @@ class MeshRegistryImpl implements MeshRegistry {
         return this._entriesByHandle.size;
     }
 
+    get capacity(): number {
+        return this._nextHandle;
+    }
+
     clear(): void {
         this._entriesByHandle.clear();
         this._nextHandle = 0;
+        this._freeHandle = 0;
+        this.version++;
     }
 }
 
