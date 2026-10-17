@@ -6,7 +6,7 @@ import { distanceAttenuation, PointLightGpu, spotFactor } from "../../standard/r
 /** Compute workgroup tile: 8×8 = 64 threads. */
 export const WORKGROUP = 8;
 
-/** Frustum grid dimensions; the extra depth texel stores the near boundary. */
+/** Frustum grid dimensions, capped to the view's width and height; the extra depth texel stores the near boundary. */
 export const FOG_SLICES = 64;
 export const FOG_WIDTH = 160;
 export const FOG_HEIGHT = 90;

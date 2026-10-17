@@ -32,7 +32,7 @@ function encode(linear: number): number {
     );
 }
 
-test("uniform extinction matches Beer-Lambert inside and beyond the grid range", async () => {
+test("a sub-160×90 view caps its fog grid to its pixels and matches Beer-Lambert inside and beyond the range", async () => {
     const { world } = subjects()[0]!;
     const camera = world.create();
     world.add(camera, Transform);
@@ -53,7 +53,22 @@ test("uniform extinction matches Beer-Lambert inside and beyond the grid range",
         world.step(0);
         return (await captureTexture(world, camera)).rgba[4 * (8 * 16 + 8)]!;
     };
-    const atRange = await pixel();
+    const grids: GPUTexture[] = [];
+    const device = world.gpu.device;
+    const createTexture = device.createTexture.bind(device);
+    device.createTexture = (descriptor) => {
+        const texture = createTexture(descriptor);
+        if (descriptor.label === `fog-grid/${camera}`) grids.push(texture);
+        return texture;
+    };
+    let atRange: number;
+    try {
+        atRange = await pixel();
+        expect(grids.at(-1)!.width).toBe(16);
+        expect(grids.at(-1)!.height).toBe(16);
+    } finally {
+        device.createTexture = createTexture;
+    }
     expect(Math.abs(atRange - encode(1 - Math.exp(-0.02 * (20 - 0.1))))).toBeLessThanOrEqual(1);
     world.storage(Camera).far.set(camera, 40);
     const beyond = await pixel();

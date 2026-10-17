@@ -111,6 +111,8 @@ interface FogState {
         number,
         {
             grid: GPUTexture;
+            width: number;
+            height: number;
             gridGroup: GPUBindGroup;
             gridPass: GPUComputePassDescriptor;
             read: GPUTextureView;
@@ -243,6 +245,8 @@ const FogSystem: System = {
             let cam = fogState(world).views.get(eid);
             if (
                 !cam ||
+                cam.width !== view.width ||
+                cam.height !== view.height ||
                 cam.read !== read ||
                 cam.write !== write ||
                 cam.depth !== view.depth ||
@@ -253,7 +257,11 @@ const FogSystem: System = {
                 const grid = world.gpu.device.createTexture({
                     label: `fog-grid/${eid}`,
                     dimension: "3d",
-                    size: [FOG_WIDTH, FOG_HEIGHT, FOG_SLICES + 1],
+                    size: [
+                        Math.min(FOG_WIDTH, view.width),
+                        Math.min(FOG_HEIGHT, view.height),
+                        FOG_SLICES + 1,
+                    ],
                     format: "rgba16float",
                     usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
                 });
@@ -290,6 +298,8 @@ const FogSystem: System = {
                       });
                 cam = {
                     grid,
+                    width: view.width,
+                    height: view.height,
                     gridGroup,
                     gridPass: { label: `fog-grid/${eid}` },
                     read,
@@ -309,8 +319,8 @@ const FogSystem: System = {
             setComputeBindGroup(gridPass, 1, lights);
             dispatchWorkgroups2(
                 gridPass,
-                Math.ceil(FOG_WIDTH / WORKGROUP),
-                Math.ceil(FOG_HEIGHT / WORKGROUP),
+                Math.ceil(cam.grid.width / WORKGROUP),
+                Math.ceil(cam.grid.height / WORKGROUP),
             );
             endComputePass(gridPass);
             cam.pass.timestampWrites = world.gpu.span?.("fog:apply");
