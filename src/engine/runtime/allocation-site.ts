@@ -190,3 +190,11 @@ export const gpuAllocationExpressions = [
         expression: "pass.end()",
     },
 ] as const;
+
+export function dispatchWorkgroupsIndirect(
+    pass: GPUComputePassEncoder,
+    buffer: GPUBuffer,
+    offset: number,
+): void {
+    pass.dispatchWorkgroupsIndirect(buffer, offset);
+}

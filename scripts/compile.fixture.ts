@@ -4,11 +4,15 @@ import {
     DEFAULT_PLUGINS,
     FogPlugin,
     InputPlugin,
+    Materials,
+    Meshes,
     OrbitPlugin,
     OutlinePlugin,
     ProfilePlugin,
     RenderingPlugin,
+    registerProducerTable,
     SpritePlugin,
+    StandardMaterial,
     StandardPhysicsPlugin,
     VignettePlugin,
 } from "@dylanebert/shallot";
@@ -34,6 +38,24 @@ export const compileSubjects = [
     { name: "Orbit", config: { defaults: false, plugins: [OrbitPlugin] } },
     { name: "profiling", config: { defaults: false, plugins: [ProfilePlugin] } },
     { name: "default plugins", config: { plugins: [] } },
+    {
+        name: "producer table",
+        config: {
+            plugins: [
+                {
+                    name: "CompileProducer",
+                    warm(world) {
+                        registerProducerTable(world, {
+                            name: "compile-producer",
+                            capacity: 1,
+                            meshes: [[...world.resource(Meshes).entries()][0]![0]],
+                            materials: [world.resource(Materials).add(StandardMaterial())],
+                        });
+                    },
+                },
+            ],
+        },
+    },
     { name: "Fog", config: { plugins: [FogPlugin] } },
     { name: "Outline", config: { plugins: [OutlinePlugin] } },
     { name: "Vignette", config: { plugins: [VignettePlugin] } },

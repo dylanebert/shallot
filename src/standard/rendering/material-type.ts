@@ -216,6 +216,7 @@ export function materialLayout<B extends Record<string, MaterialBinding>, P exte
     >;
 }
 
+/** Material vertex fields. eid is the entity identity, or the row index within a producer table. */
 export const MeshVertexInput = d
     .struct({
         localPos: d.vec3f,
@@ -244,7 +245,7 @@ function materialVertexOutput<V extends Record<string, AnyWgslData> = Record<nev
     return d.struct({ world: d.vec4f, worldNormal: d.vec3f, ...varyings });
 }
 
-/** Fragment context with this material's typed parameter row and declared varyings. */
+/** Fragment context with typed parameters and varyings; eid is an entity identity or producer-table row index. */
 function materialFragmentContext<
     P extends AnyWgslStruct,
     V extends Record<string, AnyWgslData> = Record<never, never>,

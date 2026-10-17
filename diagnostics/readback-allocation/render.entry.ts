@@ -1,12 +1,15 @@
+import * as d from "typegpu/data";
 import { Meshes, createApp, Camera, StandardRenderer, Transform, AmbientLight, PointLight, MeshInstance, DirectionalLight, SpotLight } from "../../src/index";
 import { LinesPlugin, drawLine, drawArrow, drawWireBox, GizmoAsset, Gizmo, registerGizmo } from "../../src/extras/lines";
 import { ProfilePlugin } from "../../src/extras/profile";
+import { registerProducerTable, Materials, StandardMaterial } from "../../src/standard/rendering";
 import { RenderContext } from "../../src/core/rendering";
 import { attachCanvas } from "../../src/core/rendering/view";
 import { CanvasContext } from "../../src/engine/app/canvas.fixture";
 import {
     dispatchWorkgroups,
     dispatchWorkgroups2,
+    dispatchWorkgroupsIndirect,
     draw,
     drawIndexedIndirect,
     endComputePass,
@@ -80,6 +83,11 @@ export default async function create(input = "", device?: GPUDevice) {
     world.gpu.device.queue.writeBuffer(count, 0, new Uint32Array([geometry.indexCount]));
     const mesh = meshes.add({ ...geometry, name: "allocation-gpu-count", indirectIndexCount: { buffer: count } });
     const part = world.create(); world.add(part, Transform); world.add(part, MeshInstance, { mesh });
+    const material = world.resource(Materials).add(StandardMaterial());
+    const producer = registerProducerTable(world, { name: "allocation-producer", capacity: 1, meshes: [mesh], materials: [material] });
+    producer.placements.write([{ pos: d.vec3f(1, 0, 0), quat: d.vec4f(0, 0, 0, 1), scale: d.vec3f(1) }]);
+    producer.meshInstances.write([{ mesh, materialType: material.type, material: material.material, alphaMode: 0, alphaCutoff: 0.5, flags: 0, cullBounds: d.vec4f(0, 0, 0, -1) }]);
+    producer.count.write(1);
     const a = new Float32Array([-1, 0, 0]);
     const b = new Float32Array([1, 0, 0]);
     const min = new Float32Array([-0.3, -0.4, -0.5]);
@@ -114,6 +122,7 @@ export default async function create(input = "", device?: GPUDevice) {
             executeRenderBundles,
             dispatchWorkgroups,
             dispatchWorkgroups2,
+            dispatchWorkgroupsIndirect,
             setIndexBuffer,
             setViewport,
             drawIndexedIndirect,

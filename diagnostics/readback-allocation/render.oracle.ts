@@ -22,6 +22,7 @@ const bindingWrappers = [
     "executeRenderBundles",
     "dispatchWorkgroups",
     "dispatchWorkgroups2",
+    "dispatchWorkgroupsIndirect",
     "setIndexBuffer",
     "setViewport",
     "drawIndexedIndirect",
@@ -228,7 +229,7 @@ test("the sampler admits a wrapper only at its declaration position", () => {
             },
             (frame) => (frame.functionName === "stepChunk" ? "stepChunk sampler.mjs:1" : undefined),
             (frame) =>
-                `${frame.functionName} src/engine/runtime/allocation-site.ts:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`,
+                `${frame.functionName} src/engine/runtime/allocation-site.ts:${frame.lineNumber + 1}:${typeof frame.columnNumber === "number" && Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`,
             [{ functionName: entry.fn.name, wrapperSite: entry.wrapperSite, expression: entry.expression }],
         )[0];
     };

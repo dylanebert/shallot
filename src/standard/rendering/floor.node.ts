@@ -61,6 +61,7 @@ import {
     materialType,
     materialTypeId,
     registerBackground,
+    registerProducerTable,
     StandardMaterial,
     StandardRenderer,
     VertexMaterialType,
@@ -361,6 +362,12 @@ test("standard, custom-material and extras layouts stay within eight buffers", a
         const standardMaterial = world
             .resource(Materials)
             .add(StandardMaterial({ baseColor: [1, 0.3, 0.2, 1] }));
+        registerProducerTable(world, {
+            name: "floor-producer",
+            capacity: 8,
+            meshes: [[...world.resource(Meshes).entries()][0]![0]],
+            materials: [standardMaterial],
+        });
         for (let i = 0; i < 192; i++) {
             const mesh = world.create();
             world.add(mesh, Transform, {

@@ -57,6 +57,7 @@ export type {
 export { MaterialAssets, materialLayout } from "./material-type";
 export { MeshRenderPlugin } from "./mesh-render";
 export { MeshPreprocessSystem, meshInstanceTable } from "./preprocess";
+export { type ProducerTable, registerProducerTable } from "./producer-table";
 export type { Draw } from "./registry";
 export { DrawIndexedIndirect, Draws } from "./registry";
 export {

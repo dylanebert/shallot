@@ -52,6 +52,8 @@ export {
     MeshMaterial,
     MeshRenderPlugin,
     PointShadows,
+    type ProducerTable,
+    registerProducerTable,
     StandardMaterial,
     StandardRenderer,
     StandardRenderingPlugin,

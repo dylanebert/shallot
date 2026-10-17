@@ -40,6 +40,13 @@ import {
     scatterKernel,
     scatterLayout,
 } from "./pack";
+import {
+    countProducers,
+    producerCapacity,
+    scatterProducers,
+    syncProducerPack,
+} from "./producer-pack";
+import { producerTables } from "./producer-table";
 import { type Draw, DrawIndexedIndirect, Draws } from "./registry";
 
 const DRAW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
@@ -89,6 +96,7 @@ interface MeshPreprocessState {
     warnedPairs: Set<string>;
     meshCount: number;
     meshVersion: number;
+    producerCount: number;
     publishedDraws: Set<string>;
     pairCount: number;
     viewDim: number;
@@ -146,6 +154,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
         warnedPairs: new Set(),
         meshCount: 0,
         meshVersion: -1,
+        producerCount: 0,
         publishedDraws: new Set(),
         pairCount: 0,
         viewDim: 1,
@@ -246,6 +255,7 @@ export const MeshPreprocessSystem: System = {
             _meshPreprocess.countsUnwrapped = _meshPreprocess.counts;
             _meshPreprocess.countsRaw = world.gpu.root.unwrap(_meshPreprocess.counts!);
         }
+        prepareProducerPack(world);
         const encoder = world.frameEncoder()!;
         encoder.clearBuffer(_meshPreprocess.countsRaw!);
         _meshPreprocess.packPass.timestampWrites = world.gpu.span?.("mesh:preprocess");
@@ -255,6 +265,7 @@ export const MeshPreprocessSystem: System = {
             setBound(pass, count);
             dispatchWorkgroups2(pass, rows, views);
         }
+        countProducers(world, pass);
         // one workgroup per live view slot; slots past them are never drawn, and a slot that becomes
         // live again is scanned before its draw
         setBound(pass, scan);
@@ -263,6 +274,7 @@ export const MeshPreprocessSystem: System = {
             setBound(pass, scatter);
             dispatchWorkgroups2(pass, rows, views);
         }
+        scatterProducers(world, pass);
         endComputePass(pass);
     },
 };
@@ -416,12 +428,14 @@ function syncBuffers(world: World): void {
     const meshCount = meshes.capacity;
     const changedMeshes = meshes.version !== _meshPreprocess.meshVersion;
     const viewCount = Math.max(1, world.resource(RenderContext).viewCount);
-    const rowCapacity = meshInstanceTable(world).capacity;
+    const producers = world.resource(producerTables).tables.length;
+    const growProducers = producers !== _meshPreprocess.producerCount;
+    const rowCapacity = meshInstanceTable(world).capacity + producerCapacity(world);
     const growMesh = meshCount > _meshPreprocess.meshCount;
     const growView = viewCount > _meshPreprocess.viewDim;
     const growRows = rowCapacity > _meshPreprocess.rowCapacity;
     const growKeys = alphaKeysChanged(world);
-    if (changedMeshes || growMesh || growView || growKeys) {
+    if (changedMeshes || growMesh || growView || growKeys || growProducers) {
         const meshDim = Math.max(_meshPreprocess.meshCount, meshCount);
         const viewDim = growView
             ? Math.min(MAX_SLOTS, Math.max(viewCount, _meshPreprocess.viewDim * 2))
@@ -429,11 +443,21 @@ function syncBuffers(world: World): void {
         rebuildMeshCounts(
             world,
             meshDim,
-            _meshPreprocess.materialTypeCount * ALPHA_PIPELINE_KEY_COUNT * meshDim,
+            (1 + producers) *
+                _meshPreprocess.materialTypeCount *
+                ALPHA_PIPELINE_KEY_COUNT *
+                meshDim,
             viewDim,
         );
     }
-    if (!changedMeshes && !growMesh && !growView && !growRows && _meshDraws.drawArgs) {
+    if (
+        !changedMeshes &&
+        !growMesh &&
+        !growView &&
+        !growRows &&
+        !growProducers &&
+        _meshDraws.drawArgs
+    ) {
         if (growKeys) registerDraws(world);
         return;
     }
@@ -447,12 +471,16 @@ function syncBuffers(world: World): void {
             Math.max(viewCount, _meshPreprocess.viewDim * 2),
         );
     _meshPreprocess.rowCapacity = Math.max(_meshPreprocess.rowCapacity, rowCapacity);
+    _meshPreprocess.producerCount = producers;
     _meshPreprocess.pairCount =
-        _meshPreprocess.materialTypeCount * ALPHA_PIPELINE_KEY_COUNT * _meshPreprocess.meshCount;
+        (1 + producers) *
+        _meshPreprocess.materialTypeCount *
+        ALPHA_PIPELINE_KEY_COUNT *
+        _meshPreprocess.meshCount;
     const records = _meshPreprocess.viewDim * _meshPreprocess.pairCount;
 
     const staleArgs: (DrawBuffer | AtomicU32Buffer | null)[] = [];
-    const replaceArgs = growMesh || growView || !_meshDraws.drawArgs;
+    const replaceArgs = growMesh || growView || growProducers || !_meshDraws.drawArgs;
     if (replaceArgs) {
         staleArgs.push(_meshDraws.drawArgs, _meshPreprocess.counts);
         _meshDraws.drawArgs = world.gpu.root
@@ -476,15 +504,16 @@ function syncBuffers(world: World): void {
             .$usage("storage")
             .$name("shallot-packed-eids");
 
+        const transparentCapacity = _meshPreprocess.viewDim * meshInstanceTable(world).capacity;
         staleTransparentEids = _meshDraws.transparentEids;
         _meshDraws.transparentEids = world.gpu.root
-            .createBuffer(d.arrayOf(d.vec4u, listCapacity))
+            .createBuffer(d.arrayOf(d.vec4u, transparentCapacity))
             .$usage("storage")
             .$name("shallot-transparent-eids");
         staleTransparentArgs = _meshDraws.transparentArgs;
         _meshDraws.transparentArgs = device.createBuffer({
             label: "shallot-transparent-args",
-            size: Math.max(20, listCapacity * d.sizeOf(DrawIndexedIndirect)),
+            size: Math.max(20, transparentCapacity * d.sizeOf(DrawIndexedIndirect)),
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE,
         });
         world.own(_meshDraws.transparentArgs);
@@ -511,6 +540,20 @@ function syncBuffers(world: World): void {
     // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
     for (const buffer of stale) buffer?.destroy();
     staleTransparentArgs?.destroy();
+}
+
+function prepareProducerPack(world: World): void {
+    if (!world.resource(producerTables).tables.length) return;
+    const state = world.resource(meshPreprocessKey);
+    syncProducerPack(
+        world,
+        world.gpu.root.unwrap(state.meshBounds!),
+        world.gpu.root.unwrap(state.cullParams!),
+        world.gpu.root.unwrap(state.counts!),
+        world.gpu.root.unwrap(state.meshDraws.drawArgs!),
+        world.gpu.root.unwrap(state.meshDraws.packedEids!),
+        state.materialTypeCount * ALPHA_PIPELINE_KEY_COUNT * state.meshCount,
+    );
 }
 
 function alphaKeysChanged(world: World): boolean {
@@ -628,6 +671,59 @@ export function publishMeshInstanceDraws(
     return writes;
 }
 
+function publishProducerDraws(
+    world: World,
+    writes: { offset: number; args: DrawRecord }[],
+    basePairs: number,
+    viewStride: number,
+): void {
+    const state = world.resource(meshPreprocessKey);
+    const producers = world.resource(producerTables);
+    producers.draws.clear();
+    const types = world.resource(MaterialTypes).types;
+    const meshes = world.resource(Meshes);
+    for (let tableIndex = 0; tableIndex < producers.tables.length; tableIndex++) {
+        const entry = producers.tables[tableIndex]!;
+        const pairs = new Set<number>();
+        for (const material of entry.materials) {
+            const definition = types[material.type];
+            if (!definition) continue;
+            const alphaKey = material.alphaMode === 6 ? 5 : material.alphaMode;
+            for (const handle of entry.meshes) {
+                const mesh = meshes.get(handle);
+                if (!mesh || materialAttributeError(mesh, definition)) continue;
+                const pair =
+                    (tableIndex + 1) * basePairs +
+                    (material.type * 6 + alphaKey) * state.meshCount +
+                    handle;
+                if (pairs.has(pair)) continue;
+                pairs.add(pair);
+                const offset = pair * DRAW_ARG_STRIDE;
+                const name = `producer:${entry.table.name}:${material.type}:${alphaKey}:${handle}`;
+                writes.push({
+                    offset,
+                    args: {
+                        indexCount: mesh.indexCount,
+                        instanceCount: 0,
+                        firstIndex: mesh.indexBase,
+                        baseVertex: 0,
+                        firstInstance: 0,
+                    },
+                });
+                state.publishedDraws.add(name);
+                producers.draws.set(name, entry.table);
+                world.resource(Draws).register({
+                    name,
+                    materialType: material.type,
+                    alphaPipelineKey: alphaKey,
+                    mesh: handle,
+                    args: { indirect: state.meshDraws.drawArgs!, offset, viewStride },
+                });
+            }
+        }
+    }
+}
+
 function warnInvalidInstance(world: World, eid: number): void {
     if (!world.has(eid, MeshInstance)) return;
     const { invalidPairs, warnedPairs } = world.resource(meshPreprocessKey);
@@ -669,11 +765,14 @@ function registerDraws(world: World): void {
     const slot = new Uint8Array(viewStride);
     const record = new ArrayBuffer(DRAW_ARG_STRIDE);
     const recordBytes = new Uint8Array(record);
-    for (const { offset, args } of publishMeshInstanceDraws(
-        world,
-        _meshDraws.drawArgs,
-        _meshPreprocess.pairCount,
-    )) {
+    const basePairs =
+        _meshPreprocess.materialTypeCount * ALPHA_PIPELINE_KEY_COUNT * _meshPreprocess.meshCount;
+    const writes = publishMeshInstanceDraws(world, _meshDraws.drawArgs, basePairs);
+    // Every draw uses the combined slot stride, including entity draws in table zero.
+    for (const name of _meshPreprocess.publishedDraws)
+        world.resource(Draws).get(name)!.args.viewStride = viewStride;
+    publishProducerDraws(world, writes, basePairs, viewStride);
+    for (const { offset, args } of writes) {
         writeToArrayBuffer(record, DrawIndexedIndirect, args);
         slot.set(recordBytes, offset);
     }
@@ -751,5 +850,9 @@ export function warmMeshPreprocess(world: World): void {
     precompile(world, "shallot-mesh-preprocess-scatter", () => {
         const bound = bindScatter(world);
         return bound && [bound.pipeline];
+    });
+    precompile(world, "shallot-producer-preprocess", () => {
+        prepareProducerPack(world);
+        return [];
     });
 }

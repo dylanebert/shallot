@@ -101,6 +101,8 @@ import {
     setGroup,
 } from "./pipelines";
 import { MeshDrawBuffers, MeshPreprocessSystem, meshInstanceTable } from "./preprocess";
+import { producerCapacity } from "./producer-pack";
+import { producerTables } from "./producer-table";
 import { initializeRegatherState, prepareRegather } from "./regather";
 import { type Draw, DrawIndexedIndirect, Draws, initializeDrawState } from "./registry";
 import {
@@ -368,6 +370,7 @@ function layoutResources(
 // Compare resource identities in place so an unchanged frame needs no new list or binding revalidation.
 function sameResources(
     world: World,
+    draw: Draw,
     g: MaterialGroupEntry,
     mesh: NonNullable<ReturnType<ReturnType<typeof Meshes.create>["get"]>>,
     pointList: GPUBuffer | null,
@@ -383,15 +386,20 @@ function sameResources(
         return false;
     const override = mesh.bindings as Record<string, BindResource> | undefined;
     const bindings = g.owner.bindings?.(world);
+    const producer = world.resource(producerTables).draws.get(draw.name);
     let k = 4;
     for (let i = 0; i < g.names.length; i++, k++) {
         const name = g.names[i];
         const live =
-            name in g.owner.layout.attributes
-                ? mesh.attributes?.[name]
-                : name === "materialParameters"
-                  ? materialSource(world, g.owner).table.typed
-                  : (override?.[name] ?? materialResource(world, name, g.owner, bindings));
+            producer && name === "globalTransforms"
+                ? producer.placements
+                : producer && name === "meshInstances"
+                  ? producer.meshInstances
+                  : name in g.owner.layout.attributes
+                    ? mesh.attributes?.[name]
+                    : name === "materialParameters"
+                      ? materialSource(world, g.owner).table.typed
+                      : (override?.[name] ?? materialResource(world, name, g.owner, bindings));
         if (live !== res[k]) return false;
     }
     if (pointList && res[k++] !== pointList) return false;
@@ -481,7 +489,7 @@ function recordMaterial(
     const cascadeList = world.resource(cascadeRegather).eids();
     // a steady frame compares the cached entry's identities in place; only a changed resource re-resolves,
     // re-validates the overrides and rebuilds the groups
-    if (prev && sameResources(world, prev, mesh, pointList, cascadeList)) {
+    if (prev && sameResources(world, draw, prev, mesh, pointList, cascadeList)) {
         prev.item.draw = draw;
         prev.item.r.t = t;
         return prev.item;
@@ -491,6 +499,11 @@ function recordMaterial(
     if (attributeError)
         return warnSkip(world, materialWarning(surface, draw, mesh.name), attributeError);
     const overrides = { ...mesh.bindings } as Record<string, MeshBinding>;
+    const producer = world.resource(producerTables).draws.get(draw.name);
+    if (producer) {
+        overrides.globalTransforms = producer.placements;
+        overrides.meshInstances = producer.meshInstances;
+    }
     for (const name of Object.keys(surface.layout.attributes))
         overrides[name] = mesh.attributes![name];
     const resolved = layoutResources(
@@ -590,7 +603,8 @@ function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: numb
     const pair =
         (draw.materialType * ALPHA_PIPELINE_KEY_COUNT + draw.alphaPipelineKey) * meshCount +
         draw.mesh;
-    if (pair < state.framePairCount) state.frameDrawPairs[pair] = item;
+    if (!world.resource(producerTables).draws.has(draw.name) && pair < state.framePairCount)
+        state.frameDrawPairs[pair] = item;
 }
 
 /** Records opaque, masked and alpha-to-coverage materials into core's shared depth prepass.
@@ -1225,11 +1239,15 @@ const ShadowCameraSystem: System = {
         // and destroying an already-bound texture would invalidate submission. Later ensure calls
         // are idempotent when dimensions are unchanged.
         if (casters > 0 && shadowReady(world)) {
-            world.resource(pointRegather).ensure(pointCasters(world) * 6, world.entityHighWater);
+            world
+                .resource(pointRegather)
+                .ensure(pointCasters(world) * 6, world.entityHighWater + producerCapacity(world));
             ensurePointAtlas(world);
         }
         if (cascadeCount(world) > 0 && shadowReady(world)) {
-            world.resource(cascadeRegather).ensure(MAX_CASCADES, world.entityHighWater);
+            world
+                .resource(cascadeRegather)
+                .ensure(MAX_CASCADES, world.entityHighWater + producerCapacity(world));
             ensureCascadeAtlas(world);
         }
     },

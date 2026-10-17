@@ -64,7 +64,7 @@ export const scatterLayout = tgpu
     })
     .$idx(1);
 
-const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
+export const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
 
 /**
  * test the instance's world bounding sphere against this slot's frustum cull volume, dispatched on the
@@ -74,30 +74,36 @@ const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
  * plain compaction. The radius scales by the largest |scale| axis, conservative for non-uniform scale.
  * @internal
  */
-export const visible = tgpu.fn(
-    [d.u32, d.u32, d.u32, d.u32],
-    d.bool,
-)((mid, instanceRow, globalTransformRow, slot) => {
-    "use gpu";
-    if (slot >= cullLayout.$.params.viewCount) return true;
-    const xf = cullLayout.$.globalTransforms[globalTransformRow];
-    let b = d.vec4f(cullLayout.$.meshBounds[mid]);
-    const override = cullLayout.$.instances[instanceRow].cullBounds;
-    if (override.w >= 0) b = d.vec4f(override);
-    const center = xformPoint(xf, d.vec3f(b.x, b.y, b.z));
-    const radius =
-        b.w * std.max(std.abs(xf.scale.x), std.max(std.abs(xf.scale.y), std.abs(xf.scale.z)));
-    const base = slot * CULL_STRIDE;
-    const header = cullLayout.$.cullVolumes[base];
-    if (d.u32(header.x) !== CULL_FRUSTUM) return true;
-    let i = d.u32(0);
-    while (i < 6) {
-        const pl = cullLayout.$.cullVolumes[base + 1 + i];
-        if (std.dot(d.vec3f(pl.x, pl.y, pl.z), center) + pl.w < -radius) return false;
-        i = i + 1;
-    }
-    return true;
-});
+export function visibility(
+    layout: typeof cullLayout | typeof import("./producer-table").producerCullLayout,
+) {
+    return tgpu.fn(
+        [d.u32, d.u32, d.u32, d.u32],
+        d.bool,
+    )((mid, instanceRow, globalTransformRow, slot) => {
+        "use gpu";
+        if (slot >= layout.$.params.viewCount) return true;
+        const xf = layout.$.globalTransforms[globalTransformRow];
+        let b = d.vec4f(layout.$.meshBounds[mid]);
+        const override = layout.$.instances[instanceRow].cullBounds;
+        if (override.w >= 0) b = d.vec4f(override);
+        const center = xformPoint(xf, d.vec3f(b.x, b.y, b.z));
+        const radius =
+            b.w * std.max(std.abs(xf.scale.x), std.max(std.abs(xf.scale.y), std.abs(xf.scale.z)));
+        const base = slot * CULL_STRIDE;
+        const header = layout.$.cullVolumes[base];
+        if (d.u32(header.x) !== CULL_FRUSTUM) return true;
+        let i = d.u32(0);
+        while (i < 6) {
+            const pl = layout.$.cullVolumes[base + 1 + i];
+            if (std.dot(d.vec3f(pl.x, pl.y, pl.z), center) + pl.w < -radius) return false;
+            i = i + 1;
+        }
+        return true;
+    });
+}
+
+export const visible = visibility(cullLayout);
 
 // Resolve one active table row to its pair, identity and GlobalTransform row. A miss is out of range.
 const Pair = d.struct({
