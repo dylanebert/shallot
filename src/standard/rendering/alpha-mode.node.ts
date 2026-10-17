@@ -10,6 +10,7 @@ import {
     TonemappingMethod,
     TransparentPhases,
 } from "../../core/rendering";
+import { ImageBindings } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import {
     AlphaMode,
@@ -225,7 +226,7 @@ test("AlphaToCoverage sharpens a sampled texel just above cutoff to full 4× cov
         { bytesPerRow: 4 },
         [1, 1, 1],
     );
-    world.gpu.textures.set("images", image);
+    world.resource(ImageBindings).images = image;
     const material = world
         .resource(Materials)
         .add(StandardMaterial({ baseColorTexture: 0, unlit: true }), {

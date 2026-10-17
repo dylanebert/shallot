@@ -14,6 +14,7 @@ import {
     TonemappingMethod,
     TransparentPhases,
 } from "../../core/rendering";
+import { ImageBindings } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import type { Plugin, World } from "../../engine";
 import {
@@ -65,7 +66,7 @@ function camera(world: World) {
         { bytesPerRow: 4 },
         [1, 1, 1],
     );
-    world.gpu.textures.set("images", atlas);
+    world.resource(ImageBindings).images = atlas;
     return eid;
 }
 

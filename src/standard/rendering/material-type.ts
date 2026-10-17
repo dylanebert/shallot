@@ -385,6 +385,9 @@ export interface MaterialType<
     /** Omit for MaterialAssets; otherwise the renderer borrows this source. Accessing the type's asset
      * allocator refuses: resolve this resource to access its externally owned rows. */
     readonly source?: Resource<MaterialSource<P>>;
+    /** Live resources owned by this material type; called at draw to observe replacements.
+     * Mesh attributes and mesh.bindings take precedence. Built-ins resolve from their engine owners. */
+    readonly bindings?: (world: World) => Record<string, import("./pipelines").BindResource>;
     readonly fragmentInputs?: { uv?: true; localPos?: true };
     readonly varyings?: V;
     readonly vertex?: MaterialVertexFn<P, V>;

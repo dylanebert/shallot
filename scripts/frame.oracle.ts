@@ -4,7 +4,7 @@ import { plugin } from "bun";
 
 plugin(shallot({ root: import.meta.dir }));
 const { createApp } = await import("@dylanebert/shallot");
-const { attachTexture, captureTexture, Camera, Anchor } = await import(
+const { attachTexture, captureTexture, Camera, Anchor, ImageBindings } = await import(
     "@dylanebert/shallot/rendering"
 );
 const { MeshInstance } = await import("@dylanebert/shallot/mesh");
@@ -133,7 +133,7 @@ for (const subject of [
                 { bytesPerRow: 8 },
                 [2, 2, 1],
             );
-            world.gpu.textures.set("images", atlas);
+            world.resource(ImageBindings).images = atlas;
             for (const blend of [0, 1]) {
                 const alphaMode = blend === 0 ? SpriteAlphaMode.Mask() : SpriteAlphaMode.Blend;
                 for (const fillMethod of Object.values(SpriteFill)) {

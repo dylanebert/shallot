@@ -10,6 +10,7 @@ import {
     Tonemapping,
     TonemappingMethod,
 } from "../../core/rendering";
+import { ImageBindings } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import {
     AlphaMode,
@@ -62,7 +63,7 @@ test("StandardMaterial samples both image halves at mesh UVs and multiplies base
             pixels.set(x < 2 ? [255, 0, 0, 255] : [0, 255, 0, 255], (y * 4 + x) * 4);
     }
     device.queue.writeTexture({ texture: image }, pixels, { bytesPerRow: 16 }, [4, 4, 1]);
-    world.gpu.textures.set("images", image);
+    world.resource(ImageBindings).images = image;
     const mesh = world.resource(Meshes).add({
         name: "two-colour-quad",
         vertices: new Float32Array([

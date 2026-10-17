@@ -7,10 +7,12 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { checkTextureLimits, Registry, type World } from "../../engine";
 
-/**
- * World-local sources decoded at RenderingPlugin warm into world.gpu.textures' `images` array and
- * world.gpu.samplers' `imageSampler`. An empty registry still allocates one fallback layer.
- */
+/** World-local decoded image array and sampler, populated at RenderingPlugin warm. */
+export const ImageBindings = {
+    create: () => ({ images: null! as GPUTexture, imageSampler: null! as GPUSampler }),
+};
+
+/** World-local image sources. An empty registry still allocates one fallback layer at warm. */
 export const Images = { create: () => new Registry<{ name: string; source: string | Blob }>() };
 
 /**
@@ -63,15 +65,15 @@ export async function warmImages(world: World): Promise<void> {
         });
     }
     world.own(texture);
+    const bindings = world.resource(ImageBindings);
+    bindings.images = texture;
+    bindings.imageSampler = device.createSampler({
+        label: "images",
+        magFilter: "linear",
+        minFilter: "linear",
+    });
     world.gpu.textures.set("images", texture);
-    world.gpu.samplers.set(
-        "imageSampler",
-        device.createSampler({
-            label: "images",
-            magFilter: "linear",
-            minFilter: "linear",
-        }),
-    );
+    world.gpu.samplers.set("imageSampler", bindings.imageSampler);
 }
 
 /** mip levels for a square texture of `size` px: the full chain down to 1×1. */

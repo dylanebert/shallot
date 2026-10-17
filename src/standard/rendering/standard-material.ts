@@ -1,5 +1,6 @@
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { ImageBindings } from "../../core/rendering";
 import { litPbr } from "./engine";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
 import { AlphaModeCode, materialLayout, materialType } from "./material-type";
@@ -13,6 +14,7 @@ const standardLayout = materialLayout(StandardMaterialInput, {
 export const Materials = materialType({
     name: "StandardMaterial",
     layout: standardLayout,
+    bindings: (world) => world.resource(ImageBindings),
     fragmentInputs: { uv: true },
     defaults: StandardMaterial(),
     depthPass: { prepass: true, shadows: true },

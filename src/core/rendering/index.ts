@@ -5,6 +5,7 @@ export {
     globalTransformTable,
     readRenderGlobalTransform,
 } from "./global-transform";
+export { ImageBindings } from "./image";
 export {
     CorePipelinePlugin,
     MainPassSystem,

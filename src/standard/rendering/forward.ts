@@ -299,9 +299,27 @@ function record(world: World, draw: Draw, capacity: number): FrameDraw | null {
     return recordMaterial(world, draw, type, capacity);
 }
 
-// resolve a layout's own bindings (never the standard-injected `vertices`) to live resources by the
-// entry's kind. Returns the createBindGroup value record + the identity list + each binding's name and the
-// registry it resolved from, or the missing binding's name
+// Resolve live resources, or return the missing binding's name.
+function materialResource(
+    world: World,
+    name: string,
+    type?: MaterialType<any, any, any>,
+    bindings = type?.bindings?.(world),
+): BindResource | undefined {
+    switch (name) {
+        case "eids":
+            return world.resource(MeshDrawBuffers).packedEids ?? undefined;
+        case "globalTransforms":
+            return globalTransformTable(world).typed;
+        case "meshInstances":
+            return meshInstanceTable(world).typed;
+        case "materialParameters":
+            return type ? materialSource(world, type).table.typed : undefined;
+        default:
+            return bindings?.[name];
+    }
+}
+
 function layoutResources(
     world: World,
     entries: Record<string, object>,
@@ -313,33 +331,21 @@ function layoutResources(
           values: Record<string, unknown>;
           resources: BindResource[];
           names: string[];
-          registries: ReadonlyMap<string, BindResource>[];
       }
     | string {
     const values: Record<string, unknown> = {};
     const resources: BindResource[] = [];
     const names: string[] = [];
-    const registries: ReadonlyMap<string, BindResource>[] = [];
+    const bindings = materialType?.bindings?.(world);
     for (const [name, entry] of Object.entries(entries)) {
         if (name === "vertices") continue;
-        const registry: ReadonlyMap<string, BindResource> =
-            "texture" in entry
-                ? world.gpu.textures
-                : "sampler" in entry
-                  ? world.gpu.samplers
-                  : world.gpu.typed;
         const res =
             override?.[name] ??
-            (name === "materialParameters" && materialType
-                ? materialSource(world, materialType).table.typed
-                : owned
-                  ? undefined
-                  : registry.get(name));
+            (owned ? undefined : materialResource(world, name, materialType, bindings));
         if (!res) return name;
         if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
         resources.push(res);
         names.push(name);
-        registries.push(registry);
         // a texture binds a view of the schema's own dimension
         values[name] =
             "texture" in entry
@@ -349,7 +355,7 @@ function layoutResources(
                   })
                 : res;
     }
-    return { values, resources, names, registries };
+    return { values, resources, names };
 }
 
 // Compare resource identities in place so an unchanged frame needs no new list or binding revalidation.
@@ -369,6 +375,7 @@ function sameResources(
     )
         return false;
     const override = mesh.bindings as Record<string, BindResource> | undefined;
+    const bindings = g.owner.bindings?.(world);
     let k = 4;
     for (let i = 0; i < g.names.length; i++, k++) {
         const name = g.names[i];
@@ -377,7 +384,7 @@ function sameResources(
                 ? mesh.attributes?.[name]
                 : name === "materialParameters"
                   ? materialSource(world, g.owner).table.typed
-                  : (override?.[name] ?? g.registries[i].get(name));
+                  : (override?.[name] ?? materialResource(world, name, g.owner, bindings));
         if (live !== res[k]) return false;
     }
     if (pointList && res[k++] !== pointList) return false;
@@ -544,7 +551,6 @@ function recordMaterial(
         engineCache: engineCache(world, quant),
         resources,
         names: resolved.names,
-        registries: resolved.registries,
         bound: new Map(),
         item: null!,
     };

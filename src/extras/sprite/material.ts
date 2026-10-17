@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Billboard, billboardCorner, xformMat } from "../../core/rendering";
+import { Billboard, billboardCorner, ImageBindings, xformMat } from "../../core/rendering";
 import type { World } from "../../engine";
 import { engineLayout, materialLayout, materialType } from "../../standard/rendering";
 import { createSpriteSource } from "./table";
@@ -78,6 +78,7 @@ const spriteFillMask = tgpu
 
 /** Sprite parameters occupy one table; each row supplies its own AlphaMode. */
 export const SpriteMaterialType = materialType({
+    bindings: (world) => world.resource(ImageBindings),
     name: "SpriteMaterial",
     layout,
     source: SpriteSource,

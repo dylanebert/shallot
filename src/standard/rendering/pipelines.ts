@@ -193,7 +193,6 @@ export type MaterialGroupEntry = {
     /** the layout's own binding names in `resources` order (after the four mesh streams), each with the
      * registry it resolves from, so a steady frame compares live identities without re-resolving. */
     names: string[];
-    registries: ReadonlyMap<string, BindResource>[];
     /** per compiled pipeline, that pipeline with this entry's group 2 and index buffer bound, built on the
      * entry's first draw through it (the pass binds groups 0 and 1 per draw). */
     bound: Map<TgpuRenderPipeline<any>, TgpuRenderPipeline<any>>;

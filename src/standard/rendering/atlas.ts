@@ -15,6 +15,7 @@ import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle
 import { engineLayout } from "./engine";
 import type { Recorded } from "./forward";
 import { engineGroup } from "./pipelines";
+import { MeshDrawBuffers } from "./preprocess";
 import { createRegather, type Regather, SHADOW_ARG_STRIDE } from "./regather";
 import type { Draw } from "./registry";
 import {
@@ -856,7 +857,8 @@ export function renderPointShadows(
     } else {
         _atlasState.batchDropWarned = false;
     }
-    const packed = world.gpu.buffers.get("eids");
+    const typedPacked = world.resource(MeshDrawBuffers).packedEids;
+    const packed = typedPacked ? world.gpu.root.unwrap(typedPacked) : undefined;
     if (D === 0 || C === 0 || !drawArgs || !packed || pairCount === 0) return;
     _pointRegather.reserve(D);
     const encoder = world.frameEncoder()!;
@@ -1013,7 +1015,8 @@ export function renderCascades(
     for (let b = 0; b < _atlasState.cascadeBatches.length; b++)
         _atlasState.cascadeBatches[b].count = 0;
     let batchCount = 0;
-    const culledEids = world.gpu.buffers.get("eids");
+    const typedPacked = world.resource(MeshDrawBuffers).packedEids;
+    const culledEids = typedPacked ? world.gpu.root.unwrap(typedPacked) : undefined;
     for (let k = 0; k < frameCount; k++) {
         const item = frameDraws[k];
         const casts = item.r.t.cascade && item.r.g.cascade;

@@ -295,7 +295,7 @@ function cullGroup(world: World): TgpuBindGroup<(typeof cullLayout)["entries"]> 
         generation[3] = globalTransforms.mapGeneration;
     }
     if (_meshPreprocess.cullGroup) return _meshPreprocess.cullGroup;
-    const cullVolumes = world.gpu.buffers.get("cullVolumes");
+    const cullVolumes = world.resource(RenderContext).cullVolumes;
     const instanceRows = meshInstances.activeRowsBuffer;
     const globalTransformRows = globalTransforms.eidToRowBuffer;
     if (!cullVolumes || !instanceRows || !globalTransformRows) {

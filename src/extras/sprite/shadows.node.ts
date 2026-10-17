@@ -3,6 +3,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { attachTexture, Billboard, Camera, DirectionalLight } from "../../core/rendering";
+import { ImageBindings } from "../../core/rendering/image";
 import { Transform } from "../../core/transform";
 import { lookAtRotation } from "../../engine";
 import { probeBuffer } from "../../engine/runtime";
@@ -45,7 +46,7 @@ test("clip Sprite leaves its alpha hole out of the directional shadow map", asyn
         { bytesPerRow: 4, rowsPerImage: 1 },
         { width: 1, height: 1, depthOrArrayLayers: 1 },
     );
-    world.gpu.textures.set("images", atlas);
+    world.resource(ImageBindings).images = atlas;
 
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5, 0] });
