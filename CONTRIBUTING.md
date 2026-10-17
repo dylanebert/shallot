@@ -14,7 +14,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - A component's fields promise a value only while an entity holds it.
 - A component's identity is its record; its key only rebinds a reloaded record, and a composition refuses two records under one key.
 - A component's membership bit is never reassigned, including by restore.
-- Each world owns eid-indexed typed columns that double to cover the entity high-water mark and never shrink during play.
+- Each world owns eid-indexed typed columns that double to cover a component's holders and never shrink during play. Eid indexing spans its highest holder's eid: even a one-holder component on a high eid costs its row bytes per eid, as the public raw-column contract requires.
 - Accessors resolve once with `world.storage(Component)`; growth replaces arrays, not accessors.
 - Compatible hot reload reuses storage; an incompatible schema requires rebuilding.
 - Field changes are frame-scoped: every consuming table reads them at upload before they clear, and later writes reach the next frame.

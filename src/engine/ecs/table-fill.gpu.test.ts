@@ -96,6 +96,16 @@ test("bound tables gather marked columns at upload after set, bulk write and rem
         const values = new Float32Array(result.bytes);
         expect(values[rowB]).toBe(11);
         expect(values[rowC]).toBe(29);
+        const Unheld = component("BoundFillUnheld", { amount: f32 });
+        const sparse = world.table("non-holder-fill", d.struct({ amount: d.f32 }));
+        sparse.bindFields(Unheld, { amount: "amount" });
+        let high = 0;
+        for (let i = 0; i < 64; i++) high = world.create();
+        const sparseRow = sparse.acquire(high);
+        world.step(0);
+        expect(new DataView(sparse.bytes.buffer).getFloat32(sparseRow * 4, true)).toBe(0);
+        world.step(0);
+        expect(new DataView(sparse.bytes.buffer).getFloat32(sparseRow * 4, true)).toBe(0);
     } finally {
         await disposeGpuApps([app]);
     }

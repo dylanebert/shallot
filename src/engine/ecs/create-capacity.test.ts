@@ -2,69 +2,60 @@ import { expect, test } from "bun:test";
 import { component, f32, vec2 } from "./component";
 import { World } from "./world";
 
-function expectColumnsCover(world: World, eid: number): void {
-    for (const entry of world.storageEntries()) {
-        for (const field of entry.fields.values()) {
-            expect(field.column.length).toBeGreaterThanOrEqual((eid + 1) * field.type.lanes);
-            field.column[eid * field.type.lanes] = 17;
-            expect(field.column[eid * field.type.lanes]).toBe(17);
-        }
-    }
-}
-
-test("create grows every stored scalar and vector column past initial capacity", () => {
+test("registered components without holders retain initial columns as entities grow; accessors return holder values and zero for non-holders", () => {
     const world = new World();
-    const Scalar = component("CreateCapacityScalar", { value: f32 });
-    const Vector = component("CreateCapacityVector", { value: vec2 });
-    world.storage(Scalar);
-    world.storage(Vector);
-
+    const Scalar = component("HolderCapacityScalar", { value: f32 });
+    const Vector = component("HolderCapacityVector", { value: vec2 });
+    const scalar = world.storage(Scalar).value;
+    const vector = world.storage(Vector).value;
+    const initialScalar = scalar.column;
+    const initialVector = vector.column;
     let eid = 0;
-    for (let i = 0; i < 20; i++) eid = world.create();
+    for (let i = 0; i < 1024; i++) eid = world.create();
+    expect(scalar.column).toBe(initialScalar);
+    expect(vector.column).toBe(initialVector);
+    expect(scalar.get(eid)).toBe(0);
+    expect(vector.x.get(eid)).toBe(0);
+    const Late = component("HolderCapacityLate", { value: f32 });
+    expect(world.storage(Late).value.column.length).toBe(initialScalar.length);
 
-    expect(eid).toBeGreaterThanOrEqual(16);
-    expectColumnsCover(world, eid);
+    world.add(eid, Scalar, { value: 17 });
+    world.add(eid, Vector, { value: [19, 23] });
+    expect(scalar.get(eid)).toBe(17);
+    expect(vector.x.get(eid)).toBe(19);
+    expect(vector.y.get(eid)).toBe(23);
+    expect(scalar.get(eid - 1)).toBe(0);
+    expect(vector.y.get(eid - 1)).toBe(0);
+    expect(scalar.column.length).toBeGreaterThanOrEqual(eid + 1);
+    expect(vector.column.length).toBe(scalar.column.length * 2);
+    const grown = scalar.column;
+    world.remove(eid, Scalar);
+    expect(scalar.column).toBe(grown);
+    expect(scalar.get(eid)).toBe(0);
     world.dispose();
 });
 
-test("create grows a field stored after another field's capacity grew", () => {
+test("restore preserves independently sized columns and zeroes later holders without shrinking", () => {
     const world = new World();
-    const Existing = component("CreateCapacityExisting", { value: f32 });
-    const Late = component("CreateCapacityLate", { value: vec2 });
-    const existing = world.storage(Existing).value;
-    world.create();
+    const State = component("HolderCapacityRestore", { value: f32 });
+    const Unheld = component("HolderCapacityUnheld", { value: vec2 });
+    const value = world.storage(State).value;
+    const unheld = world.storage(Unheld).value;
+    const first = world.create();
+    world.add(first, State, { value: 7 });
     const snapshot = world.snapshot();
-    for (let i = 0; i < 20; i++) world.create();
+    let last = 0;
+    for (let i = 0; i < 64; i++) last = world.create();
+    world.add(last, State, { value: 11 });
+    const grown = value.column;
     world.restore(snapshot);
-    const late = world.storage(Late).value;
-
-    expect(existing.column.length / existing.type.lanes).toBeGreaterThan(
-        late.column.length / late.type.lanes,
-    );
-    expect(late.column.length).toBe(16 * late.type.lanes);
-
-    let eid = 0;
-    for (let i = 0; i < 20; i++) eid = world.create();
-
-    expectColumnsCover(world, eid);
-    world.dispose();
-});
-
-test("create grows columns again after restoring a lower entity high-water mark", () => {
-    const world = new World();
-    const Scalar = component("CreateCapacityRestoredScalar", { value: f32 });
-    const Vector = component("CreateCapacityRestoredVector", { value: vec2 });
-    world.storage(Scalar);
-    world.storage(Vector);
-    world.create();
-    const snapshot = world.snapshot();
-
-    for (let i = 0; i < 20; i++) world.create();
-    world.restore(snapshot);
-    let eid = 0;
-    for (let i = 0; i < 40; i++) eid = world.create();
-
-    expect(eid).toBeGreaterThanOrEqual(32);
-    expectColumnsCover(world, eid);
+    expect(value.column).toBe(grown);
+    expect(value.get(first)).toBe(7);
+    expect(value.get(last)).toBe(0);
+    expect(unheld.column.length).toBe(32);
+    expect(unheld.x.get(last)).toBe(0);
+    for (let i = 0; i < 128; i++) last = world.create();
+    world.add(last, State, { value: 13 });
+    expect(value.get(last)).toBe(13);
     world.dispose();
 });

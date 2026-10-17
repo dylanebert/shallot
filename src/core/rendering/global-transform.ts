@@ -277,16 +277,16 @@ function markFrameWrites(world: World, runtime: GlobalTransformRuntime): void {
                 q = global.rotation.column,
                 s = global.scale.column;
             if (
-                source[i] !== p[j] ||
-                source[i + 1] !== p[j + 1] ||
-                source[i + 2] !== p[j + 2] ||
-                source[i + 4] !== q[j] ||
-                source[i + 5] !== q[j + 1] ||
-                source[i + 6] !== q[j + 2] ||
-                source[i + 7] !== q[j + 3] ||
-                source[i + 8] !== s[j] ||
-                source[i + 9] !== s[j + 1] ||
-                source[i + 10] !== s[j + 2]
+                source[i] !== (p[j] ?? 0) ||
+                source[i + 1] !== (p[j + 1] ?? 0) ||
+                source[i + 2] !== (p[j + 2] ?? 0) ||
+                source[i + 4] !== (q[j] ?? 0) ||
+                source[i + 5] !== (q[j + 1] ?? 0) ||
+                source[i + 6] !== (q[j + 2] ?? 0) ||
+                source[i + 7] !== (q[j + 3] ?? 0) ||
+                source[i + 8] !== (s[j] ?? 0) ||
+                source[i + 9] !== (s[j + 1] ?? 0) ||
+                source[i + 10] !== (s[j + 2] ?? 0)
             )
                 resetInterpolation(world, eid);
         }

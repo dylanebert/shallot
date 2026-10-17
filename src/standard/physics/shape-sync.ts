@@ -97,7 +97,7 @@ export function shapeBodyScaleChanged(
     const scale = world.storage(Transform).scale.column;
     const offset = body * 4;
     for (let i = 0; i < 3; i++)
-        if (!Object.is(scale[offset + i], previous[RECREATION_FIELDS.length + i])) return true;
+        if (!Object.is(scale[offset + i] ?? 0, previous[RECREATION_FIELDS.length + i])) return true;
     return false;
 }
 

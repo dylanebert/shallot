@@ -525,7 +525,7 @@ export class World {
         for (const table of this._tables.values()) table.upload();
     }
 
-    /** Highest allocated entity id plus one; CPU storage grows with this value. */
+    /** Highest allocated entity id plus one; each component's columns grow only to cover its holders. */
     get entityHighWater(): number {
         return this._highWater;
     }
@@ -583,7 +583,6 @@ export class World {
         const storage: Record<string, unknown> = {};
         for (const { name, field } of fields(component)) {
             const column = new WorldField(field, INITIAL_CAPACITY, this);
-            column.ensure(this._highWater);
             this._columns.register(column);
             columns.set(name, column);
             storage[name] = column.bind();
@@ -692,7 +691,6 @@ export class World {
     create(): number {
         const eid = this._entities.add();
         if (eid + 1 > this._highWater) this._highWater = eid + 1;
-        this._columns.ensure(eid + 1);
         this._queries.onEntityCreated(eid);
         return eid;
     }
@@ -780,6 +778,7 @@ export class World {
         const storage = this.storage(component as Component);
         if (this._components.add(eid, component)) {
             const id = idOf(component as Component);
+            for (const field of this._storage.get(id)!.fields.values()) field.ensure(eid + 1);
             this.notifyMembership(component as Component, eid, true);
             const tables = this._tablesByComponent.get(id);
             const attached: GpuTable[] = [];

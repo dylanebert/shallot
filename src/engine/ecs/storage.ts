@@ -85,7 +85,7 @@ export class WorldField<T extends FieldType = FieldType> {
             }
         }
         live.set(image);
-        const end = extent * stride;
+        const end = Math.min(extent * stride, live.length);
         for (; k < end; k += stride, eid++) {
             let changed = 0;
             for (let j = 0; j < stride; j++) changed |= live[k + j];
