@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun
 import { type createApp, Meshes, MeshInstance, probeBuffer } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { openGpuApp } from "../tests/gpu-app";
+import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { faces } from "./noise";
 import { Terrain, terrainPlugin } from "./terrain";
 import { inRing, slotCount, type TerrainConfig } from "./terrain-data";

@@ -2,7 +2,7 @@ import { setDefaultTimeout, test } from "bun:test";
 import { Meshes, probeBuffer } from "@dylanebert/shallot";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { openGpuApp } from "../tests/gpu-app";
+import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { Terrain, TerrainPlugin } from "./terrain";
 import { CONFIG, ringSlots } from "./terrain-data";
 

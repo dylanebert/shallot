@@ -3,7 +3,7 @@ import { DiagnosticsStore } from "@dylanebert/shallot";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { openGpuApp } from "../tests/gpu-app";
+import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { Terrain, TerrainPlugin } from "./terrain";
 
 setDefaultTimeout(TIMEOUT.node);
