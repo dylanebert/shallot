@@ -41,6 +41,7 @@ export {
     lookAt,
     lookAtPacked,
     lookAtRotation,
+    lookAtRotationInto,
     multiplyMat4,
     orthographic,
     perspective,

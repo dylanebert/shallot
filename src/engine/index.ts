@@ -97,6 +97,7 @@ export {
     linearToSrgb,
     lookAt,
     lookAtRotation,
+    lookAtRotationInto,
     multiplyMat4,
     orthographic,
     perspective,

@@ -110,7 +110,7 @@ test("warm voxel turnover allocates nothing outside the admitted wrappers and th
 });
 
 for (const owner of groups)
-    (owner.name === "ECS and mesh registry turnover" || owner.name === "forward's background path" ? test : test.todo)(`warm voxel turnover allocates nothing in ${owner.name}`, async () => {
+    (owner.name !== "voxel's own passes" ? test : test.todo)(`warm voxel turnover allocates nothing in ${owner.name}`, async () => {
         const result = await sample();
         const failure = allocationFailure(only(result, (row) => !isAdmittedAllocationSite(row) && claimants(row).includes(owner)));
         if (failure) throw new Error(failure);

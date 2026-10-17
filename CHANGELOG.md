@@ -2,6 +2,8 @@
 
 ## 0.10.0
 
+`lookAtRotationInto(aim, out)` writes a quaternion into caller-owned `Float64Array` storage. Like `lookAtPacked`, `aim` holds eye at lane 0, target at 3 and up at 6. `lookAtRotation` keeps its signature and fresh tuple result. Sky packing now uses the existing `unpackColorInto(packed, out, offset?)`; `unpackColor` keeps its signature and fresh RGB result.
+
 Entity ids reserve `0xFFFFFFFF` as the invalid id. Allocation refuses when the u32 id range is exhausted; restoring an allocator image refuses a next id beyond that value or a live invalid id.
 
 `registerProducerTable` in `/standard/rendering` (also at the root) registers World-owned GPU placement and mesh-instance columns with a GPU-written count. Standard culls and draws those rows beside entities, including shadows, without readback. Materials are opaque, masked or alpha-to-coverage; blended materials are refused because transparent sorting is on the CPU. Material shaders read the entity id in `input.eid` and the producer-table row index in the new `input.row`, in both vertex and fragment functions. A producer row's `eid` is `0xFFFFFFFF` (the invalid entity id); an entity's `row` is the same sentinel. CPU picking, interpolation and snapshots do not include producer rows.

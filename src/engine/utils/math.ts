@@ -613,6 +613,8 @@ export function lookAtPacked(aim: Float64Array, out?: Float32Array): Float32Arra
     return out;
 }
 
+const _rotation = new Float64Array(4);
+
 /** rotation quaternion that points an object at eye toward target */
 export function lookAtRotation(
     eyeX: number,
@@ -625,6 +627,33 @@ export function lookAtRotation(
     upY = 1,
     upZ = 0,
 ): [number, number, number, number] {
+    _aim[0] = eyeX;
+    _aim[1] = eyeY;
+    _aim[2] = eyeZ;
+    _aim[3] = targetX;
+    _aim[4] = targetY;
+    _aim[5] = targetZ;
+    _aim[6] = upX;
+    _aim[7] = upY;
+    _aim[8] = upZ;
+    lookAtRotationInto(_aim, _rotation);
+    return [_rotation[0]!, _rotation[1]!, _rotation[2]!, _rotation[3]!];
+}
+
+/**
+ * Write {@link lookAtRotation} into four caller-owned f64 lanes. As in {@link lookAtPacked}, `aim` holds
+ * eye at 0, target at 3 and up at 6, avoiding boxed numeric call arguments. Output may alias `aim`.
+ */
+export function lookAtRotationInto(aim: Float64Array, out: Float64Array): void {
+    const eyeX = aim[0]!;
+    const eyeY = aim[1]!;
+    const eyeZ = aim[2]!;
+    const targetX = aim[3]!;
+    const targetY = aim[4]!;
+    const targetZ = aim[5]!;
+    let upX = aim[6]!;
+    const upY = aim[7]!;
+    let upZ = aim[8]!;
     assertFiniteAimLookAtParams(
         "lookAtRotation",
         eyeX,
@@ -725,5 +754,8 @@ export function lookAtRotation(
         qz = 0.25 * s;
     }
 
-    return [qx, qy, qz, qw];
+    out[0] = qx;
+    out[1] = qy;
+    out[2] = qz;
+    out[3] = qw;
 }

@@ -84,6 +84,7 @@ const createSkyState = (): SkyState => ({
     background: null,
     staging: new Float32Array(SKY_FLOATS),
 });
+const skyTerms = [Sky];
 const skyState = (world: World) => world.resource(skyStateKey);
 
 /** The World-local handle for CameraBackground.background. Refuses before SkyPlugin initializes. */
@@ -103,7 +104,7 @@ const SkySystem: System = {
         const device = world.gpu.device;
         const sky = skyState(world);
         if (!sky.buffer) return;
-        const eid = world.only([Sky]);
+        const eid = world.only(skyTerms);
         if (eid < 0) return;
         packSky(world, eid, sky.staging);
         device.queue.writeBuffer(sky.buffer, 0, sky.staging as Float32Array<ArrayBuffer>);

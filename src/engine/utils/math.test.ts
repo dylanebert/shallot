@@ -5,6 +5,7 @@ import {
     invertMat4,
     lookAt,
     lookAtRotation,
+    lookAtRotationInto,
     multiplyMat4,
     perspective,
     quatToEuler,
@@ -132,6 +133,44 @@ function expectClose(actual: readonly number[], expected: readonly number[]): vo
     expect(actual.length).toBe(expected.length);
     for (let i = 0; i < expected.length; i++) expect(actual[i]).toBeCloseTo(expected[i], 12);
 }
+
+test("lookAtRotationInto matches the fresh quaternion, supports aliased inputs and overwrites reused output", () => {
+    const out = new Float64Array(4);
+    for (const eye of [
+        [2, 3, -4],
+        [0, 1, 0],
+        [0, 0, 0],
+    ]) {
+        for (const up of [
+            [0, 1, 0],
+            [1, 0, 0],
+        ]) {
+            const expected = lookAtRotation(
+                eye[0]!,
+                eye[1]!,
+                eye[2]!,
+                0,
+                0,
+                0,
+                up[0],
+                up[1],
+                up[2],
+            );
+            out.fill(99);
+            const aim = new Float64Array([...eye, 0, 0, 0, ...up]);
+            lookAtRotationInto(aim, out);
+            expectClose(Array.from(out), expected);
+            lookAtRotationInto(aim, aim);
+            expectClose(Array.from(aim.subarray(0, 4)), expected);
+            const retained: typeof expected = [...expected];
+            lookAtRotation(1, 2, 3, 4, 5, 6);
+            expect(expected).toEqual(retained);
+        }
+    }
+    expect(() => lookAtRotationInto(new Float64Array([NaN, 0, 0, 0, 0, 0, 0, 1, 0]), out)).toThrow(
+        "non-finite",
+    );
+});
 
 test("eulerToQuat takes radians in XYZ order, as three.js setFromEuler", () => {
     for (const { euler, quat } of THREE_EULER) expectClose(eulerToQuat(...euler), quat);
