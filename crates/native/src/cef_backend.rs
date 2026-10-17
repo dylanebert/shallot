@@ -73,6 +73,10 @@ wrap_app! {
     pub struct ShallotApp;
 
     impl App {
+        fn render_process_handler(&self) -> Option<RenderProcessHandler> {
+            Some(crate::gpu_policy::PolicyHandler::new())
+        }
+
         fn on_before_command_line_processing(
             &self,
             _process_type: Option<&CefString>,
@@ -251,6 +255,11 @@ wrap_display_handler! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn main_app_installs_context_policy_handler() {
+        assert!(ShallotApp::new().render_process_handler().is_some());
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

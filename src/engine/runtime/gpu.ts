@@ -1188,6 +1188,16 @@ export async function requestGPU(
     const acquired = device === undefined ? await acquireDevice(requirements) : { device, adapter };
     const d = rawDevice(acquired.device);
     const verdict = stampAdapter(acquired.adapter);
+    if (
+        (globalThis as typeof globalThis & { readonly __shallotRequireHardwareGpu?: boolean })
+            .__shallotRequireHardwareGpu === true &&
+        verdict.class !== "real"
+    ) {
+        if (device === undefined) d.destroy();
+        throw new Error(
+            `Hardware WebGPU is required: ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}. Check your graphics driver and GPU availability.`,
+        );
+    }
     observeDevice(d);
     beginArtifactSession(d);
     let inFlight = 0;

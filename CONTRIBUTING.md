@@ -7,6 +7,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### Device and world ownership
 
 - A build acquires WebGPU only when an enabled plugin declares `gpu` (including `{}`) or `config.device` is supplied. CPU-only compositions build and step without a WebGPU backend.
+- GPU-using native clients require an identified hardware adapter before plugin preparation. Set `SHALLOT_ALLOW_SOFTWARE_GPU=1` at launch for deliberate software use; CPU-only compositions and non-native hosts keep their existing behavior.
 - Headless Bun and Node GPU apps install the optional `webgpu` peer and call `setupGlobals` from `@dylanebert/shallot/webgpu` before building; browser GPU apps use the host's WebGPU.
 - Each app owns its world storage and allocations; disposing one releases its resources, not the device or a sibling's data.
 - Builds serialize registration and warm-up; completed apps coexist.

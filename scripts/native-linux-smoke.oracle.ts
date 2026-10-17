@@ -8,6 +8,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import {
     assertCanvasImage,
     assertStandaloneOrigin,
+    assertStartup,
     requireLinuxPrerequisites,
     startVirtualDisplay,
     streamLines,
@@ -44,6 +45,41 @@ test("an executed page is insufficient without the WebGPU canvas image", () => {
         /device lost/,
     );
     expect(() => assertCanvasImage({ pixel: [0, 255, 0, 255] })).not.toThrow();
+});
+
+test("default native startup needs observed CPU startup and splash refusal, not a software canvas", () => {
+    const report = {
+        requireHardware: true,
+        cpuReady: true,
+        hooks: [],
+        refusal: "Hardware WebGPU is required: fallback adapter SwiftShader",
+    };
+    expect(() => assertStartup(report)).not.toThrow();
+    expect(() => assertStartup({ ...report, refusal: undefined })).toThrow(
+        /refusal was not observed/,
+    );
+    expect(() => assertStartup({ ...report, refusal: "generic failure" })).toThrow(
+        /refusal was not observed/,
+    );
+    expect(() => assertStartup({ ...report, hooks: ["prepare"] })).toThrow(/before plugin hooks/);
+    expect(() => assertStartup({ ...report, cpuReady: false })).toThrow(/CPU startup failed/);
+    expect(() => assertStartup({ ...report, error: "page failed" })).toThrow(/page failed/);
+    expect(() => assertStartup({ ...report, requireHardware: undefined })).toThrow(
+        /policy was not published/,
+    );
+});
+
+test("deliberate native software startup still requires plugin hooks and a green canvas", () => {
+    const report = {
+        requireHardware: false,
+        cpuReady: true,
+        hooks: ["prepare", "initialize", "warm"],
+    };
+    expect(() => assertStartup(report)).toThrow(/WebGPU canvas image failed/);
+    expect(() => assertStartup({ ...report, pixel: [0, 255, 0, 255] })).not.toThrow();
+    expect(() => assertStartup({ ...report, hooks: [] })).toThrow(
+        /software startup was not observed/,
+    );
 });
 
 test("Linux smoke names the Bun and Rust toolchain installers", () => {

@@ -7,6 +7,7 @@
 // launch. macOS WKWebView lacks subgroup support, so a physics app there needs `--portable`.
 #[cfg(feature = "portable")]
 mod cef_backend;
+mod gpu_policy;
 #[cfg(all(feature = "portable", target_os = "macos"))]
 mod mac;
 #[cfg(not(feature = "portable"))]

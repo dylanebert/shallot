@@ -1,10 +1,13 @@
+#[cfg(all(target_os = "macos", feature = "portable"))]
+mod gpu_policy;
+
 // Only the macOS portable (CEF) build uses separate helper .app bundles;
 // Windows/Linux CEF re-exec the main binary.
 #[cfg(all(target_os = "macos", feature = "portable"))]
 fn main() {
     use cef::args::Args;
     use cef::library_loader::LibraryLoader;
-    use cef::{api_hash, execute_process, sys, App};
+    use cef::{api_hash, execute_process, sys};
 
     let args = Args::new();
 
@@ -15,7 +18,7 @@ fn main() {
 
     execute_process(
         Some(args.as_main_args()),
-        None::<&mut App>,
+        Some(&mut gpu_policy::PolicyApp::new()),
         std::ptr::null_mut(),
     );
 }

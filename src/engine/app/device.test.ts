@@ -39,6 +39,95 @@ function withGpu(gpu: GPU | undefined): () => void {
     };
 }
 
+test("native hardware policy refuses acquired software at splash before plugin hooks and releases its device", async () => {
+    Object.defineProperty(globalThis, "__shallotRequireHardwareGpu", {
+        configurable: true,
+        value: true,
+    });
+    let destroyed = 0;
+    const device = {
+        destroy() {
+            destroyed++;
+        },
+    } as unknown as GPUDevice;
+    const adapter = {
+        ...fallbackAdapter,
+        features: new Set(),
+        limits: {},
+        requestDevice: async () => device,
+    };
+    const restore = withGpu({ requestAdapter: async () => adapter } as unknown as GPU);
+    const hooks: string[] = [];
+    let splashError = "";
+    expectWarning(/fallback adapter, not a real device/);
+    try {
+        const message = await buildFailure({
+            defaults: false,
+            plugins: [
+                {
+                    name: "Probe",
+                    gpu: {},
+                    prepareGpu() {
+                        hooks.push("prepare");
+                    },
+                    initialize() {
+                        hooks.push("initialize");
+                    },
+                    warm() {
+                        hooks.push("warm");
+                    },
+                },
+            ],
+            loading: {
+                show() {
+                    hooks.push("splash");
+                },
+                update() {},
+                error(error) {
+                    splashError = error instanceof Error ? error.message : String(error);
+                },
+            },
+        });
+        expect(message).toContain("Hardware WebGPU is required:");
+        expect(message).toContain("fallback");
+        expect(splashError).toBe(message);
+        expect(hooks).toEqual(["splash"]);
+        expect(destroyed).toBe(1);
+        const cpu = await createApp({ defaults: false, plugins: [] });
+        cpu.dispose();
+        expect(destroyed).toBe(1);
+    } finally {
+        restore();
+        Reflect.deleteProperty(globalThis, "__shallotRequireHardwareGpu");
+    }
+});
+
+test("native hardware policy refuses an unidentified supplied device without destroying it", async () => {
+    Object.defineProperty(globalThis, "__shallotRequireHardwareGpu", {
+        configurable: true,
+        value: true,
+    });
+    let destroyed = false;
+    expectWarning(/adapter with no identity/);
+    try {
+        const message = await buildFailure({
+            defaults: false,
+            device: {
+                features: new Set(),
+                limits: {},
+                destroy() {
+                    destroyed = true;
+                },
+            } as unknown as GPUDevice,
+            plugins: [],
+        });
+        expect(message).toContain("no real device can be claimed");
+        expect(destroyed).toBe(false);
+    } finally {
+        Reflect.deleteProperty(globalThis, "__shallotRequireHardwareGpu");
+    }
+});
+
 function fakeAdapter(
     features: readonly GPUFeatureName[],
     onRequest: (descriptor: GPUDeviceDescriptor) => void,

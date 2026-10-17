@@ -284,6 +284,10 @@ interface MarkerReport {
     mode: string;
     href: string;
     pixel?: number[];
+    requireHardware?: boolean;
+    cpuReady?: boolean;
+    hooks?: string[];
+    refusal?: string;
     adapter?: Record<string, string | boolean>;
     error?: string;
 }
@@ -521,38 +525,70 @@ finally:
 
 function writePage(project: string, observer: string, mode: string, nonce: string): void {
     const report = JSON.stringify({ nonce, mode, href: "" });
-    const script = `const report = ${report};
+    const script = `import { createApp } from '@dylanebert/shallot/app';
+const report = ${report};
 report.href = location.href;
+report.requireHardware = globalThis.__shallotRequireHardwareGpu;
 try {
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error("no WebGPU adapter");
-    const { vendor, architecture, device: deviceName, description, isFallbackAdapter } = adapter.info;
-    report.adapter = { vendor, architecture, device: deviceName, description, isFallbackAdapter };
-    const device = await adapter.requestDevice();
-    const canvas = document.querySelector("canvas");
-    const context = canvas.getContext("webgpu");
-    context.configure({ device, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: "opaque" });
-    await new Promise((resolve, reject) => {
-        device.lost.then((info) => reject(new Error("WebGPU device lost: " + info.message)));
-        device.addEventListener("uncapturederror", (event) => reject(event.error));
-        requestAnimationFrame(() => {
-            try {
-                const encoder = device.createCommandEncoder();
-                const pass = encoder.beginRenderPass({ colorAttachments: [{
-                    view: context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store",
-                    clearValue: { r: 0, g: 1, b: 0, a: 1 },
-                }] });
-                pass.end();
-                device.queue.submit([encoder.finish()]);
-                const probe = document.createElement("canvas");
-                probe.width = probe.height = 1;
-                const pixels = probe.getContext("2d");
-                pixels.drawImage(canvas, 0, 0, 1, 1);
-                report.pixel = Array.from(pixels.getImageData(0, 0, 1, 1).data);
-                resolve();
-            } catch (error) { reject(error); }
+    const status = document.createElement('p');
+    document.body.append(status);
+    const cpu = await createApp({ defaults: false, plugins: [], loading: { show() { status.textContent = 'CPU-only startup ready'; }, update() {} } });
+    cpu.dispose();
+    if (status.textContent !== 'CPU-only startup ready') throw new Error('CPU-only startup failed');
+    report.cpuReady = true;
+    const policy = Object.getOwnPropertyDescriptor(globalThis, '__shallotRequireHardwareGpu');
+    if (!policy || policy.writable || policy.configurable) throw new Error('native GPU policy must be readonly host data');
+    const frame = document.createElement('iframe');
+    frame.srcdoc = '<!doctype html><title>policy context</title>';
+    await new Promise((resolve) => { frame.onload = resolve; document.body.append(frame); });
+    if (frame.contentWindow.__shallotRequireHardwareGpu !== report.requireHardware) throw new Error('native subframe policy differs');
+    frame.remove();
+    const hooks = report.hooks = [];
+    let splashError;
+    let gpuApp;
+    try {
+        gpuApp = await createApp({ defaults: false, plugins: [{ name: 'StartupProbe', gpu: {},
+            prepareGpu() { hooks.push('prepare'); }, initialize() { hooks.push('initialize'); }, warm() { hooks.push('warm'); }
+        }], loading: { show() {}, update() {}, error(error) { splashError = String(error); status.textContent = splashError; } } });
+    } catch (error) {
+        if (!report.requireHardware || !String(error).includes('Hardware WebGPU is required:')) throw error;
+    }
+    if (report.requireHardware) {
+        if (gpuApp || hooks.length || !splashError?.includes('fallback') || status.textContent !== splashError) throw new Error('native software refusal did not reach splash before plugin hooks');
+        report.refusal = splashError;
+    } else {
+        if (!gpuApp || hooks.join(',') !== 'prepare,initialize,warm' || splashError) throw new Error('deliberate software startup failed');
+        gpuApp.dispose();
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw new Error("no WebGPU adapter");
+        const { vendor, architecture, device: deviceName, description, isFallbackAdapter } = adapter.info;
+        report.adapter = { vendor, architecture, device: deviceName, description, isFallbackAdapter };
+        const device = await adapter.requestDevice();
+        const canvas = document.querySelector("canvas");
+        const context = canvas.getContext("webgpu");
+        context.configure({ device, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: "opaque" });
+        await new Promise((resolve, reject) => {
+            device.lost.then((info) => reject(new Error("WebGPU device lost: " + info.message)));
+            device.addEventListener("uncapturederror", (event) => reject(event.error));
+            requestAnimationFrame(() => {
+                try {
+                    const encoder = device.createCommandEncoder();
+                    const pass = encoder.beginRenderPass({ colorAttachments: [{
+                        view: context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store",
+                        clearValue: { r: 0, g: 1, b: 0, a: 1 },
+                    }] });
+                    pass.end();
+                    device.queue.submit([encoder.finish()]);
+                    const probe = document.createElement("canvas");
+                    probe.width = probe.height = 1;
+                    const pixels = probe.getContext("2d");
+                    pixels.drawImage(canvas, 0, 0, 1, 1);
+                    report.pixel = Array.from(pixels.getImageData(0, 0, 1, 1).data);
+                    resolve();
+                } catch (error) { reject(error); }
+            });
         });
-    });
+    }
 } catch (error) { report.error = String(error); }
 fetch(${JSON.stringify(`${observer}/marker`)}, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(report) }).catch((error) => console.error("smoke observer", error));`;
     writeFileSync(
@@ -566,6 +602,30 @@ export function assertCanvasImage(report: Pick<MarkerReport, "pixel" | "error" |
         throw new Error(
             `WebGPU canvas image failed: ${report.error ?? JSON.stringify(report.pixel)}; adapter: ${JSON.stringify(report.adapter)}`,
         );
+    }
+}
+
+export function assertStartup(
+    report: Pick<
+        MarkerReport,
+        "requireHardware" | "cpuReady" | "hooks" | "refusal" | "error" | "pixel" | "adapter"
+    >,
+): void {
+    if (report.error || report.cpuReady !== true)
+        throw new Error(`Native CPU startup failed: ${report.error ?? "not observed"}`);
+    if (report.requireHardware === true) {
+        if (
+            JSON.stringify(report.hooks) !== "[]" ||
+            !report.refusal?.includes("Hardware WebGPU is required:") ||
+            !report.refusal.includes("fallback")
+        )
+            throw new Error("Native software refusal was not observed before plugin hooks");
+    } else if (report.requireHardware === false) {
+        if (JSON.stringify(report.hooks) !== '["prepare","initialize","warm"]' || report.refusal)
+            throw new Error("Deliberate software startup was not observed");
+        assertCanvasImage(report);
+    } else {
+        throw new Error("Native GPU policy was not published");
     }
 }
 
@@ -774,7 +834,7 @@ async function launchAndObserve(
             `observer marker did not match this launch (mode ${report.mode})`,
         );
     try {
-        assertCanvasImage(report);
+        assertStartup(report);
     } catch (error) {
         throw new SmokeFailure(
             step,
@@ -802,11 +862,13 @@ async function launchAndObserve(
             );
         }
     }
+    if (report.requireHardware !== (environment.SHALLOT_ALLOW_SOFTWARE_GPU !== "1"))
+        throw new SmokeFailure(step, logPath, "native GPU policy did not match launch environment");
     const prelaunchMs = (shellStartedAt ?? performance.now()) - commandStartedAt;
     const durationMs = performance.now() - (shellStartedAt ?? commandStartedAt);
     console.info(`${step}: CLI work before shell launch ${(prelaunchMs / 1000).toFixed(2)}s`);
     console.info(
-        `${step}: WebGPU canvas image verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; adapter: ${JSON.stringify(report.adapter)} (log: ${logPath})`,
+        `${step}: CPU startup, ${report.requireHardware ? "software refusal before plugin hooks" : "deliberate software startup and WebGPU canvas image"} verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; GPU: ${report.refusal ?? JSON.stringify(report.adapter)} (log: ${logPath})`,
     );
     return { report, output, viteOrigin: resolvedViteOrigin };
 }
@@ -988,12 +1050,12 @@ async function createConsumer(
     writeFileSync(resolve(project, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     writeFileSync(
         resolve(project, "vite.config.ts"),
-        `export default { server: { headers: ${JSON.stringify(ISOLATION_HEADERS)} }, preview: { headers: ${JSON.stringify(ISOLATION_HEADERS)} } };\n`,
+        `import { shallot } from '@dylanebert/shallot/vite';\nexport default { plugins: [shallot()], server: { headers: ${JSON.stringify(ISOLATION_HEADERS)} }, preview: { headers: ${JSON.stringify(ISOLATION_HEADERS)} } };\n`,
     );
     await runLogged(
         "install packed consumer",
         process.execPath,
-        ["install", "--no-progress"],
+        ["install", "--prefer-offline", "--no-progress"],
         project,
         env,
         logs,
@@ -1039,7 +1101,9 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
     let observer: Observer | undefined;
     let stopCompositor: (() => Promise<void>) | undefined;
     try {
-        const launchEnv = cleanEnvironment(env, { DISPLAY: display.display });
+        const defaultEnv = cleanEnvironment(env, { DISPLAY: display.display });
+        delete defaultEnv.SHALLOT_ALLOW_SOFTWARE_GPU;
+        const launchEnv = { ...defaultEnv, SHALLOT_ALLOW_SOFTWARE_GPU: "1" };
         stopCompositor = await startCompositor(logs, launchEnv);
         observer = await startObserver(logs);
         let devOrigin: string | null = null;
@@ -1060,6 +1124,19 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
                 "installed CLI did not report a completed build",
             );
         await bundleIdentity("debug standalone bundle", project, logs, env, false);
+
+        await launchAndObserve(
+            "launch default hardware policy",
+            project,
+            logs,
+            observer,
+            defaultEnv,
+            "debug-preview",
+            debugNonce,
+            ["preview", "--target", "linux", "--portable"],
+            null,
+            "asset-server",
+        );
 
         const devNonce = randomUUID();
         writePage(project, observer.origin, "dev", devNonce);
@@ -1192,7 +1269,7 @@ async function main(): Promise<void> {
         );
         await runSmoke(options, icd);
         console.info(
-            "Linux packed native smoke passed: dev, debug preview, and source-release preview each verified a WebGPU canvas image on software graphics.",
+            "Linux packed native smoke passed: default software refusal; deliberate software startup and canvas readback in dev, debug preview, and source-release preview.",
         );
     } catch (error) {
         console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);

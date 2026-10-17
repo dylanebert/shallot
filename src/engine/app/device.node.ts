@@ -44,6 +44,76 @@ async function refusalMessage(): Promise<string> {
     );
 }
 
+test("native startup admits hardware identity, explicit software and non-native software before plugin hooks", async () => {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("startup policy model needs a WebGPU device");
+    const device = await adapter.requestDevice();
+    try {
+        for (const policy of [undefined, false, true]) {
+            const info =
+                policy === true
+                    ? {
+                          vendor: "nvidia",
+                          architecture: "lovelace",
+                          device: "model",
+                          description: "local identity model",
+                          isFallbackAdapter: false,
+                      }
+                    : {
+                          vendor: "google",
+                          architecture: "swiftshader",
+                          device: "model",
+                          description: "SwiftShader",
+                          isFallbackAdapter: true,
+                      };
+            if (policy !== true) expectWarning(/fallback adapter, not a real device/);
+            Object.defineProperty(globalThis, "__shallotRequireHardwareGpu", {
+                configurable: true,
+                value: policy,
+            });
+            const restore = replaceGpu({
+                requestAdapter: async () => ({
+                    info,
+                    features: adapter.features,
+                    limits: adapter.limits,
+                    requestDevice: async () => device,
+                }),
+            } as unknown as GPU);
+            const hooks: string[] = [];
+            try {
+                const app = await createApp({
+                    defaults: false,
+                    plugins: [
+                        {
+                            name: "PolicyProbe",
+                            gpu: {},
+                            prepareGpu() {
+                                hooks.push("prepare");
+                            },
+                            initialize() {
+                                hooks.push("initialize");
+                            },
+                            warm() {
+                                hooks.push("warm");
+                            },
+                        },
+                    ],
+                });
+                expect(app.world.gpu.adapter.class).toBe(policy === true ? "real" : "fallback");
+                expect(hooks).toEqual(["prepare", "initialize", "warm"]);
+                app.dispose();
+            } finally {
+                restore();
+            }
+        }
+    } finally {
+        Reflect.deleteProperty(globalThis, "__shallotRequireHardwareGpu");
+        expectError(/GPU device lost destroyed: device was destroyed/);
+        device.destroy();
+        await device.lost;
+    }
+});
+
 test("missing navigator.gpu names the Bun runtime and optional webgpu peer fix", async () => {
     const restore = replaceGpu(undefined);
     try {
