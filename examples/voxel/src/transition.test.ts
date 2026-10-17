@@ -56,7 +56,7 @@ test("a chunk changes face rule when it meets or leaves the transition, not just
     }
 });
 
-test("the full-face pool's area bound covers every ring assignment across a chunk's fractional motion", () => {
+test("the annulus area bound covers every full-face rule assignment across a chunk's fractional motion", () => {
     for (const distance of [1, 2, 3, 4, 12]) {
         const sized = { ...config, viewDistance: distance };
         const loaded = chunks(sized);
