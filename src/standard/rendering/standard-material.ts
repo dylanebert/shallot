@@ -175,28 +175,19 @@ export const VertexMaterialType = materialType({
     vertex: (input) => {
         "use gpu";
         const material = input.parameters;
-        let litColor = d.vec4f(material.baseColor);
-        if (material.unlit === 0) {
-            const pbr = Pbr({
-                albedo: material.baseColor.xyz,
+        const litColor = applyPbrLighting(
+            PbrInput({
+                worldPosition: input.world.xyz,
+                worldNormal: std.normalize(input.worldNormal),
+                view: std.normalize(std.sub(engineLayout.$.view.eye.xyz, input.world.xyz)),
+                baseColor: d.vec4f(material.baseColor),
                 metallic: material.metallic,
-                roughness: material.perceptualRoughness,
+                perceptualRoughness: material.perceptualRoughness,
                 occlusion: material.occlusion,
-                dielectric: 0,
-            });
-            litColor = d.vec4f(
-                std.add(
-                    litPbr(
-                        pbr,
-                        std.normalize(input.worldNormal),
-                        input.world.xyz,
-                        std.normalize(std.sub(engineLayout.$.view.eye.xyz, input.world.xyz)),
-                    ),
-                    material.emissive,
-                ),
-                material.baseColor.a,
-            );
-        }
+                emissive: d.vec3f(material.emissive),
+                unlit: material.unlit,
+            }),
+        );
         return { world: input.world, worldNormal: input.worldNormal, litColor };
     },
     fragment: (ctx) => {
