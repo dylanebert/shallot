@@ -123,18 +123,9 @@ pub extern "C" fn add(world: usize, kind: u32, identity: u32, bytes: usize, refs
 pub extern "C" fn lookup(world: usize, kind: u32, identity: u32) -> usize {
     unsafe { DATABASES[world].lookup(kind, identity) }
 }
-#[export_name = "geometryDatabaseRemove"]
 pub extern "C" fn remove(world: usize, kind: u32, pointer: usize) {
     unsafe {
         DATABASES[world].remove(kind, pointer);
-    }
-}
-#[export_name = "geometryDatabaseIdentity"]
-pub extern "C" fn identity(world: usize, kind: u32, pointer: usize) -> u32 {
-    unsafe {
-        DATABASES[world]
-            .entry(kind, pointer)
-            .map_or(0, |e| e.identity)
     }
 }
 #[export_name = "geometryDatabaseCount"]

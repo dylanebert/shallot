@@ -173,10 +173,6 @@ pub unsafe extern "C" fn index(id: usize) -> i32 {
 pub unsafe extern "C" fn index_in_world(world_index: usize, id: usize) -> i32 {
     set(world_index, id).index
 }
-#[export_name = "solverSetDestroy"]
-pub unsafe extern "C" fn destroy(id: usize) {
-    unsafe { destroy_in_world(crate::regions::active(), id) }
-}
 
 pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize) {
     let s = set(world_index, id);
@@ -194,10 +190,6 @@ pub unsafe extern "C" fn body_count(id: usize) -> usize {
 pub unsafe extern "C" fn body_count_in_world(world_index: usize, id: usize) -> usize {
     set(world_index, id).body_sims.count as usize
 }
-#[export_name = "solverSetBodyAppend"]
-pub unsafe extern "C" fn body_append(id: usize) -> usize {
-    unsafe { body_append_in_world(crate::regions::active(), id) }
-}
 
 pub unsafe extern "C" fn body_append_in_world(world_index: usize, id: usize) -> usize {
     let s = set(world_index, id);
@@ -208,18 +200,7 @@ pub unsafe extern "C" fn body_append_in_world(world_index: usize, id: usize) -> 
     }
     i
 }
-#[export_name = "solverSetBodyPop"]
-pub unsafe extern "C" fn body_pop(id: usize) {
-    unsafe { body_pop_in_world(crate::regions::active(), id) }
-}
 
-pub unsafe extern "C" fn body_pop_in_world(world_index: usize, id: usize) {
-    let s = set(world_index, id);
-    s.body_sims.count -= 1;
-    if id == AWAKE {
-        s.body_states.count -= 1;
-    }
-}
 #[export_name = "solverSetLayout"]
 pub unsafe extern "C" fn layout(id: usize) -> *const u32 {
     unsafe { layout_in_world(crate::regions::active(), id) }
@@ -253,10 +234,6 @@ pub unsafe extern "C" fn array_get_in_world(
 ) -> i32 {
     set(world_index, id).indices[kind][i]
 }
-#[export_name = "solverSetArrayPush"]
-pub unsafe extern "C" fn array_push(id: usize, kind: usize, value: i32) -> usize {
-    unsafe { array_push_in_world(crate::regions::active(), id, kind, value) }
-}
 
 pub unsafe extern "C" fn array_push_in_world(
     world_index: usize,
@@ -268,10 +245,6 @@ pub unsafe extern "C" fn array_push_in_world(
     let i = v.len();
     v.push(value);
     i
-}
-#[export_name = "solverSetArrayRemove"]
-pub unsafe extern "C" fn array_remove(id: usize, kind: usize, i: usize) -> i32 {
-    unsafe { array_remove_in_world(crate::regions::active(), id, kind, i) }
 }
 
 pub unsafe extern "C" fn array_remove_in_world(
@@ -289,10 +262,6 @@ pub unsafe extern "C" fn array_remove_in_world(
         last as i32
     }
 }
-#[export_name = "solverSetArrayWrite"]
-pub unsafe extern "C" fn array_write(id: usize, kind: usize, i: usize, value: i32) {
-    unsafe { array_write_in_world(crate::regions::active(), id, kind, i, value) }
-}
 
 pub unsafe extern "C" fn array_write_in_world(
     world_index: usize,
@@ -302,10 +271,6 @@ pub unsafe extern "C" fn array_write_in_world(
     value: i32,
 ) {
     set(world_index, id).indices[kind][i] = value;
-}
-#[export_name = "solverSetArrayPop"]
-pub unsafe extern "C" fn array_pop(id: usize, kind: usize) {
-    unsafe { array_pop_in_world(crate::regions::active(), id, kind) }
 }
 
 pub unsafe extern "C" fn array_pop_in_world(world_index: usize, id: usize, kind: usize) {
@@ -483,27 +448,6 @@ unsafe fn wake_state(world_index: usize, index: usize, flags: u32, head: i32) {
     let _ = head;
 }
 static mut BODY_RESULT: [u32; 2] = [0; 2];
-#[export_name = "solverSetTransferBody"]
-pub unsafe extern "C" fn transfer_body(
-    source: usize,
-    index: usize,
-    target: usize,
-    flags: u32,
-    head: i32,
-    clear_transient: bool,
-) -> usize {
-    unsafe {
-        transfer_body_in_world(
-            crate::regions::active(),
-            source,
-            index,
-            target,
-            flags,
-            head,
-            clear_transient,
-        )
-    }
-}
 
 pub unsafe extern "C" fn transfer_body_in_world(
     world_index: usize,
@@ -544,10 +488,6 @@ pub unsafe extern "C" fn transfer_body_in_world(
     BODY_RESULT = [destination as u32, moved];
     core::ptr::addr_of!(BODY_RESULT) as usize
 }
-#[export_name = "solverSetWakeBody"]
-pub unsafe extern "C" fn wake_body(source: usize, index: usize, flags: u32, head: i32) -> usize {
-    unsafe { wake_body_in_world(crate::regions::active(), source, index, flags, head) }
-}
 
 pub unsafe extern "C" fn wake_body_in_world(
     world_index: usize,
@@ -564,10 +504,6 @@ pub unsafe extern "C" fn wake_body_in_world(
     crate::bodies::record_mut(world_index, id as usize).sleep_time = 0.0;
     destination
 }
-#[export_name = "solverSetRemoveBody"]
-pub unsafe extern "C" fn destroy_body(source: usize, index: usize) -> u32 {
-    unsafe { destroy_body_in_world(crate::regions::active(), source, index) }
-}
 
 pub unsafe extern "C" fn destroy_body_in_world(
     world_index: usize,
@@ -575,29 +511,6 @@ pub unsafe extern "C" fn destroy_body_in_world(
     index: usize,
 ) -> u32 {
     remove_body(world_index, source, index)
-}
-#[export_name = "solverSetCopyBody"]
-pub unsafe extern "C" fn copy_body_row(
-    source: usize,
-    index: usize,
-    target: usize,
-    destination: usize,
-) {
-    unsafe { copy_body_row_in_world(crate::regions::active(), source, index, target, destination) }
-}
-
-pub unsafe extern "C" fn copy_body_row_in_world(
-    world_index: usize,
-    source: usize,
-    index: usize,
-    target: usize,
-    destination: usize,
-) {
-    copy_body(world_index, source, index, target, destination)
-}
-#[export_name = "solverSetMoveContact"]
-pub unsafe extern "C" fn move_contact(source: usize, index: usize, target: usize) -> usize {
-    unsafe { move_contact_in_world(crate::regions::active(), source, index, target) }
 }
 
 pub unsafe extern "C" fn move_contact_in_world(
@@ -625,10 +538,6 @@ pub unsafe extern "C" fn move_contact_in_world(
     );
     destination
 }
-#[export_name = "solverSetSleepContact"]
-pub unsafe extern "C" fn sleep_contact(id: usize, target: usize) {
-    unsafe { sleep_contact_in_world(crate::regions::active(), id, target) }
-}
 
 pub unsafe extern "C" fn sleep_contact_in_world(world_index: usize, id: usize, target: usize) {
     use crate::manifold_abi::*;
@@ -648,10 +557,6 @@ pub unsafe extern "C" fn sleep_contact_in_world(world_index: usize, id: usize, t
     d.set(o + DIR_LOCAL_INDEX, destination as u32);
 }
 static mut ISLAND_RESULT: [u32; 2] = [0; 2];
-#[export_name = "solverSetMoveIsland"]
-pub unsafe extern "C" fn move_island(source: usize, index: usize, target: usize) -> usize {
-    unsafe { move_island_in_world(crate::regions::active(), source, index, target) }
-}
 
 pub unsafe extern "C" fn move_island_in_world(
     world_index: usize,

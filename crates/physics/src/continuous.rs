@@ -81,7 +81,6 @@ pub(crate) unsafe fn bullet_body(index: usize) -> usize {
 
 static mut ROOTS: [i32; 3] = [-1; 3];
 static mut ENABLE_SLEEP: bool = true;
-#[export_name = "continuousRoots"]
 pub extern "C" fn roots(s: i32, k: i32, d: i32, enable_sleep: bool) {
     unsafe {
         ROOTS = [s, k, d];

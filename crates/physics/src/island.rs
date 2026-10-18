@@ -65,17 +65,6 @@ pub unsafe extern "C" fn set_split_candidate(id: i32) {
 pub unsafe extern "C" fn set_split_candidate_in_world(world_index: usize, id: i32) {
     world(world_index).split_island_id = id;
 }
-#[export_name = "islandCanSleep"]
-pub unsafe extern "C" fn can_sleep(id: usize) -> bool {
-    unsafe { can_sleep_in_world(crate::regions::active(), id) }
-}
-
-pub unsafe extern "C" fn can_sleep_in_world(world_index: usize, id: usize) -> bool {
-    record(world_index, id)
-        .bodies
-        .iter()
-        .all(|&body| crate::bodies::record(world_index, body as usize).sleep_time >= 0.5)
-}
 
 unsafe fn fix(world_index: usize, kind: i32, id: i32, island: i32, index: i32) {
     if kind == 0 {
@@ -123,10 +112,6 @@ pub unsafe extern "C" fn create_in_world(world_index: usize, set: usize) -> usiz
         ..Island::default()
     };
     id
-}
-#[export_name = "islandDestroy"]
-pub unsafe extern "C" fn destroy(id: usize) {
-    unsafe { destroy_in_world(crate::regions::active(), id) }
 }
 
 pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize) {
@@ -287,10 +272,6 @@ unsafe fn add_joint(world_index: usize, id: usize, l: Link) {
     fix(world_index, 1, l.id, id as i32, s.joints.len() as i32);
     s.joints.push(l);
 }
-#[export_name = "islandLinkContact"]
-pub unsafe extern "C" fn link_contact(contact: i32, a: i32, b: i32) {
-    unsafe { link_contact_in_world(crate::regions::active(), contact, a, b) }
-}
 
 pub unsafe extern "C" fn link_contact_in_world(world_index: usize, contact: i32, a: i32, b: i32) {
     let id = merge(world_index, a, b);
@@ -324,10 +305,6 @@ pub unsafe extern "C" fn unlink_contact_in_world(world_index: usize, contact: i3
     contact_fix(world_index, contact, -1, -1);
     s.constraint_remove_count += 1;
 }
-#[export_name = "islandLinkJoint"]
-pub unsafe extern "C" fn link_joint(joint: i32, body_a: i32, body_b: i32, a: i32, b: i32) {
-    unsafe { link_joint_in_world(crate::regions::active(), joint, body_a, body_b, a, b) }
-}
 
 pub unsafe extern "C" fn link_joint_in_world(
     world_index: usize,
@@ -347,10 +324,6 @@ pub unsafe extern "C" fn link_joint_in_world(
             body_b,
         },
     );
-}
-#[export_name = "islandUnlinkJoint"]
-pub unsafe extern "C" fn unlink_joint(joint: i32, id: i32, index: usize) {
-    unsafe { unlink_joint_in_world(crate::regions::active(), joint, id, index) }
 }
 
 pub unsafe extern "C" fn unlink_joint_in_world(

@@ -339,23 +339,6 @@ pub(crate) mod runtime {
         *result.add(1)
     }
 
-    #[export_name = "bodyWakeRecord"]
-    pub unsafe extern "C" fn wake_record(world: usize, id: usize) {
-        crate::regions::select(world as u32);
-        unsafe { wake_record_in_world(world, id) }
-    }
-
-    pub unsafe extern "C" fn wake_record_in_world(world: usize, id: usize) {
-        let body = *bodies::record(world, id);
-        crate::solver_set::wake_body_in_world(
-            world,
-            body.set_index as usize,
-            body.local_index as usize,
-            body.flags,
-            body.head_shape_id,
-        );
-    }
-
     #[export_name = "bodyCreateSim"]
     pub unsafe extern "C" fn create_sim(
         world: u32,
@@ -596,7 +579,6 @@ pub(crate) mod runtime {
         false
     }
 
-    #[export_name = "bodySyncFlags"]
     pub unsafe extern "C" fn sync_flags(world: usize, id: usize) {
         crate::regions::select(world as u32);
         unsafe { sync_flags_in_world(world, id) }
@@ -614,7 +596,6 @@ pub(crate) mod runtime {
         }
     }
 
-    #[export_name = "bodyChangeType"]
     pub unsafe extern "C" fn change_type(world: usize, id: usize, body_type: i32) {
         crate::regions::select(world as u32);
         unsafe { change_type_in_world(world, id, body_type) }
@@ -801,7 +782,6 @@ pub(crate) mod runtime {
         }
     }
 
-    #[export_name = "bodyRemoveIsland"]
     pub unsafe extern "C" fn remove_island(world: usize, id: usize) {
         crate::regions::select(world as u32);
         unsafe { remove_island_in_world(world, id) }
@@ -819,7 +799,6 @@ pub(crate) mod runtime {
         }
     }
 
-    #[export_name = "bodyCreateIsland"]
     pub unsafe extern "C" fn create_island(world: usize, id: usize) {
         crate::regions::select(world as u32);
         unsafe { create_island_in_world(world, id) }

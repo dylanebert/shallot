@@ -22,7 +22,6 @@ fn lock(id: usize) {
 fn unlock(id: usize) {
     LOCKS[id].store(0, core::sync::atomic::Ordering::Release);
 }
-#[export_name = "contactPairOrder"]
 pub extern "C" fn contact_pair_order(a: usize, b: usize) -> u32 {
     // b3InitializeContactRegisters: primary rows for capsule, compound, height field, hull, mesh, sphere.
     const PRIMARY: [u8; 6] = [0b100001, 0b101001, 0b101001, 0b101001, 0b101001, 0b100000];

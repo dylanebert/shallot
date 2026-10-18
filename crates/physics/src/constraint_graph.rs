@@ -149,10 +149,6 @@ pub extern "C" fn assign_in_world(
         OVERFLOW
     }
 }
-#[export_name = "graphClearBodies"]
-pub extern "C" fn clear(color: usize, a: usize, b: usize) {
-    clear_in_world(crate::regions::active(), color, a, b)
-}
 
 pub extern "C" fn clear_in_world(world_index: usize, color: usize, a: usize, b: usize) {
     if color == OVERFLOW {
@@ -316,10 +312,6 @@ const LAYOUT_STRIDE: usize = 5;
 const LAYOUT_HEADER: usize = 10;
 static mut SOLVE_LAYOUT: [[u32; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS] =
     [[0; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS];
-#[export_name = "graphComputeLayout"]
-pub extern "C" fn compute_layout() -> usize {
-    compute_layout_in_world(crate::regions::active())
-}
 
 pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
     unsafe {

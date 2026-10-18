@@ -34,10 +34,6 @@ pub unsafe fn get_in_world(world: usize, mut index: usize) -> u32 {
     }
     solver_set::array_get_in_world(world, 2, 0, index) as u32
 }
-#[export_name = "awakeContactCopy"]
-pub unsafe extern "C" fn copy(ptr: *mut u32) {
-    copy_in_world(crate::regions::active(), ptr)
-}
 pub unsafe fn copy_in_world(world: usize, mut ptr: *mut u32) {
     for color in 0..graph::COLORS {
         let count = graph::count_in_world(world, color, false);

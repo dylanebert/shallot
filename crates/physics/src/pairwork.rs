@@ -162,7 +162,6 @@ pub extern "C" fn pairs_cand_end_ptr() -> *const u32 {
     unsafe { CANDEND_PTR as *const u32 }
 }
 
-#[export_name = "pairsCandPtr"]
 pub extern "C" fn pairs_cand_ptr() -> *const u32 {
     unsafe { CAND_PTR as *const u32 }
 }
@@ -493,12 +492,6 @@ pub unsafe fn reserve_rebuild_in_world(world_index: usize) {
             }
         }
     }
-}
-
-/// b3UpdateTreesTask: dynamic then kinematic, with no broadphase readers until its join.
-#[export_name = "rebuildTrees"]
-pub extern "C" fn rebuild_trees() {
-    rebuild_trees_in_world(crate::regions::active())
 }
 
 pub extern "C" fn rebuild_trees_in_world(world_index: usize) {

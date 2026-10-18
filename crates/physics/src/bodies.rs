@@ -221,10 +221,6 @@ pub extern "C" fn body_set_entity(id: usize, body: usize, eid: u32) {
         *(world(id).columns.layout[B_RECORD_EID] as *mut u32).add(body) = eid;
     }
 }
-#[export_name = "bodySyncMoved"]
-pub extern "C" fn body_sync_moved(count: usize) -> usize {
-    body_sync_moved_in_world(crate::regions::active(), count)
-}
 
 pub extern "C" fn body_sync_moved_in_world(world_index: usize, count: usize) -> usize {
     unsafe {
@@ -340,7 +336,6 @@ pub extern "C" fn body_destroy_in_world(world_index: usize, id: u32, body: u32) 
         moved
     }
 }
-#[export_name = "bodyResetWorld"]
 pub extern "C" fn body_reset_world(id: u32) {
     unsafe {
         let w = world_mut(id as usize);

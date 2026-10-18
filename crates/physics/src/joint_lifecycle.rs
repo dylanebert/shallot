@@ -52,18 +52,10 @@ unsafe fn link(world_index: usize, id: usize) {
         bodies::record(world, b).island_id,
     );
 }
-#[export_name = "jointLink"]
-pub unsafe extern "C" fn link_record(id: usize) {
-    unsafe { link_record_in_world(crate::regions::active(), id) }
-}
 
 pub unsafe extern "C" fn link_record_in_world(world_index: usize, id: usize) {
     begin();
     link(world_index, id);
-}
-#[export_name = "jointUnlink"]
-pub unsafe extern "C" fn unlink_record(id: usize) {
-    unsafe { unlink_record_in_world(crate::regions::active(), id) }
 }
 
 pub unsafe extern "C" fn unlink_record_in_world(world_index: usize, id: usize) {
@@ -480,10 +472,6 @@ pub unsafe extern "C" fn set_max_spring_in_world(
         },
         if 0.0 > value { 0.0 } else { value },
     );
-}
-#[export_name = "jointTransfer"]
-pub unsafe extern "C" fn transfer(id: usize, target: usize) {
-    unsafe { transfer_in_world(crate::regions::active(), id, target) }
 }
 
 pub unsafe extern "C" fn transfer_in_world(world_index: usize, id: usize, target: usize) {

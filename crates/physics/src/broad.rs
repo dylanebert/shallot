@@ -381,14 +381,7 @@ pub extern "C" fn broad_tree_cap(i: usize) -> usize {
 pub extern "C" fn broad_tree_cap_in_world(world_index: usize, i: usize) -> usize {
     tree_cap(world_index, i)
 }
-#[export_name = "broadSetCap"]
-pub extern "C" fn broad_set_cap() -> usize {
-    broad_set_cap_in_world(crate::regions::active())
-}
 
-pub extern "C" fn broad_set_cap_in_world(world_index: usize) -> usize {
-    set_cap(world_index)
-}
 #[export_name = "reserveBroad"]
 pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_cap: usize) -> u32 {
     reserve_broad_in_world(crate::regions::active(), cap_s, cap_k, cap_d, set_cap)

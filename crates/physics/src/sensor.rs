@@ -79,10 +79,6 @@ unsafe fn visitor(world: usize, id: usize) -> Visitor {
         padding: 0,
     }
 }
-#[export_name = "sensorCreate"]
-pub unsafe extern "C" fn create(world: usize, id: usize) {
-    unsafe { create_in_world(world, id) }
-}
 
 pub unsafe extern "C" fn create_in_world(world: usize, id: usize) {
     let w = state(world);
@@ -218,10 +214,6 @@ pub unsafe fn publish(world: usize) {
             bits &= bits - 1;
         }
     }
-}
-#[export_name = "sensorDestroy"]
-pub unsafe extern "C" fn destroy(world: usize, id: usize) {
-    unsafe { destroy_in_world(world, id) }
 }
 
 pub unsafe extern "C" fn destroy_in_world(world: usize, id: usize) {

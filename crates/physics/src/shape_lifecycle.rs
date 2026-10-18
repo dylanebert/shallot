@@ -1,12 +1,6 @@
 //! Nongeometry shape lifecycle in body/shape list and proxy order.
 use crate::{bodies, shapes};
 
-#[export_name = "shapeLink"]
-pub unsafe extern "C" fn link(world: usize, id: usize, body_id: usize) {
-    crate::regions::select(world as u32);
-    unsafe { link_in_world(world, id, body_id) }
-}
-
 pub unsafe extern "C" fn link_in_world(world: usize, id: usize, body_id: usize) {
     let body = bodies::record_mut(world, body_id);
     let u = shapes::col(world);
@@ -22,11 +16,6 @@ pub unsafe extern "C" fn link_in_world(world: usize, id: usize, body_id: usize) 
     }
     body.head_shape_id = id as i32;
     body.shape_count += 1;
-}
-#[export_name = "shapeUnlink"]
-pub unsafe extern "C" fn unlink(world: usize, id: usize) {
-    crate::regions::select(world as u32);
-    unsafe { unlink_in_world(world, id) }
 }
 
 pub unsafe extern "C" fn unlink_in_world(world: usize, id: usize) {
@@ -47,25 +36,6 @@ pub unsafe extern "C" fn unlink_in_world(world: usize, id: usize) {
     }
     body.shape_count -= 1;
 }
-/** Unlink one shape for the host to release its still-host-owned geometry and sensor payloads. */
-#[export_name = "shapeBodyTake"]
-pub unsafe extern "C" fn body_take(world: usize, body: usize) -> i32 {
-    crate::regions::select(world as u32);
-    unsafe { body_take_in_world(world, body) }
-}
-
-pub unsafe extern "C" fn body_take_in_world(world: usize, body: usize) -> i32 {
-    let shape = bodies::record(world, body).head_shape_id;
-    if shape != -1 {
-        unlink_in_world(world, shape as usize);
-    }
-    shape
-}
-#[export_name = "shapeBodyAllowsType"]
-pub unsafe extern "C" fn body_allows_type(world: usize, body: usize, kind: u32) -> bool {
-    crate::regions::select(world as u32);
-    unsafe { body_allows_type_in_world(world, body, kind) }
-}
 
 pub unsafe extern "C" fn body_allows_type_in_world(world: usize, body: usize, kind: u32) -> bool {
     if kind == 0 {
@@ -82,11 +52,6 @@ pub unsafe extern "C" fn body_allows_type_in_world(world: usize, body: usize, ki
         shape = u.get(o + shapes::S_NEXT) as i32;
     }
     true
-}
-#[export_name = "shapeSyncBodyBounds"]
-pub unsafe extern "C" fn sync_body_bounds(world: usize, body_id: usize) {
-    crate::regions::select(world as u32);
-    unsafe { sync_body_bounds_in_world(world, body_id) }
 }
 
 pub unsafe extern "C" fn sync_body_bounds_in_world(world: usize, body_id: usize) {
@@ -151,11 +116,6 @@ pub unsafe extern "C" fn destroy_proxy_in_world(world: usize, id: usize) {
         crate::broad::destroy_proxy_in_world(world, key);
         u.set(o, u32::MAX);
     }
-}
-#[export_name = "shapeCreateProxy"]
-pub unsafe extern "C" fn create_proxy(world: usize, id: usize, force: bool) {
-    crate::regions::select(world as u32);
-    unsafe { create_proxy_in_world(world, id, force) }
 }
 
 pub unsafe extern "C" fn create_proxy_in_world(world: usize, id: usize, force: bool) {
@@ -417,19 +377,6 @@ pub unsafe extern "C" fn filter_write64_in_world(
         group,
     );
 }
-#[export_name = "shapeSetFilter"]
-pub unsafe extern "C" fn set_filter(
-    world: usize,
-    id: usize,
-    category_hi: u32,
-    category_lo: u32,
-    mask_hi: u32,
-    mask_lo: u32,
-    group: i32,
-) {
-    crate::regions::select(world as u32);
-    unsafe { set_filter_in_world(world, id, category_hi, category_lo, mask_hi, mask_lo, group) }
-}
 
 pub unsafe extern "C" fn set_filter_in_world(
     world: usize,
@@ -467,19 +414,6 @@ pub unsafe extern "C" fn set_filter_in_world(
             tight,
         );
     }
-}
-#[export_name = "shapeFilterWrite"]
-pub unsafe extern "C" fn filter_write(
-    world: usize,
-    id: usize,
-    category_hi: u32,
-    category_lo: u32,
-    mask_hi: u32,
-    mask_lo: u32,
-    group: i32,
-) {
-    crate::regions::select(world as u32);
-    unsafe { filter_write_in_world(world, id, category_hi, category_lo, mask_hi, mask_lo, group) }
 }
 
 pub unsafe extern "C" fn filter_write_in_world(
@@ -701,11 +635,6 @@ pub unsafe extern "C" fn set_mesh_material(
         );
     }
 }
-#[export_name = "shapeContactNext"]
-pub unsafe extern "C" fn contact_next(world: usize, id: usize, key: i32) -> i32 {
-    crate::regions::select(world as u32);
-    unsafe { contact_next_in_world(world, id, key) }
-}
 
 pub unsafe extern "C" fn contact_next_in_world(world: usize, id: usize, mut key: i32) -> i32 {
     use crate::manifold_abi::*;
@@ -728,19 +657,9 @@ pub unsafe extern "C" fn contact_next_in_world(world: usize, id: usize, mut key:
     }
     -1
 }
-#[export_name = "shapeAttachSensor"]
-pub unsafe extern "C" fn attach_sensor(world: usize, id: usize, index: i32) {
-    crate::regions::select(world as u32);
-    unsafe { attach_sensor_in_world(world, id, index) }
-}
 
 pub unsafe extern "C" fn attach_sensor_in_world(world: usize, id: usize, index: i32) {
     shapes::col(world).set(id * shapes::SHAPE_STRIDE + 4, index as u32);
-}
-#[export_name = "shapeBodyProxies"]
-pub unsafe extern "C" fn body_proxies(world: usize, id: usize, mode: u32) {
-    crate::regions::select(world as u32);
-    unsafe { body_proxies_in_world(world, id, mode) }
 }
 
 pub unsafe extern "C" fn body_proxies_in_world(world: usize, id: usize, mode: u32) {

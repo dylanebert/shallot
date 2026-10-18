@@ -336,7 +336,6 @@ pub extern "C" fn shape_create_in_world(
         shape as u32
     }
 }
-#[export_name = "shapeDestroy"]
 pub extern "C" fn shape_destroy(id: u32, shape: u32) {
     unsafe {
         let w = world_mut(id as usize);
@@ -353,7 +352,6 @@ pub extern "C" fn shape_destroy(id: u32, shape: u32) {
         w.shape.free += 1;
     }
 }
-#[export_name = "shapeResetWorld"]
 pub extern "C" fn shape_reset_world(id: u32) {
     unsafe {
         let w = world_mut(id as usize);

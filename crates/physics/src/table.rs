@@ -143,11 +143,6 @@ fn rehash(old: (&[u32], &[u32], &[u32]), new: (&mut [u32], &mut [u32], &mut [u32
     }
 }
 #[cfg(target_arch = "wasm32")]
-#[export_name = "broadCreateSet"]
-pub extern "C" fn create_set(need: usize) {
-    create_set_in_world(crate::regions::active(), need)
-}
-#[cfg(target_arch = "wasm32")]
 pub extern "C" fn create_set_in_world(world_index: usize, need: usize) {
     crate::broad::reserve_broad_in_world(world_index, 0, 0, 0, capacity(need));
 }

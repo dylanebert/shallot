@@ -187,7 +187,6 @@ mod runtime {
             w.sensor_begin.push(e);
         }
     }
-    #[export_name = "eventBeginStep"]
     pub unsafe extern "C" fn begin_step(world: usize) {
         let w = state(world);
         w.sensor_begin.clear();
@@ -196,17 +195,11 @@ mod runtime {
         w.joints.clear();
         w.move_count = 0;
     }
-    #[export_name = "eventEndStep"]
     pub unsafe extern "C" fn end_step(world: usize) {
         let w = state(world);
         w.end_index = 1 - w.end_index;
         w.sensor_end[w.end_index].clear();
         w.contact_end[w.end_index].clear();
-    }
-    #[export_name = "eventContactTouch"]
-    pub unsafe extern "C" fn contact_touch(world: usize, contact: usize, begin: bool) {
-        crate::regions::select(world as u32);
-        unsafe { contact_touch_in_world(world, contact, begin) }
     }
 
     pub unsafe extern "C" fn contact_touch_in_world(world: usize, contact: usize, begin: bool) {
@@ -251,11 +244,6 @@ mod runtime {
         let r = shapes::material(world_index, shape, index);
         ((r[7] as u64) << 32) | r[6] as u64
     }
-    #[export_name = "eventUpdateBeginImpulses"]
-    pub unsafe extern "C" fn update_begin_impulses(world: usize) {
-        crate::regions::select(world as u32);
-        unsafe { update_begin_impulses_in_world(world) }
-    }
 
     pub unsafe extern "C" fn update_begin_impulses_in_world(world: usize) {
         let w = state(world);
@@ -269,11 +257,6 @@ mod runtime {
                 e.normal_impulse = total_impulse(world, contact);
             }
         }
-    }
-    #[export_name = "eventBuildHits"]
-    pub unsafe extern "C" fn build_hits(world: usize, threshold: f32) {
-        crate::regions::select(world as u32);
-        unsafe { build_hits_in_world(world, threshold) }
     }
 
     pub unsafe extern "C" fn build_hits_in_world(world: usize, threshold: f32) {

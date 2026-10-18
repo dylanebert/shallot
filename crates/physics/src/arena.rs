@@ -557,10 +557,6 @@ pub(crate) unsafe fn sort_collide_contacts(world: usize, count: usize) {
     assert_eq!(next, count);
 }
 
-#[export_name = "contactStatePtr"]
-pub extern "C" fn contact_state_ptr() -> usize {
-    unsafe { CONTACT_STATES[crate::regions::active()][0].bits as usize }
-}
 unsafe fn mark_contact_state(world: usize, thread: usize, contact: usize) {
     CONTACT_STATES[world][thread].set(contact);
 }

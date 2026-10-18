@@ -4,12 +4,6 @@ use crate::{
     shape_lifecycle as shape,
 };
 
-#[export_name = "bodyWakeWorld"]
-pub unsafe extern "C" fn wake_body(world: usize, id: usize) -> bool {
-    crate::regions::select(world as u32);
-    unsafe { wake_body_in_world(world, id) }
-}
-
 pub unsafe extern "C" fn wake_body_in_world(world: usize, id: usize) -> bool {
     let set = bodies::record(world, id).set_index;
     if set >= 3 {

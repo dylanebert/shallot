@@ -28,10 +28,6 @@ pub unsafe extern "C" fn destroy_world_in_world(world: usize) {
     crate::shapes::shape_reset_world(world as u32);
     regions::reset(world as u32);
 }
-#[export_name = "applyContactTransitions"]
-pub unsafe extern "C" fn apply_contact_transitions() {
-    unsafe { apply_contact_transitions_in_world(crate::regions::active()) }
-}
 
 pub unsafe extern "C" fn apply_contact_transitions_in_world(world_index: usize) {
     let states = crate::arena::union_contact_states(world_index);
@@ -141,11 +137,6 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
             flags & 0x0040_0000 != 0,
         );
     }
-}
-
-#[export_name = "stepFinalize"]
-pub unsafe extern "C" fn finalize(count: usize, dt: f32, enable_sleep: bool) -> bool {
-    unsafe { finalize_in_world(crate::regions::active(), count, dt, enable_sleep) }
 }
 
 pub unsafe extern "C" fn finalize_in_world(
@@ -528,10 +519,6 @@ unsafe fn sleep_islands(world_index: usize) {
             try_sleep_island_in_world(world_index, id);
         }
     }
-}
-#[export_name = "solverSetTrySleepIsland"]
-pub unsafe extern "C" fn try_sleep_island(id: usize) {
-    unsafe { try_sleep_island_in_world(crate::regions::active(), id) }
 }
 
 pub unsafe extern "C" fn try_sleep_island_in_world(world_index: usize, id: usize) {

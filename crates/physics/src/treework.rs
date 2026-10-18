@@ -357,19 +357,6 @@ pub unsafe extern "C" fn enlarge_proxy_in_world(
         0,
     );
 }
-#[export_name = "treeMoveProxy"]
-pub unsafe extern "C" fn move_proxy(
-    index: usize,
-    id: i32,
-    lx: f32,
-    ly: f32,
-    lz: f32,
-    hx: f32,
-    hy: f32,
-    hz: f32,
-) {
-    unsafe { move_proxy_in_world(crate::regions::active(), index, id, lx, ly, lz, hx, hy, hz) }
-}
 
 pub unsafe extern "C" fn move_proxy_in_world(
     world_index: usize,
@@ -398,12 +385,6 @@ pub unsafe extern "C" fn move_proxy_in_world(
         0,
         0,
     );
-}
-
-/// Box3D solver.c: awake sim order, then each body's head-to-next shape order.
-#[export_name = "treeEnlargePass"]
-pub unsafe extern "C" fn enlarge_pass(count: usize, bullets: u32) {
-    unsafe { enlarge_pass_in_world(crate::regions::active(), count, bullets) }
 }
 
 pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize, bullets: u32) {

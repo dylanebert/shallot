@@ -142,7 +142,6 @@ pub(crate) unsafe fn height_view(r: *const u32) -> crate::height_query::HeightFi
     }
 }
 
-static mut COMPOUND_CHILD_OUT: [u32; 10] = [0; 10];
 #[export_name = "shapeMaterialIndex"]
 pub extern "C" fn shape_material_index(
     world: usize,
@@ -167,36 +166,11 @@ pub extern "C" fn shape_material_index(
         }
     }
 }
-#[export_name = "shapeCompoundChildType"]
 pub extern "C" fn shape_compound_child_type(world: usize, shape: usize, child: usize) -> u32 {
     unsafe {
         let (record, pointer) = crate::shapes::geometry_record(world, shape);
         assert_eq!(*record.add(crate::shapes::S_TYPE), 1);
         crate::compound_query::child_words(pointer, child)[0]
-    }
-}
-#[export_name = "shapeCompoundChild"]
-pub extern "C" fn shape_compound_child(world: usize, shape: usize, child: usize) -> *const u32 {
-    unsafe {
-        let (record, pointer) = crate::shapes::geometry_record(world, shape);
-        assert_eq!(*record.add(crate::shapes::S_TYPE), 1);
-        let words = crate::compound_query::child_words(pointer, child);
-        let out = &raw mut COMPOUND_CHILD_OUT as *mut u32;
-        *out = words[0];
-        *out.add(1) = crate::compound_query::child_material_index(pointer, child, 0);
-        *out.add(2) = match words[0] {
-            0 => words[18],
-            3 => {
-                let hull = words[12] as *const u32;
-                *hull.add(12)
-            }
-            5 => words[15],
-            _ => 0,
-        };
-        for i in 0..7 {
-            *out.add(3 + i) = words[1 + i];
-        }
-        out
     }
 }
 

@@ -65,17 +65,10 @@ export type Kernel = {
     worldQueryResultPtr(): number;
     worldQuery(world: number, operation: number, callback: number): void;
     bodyQuery(world: number, operation: number, head: number, capacity: number): void;
-    sensorCreate(world: number, shape: number): void;
-    sensorDestroy(world: number, shape: number): void;
     eventCount(world: number, kind: number): number;
     eventWord(world: number, kind: number, index: number, lane: number): number;
     eventBufferPtr(world: number, kind: number): number;
     eventFloat(world: number, kind: number, index: number, lane: number): number;
-    eventBeginStep(world: number): void;
-    eventEndStep(world: number): void;
-    eventContactTouch(world: number, contact: number, begin: boolean): void;
-    eventUpdateBeginImpulses(world: number): void;
-    eventBuildHits(world: number, threshold: number): void;
     sensorVisitorCount(world: number, index: number): number;
     sensorVisitorWord(world: number, index: number, visitor: number, word: number): number;
 
@@ -94,23 +87,8 @@ export type Kernel = {
 
     // Allocator-owned body columns for the selected World, sized to its body high-water.
     reserveBodies(cap: number): number;
-    solverSetTransferBody(
-        source: number,
-        index: number,
-        target: number,
-        flags: number,
-        head: number,
-        clearTransient: number,
-    ): number;
-    solverSetWakeBody(source: number, index: number, flags: number, head: number): number;
-    solverSetRemoveBody(source: number, index: number): number;
-    solverSetCopyBody(source: number, index: number, target: number, destination: number): void;
-    solverSetMoveContact(source: number, index: number, target: number): number;
-    solverSetSleepContact(id: number, target: number): void;
-    solverSetMoveIsland(source: number, index: number, target: number): number;
     islandSplit(id: number): void;
     islandCreate(set: number): number;
-    islandDestroy(id: number): void;
     islandCount(): number;
     islandField(id: number, field: number): number;
     islandSetField(id: number, field: number, value: number): void;
@@ -118,26 +96,17 @@ export type Kernel = {
     islandArrayGet(id: number, kind: number, index: number, lane: number): number;
     islandAddBody(id: number, body: number): void;
     islandRemoveBody(id: number, index: number): void;
-    islandLinkContact(id: number, a: number, b: number): void;
     islandUnlinkContact(id: number): void;
     solverSetCreate(): number;
     solverSetCount(): number;
     solverSetIndex(id: number): number;
-    solverSetDestroy(id: number): void;
     solverSetBodyCount(id: number): number;
     solverSetBodyId(set: number, index: number): number;
-    solverSetBodyAppend(id: number): number;
-    solverSetBodyPop(id: number): void;
     solverSetLayout(id: number): number;
     solverSetArrayCount(id: number, kind: number): number;
     solverSetArrayGet(id: number, kind: number, index: number): number;
-    solverSetArrayPush(id: number, kind: number, value: number): number;
-    solverSetArrayRemove(id: number, kind: number, index: number): number;
-    solverSetArrayWrite(id: number, kind: number, index: number, value: number): void;
-    solverSetArrayPop(id: number, kind: number): void;
     bodyLayoutPtr(): number;
     bodySetEntity(world: number, body: number, eid: number): void;
-    bodySyncMoved(count: number): number;
     /** The record capacity the resident body region is sized to — the single source of truth for the
      * TS body-store's column-view lengths (bodycolumns.ts). Zero before the first `reserveBodies`. */
     bodyCap(): number;
@@ -174,9 +143,6 @@ export type Kernel = {
     /** Release a body index into the kernel-owned world-local free list. */
     bodyDestroy(world: number, id: number): number;
     bodyDestroyWorld(world: number, id: number): void;
-    bodyWakeWorld(world: number, id: number): boolean;
-    /** Clear a world-local body pool after the public world is destroyed. */
-    bodyResetWorld(world: number): void;
     residentResetWorld(world: number): void;
     worldDestroyKernel(world: number): void;
     shapeSetFilter64(
@@ -202,15 +168,6 @@ export type Kernel = {
         updateMass: boolean,
     ): void;
     shapeSetFlag(world: number, id: number, flag: number, enabled: boolean): void;
-    shapeSetFilter(
-        world: number,
-        id: number,
-        categoryHi: number,
-        categoryLo: number,
-        maskHi: number,
-        maskLo: number,
-        group: number,
-    ): void;
     shapeSetDensity(world: number, id: number, value: number, updateMass: boolean): void;
     shapeSetSphere(
         world: number,
@@ -302,16 +259,10 @@ export type Kernel = {
         qz: number,
         qs: number,
     ): void;
-    shapeSyncBodyBounds(world: number, body: number): void;
-    shapeBodyAllowsType(world: number, body: number, type: number): number;
-    shapeBodyTake(world: number, body: number): number;
     bodyTransfer(world: number, id: number, target: number, clearTransient: boolean): number;
-    bodyWakeRecord(world: number, id: number): void;
     contactCreateWorld(world: number, shapeA: number, shapeB: number, child: number): void;
     contactDestroyWorld(world: number, id: number, wake: boolean): void;
     contactLinkWorld(world: number, id: number): void;
-    bodySyncFlags(world: number, id: number): void;
-    bodyChangeType(world: number, id: number, type: number): void;
     bodyGetProperty(world: number, id: number, property: number): number;
     bodySetProperty(world: number, id: number, property: number, value: number): void;
     bodySetType(world: number, id: number, type: number): void;
@@ -319,8 +270,6 @@ export type Kernel = {
     bodyDisable(world: number, id: number): void;
     bodyEnable(world: number, id: number): void;
     bodyUpdateMass(world: number, id: number): void;
-    bodyCreateIsland(world: number, id: number): void;
-    bodyRemoveIsland(world: number, id: number): void;
     bodyColumnPtr(world: number, id: number, column: number): number;
     simColumnPtr(world: number, set: number, index: number, column: number): number;
     bodyStateIndex(world: number, id: number): number;
@@ -337,7 +286,6 @@ export type Kernel = {
         timeStep: number,
         wake: boolean,
     ): boolean;
-    islandCanSleep(id: number): boolean;
     islandSplitCandidate(): number;
     islandSetSplitCandidate(id: number): void;
 
@@ -370,8 +318,6 @@ export type Kernel = {
     ): number;
     shapeGeometryOutputPtr(): number;
     shapeMaterialIndex(world: number, shape: number, child: number, triangle: number): number;
-    shapeCompoundChild(world: number, shape: number, child: number): number;
-    shapeCompoundChildType(world: number, shape: number, child: number): number;
     shapeComputeMass(world: number, id: number): void;
     shapeComputeExtent(world: number, id: number, x: number, y: number, z: number): void;
     shapeGetCentroid(world: number, id: number): void;
@@ -408,20 +354,6 @@ export type Kernel = {
         extra: number,
     ): void;
     shapeFinishGeometry(world: number, id: number): void;
-    shapeFilterWrite(
-        world: number,
-        id: number,
-        categoryHi: number,
-        categoryLo: number,
-        maskHi: number,
-        maskLo: number,
-        group: number,
-    ): void;
-    shapeContactNext(world: number, id: number, key: number): number;
-    shapeAttachSensor(world: number, id: number, sensor: number): void;
-    shapeLink(world: number, id: number, body: number): void;
-    shapeUnlink(world: number, id: number): void;
-    shapeCreateProxy(world: number, id: number, force: number): void;
     shapeCreateProxyTransform(
         world: number,
         id: number,
@@ -435,9 +367,6 @@ export type Kernel = {
         qs: number,
     ): void;
     shapeDestroyProxy(world: number, id: number): void;
-    shapeBodyProxies(world: number, body: number, create: number): void;
-    shapeDestroy(world: number, id: number): void;
-    shapeResetWorld(world: number): void;
     shapeGeneration(world: number, id: number): number;
     shapeAlive(world: number, id: number): number;
     shapeCount(world: number): number;
@@ -468,7 +397,6 @@ export type Kernel = {
     broadTreeCap(i: number): number;
     broadBitsCapacity(i: number): number;
     reserveTreeWork(depth: number, words: number): number;
-    treeEnlargePass(count: number, bullets: number): void;
     treeCreateProxy(
         index: number,
         lx: number,
@@ -483,16 +411,6 @@ export type Kernel = {
     ): number;
     treeDestroyProxy(index: number, id: number): void;
     treeEnlargeProxy(
-        index: number,
-        id: number,
-        lx: number,
-        ly: number,
-        lz: number,
-        hx: number,
-        hy: number,
-        hz: number,
-    ): void;
-    treeMoveProxy(
         index: number,
         id: number,
         lx: number,
@@ -586,9 +504,7 @@ export type Kernel = {
         hz: number,
     ): void;
     broadClearMoved(type: number, id: number): void;
-    broadCreateSet(capacity: number): void;
     broadEnsureSet(capacity: number): void;
-    broadSetCap(): number;
     broadAddPair(a: number, b: number, child: number): number;
     broadRemovePair(a: number, b: number, child: number): number;
 
@@ -599,8 +515,6 @@ export type Kernel = {
     // (u32::MAX for empty). TypeScript creates contacts from those lists in place after the join.
     reservePairs(): void;
     pairsCandEndPtr(): number;
-    pairsCandPtr(): number;
-    rebuildTrees(): void;
 
     // Immutable native geometry images are retained by caller identity inside each world; shapes
     // and compounds hold the resulting kernel address. Hulls remain content-interned separately.
@@ -619,8 +533,6 @@ export type Kernel = {
         refs: number,
     ): number;
     geometryDatabaseLookup(world: number, kind: number, identity: number): number;
-    geometryDatabaseRemove(world: number, kind: number, pointer: number): void;
-    geometryDatabaseIdentity(world: number, kind: number, pointer: number): number;
     geometryDatabaseCount(world: number): number;
     geometryDatabaseAllocationBytes(world: number): number;
     geometryDatabaseRefs(world: number, kind: number, pointer: number): number;
@@ -665,8 +577,6 @@ export type Kernel = {
 
     reserveCollide(count: number, threads: number, defaultMix: number, distance: number): void;
     collideListPtr(): number;
-    contactStatePtr(): number;
-    applyContactTransitions(): void;
     stepBegin(
         world: number,
         dt: number,
@@ -689,13 +599,11 @@ export type Kernel = {
     ): void;
     stepAdvance(): number;
     pairsBegin(world: number, threads: number): void;
-    solverSetTrySleepIsland(island: number): void;
     stepProfilePtr(world: number): number;
     stepInvDt(): number;
     stepInvH(): number;
     bodySyncCount(): number;
     stepContext(dt: number, substeps: number, hertz: number, damping: number): number;
-    stepFinalize(count: number, dt: number, enableSleep: boolean): boolean;
     stepSolveBuild(
         threads: number,
         substeps: number,
@@ -709,16 +617,13 @@ export type Kernel = {
         hit: number,
         continuous: boolean,
     ): void;
-    contactPairOrder(typeA: number, typeB: number): number;
     allocContact(): number;
     freeContact(contactId: number): void;
     contactCapacity(worldId: number): number;
     contactCount(worldId: number): number;
-    graphComputeLayout(): number;
     graphCreate(capacity: number): void;
     graphBodyBit(color: number, id: number): number;
     graphAssignColor(a: number, b: number, ta: number, tb: number): number;
-    graphClearBodies(color: number, a: number, b: number): void;
     graphContactCount(color: number, scalar: number): number;
     graphContactPtr(color: number, scalar: number): number;
     graphAddContact(id: number, indexA: number, indexB: number): void;
@@ -877,9 +782,6 @@ export type Kernel = {
     jointSetLimits(world: number, id: number, lower: number, upper: number): void;
     distanceJointSetLength(world: number, id: number, length: number): void;
     motorJointSetMaxSpring(world: number, id: number, torque: boolean, value: number): void;
-    jointTransfer(id: number, target: number): void;
-    jointLink(id: number): void;
-    jointUnlink(id: number): void;
     solverSetWake(set: number): void;
     jointCollectEvents(): number;
     jointResetEventBits(world: number): void;
@@ -887,7 +789,6 @@ export type Kernel = {
     awakeContactCount(): number;
     awakeContactGet(index: number): number;
     mixContacts(world: number): void;
-    awakeContactCopy(ptr: number): void;
     jointRecordCount(): number;
     jointRecordCapacity(): number;
     jointRecordPtr(): number;
@@ -898,40 +799,9 @@ export type Kernel = {
     meshCacheCapacity(worldId: number): number;
     freeMeshCache(contactId: number): void;
     dispatchContacts(count: number): void;
-    continuousRoots(s: number, k: number, d: number, enableSleep: boolean): void;
 
     // Solve columns are reserved while workers are parked. With no pool,
     // threadCount is one and finish executes queued tasks inline.
-    solveBuild(
-        threadCount: number,
-        subStepCount: number,
-        wideTotal: number,
-        meshStart: number,
-        meshTotal: number,
-        overflowStart: number,
-        overflowCount: number,
-        jointTotal: number,
-        overflowJointCount: number,
-        gx: number,
-        gy: number,
-        gz: number,
-        h: number,
-        invH: number,
-        dt: number,
-        invDt: number,
-        maxLinearVelocity: number,
-        contactSpeed: number,
-        csBias: number,
-        csMass: number,
-        csImpulse: number,
-        ssBias: number,
-        ssMass: number,
-        ssImpulse: number,
-        warmStartScale: number,
-        restitutionThreshold: number,
-        hitEventThreshold: number,
-        enableContinuous: number,
-    ): void;
     parallelFor(kind: number, count: number, threadCount: number, a: number): void;
     schedulerStart(): void;
     schedulerStop(): void;
