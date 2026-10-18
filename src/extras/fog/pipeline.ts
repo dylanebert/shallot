@@ -198,7 +198,8 @@ function createGridKernel() {
                         ambientRadiance: camView.ambientColor.rgb,
                     }),
                 );
-                let lstep = std.mul(ambient, camView.exposure / (4 * Math.PI));
+                // Uniform ambient radiance against a normalized phase integrates to itself (Hillaire 2015).
+                let lstep = std.mul(ambient, camView.exposure);
                 let j = d.u32(0);
                 while (j < entry.y) {
                     // the array-element read is a pointer, not a copy — wrap in the element schema to
@@ -392,7 +393,7 @@ const fogTailLight = tgpu
         d.vec3f,
     )((cfg, view, dir) => {
         "use gpu";
-        let light = std.mul(view.ambientColor.rgb, view.exposure / (4 * Math.PI));
+        let light = std.mul(view.ambientColor.rgb, view.exposure);
         let k = d.u32(0);
         while (k < fogReadLayout.$.lighting.directionalCount) {
             const sun = fogReadLayout.$.lighting.directionalLights[k];
