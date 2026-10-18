@@ -75,11 +75,11 @@ test.describe("one stepped app", () => {
     test.beforeAll(async ({ browser }) => {
         page = await browser.newPage();
         await open(page, 7);
+        initial = await frame(page);
     });
     test.afterAll(() => page.close());
 
     test("a fresh scene starts at the requested hour with the low sun's disk in frame", async () => {
-        initial = await frame(page);
         expect(await initial.evaluate((frame) => frame.hour)).toBe(7);
         expect(await mean(initial, 0.798, 0.048, 0.807, 0.067)).toBeGreaterThan(
             (await mean(initial, 0.7, 0.05, 0.74, 0.1)) + 8,

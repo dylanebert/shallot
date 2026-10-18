@@ -14,9 +14,10 @@ const app = await createApp({plugins:[RoomPlugin]});
 const world = app.world;
 const room = world.resource(Room);
 const canvas = document.querySelector('canvas');
-const hudOnly = new URLSearchParams(location.search).has('hud');
+let hudOnly = new URLSearchParams(location.search).has('hud');
+const captures = new URLSearchParams(location.search).has('captures');
 // Checks read a small final texture, as first-person does; manual PNGs retain the game's full canvas.
-if (!new URLSearchParams(location.search).has('captures')) {
+if (!captures) {
  canvas.width=320; canvas.height=180;
  if(hudOnly) attachView(world,room.camera);
  else attachTexture(world, room.camera, {width:320, height:180});
@@ -24,6 +25,11 @@ if (!new URLSearchParams(location.search).has('captures')) {
  world.resource(PointShadows).atlas=512;
  world.resource(PointShadows).casters=1;
 }
+window.view=(pixels)=>{
+ if(captures)return;
+ detachView(world,room.camera);hudOnly=!pixels;
+ if(pixels)attachTexture(world,room.camera,{width:320,height:180});else attachView(world,room.camera);
+};
 hud(mountOverlay(canvas, world), world);
 // The check places the same player, leaving the controller to pose its camera.
 window.aim = (index, distance=2.6, yaw=0, pitch=0) => {
@@ -108,7 +114,7 @@ window.lampEvidence = async () => {
  return {changed:changed/(400*180*scale*scale), increase:increase/(400*180*scale*scale)};
 };
 window.holdEvidence = async () => {
- if(hudOnly){detachView(world,room.camera);attachTexture(world,room.camera,{width:320,height:180});}
+ if(hudOnly)window.view(true);
  window.aim(2);
  const target=room.targets[2], t=world.storage(Transform);
  const position=()=>[t.translation.x.get(target),t.translation.y.get(target),t.translation.z.get(target)];

@@ -9,7 +9,7 @@
     import { NoFog } from "@dylanebert/shallot/extras";
     import { flushSync } from "svelte";
     import { hud } from "../src/hud";
-    import { Clock, CycleScene, CyclePlugin } from "../src/cycle";
+    import { Clock, CycleScene, CyclePlugin, CycleSystem } from "../src/cycle";
     const canvas = document.querySelector("canvas");
     const startHour = Number(new URL(location.href).searchParams.get("hour") ?? 10);
     const app = await createApp({ plugins: [{ ...CyclePlugin, initialize(world) {
@@ -20,12 +20,11 @@
     const camera = app.world.resource(CycleScene).camera;
     window.orbit = async (yaw) => {
         const { Orbit } = await import("@dylanebert/shallot/extras");
-        app.world.storage(Orbit).smoothness.set(camera, 1);
-        app.world.storage(Orbit).yaw.set(camera, yaw);
+        app.world.remove(camera, Orbit);
         const x = 12 * Math.cos(0.18) * Math.sin(yaw), y = 12 * Math.sin(0.18), z = 12 * Math.cos(0.18) * Math.cos(yaw);
         app.world.storage(Transform).translation.set(camera, x, y, z);
         app.world.storage(Transform).rotation.set(camera, ...lookAtRotation(x, y, z, 0, 0, 0));
-        app.world.step(1/60);
+        app.world.tick();
     };
     if (!fullSize) attachTexture(app.world, camera, { width: 256, height: 144 });
     if (new URL(location.href).searchParams.has("evening") || new URL(location.href).searchParams.has("side"))
@@ -38,6 +37,8 @@
         if (noFog && !app.world.has(camera, NoFog)) app.world.add(camera, NoFog);
         else if (!noFog) app.world.remove(camera, NoFog);
         if (hour !== undefined) app.world.resource(Clock).hour = hour;
+        CycleSystem.update(app.world);
+        app.world.tick();
         const capture = fullSize ? captureFrame(canvas) : undefined;
         app.world.step(0);
         flushSync();

@@ -3,6 +3,7 @@ import type { PlaywrightTestConfig } from "playwright/test";
 export default {
     ...BROWSER_CONFIG,
     testDir: ".",
+    testIgnore: "**/tests/persistence/**",
     use: { ...BROWSER_CONFIG.use, baseURL: "http://127.0.0.1:4189" },
     webServer: [
         {

@@ -3,10 +3,9 @@
 <style>body{margin:0;background:#191816}canvas{display:block;width:640px;height:360px}.capture canvas{width:1280px;height:720px}</style><link rel="stylesheet" href="../src/hud.css"/></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { createApp, mountOverlay, Camera, DirectionalLight } from '@dylanebert/shallot';
+import { createApp, mountOverlay, StandardRenderer } from '@dylanebert/shallot';
 import { pointerMove, pressButton, releaseButton, pressKey, releaseKey } from '@dylanebert/shallot/input';
-import { attachCanvas, attachTexture, detachView, captureFrame } from '@dylanebert/shallot/rendering';
-import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
+import { attachCanvas, captureFrame } from '@dylanebert/shallot/rendering';
 import { Scene } from '../src/scene';
 import { count, Game } from '../src/game';
 import { encode } from '../src/save';
@@ -18,16 +17,9 @@ const app=await createApp({plugins:[Scene]});
 const world=app.world, canvas=document.querySelector('canvas');
 attachCanvas(world,world.resource(Game).camera,canvas);
 hud(mountOverlay(canvas,world),world);
-if(!captures){world.storage(Camera).antialias.set(world.resource(Game).camera,0);world.resource(DirectionalLightShadowMap).size=256;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
-// The pile and feedback advance on the CPU; only their final frame is observed.
-const advance=async(ticks=1)=>{
- const camera=world.resource(Game).camera;
- if(!captures){detachView(world,camera);attachTexture(world,camera,{width:1,height:1});}
- while(ticks>0){ const n=Math.min(ticks,4); world.step(n/60); ticks-=n; await world.frameFence; }
- if(!captures){detachView(world,camera);attachCanvas(world,camera,canvas);}
- world.step(0);await world.frameFence;
- return state();
-};
+// Input, pile records and DOM are observed here; manual captures retain the scene draws.
+if(!captures)world.remove(world.resource(Game).camera,StandardRenderer);
+const advance=async(ticks=1)=>{while(ticks>0){const n=Math.min(ticks,4);world.step(n/60);ticks-=n;await world.frameFence;}return state();};
 const state=()=>({count:count(world),save:encode(world)});
 window.capture=async()=>{
  const pending=captureFrame(canvas);world.step(0);const image=await pending;
