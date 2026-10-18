@@ -120,13 +120,15 @@ reloads, and finishes the frame.
 Import `Ray` from the root instead of `/physics`. Replace `cursorRay(world, camera)`
 with `viewportToWorld(world, camera, pointer.x, pointer.y)` from `/rendering`, after
 checking the input pointer's hover state. Coordinates are CSS pixels relative to
-that camera's bound canvas, not a focused input viewport chosen by the helper.
+that camera's bound canvas, or pixels of its attached texture, not a focused input
+viewport chosen by the helper.
 
 Replace `forwardRay(world, camera)` with `viewportToWorld` at the bound viewport's
 centre (`cssWidth / 2`, `cssHeight / 2`). Unlike `forwardRay`, the perspective ray's
 origin is offset from the camera by its near distance; account for that offset
 when interpreting hit distances. `viewportToWorld` reads fixed-tick `GlobalTransform`
-and returns null without camera placement or a non-empty bound viewport.
+and returns null without camera placement or a non-empty target: a bound canvas or
+an attached texture.
 `generateRay` and `screenToRay` are no longer physics exports.
 
 ## Camera depth, fog and perspective range

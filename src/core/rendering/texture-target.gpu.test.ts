@@ -13,6 +13,8 @@ import {
     RenderingPlugin,
     Resolution,
     Views,
+    viewportToWorld,
+    worldToViewport,
 } from "./index";
 
 setDefaultTimeout(TIMEOUT.gpu);
@@ -102,6 +104,44 @@ test("a re-attached or recreated camera's view carries its view-from-world matri
     placed(recreated);
     world.step(0);
     expect(world.resource(Views).get(recreated)!.viewFromWorld).toEqual(expected);
+});
+
+test("a camera drawing to an attached texture converts both ways in that texture's pixels, and sees it re-attached at another size", () => {
+    const { world } = subjects()[1];
+    const eid = world.create();
+    world.add(eid, Camera, { fov: 90 });
+    world.add(eid, Transform, { translation: [0, 0, 6, 0] });
+    attachTexture(world, eid, { width: 64, height: 32 });
+    world.step(1 / 60);
+    try {
+        expect(worldToViewport(world, eid, [0, 0, 0])).toEqual([
+            expect.closeTo(32, 4),
+            expect.closeTo(16, 4),
+        ]);
+        // fov 90 at depth 6: the half-height is 6, so a point 3 up sits a quarter-height above centre.
+        expect(worldToViewport(world, eid, [0, 3, 0])).toEqual([
+            expect.closeTo(32, 4),
+            expect.closeTo(8, 4),
+        ]);
+        expect(viewportToWorld(world, eid, 32, 16)?.dir).toEqual([
+            expect.closeTo(0, 6),
+            expect.closeTo(0, 6),
+            expect.closeTo(-1, 6),
+        ]);
+
+        detachView(world, eid);
+        attachTexture(world, eid, { width: 128, height: 32 });
+        expect(worldToViewport(world, eid, [0, 3, 0])).toEqual([
+            expect.closeTo(64, 4),
+            expect.closeTo(8, 4),
+        ]);
+        const ray = viewportToWorld(world, eid, 128, 16)!;
+        // The right edge of a 4:1 target at fov 90 is four units right per unit forward.
+        expect(ray.dir[0] / -ray.dir[2]).toBeCloseTo(4, 4);
+    } finally {
+        world.destroy(eid);
+        world.step(0);
+    }
 });
 
 test("a recycled camera eid neither inherits nor is refused its predecessor's texture before the next frame", async () => {
