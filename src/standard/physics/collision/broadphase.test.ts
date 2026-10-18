@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AABB } from "../common/records";
+import { BodyType } from "../common/types";
 import {
-    BodyType,
-    type BodyTypeValue,
     type BroadPhase,
     bufferMove,
     clearMoved,
@@ -53,7 +52,7 @@ function assertMoveInvariant(bp: BroadPhase, where: string) {
 }
 
 test("the broad-phase proxy key loses the id or the body type across pack and unpack, so a moved proxy would be attributed to the wrong tree", () => {
-    const types: BodyTypeValue[] = [BodyType.Static, BodyType.Kinematic, BodyType.Dynamic];
+    const types: BodyType[] = [BodyType.Static, BodyType.Kinematic, BodyType.Dynamic];
     for (const type of types) {
         for (const id of [0, 1, 7, 42, 1000, 1 << 20]) {
             const vector = `id ${id}, type ${type}`;
