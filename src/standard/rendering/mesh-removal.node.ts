@@ -16,7 +16,7 @@ import {
     StandardRenderer,
     StandardRenderingPlugin,
 } from "./index";
-import { MeshDrawBuffers } from "./preprocess";
+import { MeshDrawBuffers, meshPreprocessKey } from "./preprocess";
 import { DrawIndexedIndirect } from "./registry";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -136,13 +136,10 @@ test("a removed mesh stays undrawn after index reuse and snapshot restore until 
 });
 test("a hundred fixed-live-count mesh turnovers keep draw and bounds buffer sizes flat", () => {
     const s = scene(2);
-    const sizes = new Map<string, number>();
     const device = s.world.gpu.device;
     const create = device.createBuffer.bind(device);
     let creations = 0;
     device.createBuffer = (descriptor) => {
-        if (descriptor.label === "shallot-mesh-bounds" || descriptor.label === "shallot-draw-args")
-            sizes.set(descriptor.label, descriptor.size);
         creations++;
         return create(descriptor);
     };
@@ -155,7 +152,7 @@ test("a hundred fixed-live-count mesh turnovers keep draw and bounds buffer size
             s.world.step(0);
             const current = [
                 s.world.gpu.root.unwrap(s.world.resource(MeshDrawBuffers).drawArgs!).size,
-                sizes.get("shallot-mesh-bounds")!,
+                s.world.gpu.root.unwrap(s.world.resource(meshPreprocessKey).meshBounds!).size,
             ];
             if (i === 0) {
                 first = current;
