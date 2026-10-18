@@ -24,7 +24,7 @@ import { QuantizedMaterial } from "./materials";
 
 setDefaultTimeout(TIMEOUT.node);
 
-test("the quantized PBR exhibit has flat lighting bands across its curved surface", async () => {
+test("the Banded lighting exhibit has flat lighting bands across its curved surface", async () => {
     const app = await openGpuApp({
         defaults: false,
         plugins: [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(QuantizedMaterial)],

@@ -177,7 +177,7 @@ function surfaces(world: World) {
                     "Wood",
                     "Scrolling checker",
                     "Vertex wave",
-                    "Quantized PBR",
+                    "Banded lighting",
                 ][i]!,
             ),
             billboard: Billboard.Screen,

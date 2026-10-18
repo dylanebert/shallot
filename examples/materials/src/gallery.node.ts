@@ -35,7 +35,7 @@ test("the wave's own time parameter advances with the clock", async () => {
     }
 });
 
-test("the final exhibit uses the quantized standard extension", async () => {
+test("the Banded lighting exhibit uses the quantized standard extension", async () => {
     const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });
     try {
         const { world } = app;
