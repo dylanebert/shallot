@@ -839,7 +839,7 @@ function publishBodyVelocity(world: World, eid: number, state: WorldState, body:
  * Drives a kinematic or dynamic body toward a world pose over `timeStep` seconds. Derives
  * linear velocity in meters per second and angular velocity in radians per second; `wake` wakes an
  * asleep body when the target motion is significant. The pose and linear velocity publish immediately.
- * Static or unavailable bodies are ignored.
+ * Static bodies, and bodies added since the last fixed sync, are ignored.
  */
 export function setTargetTransform(
     world: World,
@@ -865,7 +865,10 @@ export function setTargetTransform(
     writeGlobalTransform(world, eid, position, rotation, stateVelocityTuple);
 }
 
-/** Teleports a body in meters, preserving both velocities and discarding placement interpolation. */
+/**
+ * Teleports a body in meters, preserving both velocities and discarding placement interpolation;
+ * the pose publishes immediately. A body added since the last fixed sync spawns at this pose.
+ */
 export function setTransform(
     world: World,
     eid: number,
@@ -875,21 +878,27 @@ export function setTransform(
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
     const body = runtime.bodies.get(eid);
-    if (!state || !body) return;
-    const record = body.index1 - 1;
-    bodySetTransform(state, record, stateTransform(position, rotation).p, stateQuat);
-    bodyGetLinearVelocity(state, record, stateVelocity);
-    stateVelocityTuple[0] = stateVelocity.x;
-    stateVelocityTuple[1] = stateVelocity.y;
-    stateVelocityTuple[2] = stateVelocity.z;
-    writeGlobalTransform(world, eid, position, rotation, stateVelocityTuple);
+    if (state && body) {
+        const record = body.index1 - 1;
+        bodySetTransform(state, record, stateTransform(position, rotation).p, stateQuat);
+        bodyGetLinearVelocity(state, record, stateVelocity);
+        stateVelocityTuple[0] = stateVelocity.x;
+        stateVelocityTuple[1] = stateVelocity.y;
+        stateVelocityTuple[2] = stateVelocity.z;
+        writeGlobalTransform(world, eid, position, rotation, stateVelocityTuple);
+    } else if (world.has(eid, Body)) {
+        // Unbound: the body spawns at Transform's pose; publish it now, as a bound teleport does.
+        const global = world.storage(GlobalTransform);
+        global.translation.set(eid, position[0], position[1], position[2]);
+        global.rotation.set(eid, rotation[0], rotation[1], rotation[2], rotation[3]);
+    } else return;
     const pose = world.storage(Transform);
     pose.translation.set(eid, position[0], position[1], position[2]);
     pose.rotation.set(eid, rotation[0], rotation[1], rotation[2], rotation[3]);
     resetInterpolation(world, eid);
 }
 
-/** Sets center-of-mass velocity in meters per second; nonzero values wake the body. Box3D ignores static bodies. */
+/** Sets center-of-mass velocity in meters per second; nonzero values wake the body. Box3D ignores static bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity`. */
 export function setLinearVelocity(world: World, eid: number, velocity: Vec3): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
@@ -904,7 +913,7 @@ export function setLinearVelocity(world: World, eid: number, velocity: Vec3): vo
         publishBodyVelocity(world, eid, state, body);
 }
 
-/** Sets angular velocity in radians per second; nonzero values wake the body and locked axes are zeroed. Box3D ignores static bodies. */
+/** Sets angular velocity in radians per second; nonzero values wake the body and locked axes are zeroed. Box3D ignores static bodies; a body added since the last fixed sync ignores it and spawns with `Body.angularVelocity`. */
 export function setAngularVelocity(world: World, eid: number, velocity: Vec3): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
@@ -916,7 +925,7 @@ export function setAngularVelocity(world: World, eid: number, velocity: Vec3): v
     bodySetAngularVelocity(state, body.index1 - 1, stateVector);
 }
 
-/** Accumulates world force in newtons at a world point for the next step; an off-center point adds torque. `wake` defaults true. Box3D ignores static and kinematic bodies. */
+/** Accumulates world force in newtons at a world point for the next step; an off-center point adds torque. `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it. */
 export function applyForce(world: World, eid: number, force: Vec3, point: Pos, wake = true): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
@@ -931,7 +940,7 @@ export function applyForce(world: World, eid: number, force: Vec3, point: Pos, w
     bodyApplyForce(state, body.index1 - 1, stateVector, statePos, wake);
 }
 
-/** Accumulates world force in newtons at the center of mass for the next step; `wake` defaults true. Box3D ignores static and kinematic bodies. */
+/** Accumulates world force in newtons at the center of mass for the next step; `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it. */
 export function applyForceToCenter(world: World, eid: number, force: Vec3, wake = true): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
@@ -943,7 +952,7 @@ export function applyForceToCenter(world: World, eid: number, force: Vec3, wake 
     bodyApplyForceToCenter(state, body.index1 - 1, stateVector, wake);
 }
 
-/** Accumulates world torque in newton-meters for the next step; `wake` defaults true. Box3D ignores static and kinematic bodies. */
+/** Accumulates world torque in newton-meters for the next step; `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it. */
 export function applyTorque(world: World, eid: number, torque: Vec3, wake = true): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
@@ -955,7 +964,7 @@ export function applyTorque(world: World, eid: number, torque: Vec3, wake = true
     bodyApplyTorque(state, body.index1 - 1, stateVector, wake);
 }
 
-/** Applies a one-shot world impulse in newton-seconds at a world point; off-center impulses also change angular velocity. `wake` defaults true. Box3D ignores static and kinematic bodies. */
+/** Applies a one-shot world impulse in newton-seconds at a world point; off-center impulses also change angular velocity. `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity` and `Body.angularVelocity`. */
 export function applyLinearImpulse(
     world: World,
     eid: number,
@@ -976,7 +985,7 @@ export function applyLinearImpulse(
     bodyApplyLinearImpulse(state, body.index1 - 1, stateVector, statePos, wake);
 }
 
-/** Applies a one-shot center-of-mass impulse in newton-seconds; `wake` defaults true. Box3D ignores static and kinematic bodies. */
+/** Applies a one-shot center-of-mass impulse in newton-seconds; `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.linearVelocity`. */
 export function applyLinearImpulseToCenter(
     world: World,
     eid: number,
@@ -993,7 +1002,7 @@ export function applyLinearImpulseToCenter(
     bodyApplyLinearImpulseToCenter(state, body.index1 - 1, stateVector, wake);
 }
 
-/** Applies a one-shot angular impulse in kilogram-meter-squared per second; `wake` defaults true. Box3D ignores static and kinematic bodies. */
+/** Applies a one-shot angular impulse in kilogram-meter-squared per second; `wake` defaults true. Box3D ignores static and kinematic bodies; a body added since the last fixed sync ignores it and spawns with `Body.angularVelocity`. */
 export function applyAngularImpulse(world: World, eid: number, impulse: Vec3, wake = true): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
@@ -1005,7 +1014,7 @@ export function applyAngularImpulse(world: World, eid: number, impulse: Vec3, wa
     bodyApplyAngularImpulse(state, body.index1 - 1, stateVector, wake);
 }
 
-/** Wakes a body and its island, or asks Box3D to put the whole island to sleep. */
+/** Wakes a body and its island, or asks Box3D to put the whole island to sleep. A body added since the last fixed sync ignores it and spawns with `Body.isAwake`. */
 export function setAwake(world: World, eid: number, awake: boolean): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
