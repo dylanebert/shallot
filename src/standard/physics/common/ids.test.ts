@@ -61,7 +61,7 @@ test("body lifecycle records lose a sibling world's validity, generation, LIFO r
     destroyTestWorld(sibling);
 });
 
-test("the body id pool leaves holes in its dense range, miscounts live ids against capacity, or recycles freed ids in the wrong order", () => {
+test("the body id pool hands out dense ids, counts live bodies, and reuses the last freed id first", () => {
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
     const a = createTestBody(world, { type: BodyType.Dynamic });
     const b = createTestBody(world, { type: BodyType.Dynamic });
