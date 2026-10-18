@@ -235,13 +235,14 @@ bun run format                  # biome
 
 ### Rendering iteration
 
-- A rendering change runs every `*.test.ts` and `*.node.ts` under `src/core/rendering`, `src/standard/rendering` and `src/extras`, passed explicitly to `bun test`, with the render allocation oracle:
+- In the loop, a rendering change runs the tests of the modules it touches and, if it changes what a view draws, one browser subject that shows it.
+- Its final candidate runs once every `*.test.ts` and `*.node.ts` under `src/core/rendering`, `src/standard/rendering` and `src/extras`, passed explicitly to `bun test`, with the render allocation oracle:
 
 ```sh
 bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort) ./diagnostics/readback-allocation/render.oracle.ts
 ```
 
-- A change to what a view draws also runs that set and every browser subject that reads pixels in the Linux software-rendering container, through `scripts/lavapipe.sh`. It uses Mesa llvmpipe for GPU/Node subjects and the shared Linux browser configuration's SwiftShader for Chromium; neither is hardware qualification. The script needs Docker, builds from `scripts/lavapipe.Dockerfile` with the tree's Bun and Node pins, and runs a command in a `git archive` of the given revision. Commit the candidate before running it; uncommitted edits are not copied. Dependency and Playwright volumes persist between runs.
+- A final candidate that changes what `src` draws also runs that set and every browser subject that reads pixels in the Linux software-rendering container, through `scripts/lavapipe.sh`. It uses Mesa llvmpipe for GPU/Node subjects and the shared Linux browser configuration's SwiftShader for Chromium; neither is hardware qualification. The script needs Docker, builds from `scripts/lavapipe.Dockerfile` with the tree's Bun and Node pins, and runs a command in a `git archive` of the given revision. Commit the candidate before running it; uncommitted edits are not copied. Dependency and Playwright volumes persist between runs.
 
 ```sh
 sh scripts/lavapipe.sh HEAD sh -c 'bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name "*.test.ts" -o -name "*.node.ts" \) -print | sort)'
