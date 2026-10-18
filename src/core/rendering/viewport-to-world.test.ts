@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { qRotate, resizeViewport, World } from "../../engine";
 import { component } from "../../engine/ecs/component";
 import { GlobalTransform } from "../transform";
-import { Camera, CameraMode, computeViewProj } from "./camera";
+import { Camera, CameraMode, computeViewFromWorld, computeViewProj } from "./camera";
 import { type View, Views } from "./view";
 import { generateRay, screenToRay, viewportToWorld, worldToViewport } from "./viewport-to-world";
 
@@ -70,13 +70,14 @@ test("orthographic pixels shift ray origins by size and aspect while keeping par
     world.add(camera, Camera, { mode: CameraMode.Orthographic, size: 4, near: 0.5, fov: 90 });
     world.add(camera, GlobalTransform);
     world.storage(GlobalTransform).translation.set(camera, 3, 2, 5, 0);
+    world.storage(GlobalTransform).scale.set(camera, 1, 1, 1, 0);
     world.storage(GlobalTransform).rotation.set(camera, 0, Math.SQRT1_2, 0, Math.SQRT1_2);
     resizeViewport(world, 0, 800, 400, 1);
     world.resource(Views).set(camera, { viewportIndex: 0, camera: world.ref(camera) } as View);
     try {
         const centre = viewportToWorld(world, camera, 400, 200)!;
         const offset = viewportToWorld(world, camera, 600, 100)!;
-        // Size 4 and aspect 2 give local offset (2, 1, -0.5); +90 Y turns it to (-0.5, 1, -2).
+        // Size 4 is the rendered half-height: local (4, 2, -0.5) turns to (-0.5, 2, -4).
         expect(centre.origin).toEqual([
             expect.closeTo(2.5, 6),
             expect.closeTo(2, 6),
@@ -84,8 +85,8 @@ test("orthographic pixels shift ray origins by size and aspect while keeping par
         ]);
         expect(offset.origin).toEqual([
             expect.closeTo(2.5, 6),
-            expect.closeTo(3, 6),
-            expect.closeTo(3, 6),
+            expect.closeTo(4, 6),
+            expect.closeTo(1, 6),
         ]);
         expect(centre.dir).toEqual([
             expect.closeTo(-1, 6),
@@ -123,6 +124,48 @@ test("a recycled camera eid does not cast rays through its predecessor's viewpor
         world.dispose();
     }
 });
+
+for (const mode of [CameraMode.Perspective, CameraMode.Orthographic]) {
+    for (const scale of [
+        [2, 1, 1],
+        [1, 0.5, 3],
+    ] as const) {
+        test(`rays round trip in mode ${mode} at camera scale ${scale}`, () => {
+            const { world, camera } = placedCamera(mode);
+            world.storage(GlobalTransform).scale.set(camera, scale[0], scale[1], scale[2], 0);
+            try {
+                for (const [x, y] of [
+                    [400, 200],
+                    [10, 390],
+                    [730, 25],
+                ] as const) {
+                    const ray = viewportToWorld(world, camera, x, y)!;
+                    expect(Math.hypot(...ray.dir)).toBeCloseTo(1, 6);
+                    for (const distance of [1, 25]) {
+                        const point = ray.origin.map((v, i) => v + ray.dir[i]! * distance) as [
+                            number,
+                            number,
+                            number,
+                        ];
+                        expect(worldToViewport(world, camera, point)).toEqual([
+                            expect.closeTo(x, 2),
+                            expect.closeTo(y, 2),
+                        ]);
+                    }
+                    const view = new Float32Array(16);
+                    computeViewFromWorld(world, camera, view);
+                    const [ox, oy, oz] = ray.origin;
+                    expect(view[2]! * ox + view[6]! * oy + view[10]! * oz + view[14]!).toBeCloseTo(
+                        -0.5,
+                        5,
+                    );
+                }
+            } finally {
+                world.dispose();
+            }
+        });
+    }
+}
 
 function placedCamera(mode: number, view: Partial<View> = { viewportIndex: 0 }) {
     const world = new World();

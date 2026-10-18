@@ -125,8 +125,8 @@ viewport chosen by the helper.
 
 Replace `forwardRay(world, camera)` with `viewportToWorld` at the bound viewport's
 centre (`cssWidth / 2`, `cssHeight / 2`). Unlike `forwardRay`, the perspective ray's
-origin is offset from the camera by its near distance; account for that offset
-when interpreting hit distances. `viewportToWorld` reads fixed-tick `GlobalTransform`
+origin lies on its view-space near plane, transformed by the camera's placement
+including scale; account for that offset when interpreting world-space hit distances. `viewportToWorld` reads fixed-tick `GlobalTransform`
 and returns null without camera placement or a non-empty target: a bound canvas or
 an attached texture.
 `generateRay` and `screenToRay` are no longer physics exports.

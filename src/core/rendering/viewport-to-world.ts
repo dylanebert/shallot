@@ -1,10 +1,11 @@
 import { qRotate, type Ray, Viewports, type World } from "../../engine";
-import { GlobalTransform } from "../transform";
+import { composeGlobalTransform, GlobalTransform } from "../transform";
 import { Camera, CameraMode, computeViewFromWorld } from "./camera";
 import { cameraView } from "./view";
 
 const _size = { width: 0, height: 0 };
 const _viewFromWorld = new Float32Array(16);
+const _worldFromView = new Float32Array(16);
 
 // The camera's target size in its coordinate pixels: an attached texture's pixels, or the bound
 // canvas's CSS pixels. Null for a depth-only view, an unbound camera or an empty target.
@@ -25,7 +26,8 @@ function targetSize(world: World, camera: number): { width: number; height: numb
 
 /** A world ray from fixed-tick camera placement through a pixel relative to the camera target's
  * top-left: CSS pixels of its bound canvas, or pixels of its attached texture. The direction is
- * normalized; the origin is offset by `near` along the perspective ray. Uses the target aspect, not a
+ * normalized in world space; the origin lies on the view-space near plane (`z = -near`),
+ * transformed by the camera's full placement, including scale. Uses the target aspect, not a
  * Resolution override. Returns null without camera placement or a non-empty target. Pointer hover and
  * crosshair coordinates belong to the caller. */
 export function viewportToWorld(world: World, camera: number, x: number, y: number): Ray | null {
@@ -39,47 +41,25 @@ export function viewportToWorld(world: World, camera: number, x: number, y: numb
     const ndcY = 1 - (y / height) * 2;
     const aspect = width / height;
     const params = world.storage(Camera);
-    const global = world.storage(GlobalTransform);
-    const qx = global.rotation.x.get(camera);
-    const qy = global.rotation.y.get(camera);
-    const qz = global.rotation.z.get(camera);
-    const qw = global.rotation.w.get(camera);
     const near = params.near.get(camera);
     const orthographic = params.mode.get(camera) === CameraMode.Orthographic;
-    if (!orthographic)
-        return screenToRay(
-            x,
-            y,
-            width,
-            height,
-            params.fov.get(camera),
-            near,
-            [
-                global.translation.x.get(camera),
-                global.translation.y.get(camera),
-                global.translation.z.get(camera),
-            ],
-            [qx, qy, qz, qw],
-        );
-    const [dx, dy, dz] = qRotate(qx, qy, qz, qw, 0, 0, -1);
+    const extent = orthographic
+        ? params.size.get(camera)
+        : Math.tan((params.fov.get(camera) * DEG2RAD) / 2) * near;
+    const vx = ndcX * aspect * extent;
+    const vy = ndcY * extent;
+    const m = composeGlobalTransform(world, camera, _worldFromView);
+    const dx = orthographic ? -m[8]! : m[0]! * vx + m[4]! * vy - m[8]! * near;
+    const dy = orthographic ? -m[9]! : m[1]! * vx + m[5]! * vy - m[9]! * near;
+    const dz = orthographic ? -m[10]! : m[2]! * vx + m[6]! * vy - m[10]! * near;
     const len = Math.hypot(dx, dy, dz) || 1;
-    const dir: [number, number, number] = [dx / len, dy / len, dz / len];
-    const offset = qRotate(
-        qx,
-        qy,
-        qz,
-        qw,
-        (ndcX * aspect * params.size.get(camera)) / 2,
-        (ndcY * params.size.get(camera)) / 2,
-        -near,
-    );
     return {
         origin: [
-            global.translation.x.get(camera) + offset[0],
-            global.translation.y.get(camera) + offset[1],
-            global.translation.z.get(camera) + offset[2],
+            m[0]! * vx + m[4]! * vy - m[8]! * near + m[12]!,
+            m[1]! * vx + m[5]! * vy - m[9]! * near + m[13]!,
+            m[2]! * vx + m[6]! * vy - m[10]! * near + m[14]!,
         ],
-        dir,
+        dir: [dx / len, dy / len, dz / len],
     };
 }
 
