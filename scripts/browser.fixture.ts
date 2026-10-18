@@ -30,7 +30,7 @@ export const test = base.extend({
                     '[role="alert"], [data-shallot-loading]',
                 )) {
                     const text = notice.textContent?.replace(/\s+/g, " ").trim() ?? "";
-                    if (/^(?:Something went wrong|Unsupported configuration)\b/.test(text)) {
+                    if (/^(?:Something went wrong|Unsupported configuration)/.test(text)) {
                         console.error(`${prefix}${text}`);
                         return;
                     }
