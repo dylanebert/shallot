@@ -3,8 +3,6 @@ import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
-/** Parallel joint payload (b3ParallelJoint). Impulse persists across steps for warm starting. */
-
 /** Parallel joint definition (b3ParallelJointDef), body handles resolved to a base JointDef. */
 export type ParallelJointDef = {
     base: JointDef;

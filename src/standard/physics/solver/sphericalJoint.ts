@@ -3,8 +3,6 @@ import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
 
-/** Spherical joint payload (b3SphericalJoint). Impulses persist across steps for warm starting. */
-
 /** Spherical joint definition (b3SphericalJointDef), body handles resolved to a base JointDef. */
 export type SphericalJointDef = {
     base: JointDef;
