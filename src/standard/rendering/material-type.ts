@@ -648,7 +648,8 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
      * Publish changed fields at one type-local row for the next frame upload, writing each given field in
      * place; fields left out or undefined keep their values. Scalar and vector f32, i32 and u32 fields are
      * written directly; other field types, such as f16, matrices, arrays and structs, are encoded by TypeGPU,
-     * which allocates.
+     * which allocates. A handle whose row it does not currently hold, such as one already removed, is
+     * refused.
      */
     update(
         handle: number | MaterialHandle,
@@ -661,6 +662,11 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         }
         if (!Number.isSafeInteger(row) || row < 0 || row >= this._highWater) {
             throw new RangeError(`Materials.update: unknown ${this._type.name} row ${row}`);
+        }
+        if (typeof handle !== "number" && this._handles[row] !== handle) {
+            throw new RangeError(
+                `Materials.update: ${this._type.name} row ${row} is not held by this handle`,
+            );
         }
         const alphaMode = options?.alphaMode;
         if (alphaMode) alphaModeFields(alphaMode);
