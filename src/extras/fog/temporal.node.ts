@@ -10,6 +10,8 @@ import {
     DebandDither,
     detachView,
     PointLight,
+    Tonemapping,
+    TonemappingMethod,
     VolumetricLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -94,6 +96,33 @@ test("first frames after opt-out, resize and camera replacement equal an unblend
     const replacement = camera();
     frame();
     expect(await image(old)).toEqual(await image(replacement));
+});
+
+test("an extinguished isotropic light retains six sevenths of its previous in-scatter", async () => {
+    const { world } = subjects()[0];
+    const light = scene();
+    const view = camera();
+    world.add(view, Tonemapping, { method: TonemappingMethod.None });
+    world.storage(PointLight).intensity.set(light, 1000);
+    frame();
+    for (let i = 0; i < 64; i++) world.step(0);
+    const lit = await image(view);
+    world.storage(PointLight).intensity.set(light, 0);
+    world.step(0);
+    const dark = await image(view);
+    const linear = (value: number) => {
+        const x = value / 255;
+        return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    };
+    let before = 0,
+        after = 0;
+    for (let i = 0; i < lit.length; i += 4) {
+        if (lit[i]! < 20 || lit[i]! > 180) continue;
+        before += linear(lit[i]!);
+        after += linear(dark[i]!);
+    }
+    expect(before).toBeGreaterThan(0.05);
+    expect(Math.abs(after / before - 6 / 7)).toBeLessThan(0.015);
 });
 
 test("history outside the previous frustum takes the current sample alone", async () => {

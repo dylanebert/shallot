@@ -45,7 +45,7 @@ import {
     fogLayout0Multisampled,
     fogLayout1,
 } from "./pipeline";
-import { haltonOffset } from "./temporal";
+import { TEMPORAL_FRAMES } from "./temporal";
 
 /**
  * The scene's volumetric atmosphere: one per scene (a singleton). A frustum grid accumulates extinction
@@ -363,10 +363,7 @@ const FogSystem: System = {
                 if (cam.config[i] !== _fogState.staging[i]) cam.valid = false;
                 cam.config[i] = _fogState.staging[i];
             }
-            const offset = haltonOffset(world.gpu.frame);
-            cam.staging[28] = offset[0];
-            cam.staging[29] = offset[1];
-            cam.staging[30] = offset[2];
+            cam.staging[28] = world.gpu.frame % TEMPORAL_FRAMES;
             cam.staging[31] = cam.valid ? 1 : 0;
             world.gpu.device.queue.writeBuffer(cam.temporal, 0, cam.staging);
             const current = _render.viewStaging;

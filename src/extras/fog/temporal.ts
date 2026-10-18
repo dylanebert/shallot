@@ -1,5 +1,9 @@
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+
 // Seven-frame averaging limits trails while accumulating sub-cell samples.
 export const HISTORY_WEIGHT = 6 / 7;
+export const TEMPORAL_FRAMES = 16;
 
 function radicalInverse(index: number, base: number): number {
     let value = 0;
@@ -13,11 +17,12 @@ function radicalInverse(index: number, base: number): number {
 }
 
 const OFFSETS = Array.from(
-    { length: 16 },
+    { length: TEMPORAL_FRAMES },
     (_, i) =>
         [radicalInverse(i + 1, 2), radicalInverse(i + 1, 3), radicalInverse(i + 1, 5)] as const,
 );
 
-export function haltonOffset(frame: number): readonly [number, number, number] {
-    return OFFSETS[frame % OFFSETS.length];
-}
+export const HALTON = tgpu.const(
+    d.arrayOf(d.vec3f, TEMPORAL_FRAMES),
+    OFFSETS.map((offset) => d.vec3f(...offset)),
+);

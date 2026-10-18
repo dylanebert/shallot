@@ -27,13 +27,14 @@ import {
     reconstructWorld,
     WORKGROUP,
 } from "./medium";
-import { HISTORY_WEIGHT } from "./temporal";
+import { HALTON, HISTORY_WEIGHT, TEMPORAL_FRAMES } from "./temporal";
 
 export const FogHistory = d.struct({
     viewProj: d.mat4x4f,
     eye: d.vec4f,
     forward: d.vec4f,
     range: d.vec4f,
+    /** x indexes the Halton sequence; w enables history. */
     jitter: d.vec4f,
 });
 
@@ -137,11 +138,14 @@ function createGridKernel() {
             const dim = std.textureDimensions(layout.$.output);
             if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
             const px = d.vec2i(input.gid.xy);
+            // Decorrelate neighbouring columns without changing their shared ray offset.
+            const seed = (input.gid.x + input.gid.y * dim.x) * 747796405 + 2891336453;
+            const word = ((seed >>> ((seed >>> 28) + 4)) ^ seed) * 277803737;
+            const phaseOffset = ((word >>> 22) ^ word) % TEMPORAL_FRAMES;
+            const jitter =
+                HALTON.$[(d.u32(layout.$.temporal.jitter.x) + phaseOffset) % TEMPORAL_FRAMES];
             const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim.xy));
-            const sampleUv = std.div(
-                std.add(d.vec2f(input.gid.xy), layout.$.temporal.jitter.xy),
-                d.vec2f(dim.xy),
-            );
+            const sampleUv = std.div(std.add(d.vec2f(input.gid.xy), jitter.xy), d.vec2f(dim.xy));
             const nearWorld = reconstructWorld(layout.$.view.invViewProj, uv, 1);
             const farWorld = reconstructWorld(layout.$.view.invViewProj, uv, 0.0001);
             // Phase uses the unjittered ray, so moving the sample cannot jitter anisotropy.
@@ -184,10 +188,7 @@ function createGridKernel() {
                 const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
                 const p = std.add(
                     sampleNear,
-                    std.mul(
-                        sampleDir,
-                        std.mix(start, end, layout.$.temporal.jitter.z) * sampleScale,
-                    ),
+                    std.mul(sampleDir, std.mix(start, end, jitter.z) * sampleScale),
                 );
                 let dens = fogDensity(p, density, base, falloff);
 
@@ -206,7 +207,6 @@ function createGridKernel() {
                     }),
                 );
                 let lstep = std.mul(ambient, camView.exposure / (4 * Math.PI));
-                let noPhase = d.vec3f(lstep);
                 let j = d.u32(0);
                 while (j < entry.y) {
                     // the array-element read is a pointer, not a copy — wrap in the element schema to
@@ -246,10 +246,6 @@ function createGridKernel() {
                             ),
                         ),
                     );
-                    noPhase = std.add(
-                        noPhase,
-                        std.mul(inScatterContribution(light, p, dir, 0), shadow * camView.exposure),
-                    );
                     j = j + 1;
                 }
                 // Only the selected directional caster samples the atlas; every volumetric sun scatters.
@@ -279,23 +275,12 @@ function createGridKernel() {
                                 ),
                             ),
                         );
-                        noPhase = std.add(
-                            noPhase,
-                            std.mul(
-                                directionalInScatter(
-                                    std.mul(light.color.rgb, light.params.x * camView.exposure),
-                                    light.direction.xyz,
-                                    dir,
-                                    0,
-                                ),
-                                visibility,
-                            ),
-                        );
                     }
                     k = k + 1;
                 }
-                // HDRP reprojects phase-free lighting; restore only this frame's phase ratio.
-                const phase = std.div(lstep, std.max(noPhase, d.vec3f(1e-8)));
+                // Reproject complete lighting as Godot does: a current phase ratio flickers
+                // when jitter changes the balance of ambient and shadowed direct light.
+                // Angular scattering in history remains approximate when the camera turns.
                 const prev = layout.$.temporal;
                 const clip = std.mul(prev.viewProj, d.vec4f(center, 1));
                 const prevUv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
@@ -319,15 +304,14 @@ function createGridKernel() {
                         d.vec3f(prevUv, z),
                         0,
                     );
-                    noPhase = std.mix(
-                        noPhase,
+                    lstep = std.mix(
+                        lstep,
                         std.mul(old.rgb, camView.exposure / std.max(prev.range.z, 1e-8)),
                         HISTORY_WEIGHT,
                     );
                     dens = std.mix(dens, old.a, HISTORY_WEIGHT);
                 }
-                std.textureStore(layout.$.feedback, d.vec3i(px, d.i32(i)), d.vec4f(noPhase, dens));
-                lstep = std.mul(noPhase, phase);
+                std.textureStore(layout.$.feedback, d.vec3i(px, d.i32(i)), d.vec4f(lstep, dens));
                 const sampleTrans = std.exp(-dens * ds);
                 // Hillaire's closed-form cell integral S*(1-exp(-sigma*ds))/sigma:
                 // S = sigma*albedo*lstep, so sigma cancels, including the clear-medium limit.
