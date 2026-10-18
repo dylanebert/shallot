@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-
-import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { parse } from "@babel/parser";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(TIMEOUT.node);
 
