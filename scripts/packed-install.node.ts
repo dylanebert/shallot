@@ -330,12 +330,23 @@ for (const name of examples) {
             expect(testOutput).toContain("0 fail");
         });
 
-        test(`${name} passes its Node files in its copy`, () => {
-            const { project } = example(name);
-            for (const file of projectFiles(project)
-                .filter((path) => path.endsWith(".node.ts"))
-                .sort()) {
-                const subject = `./${normalizePath(relative(project, file))}`;
+        const nodeSubjects = projectFiles(join(ROOT, "examples", name))
+            .filter((path) => path.endsWith(".node.ts"))
+            .map((path) => `./${normalizePath(relative(join(ROOT, "examples", name), path))}`)
+            .sort();
+        if (nodeSubjects.length)
+            test(`${name} copies every Node file`, () => {
+                const { project } = example(name);
+                expect(
+                    projectFiles(project)
+                        .filter((path) => path.endsWith(".node.ts"))
+                        .map((path) => `./${normalizePath(relative(project, path))}`)
+                        .sort(),
+                ).toEqual(nodeSubjects);
+            });
+        for (const subject of nodeSubjects) {
+            test(`${name} passes ${subject} in its copy`, () => {
+                const { project } = example(name);
                 // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
                 // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
                 const output = run(
@@ -345,8 +356,8 @@ for (const name of examples) {
                     "bun",
                 );
                 expect(output).toContain("0 fail");
-            }
-        });
+            });
+        }
 
         test(`${name} refuses its tests without the TGSL preload`, () => {
             const noPreload = Bun.spawnSync(["bun", "--config=no-preload.toml", "test"], {

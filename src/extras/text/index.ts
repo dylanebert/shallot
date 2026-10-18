@@ -198,23 +198,6 @@ function createTextState(): TextState {
     };
 }
 
-const LAYOUT_FIELDS = [
-    "content",
-    "font",
-    "fontSize",
-    "maxWidth",
-    "justify",
-    "color",
-    "opacity",
-] as const;
-
-function layoutChanged(world: World, eid: number): boolean {
-    const bit = 1 << (eid & 31);
-    for (const name of LAYOUT_FIELDS)
-        if (world.fieldStorage(Text, name).dirty[eid >>> 5] & bit) return true;
-    return (world.fieldStorage(Anchor, "offset").dirty[eid >>> 5] & bit) !== 0;
-}
-
 function grow(world: World, min: number): void {
     const _textState = world.resource(textStateKey);
 
@@ -296,6 +279,15 @@ function layoutLabel(world: World, label: TextLabelDraw): void {
 function updateLabels(world: World): void {
     const state = world.resource(textStateKey);
     const text = world.storage(Text);
+    const contentDirty = world.fieldStorage(Text, "content").dirty;
+    const fontDirty = world.fieldStorage(Text, "font").dirty;
+    const sizeDirty = world.fieldStorage(Text, "fontSize").dirty;
+    const widthDirty = world.fieldStorage(Text, "maxWidth").dirty;
+    const justifyDirty = world.fieldStorage(Text, "justify").dirty;
+    const colorDirty = world.fieldStorage(Text, "color").dirty;
+    const opacityDirty = world.fieldStorage(Text, "opacity").dirty;
+    const anchorDirty = world.fieldStorage(Anchor, "offset").dirty;
+    const billboardDirty = world.fieldStorage(Text, "billboard").dirty;
     let dirtyStart = Infinity;
     let dirtyEnd = 0;
     for (const label of state.labelDraws) label.seen = false;
@@ -323,11 +315,22 @@ function updateLabels(world: World): void {
             state.labelDraws.push(label);
         }
         label.seen = true;
+        const word = eid >>> 5;
+        const bit = 1 << (eid & 31);
         if (
             fresh ||
             label.atlas !== atlas ||
             label.anchored !== anchored ||
-            layoutChanged(world, eid)
+            ((contentDirty[word] |
+                fontDirty[word] |
+                sizeDirty[word] |
+                widthDirty[word] |
+                justifyDirty[word] |
+                colorDirty[word] |
+                opacityDirty[word] |
+                anchorDirty[word]) &
+                bit) !==
+                0
         ) {
             label.ref = world.ref(eid);
             label.font = font;
@@ -340,7 +343,7 @@ function updateLabels(world: World): void {
                 dirtyEnd,
                 oldCount === label.count ? label.start + label.count : state.count,
             );
-        } else if (world.fieldStorage(Text, "billboard").dirty[eid >>> 5] & (1 << (eid & 31))) {
+        } else if (billboardDirty[word] & bit) {
             for (let n = label.start; n < label.start + label.count; n++)
                 state.u32[n * GLYPH_FLOATS + GLYPH_AT.billboard] = text.billboard.get(eid);
             dirtyStart = Math.min(dirtyStart, label.start);

@@ -247,6 +247,29 @@ test("the allocation gate reds on any sampled steady allocation and prints its s
     );
 });
 
+test("repeated samples retain their bytes, count and exact allocation stack", () => {
+    const frame = (id: number, functionName: string, children: unknown[] = []) => ({
+        id,
+        callFrame: { functionName, url: "file:///subject.mjs", scriptId: "1", lineNumber: id, columnNumber: 0 },
+        children,
+    });
+    const profile = {
+        head: frame(1, "run", [frame(2, "allocate")]),
+        samples: [{ nodeId: 2, size: 24 }, { nodeId: 2, size: 40 }, { nodeId: 2, size: 8 }],
+    };
+    let mappings = 0;
+    const rows = attribute(profile,
+        (callFrame: { functionName: string }) => callFrame.functionName === "run" ? "run" : undefined,
+        () => { mappings++; return "allocate subject.ts:3:1"; },
+    );
+    expect(rows).toEqual([{
+        site: "allocate subject.ts:3:1", bytes: 72, count: 3,
+        stack: [{ functionName: "allocate", site: "allocate subject.ts:3:1", native: false }],
+        boundary: undefined,
+    }]);
+    expect(mappings).toBe(1);
+});
+
 test("an allocation with no JavaScript frame below the run frame is credited to the run frame, so the display control's breakpoint literal lands at the frame loop", () => {
     const frame = (id: number, functionName: string, url: string, children: unknown[] = []) => ({
         id,

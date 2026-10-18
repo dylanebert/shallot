@@ -95,8 +95,20 @@ export function attribute(profile, runSite, siteOf, expressions = []) {
         for (const child of node.children) visit(child, current);
     };
     visit(profile.head, []);
-    const rows = new Map();
+    const samples = new Map();
     for (const { nodeId, size } of profile.samples) {
+        const total = samples.get(nodeId) ?? { bytes: 0, count: 0 };
+        total.bytes += size;
+        total.count++;
+        samples.set(nodeId, total);
+    }
+    const frameSites = new Map();
+    const sourceSite = (frame) => {
+        if (!frameSites.has(frame)) frameSites.set(frame, siteOf(frame));
+        return frameSites.get(frame);
+    };
+    const rows = new Map();
+    for (const [nodeId, { bytes, count }] of samples) {
         const path = paths.get(nodeId);
         if (!path) continue;
         const runIndex = path.findIndex((frame) => runSite(frame) !== undefined);
@@ -107,7 +119,7 @@ export function attribute(profile, runSite, siteOf, expressions = []) {
                 functionName: frame.functionName || "(anonymous)",
                 site: native
                     ? `${frame.functionName || "(native)"} <native>`
-                    : siteOf(frame) ?? `${frame.functionName || "(anonymous)"} ${frame.url}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`,
+                    : sourceSite(frame) ?? `${frame.functionName || "(anonymous)"} ${frame.url}:${frame.lineNumber + 1}:${Number.isInteger(frame.columnNumber) ? frame.columnNumber + 1 : "?"}`,
                 native,
             };
         });
@@ -134,8 +146,8 @@ export function attribute(profile, runSite, siteOf, expressions = []) {
         const site = boundary?.wrapperSite ?? top?.site ?? runSite(path[runIndex]);
         const key = JSON.stringify({ site, stack });
         const row = rows.get(key) ?? { site, bytes: 0, count: 0, stack, boundary: boundary?.wrapperSite };
-        row.bytes += size;
-        row.count++;
+        row.bytes += bytes;
+        row.count += count;
         rows.set(key, row);
     }
     return [...rows.values()].sort((a, b) => b.bytes - a.bytes);
