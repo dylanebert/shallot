@@ -18,14 +18,23 @@ async function open(page: Page, errors: string[]) {
     );
     await page.waitForFunction(() => !!window.saveAndLoad);
 }
-test.beforeEach(async ({ page }) => {
+test.describe.configure({ mode: "serial" });
+let page: Page;
+const errors: string[] = [];
+test.beforeAll(async ({ browser }) => {
+    page = await browser.newPage();
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
+    await open(page, errors);
+});
+test.afterAll(async () => {
+    await page?.close();
+});
+test.beforeEach(async () => {
+    await button(page, "New game N");
 });
 
-test("three clicks, Save, New game and Load restore the pile and shown count", async ({ page }) => {
-    const errors: string[] = [];
-    await open(page, errors);
+test("three clicks, Save, New game and Load restore the pile and shown count", async () => {
     await count(page, 0);
     await expect(page.getByRole("button", { name: "Load L" })).toBeDisabled();
     await page.evaluate(() => window.saveAndLoad.hover());
@@ -54,11 +63,7 @@ test("three clicks, Save, New game and Load restore the pile and shown count", a
     expect(errors).toEqual([]);
 });
 
-test("a save survives a page reload, and Load restores its pile and shown count", async ({
-    page,
-}) => {
-    const errors: string[] = [];
-    await open(page, errors);
+test("a save survives a page reload, and Load restores its pile and shown count", async () => {
     for (let i = 1; i <= 3; i++) await page.evaluate(() => window.saveAndLoad.click());
     await count(page, 3);
     await page.evaluate(() => window.saveAndLoad.advance(60));
