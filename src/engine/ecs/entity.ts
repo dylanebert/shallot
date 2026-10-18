@@ -1,4 +1,5 @@
-/** World-local entity id; 0xFFFFFFFF is reserved as the invalid id. */
+/** World-local entity id. Ids start at 1, so 0 is never live; 0xFFFFFFFF is reserved as the invalid id
+ * shaders read for a producer row. */
 export type Entity = number;
 
 const INVALID_ID = 0xffffffff;
