@@ -6,6 +6,7 @@
 <script type="module">
     import { createApp, mountOverlay, Transform, lookAtRotation, VolumetricLight } from "@dylanebert/shallot";
     import { attachTexture, captureTexture, captureFrame } from "@dylanebert/shallot/rendering";
+    import { NoFog } from "@dylanebert/shallot/extras";
     import { flushSync } from "svelte";
     import { hud } from "../src/hud";
     import { Clock, CycleScene, CyclePlugin } from "../src/cycle";
@@ -30,7 +31,9 @@
     app.world.tick();
     hud(mountOverlay(canvas, app.world), app.world);
     flushSync();
-    window.frame = async (hour) => {
+    window.frame = async (hour, noFog = false) => {
+        if (noFog && !app.world.has(camera, NoFog)) app.world.add(camera, NoFog);
+        else if (!noFog) app.world.remove(camera, NoFog);
         if (hour !== undefined) app.world.resource(Clock).hour = hour;
         const capture = fullSize ? captureFrame(canvas) : undefined;
         app.world.step(0);

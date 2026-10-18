@@ -4,7 +4,7 @@ import { expect, type Page, test } from "playwright/test";
 type Frame = { hour: number; width: number; height: number; rgba: number[]; png: string };
 declare global {
     interface Window {
-        frame: (hour?: number) => Promise<Frame>;
+        frame: (hour?: number, noFog?: boolean) => Promise<Frame>;
     }
 }
 
@@ -73,14 +73,16 @@ test.describe("one stepped app", () => {
     });
 
     test("the first frame after changing the light direction has the new shadows", async () => {
-        await page.evaluate(() => window.frame(15));
-        const changed = await page.evaluate(() => window.frame(7));
+        // Surface shadows update immediately; volumetric lighting intentionally retains history.
+        const reference = await page.evaluate(() => window.frame(7, true));
+        await page.evaluate(() => window.frame(15, true));
+        const changed = await page.evaluate(() => window.frame(7, true));
         save("changed-sun-first-frame", changed);
-        save("changed-sun-reference", initial);
+        save("changed-sun-reference", reference);
         let error = 0;
-        for (let i = 0; i < initial.rgba.length; i++)
-            error += Math.abs(initial.rgba[i] - changed.rgba[i]);
-        expect(error / initial.rgba.length).toBeLessThan(0.05);
+        for (let i = 0; i < reference.rgba.length; i++)
+            error += Math.abs(reference.rgba[i] - changed.rgba[i]);
+        expect(error / reference.rgba.length).toBeLessThan(0.05);
     });
 
     test("low-sun haze leaves the central shape distinct from adjacent ground", () => {
