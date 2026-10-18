@@ -1,0 +1,2 @@
+stage: 4
+finding: P2 CONTRIBUTING.md:244: the new software-rendering requirement is restricted to three directories, so an engine drawing change in src/core/mesh (for example cube topology) can now omit software-renderer proof. This does not preserve the intended requirement for engine drawing changes. Smallest fix: retain the original behavior-based requirement and add only the exception for changes confined to an example's own scene, rather than an exhaustive directory whitelist.
