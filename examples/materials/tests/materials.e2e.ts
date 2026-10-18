@@ -45,7 +45,9 @@ test.describe("one stepped gallery", () => {
             for (const other of [...boxes.names.slice(i + 1), ...boxes.spheres])
                 expect(overlaps(box, other)).toBe(false);
             expect(ink[i]).toBeGreaterThan(10);
-            expect(restored[i], "showing a name again restores every authored Text value").toBe(true);
+            expect(restored[i], "showing a name again restores every authored Text value").toBe(
+                true,
+            );
         }
     });
 
