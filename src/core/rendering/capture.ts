@@ -116,6 +116,15 @@ export function encodeFrameCapture(world: World, view: View): void {
             );
         return;
     }
+    if (view.canvasTextureReused) {
+        for (const capture of captures)
+            capture.reject(
+                new Error(
+                    "captureFrame refused: canvas texture already used by an earlier frame; await world.frameFence (or yield a task) before the capture frame",
+                ),
+            );
+        return;
+    }
     const encoder = world.frameEncoder();
     if (!encoder) {
         for (const capture of captures)
@@ -147,6 +156,11 @@ export function encodeFrameCapture(world: World, view: View): void {
     }
 }
 
+/**
+ * Capture the next presenting frame as tightly packed RGBA. A bound WebGPU canvas refuses capture
+ * if that frame reuses a texture an earlier frame drew to; await world.frameFence (or yield a task)
+ * before the capture frame. An unbound canvas uses its bitmap.
+ */
 export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> {
     assertCaptureGeometry(canvas.width, canvas.height);
     const binding = canvasFrameBinding(canvas);

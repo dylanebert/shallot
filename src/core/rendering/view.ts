@@ -92,6 +92,7 @@ export interface View {
     /** Last surface texture identity and its cached view. */
     surfaceTexture?: GPUTexture;
     surfaceView?: GPUTextureView;
+    canvasTextureReused?: boolean;
     /** External captures copied by EndFrameSystem into the same submission as the presenting pass. */
     frameCaptures?: CanvasFrameCaptureRequest[];
     /** A weak device-loss watcher serves this view's captures without retaining detached canvases. */

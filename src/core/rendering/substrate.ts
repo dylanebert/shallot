@@ -330,7 +330,10 @@ export const BeginFrameSystem: System = {
                 continue;
             }
             const texture = view.texture ?? view.context!.getCurrentTexture();
-            if (view.context) view.canvasTexture = texture;
+            if (view.context) {
+                view.canvasTexture = texture;
+                view.canvasTextureReused = view.surfaceTexture === texture;
+            }
             if (!texture) continue;
             if (view.surfaceTexture !== texture) {
                 view.surfaceTexture = texture;
