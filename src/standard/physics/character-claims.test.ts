@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
 import { GlobalTransform, Transform, TransformPlugin } from "../../core/transform";
-import { Time, World } from "../../engine";
+import { createApp, Time, World } from "../../engine";
 import { characterScratch } from "./character";
 import {
     Character,
@@ -216,4 +216,95 @@ test("without steep walls a capsule rides its rounding up a step edge", async ()
 
 test("steep walls stop a capsule riding its rounding up that step edge", async () => {
     expect(await walkInto(0.15, 1)).toBeGreaterThan(-2);
+});
+
+// The far platform puts an awake body's center 10 km from the origin, where f32 spacing is coarse.
+const FAR = 10000;
+const RISE = 0.05;
+
+async function grounds() {
+    const app = await createApp({ defaults: false, plugins: [CharacterPlugin] });
+    const world = app.world;
+    const ground = (x: number, type: BodyType) => {
+        const eid = world.create();
+        world.add(eid, Transform, { translation: [x, -0.5, 0] });
+        world.add(eid, Body, { type });
+        world.add(eid, Shape, { scale: [4, 1, 4, 0] });
+    };
+    const character = (x: number) => {
+        const eid = world.create();
+        world.add(eid, Transform, { translation: [x, 1.4, 0] });
+        world.add(eid, Body, { type: BodyType.Kinematic });
+        world.add(eid, Shape, { kind: ShapeKind.Capsule, radius: 0.3 });
+        world.add(eid, Character);
+        return eid;
+    };
+    const rise = (eid: number) => {
+        world.storage(Character).velocity.set(eid, 0, RISE, 0, 0);
+        world.tick();
+        return world.storage(Character).groundState.get(eid);
+    };
+    return { app, world, ground, character, rise };
+}
+
+async function riseAlone(): Promise<number> {
+    const { app, ground, character, rise, world } = await grounds();
+    try {
+        ground(0, BodyType.Static);
+        const eid = character(0);
+        world.tick();
+        return rise(eid);
+    } finally {
+        app.dispose();
+    }
+}
+
+test("a character's ground state does not depend on another character's position", async () => {
+    const alone = await riseAlone();
+    expect(alone).toBe(GroundState.InAir);
+    const { app, ground, character, rise, world } = await grounds();
+    try {
+        ground(FAR, BodyType.Kinematic);
+        character(FAR);
+        ground(0, BodyType.Static);
+        const eid = character(0);
+        world.tick();
+        expect(rise(eid)).toBe(alone);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a character's ground state does not depend on the platform it stood on before", async () => {
+    const alone = await riseAlone();
+    const { app, ground, character, rise, world } = await grounds();
+    try {
+        ground(FAR, BodyType.Kinematic);
+        ground(0, BodyType.Static);
+        const eid = character(FAR);
+        world.tick();
+        world.storage(Transform).translation.set(eid, 0, 1.4, 0);
+        world.tick();
+        expect(rise(eid)).toBe(alone);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a restored world agrees with an unbroken run after the character changed ground", async () => {
+    const { app, ground, character, rise, world } = await grounds();
+    try {
+        ground(FAR, BodyType.Kinematic);
+        ground(0, BodyType.Static);
+        const eid = character(0);
+        world.tick();
+        const saved = world.snapshot();
+        const unbroken = rise(eid);
+        world.storage(Transform).translation.set(eid, FAR, 1.4, 0);
+        world.tick();
+        world.restore(saved);
+        expect(rise(eid)).toBe(unbroken);
+    } finally {
+        app.dispose();
+    }
 });
