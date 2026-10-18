@@ -1214,7 +1214,7 @@ drawPhysics(world, draw);
 
 The 0.9.5 backend-neutral `raycast`, `RayBody`, `RayHit`, `bodyCandidates`, `grabHit` and
 `worldToLocal` helpers are removed. For camera picking, use `viewportToWorld` from `/rendering`, then pass its ray to `castRay` or
-`castRayClosest` (with caller-owned output); coordinates are CSS pixels relative to the camera's
+`castRayClosest` (with caller-owned output from `emptyQueryHit`); coordinates are CSS pixels relative to the camera's
 bound canvas, and ray length is in world units.
 
 ## `/avbd` is gone

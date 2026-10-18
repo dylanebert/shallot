@@ -50,6 +50,7 @@ test("standard physics exports consumed world operations and profiling without s
         "clipVector",
         "defaultDebugDraw",
         "drawPhysics",
+        "emptyQueryHit",
         "hashPhysics",
         "overlapAABB",
         "overlapShape",

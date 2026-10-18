@@ -352,16 +352,7 @@ function newQueryContext(): QueryContext {
         callback: null,
         output: null,
         overlap: null,
-        hit: {
-            shape: 0,
-            body: 0,
-            point: { x: 0, y: 0, z: 0 },
-            normal: { x: 0, y: 0, z: 0 },
-            fraction: 0,
-            userMaterialId: 0n,
-            triangleIndex: 0,
-            childIndex: 0,
-        },
+        hit: emptyQueryHit(),
     };
 }
 
@@ -378,6 +369,20 @@ function copyQueryHit(out: PhysicsQueryHit, hit: PhysicsQueryHit): void {
     out.userMaterialId = hit.userMaterialId;
     out.triangleIndex = hit.triangleIndex;
     out.childIndex = hit.childIndex;
+}
+
+/** A new hit record with every field zero, a miss, for `castRayClosest` and `castShapeClosest` to write into. */
+export function emptyQueryHit(): PhysicsQueryHit {
+    return {
+        shape: 0,
+        body: 0,
+        point: { x: 0, y: 0, z: 0 },
+        normal: { x: 0, y: 0, z: 0 },
+        fraction: 0,
+        userMaterialId: 0n,
+        triangleIndex: 0,
+        childIndex: 0,
+    };
 }
 
 function clearQueryHit(out: PhysicsQueryHit): void {
@@ -644,7 +649,7 @@ export function castRay(
 
 /**
  * Cast a ray and write its closest hit into caller-owned storage. Returns false on a miss; the
- * output is cleared on a miss. Supply `point` and `normal` objects on `out` before calling.
+ * output is cleared on a miss. Make `out` once with `emptyQueryHit` and reuse it.
  */
 export function castRayClosest(
     world: World,
@@ -707,7 +712,10 @@ export function castShape(
     }
 }
 
-/** Cast a convex proxy and write its closest hit into caller-owned storage; clears `out` on a miss. */
+/**
+ * Cast a convex proxy and write its closest hit into caller-owned storage. Returns false on a miss;
+ * the output is cleared on a miss. Make `out` once with `emptyQueryHit` and reuse it.
+ */
 export function castShapeClosest(
     world: World,
     origin: Pos,
