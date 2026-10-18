@@ -183,8 +183,10 @@ background pixels receive grid haze followed by analytic height fog out to `maxD
 rather than unprojecting depth zero as a finite endpoint. Orthographic depth zero still names
 its far projection plane, bounded by `maxDistance` like a surface.
 
-Opaque fog now records through `PhaseRenderer.afterOpaque`, inside the core main pass after
-all opaque renderers and before transparent draws. Standard's Blend, Premultiplied, Add and
+`FogSystem` now runs before `MainPassSystem`; opaque fog composites through
+`PhaseRenderer.afterOpaque` inside the main pass, after opaque renderers and before transparent
+draws. A scene effect can no longer run between opaque surfaces and fog; move effects that
+must act on unfogged surface colour into surface shading. Standard's Blend, Premultiplied, Add and
 Multiply surfaces take fog at their own world-space depth rather than the opaque depth behind
 them. `registerFogSource` and `FogInput` / `FogSource` in `/standard/rendering` let a plugin
 supply that read before standard warms; its layout occupies reserved group 3.
