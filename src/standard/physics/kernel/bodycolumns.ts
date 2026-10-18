@@ -1,6 +1,5 @@
 import type { World } from "../../../engine";
-// Views over the kernel's resident b3BodyState and b3BodySim arrays. Flags are inline in state;
-// the legacy sim/fin/sim2 binding slots all address one sim array. The kernel owns migration.
+// Views over the kernel's resident b3BodyState and b3BodySim arrays. Flags are inline in state.
 //
 // Each World owns its columns. A reserve can reallocate a column without growing memory, so
 // refresh after grow-capable calls checks both the column offsets and the memory buffer.
@@ -10,25 +9,14 @@ import type { Mat3, Vec3, WorldTransform } from "../common/records";
 import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
 import { BODY_RECORD_STRIDE } from "./bodyrecords";
-import {
-    FIN_STRIDE,
-    S2_BODY_ID,
-    S2_CENTER0,
-    S2_FLAGS,
-    S2_MIN_EXTENT,
-    SIM_STRIDE,
-    SIM2_STRIDE,
-    STATE_STRIDE,
-} from "./columns";
+import { BODY_ID, CENTER0, FLAGS, MIN_EXTENT, SIM_STRIDE, STATE_STRIDE } from "./columns";
 import { kernel } from "./kernel";
 import { KernelViews } from "./views";
 
-// BODY_LAYOUT header indices (bodies.rs); slot 3 is unallocated.
+// BODY_LAYOUT header indices (bodies.rs); slots 2, 3 and 5 are unallocated.
 export const B_STATE = 0;
 const B_SIM = 1;
-const B_FIN = 2;
 export const B_FLAGS = 4;
-const B_SIM2 = 5;
 const B_SYNC_EID = 8;
 const B_SYNC_POS = 9;
 const B_SYNC_QUAT = 10;
@@ -61,12 +49,8 @@ export class BodyStore extends KernelViews {
     memoryU = new Uint32Array(0);
     /** Resident b3BodySim records in Box3D field order. */
     simF = new Float32Array(0);
-    /** Alias of simF for the finalize binding. */
-    finF = new Float32Array(0);
-    /** Alias of simF for the sweep binding. */
-    sim2F = new Float32Array(0);
-    /** The same sim2 bytes viewed as u32, for the integer `bodyId`/`flags` slots. */
-    sim2U = new Uint32Array(0);
+    /** The same sim bytes viewed as u32, for the integer `bodyId`/`flags` slots. */
+    simU = new Uint32Array(0);
     syncCount = 0;
     #syncRanges = new Map<number, MovedRows>();
     // The held layout header view the column views are derived from.
@@ -95,8 +79,6 @@ export class BodyStore extends KernelViews {
             this.stateF.length === cap * STATE_STRIDE &&
             this.flagsU.byteOffset === layout[B_FLAGS] &&
             this.simF.byteOffset === layout[B_SIM] &&
-            this.finF.byteOffset === layout[B_FIN] &&
-            this.sim2F.byteOffset === layout[B_SIM2] &&
             this.recordU.byteOffset === layout[B_RECORD]
         )
             return;
@@ -105,9 +87,7 @@ export class BodyStore extends KernelViews {
         this.recordF = new Float32Array(buf, layout[B_RECORD], cap * BODY_RECORD_STRIDE);
         this.recordU = new Uint32Array(buf, layout[B_RECORD], cap * BODY_RECORD_STRIDE);
         this.simF = new Float32Array(buf, layout[B_SIM], cap * SIM_STRIDE);
-        this.finF = new Float32Array(buf, layout[B_FIN], cap * FIN_STRIDE);
-        this.sim2F = new Float32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
-        this.sim2U = new Uint32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
+        this.simU = new Uint32Array(buf, layout[B_SIM], cap * SIM_STRIDE);
         this.#syncRanges.clear();
     }
 
@@ -144,9 +124,7 @@ export class BodyStore extends KernelViews {
         {
             layout: Uint32Array;
             simF: Float32Array;
-            finF: Float32Array;
-            sim2F: Float32Array;
-            sim2U: Uint32Array;
+            simU: Uint32Array;
         }
     >();
     simColumns(set: number) {
@@ -164,17 +142,13 @@ export class BodyStore extends KernelViews {
             old &&
             old.simF.buffer === k.memory.buffer &&
             old.simF.byteOffset === layout[1] &&
-            old.finF.byteOffset === layout[2] &&
-            old.sim2F.byteOffset === layout[5] &&
             old.simF.length >= count * SIM_STRIDE
         )
             return old;
         const columns = {
             layout,
             simF: new Float32Array(k.memory.buffer, layout[1], count * SIM_STRIDE),
-            finF: new Float32Array(k.memory.buffer, layout[2], count * FIN_STRIDE),
-            sim2F: new Float32Array(k.memory.buffer, layout[5], count * SIM2_STRIDE),
-            sim2U: new Uint32Array(k.memory.buffer, layout[5], count * SIM2_STRIDE),
+            simU: new Uint32Array(k.memory.buffer, layout[1], count * SIM_STRIDE),
         };
         this.#setColumns.set(set, columns);
         return columns;
@@ -196,35 +170,35 @@ export function setSimField<K extends keyof BodySim>(
     switch (field) {
         case "center": {
             const v = value as Vec3;
-            const ff = store.memoryF;
-            const fo = simOffset(world, ref, 2);
-            ff[fo + 7] = v.x;
-            ff[fo + 8] = v.y;
-            ff[fo + 9] = v.z;
+            const f = store.memoryF;
+            const o = simOffset(world, ref);
+            f[o + 7] = v.x;
+            f[o + 8] = v.y;
+            f[o + 9] = v.z;
             return;
         }
         case "center0": {
             const v = value as Vec3;
-            const s2 = store.memoryF;
-            const o = simOffset(world, ref, 5) + S2_CENTER0;
-            s2[o] = v.x;
-            s2[o + 1] = v.y;
-            s2[o + 2] = v.z;
+            const f = store.memoryF;
+            const o = simOffset(world, ref) + CENTER0;
+            f[o] = v.x;
+            f[o + 1] = v.y;
+            f[o + 2] = v.z;
             return;
         }
         case "localCenter": {
             const v = value as Vec3;
-            const ff = store.memoryF;
-            const fo = simOffset(world, ref, 2);
-            ff[fo + 17] = v.x;
-            ff[fo + 18] = v.y;
-            ff[fo + 19] = v.z;
+            const f = store.memoryF;
+            const o = simOffset(world, ref);
+            f[o + 17] = v.x;
+            f[o + 18] = v.y;
+            f[o + 19] = v.z;
             return;
         }
         case "force": {
             const v = value as Vec3;
             const sf = store.memoryF;
-            const so = simOffset(world, ref, 1);
+            const so = simOffset(world, ref);
             sf[so + 20] = v.x;
             sf[so + 21] = v.y;
             sf[so + 22] = v.z;
@@ -233,7 +207,7 @@ export function setSimField<K extends keyof BodySim>(
         case "torque": {
             const v = value as Vec3;
             const sf = store.memoryF;
-            const so = simOffset(world, ref, 1);
+            const so = simOffset(world, ref);
             sf[so + 23] = v.x;
             sf[so + 24] = v.y;
             sf[so + 25] = v.z;
@@ -241,13 +215,13 @@ export function setSimField<K extends keyof BodySim>(
         }
         case "invMass": {
             const v = value as number;
-            store.memoryF[simOffset(world, ref, 1) + 26] = v;
+            store.memoryF[simOffset(world, ref) + 26] = v;
             return;
         }
         case "invInertiaLocal": {
             const m = value as Mat3;
             const f = store.memoryF;
-            const o = simOffset(world, ref, 1) + 27;
+            const o = simOffset(world, ref) + 27;
             f[o] = m.cx.x;
             f[o + 1] = m.cx.y;
             f[o + 2] = m.cx.z;
@@ -262,7 +236,7 @@ export function setSimField<K extends keyof BodySim>(
         case "invInertiaWorld": {
             const m = value as Mat3;
             const f = store.memoryF;
-            const o = simOffset(world, ref, 1) + 36;
+            const o = simOffset(world, ref) + 36;
             f[o] = m.cx.x;
             f[o + 1] = m.cx.y;
             f[o + 2] = m.cx.z;
@@ -276,41 +250,41 @@ export function setSimField<K extends keyof BodySim>(
         }
         case "minExtent": {
             const v = value as number;
-            store.memoryF[simOffset(world, ref, 5) + S2_MIN_EXTENT] = v;
+            store.memoryF[simOffset(world, ref) + MIN_EXTENT] = v;
             return;
         }
         case "maxExtent": {
             const v = value as Vec3;
-            const ff = store.memoryF;
-            const fo = simOffset(world, ref, 2);
-            ff[fo + 46] = v.x;
-            ff[fo + 47] = v.y;
-            ff[fo + 48] = v.z;
+            const f = store.memoryF;
+            const o = simOffset(world, ref);
+            f[o + 46] = v.x;
+            f[o + 47] = v.y;
+            f[o + 48] = v.z;
             return;
         }
         case "linearDamping": {
             const v = value as number;
-            store.memoryF[simOffset(world, ref, 1) + 49] = v;
+            store.memoryF[simOffset(world, ref) + 49] = v;
             return;
         }
         case "angularDamping": {
             const v = value as number;
-            store.memoryF[simOffset(world, ref, 1) + 50] = v;
+            store.memoryF[simOffset(world, ref) + 50] = v;
             return;
         }
         case "gravityScale": {
             const v = value as number;
-            store.memoryF[simOffset(world, ref, 1) + 51] = v;
+            store.memoryF[simOffset(world, ref) + 51] = v;
             return;
         }
         case "bodyId": {
             const v = value as number;
-            store.memoryU[simOffset(world, ref, 5) + S2_BODY_ID] = v;
+            store.memoryU[simOffset(world, ref) + BODY_ID] = v;
             return;
         }
         case "flags": {
             const v = value as number;
-            store.memoryU[simOffset(world, ref, 5) + S2_FLAGS] = v;
+            store.memoryU[simOffset(world, ref) + FLAGS] = v;
             return;
         }
         default:
@@ -323,13 +297,11 @@ export function readSimTransform(
     ref: number,
     out: WorldTransform,
 ): WorldTransform {
-    const sf = world.bodyStore.memoryF,
-        ff = world.bodyStore.memoryF;
-    const so = simOffset(world, ref, 1),
-        fo = simOffset(world, ref, 2);
-    out.p.x = ff[fo];
-    out.p.y = ff[fo + 1];
-    out.p.z = ff[fo + 2];
+    const sf = world.bodyStore.memoryF;
+    const so = simOffset(world, ref);
+    out.p.x = sf[so];
+    out.p.y = sf[so + 1];
+    out.p.z = sf[so + 2];
     out.q.v.x = sf[so + 3];
     out.q.v.y = sf[so + 4];
     out.q.v.z = sf[so + 5];
@@ -339,7 +311,7 @@ export function readSimTransform(
 
 export function readSimCenter(world: WorldState, ref: number, out: Vec3): Vec3 {
     const f = world.bodyStore.memoryF;
-    const o = simOffset(world, ref, 2) + 7;
+    const o = simOffset(world, ref) + 7;
     out.x = f[o];
     out.y = f[o + 1];
     out.z = f[o + 2];
@@ -348,7 +320,7 @@ export function readSimCenter(world: WorldState, ref: number, out: Vec3): Vec3 {
 
 export function readSimLocalCenter(world: WorldState, ref: number, out: Vec3): Vec3 {
     const f = world.bodyStore.memoryF;
-    const o = simOffset(world, ref, 2) + 17;
+    const o = simOffset(world, ref) + 17;
     out.x = f[o];
     out.y = f[o + 1];
     out.z = f[o + 2];
@@ -392,7 +364,7 @@ export function readSimInvInertiaWorld(world: WorldState, ref: number, out: Mat3
 }
 function readSimMatrix(world: WorldState, ref: number, offset: number, out: Mat3): Mat3 {
     const f = world.bodyStore.memoryF,
-        o = simOffset(world, ref, 1) + offset;
+        o = simOffset(world, ref) + offset;
     out.cx.x = f[o];
     out.cx.y = f[o + 1];
     out.cx.z = f[o + 2];
@@ -414,14 +386,14 @@ export function simBodyId(world: WorldState, ref: number): number {
 
 export function simFlags(world: WorldState, ref: number): number {
     const store = world.bodyStore;
-    return store.memoryU[simOffset(world, ref, 5) + S2_FLAGS];
+    return store.memoryU[simOffset(world, ref) + FLAGS];
 }
 
-function simOffset(world: WorldState, ref: number, column: number): number {
+function simOffset(world: WorldState, ref: number): number {
     const k = kernel(world.ecsState);
     return (
         (ref < 0
-            ? k.bodyColumnPtr(world.worldId, -ref - 1, column)
-            : k.simColumnPtr(world.worldId, bodySimSet(ref), bodySimIndex(ref), column)) >>> 2
+            ? k.bodyColumnPtr(world.worldId, -ref - 1, B_SIM)
+            : k.simColumnPtr(world.worldId, bodySimSet(ref), bodySimIndex(ref), B_SIM)) >>> 2
     );
 }

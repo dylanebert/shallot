@@ -3,11 +3,11 @@ import { BodyType } from "../common/types";
 import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "../testing";
 import { BodyFlags } from "../world/body";
 import { BodyField, bodyField } from "./bodyrecords";
-import { S2_CENTER0, S2_FLAGS, S2_MIN_EXTENT, SIM_STRIDE, STATE_STRIDE } from "./columns";
+import { CENTER0, FLAGS, MIN_EXTENT, SIM_STRIDE, STATE_STRIDE } from "./columns";
 import gold from "./finalize.gold.json";
 import { kernel } from "./kernel";
 
-const S2_ROTATION0 = 10;
+const ROTATION0 = 10;
 const simMap = [
     26,
     51,
@@ -73,12 +73,12 @@ test("finalize maxMotion gold decides the exact fast boundary", () => {
                 load(store, c);
                 float[0] = 2 * decode(c.out[1]);
                 if (below) --bits[0];
-                store.simF[S2_MIN_EXTENT] = float[0];
+                store.simF[MIN_EXTENT] = float[0];
                 store.flagsU[13] = BodyFlags.dynamicFlag;
-                store.simF.set(store.simF.slice(3, 7), S2_ROTATION0);
-                store.simF.set(store.simF.slice(7, 10), S2_CENTER0);
+                store.simF.set(store.simF.slice(3, 7), ROTATION0);
+                store.simF.set(store.simF.slice(7, 10), CENTER0);
                 finalize(k, 1);
-                expect((store.sim2U[S2_FLAGS] & BodyFlags.isFast) !== 0).toBe(below);
+                expect((store.simU[FLAGS] & BodyFlags.isFast) !== 0).toBe(below);
                 assertBits(bodyField(world, 0, BodyField.sleepVelocity), c.out[0]);
             } finally {
                 destroyTestWorld(world);
@@ -99,8 +99,8 @@ test("finalize matches frozen C vectors through resident WASM records", () => {
             for (let i = 0; i < finMap.length; ++i) assertBits(store.simF[finMap[i]], c.outFin[i]);
             for (let i = 0; i < c.outState.length; ++i) assertBits(store.stateF[i], c.outState[i]);
             assertBits(bodyField(world, 0, BodyField.sleepVelocity), c.out[0]);
-            for (let i = 0; i < 3; ++i) assertBits(store.simF[S2_CENTER0 + i], c.outFin[i]);
-            for (let i = 0; i < 4; ++i) assertBits(store.simF[S2_ROTATION0 + i], c.outSim[28 + i]);
+            for (let i = 0; i < 3; ++i) assertBits(store.simF[CENTER0 + i], c.outFin[i]);
+            for (let i = 0; i < 4; ++i) assertBits(store.simF[ROTATION0 + i], c.outSim[28 + i]);
         } finally {
             destroyTestWorld(world);
         }
@@ -118,24 +118,24 @@ for (const continuous of [true, false]) {
                     store.simF.fill(0, s, s + 52);
                     store.simF[s + 6] = 1;
                     store.simF.set([1, 2, 3], s + 7);
-                    store.simF.fill(99, s + S2_ROTATION0, s + S2_CENTER0 + 3);
-                    store.simF[s + S2_MIN_EXTENT] = i === 0 ? 0.5 : 2;
+                    store.simF.fill(99, s + ROTATION0, s + CENTER0 + 3);
+                    store.simF[s + MIN_EXTENT] = i === 0 ? 0.5 : 2;
                     store.stateF.fill(0, t, t + 13);
                     store.stateF[t + 6] = 0.4;
                     store.stateF[t + 12] = 1;
                 }
                 finalize(k, 2);
                 const s = index * SIM_STRIDE;
-                expect((store.sim2U[s + S2_FLAGS] & BodyFlags.isFast) !== 0).toBe(
+                expect((store.simU[s + FLAGS] & BodyFlags.isFast) !== 0).toBe(
                     continuous && index === 0,
                 );
                 // Immediate continuous solve and the non-fast branch both commit the resulting base.
-                expect(Array.from(store.simF.slice(s + S2_CENTER0, s + S2_CENTER0 + 3))).toEqual(
+                expect(Array.from(store.simF.slice(s + CENTER0, s + CENTER0 + 3))).toEqual(
                     Array.from(store.simF.slice(s + 7, s + 10)),
                 );
-                expect(
-                    Array.from(store.simF.slice(s + S2_ROTATION0, s + S2_ROTATION0 + 4)),
-                ).toEqual(Array.from(store.simF.slice(s + 3, s + 7)));
+                expect(Array.from(store.simF.slice(s + ROTATION0, s + ROTATION0 + 4))).toEqual(
+                    Array.from(store.simF.slice(s + 3, s + 7)),
+                );
                 expect(bodyField(world, index, BodyField.sleepVelocity)).toBe(Math.fround(0.2));
             } finally {
                 destroyTestWorld(world);

@@ -4,7 +4,7 @@ import { SetType } from "../common/constants";
 import { BodyType } from "../common/types";
 import { bodySimSlot, setSimField, simBodyId } from "../kernel/bodycolumns";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
-import { FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE } from "../kernel/columns";
+import { SIM_STRIDE } from "../kernel/columns";
 import { islandField } from "../kernel/islandcolumns";
 import { jointArrayCount, jointArrayKey, jointAt } from "../kernel/jointcolumns";
 import { JointField, jointCapacity, jointField } from "../kernel/jointrecords";
@@ -41,8 +41,7 @@ function sims(world: WorldState) {
             const columns = world.bodyStore.simColumns(set);
             result.set(id, [
                 Array.from(columns.simF.subarray(i * SIM_STRIDE, (i + 1) * SIM_STRIDE)),
-                Array.from(columns.finF.subarray(i * FIN_STRIDE, (i + 1) * FIN_STRIDE)),
-                Array.from(columns.sim2U.subarray(i * SIM2_STRIDE, (i + 1) * SIM2_STRIDE)),
+                Array.from(columns.simU.subarray(i * SIM_STRIDE, (i + 1) * SIM_STRIDE)),
             ]);
         }
         for (let i = 0; i < setArrayCount(world, set, 1); ++i) {
