@@ -307,6 +307,32 @@ test("a pending Transform teleport survives draw-only mark clearing and recovery
     }
 });
 
+test("setTransform before the body binds publishes its pose and spawns it there", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const w = app.world,
+            eid = w.create();
+        w.add(eid, Body);
+        setTransform(w, eid, [5, 6, 7], [0, 0, 1, 0]);
+        expect(w.storage(Transform).translation.x.get(eid)).toBe(5);
+        expect(w.storage(GlobalTransform).translation.y.get(eid)).toBe(6);
+        expect(w.storage(GlobalTransform).rotation.z.get(eid)).toBe(1);
+        const setter = spyOn(kernel(w), "bodySetPose");
+        try {
+            w.tick();
+            expect(pose(w, eid)).toEqual({
+                p: { x: 5, y: 6, z: 7 },
+                q: { v: { x: 0, y: 0, z: 1 }, s: 0 },
+            });
+            expect(setter).toHaveBeenCalledTimes(0);
+        } finally {
+            setter.mockRestore();
+        }
+    } finally {
+        app.dispose();
+    }
+});
+
 test("setTransform updates both pose columns without a second teleport", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
