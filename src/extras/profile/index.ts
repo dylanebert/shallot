@@ -411,12 +411,8 @@ interface OverlayData {
 }
 
 interface Overlay {
-    update(world: World, store: DiagnosticsStore): void;
+    update(store: DiagnosticsStore): void;
     destroy(): void;
-}
-
-interface OverlayOptions {
-    position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
 }
 
 const BG = "rgba(20,18,16,0.88)";
@@ -588,17 +584,6 @@ function section(parent: HTMLElement, title: string): { totalEl: HTMLElement; bo
     return { totalEl, body };
 }
 
-function positionStyles(
-    pos: "top-left" | "top-right" | "bottom-left" | "bottom-right",
-): Partial<CSSStyleDeclaration> {
-    const s: Partial<CSSStyleDeclaration> = { margin: "6px" };
-    if (pos.includes("top")) s.top = "0";
-    else s.bottom = "0";
-    if (pos.includes("left")) s.left = "0";
-    else s.right = "0";
-    return s;
-}
-
 function formatBytes(bytes: number): string {
     if (bytes >= MB) return (bytes / MB).toFixed(1) + " MB";
     if (bytes >= 1024) return (bytes / 1024).toFixed(0) + " KB";
@@ -611,8 +596,7 @@ function pad(v: string, len: number): string {
     return v.length >= len ? v : " ".repeat(len - v.length) + v;
 }
 
-function createOverlay(opts?: OverlayOptions): Overlay {
-    const pos = opts?.position ?? "top-left";
+function createOverlay(): Overlay {
     // Bound the profiler to the canvas so it cannot spill into an embedding host page.
     const parent = mountOverlay(document.querySelector("canvas"));
 
@@ -633,7 +617,9 @@ function createOverlay(opts?: OverlayOptions): Overlay {
         borderRadius: "4px",
         border: `1px solid ${BORDER}`,
         boxShadow: "0 2px 12px rgba(0,0,0,0.4)",
-        ...positionStyles(pos),
+        top: "0",
+        left: "0",
+        margin: "6px",
     });
     root.setAttribute("data-shallot-profile", "");
 
@@ -744,7 +730,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
     let lastRender = -Infinity;
 
     return {
-        update(_world: World, store: DiagnosticsStore) {
+        update(store: DiagnosticsStore) {
             const now = performance.now();
             if (now - lastRender < 250) return;
             lastRender = now;
@@ -962,7 +948,7 @@ const ProfileRenderSystem: System = {
 
         if (typeof document === "undefined" || !_profileUi.visible) return;
         if (!_profileUi.overlay) _profileUi.overlay = createOverlay();
-        _profileUi.overlay.update(world, world.resource(DiagnosticsStore));
+        _profileUi.overlay.update(world.resource(DiagnosticsStore));
     },
 };
 
