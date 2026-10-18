@@ -350,11 +350,13 @@ function assetBundle(
         const staged = mode === "debug" || mode === "prebuilt-release";
         expect(existsSync(stagedAssetPath(output, platform))).toBe(staged);
         if (mode === "source-release") {
-            const [record] = readFileSync(resolve(f.root, "asset.log"), "utf8").trim().split("\\n");
-            expect(JSON.parse(record)).toEqual({
-                dist: resolve(f.project, "dist"),
-                hasIndex: true,
-            });
+            const records = readFileSync(resolve(f.root, "asset.log"), "utf8").trim().split("\n");
+            expect(records.map((record) => JSON.parse(record))).toEqual([
+                {
+                    dist: resolve(f.project, "dist"),
+                    hasIndex: true,
+                },
+            ]);
         }
         if (mode === "dev") expect(existsSync(resolve(f.project, "dist"))).toBe(staleDist);
         if (mode !== "source-release") {
