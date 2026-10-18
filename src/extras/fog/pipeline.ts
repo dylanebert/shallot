@@ -441,11 +441,13 @@ export const fogFilterKernel = tgpu
             fogFilterLayout.$.fog.medium.w - fogFilterLayout.$.view.projection.x,
             0.001,
         );
+        const a = d.f32(cell.z) / FOG_SLICES;
         const b = (d.f32(cell.z) + 1) / FOG_SLICES;
         const surface = std.textureLoad(fogFilterLayout.$.surface, cell.xy, 0).x;
-        // Neither HDRP's 3×3 nor Godot's 7-tap fog filter is depth-aware; wall cells here keep near-side light.
-        if (extent * b * b >= surface) {
-            const own = std.textureLoad(fogFilterLayout.$.lighting, cell, 0);
+        const weight = std.clamp((surface - extent * a * a) / (extent * (b * b - a * a)), 0, 1);
+        const own = std.textureLoad(fogFilterLayout.$.lighting, cell, 0);
+        // Neither HDRP's 3×3 nor Godot's 7-tap fog filter is depth-aware; blend continuously at the surface.
+        if (weight <= 0) {
             std.textureStore(
                 fogFilterLayout.$.output,
                 cell,
@@ -464,7 +466,11 @@ export const fogFilterKernel = tgpu
             sum = std.add(sum, std.mul(d.vec4f(std.mul(tap.xyz, tap.w), tap.w), GAUSSIAN.$[k + 3]));
             k = k + 1;
         }
-        std.textureStore(fogFilterLayout.$.output, cell, sum);
+        std.textureStore(
+            fogFilterLayout.$.output,
+            cell,
+            std.mix(d.vec4f(std.mul(own.xyz, own.w), own.w), sum, weight),
+        );
     })
     .$name("fogFilter");
 
@@ -506,7 +512,8 @@ export const fogIntegrateKernel = tgpu
             const ds = extent * (b * b - a * a) * rayScale;
             const slice = d.i32(i);
             let cell = d.vec4f(0);
-            const wall = extent * b * b >= surface;
+            const weight = std.clamp((surface - extent * a * a) / (extent * (b * b - a * a)), 0, 1);
+            const wall = weight <= 0;
             let k = std.select(d.i32(-3), d.i32(0), wall);
             const radius = std.select(d.i32(3), d.i32(0), wall);
             while (k <= radius) {
@@ -523,6 +530,8 @@ export const fogIntegrateKernel = tgpu
                 );
                 k = k + 1;
             }
+            const own = std.textureLoad(fogIntegrateLayout.$.lighting, d.vec3i(px, slice), 0);
+            cell = std.mix(own, cell, weight);
             const opticalDepth = cell.w * ds;
             const sampleTrans = std.exp(-opticalDepth);
             // Hillaire's closed-form cell integral S*(1-exp(-sigma*ds))/sigma, with S = albedo*(sigma*lstep)
