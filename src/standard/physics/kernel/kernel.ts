@@ -1311,16 +1311,21 @@ function host(): Host {
     return { browser: true, shared: g.crossOriginIsolated === true, cores };
 }
 
+/** The host functions every kernel instance imports, reading `memory` lazily. */
+function kernelImports(runtime: KernelState, memory: () => WebAssembly.Memory) {
+    return {
+        solverPause,
+        queryCallback: queryImport(runtime),
+        materialCallback: materialImport(runtime),
+        collisionCallback: collisionImport(runtime),
+        now: clockImport(memory),
+        kernelPanic: panicImport(memory),
+    };
+}
+
 async function single(runtime: KernelState): Promise<void> {
     const result = await WebAssembly.instantiate(decode(KERNEL_WASM_BASE64), {
-        env: {
-            solverPause,
-            queryCallback: queryImport(runtime),
-            materialCallback: materialImport(runtime),
-            collisionCallback: collisionImport(runtime),
-            now: clockImport(() => instance.memory),
-            kernelPanic: panicImport(() => instance.memory),
-        },
+        env: kernelImports(runtime, () => instance.memory),
     });
     const instance = result.instance.exports as unknown as Kernel;
     instance.installPanicHook?.();
@@ -1341,15 +1346,7 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
     const module = await WebAssembly.compile(decode(KERNEL_SHARED_WASM_BASE64));
     const exports = (
         await WebAssembly.instantiate(module, {
-            env: {
-                solverPause,
-                memory,
-                queryCallback: queryImport(runtime),
-                materialCallback: materialImport(runtime),
-                collisionCallback: collisionImport(runtime),
-                now: clockImport(() => memory),
-                kernelPanic: panicImport(() => memory),
-            },
+            env: { ...kernelImports(runtime, () => memory), memory },
         })
     ).exports as unknown as Kernel & {
         // biome-ignore lint/style/useNamingConvention: LLD's global, exported under its own name.
@@ -1463,14 +1460,7 @@ export function kernel(world: World | undefined): Kernel {
         if (runtime.booting) throw new Error("await init() before stepping");
         const mod = new WebAssembly.Module(decode(KERNEL_WASM_BASE64));
         const instance = new WebAssembly.Instance(mod, {
-            env: {
-                solverPause,
-                queryCallback: queryImport(runtime),
-                materialCallback: materialImport(runtime),
-                collisionCallback: collisionImport(runtime),
-                now: clockImport(() => instance.memory),
-                kernelPanic: panicImport(() => instance.memory),
-            },
+            env: kernelImports(runtime, () => instance.memory),
         }).exports as unknown as Kernel;
         instance.installPanicHook?.();
         runtime.instance = instance;
