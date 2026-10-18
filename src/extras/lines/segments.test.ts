@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { World } from "../../engine";
+import { SEGMENT_FLOATS } from "./pipeline";
 import {
     drawArrow,
     drawLine,
@@ -33,18 +34,14 @@ test("line stable identities survive segment staging growth", () => {
     }
 });
 
-test("an asset repacks once per geometry change, with no authored width", () => {
+test("an asset appends each drawn segment with no authored width", () => {
     const asset = new GizmoAsset();
     drawLine(asset, [0, 0, 0], [1, 0, 0], 0xffffff);
-    expect(asset.rebuilds).toBe(0);
-    const first = asset.geometry();
-    expect(first.f32[3]).toBe(0);
-    expect(asset.rebuilds).toBe(1);
-    expect(asset.geometry()).toBe(first);
-    expect(asset.rebuilds).toBe(1);
+    expect(asset.segments.count).toBe(1);
+    expect(asset.segments.f32[3]).toBe(0);
     drawWireBox(asset, [0, 0, 0], [1, 1, 1], 0xffffff);
-    expect(asset.geometry().count).toBe(13);
-    expect(asset.rebuilds).toBe(2);
+    expect(asset.segments.count).toBe(13);
+    for (let i = 0; i < 13; i++) expect(asset.segments.f32[i * SEGMENT_FLOATS + 3]).toBe(0);
 });
 
 function assetWidthTypeControls(world: World, asset: GizmoAsset): void {

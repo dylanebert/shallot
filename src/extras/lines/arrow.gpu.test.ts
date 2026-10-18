@@ -108,7 +108,7 @@ test("different-length retained and immediate arrows given the same tip length f
     }
 });
 
-test("one asset builds a line, arrow and box once and moves all fifteen primitives with its entity", async () => {
+test("one asset's line, arrow and box move all fifteen primitives with its entity, leaving the asset unchanged", async () => {
     const { world } = subjects()[1];
     const camera = world.create();
     world.add(camera, Transform, { translation: [0, 0, 5] });
@@ -130,14 +130,9 @@ test("one asset builds a line, arrow and box once and moves all fifteen primitiv
         world.step(1 / 60);
         return (await captureTexture(world, camera)).rgba;
     };
-    expect(asset.rebuilds).toBe(0);
     const before = await frame();
-    const rebuilds = asset.rebuilds;
-    expect(rebuilds).toBeGreaterThan(0);
     world.storage(Transform).translation.set(entity, 1, 0, 0);
     const after = await frame();
-    expect(asset.rebuilds).toBe(rebuilds);
-    expect(asset.rebuilds).toBe(1);
     expect(asset.segments.f32).toBe(source);
     expect(new Uint32Array(source.buffer)).toEqual(original);
     expect(lineCount(world)).toBe(15);
