@@ -16,7 +16,7 @@ import {
     type World,
 } from "@dylanebert/shallot";
 import { viewportToWorld } from "@dylanebert/shallot/rendering";
-import { castRayClosest, type PhysicsQueryHit } from "@dylanebert/shallot/standard/physics";
+import { castRayClosest, emptyQueryHit } from "@dylanebert/shallot/standard/physics";
 import type { MaterialHandle } from "@dylanebert/shallot/standard/rendering";
 import {
     COIN_CAP,
@@ -42,16 +42,7 @@ export const Game = {
         feedback: 0,
         mesh: 0,
         material: null as MaterialHandle | null,
-        hit: {
-            shape: 0,
-            body: 0,
-            point: { x: 0, y: 0, z: 0 },
-            normal: { x: 0, y: 0, z: 0 },
-            fraction: 0,
-            userMaterialId: 0n,
-            triangleIndex: 0,
-            childIndex: 0,
-        } satisfies PhysicsQueryHit,
+        hit: emptyQueryHit(),
     }),
 };
 

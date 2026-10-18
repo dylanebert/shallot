@@ -13,7 +13,7 @@ import {
     u8,
     type World,
 } from "@dylanebert/shallot";
-import { castRayClosest, type PhysicsQueryHit } from "@dylanebert/shallot/standard/physics";
+import { castRayClosest, emptyQueryHit } from "@dylanebert/shallot/standard/physics";
 import { LocalPlayer, Player, PlayerPlugin, UpdatePlayerControlSystem } from "./player";
 
 export const Usable = component("Usable", { bell: u8, clip: f32 });
@@ -30,16 +30,7 @@ const REACH = 3;
 
 const Aim = {
     create: () => ({
-        hit: {
-            shape: 0,
-            body: 0,
-            point: { x: 0, y: 0, z: 0 },
-            normal: { x: 0, y: 0, z: 0 },
-            fraction: 0,
-            userMaterialId: 0n,
-            triangleIndex: 0,
-            childIndex: 0,
-        } satisfies PhysicsQueryHit,
+        hit: emptyQueryHit(),
         origin: { x: 0, y: 0, z: 0 },
         ray: { x: 0, y: 0, z: 0 },
     }),
