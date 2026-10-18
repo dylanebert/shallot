@@ -9,6 +9,7 @@ import {
     xformMat,
 } from "../../core/rendering";
 import type { World } from "../../engine";
+import { srgbToLinear1 } from "../../engine/utils";
 import { engineLayout, materialLayout, materialType } from "../../standard/rendering";
 import { createSpriteSource } from "./table";
 
@@ -49,18 +50,6 @@ const layout = materialLayout(SpriteMaterialInput, {
     imageSampler: { type: "sampler" },
     imageSettings: { type: "texture-2d" },
 });
-
-const spriteSrgbToLinear = tgpu
-    .fn(
-        [d.vec3f],
-        d.vec3f,
-    )((c) => {
-        "use gpu";
-        const lo = std.div(c, 12.92);
-        const hi = std.pow(std.div(std.add(c, d.vec3f(0.055)), 1.055), d.vec3f(2.4));
-        return std.select(hi, lo, std.le(c, d.vec3f(0.04045)));
-    })
-    .$name("spriteSrgbToLinear");
 
 /** Fill mask: radial clockwise from 12 o'clock, vertical bottom-up, horizontal left-to-right. */
 const spriteFillMask = tgpu
@@ -135,15 +124,15 @@ export const SpriteMaterialType = materialType({
             std.dpdy(uv),
         );
         const hex = d.u32(sprite.color);
-        const tint = d.vec4f(
-            d.f32((hex >>> 16) & 255) / 255,
-            d.f32((hex >>> 8) & 255) / 255,
-            d.f32(hex & 255) / 255,
-            std.floor(std.clamp(sprite.opacity, 0, 1) * 255 + 0.5) / 255,
+        const tint = d.vec3f(
+            srgbToLinear1(d.f32((hex >>> 16) & 255) / 255),
+            srgbToLinear1(d.f32((hex >>> 8) & 255) / 255),
+            srgbToLinear1(d.f32(hex & 255) / 255),
         );
+        const opacity = std.floor(std.clamp(sprite.opacity, 0, 1) * 255 + 0.5) / 255;
         const mask = spriteFillMask(sprite.fillAmount, sprite.fillMethod, uv);
-        const rgb = std.mul(texel.xyz, spriteSrgbToLinear(tint.xyz));
-        const alpha = texel.w * tint.w * mask;
+        const rgb = std.mul(texel.xyz, tint);
+        const alpha = texel.w * opacity * mask;
         return d.vec4f(rgb, alpha);
     },
 });

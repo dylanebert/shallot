@@ -3,7 +3,8 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { decodePos, MeshQuant, meshIdOf } from "../../core/mesh";
 import { billboardCorner, DEPTH_FORMAT, ViewUniforms, Xform, xformMat } from "../../core/rendering";
-import { Glyph, sdfToSignedDistance, textSrgbToLinear } from "./glyph";
+import { unpackLdrColor } from "../../engine/utils";
+import { Glyph, sdfToSignedDistance } from "./glyph";
 
 const viewLayout = tgpu
     .bindGroupLayout({
@@ -68,7 +69,7 @@ export const TextVertex = tgpu.vertexFn({
     return {
         position: std.mul(viewLayout.$.view.viewProj, d.vec4f(world, 1)),
         uvSize: d.vec4f(uv, glyph.size),
-        color: std.unpack4x8unorm(glyph.color),
+        color: unpackLdrColor(glyph.color),
         local: corner,
     };
 });
@@ -84,7 +85,7 @@ export const TextFragment = tgpu.fragmentFn({
     const aa = std.length(std.mul(std.fwidth(input.local), input.uvSize.zw)) * 0.5;
     const alpha = std.smoothstep(aa, -aa, signedDistance);
     if (alpha < 0.01) std.discard();
-    return d.vec4f(textSrgbToLinear(input.color.xyz), std.mul(input.color.w, alpha));
+    return d.vec4f(input.color.xyz, std.mul(input.color.w, alpha));
 });
 
 // Text owns a renderer pipeline and is always transparent; mesh-material AlphaMode does not route it.

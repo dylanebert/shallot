@@ -51,14 +51,3 @@ export const sdfToSignedDistance = tgpu.fn(
     // Explicit f32 values avoid implicit integer conversions in emitted WGSL.
     return absDist * std.select(d.f32(1), d.f32(-1), sdf > 0.5);
 });
-
-/** Decodes packed sRGB glyph colors to linear RGB before blending. */
-export const textSrgbToLinear = tgpu.fn(
-    [d.vec3f],
-    d.vec3f,
-)((c) => {
-    "use gpu";
-    const lo = std.div(c, 12.92);
-    const hi = std.pow(std.div(std.add(c, d.vec3f(0.055)), 1.055), d.vec3f(2.4));
-    return std.select(hi, lo, std.le(c, d.vec3f(0.04045)));
-});
