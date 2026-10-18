@@ -14,7 +14,7 @@ test("project policy keeps tracked diagnostics source tools, never run output", 
     try {
         execFileSync("git", ["init", "--quiet"], { cwd: tree });
         mkdirSync(join(tree, "diagnostics/run"), { recursive: true });
-        for (const extension of ["ts", "mjs", "c", "h", "py", "rs"])
+        for (const extension of ["ts", "mjs", "c", "cpp", "h", "py", "rs"])
             writeFileSync(join(tree, `diagnostics/tool.${extension}`), "");
         const outputs = ["profile.txt", "profile.json", "junit.xml", "output.log", "REPORT.md"];
         for (const file of outputs) writeFileSync(join(tree, "diagnostics/run", file), "");

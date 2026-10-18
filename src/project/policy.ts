@@ -45,7 +45,7 @@ function diagnosticsSourceViolations(root: string): string[] {
     });
     return files
         .split("\0")
-        .filter((file) => file && !/\.(ts|mjs|c|h|py|rs)$/.test(file))
+        .filter((file) => file && !/\.(ts|mjs|c|cpp|h|py|rs)$/.test(file))
         .map((file) => `${file}: diagnostics keeps source tools, never a run's output`);
 }
 
