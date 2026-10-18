@@ -28,8 +28,7 @@ export function jfaPassCount(maxWidth: number): number {
     return passes;
 }
 
-/** the always-on-top mask layout: view/position/indices/globalTransforms/maskEids/maskAttrs/meshQuant.
- *  @internal */
+/** the always-on-top mask layout. @internal */
 export const maskLayoutPlain = tgpu.bindGroupLayout({
     globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
     view: { uniform: ViewUniforms, visibility: ["vertex"] },
@@ -75,9 +74,9 @@ type MaskLayout =
     | typeof maskLayoutOccludeMultisampled;
 
 /**
- * the mask vs, over a specific mask layout (plain or occlude — one authored
- * kernel re-emitting per layout). Pulls the highlighted instance's 8 B position stream, dequantizes against
- * its meshId's {@link MeshQuant}, and applies the `globalTransforms` rows ({@link xformPoint}). @internal
+ * the mask vs, over a specific mask layout (one authored kernel re-emitting per layout). Pulls the
+ * highlighted instance's 8 B position stream, dequantizes against its meshId's {@link MeshQuant}, and
+ * applies the `globalTransforms` rows ({@link xformPoint}). @internal
  */
 export function maskVertex(layout: MaskLayout) {
     return tgpu
