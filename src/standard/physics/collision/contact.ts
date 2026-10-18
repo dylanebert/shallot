@@ -37,9 +37,6 @@ export function setContactField(world: WorldState, id: number, field: number, va
 export function contactBodyId(world: WorldState, id: number, side: number): number {
     return contactField(world, id, ContactField.bodyIdA + 3 * side);
 }
-export function contactNextKey(world: WorldState, key: number): number {
-    return contactField(world, key >> 1, ContactField.nextKeyA + 3 * (key & 1));
-}
 export function contactIsValid(world: WorldState, id: EntityId): boolean {
     if (!world.inUse) return false;
     const contact = id.index1 - 1;

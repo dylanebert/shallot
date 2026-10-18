@@ -3,7 +3,6 @@ import { acquireCompoundData, acquireHeightFieldData, acquireMeshData } from "..
 import { ShapeField, shapeField, shapeScalar } from "../kernel/shaperecords";
 // Shape API and authoring bridge to Box3D's shape.c operations in the kernel (Erin Catto, MIT).
 
-import type * as bp from "../collision/broadphase";
 import { NULL_INDEX } from "../common/array";
 import { hi32, lo32 } from "../common/bits";
 import type { EntityId } from "../common/ids";
@@ -11,13 +10,7 @@ import type { AABB, Transform, Vec3, WorldTransform } from "../common/records";
 
 const f32 = Math.fround;
 
-import {
-    type BodyType,
-    type Filter,
-    type ShapeDef,
-    ShapeType,
-    type SurfaceMaterial,
-} from "../common/types";
+import { type Filter, type ShapeDef, ShapeType, type SurfaceMaterial } from "../common/types";
 import { kernel } from "../kernel/kernel";
 import {
     createShapeSlot,
@@ -71,12 +64,6 @@ export function readShapeCapsule(world: WorldState, shape: Shape): Capsule {
     };
 }
 
-export function shapeRadius(world: WorldState, shape: Shape): number {
-    world.shapeStore.refreshViews();
-    const offset = shapeField(world, shape, ShapeField.type) === ShapeType.Sphere ? 51 : 54;
-    return world.shapeStore.shapeF[shape * SHAPE_STRIDE + offset];
-}
-
 /**
  * Compounds own their material array, including a single material; other one-material shapes use
  * inline storage. This requested observation returns an independent array (b3GetShapeMaterials).
@@ -128,33 +115,6 @@ export function getShapeFilter(world: WorldState, shape: Shape): Filter {
         maskBits: (BigInt(words[offset + 41] >>> 0) << 32n) | BigInt(words[offset + 40] >>> 0),
         groupIndex: words[offset + 42] | 0,
     };
-}
-
-/**
- * The user material id at a contact point (b3GetShapeUserMaterialId). Selects the per-triangle
- * material for a mesh/height-field, the child's remapped slot for a compound, else material 0.
- */
-export function getShapeUserMaterialId(
-    world: WorldState,
-    shape: Shape,
-    childIndex: number,
-    triangleIndex: number,
-): bigint {
-    const materialCount = getShapeMaterialCount(world, shape);
-    if (materialCount === 0) {
-        return 0n;
-    }
-
-    const materialIndex = kernel(world.ecsState).shapeMaterialIndex(
-        world.worldId,
-        shape,
-        childIndex,
-        triangleIndex,
-    );
-    return world.shapeStore.userMaterialIdAt(
-        shape,
-        Math.max(0, Math.min(materialIndex, materialCount - 1)),
-    );
 }
 
 // --- geometry dispatch -----------------------------------------------------------------------
@@ -273,40 +233,6 @@ export function getShapeCentroid(
 ): Vec3 {
     kernel(world.ecsState).shapeGetCentroid(world.worldId, shape);
     return copyGeometryVector(world.shapeStore.geometryOutput, 0, out);
-}
-
-// --- proxy -----------------------------------------------------------------------------------
-
-export function createShapeProxy(
-    shape: Shape,
-    broadPhase: bp.BroadPhase,
-    _type: BodyType,
-    transform: WorldTransform,
-    forcePairCreation: boolean,
-): void {
-    const world = broadPhase.store.world;
-    if (!world) throw new Error("physics: shape proxies require a world-owned broad phase");
-    world.broadPhase.store.initialize();
-    const p = transform.p,
-        q = transform.q;
-    kernel(world.ecsState).shapeCreateProxyTransform(
-        world.worldId,
-        shape,
-        Number(forcePairCreation),
-        p.x,
-        p.y,
-        p.z,
-        q.v.x,
-        q.v.y,
-        q.v.z,
-        q.s,
-    );
-    world.broadPhase.store.refreshViews();
-}
-
-export function destroyShapeProxy(shape: Shape, broadPhase: bp.BroadPhase): void {
-    const world = broadPhase.store.world!;
-    kernel(world.ecsState).shapeDestroyProxy(world.worldId, shape);
 }
 
 export function setShapeFilter(world: WorldState, shape: Shape, filter: Filter): void {

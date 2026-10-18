@@ -1,6 +1,4 @@
 import { FLT_MAX, HUGE } from "../common/constants";
-import type { Vec3 } from "../common/records";
-import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
@@ -67,9 +65,6 @@ export function createDistanceJoint(
         def.enableMotor,
     );
     return finishJointCreation(world, def.base, joint);
-}
-export function getDistanceJointForce(world: WorldState, sim: Joint): Vec3 {
-    return readJointReaction(world, sim, false);
 }
 
 /** The current distance between the two anchor points (b3DistanceJoint_GetCurrentLength). */

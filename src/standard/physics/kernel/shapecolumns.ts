@@ -15,8 +15,6 @@ export const SHAPE_STRIDE = 56;
 /** b3Shape union: inline sphere or capsule, data reference plus mesh scale, or data reference. Its
  * first word is the retained hull pointer or non-convex pool word offset. */
 export const S_GEO_REFERENCE = 48;
-/** Kernel shape-record attachment lanes, outside finalize output. */
-export const S_MATERIAL_HEAD = 36;
 
 /** Surface material: friction, restitution, rolling, tangent xyz, u64 user id and color. */
 export const MATERIAL_STRIDE = 10;
@@ -194,24 +192,6 @@ export class ShapeStore extends KernelViews {
         const o = k.shapeMaterialPtr(this._worldId, shape) / 4 + index * MATERIAL_STRIDE;
         return this.userMaterialId(o);
     }
-
-    /** Detach and release the kernel material records owned by a shape. */
-    destroyMaterials(world: WorldState, shape: Shape): void {
-        this.refreshViews();
-        kernel(world.ecsState).shapeFreeMaterials(world.worldId, shape);
-    }
-
-    /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
-    writeFatAabb(shapeId: number, fat: AABB): void {
-        const o = shapeId * SHAPE_STRIDE + 16;
-        const f = this.shapeF;
-        f[o] = fat.lowerBound.x;
-        f[o + 1] = fat.lowerBound.y;
-        f[o + 2] = fat.lowerBound.z;
-        f[o + 3] = fat.upperBound.x;
-        f[o + 4] = fat.upperBound.y;
-        f[o + 5] = fat.upperBound.z;
-    }
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
@@ -250,18 +230,6 @@ export function readShapeMaterials(world: WorldState, shape: Shape): SurfaceMate
 export function shapeMaterialCount(world: WorldState, shape: Shape): number {
     const k = kernel(world.ecsState);
     return k.shapeMaterialCount(world.worldId, shape) >>> 0;
-}
-
-/** Keep the last shape bounds resident in `shapeF`, the shape store's current view, for the next
- * continuous sweep. */
-export function writeTightAabb(shapeF: Float32Array, shapeId: number, box: AABB): void {
-    const o = shapeId * SHAPE_STRIDE + 10;
-    shapeF[o] = box.lowerBound.x;
-    shapeF[o + 1] = box.lowerBound.y;
-    shapeF[o + 2] = box.lowerBound.z;
-    shapeF[o + 3] = box.upperBound.x;
-    shapeF[o + 4] = box.upperBound.y;
-    shapeF[o + 5] = box.upperBound.z;
 }
 
 /** Copy the kernel-owned tight bounds into caller-owned scratch. */

@@ -1,8 +1,5 @@
-import type { Vec3 } from "../common/records";
-
 const f32 = Math.fround;
 
-import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
@@ -84,14 +81,6 @@ export function createWheelJoint(
         def.upperSteeringLimit,
     );
     return finishJointCreation(world, def.base, joint);
-}
-export function getWheelJointForce(world: WorldState, sim: Joint): Vec3 {
-    return readJointReaction(world, sim, false);
-}
-
-/** The reaction torque this joint applies (b3GetWheelJointTorque). */
-export function getWheelJointTorque(world: WorldState, sim: Joint): Vec3 {
-    return readJointReaction(world, sim, true);
 }
 
 /** The spin speed of the wheel about its spin axis (b3WheelJoint_GetSpinSpeed). */

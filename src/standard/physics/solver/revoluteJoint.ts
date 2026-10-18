@@ -1,5 +1,3 @@
-import type { Vec3 } from "../common/records";
-import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
@@ -59,14 +57,6 @@ export function createRevoluteJoint(
         def.enableMotor,
     );
     return finishJointCreation(world, def.base, joint);
-}
-export function getRevoluteJointForce(world: WorldState, sim: Joint): Vec3 {
-    return readJointReaction(world, sim, false);
-}
-
-/** The reaction torque this joint applies (b3GetRevoluteJointTorque). */
-export function getRevoluteJointTorque(world: WorldState, sim: Joint): Vec3 {
-    return readJointReaction(world, sim, true);
 }
 
 /** The current hinge angle (b3RevoluteJoint_GetAngle): relative twist of the two joint frames. */

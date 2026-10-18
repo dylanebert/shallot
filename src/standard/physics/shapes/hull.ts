@@ -30,12 +30,6 @@ export type HullData = {
     planes: Plane[];
     hash: bigint;
 };
-export function shapeHullInnerRadius(world: WorldState, shape: number): number {
-    const store = world.shapeStore;
-    store.refreshViews();
-    const ptr = store.shapeU[shape * SHAPE_STRIDE + S_GEO_REFERENCE];
-    return store.materialF[(ptr >>> 2) + 12];
-}
 /** Independent hull geometry for a requested debug-draw callback. */
 export function readShapeHull(world: WorldState, shape: number): HullData {
     const store = world.shapeStore;

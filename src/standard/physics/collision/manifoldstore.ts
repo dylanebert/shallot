@@ -1,5 +1,4 @@
 import type { World } from "../../../engine";
-import type { SurfaceMaterial } from "../common/types";
 import {
     DIR_BLOCK,
     DIR_COUNT,
@@ -89,22 +88,6 @@ export class ManifoldStore extends KernelViews {
     }
 }
 
-export function writeContactMaterial(
-    dirF: Float32Array,
-    id: number,
-    material: Pick<
-        SurfaceMaterial,
-        "friction" | "restitution" | "rollingResistance" | "tangentVelocity"
-    >,
-): void {
-    const o = id * DIR_STRIDE;
-    dirF[o + DIR_FRICTION] = material.friction;
-    dirF[o + DIR_RESTITUTION] = material.restitution;
-    dirF[o + DIR_ROLLING_RESISTANCE] = material.rollingResistance;
-    dirF[o + DIR_TANGENT_VELOCITY] = material.tangentVelocity[0];
-    dirF[o + DIR_TANGENT_VELOCITY + 1] = material.tangentVelocity[1];
-    dirF[o + DIR_TANGENT_VELOCITY + 2] = material.tangentVelocity[2];
-}
 /** Independent snapshot of a contact's mixed material. */
 export function readContactMaterial(dirF: Float32Array, id: number) {
     const o = id * DIR_STRIDE;
@@ -121,17 +104,6 @@ export function readContactMaterial(dirF: Float32Array, id: number) {
 }
 export function contactHit(dirU: Uint32Array, id: number): boolean {
     return (dirU[id * DIR_STRIDE + DIR_FLAGS] & 0x00000002) !== 0;
-}
-export function contactPointCount(
-    dirU: Uint32Array,
-    poolU: Uint32Array,
-    id: number,
-    count: number,
-): number {
-    const base = dirU[id * DIR_STRIDE + DIR_BLOCK] >>> 2;
-    let points = 0;
-    for (let i = 0; i < count; ++i) points += poolU[base + i * MANIFOLD_STRIDE + M_POINT_COUNT];
-    return points;
 }
 /** Independent manifold snapshots; no object holds an address into kernel storage. */
 export function readContactManifolds(world: WorldState, id: number): Manifold[] {

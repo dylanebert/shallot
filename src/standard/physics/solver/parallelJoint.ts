@@ -1,6 +1,4 @@
 import { FLT_MAX } from "../common/constants";
-import type { Vec3 } from "../common/records";
-import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
@@ -39,8 +37,4 @@ export function createParallelJoint(
         def.maxTorque,
     );
     return finishJointCreation(world, def.base, joint);
-}
-
-export function getParallelJointTorque(world: WorldState, sim: Joint): Vec3 {
-    return readJointReaction(world, sim, true);
 }

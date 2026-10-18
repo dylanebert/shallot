@@ -14,26 +14,12 @@ export const LINEAR_SLOP = f32(f32(0.005) * LENGTH_UNITS_PER_METER);
 /// (B3_SPECULATIVE_DISTANCE).
 export const SPECULATIVE_DISTANCE = f32(4.0 * LINEAR_SLOP);
 
-/// Maximum points in a shape-cast proxy point cloud (B3_MAX_SHAPE_CAST_POINTS).
-export const MAX_SHAPE_CAST_POINTS = 64;
-
-/// Upper bound on the per-shape fat-AABB margin (B3_MAX_AABB_MARGIN).
-export const MAX_AABB_MARGIN = f32(f32(0.05) * LENGTH_UNITS_PER_METER);
-
-/// The per-shape fat-AABB margin is this fraction of the shape extent, capped by MAX_AABB_MARGIN
-/// (B3_AABB_MARGIN_FRACTION).
-export const AABB_MARGIN_FRACTION = f32(0.125);
-
 /// A contact is recycled rather than destroyed while the shapes stay within this distance
 /// (B3_CONTACT_RECYCLE_DISTANCE).
 export const CONTACT_RECYCLE_DISTANCE = f32(10.0 * LINEAR_SLOP);
 
 /// Coordinate sanity bound (B3_HUGE), 100 km at one length unit per meter.
 export const HUGE = f32(1.0e5 * LENGTH_UNITS_PER_METER);
-
-/// An island falls asleep once every body in it stays below its sleep threshold for this long, in
-/// seconds (B3_TIME_TO_SLEEP).
-export const TIME_TO_SLEEP = f32(0.5);
 
 /// Number of solver graph colors (B3_GRAPH_COLOR_COUNT); the last is the serial overflow color.
 export const GRAPH_COLOR_COUNT = 24;

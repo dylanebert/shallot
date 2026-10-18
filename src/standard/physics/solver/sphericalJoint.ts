@@ -1,5 +1,4 @@
 import type { Quat, Vec3 } from "../common/records";
-import { readJointReaction } from "../kernel/jointcolumns";
 import { kernel } from "../kernel/kernel";
 import type { WorldState } from "../world/world";
 import { finishJointCreation, type Joint, type JointDef, writeJointDefinition } from "./joint";
@@ -81,14 +80,6 @@ export function createSphericalJoint(
         def.enableMotor,
     );
     return finishJointCreation(world, def.base, joint);
-}
-export function getSphericalJointForce(world: WorldState, sim: Joint): Vec3 {
-    return readJointReaction(world, sim, false);
-}
-
-/** The reaction torque this joint applies (b3GetSphericalJointTorque). */
-export function getSphericalJointTorque(world: WorldState, sim: Joint): Vec3 {
-    return readJointReaction(world, sim, true);
 }
 
 /** The current swing (cone) angle (b3SphericalJoint_GetConeAngle). */

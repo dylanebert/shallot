@@ -2,7 +2,6 @@
 // Definitions are reusable creation data; length units are fixed at one per meter.
 
 import type { SurfaceMaterial } from "../../../core/physics";
-import { hi32, lo32 } from "./bits";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS, LENGTH_UNITS_PER_METER } from "./constants";
 import type { Pos, Quat, Vec3 } from "./records";
 
@@ -65,53 +64,6 @@ export type QueryFilter = {
 /** @returns the default query filter: all categories, all masks (b3DefaultQueryFilter). */
 export function defaultQueryFilter(): QueryFilter {
     return { categoryBits: DEFAULT_CATEGORY_BITS, maskBits: DEFAULT_MASK_BITS };
-}
-
-/**
- * A {@link Filter} with the u64 bit sets split into u32 halves for writing the kernel shape columns.
- * The live filter is held in those columns; `bigint` lives only on the public boundary.
- */
-export type FilterBits = {
-    categoryHi: number;
-    categoryLo: number;
-    maskHi: number;
-    maskLo: number;
-    groupIndex: number;
-};
-
-/** A {@link QueryFilter} in the split form; queries convert once at their entry point. */
-export type QueryFilterBits = {
-    categoryHi: number;
-    categoryLo: number;
-    maskHi: number;
-    maskLo: number;
-};
-
-export function toFilterBits(filter: Filter): FilterBits {
-    return {
-        categoryHi: hi32(filter.categoryBits),
-        categoryLo: lo32(filter.categoryBits),
-        maskHi: hi32(filter.maskBits),
-        maskLo: lo32(filter.maskBits),
-        groupIndex: filter.groupIndex,
-    };
-}
-
-export function toQueryFilterBits(filter: QueryFilter): QueryFilterBits {
-    return {
-        categoryHi: hi32(filter.categoryBits),
-        categoryLo: lo32(filter.categoryBits),
-        maskHi: hi32(filter.maskBits),
-        maskLo: lo32(filter.maskBits),
-    };
-}
-
-/** Whether a shape's filter admits this query (b3ShouldQueryCollide). */
-export function shouldQueryCollide(shape: FilterBits, query: QueryFilterBits): boolean {
-    return (
-        ((shape.categoryHi & query.maskHi) | (shape.categoryLo & query.maskLo)) !== 0 &&
-        ((shape.maskHi & query.categoryHi) | (shape.maskLo & query.categoryLo)) !== 0
-    );
 }
 
 export type { SurfaceMaterial };
