@@ -1,8 +1,8 @@
 import { MeshPlugin, runApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { OrbitPlugin } from "@dylanebert/shallot/extras";
 import { mount, unmount } from "svelte";
-import Hud from "./Hud.svelte";
 import { GrabPlugin } from "./grab";
+import Hud from "./Hud.svelte";
 import { createScene, type Scene, scenes } from "./scenes";
 import { createView } from "./view";
 
