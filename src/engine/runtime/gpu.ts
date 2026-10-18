@@ -1422,6 +1422,9 @@ function failureMessage(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
 }
 
+const isAlignmentLimit = (name: string): boolean =>
+    name.startsWith("min") && name.endsWith("Alignment");
+
 function checkRequirements(
     features: { has(feature: GPUFeatureName): boolean },
     limits: GPUSupportedLimits,
@@ -1439,7 +1442,7 @@ function checkRequirements(
         for (const [name, needed] of Object.entries(requirement.limits ?? {})) {
             const available = Number(limits[name as keyof GPUSupportedLimits]);
             const required = Number(needed);
-            const minAlignment = name.startsWith("min") && name.endsWith("Alignment");
+            const minAlignment = isAlignmentLimit(name);
             if (minAlignment ? available > required : available < required) {
                 const condition = minAlignment ? `no greater than ${required}` : `${required}`;
                 throw new UnsupportedError(
@@ -1455,7 +1458,7 @@ function mergeLimits(requirements: readonly NamedGpuRequirements[]): Record<stri
     for (const requirement of requirements) {
         for (const [name, value] of Object.entries(requirement.limits ?? {})) {
             const requested = Number(value);
-            const minAlignment = name.startsWith("min") && name.endsWith("Alignment");
+            const minAlignment = isAlignmentLimit(name);
             const current = limits[name];
             limits[name] =
                 current === undefined
