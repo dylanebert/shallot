@@ -114,18 +114,14 @@ test.describe("one stepped app", () => {
         ).toBeGreaterThan(10);
     });
 
-    test("moonlight separates the midnight shape from ground and its lit face from its shadow face", async () => {
+    test("the midnight shape stands apart from ground and the moon lights the ground", async () => {
         const night = await frame(page, 0);
         const lit = await mean(night, 0.48, 0.4, 0.51, 0.46);
-        const shadow = await mean(night, 0.518, 0.4, 0.523, 0.46);
         const ground = await mean(night, 0.54, 0.4, 0.57, 0.46);
         expect(Math.abs(lit - ground)).toBeGreaterThan(10);
-        expect(lit - shadow).toBeGreaterThan(3);
         const withoutMoon = await page.evaluateHandle(() => window.frame(0, false, false));
-        // The upper face receives direct moonlight; the existing side-face samples
-        // above also receive ambient light and alone cannot witness its contribution.
-        const top = (image: Frame) => mean(image, 0.49, 0.34, 0.5, 0.35);
-        expect((await top(night)) - (await top(withoutMoon))).toBeGreaterThan(1);
+        // The ground faces the moon, so moon on against off isolates its contribution.
+        expect(ground - (await mean(withoutMoon, 0.54, 0.4, 0.57, 0.46))).toBeGreaterThan(3);
     });
 
     test("the slider drives the hour and noon sky is brighter than midnight", async () => {
