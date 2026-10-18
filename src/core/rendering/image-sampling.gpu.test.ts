@@ -13,12 +13,11 @@ import { fullscreenVertex } from "./tonemapping";
 setDefaultTimeout(TIMEOUT.gpu);
 const modes = ["clamp-to-edge", "repeat", "mirror-repeat"] as const;
 const filters = ["nearest", "linear"] as const;
-// sampleImage reads each setting at one place: U and V only in their axis's addressing, mag and min
-// only in the texel filter chosen by the sign of the level of detail, mipmap only in the level
-// branch; texel positions and levels come from the pixel and gradient, which every case sweeps. No
-// term depends on two settings jointly, except the hardware-path gate on the exact default. So the
-// cases are the default, each single-setting departure from it, and rows completing every pair of
-// settings (U x V, U or V x each filter, filter x filter), rather than the 72-case cross product.
+// Twelve cases rather than the 72-case cross product: the default, each of its seven single-setting
+// departures (the hardware path is gated on the exact default), and rows completing every pair of
+// settings' values (U x V, U or V x each filter, filter x filter). sampleImage reads each setting at
+// one place: U and V in their axis's addressing, mag and min in the texel filter chosen by the sign
+// of the level of detail, mipmap in the level branch. Every case sweeps positions and levels.
 const L = 1;
 const N = 0;
 const rows: [number, number, number, number, number][] = [

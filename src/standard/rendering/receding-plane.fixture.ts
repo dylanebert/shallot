@@ -60,6 +60,8 @@ export const LEVEL_COLOURS = [
     [128, 128, 128],
 ] as const;
 
+type Readback = { rgba: Uint8ClampedArray; width: number; height: number };
+
 const srgbToLinear = (byte: number) => {
     const c = byte / 255;
     return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
@@ -296,7 +298,67 @@ export function planeLod(
     return Math.log2(Math.max(x, y));
 }
 
-type Readback = { rgba: Uint8ClampedArray; width: number; height: number };
+const references = new Map<string, Readback>();
+
+/**
+ * What trilinear filtering of the uploaded chain draws at each plane pixel, from the geometry's level
+ * of detail: levels floor(lod) and the next, each filtered linearly along U, mixed by fract(lod), in
+ * linear light, then display-encoded. Off-plane pixels are 0. Texels vary along U only, so filtering
+ * along V leaves them unchanged.
+ */
+export function trilinearReference(width: number, height: number): Readback {
+    const key = `${width}x${height}`;
+    const cached = references.get(key);
+    if (cached) return cached;
+    const levels = diagnosticChain().map((pixels) => {
+        const size = Math.sqrt(pixels.length / 4);
+        return Float32Array.from({ length: size }, (_, x) => srgbToLinear(pixels[x * 4]));
+    });
+    const last = levels.length - 1;
+    const sample = (level: number, u: number) => {
+        const row = levels[level];
+        const x = u * row.length - 0.5;
+        const i = Math.floor(x);
+        const w = x - i;
+        const at = (j: number) => row[Math.min(row.length - 1, Math.max(0, j))];
+        return at(i) * (1 - w) + at(i + 1) * w;
+    };
+    const rgba = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+            // Derivatives are per 2x2 quad: its top-left pixel's forward differences.
+            const lod = planeLod(width, height, x & ~1, y & ~1);
+            const uv = planeUv(width, height, x + 0.5, y + 0.5);
+            if (lod === undefined || !uv) continue;
+            const clamped = Math.min(last, Math.max(0, lod));
+            const level = Math.floor(clamped);
+            const f = clamped - level;
+            const fine = sample(level, uv[0]);
+            const value =
+                f === 0 ? fine : fine * (1 - f) + sample(Math.min(last, level + 1), uv[0]) * f;
+            rgba[(y * width + x) * 4] = linearToSrgb(value);
+        }
+    const reference = { rgba, width, height };
+    references.set(key, reference);
+    return reference;
+}
+
+/**
+ * The largest difference between a capture's row contrast and the trilinear reference's, over plane
+ * rows whose centre level of detail lies in [low, high], and the row where it occurs.
+ */
+export function referenceError(capture: Readback, low: number, high: number) {
+    const reference = trilinearReference(capture.width, capture.height);
+    let error = 0;
+    let row = -1;
+    for (const y of planeRows(capture)) {
+        const lod = planeLod(capture.width, capture.height, capture.width / 2, y);
+        if (lod === undefined || lod < low || lod > high) continue;
+        const difference = Math.abs(rowContrast(capture, y) - rowContrast(reference, y));
+        if (difference > error) [error, row] = [difference, y];
+    }
+    return { error, row, lod: planeLod(capture.width, capture.height, capture.width / 2, row) };
+}
 
 /** Rows, top first, whose central half lies on the plane. */
 export function planeRows({ width, height }: Readback): number[] {
@@ -323,19 +385,6 @@ export function rowContrast({ rgba, width }: Readback, y: number): number {
     }
     const mean = sum / n;
     return Math.sqrt(Math.max(0, square / n - mean * mean));
-}
-
-/** Mean row contrast over plane rows whose centre level of detail lies in [low, high]. */
-export function meanContrast(capture: Readback, low: number, high: number): number {
-    let sum = 0;
-    let rows = 0;
-    for (const y of planeRows(capture)) {
-        const lod = planeLod(capture.width, capture.height, capture.width / 2, y);
-        if (lod === undefined || lod < low || lod > high) continue;
-        sum += rowContrast(capture, y);
-        rows++;
-    }
-    return rows === 0 ? 0 : sum / rows;
 }
 
 /**
