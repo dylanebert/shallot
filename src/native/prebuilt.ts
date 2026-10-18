@@ -12,7 +12,6 @@ export type PrebuiltFetchResult =
     | "not-found"
     | "offline"
     | "checksum-mismatch"
-    | "source-checkout"
     | "extract-failed"
     | "cache-error";
 
@@ -24,14 +23,9 @@ export interface PrebuiltDecision {
 /** Decides from caller-supplied cache and fetch results; performs no I/O. */
 export function resolvePrebuiltDecision(
     version: string | null,
-    target: string,
-    mode: PrebuiltMode,
     cacheHit: boolean,
     fetchResult: PrebuiltFetchResult | null,
 ): PrebuiltDecision {
-    // Cache and fetch results already account for target and mode.
-    void target;
-    void mode;
     if (version === null)
         return {
             decision: "lazy",
@@ -48,11 +42,6 @@ export function resolvePrebuiltDecision(
             return { decision: "lazy", reason: "offline — could not reach GitHub" };
         case "checksum-mismatch":
             return { decision: "lazy", reason: "checksum mismatch — archive may be corrupted" };
-        case "source-checkout":
-            return {
-                decision: "lazy",
-                reason: "source checkout — no published release to download",
-            };
         case "extract-failed":
             return {
                 decision: "lazy",
@@ -202,7 +191,7 @@ export async function tryPrebuilt(
     const mode: PrebuiltMode = portable ? "portable" : "system";
 
     if (version === null) {
-        const d = resolvePrebuiltDecision(null, target, mode, false, null);
+        const d = resolvePrebuiltDecision(null, false, null);
         console.log(`  prebuilt: ${d.reason}`);
         return null;
     }
@@ -214,7 +203,7 @@ export async function tryPrebuilt(
     const completeMarker = resolve(cacheDir, ".complete");
 
     if (existsSync(completeMarker)) {
-        const d = resolvePrebuiltDecision(version, target, mode, true, null);
+        const d = resolvePrebuiltDecision(version, true, null);
         console.log(`  prebuilt: ${d.reason}`);
         return buildPrebuiltResult(cacheDir, binaryPath, target, portable);
     }
@@ -264,7 +253,7 @@ export async function tryPrebuilt(
         fetchResult = e instanceof PrebuiltFetchError ? e.kind : "offline";
     }
 
-    const d = resolvePrebuiltDecision(version, target, mode, false, fetchResult);
+    const d = resolvePrebuiltDecision(version, false, fetchResult);
     console.log(`  prebuilt: ${d.reason}`);
 
     if (d.decision === "prebuilt") {
