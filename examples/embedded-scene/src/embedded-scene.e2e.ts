@@ -1,6 +1,6 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, releasing, test } from "../tests/browser-fixture";
+import { expect, expectStartupAlert, type Page, releasing, test } from "../tests/browser-fixture";
 
 const CAPTURE_ENTRY = resolve(
     dirname(fileURLToPath(import.meta.url)),
@@ -235,6 +235,23 @@ test("host paints contained semantic startup feedback before application entry, 
         text: "Loading…",
         state: "loading",
     });
+});
+
+test("without WebGPU the engine overlay shows the unsupported error and the host draws no second line", async ({
+    page,
+}) => {
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, "gpu", { configurable: true, value: undefined });
+    });
+    expectStartupAlert(page, /Unsupported configuration/);
+    // HostFrame.fail logs the error before deciding whether to draw its own line.
+    const hostFailed = page.waitForEvent("console", (message) =>
+        message.text().startsWith("UnsupportedError: WebGPU unavailable"),
+    );
+    await page.goto("/");
+    await expect(page.locator(overlaySelector)).toContainText("Unsupported configuration");
+    await hostFailed;
+    await expect(page.locator(".frame-error")).toHaveCount(0);
 });
 
 test("the screenshot witness rejects the held base and a blank-feedback control", async ({
