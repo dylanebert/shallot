@@ -7,7 +7,7 @@ export function revealAfterFirstFrame(host: HostFrame, loading: Pick<Loading, "e
     let disposed = false;
     const fail = (error: unknown): void => {
         loading.error?.(error);
-        // Loading.error has no overlay to update after cleanup; HostFrame renders the in-frame fallback then.
+        // HostFrame draws its own line only when no loading overlay shows the error, as with a Loading that renders nothing.
         host.fail(error);
     };
 
