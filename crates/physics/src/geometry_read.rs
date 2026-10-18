@@ -1,5 +1,5 @@
 //! Shape geometry readers from Box3D hull.c, mesh.c and height_field.c.
-use crate::math::{maxf, Mat3, Transform, Vec3};
+use crate::math::{Mat3, Transform, Vec3};
 use crate::mesh_query::{max, min, mul};
 
 pub fn transform_bounds(lower: Vec3, upper: Vec3, pose: Transform) -> [f32; 6] {
@@ -99,10 +99,10 @@ pub fn read(operation: u32, input: &[u32]) -> [u32; 16] {
             }
         }
         4 => {
-            let safe = |x: f32| (if x >= 0.0 { 1.0 } else { -1.0 }) * maxf(x.abs(), 0.01);
-            out[0] = safe(f(8)).to_bits();
-            out[1] = safe(f(9)).to_bits();
-            out[2] = safe(f(10)).to_bits();
+            let scale = v(8).safe_scale();
+            out[0] = scale.x.to_bits();
+            out[1] = scale.y.to_bits();
+            out[2] = scale.z.to_bits();
         }
         5 | 6 => {
             let (vertices, indices, flags) = if operation == 5 {

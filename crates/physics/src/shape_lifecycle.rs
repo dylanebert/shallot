@@ -492,9 +492,9 @@ pub unsafe extern "C" fn set_mesh(world: usize, id: usize, handle: usize, x: f32
         u.set(o + shapes::S_TYPE, 4);
         u.set(o + shapes::S_GEO_REFERENCE, handle as u32);
         let f = shapes::col_f(world);
-        for (lane, value) in [x, y, z].into_iter().enumerate() {
-            let sign = if value >= 0.0 { 1.0 } else { -1.0 };
-            f.set(o + 49 + lane, sign * crate::math::maxf(value.abs(), 0.01));
+        let scale = crate::math::Vec3::new(x, y, z).safe_scale();
+        for (lane, value) in [scale.x, scale.y, scale.z].into_iter().enumerate() {
+            f.set(o + 49 + lane, value);
         }
         crate::shape_geometry::finish_geometry_in_world(world, id);
         reset_after_geometry_change(world, id);

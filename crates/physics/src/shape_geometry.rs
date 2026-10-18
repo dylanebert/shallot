@@ -398,9 +398,9 @@ mod wasm {
                 floats.set(o + 48 + lane, value);
             }
         } else if t == 4 {
-            for (lane, value) in [a, b, c].into_iter().enumerate() {
-                let sign = if value >= 0.0 { 1.0 } else { -1.0 };
-                floats.set(o + 49 + lane, sign * maxf(value.abs(), 0.01));
+            let scale = Vec3::new(a, b, c).safe_scale();
+            for (lane, value) in [scale.x, scale.y, scale.z].into_iter().enumerate() {
+                floats.set(o + 49 + lane, value);
             }
         } else {
             for (lane, value) in [a, b, c, d, e, f, g].into_iter().enumerate() {

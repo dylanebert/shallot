@@ -227,6 +227,12 @@ impl Vec3 {
     pub fn abs(self) -> Vec3 {
         Vec3::new(absf(self.x), absf(self.y), absf(self.z))
     }
+    /// Each component's sign with at least `B3_MIN_SCALE` magnitude (b3SafeScale).
+    #[inline]
+    pub fn safe_scale(self) -> Vec3 {
+        let safe = |x: f32| (if x >= 0.0 { 1.0 } else { -1.0 }) * maxf(x.abs(), 0.01);
+        Vec3::new(safe(self.x), safe(self.y), safe(self.z))
+    }
     /// Cross with all-plus signs (b3ModifiedCross): the sweep/rotation-arc bound, not a true cross.
     #[inline]
     pub fn modified_cross(self, o: Vec3) -> Vec3 {
