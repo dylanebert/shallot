@@ -6,7 +6,7 @@
 //! Columns alias WASM linear memory through shared-mutable [`Col`] handles.
 //! See col.rs for the aliasing contract.
 
-use crate::body::{FIN_STRIDE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE};
+use crate::body::{SIM_STRIDE, STATE_STRIDE};
 use crate::col::Col;
 use crate::contact::{Columns, ContactConstraint, ManifoldConstraint};
 use crate::contact_wide::WIDE_STRIDE;
@@ -99,7 +99,6 @@ pub(crate) const COLOR_SPAN_STRIDE: usize = 6;
 const STATE: usize = 0;
 const FLAGS: usize = 1;
 const SIM: usize = 2;
-const FIN: usize = 3;
 const CC: usize = 6;
 const MC: usize = 8;
 const OVERFLOW_CC: usize = 7;
@@ -188,7 +187,6 @@ pub extern "C" fn reserve_in_world(
         LAYOUT[STATE] = crate::bodies::state_base(world_index) as u32;
         LAYOUT[FLAGS] = crate::bodies::flags_base(world_index) as u32;
         LAYOUT[SIM] = crate::bodies::sim_base(world_index) as u32;
-        LAYOUT[FIN] = crate::bodies::fin_base(world_index) as u32;
         let mut off = 0;
         LAYOUT[WIDE] = off as u32;
         off += wide * WIDE_STRIDE * 4;
@@ -1621,19 +1619,12 @@ pub(crate) unsafe fn finalize_block(
         let b = body_records(world_index);
         let state = f32s(STATE, b * STATE_STRIDE);
         let sim = f32s(SIM, b * SIM_STRIDE);
-        let fin = f32s(FIN, b * FIN_STRIDE);
         let flags = u32s(FLAGS, b * STATE_STRIDE);
-        let sim2 = Col::new(
-            crate::bodies::sim2_base(world_index) as *mut f32,
-            b * SIM2_STRIDE,
-        );
         finalize::finalize(
             world_index,
             worker,
             state,
             sim,
-            fin,
-            sim2,
             flags,
             start,
             end - start,
@@ -1656,27 +1647,21 @@ pub(crate) unsafe fn finalize_block(
 /// # Safety
 /// The body + shape + fat-AABB regions must be reserved for every reachable shape, and no thread may grow
 /// memory while this runs (the MT concurrency invariant).
-pub(crate) unsafe fn refit_body(
-    world_index: usize,
-    worker: usize,
-    sim: Col<f32>,
-    fin: Col<f32>,
-    i: usize,
-) {
+pub(crate) unsafe fn refit_body(world_index: usize, worker: usize, sim: Col<f32>, i: usize) {
     unsafe {
         let records = crate::bodies::body_cap_in_world(world_index);
-        let sim2 = Col::new(
-            crate::bodies::sim2_base(world_index) as *mut u32,
-            records * SIM2_STRIDE,
+        let sim_u = Col::new(
+            crate::bodies::sim_base(world_index) as *mut u32,
+            records * SIM_STRIDE,
         );
         let shape_u = crate::shapes::col(world_index);
         let shape_f = crate::shapes::col_f(world_index);
         let fat = crate::shapes::col_f(world_index);
         {
-            if sim2.atomic_get(i * SIM2_STRIDE + crate::body::S2_FLAGS) & 0x40 != 0 {
+            if sim_u.atomic_get(i * SIM_STRIDE + crate::body::FLAGS) & 0x40 != 0 {
                 if crate::bodies::record(
                     world_index,
-                    sim2.get(i * SIM2_STRIDE + crate::body::S2_BODY_ID) as usize,
+                    sim_u.get(i * SIM_STRIDE + crate::body::BODY_ID) as usize,
                 )
                 .head_shape_id
                     != -1
@@ -1686,15 +1671,14 @@ pub(crate) unsafe fn refit_body(
                 return;
             }
             let so = i * SIM_STRIDE;
-            let fo = i * FIN_STRIDE;
             let xf = Transform {
-                p: Vec3::new(fin.get(fo), fin.get(fo + 1), fin.get(fo + 2)),
+                p: Vec3::new(sim.get(so), sim.get(so + 1), sim.get(so + 2)),
                 q: Quat {
                     v: Vec3::new(sim.get(so + 3), sim.get(so + 4), sim.get(so + 5)),
                     s: sim.get(so + 6),
                 },
             };
-            let body_id = sim2.get(i * SIM2_STRIDE + crate::body::S2_BODY_ID) as usize;
+            let body_id = sim_u.get(i * SIM_STRIDE + crate::body::BODY_ID) as usize;
             let mut shape_id = crate::bodies::record(world_index, body_id).head_shape_id as u32;
             while shape_id != crate::shapes::NULL_SHAPE {
                 let o = shape_id as usize * crate::shapes::SHAPE_STRIDE;

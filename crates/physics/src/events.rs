@@ -292,7 +292,7 @@ mod runtime {
                             world,
                             ar.set_index as usize,
                             ar.local_index as usize,
-                            2,
+                            1,
                         ) as *mut f32,
                         body::SIM_STRIDE,
                     ),
@@ -305,7 +305,7 @@ mod runtime {
                             world,
                             br.set_index as usize,
                             br.local_index as usize,
-                            2,
+                            1,
                         ) as *mut f32,
                         body::SIM_STRIDE,
                     ),
@@ -376,9 +376,9 @@ mod runtime {
     }
     pub unsafe fn write_move(world_index: usize, index: usize) {
         let world = world_index;
-        let sim2 = bodies::sim2_base(world_index) as *const u32;
-        let body_id = *sim2.add(index * body::SIM2_STRIDE + body::S2_BODY_ID) as usize;
-        let fin = (bodies::fin_base(world_index) as *const f32)
+        let sim = bodies::sim_base(world_index) as *const u32;
+        let body_id = *sim.add(index * body::SIM_STRIDE + body::BODY_ID) as usize;
+        let position = (bodies::sim_base(world_index) as *const f32)
             .add(index * body::SIM_STRIDE + body::TRANSFORM_P);
         let rotation = (bodies::sim_base(world_index) as *const crate::math::Quat)
             .cast::<f32>()
@@ -387,7 +387,7 @@ mod runtime {
         *(bodies::move_base(world_index) as *mut BodyMove).add(index) = BodyMove {
             user_data: body_id as u32,
             transform: WorldTransform {
-                p: [*fin, *fin.add(1), *fin.add(2)],
+                p: [*position, *position.add(1), *position.add(2)],
                 q: [
                     (*rotation).v.x,
                     (*rotation).v.y,

@@ -93,7 +93,7 @@ impl World for Resident {
                 as usize;
             let record = crate::bodies::record(self.world, id);
             let fin = crate::body::read_fin(
-                crate::bodies::column(self.world, id, 2, crate::body::FIN_STRIDE),
+                crate::bodies::column(self.world, id, 1, crate::body::SIM_STRIDE),
                 0,
             );
             let sim = crate::body::read_sim(

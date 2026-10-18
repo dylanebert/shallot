@@ -192,7 +192,7 @@ pub fn speed(c: Col<f32>, a: Motion, b: Motion, operation: u32) -> f32 {
 #[cfg(target_arch = "wasm32")]
 unsafe fn motion(world: usize, id: usize, pose: Transform) -> Motion {
     let fin = crate::body::read_fin(
-        crate::bodies::column(world, id, 2, crate::body::FIN_STRIDE),
+        crate::bodies::column(world, id, 1, crate::body::SIM_STRIDE),
         0,
     );
     let (linear, angular) = if crate::bodies::record(world, id).set_index == 2 {

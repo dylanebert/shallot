@@ -4,9 +4,9 @@
 
 #[cfg(target_arch = "wasm32")]
 use crate::body::{
-    clear_sim_force_torque, flags::DYNAMIC, read_fin, read_sim, read_state, write_fin_center,
-    write_fin_transform_p, write_sim_inv_inertia_world, write_sim_rotation, S2_BODY_ID, S2_CENTER0,
-    S2_FLAGS, S2_MIN_EXTENT, S2_ROTATION0, SIM2_STRIDE,
+    clear_sim_force_torque, flags::DYNAMIC, read_fin, read_sim, read_state, write_sim_center,
+    write_sim_inv_inertia_world, write_sim_rotation, write_sim_transform_p, BODY_ID, CENTER0,
+    FLAGS, MIN_EXTENT, ROTATION0, SIM_STRIDE,
 };
 #[cfg(target_arch = "wasm32")]
 use crate::col::Col;
@@ -106,10 +106,10 @@ pub fn convex_bounds(shape_type: u32, geom: &[f32], xf: Transform) -> [f32; 6] {
 
 /// Advance the bodies in `[start, start+count)` from their solved velocity/position deltas.
 ///
-/// Reads state (velocities + deltas), sim (transform.q + invInertiaLocal), the finalize column
-/// (center, localCenter, maxExtent), and the sim2 minExtent + flags. Writes the advanced
-/// center/transform.p (finalize column), transform.q + invInertiaWorld (sim), the cleared force/torque
-/// (sim), the reset deltas (state), sleepVelocity on the owning body, and the sweep base for
+/// Reads state (velocities + deltas) and sim (transform.q, invInertiaLocal, center, localCenter,
+/// maxExtent, minExtent and flags). Writes the advanced center, transform.p, transform.q and
+/// invInertiaWorld, the cleared force/torque (sim), the reset deltas (state), sleepVelocity on the
+/// owning body, and the sweep base for
 /// non-fast bodies. Fast non-bullets sweep immediately; bullets retain their base for the deferred
 /// sweep. `h` is the full-step dt, `inv_dt` its inverse.
 ///
@@ -122,8 +122,6 @@ pub unsafe fn finalize(
     worker: usize,
     state_col: Col<f32>,
     sim_col: Col<f32>,
-    fin_col: Col<f32>,
-    sim2_col: Col<f32>,
     flags_col: Col<u32>,
     start: usize,
     count: usize,
@@ -134,7 +132,7 @@ pub unsafe fn finalize(
     for i in start..start + count {
         let s = read_state(state_col, i);
         let sim = read_sim(sim_col, i);
-        let fin = read_fin(fin_col, i);
+        let fin = read_fin(sim_col, i);
 
         let v = s.linear_velocity;
         let w = s.angular_velocity;
@@ -171,44 +169,44 @@ pub unsafe fn finalize(
 
         write_sim_rotation(sim_col, i, q);
         clear_sim_force_torque(sim_col, i);
-        write_fin_center(fin_col, i, center);
-        write_fin_transform_p(fin_col, i, transform_p);
+        write_sim_center(sim_col, i, center);
+        write_sim_transform_p(sim_col, i, transform_p);
 
-        let s2 = i * SIM2_STRIDE;
-        let body_id = sim2_col.get(s2 + S2_BODY_ID).to_bits() as usize;
+        let o = i * SIM_STRIDE;
+        let body_id = sim_col.get(o + BODY_ID).to_bits() as usize;
         let body = crate::bodies::record_mut(world_index, body_id);
         body.sleep_velocity = sleep_velocity;
         let transient = crate::body::flags::IS_FAST
             | crate::body::flags::IS_SPEED_CAPPED
             | crate::body::flags::HAD_TIME_OF_IMPACT;
-        let sim_flags = sim2_col.get(s2 + S2_FLAGS).to_bits();
+        let sim_flags = sim_col.get(o + FLAGS).to_bits();
         let state_flags = flags_col.get(i * crate::body::STATE_STRIDE);
         body.body_move_index = i as i32;
         body.flags = (body.flags & !transient)
             | ((sim_flags | state_flags)
                 & (crate::body::flags::IS_SPEED_CAPPED | crate::body::flags::HAD_TIME_OF_IMPACT));
-        sim2_col.set(s2 + S2_FLAGS, f32::from_bits(sim_flags & !transient));
+        sim_col.set(o + FLAGS, f32::from_bits(sim_flags & !transient));
         flags_col.set(i * crate::body::STATE_STRIDE, state_flags & !transient);
         crate::events::write_move(world_index, i);
         let awake = !crate::continuous::sleep_enabled()
             || body.flags & crate::body::flags::ENABLE_SLEEP == 0
             || sleep_velocity > body.sleep_threshold;
-        let flags = sim2_col.get(s2 + S2_FLAGS).to_bits() & !crate::continuous::IS_FAST;
-        sim2_col.set(s2 + S2_FLAGS, f32::from_bits(flags));
+        let flags = sim_col.get(o + FLAGS).to_bits() & !crate::continuous::IS_FAST;
+        sim_col.set(o + FLAGS, f32::from_bits(flags));
         let mut fast_candidate = false;
         if awake {
             body.sleep_time = 0.0;
             let max_motion = maxf(max_delta_position, max_velocity * h);
             fast_candidate = enable_continuous
                 && flags_col.get(i * crate::body::STATE_STRIDE) & DYNAMIC != 0
-                && max_motion > SAFETY_FACTOR * sim2_col.get(s2 + S2_MIN_EXTENT);
+                && max_motion > SAFETY_FACTOR * sim_col.get(o + MIN_EXTENT);
         }
         if !awake {
             body.sleep_time += h;
         }
         if fast_candidate {
-            sim2_col.set(
-                s2 + S2_FLAGS,
+            sim_col.set(
+                o + FLAGS,
                 f32::from_bits(flags | crate::continuous::IS_FAST),
             );
             if flags & crate::continuous::IS_BULLET != 0 {
@@ -228,16 +226,16 @@ pub unsafe fn finalize(
                 crate::continuous::solve(world_index, worker, i);
             }
         } else {
-            sim2_col.set(s2 + S2_ROTATION0, q.v.x);
-            sim2_col.set(s2 + S2_ROTATION0 + 1, q.v.y);
-            sim2_col.set(s2 + S2_ROTATION0 + 2, q.v.z);
-            sim2_col.set(s2 + S2_ROTATION0 + 3, q.s);
-            sim2_col.set(s2 + S2_CENTER0, center.x);
-            sim2_col.set(s2 + S2_CENTER0 + 1, center.y);
-            sim2_col.set(s2 + S2_CENTER0 + 2, center.z);
+            sim_col.set(o + ROTATION0, q.v.x);
+            sim_col.set(o + ROTATION0 + 1, q.v.y);
+            sim_col.set(o + ROTATION0 + 2, q.v.z);
+            sim_col.set(o + ROTATION0 + 3, q.s);
+            sim_col.set(o + CENTER0, center.x);
+            sim_col.set(o + CENTER0 + 1, center.y);
+            sim_col.set(o + CENTER0 + 2, center.z);
         }
 
-        finish_body(world_index, worker, i, sim_col, fin_col, body_id);
+        finish_body(world_index, worker, i, sim_col, body_id);
     }
 }
 
@@ -247,7 +245,6 @@ pub(crate) unsafe fn finish_body(
     worker: usize,
     i: usize,
     sim_col: Col<f32>,
-    fin_col: Col<f32>,
     body_id: usize,
 ) {
     // Continuous collision can clip the rotation before inertia is rebuilt.
@@ -261,7 +258,7 @@ pub(crate) unsafe fn finish_body(
             .mul(rotation_matrix.transpose()),
     );
     crate::arena::mark_finalize_island(world_index, worker, body_id);
-    crate::arena::refit_body(world_index, worker, sim_col, fin_col, i);
+    crate::arena::refit_body(world_index, worker, sim_col, i);
 }
 
 #[cfg(test)]

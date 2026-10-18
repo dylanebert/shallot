@@ -206,7 +206,6 @@ pub(crate) mod runtime {
             return;
         }
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
         let v = Vec3::new(x, y, z);
         if kind <= 2 {
             let offset = if kind == 2 { body::TORQUE } else { body::FORCE };
@@ -214,7 +213,7 @@ pub(crate) mod runtime {
                 sim.set(offset + lane, sim.get(offset + lane) + value);
             }
             if kind == 0 {
-                let center = body::read_fin(fin, 0).center;
+                let center = body::read_fin(sim, 0).center;
                 let torque = Vec3::new(px, py, pz).sub(center).cross(v);
                 sim.set(body::TORQUE, sim.get(body::TORQUE) + torque.x);
                 sim.set(body::TORQUE + 1, sim.get(body::TORQUE + 1) + torque.y);
@@ -237,7 +236,7 @@ pub(crate) mod runtime {
             }
             state.linear_velocity = linear;
             if kind == 3 {
-                let offset = Vec3::new(px, py, pz).sub(body::read_fin(fin, 0).center);
+                let offset = Vec3::new(px, py, pz).sub(body::read_fin(sim, 0).center);
                 state.angular_velocity = state
                     .angular_velocity
                     .add(data.inv_inertia_world.mul_v(offset.cross(v)));
@@ -280,27 +279,25 @@ pub(crate) mod runtime {
         use crate::math::{Quat, Vec3};
 
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
-        let sim2 = bodies::column(world, id, 5, body::SIM2_STRIDE);
         let q = Quat {
             v: Vec3::new(qx, qy, qz),
             s: qs,
         };
         let p = Vec3::new(x, y, z);
-        body::write_fin_transform_p(fin, 0, p);
+        body::write_sim_transform_p(sim, 0, p);
         body::write_sim_rotation(sim, 0, q);
-        let center = q.rotate(body::read_fin(fin, 0).local_center).add(p);
-        body::write_fin_center(fin, 0, center);
+        let center = q.rotate(body::read_fin(sim, 0).local_center).add(p);
+        body::write_sim_center(sim, 0, center);
         let rotation = Mat3::from_quat(q);
         let inertia = rotation
             .mul(body::read_sim(sim, 0).inv_inertia_local)
             .mul(rotation.transpose());
         body::write_sim_inv_inertia_world(sim, 0, inertia);
         for (lane, value) in [qx, qy, qz, qs].into_iter().enumerate() {
-            sim2.set(body::S2_ROTATION0 + lane, value);
+            sim.set(body::ROTATION0 + lane, value);
         }
         for (lane, value) in [center.x, center.y, center.z].into_iter().enumerate() {
-            sim2.set(body::S2_CENTER0 + lane, value);
+            sim.set(body::CENTER0 + lane, value);
         }
         crate::shape_lifecycle::sync_body_bounds_in_world(world, id);
     }
@@ -444,28 +441,26 @@ pub(crate) mod runtime {
         record.body_type = body_type;
         crate::solver_set::body_ptr(world as usize, set, index, 1).write_bytes(0, body::SIM_STRIDE);
         let sim = bodies::column(world as usize, id as usize, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world as usize, id as usize, 2, body::FIN_STRIDE);
-        let sim2 = bodies::column(world as usize, id as usize, 5, body::SIM2_STRIDE);
         let p = Vec3::new(px, py, pz);
         let q = Quat {
             v: Vec3::new(qx, qy, qz),
             s: qs,
         };
-        body::write_fin_center(fin, 0, p);
-        body::write_fin_transform_p(fin, 0, p);
+        body::write_sim_center(sim, 0, p);
+        body::write_sim_transform_p(sim, 0, p);
         body::write_sim_rotation(sim, 0, q);
         sim.set(body::GRAVITY_SCALE, gravity_scale);
         sim.set(body::LINEAR_DAMPING, linear_damping);
         sim.set(body::ANGULAR_DAMPING, angular_damping);
         for (lane, value) in [qx, qy, qz, qs].into_iter().enumerate() {
-            sim2.set(body::S2_ROTATION0 + lane, value);
+            sim.set(body::ROTATION0 + lane, value);
         }
         for (lane, value) in [px, py, pz].into_iter().enumerate() {
-            sim2.set(body::S2_CENTER0 + lane, value);
+            sim.set(body::CENTER0 + lane, value);
         }
-        sim2.set(body::S2_MIN_EXTENT, 1.0e5);
-        sim2.set(body::S2_BODY_ID, f32::from_bits(id));
-        sim2.set(body::S2_FLAGS, f32::from_bits(flags));
+        sim.set(body::MIN_EXTENT, 1.0e5);
+        sim.set(body::BODY_ID, f32::from_bits(id));
+        sim.set(body::FLAGS, f32::from_bits(flags));
         if set == 2 {
             crate::solver_set::body_ptr(world as usize, set, index, 0)
                 .write_bytes(0, body::STATE_STRIDE);
@@ -590,7 +585,7 @@ pub(crate) mod runtime {
             & !(body::flags::IS_FAST
                 | body::flags::IS_SPEED_CAPPED
                 | body::flags::HAD_TIME_OF_IMPACT);
-        bodies::column(world, id, 5, body::SIM2_STRIDE).set(body::S2_FLAGS, f32::from_bits(flags));
+        bodies::column(world, id, 1, body::SIM_STRIDE).set(body::FLAGS, f32::from_bits(flags));
         if record.set_index == 2 {
             *crate::solver_set::body_ptr(world, 2, record.local_index as usize, 4) = flags;
         }
@@ -622,16 +617,15 @@ pub(crate) mod runtime {
         record.mass = 0.0;
         record.inertia = Mat3::ZERO;
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
         sim.set(body::INV_MASS, 0.0);
-        for lane in body::INV_INERTIA_LOCAL..body::S2_MIN_EXTENT {
+        for lane in body::INV_INERTIA_LOCAL..body::MIN_EXTENT {
             sim.set(lane, 0.0);
         }
         for lane in 0..3 {
-            fin.set(body::LOCAL_CENTER + lane, 0.0);
-            fin.set(body::MAX_EXTENT + lane, 0.0);
+            sim.set(body::LOCAL_CENTER + lane, 0.0);
+            sim.set(body::MAX_EXTENT + lane, 0.0);
         }
-        bodies::column(world, id, 5, body::SIM2_STRIDE).set(body::S2_MIN_EXTENT, 1.0e5);
+        sim.set(body::MIN_EXTENT, 1.0e5);
     }
 
     unsafe fn mass_finish(world: usize, id: usize) {
@@ -642,8 +636,6 @@ pub(crate) mod runtime {
             return;
         }
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
-        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
-        let sim2 = bodies::column(world, id, 5, body::SIM2_STRIDE);
         let pose = bodies::geometry(world, id).0;
         let mut center = Vec3::ZERO;
         if record.body_type == 2 {
@@ -714,12 +706,12 @@ pub(crate) mod runtime {
                     rotation.mul(inverse).mul(rotation.transpose()),
                 );
             }
-            let old_center = body::read_fin(fin, 0).center;
-            fin.set(body::LOCAL_CENTER, center.x);
-            fin.set(body::LOCAL_CENTER + 1, center.y);
-            fin.set(body::LOCAL_CENTER + 2, center.z);
+            let old_center = body::read_fin(sim, 0).center;
+            sim.set(body::LOCAL_CENTER, center.x);
+            sim.set(body::LOCAL_CENTER + 1, center.y);
+            sim.set(body::LOCAL_CENTER + 2, center.z);
             let next_center = pose.point(center);
-            body::write_fin_center(fin, 0, next_center);
+            body::write_sim_center(sim, 0, next_center);
             if record.set_index == 2 {
                 let state = bodies::column(world, id, 0, body::STATE_STRIDE);
                 let velocity = Vec3::new(state.get(0), state.get(1), state.get(2));
@@ -730,31 +722,30 @@ pub(crate) mod runtime {
                 state.set(2, next.z);
             }
         } else {
-            body::write_fin_center(fin, 0, pose.p);
+            body::write_sim_center(sim, 0, pose.p);
         }
-        let center = body::read_fin(fin, 0).center;
-        sim2.set(body::S2_CENTER0, center.x);
-        sim2.set(body::S2_CENTER0 + 1, center.y);
-        sim2.set(body::S2_CENTER0 + 2, center.z);
+        let center = body::read_fin(sim, 0).center;
+        sim.set(body::CENTER0, center.x);
+        sim.set(body::CENTER0 + 1, center.y);
+        sim.set(body::CENTER0 + 2, center.z);
         if record.flags & 0x38 == 0x38 {
             record.inertia = Mat3::ZERO;
-            for lane in body::INV_INERTIA_LOCAL..body::S2_MIN_EXTENT {
+            for lane in body::INV_INERTIA_LOCAL..body::MIN_EXTENT {
                 sim.set(lane, 0.0);
             }
         }
     }
 
     unsafe fn mass_extent(world: usize, id: usize, minimum: f32, x: f32, y: f32, z: f32) {
-        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
-        let sim2 = bodies::column(world, id, 5, body::SIM2_STRIDE);
-        sim2.set(
-            body::S2_MIN_EXTENT,
-            crate::math::minf(sim2.get(body::S2_MIN_EXTENT), minimum),
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        sim.set(
+            body::MIN_EXTENT,
+            crate::math::minf(sim.get(body::MIN_EXTENT), minimum),
         );
         for (lane, value) in [x, y, z].into_iter().enumerate() {
-            fin.set(
+            sim.set(
                 body::MAX_EXTENT + lane,
-                crate::math::maxf(fin.get(body::MAX_EXTENT + lane), value),
+                crate::math::maxf(sim.get(body::MAX_EXTENT + lane), value),
             );
         }
     }
@@ -767,8 +758,8 @@ pub(crate) mod runtime {
     pub unsafe extern "C" fn update_mass_in_world(world: usize, id: usize) {
         mass_begin(world, id);
         mass_finish(world, id);
-        let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
-        let center = body::read_fin(fin, 0).local_center;
+        let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
+        let center = body::read_fin(sim, 0).local_center;
         let record = bodies::record(world, id);
         let mut shape = if record.body_type == 0 {
             -1

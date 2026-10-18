@@ -21,10 +21,9 @@ const JOINT_STRIDE: usize = ABI_STRIDE + 20;
 
 // Adapt the frozen vector layout into body columns; the solver never consumes its copied pose.
 fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
-    use shallot_physics::body::{FIN_STRIDE, SIM_STRIDE};
+    use shallot_physics::body::SIM_STRIDE;
     use shallot_physics::joint_abi::{set, J_BODY_ID_A, J_BODY_ID_B};
     let mut sim = [0.0; 2 * SIM_STRIDE];
-    let mut fin = [0.0; 2 * FIN_STRIDE];
     for (i, mass, inertia, rotation, center, local_center) in [
         (
             0,
@@ -51,8 +50,8 @@ fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
             sim[i * SIM_STRIDE + 3 + k] = get(jc, slot, rotation + k);
         }
         for k in 0..3 {
-            fin[i * FIN_STRIDE + 7 + k] = get(jc, slot, center + k);
-            fin[i * FIN_STRIDE + 17 + k] = get(jc, slot, local_center + k);
+            sim[i * SIM_STRIDE + 7 + k] = get(jc, slot, center + k);
+            sim[i * SIM_STRIDE + 17 + k] = get(jc, slot, local_center + k);
         }
     }
     // Poison the old mass/inertia cache: every vector must derive these values from body columns.
@@ -62,15 +61,7 @@ fn prepare(jc: Col<f32>, slot: usize, h: f32, inv_h: f32, warm: bool) {
     set(jc, slot, J_BODY_ID_A, f32::from_bits(0));
     set(jc, slot, J_BODY_ID_B, f32::from_bits(1));
     unsafe {
-        kernel_prepare(
-            jc,
-            slot,
-            Col::of(&mut sim),
-            Col::of(&mut fin),
-            h,
-            inv_h,
-            warm,
-        );
+        kernel_prepare(jc, slot, Col::of(&mut sim), h, inv_h, warm);
     }
 }
 use shallot_physics::joint_abi::{

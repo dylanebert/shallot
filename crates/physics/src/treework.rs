@@ -1,5 +1,5 @@
 //! Serial tree operations over resident or caller-uploaded columns.
-use crate::body::{S2_BODY_ID, S2_FLAGS, SIM2_STRIDE};
+use crate::body::{BODY_ID, FLAGS, SIM_STRIDE};
 use crate::continuous::{ENLARGE_BOUNDS, IS_BULLET, IS_FAST};
 use crate::regions::Buffer;
 use crate::tree::{self, Rebuild, STACK_SIZE, STRIDE};
@@ -388,7 +388,7 @@ pub unsafe extern "C" fn move_proxy_in_world(
 }
 
 pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize, bullets: u32) {
-    let sim2 = crate::bodies::sim2_base(world_index) as *mut u32;
+    let sim = crate::bodies::sim_base(world_index) as *mut u32;
     let shapes = crate::shapes::col(world_index);
     let fat = crate::shapes::col_f(world_index);
     let enlarged = crate::arena::enlarged_sims(world_index);
@@ -413,13 +413,13 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
             if i >= count {
                 break;
             }
-            let row = sim2.add(i * SIM2_STRIDE);
-            let flags = *row.add(S2_FLAGS);
+            let row = sim.add(i * SIM_STRIDE);
+            let flags = *row.add(FLAGS);
             let bullet = flags & (IS_FAST | IS_BULLET) == (IS_FAST | IS_BULLET);
             if bullets != 0 && (!bullet || flags & ENLARGE_BOUNDS == 0) {
                 continue;
             }
-            let body_id = *row.add(S2_BODY_ID) as usize;
+            let body_id = *row.add(BODY_ID) as usize;
             let mut id = crate::bodies::record(world_index, body_id).head_shape_id as u32;
             while id != u32::MAX {
                 let o = id as usize * crate::shapes::SHAPE_STRIDE;
@@ -452,7 +452,7 @@ pub unsafe extern "C" fn enlarge_pass_in_world(world_index: usize, count: usize,
                 id = shapes.get(o + crate::shapes::S_NEXT);
             }
             if bullets != 0 {
-                *row.add(S2_FLAGS) &= !ENLARGE_BOUNDS;
+                *row.add(FLAGS) &= !ENLARGE_BOUNDS;
             }
         }
     }

@@ -44,9 +44,8 @@ fn frame(out: &mut Vec<u32>, t: Transform) {
 }
 pub(crate) unsafe fn pose(world_index: usize, id: usize) -> Transform {
     let sim = bodies::column(world_index, id, 1, body::SIM_STRIDE);
-    let fin = bodies::column(world_index, id, 2, body::FIN_STRIDE);
     Transform {
-        p: Vec3::new(fin.get(0), fin.get(1), fin.get(2)),
+        p: Vec3::new(sim.get(0), sim.get(1), sim.get(2)),
         q: Quat {
             v: Vec3::new(sim.get(3), sim.get(4), sim.get(5)),
             s: sim.get(6),
@@ -144,8 +143,8 @@ unsafe fn color(world: usize, id: usize) -> u32 {
     }
     let body_id = r[n + shapes::S_QUERY_BODY] as usize;
     let b = bodies::record(world, body_id);
-    let sim = bodies::column(world, body_id, 5, body::SIM2_STRIDE);
-    let flags = sim.get(body::S2_FLAGS).to_bits();
+    let sim = bodies::column(world, body_id, 1, body::SIM_STRIDE);
+    let flags = sim.get(body::FLAGS).to_bits();
     if b.body_type == 2 && b.mass == 0.0 {
         0xff0000
     } else if b.set_index == 1 {
@@ -280,9 +279,9 @@ pub unsafe extern "C" fn run_in_world(
             if b.body_type != 2 {
                 continue;
             }
-            let fin = bodies::column(world, id, 2, body::FIN_STRIDE);
+            let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
             let t = Transform {
-                p: body::read_fin(fin, 0).center,
+                p: body::read_fin(sim, 0).center,
                 q: pose(world, id).q,
             };
             frame(out, t);

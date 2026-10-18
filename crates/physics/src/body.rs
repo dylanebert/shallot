@@ -6,27 +6,24 @@ pub const STATE_STRIDE: usize = 14;
 pub const STATE_LIVE: usize = 13;
 pub const STATE_FLAGS: usize = 13;
 pub const SIM_STRIDE: usize = 54;
-// Thin column bindings address the same resident sim array.
-pub const FIN_STRIDE: usize = SIM_STRIDE;
-pub const SIM2_STRIDE: usize = SIM_STRIDE;
 pub const TRANSFORM_P: usize = 0;
 pub const ROTATION: usize = 3;
 pub const CENTER: usize = 7;
-pub const S2_ROTATION0: usize = 10;
-pub const S2_CENTER0: usize = 14;
+pub const ROTATION0: usize = 10;
+pub const CENTER0: usize = 14;
 pub const LOCAL_CENTER: usize = 17;
 pub const FORCE: usize = 20;
 pub const TORQUE: usize = 23;
 pub const INV_MASS: usize = 26;
 pub const INV_INERTIA_LOCAL: usize = 27;
 pub const INV_INERTIA_WORLD: usize = 36;
-pub const S2_MIN_EXTENT: usize = 45;
+pub const MIN_EXTENT: usize = 45;
 pub const MAX_EXTENT: usize = 46;
 pub const LINEAR_DAMPING: usize = 49;
 pub const ANGULAR_DAMPING: usize = 50;
 pub const GRAVITY_SCALE: usize = 51;
-pub const S2_BODY_ID: usize = 52;
-pub const S2_FLAGS: usize = 53;
+pub const BODY_ID: usize = 52;
+pub const FLAGS: usize = 53;
 
 #[repr(C)]
 pub struct BodySim {
@@ -64,21 +61,21 @@ const _: () = {
     assert!(offset_of!(BodyState, flags) == STATE_FLAGS * 4);
     assert!(offset_of!(BodySim, transform) == TRANSFORM_P * 4);
     assert!(offset_of!(BodySim, center) == CENTER * 4);
-    assert!(offset_of!(BodySim, rotation0) == S2_ROTATION0 * 4);
-    assert!(offset_of!(BodySim, center0) == S2_CENTER0 * 4);
+    assert!(offset_of!(BodySim, rotation0) == ROTATION0 * 4);
+    assert!(offset_of!(BodySim, center0) == CENTER0 * 4);
     assert!(offset_of!(BodySim, local_center) == LOCAL_CENTER * 4);
     assert!(offset_of!(BodySim, force) == FORCE * 4);
     assert!(offset_of!(BodySim, torque) == TORQUE * 4);
     assert!(offset_of!(BodySim, inv_mass) == INV_MASS * 4);
     assert!(offset_of!(BodySim, inv_inertia_local) == INV_INERTIA_LOCAL * 4);
     assert!(offset_of!(BodySim, inv_inertia_world) == INV_INERTIA_WORLD * 4);
-    assert!(offset_of!(BodySim, min_extent) == S2_MIN_EXTENT * 4);
+    assert!(offset_of!(BodySim, min_extent) == MIN_EXTENT * 4);
     assert!(offset_of!(BodySim, max_extent) == MAX_EXTENT * 4);
     assert!(offset_of!(BodySim, linear_damping) == LINEAR_DAMPING * 4);
     assert!(offset_of!(BodySim, angular_damping) == ANGULAR_DAMPING * 4);
     assert!(offset_of!(BodySim, gravity_scale) == GRAVITY_SCALE * 4);
-    assert!(offset_of!(BodySim, body_id) == S2_BODY_ID * 4);
-    assert!(offset_of!(BodySim, flags) == S2_FLAGS * 4);
+    assert!(offset_of!(BodySim, body_id) == BODY_ID * 4);
+    assert!(offset_of!(BodySim, flags) == FLAGS * 4);
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -179,11 +176,11 @@ pub fn read_fin(col: Col<f32>, i: usize) -> SimFinalize {
     }
 }
 #[inline]
-pub fn write_fin_center(col: Col<f32>, i: usize, center: Vec3) {
+pub fn write_sim_center(col: Col<f32>, i: usize, center: Vec3) {
     put_vec3(col, i * SIM_STRIDE + CENTER, center);
 }
 #[inline]
-pub fn write_fin_transform_p(col: Col<f32>, i: usize, p: Vec3) {
+pub fn write_sim_transform_p(col: Col<f32>, i: usize, p: Vec3) {
     put_vec3(col, i * SIM_STRIDE + TRANSFORM_P, p);
 }
 #[inline]

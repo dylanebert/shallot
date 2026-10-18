@@ -27,15 +27,13 @@ pub unsafe extern "C" fn should_collide_in_world(world_index: usize, a: u32, b: 
     }
     true
 }
-use crate::body::{FIN_STRIDE, SIM_STRIDE, STATE_STRIDE};
+use crate::body::{SIM_STRIDE, STATE_STRIDE};
 use crate::regions::{self, Columns, MAX_WORLDS};
 
 pub const MOVE_STRIDE: usize = core::mem::size_of::<crate::events::BodyMove>() / 4;
 const B_STATE: usize = 0;
 const B_SIM: usize = 1;
-const B_FIN: usize = 2;
 const B_FLAGS: usize = 4;
-const B_SIM2: usize = 5;
 const B_MOVE: usize = 6;
 const B_RECORD_EID: usize = 7;
 const B_SYNC_EID: usize = 8;
@@ -110,10 +108,8 @@ pub unsafe fn geometry(
     id: usize,
 ) -> (crate::math::Transform, crate::body::SimFinalize, u32) {
     let sim = column(world_index, id, 1, SIM_STRIDE);
-    let fin = column(world_index, id, 2, FIN_STRIDE);
-    let sim2 = column(world_index, id, 5, crate::body::SIM2_STRIDE);
     let pose = crate::math::Transform {
-        p: crate::math::Vec3::new(fin.get(0), fin.get(1), fin.get(2)),
+        p: crate::math::Vec3::new(sim.get(0), sim.get(1), sim.get(2)),
         q: crate::math::Quat {
             v: crate::math::Vec3::new(sim.get(3), sim.get(4), sim.get(5)),
             s: sim.get(6),
@@ -121,8 +117,8 @@ pub unsafe fn geometry(
     };
     (
         pose,
-        crate::body::read_fin(fin, 0),
-        sim2.get(crate::body::S2_FLAGS).to_bits(),
+        crate::body::read_fin(sim, 0),
+        sim.get(crate::body::FLAGS).to_bits(),
     )
 }
 
@@ -140,12 +136,6 @@ pub fn flags_base(world_index: usize) -> usize {
 }
 pub fn sim_base(world_index: usize) -> usize {
     base(world_index, B_SIM)
-}
-pub fn fin_base(world_index: usize) -> usize {
-    base(world_index, B_FIN)
-}
-pub fn sim2_base(world_index: usize) -> usize {
-    base(world_index, B_SIM2)
 }
 pub unsafe fn get_type(world_id: usize, id: usize) -> u32 {
     record(world_id, id).body_type as u32
@@ -170,7 +160,7 @@ pub extern "C" fn body_layout_ptr() -> *const u32 {
 pub extern "C" fn body_layout_ptr_in_world(world_index: usize) -> *const u32 {
     unsafe {
         let w = world_mut(world_index);
-        for c in 0..6 {
+        for c in [B_STATE, B_SIM, B_FLAGS] {
             w.columns.layout[c] = crate::solver_set::awake_base(world_index, c) as u32;
         }
         w.columns.layout.as_ptr()

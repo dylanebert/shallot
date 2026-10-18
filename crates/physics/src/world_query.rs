@@ -47,10 +47,9 @@ fn v(r: &[u32], i: usize) -> Vec3 {
 }
 pub(crate) unsafe fn pose(world_index: usize, id: usize, origin: Vec3) -> Transform {
     let body = crate::shapes::col(world_index).get(id * SHAPE_STRIDE + S_QUERY_BODY) as usize;
-    let fin = crate::bodies::column(world_index, body, 2, crate::body::FIN_STRIDE);
     let sim = crate::bodies::column(world_index, body, 1, crate::body::SIM_STRIDE);
     Transform {
-        p: Vec3::new(fin.get(0), fin.get(1), fin.get(2)).sub(origin),
+        p: Vec3::new(sim.get(0), sim.get(1), sim.get(2)).sub(origin),
         q: Quat {
             v: Vec3::new(sim.get(3), sim.get(4), sim.get(5)),
             s: sim.get(6),

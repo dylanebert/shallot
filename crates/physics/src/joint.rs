@@ -129,7 +129,6 @@ pub fn prepare(
     joints: Col<f32>,
     slot: usize,
     sim: Col<f32>,
-    fin: Col<f32>,
     h: f32,
     inv_h: f32,
     enable_warm_starting: bool,
@@ -142,8 +141,8 @@ pub fn prepare(
             slot,
             crate::body::read_sim(sim, a),
             crate::body::read_sim(sim, b),
-            crate::body::read_fin(fin, a),
-            crate::body::read_fin(fin, b),
+            crate::body::read_fin(sim, a),
+            crate::body::read_fin(sim, b),
         )
     });
 }
@@ -172,25 +171,15 @@ pub unsafe fn prepare_world(
             }
         };
         crate::joint_abi::set_indices(joints, slot, index(a), index(b));
+        let sim_a = crate::bodies::column(world_index, a, 1, crate::body::SIM_STRIDE);
+        let sim_b = crate::bodies::column(world_index, b, 1, crate::body::SIM_STRIDE);
         prepare_pose(
             joints,
             slot,
-            crate::body::read_sim(
-                crate::bodies::column(world_index, a, 1, crate::body::SIM_STRIDE),
-                0,
-            ),
-            crate::body::read_sim(
-                crate::bodies::column(world_index, b, 1, crate::body::SIM_STRIDE),
-                0,
-            ),
-            crate::body::read_fin(
-                crate::bodies::column(world_index, a, 2, crate::body::FIN_STRIDE),
-                0,
-            ),
-            crate::body::read_fin(
-                crate::bodies::column(world_index, b, 2, crate::body::FIN_STRIDE),
-                0,
-            ),
+            crate::body::read_sim(sim_a, 0),
+            crate::body::read_sim(sim_b, 0),
+            crate::body::read_fin(sim_a, 0),
+            crate::body::read_fin(sim_b, 0),
         )
     });
 }

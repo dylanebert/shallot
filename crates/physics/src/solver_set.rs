@@ -210,7 +210,7 @@ pub unsafe extern "C" fn layout_in_world(world_index: usize, id: usize) -> *cons
     let s = set(world_index, id);
     let sim = s.body_sims.data as usize as u32;
     let state = s.body_states.data as usize as u32;
-    s.body_layout = [state, sim, sim, 16, state, sim];
+    s.body_layout = [state, sim, 16, 16, state, 16];
     s.body_layout.as_ptr()
 }
 #[export_name = "solverSetArrayCount"]
@@ -350,7 +350,7 @@ pub unsafe fn awake_base(world_index: usize, column: usize) -> usize {
     let s = set(world_index, AWAKE);
     match column {
         0 | 4 => s.body_states.data as usize,
-        1 | 2 | 5 => s.body_sims.data as usize,
+        1 => s.body_sims.data as usize,
         _ => 16,
     }
 }
@@ -382,7 +382,7 @@ pub(crate) unsafe fn body_ptr_world(
             .add(index)
             .cast::<u32>()
             .add(crate::body::STATE_FLAGS),
-        1 | 2 | 5 => s.body_sims.data.add(index).cast(),
+        1 => s.body_sims.data.add(index).cast(),
         _ => 16 as *mut u32,
     }
 }
@@ -411,7 +411,7 @@ pub unsafe extern "C" fn body_id(set: usize, index: usize) -> u32 {
 }
 
 pub unsafe extern "C" fn body_id_in_world(world_index: usize, set: usize, index: usize) -> u32 {
-    *body_ptr(world_index, set, index, 5).add(crate::body::S2_BODY_ID)
+    *body_ptr(world_index, set, index, 1).add(crate::body::BODY_ID)
 }
 
 unsafe fn copy_body(
@@ -465,12 +465,12 @@ pub unsafe extern "C" fn transfer_body_in_world(
     let destination = set(world_index, target).body_sims.emplace();
     copy_body(world_index, source, index, target, destination);
     if clear_transient {
-        *body_ptr(world_index, target, destination, 5).add(crate::body::S2_FLAGS) &=
+        *body_ptr(world_index, target, destination, 1).add(crate::body::FLAGS) &=
             !(crate::body::flags::IS_FAST
                 | crate::body::flags::IS_SPEED_CAPPED
                 | crate::body::flags::HAD_TIME_OF_IMPACT);
     }
-    let id = *body_ptr(world_index, target, destination, 5).add(crate::body::S2_BODY_ID);
+    let id = *body_ptr(world_index, target, destination, 1).add(crate::body::BODY_ID);
     if source == AWAKE && target >= 3 {
         let record = crate::bodies::record_mut(world_index, id as usize);
         if record.body_move_index != -1 {
@@ -499,7 +499,7 @@ pub unsafe extern "C" fn wake_body_in_world(
     let destination = body_append_in_world(world_index, AWAKE);
     copy_body(world_index, source, index, AWAKE, destination);
     wake_state(world_index, destination, flags, head);
-    let id = *body_ptr(world_index, AWAKE, destination, 5).add(crate::body::S2_BODY_ID);
+    let id = *body_ptr(world_index, AWAKE, destination, 1).add(crate::body::BODY_ID);
     crate::bodies::set_location(world_index, id as usize, AWAKE, destination);
     crate::bodies::record_mut(world_index, id as usize).sleep_time = 0.0;
     destination
@@ -582,7 +582,7 @@ pub unsafe fn merge(world_index: usize, mut target: usize, mut source: usize) {
         core::mem::swap(&mut target, &mut source);
     }
     for i in 0..body_count_in_world(world_index, source) {
-        let id = *body_ptr(world_index, source, i, 5).add(crate::body::S2_BODY_ID);
+        let id = *body_ptr(world_index, source, i, 1).add(crate::body::BODY_ID);
         let destination = body_append_in_world(world_index, target);
         copy_body(world_index, source, i, target, destination);
         crate::bodies::set_location(world_index, id as usize, target, destination);

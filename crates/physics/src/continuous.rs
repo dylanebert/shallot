@@ -47,7 +47,7 @@ pub(crate) unsafe fn finish_deferred(world: usize) {
     let mut bullets = 0;
     for index in 0..list.len() {
         let i = list[index] as usize;
-        if sim2(world).get(i * body::SIM2_STRIDE + body::S2_FLAGS) & IS_BULLET != 0 {
+        if sim_u(world).get(i * body::SIM_STRIDE + body::FLAGS) & IS_BULLET != 0 {
             list[bullets] = i as u32;
             bullets += 1;
         } else {
@@ -58,8 +58,7 @@ pub(crate) unsafe fn finish_deferred(world: usize) {
                 0,
                 i,
                 sim(world),
-                fin(world),
-                sim2(world).get(i * body::SIM2_STRIDE + body::S2_BODY_ID) as usize,
+                sim_u(world).get(i * body::SIM_STRIDE + body::BODY_ID) as usize,
             );
         }
     }
@@ -93,16 +92,10 @@ unsafe fn sim(world_index: usize) -> Col<'static, f32> {
         (bodies::body_cap_in_world(world_index) + 8) * body::SIM_STRIDE,
     )
 }
-unsafe fn fin(world_index: usize) -> Col<'static, f32> {
+unsafe fn sim_u(world_index: usize) -> Col<'static, u32> {
     Col::new(
-        bodies::fin_base(world_index) as *mut f32,
+        bodies::sim_base(world_index) as *mut u32,
         (bodies::body_cap_in_world(world_index) + 8) * body::SIM_STRIDE,
-    )
-}
-unsafe fn sim2(world_index: usize) -> Col<'static, u32> {
-    Col::new(
-        bodies::sim2_base(world_index) as *mut u32,
-        (bodies::body_cap_in_world(world_index) + 8) * body::SIM2_STRIDE,
     )
 }
 fn v(c: Col<f32>, o: usize) -> Vec3 {
@@ -120,17 +113,12 @@ fn q(c: Col<f32>, o: usize) -> Quat {
     }
 }
 unsafe fn sweep(world_index: usize, i: usize, base: Vec3) -> Sweep {
-    let f = fin(world_index);
     let s = sim(world_index);
-    let s2 = Col::new(
-        bodies::sim2_base(world_index) as *mut f32,
-        (bodies::body_cap_in_world(world_index) + 8) * body::SIM2_STRIDE,
-    );
     Sweep {
-        local_center: v(f, i * body::SIM_STRIDE + body::LOCAL_CENTER),
-        c1: v(s2, i * body::SIM2_STRIDE + body::S2_CENTER0).sub(base),
-        c2: v(f, i * body::SIM_STRIDE + body::CENTER).sub(base),
-        q1: q(s2, i * body::SIM2_STRIDE + body::S2_ROTATION0),
+        local_center: v(s, i * body::SIM_STRIDE + body::LOCAL_CENTER),
+        c1: v(s, i * body::SIM_STRIDE + body::CENTER0).sub(base),
+        c2: v(s, i * body::SIM_STRIDE + body::CENTER).sub(base),
+        q1: q(s, i * body::SIM_STRIDE + body::ROTATION0),
         q2: q(s, i * body::SIM_STRIDE + body::ROTATION),
     }
 }
@@ -269,7 +257,7 @@ pub(crate) unsafe fn finish_bullets(world: usize) {
         }
     }
 }
-fn commit_bounds(u: Col<u32>, f: Col<f32>, s2: Col<u32>, i: usize, o: usize, b: [f32; 6]) {
+fn commit_bounds(u: Col<u32>, f: Col<f32>, su: Col<u32>, i: usize, o: usize, b: [f32; 6]) {
     let fb = o + shapes::S_FAT_AABB;
     let cached = core::array::from_fn(|n| f.get(fb + n));
     let escaped = !crate::finalize::aabb_contains(&cached, &b);
@@ -281,7 +269,7 @@ fn commit_bounds(u: Col<u32>, f: Col<f32>, s2: Col<u32>, i: usize, o: usize, b: 
             f.set(fb + n, b[n] - margin);
             f.set(fb + n + 3, b[n + 3] + margin);
         }
-        s2.atomic_or(i * body::SIM2_STRIDE + body::S2_FLAGS, ENLARGE_BOUNDS);
+        su.atomic_or(i * body::SIM_STRIDE + body::FLAGS, ENLARGE_BOUNDS);
     }
 }
 
@@ -292,18 +280,13 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
 unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -> bool {
     let u = shapes::col(world_index);
     let f = shapes::col_f(world_index);
-    let s2 = sim2(world_index);
+    let su = sim_u(world_index);
     let sf = sim(world_index);
-    let ff = fin(world_index);
-    let f2 = Col::new(
-        bodies::sim2_base(world_index) as *mut f32,
-        (bodies::body_cap_in_world(world_index) + 8) * body::SIM2_STRIDE,
-    );
-    let base = v(f2, i * body::SIM2_STRIDE + body::S2_CENTER0);
+    let base = v(sf, i * body::SIM_STRIDE + body::CENTER0);
     let sw = sweep(world_index, i, base);
     let end = end(sw);
-    let bullet = s2.atomic_get(i * body::SIM2_STRIDE + body::S2_FLAGS) & IS_BULLET != 0;
-    let body_id = s2.get(i * body::SIM2_STRIDE + body::S2_BODY_ID);
+    let bullet = su.atomic_get(i * body::SIM_STRIDE + body::FLAGS) & IS_BULLET != 0;
+    let body_id = su.get(i * body::SIM_STRIDE + body::BODY_ID);
     let mut fraction = 1.0;
     let mut hits = [(0u32, 0u32, 0.0f32); 8];
     let mut hit_count = 0;
@@ -375,12 +358,10 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                     let target_body = u.get(a + 1) as usize;
                     let record = bodies::record(world_index, target_body);
                     let target_flags = if record.set_index == 2 {
-                        s2.atomic_get(
-                            record.local_index as usize * body::SIM2_STRIDE + body::S2_FLAGS,
-                        )
+                        su.atomic_get(record.local_index as usize * body::SIM_STRIDE + body::FLAGS)
                     } else {
-                        bodies::column(world_index, target_body, 5, body::SIM2_STRIDE)
-                            .get(body::S2_FLAGS)
+                        bodies::column(world_index, target_body, 1, body::SIM_STRIDE)
+                            .get(body::FLAGS)
                             .to_bits()
                     };
                     if target_flags & IS_BULLET != 0 {
@@ -427,10 +408,7 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                             )
                         {
                             fraction = output.fraction;
-                            s2.atomic_or(
-                                i * body::SIM2_STRIDE + body::S2_FLAGS,
-                                HAD_TIME_OF_IMPACT,
-                            );
+                            su.atomic_or(i * body::SIM_STRIDE + body::FLAGS, HAD_TIME_OF_IMPACT);
                         }
                     }
                     true
@@ -448,22 +426,22 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
         let rotation = sw.q1.nlerp(sw.q2, fraction);
         let c = sw.c1.lerp(sw.c2, fraction);
         body::write_sim_rotation(sf, i, rotation);
-        body::write_fin_center(ff, i, base.add(c));
-        body::write_fin_transform_p(ff, i, base.add(c.sub(rotation.rotate(sw.local_center))));
+        body::write_sim_center(sf, i, base.add(c));
+        body::write_sim_transform_p(sf, i, base.add(c.sub(rotation.rotate(sw.local_center))));
         crate::events::write_move(world_index, i);
     }
     let rotation = q(sf, i * body::SIM_STRIDE + body::ROTATION);
-    put(f2, i * body::SIM2_STRIDE + body::S2_ROTATION0, rotation.v);
-    f2.set(i * body::SIM2_STRIDE + body::S2_ROTATION0 + 3, rotation.s);
+    put(sf, i * body::SIM_STRIDE + body::ROTATION0, rotation.v);
+    sf.set(i * body::SIM_STRIDE + body::ROTATION0 + 3, rotation.s);
     put(
-        f2,
-        i * body::SIM2_STRIDE + body::S2_CENTER0,
-        v(ff, i * body::SIM_STRIDE + body::CENTER),
+        sf,
+        i * body::SIM_STRIDE + body::CENTER0,
+        v(sf, i * body::SIM_STRIDE + body::CENTER),
     );
     id = head;
     if fraction < 1.0 {
         let xf = Transform {
-            p: v(ff, i * body::SIM_STRIDE + body::TRANSFORM_P),
+            p: v(sf, i * body::SIM_STRIDE + body::TRANSFORM_P),
             q: rotation,
         };
         while id != u32::MAX {
@@ -476,14 +454,14 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
             for n in 0..6 {
                 f.set(o + shapes::S_AABB + n, b[n]);
             }
-            commit_bounds(u, f, s2, i, o, b);
+            commit_bounds(u, f, su, i, o, b);
             id = u.get(o + shapes::S_NEXT);
         }
     } else {
         while id != u32::MAX {
             let o = id as usize * shapes::SHAPE_STRIDE;
             let b = core::array::from_fn(|n| f.get(o + shapes::S_AABB + n));
-            commit_bounds(u, f, s2, i, o, b);
+            commit_bounds(u, f, su, i, o, b);
             id = u.get(o + shapes::S_NEXT);
         }
     }
