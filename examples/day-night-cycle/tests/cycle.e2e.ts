@@ -5,7 +5,7 @@ type Pixels = { hour: number; width: number; height: number; rgba: number[]; png
 type Frame = JSHandle<Pixels>;
 declare global {
     interface Window {
-        frame: (hour?: number, noFog?: boolean) => Promise<Pixels>;
+        frame: (hour?: number, noFog?: boolean, moon?: boolean) => Promise<Pixels>;
         orbit(yaw: number): Promise<void>;
     }
 }
@@ -121,6 +121,11 @@ test.describe("one stepped app", () => {
         const ground = await mean(night, 0.54, 0.4, 0.57, 0.46);
         expect(Math.abs(lit - ground)).toBeGreaterThan(10);
         expect(lit - shadow).toBeGreaterThan(3);
+        const withoutMoon = await page.evaluateHandle(() => window.frame(0, false, false));
+        // The upper face receives direct moonlight; the existing side-face samples
+        // above also receive ambient light and alone cannot witness its contribution.
+        const top = (image: Frame) => mean(image, 0.49, 0.34, 0.5, 0.35);
+        expect((await top(night)) - (await top(withoutMoon))).toBeGreaterThan(1);
     });
 
     test("the slider drives the hour and noon sky is brighter than midnight", async () => {

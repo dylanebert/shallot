@@ -91,7 +91,6 @@ test.describe("at a quarter size", () => {
     test("focused canvas input presents movement, and input after focus leaves does not", async ({
         page,
     }, testInfo) => {
-        const started = Date.now();
         await page.goto("/");
         const canvas = page.locator("#canvas");
         await expect(canvas).toBeVisible();
@@ -142,7 +141,7 @@ test.describe("at a quarter size", () => {
         ).toBe(true);
         await screenshotCanvas(page, "focused-before");
         const { change: focusedChange, samples: focusedSamples } = await holding(page, "w", () => {
-            const deadline = started + testInfo.timeout - 5000;
+            const deadline = Date.now() + testInfo.timeout - 5000;
             return captureUntilChange(page, "focused-before", inputSignal, deadline);
         });
         expect(
