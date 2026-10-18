@@ -3,6 +3,7 @@ import * as d from "typegpu/data";
 import {
     Camera,
     DepthPrepassRequests,
+    EXPOSURE_EV100_BLENDER,
     fullscreenVertex,
     MainPassSystem,
     RenderContext,
@@ -11,7 +12,6 @@ import {
     SAMPLE_COUNT,
     Views,
 } from "../../core/rendering";
-import { EXPOSURE_EV100_BLENDER } from "../../core/rendering/camera";
 import type { Plugin, System, World } from "../../engine";
 import { component, f32 } from "../../engine";
 import {
