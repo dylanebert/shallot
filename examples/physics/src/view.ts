@@ -116,7 +116,10 @@ export function createView(world: World, scene: Scene): void {
     const types = world.storage(Body).type;
     const meshes = world.resource(Meshes);
     for (const eid of world.query([Shape])) {
-        const mesh = meshes.add({ name: `Shape ${eid}`, ...shapeMesh(world, eid) });
+        const mesh = meshes.add({
+            name: `Shape ${eid}`,
+            ...shapeMesh(world, world.get(eid, Shape)!),
+        });
         world.add(eid, MeshInstance, { mesh });
         // Colour encodes affordance and emphasis: static bodies are carbon, grabbable dynamics amber;
         // cyan and brand-orange are reserved for distinct scene roles, never creation order.

@@ -1,13 +1,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { Hulls, PhysicsMeshes, PhysicsPlugin, Shape, ShapeKind } from "../../core/physics";
+import { Hulls, PhysicsMeshes, ShapeKind } from "../../core/physics";
 import { World } from "../../engine";
 import { StandardPhysicsPlugin, shapeMesh } from "./index";
 
+type Point = [number, number, number];
+type Geometry = ReturnType<typeof shapeMesh>;
+type Definition = Parameters<typeof shapeMesh>[1];
 let world: World;
 beforeAll(async () => {
     world = new World();
-    for (const component of PhysicsPlugin.components!)
-        world.registry.register(component, PhysicsPlugin.name);
     await StandardPhysicsPlugin.initialize!(world);
 });
 afterAll(async () => {
@@ -15,78 +16,168 @@ afterAll(async () => {
     world.dispose();
 });
 
-function verify(
-    eid: number,
-    lower: number[],
-    upper: number[],
-    surface: (p: number[]) => number,
-): void {
-    const { vertices, indices } = shapeMesh(world, eid);
+function definition(values: Partial<Definition>): Definition {
+    return {
+        kind: ShapeKind.Hull,
+        geometry: 0,
+        scale: [1, 1, 1],
+        radius: 0.5,
+        sphereCenter: [0, 0, 0],
+        capsuleCenter1: [0, -0.5, 0],
+        capsuleCenter2: [0, 0.5, 0],
+        ...values,
+    };
+}
+const unit = (p: Point): Point => p.map((v) => v / Math.hypot(...p)) as Point;
+const dot = (a: Point, b: Point) => a.reduce((sum, v, i) => sum + v * b[i]!, 0);
+
+interface Surface {
+    lower: Point;
+    upper: Point;
+    distance(p: Point): number;
+    normal(p: Point): Point;
+    smooth?: boolean;
+    area: number;
+    areaTolerance?: number;
+}
+
+function verify({ vertices, indices }: Geometry, surface: Surface): void {
     expect(indices.length).toBeGreaterThan(0);
+    const point = (index: number): Point =>
+        Array.from(vertices.subarray(index * 8, index * 8 + 3)) as Point;
+    const normal = (index: number): Point =>
+        Array.from(vertices.subarray(index * 8 + 4, index * 8 + 7)) as Point;
     const min = [Infinity, Infinity, Infinity],
         max = [-Infinity, -Infinity, -Infinity];
-    for (let i = 0; i < vertices.length; i += 8) {
-        const p = Array.from(vertices.subarray(i, i + 3));
-        expect(surface(p)).toBeLessThan(2e-6);
-        expect(Math.hypot(vertices[i + 4]!, vertices[i + 5]!, vertices[i + 6]!)).toBeCloseTo(1, 5);
+    for (let i = 0; i < vertices.length / 8; i++) {
+        const p = point(i);
+        expect(surface.distance(p)).toBeLessThan(2e-6);
         for (let axis = 0; axis < 3; axis++) {
             min[axis] = Math.min(min[axis]!, p[axis]!);
             max[axis] = Math.max(max[axis]!, p[axis]!);
         }
     }
     for (let axis = 0; axis < 3; axis++) {
-        expect(min[axis]).toBeCloseTo(lower[axis]!, 5);
-        expect(max[axis]).toBeCloseTo(upper[axis]!, 5);
+        expect(min[axis]).toBeCloseTo(surface.lower[axis]!, 5);
+        expect(max[axis]).toBeCloseTo(surface.upper[axis]!, 5);
     }
+    let area = 0;
     for (const index of indices) expect(index).toBeLessThan(vertices.length / 8);
     for (let i = 0; i < indices.length; i += 3) {
-        const a = indices[i]! * 8,
-            b = indices[i + 1]! * 8,
-            c = indices[i + 2]! * 8;
-        const u = [0, 1, 2].map((axis) => vertices[b + axis]! - vertices[a + axis]!);
-        const v = [0, 1, 2].map((axis) => vertices[c + axis]! - vertices[a + axis]!);
-        const cross = [
-            u[1]! * v[2]! - u[2]! * v[1]!,
-            u[2]! * v[0]! - u[0]! * v[2]!,
-            u[0]! * v[1]! - u[1]! * v[0]!,
+        const ids = Array.from(indices.subarray(i, i + 3));
+        const [a, b, c] = ids.map(point) as [Point, Point, Point];
+        const u = b.map((v, axis) => v - a[axis]!) as Point;
+        const v = c.map((v, axis) => v - a[axis]!) as Point;
+        const cross: Point = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
         ];
-        expect(
-            cross.reduce((sum, value, axis) => sum + value * vertices[a + 4 + axis]!, 0),
-        ).toBeGreaterThanOrEqual(-1e-7);
+        const magnitude = Math.hypot(...cross);
+        area += magnitude / 2;
+        if (magnitude < 1e-10) continue;
+        const center = a.map((v, axis) => (v + b[axis]! + c[axis]!) / 3) as Point;
+        const expected = surface.normal(center);
+        if (dot(unit(cross), expected) < 0.95) throw new Error("outward triangle winding");
+        for (const id of ids) {
+            const expected = surface.normal(surface.smooth ? point(id) : center);
+            if (
+                dot(normal(id), expected) < 0.99999 ||
+                Math.abs(Math.hypot(...normal(id)) - 1) > 1e-5
+            )
+                throw new Error("outward vertex normal");
+        }
     }
+    if (Math.abs(area - surface.area) > (surface.areaTolerance ?? 2e-5))
+        throw new Error(`surface area: ${area}, expected ${surface.area}`);
 }
 
-test("box hull vertices and bounds match scaled collision geometry", () => {
+const box: Surface = {
+    lower: [-2, -1, -9],
+    upper: [2, 1, 9],
+    area: 232,
+    distance: (p) => Math.abs(Math.max(Math.abs(p[0]) / 2, Math.abs(p[1]), Math.abs(p[2]) / 9) - 1),
+    normal: (p) => {
+        const axis = [Math.abs(p[0]) / 2, Math.abs(p[1]), Math.abs(p[2]) / 9];
+        const face = axis.indexOf(Math.max(...axis));
+        return p.map((v, i) => (i === face ? Math.sign(v) : 0)) as Point;
+    },
+};
+function boxMesh(): Geometry {
     const geometry = world.resource(Hulls).add({ name: "box", halfExtents: [1, 2, 3] });
-    const eid = world.create();
-    world.add(eid, Shape, { geometry, scale: [2, 0.5, 3] });
-    verify(eid, [-2, -1, -9], [2, 1, 9], (p) =>
-        Math.abs(Math.max(Math.abs(p[0]!) / 2, Math.abs(p[1]!), Math.abs(p[2]!) / 9) - 1),
-    );
+    return shapeMesh(world, definition({ geometry, scale: [2, 0.5, 3] }));
+}
+
+test("unspawned box hull covers all faces with outward normals, winding and exact area", () => {
+    verify(boxMesh(), box);
 });
 
-test("point hull removes interior points and triangulates its surface", () => {
+test("reversed winding is rejected even when its normals are recomputed to match", () => {
+    const mesh = boxMesh();
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+        const second = mesh.indices[i + 1]!;
+        mesh.indices[i + 1] = mesh.indices[i + 2]!;
+        mesh.indices[i + 2] = second;
+    }
+    expect(() => verify(mesh, box)).toThrow("outward triangle winding");
+    for (let i = 0; i < mesh.vertices.length; i += 8)
+        for (let axis = 4; axis < 7; axis++) mesh.vertices[i + axis] *= -1;
+    expect(() => verify(mesh, box)).toThrow("outward triangle winding");
+});
+
+test("missing box face is rejected despite unchanged surface vertices and bounds", () => {
+    const mesh = boxMesh();
+    mesh.indices = mesh.indices.slice(6);
+    expect(() => verify(mesh, box)).toThrow("surface area");
+});
+
+test("point hull removes interior points and covers the tetrahedron's analytic area", () => {
     const geometry = world.resource(Hulls).add({
         name: "tetrahedron",
         points: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0.1, 0.1, 0.1]),
     });
-    const eid = world.create();
-    world.add(eid, Shape, { geometry, scale: [2, 3, 4] });
-    verify(eid, [0, 0, 0], [2, 3, 4], (p) =>
-        Math.min(
-            Math.abs(p[0]!),
-            Math.abs(p[1]!),
-            Math.abs(p[2]!),
-            Math.abs(p[0]! / 2 + p[1]! / 3 + p[2]! / 4 - 1),
-        ),
-    );
+    verify(shapeMesh(world, definition({ geometry, scale: [2, 3, 4] })), {
+        lower: [0, 0, 0],
+        upper: [2, 3, 4],
+        area: 13 + Math.sqrt(61),
+        distance: (p) => Math.min(...p.map(Math.abs), Math.abs(p[0] / 2 + p[1] / 3 + p[2] / 4 - 1)),
+        normal: (p) =>
+            p[0] < 1e-6
+                ? [-1, 0, 0]
+                : p[1] < 1e-6
+                  ? [0, -1, 0]
+                  : p[2] < 1e-6
+                    ? [0, 0, -1]
+                    : unit([0.5, 1 / 3, 0.25]),
+    });
 });
 
-test("offset sphere vertices lie on its radius and reach all six bounds", () => {
-    const eid = world.create();
-    world.add(eid, Shape, { kind: ShapeKind.Sphere, sphereCenter: [1, -2, 3], radius: 0.7 });
-    verify(eid, [0.3, -2.7, 2.3], [1.7, -1.3, 3.7], (p) =>
-        Math.abs(Math.hypot(p[0]! - 1, p[1]! + 2, p[2]! - 3) - 0.7),
+function roundSurface(a: Point, b: Point, radius: number): Surface {
+    const d = b.map((v, i) => v - a[i]!) as Point;
+    const length = Math.hypot(...d);
+    const radial = (p: Point): Point => {
+        const offset = p.map((v, i) => v - a[i]!) as Point;
+        const t = length ? Math.max(0, Math.min(1, dot(d, offset) / (length * length))) : 0;
+        return offset.map((v, i) => v - t * d[i]!) as Point;
+    };
+    const area = 4 * Math.PI * radius * radius + 2 * Math.PI * radius * length;
+    return {
+        lower: a.map((v, i) => Math.min(v, b[i]!) - radius) as Point,
+        upper: a.map((v, i) => Math.max(v, b[i]!) + radius) as Point,
+        distance: (p) => Math.abs(Math.hypot(...radial(p)) - radius),
+        normal: (p) => unit(radial(p)),
+        smooth: true,
+        area,
+        // Inscribed triangles approximate curved area; 32 azimuths and 16 latitudes stay within 2%.
+        areaTolerance: area * 0.02,
+    };
+}
+
+test("offset sphere has radial normals, outward winding and the analytic surface area", () => {
+    const center: Point = [1, -2, 3];
+    verify(
+        shapeMesh(world, definition({ kind: ShapeKind.Sphere, sphereCenter: center, radius: 0.7 })),
+        roundSurface(center, center, 0.7),
     );
 });
 
@@ -96,39 +187,20 @@ for (const b of [
     [1, 2, 3],
     [-2, 3, 1],
     [1, 1, 1],
-]) {
-    test(`capsule ${b} vertices lie on the segment's radius and reach all bounds`, () => {
-        const a = [1, 1, 1];
-        const eid = world.create();
-        world.add(eid, Shape, {
-            kind: ShapeKind.Capsule,
-            capsuleCenter1: a as [number, number, number],
-            capsuleCenter2: b as [number, number, number],
-            radius: 0.5,
-        });
-        const d = b.map((v, i) => v - a[i]!);
-        const length2 = d.reduce((sum, v) => sum + v * v, 0);
+] satisfies Point[]) {
+    test(`capsule ${b} covers both caps and cylinder with outward normals and winding`, () => {
+        const a: Point = [1, 1, 1];
         verify(
-            eid,
-            a.map((v, i) => Math.min(v, b[i]!) - 0.5),
-            a.map((v, i) => Math.max(v, b[i]!) + 0.5),
-            (p) => {
-                const t = length2
-                    ? Math.max(
-                          0,
-                          Math.min(
-                              1,
-                              d.reduce((sum, v, i) => sum + v * (p[i]! - a[i]!), 0) / length2,
-                          ),
-                      )
-                    : 0;
-                return Math.abs(Math.hypot(...p.map((v, i) => v - a[i]! - t * d[i]!)) - 0.5);
-            },
+            shapeMesh(
+                world,
+                definition({ kind: ShapeKind.Capsule, capsuleCenter1: a, capsuleCenter2: b }),
+            ),
+            roundSurface(a, b, 0.5),
         );
     });
 }
 
-test("strided reflected triangle mesh uses built triangles and scaled bounds", () => {
+test("clockwise reflected strided mesh preserves the independently expected -Z normal and area", () => {
     const geometry = world.resource(PhysicsMeshes).add({
         name: "triangle",
         vertices: new Float32Array([0, 0, 0, 99, 1, 0, 0, 99, 0, 1, 0]),
@@ -136,22 +208,25 @@ test("strided reflected triangle mesh uses built triangles and scaled bounds", (
         indices: new Uint32Array([0, 1, 2, 0, 0, 0]),
         clockwiseWinding: true,
     });
-    const eid = world.create();
-    world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry, scale: [-2, 3, 1] });
-    verify(eid, [-2, 0, 0], [0, 3, 0], (p) => Math.abs(p[2]!));
-    expect(shapeMesh(world, eid).indices.length).toBe(3);
+    const mesh = shapeMesh(
+        world,
+        definition({ kind: ShapeKind.Mesh, geometry, scale: [-2, 3, 1] }),
+    );
+    verify(mesh, {
+        lower: [-2, 0, 0],
+        upper: [0, 3, 0],
+        distance: (p) => Math.abs(p[2]),
+        normal: () => [0, 0, -1],
+        area: 3,
+    });
+    expect(mesh.indices.length).toBe(3);
 });
 
-test("unsupported kinds and stale geometry are refused", () => {
-    const eid = world.create();
-    expect(() => shapeMesh(world, eid)).toThrow("no Shape");
-    world.add(eid, Shape, { kind: ShapeKind.Compound });
-    expect(() => shapeMesh(world, eid)).toThrow("unsupported");
+test("unsupported kinds and stale geometry are refused without creating an entity", () => {
+    expect(() => shapeMesh(world, definition({ kind: ShapeKind.Compound }))).toThrow("unsupported");
     const hulls = world.resource(Hulls);
     const geometry = hulls.add({ name: "removed", halfExtents: [1, 1, 1] });
     hulls.remove(geometry);
     hulls.add({ name: "replacement", halfExtents: [2, 2, 2] });
-    world.storage(Shape).kind.set(eid, ShapeKind.Hull);
-    world.storage(Shape).geometry.set(eid, geometry);
-    expect(() => shapeMesh(world, eid)).toThrow("missing hull");
+    expect(() => shapeMesh(world, definition({ geometry }))).toThrow("missing hull");
 });

@@ -1,6 +1,6 @@
 import { sphere } from "../../core/mesh";
-import { Hulls, Shape, ShapeKind } from "../../core/physics";
-import type { Vector3Field, World } from "../../engine";
+import { Hulls, type Shape, ShapeKind } from "../../core/physics";
+import type { ComponentRecord, World } from "../../engine";
 import type { Vec3 } from "./common/records";
 import { buildHull, meshBuild } from "./geometry-builds";
 
@@ -78,31 +78,32 @@ function roundMesh(radius: number, a: Point, b: Point) {
  * Fresh CPU triangle geometry in body-local meters, suitable for Meshes.add. Bakes Shape.scale
  * for hulls and meshes, and the centers and radius for spheres and capsules; the body's
  * Transform is not baked. Requires an initialized StandardPhysicsPlugin for geometry builds.
- * Throws for a missing Shape or geometry, or an unsupported compound or height field.
+ * Throws for missing geometry, or an unsupported compound or height field.
  * This is an authoring-time conversion, not a live binding to subsequent Shape edits.
  */
 export function shapeMesh(
     world: World,
-    eid: number,
+    shape: Pick<
+        ComponentRecord<typeof Shape>,
+        | "kind"
+        | "geometry"
+        | "scale"
+        | "radius"
+        | "sphereCenter"
+        | "capsuleCenter1"
+        | "capsuleCenter2"
+    >,
 ): {
     vertices: Float32Array;
     indices: Uint32Array;
 } {
-    if (!world.has(eid, Shape)) throw new Error(`shapeMesh: entity ${eid} has no Shape`);
-    const shape = world.storage(Shape);
-    const read = (field: Vector3Field): [number, number, number] => [
-        field.x.get(eid),
-        field.y.get(eid),
-        field.z.get(eid),
-    ];
-    const kind = shape.kind.get(eid);
+    const { kind, geometry, scale } = shape;
     if (kind === ShapeKind.Sphere || kind === ShapeKind.Capsule) {
-        const radius = shape.radius.get(eid);
-        const a = kind === ShapeKind.Sphere ? read(shape.sphereCenter) : read(shape.capsuleCenter1);
-        const b = kind === ShapeKind.Sphere ? a : read(shape.capsuleCenter2);
+        const radius = shape.radius;
+        const a = kind === ShapeKind.Sphere ? shape.sphereCenter : shape.capsuleCenter1;
+        const b = kind === ShapeKind.Sphere ? a : shape.capsuleCenter2;
         return roundMesh(radius, a, b);
     }
-    const scale = read(shape.scale);
     const positions: number[] = [];
     const indices: number[] = [];
     const triangle = (a: Vec3, b: Vec3, c: Vec3): void => {
@@ -122,7 +123,6 @@ export function shapeMesh(
             positions.push(p.x, p.y, p.z, 0, nx / length, ny / length, nz / length, 0);
         indices.push(start, start + 1, start + 2);
     };
-    const geometry = shape.geometry.get(eid);
     if (kind === ShapeKind.Hull) {
         const definition = world.resource(Hulls).get(geometry);
         if (!definition) throw new Error(`shapeMesh: missing hull ${geometry}`);
