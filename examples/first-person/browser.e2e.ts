@@ -46,7 +46,7 @@ async function captureCanvasFrame(page: Page): Promise<Frame> {
             height: capture.height,
             identity: capture.identity,
             scenePixels,
-        };
+        } as Frame;
     });
 }
 test.beforeEach(async ({ page }) => {
