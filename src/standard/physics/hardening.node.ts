@@ -190,7 +190,7 @@ test("snapshot logical state and WASM bytes are collectable after the caller dro
     }
 });
 
-test("physics reports the same body visit count for every scene, so a body-content mutation can hide an omitted visit from the budget row", async () => {
+test("physics counts one body visit per body each step: 1 for one body, 2 after adding a second", async () => {
     const one = await cleanState();
     try {
         one.world.step(Time.FIXED_DT);
