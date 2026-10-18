@@ -53,7 +53,7 @@ test("pair filtering requires both masks, preserves both u64 halves, and gives s
     expect(touches(filter(1n, 1n, 1), filter(2n, 2n, 2))).toBe(false);
 });
 
-test("contact pair creation from the broad phase emits an overlapping pair once per moved side instead of deduplicating it, or re-creates a pair already in the pair set on a later step, so a single touching pair fires two begin-touch events", () => {
+test("two overlapping moving boxes begin touching once, and the next step begins or ends no touch", () => {
     const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, enableSleep: false });
     const drift = { x: 0, y: 0.5, z: 0 };
     try {
