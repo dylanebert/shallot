@@ -15,6 +15,7 @@ import {
     castShapeClosest,
     defaultDebugDraw,
     drawPhysics,
+    emptyQueryHit,
     overlapAABB,
     overlapShape,
     PhysicsEvents,
@@ -440,16 +441,7 @@ test("ray queries skip a recycled Shape eid before the next physics sync", async
             callbacks++;
             return 1;
         });
-        const hit = {
-            shape: 0,
-            body: 0,
-            point: { x: 0, y: 0, z: 0 },
-            normal: { x: 0, y: 0, z: 0 },
-            fraction: 0,
-            userMaterialId: 0n,
-            triangleIndex: 0,
-            childIndex: 0,
-        };
+        const hit = emptyQueryHit();
         expect(callbacks).toBe(0);
         expect(castRayClosest(world, { x: -3, y: 0, z: 0 }, { x: 6, y: 0, z: 0 }, hit)).toBe(false);
         const proxy = { points: [{ x: 0, y: 0, z: 0 }], count: 1, radius: 0.25 };
@@ -499,16 +491,7 @@ test("ray, shape-cast and overlap queries return the authored Shape and Body ent
         });
         world.step(Time.FIXED_DT);
 
-        const hit = {
-            shape: 0,
-            body: 0,
-            point: { x: 0, y: 0, z: 0 },
-            normal: { x: 0, y: 0, z: 0 },
-            fraction: 0,
-            userMaterialId: 0n,
-            triangleIndex: 0,
-            childIndex: 0,
-        };
+        const hit = emptyQueryHit();
         expect(castRayClosest(world, { x: -3, y: 0, z: 0 }, { x: 6, y: 0, z: 0 }, hit)).toBe(true);
         expect([hit.shape, hit.body]).toEqual([shape, body]);
         expect(

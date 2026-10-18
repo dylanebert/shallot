@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Time, Transform, TransformPlugin, World } from "@dylanebert/shallot";
 import { Body, BodyType, PhysicsPlugin, Shape, ShapeKind } from "@dylanebert/shallot/physics";
 import type { Pos, Vec3 } from "../common/records";
-import { castRay, castRayClosest, StandardPhysicsPlugin } from "../runtime";
+import { castRay, castRayClosest, emptyQueryHit, StandardPhysicsPlugin } from "../runtime";
 
 const origin = { x: 0, y: 0, z: 0 };
 const translation = { x: 10, y: 0, z: 0 };
@@ -31,16 +31,7 @@ async function dispose(world: World) {
 }
 
 function closest(world: World, origin: Pos, translation: Vec3) {
-    const hit = {
-        shape: 0,
-        body: 0,
-        point: { x: 0, y: 0, z: 0 },
-        normal: { x: 0, y: 0, z: 0 },
-        fraction: 0,
-        userMaterialId: 0n,
-        triangleIndex: 0,
-        childIndex: 0,
-    };
+    const hit = emptyQueryHit();
     expect(castRayClosest(world, origin, translation, hit)).toBe(true);
     return hit;
 }

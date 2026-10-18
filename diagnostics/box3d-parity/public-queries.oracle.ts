@@ -57,6 +57,7 @@ import {
     castRayClosest,
     castShape,
     castShapeClosest,
+    emptyQueryHit,
     overlapAABB,
     overlapShape,
     PhysicsWorldDefinition,
@@ -615,16 +616,7 @@ async function runEntityQuery(input: Input): Promise<string[]> {
             }, filter);
             out.push(count);
         } else if (input.operation === 13) {
-            const hit = {
-                shape: 0,
-                body: 0,
-                point: { x: 0, y: 0, z: 0 },
-                normal: { x: 0, y: 0, z: 0 },
-                fraction: 0,
-                userMaterialId: 0n,
-                triangleIndex: 0,
-                childIndex: 0,
-            };
+            const hit = emptyQueryHit();
             const didHit = castShapeClosest(world, origin, proxy, translation, hit, filter);
             out.push(Number(didHit));
             if (didHit) {
@@ -632,16 +624,7 @@ async function runEntityQuery(input: Input): Promise<string[]> {
                 appendHit(hit);
             }
         } else if (input.operation === 3) {
-            const hit = {
-                shape: 0,
-                body: 0,
-                point: { x: 0, y: 0, z: 0 },
-                normal: { x: 0, y: 0, z: 0 },
-                fraction: 0,
-                userMaterialId: 0n,
-                triangleIndex: 0,
-                childIndex: 0,
-            };
+            const hit = emptyQueryHit();
             const didHit = castRayClosest(world, origin, translation, hit, filter);
             out.push(Number(didHit));
             if (didHit) {
