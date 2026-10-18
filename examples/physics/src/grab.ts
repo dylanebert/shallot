@@ -11,6 +11,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
+import { Orbit, OrbitMode } from "@dylanebert/shallot/extras";
 import { viewportToWorld } from "@dylanebert/shallot/rendering";
 import {
     castRayClosest,
@@ -32,6 +33,8 @@ export const Grab = {
         point: [0, 0, 0] as [number, number, number],
         pending: false,
         held: false,
+        camera: 0,
+        orbitMode: OrbitMode.Free as number,
         origin: { x: 0, y: 0, z: 0 },
         translation: { x: 0, y: 0, z: 0 },
         hit: emptyQueryHit(),
@@ -43,6 +46,10 @@ export function release(world: World): void {
     if (grab.joint) world.destroy(grab.joint);
     if (grab.mouse) world.destroy(grab.mouse);
     grab.mouse = grab.joint = grab.body = 0;
+    if (grab.camera) {
+        world.storage(Orbit).mode.set(grab.camera, grab.orbitMode);
+        grab.camera = 0;
+    }
 }
 
 export function pick(world: World): void {
@@ -92,10 +99,17 @@ const SampleGrab: System = {
         const devices = world.resource(Devices);
         grab.held = devices.enabled && devices.pointer.left;
         if (!grab.held) grab.pending = false;
-        for (const event of devices.pointer.buttonEvents)
-            if (event.button === "left" && event.pressed && grab.held) grab.pending = true;
+        let pointerX = devices.pointer.x;
+        let pointerY = devices.pointer.y;
+        for (const event of devices.pointer.buttonEvents) {
+            if (event.button === "left" && event.pressed && grab.held) {
+                grab.pending = true;
+                pointerX = event.x;
+                pointerY = event.y;
+            }
+        }
         for (const camera of world.query([Camera])) {
-            const ray = viewportToWorld(world, camera, devices.pointer.x, devices.pointer.y);
+            const ray = viewportToWorld(world, camera, pointerX, pointerY);
             if (!ray) continue;
             grab.origin.x = ray.origin[0];
             grab.origin.y = ray.origin[1];
@@ -116,6 +130,16 @@ const SampleGrab: System = {
             grab.translation.x = ray.dir[0] * reach;
             grab.translation.y = ray.dir[1] * reach;
             grab.translation.z = ray.dir[2] * reach;
+            if (!grab.held) release(world);
+            if (grab.pending) {
+                pick(world);
+                grab.pending = false;
+                if (grab.body && world.has(camera, Orbit)) {
+                    grab.camera = camera;
+                    grab.orbitMode = world.storage(Orbit).mode.get(camera);
+                    world.storage(Orbit).mode.set(camera, OrbitMode.Locked);
+                }
+            }
             break;
         }
     },

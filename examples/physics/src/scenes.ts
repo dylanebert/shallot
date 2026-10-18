@@ -11,30 +11,49 @@ import {
 import { PhysicsWorldDefinition } from "@dylanebert/shallot/standard/physics";
 
 export type Scene = "boxStack" | "bridge";
-export const views = {
-    boxStack: { yaw: 40, pitch: 15, distance: 50, target: [0, 20, 0] },
-    bridge: { yaw: 0, pitch: 20, distance: 35, target: [0, 10, 0] },
+export const scenes = {
+    boxStack: {
+        construct: boxStack,
+        camera: { yaw: 40, pitch: 15, distance: 65, target: [0, 23, 0] },
+        controls: undefined,
+    },
+    bridge: {
+        construct: bridge,
+        camera: { yaw: 12, pitch: 24, distance: 48, target: [-1.25, 13, 0] },
+        controls: { gravityScale: setGravityScale },
+    },
 } as const;
 
 export function createScene(world: World, scene: Scene): number[] {
     world.resource(PhysicsWorldDefinition).workerCount = 1;
+    return scenes[scene].construct(world);
+}
+
+function ground(world: World, extent: number): number {
     const geometry = world.resource(Hulls).register({ name: "box", halfExtents: [0.5, 0.5, 0.5] });
     const ground = world.create();
-    const extent = scene === "boxStack" ? 40 : 60;
     world.add(ground, Transform, { translation: [0, -1, 0], scale: [2 * extent, 2, 2 * extent] });
     world.add(ground, Body);
     world.add(ground, Shape, { geometry });
+    return geometry;
+}
+
+function boxStack(world: World): number[] {
+    const geometry = ground(world, 40);
     const bodies: number[] = [];
-    if (scene === "boxStack") {
-        for (let i = 0; i < 40; i++) {
-            const body = world.create();
-            world.add(body, Transform, { translation: [0, 0.75 + 1.25 * i, 0] });
-            world.add(body, Body, { type: BodyType.Dynamic });
-            world.add(body, Shape, { geometry, rollingResistance: 0.1 });
-            bodies.push(body);
-        }
-        return bodies;
+    for (let i = 0; i < 40; i++) {
+        const body = world.create();
+        world.add(body, Transform, { translation: [0, 0.75 + 1.25 * i, 0] });
+        world.add(body, Body, { type: BodyType.Dynamic });
+        world.add(body, Shape, { geometry, rollingResistance: 0.1 });
+        bodies.push(body);
     }
+    return bodies;
+}
+
+function bridge(world: World): number[] {
+    const geometry = ground(world, 60);
+    const bodies: number[] = [];
     const anchor = world.create();
     world.add(anchor, Body);
     let previous = anchor;
