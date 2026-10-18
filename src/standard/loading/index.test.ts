@@ -207,6 +207,17 @@ test("the standard loading screen can show a startup error after progress cleanu
     });
 });
 
+test("the standard overlay carries data-shallot-loading, before and after progress cleanup", () => {
+    withDocument((body) => {
+        const screen = shallotDark();
+        const cleanup = screen.show();
+        expect(body.children[0]!.hasAttribute("data-shallot-loading")).toBe(true);
+        cleanup?.();
+        screen.error?.(new Error("late failure"));
+        expect(body.children[0]!.hasAttribute("data-shallot-loading")).toBe(true);
+    });
+});
+
 test("the shallot-branded dark loading screen keeps its established opaque background", () => {
     withDocument((body) => {
         const cleanup = shallotDark().show();

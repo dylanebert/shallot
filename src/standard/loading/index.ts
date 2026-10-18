@@ -78,6 +78,7 @@ function createOverlay(bg: string, container?: HTMLElement): HTMLDivElement | nu
     if (typeof document === "undefined") return null;
 
     const overlay = document.createElement("div");
+    overlay.setAttribute("data-shallot-loading", "");
 
     const parent = container ?? document.querySelector("canvas")?.parentElement ?? document.body;
 
@@ -553,6 +554,7 @@ function loadingOptions(options?: SplashOptions | HTMLElement): SplashOptions {
         : (options as SplashOptions);
 }
 
-/** dark-theme startup screen: the shallot splash over a progress bar. the engine default. */
+/** dark-theme startup screen: the shallot splash over a progress bar. the engine default. Its overlay,
+ * including an error shown after cleanup, carries the empty `data-shallot-loading` attribute. */
 export const shallotDark = (options?: SplashOptions | HTMLElement): Loading =>
     loading(dark, loadingOptions(options));
