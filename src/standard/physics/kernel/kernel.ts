@@ -1102,7 +1102,6 @@ export function rethrowQueryError(world: World | undefined): void {
     throw error;
 }
 
-/** A checked kernel's panic message, printed before its abort traps; release kernels never import it. */
 // The clock writes a scalar through the ABI, avoiding a boxed f64 result at the host boundary.
 export function clockImport(memory: () => WebAssembly.Memory): (pointer: number) => void {
     let view = new Float64Array(0);
@@ -1113,6 +1112,7 @@ export function clockImport(memory: () => WebAssembly.Memory): (pointer: number)
     };
 }
 
+/** A checked kernel's panic message, printed before its abort traps; release kernels never import it. */
 function panicImport(memory: () => WebAssembly.Memory): (pointer: number, length: number) => void {
     return (pointer, length) => {
         const bytes = new Uint8Array(memory().buffer, pointer, length).slice();
@@ -1408,12 +1408,12 @@ async function boot(runtime: KernelState, threads: number | undefined): Promise<
  * idempotent — subsequent calls resolve immediately, and the first call decides threading. await once before the first `step()`. required in a browser, where the main thread
  * refuses to compile a wasm module this size synchronously; outside a browser (bun/node/deno) `step()`
  * also instantiates lazily, so the await is optional there — but a lazy instance is single-threaded, so
- * `init(state)` before you touch a `World` if you want threads.
+ * `init(world)` before you touch a `World` if you want threads.
  *
  * threading resolves itself: standalone and a cross-origin-isolated browser multithread; a browser without
  * that isolation logs the missing COOP/COEP headers once and runs single-thread. Pass
  * {@link InitOptions.threads} only to force single-thread (`0`) or override the count. the worker pool
- * never holds the process open — a standalone script exits when its own work is done, no `shutdown(state)`
+ * never holds the process open — a standalone script exits when its own work is done, no `shutdown(world)`
  * needed.
  */
 export function init(world: World | undefined, options?: InitOptions): Promise<void> {
@@ -1444,9 +1444,9 @@ export async function shutdown(world: World | undefined): Promise<void> {
 }
 
 /**
- * The kernel instance. Lazily instantiates synchronously if `init(state)` hasn't run — fine in bun/node/
+ * The kernel instance. Lazily instantiates synchronously if `init(world)` hasn't run — fine in bun/node/
  * deno; a browser main thread throws on a synchronous compile this large, so browser callers must
- * `await init(state)` first.
+ * `await init(world)` first.
  */
 export function kernel(world: World | undefined): Kernel {
     const runtime = kernelState(world);
