@@ -28,7 +28,10 @@ beforeAll(async () => {
         requiredFeatures: ["indirect-first-instance"],
     });
     untimed = await openGpuApp({ plugins: [MotesPlugin], device: untimedDevice, adapter });
-    attachTexture(untimed.world, untimed.world.resource(Room).camera, { width: 512, height: 512 });
+    attachTexture(untimed.world, untimed.world.resource(Room).camera, {
+        width: 2048,
+        height: 2048,
+    });
 });
 afterAll(async () => {
     app?.dispose();
@@ -150,6 +153,37 @@ test("a mote just in front of the camera adds no light while a mote two metres a
     let increase = 0;
     for (let i = 0; i < far.length; i += 4) increase += Math.max(0, far[i]! - background[i]!);
     expect(increase).toBeGreaterThan(0);
+});
+test("a one-metre mote covers no more pixels than at the two-metre size cap and a four-metre mote keeps its original footprint", async () => {
+    const { world } = untimed;
+    const camera = world.resource(Room).camera;
+    const motes = world.resource(Motes);
+    const positions = new Float32Array(MOTE_COUNT * 4);
+    for (let i = 0; i < MOTE_COUNT; i++) positions[i * 4] = 100;
+    const image = async (depth: number, visible: boolean) => {
+        positions.set([0, 1.7, 2 - depth, 0], 0);
+        world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
+        motes.visible = visible;
+        world.step(0);
+        return (await captureTexture(world, camera)).rgba;
+    };
+    const background = await image(1, false);
+    const coverage = async (depth: number) => {
+        const pixels = await image(depth, true);
+        let count = 0;
+        for (let i = 0; i < pixels.length; i += 4) {
+            if (pixels[i]! > background[i]!) count++;
+        }
+        return count;
+    };
+    const near = await coverage(1);
+    const cap = await coverage(2);
+    const far = await coverage(4);
+    console.log("mote pixel coverage", { near, cap, far });
+    expect(cap).toBeGreaterThan(0);
+    expect(near).toBeLessThanOrEqual(cap);
+    // At four metres the original 0.006 clip-space half-width is 1.536 pixels.
+    expect(far).toBe(4);
 });
 test("the profiler buffer total includes exactly the motes storage and frame uniform allocations", () => {
     const { world } = app;

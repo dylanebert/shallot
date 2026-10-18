@@ -102,6 +102,7 @@ export const Motes: Resource<{
 const shader = `
 const CAMERA_FADE_NEAR: f32 = 0.3;
 const CAMERA_FADE_FAR: f32 = 0.8;
+const MOTE_SIZE_DEPTH: f32 = 2.0;
 struct View { viewProj: mat4x4f }
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> positions: array<vec4f>;
@@ -110,8 +111,9 @@ struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @loc
     let corners = array<vec2f, 6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1));
     let p = positions[i];
     var clip = view.viewProj * vec4f(p.xyz, 1);
-    clip.x += corners[v].x * 0.006;
-    clip.y += corners[v].y * 0.006;
+    let size = 0.006 * clip.w / max(clip.w, MOTE_SIZE_DEPTH);
+    clip.x += corners[v].x * size;
+    clip.y += corners[v].y * size;
     let windowY = p.y + (p.z + 3.5) * 0.5;
     let beam = abs(p.x) < 1 && windowY > 1.3 && windowY < 2.8;
     let cameraFade = smoothstep(CAMERA_FADE_NEAR, CAMERA_FADE_FAR, clip.w);
