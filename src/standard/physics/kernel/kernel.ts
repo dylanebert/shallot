@@ -1011,7 +1011,6 @@ function createKernelState(): KernelState {
 
 const kernelStateKey = { create: createKernelState };
 const standaloneKernelState = createKernelState();
-const queryImportStates = new WeakMap<Kernel, KernelState>();
 
 export function kernelState(world: World | undefined): KernelState {
     return world ? world.resource(kernelStateKey) : standaloneKernelState;
@@ -1075,19 +1074,6 @@ export function setQueryCallback(
     const previous = state.queryCallback;
     state.queryCallback = callback;
     return previous;
-}
-
-/** @internal Snapshot of the guard and the state bound to this kernel's imported query callback. */
-export function queryCallbackState(world: World | undefined) {
-    const state = kernelState(world);
-    const imported = queryImportStates.get(kernel(world));
-    return {
-        callbackDepth: state.callbackDepth,
-        queryWorld: state.queryWorld,
-        importMatchesGuard: imported === state,
-        importCallbackDepth: imported?.callbackDepth,
-        importQueryWorld: imported?.queryWorld,
-    };
 }
 
 export function assertKernelEntry(world: World | undefined): void {
@@ -1338,7 +1324,6 @@ async function single(runtime: KernelState): Promise<void> {
     });
     const instance = result.instance.exports as unknown as Kernel;
     instance.installPanicHook?.();
-    queryImportStates.set(instance, runtime);
     runtime.instance ??= instance;
 }
 
@@ -1393,7 +1378,6 @@ async function multi(runtime: KernelState, want: number): Promise<void> {
             : null;
 
     runtime.instance = { ...exports, memory } as Kernel;
-    queryImportStates.set(runtime.instance, runtime);
     runtime.sharedMemory = memory;
     runtime.pool = spawned;
     runtime.resolved = count + 1;
@@ -1490,7 +1474,6 @@ export function kernel(world: World | undefined): Kernel {
         }).exports as unknown as Kernel;
         instance.installPanicHook?.();
         runtime.instance = instance;
-        queryImportStates.set(runtime.instance, runtime);
     }
     return runtime.instance;
 }

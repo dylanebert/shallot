@@ -45,10 +45,6 @@ export function writeJointFloat(
     const k = jointKernel(world);
     jointViews(k).floats[(k.jointSimPtr(joint) >>> 2) + field] = f32(value);
 }
-export function readJointWord(world: WorldState, joint: Joint, field: number): number {
-    const k = jointKernel(world);
-    return jointViews(k).words[(k.jointSimPtr(joint) >>> 2) + field];
-}
 export function readJointFlag(
     world: WorldState,
     joint: Joint,

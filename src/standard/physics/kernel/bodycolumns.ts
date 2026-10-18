@@ -9,9 +9,9 @@ import { SetType } from "../common/constants";
 import type { Mat3, Vec3, WorldTransform } from "../common/records";
 import type { BodySim } from "../world/body";
 import type { WorldState } from "../world/world";
+import { BODY_RECORD_STRIDE } from "./bodyrecords";
 import {
     FIN_STRIDE,
-    MOVE_STRIDE,
     S2_BODY_ID,
     S2_CENTER0,
     S2_FLAGS,
@@ -29,14 +29,12 @@ const B_SIM = 1;
 const B_FIN = 2;
 export const B_FLAGS = 4;
 const B_SIM2 = 5;
-const B_MOVE = 6;
 const B_SYNC_EID = 8;
 const B_SYNC_POS = 9;
 const B_SYNC_QUAT = 10;
 const B_SYNC_VEL = 11;
 const B_RECORD = 13;
 export const N_BODY = 14;
-const BODY_RECORD_STRIDE = 29;
 
 type MovedRows = { eids: Uint32Array; pos: Float32Array; quat: Float32Array; vel: Float32Array };
 
@@ -69,8 +67,6 @@ export class BodyStore extends KernelViews {
     sim2F = new Float32Array(0);
     /** The same sim2 bytes viewed as u32, for the integer `bodyId`/`flags` slots. */
     sim2U = new Uint32Array(0);
-    /** Retained kernel body-move records: body index, generation, fellAsleep. */
-    moveU = new Uint32Array(0);
     syncCount = 0;
     #syncRanges = new Map<number, MovedRows>();
     // The held layout header view the column views are derived from.
@@ -101,7 +97,6 @@ export class BodyStore extends KernelViews {
             this.simF.byteOffset === layout[B_SIM] &&
             this.finF.byteOffset === layout[B_FIN] &&
             this.sim2F.byteOffset === layout[B_SIM2] &&
-            this.moveU.byteOffset === layout[B_MOVE] &&
             this.recordU.byteOffset === layout[B_RECORD]
         )
             return;
@@ -113,7 +108,6 @@ export class BodyStore extends KernelViews {
         this.finF = new Float32Array(buf, layout[B_FIN], cap * FIN_STRIDE);
         this.sim2F = new Float32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
         this.sim2U = new Uint32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
-        this.moveU = new Uint32Array(buf, layout[B_MOVE], cap * MOVE_STRIDE);
         this.#syncRanges.clear();
     }
 
@@ -143,10 +137,6 @@ export class BodyStore extends KernelViews {
         };
         this.#syncRanges.set(count, rows);
         return rows;
-    }
-
-    forgetSet(set: number): void {
-        this.#setColumns.delete(set);
     }
 
     readonly #setColumns = new Map<
@@ -413,11 +403,6 @@ function readSimMatrix(world: WorldState, ref: number, offset: number, out: Mat3
     out.cz.y = f[o + 7];
     out.cz.z = f[o + 8];
     return out;
-}
-
-export function simInvMass(world: WorldState, ref: number): number {
-    const store = world.bodyStore;
-    return store.memoryF[simOffset(world, ref, 1) + 26];
 }
 
 export function simBodyId(world: WorldState, ref: number): number {

@@ -83,7 +83,6 @@ export type {
     PreSolveCallback,
     PrismaticJointConfig,
     RevoluteJointConfig,
-    SoftJointConfig,
     SphericalJointConfig,
     WeldJointConfig,
     WheelJointConfig,

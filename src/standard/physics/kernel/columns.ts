@@ -7,8 +7,6 @@ export const SIM_STRIDE = 54;
 /** Legacy binding slots address the same resident b3BodySim array. */
 export const FIN_STRIDE = SIM_STRIDE;
 export const SIM2_STRIDE = SIM_STRIDE;
-/** Retained body-move bridge: body index, generation, fellAsleep. */
-export const MOVE_STRIDE = 11;
 // sim2 field offsets.
 export const S2_CENTER0 = 14;
 export const S2_MIN_EXTENT = 45;

@@ -164,17 +164,3 @@ export type WheelJointConfig = BaseJointConfig & {
     lowerSteeringLimit: number;
     upperSteeringLimit: number;
 };
-
-/** A soft joint from a body anchor to a point fixed in world space. */
-export type SoftJointConfig = BaseJointConfig & {
-    /** Spring frequency in Hz. `stiffness` is accepted as a convenient alias. */
-    hertz: number;
-    /** Spring damping ratio. `damping` is accepted as a convenient alias. */
-    dampingRatio: number;
-    /** Optional spring-frequency alias for callers that author physical stiffness. */
-    stiffness: number;
-    /** Optional damping-ratio alias. */
-    damping: number;
-    /** Rest distance from the world anchor to the body anchor. */
-    length: number;
-};

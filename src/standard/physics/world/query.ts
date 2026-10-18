@@ -6,6 +6,7 @@ import { defaultQueryFilter, type QueryFilter } from "../common/types";
 import { BodyField, bodyField } from "../kernel/bodyrecords";
 import { rethrowQueryError, setQueryCallback } from "../kernel/kernel";
 import { queryColumns } from "../kernel/querycolumns";
+import type { TreeStats } from "../kernel/treecolumns";
 import type { Capsule } from "../shapes/geometry";
 import { getShapeMaterialCount } from "../shapes/shape";
 import { bodyIsValid, readBodyTransform } from "./body";
@@ -36,9 +37,7 @@ export type BodyCastHit = {
     userMaterialId: bigint;
     hit: boolean;
 };
-export type WorldPlaneHit = { shape: number; planes: PlaneResult[] };
 export type BodyPlaneHit = { shape: number; plane: PlaneResult };
-export type TreeStats = { nodeVisits: number; leafVisits: number };
 
 const emptyCastHit = (): ClosestCastHit => ({
     shape: null,

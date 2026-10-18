@@ -38,26 +38,6 @@ export const BodyFlags = {
     enableSleep: 0x00002000,
     enableContactRecycling: 0x00004000,
 } as const;
-export const FIXED_ROTATION =
-    BodyFlags.lockAngularX | BodyFlags.lockAngularY | BodyFlags.lockAngularZ;
-export const BODY_TRANSIENT_FLAGS =
-    BodyFlags.isFast | BodyFlags.isSpeedCapped | BodyFlags.hadTimeOfImpact;
-export type BodyState = {
-    linearVelocity: Vec3;
-    angularVelocity: Vec3;
-    deltaPosition: Vec3;
-    deltaRotation: Quat;
-    flags: number;
-};
-export function identityBodyState(): BodyState {
-    return {
-        linearVelocity: { x: 0, y: 0, z: 0 },
-        angularVelocity: { x: 0, y: 0, z: 0 },
-        deltaPosition: { x: 0, y: 0, z: 0 },
-        deltaRotation: { v: { x: 0, y: 0, z: 0 }, s: 1 },
-        flags: 0,
-    };
-}
 export type BodySim = {
     readonly transform: WorldTransform;
     center: Pos;
@@ -135,9 +115,6 @@ export function readBodyTransform(
     out: WorldTransform,
 ): WorldTransform {
     return readSimTransform(world, getBodySim(world, body), out);
-}
-export function syncBodyFlags(world: WorldState, body: number): void {
-    kernel(world.ecsState).bodySyncFlags(world.worldId, body);
 }
 export function bodySetLinearVelocity(world: WorldState, body: number, v: Vec3): void {
     kernel(world.ecsState).bodyVelocitySet(
@@ -402,9 +379,6 @@ export function createBody(world: WorldState, def: BodyDef): number {
     world.bodyUserData[bodyId] = def.userData;
     world.locked = false;
     return bodyId;
-}
-export function wakeBody(world: WorldState, body: number): boolean {
-    return !!kernel(world.ecsState).bodyWakeWorld(world.worldId, body);
 }
 export function destroyBody(world: WorldState, body: number): void {
     world.locked = true;

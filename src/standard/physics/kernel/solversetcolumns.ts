@@ -15,10 +15,6 @@ export function solverSetCount(world: WorldState): number {
 export function solverSetIndex(world: WorldState, set: number): number {
     return active(world).solverSetIndex(set);
 }
-export function releaseSolverSet(world: WorldState, set: number): void {
-    active(world).solverSetDestroy(set);
-    world.bodyStore.forgetSet(set);
-}
 export function wakeSolverSet(world: WorldState, set: number): void {
     active(world).solverSetWake(set);
 }
