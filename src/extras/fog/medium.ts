@@ -15,7 +15,7 @@ export const FOG_HEIGHT = 90;
 const PI = Math.PI;
 
 /**
- * the `Fog` uniform's layout, the one source of truth for it: `color.rgb` is the linear haze color, `medium`
+ * the `Fog` uniform's layout, the one source of truth for it: `color.rgb` is the medium's own light, linear radiance in cd/m², `medium`
  * is (extinction density, heightBase, heightFalloff, viewDistance), `extra` is
  * (maxDistance, scatteringAsymmetry, scattering albedo, radiance gain). f32
  * throughout. `FOG_FLOATS` and `packFog`'s write indices derive
@@ -56,15 +56,6 @@ export const fogDensity = tgpu.fn(
 )((p, density, base, falloff) => {
     "use gpu";
     return density * std.exp(-falloff * (p.y - base));
-});
-
-/** Composite the integrated extinction over the scene color: `scene·T + fogColor·(1−T)`. */
-export const fogComposite = tgpu.fn(
-    [d.vec3f, d.vec3f, d.f32],
-    d.vec3f,
-)((scene, fogColor, transmittance) => {
-    "use gpu";
-    return std.add(std.mul(scene, transmittance), std.mul(fogColor, 1 - transmittance));
 });
 
 /**

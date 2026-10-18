@@ -53,8 +53,10 @@ test("Blend, Premultiplied, Add and Multiply apply fog at their own depth and No
     world.add(fog, Fog, {
         color: 0xffffff,
         density: 0.05,
-        absorption: 1,
-        scattering: 0,
+        absorption: 0,
+        scattering: 1,
+        // Only the medium's own light: its haze is color · (1 − T).
+        lightIntensity: 0,
         viewDistance: 32,
     });
     const pixel = async () => {

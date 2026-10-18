@@ -11,6 +11,7 @@ import {
     SAMPLE_COUNT,
     Views,
 } from "../../core/rendering";
+import { EXPOSURE_EV100_BLENDER } from "../../core/rendering/camera";
 import type { Plugin, System, World } from "../../engine";
 import { component, f32 } from "../../engine";
 import {
@@ -72,8 +73,12 @@ export const Fog = component(
     {
         /** Base medium density in inverse world units (0 = clear), multiplied by the extinction coefficients. */
         density: f32,
-        /** hex sRGB haze color the scene fades toward (e.g. 0xb5c4d8) */
+        /** Hex sRGB color of the medium's own ambient light, which it scatters without any scene light,
+         * so the scene fades toward it as fog thickens. */
         color: f32,
+        /** Radiance of `color` in cd/m², scaled by camera exposure like `AmbientLight.brightness`.
+         * The default reads as `color` at the default exposure, EV100 9.7. */
+        brightness: f32,
         /** Nonnegative absorption coefficient; density × absorption removes light without scattering. */
         absorption: f32,
         /** Nonnegative scattering coefficient; density × scattering scatters light toward and away from the viewer. */
@@ -92,7 +97,7 @@ export const Fog = component(
          * `viewDistance` end within the grid, without an analytic tail; nonpositive values disable fog.
          * Set beyond the camera's far plane to blend distant geometry into the sky. */
         maxDistance: f32,
-        /** Nonphysical multiplier on direct and ambient in-scattered light; 1 leaves the light unadjusted.
+        /** Nonphysical multiplier on the scene's direct and ambient light in the medium; 1 leaves it unadjusted.
          * Defaults to 1/π as a tuned look value. */
         lightIntensity: f32,
     },
@@ -100,6 +105,7 @@ export const Fog = component(
         defaults: () => ({
             density: 0.02,
             color: 0xb5c4d8,
+            brightness: 1.2 * 2 ** EXPOSURE_EV100_BLENDER,
             absorption: 0,
             scattering: 1,
             scatteringAsymmetry: 0,

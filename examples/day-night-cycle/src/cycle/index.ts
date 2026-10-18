@@ -53,7 +53,6 @@ interface Atmosphere {
     horizon: number;
     hazeColor: number;
     starIntensity: number;
-    fogColor: number;
     fogDensity: number;
     fogLightIntensity: number;
     exposure: number;
@@ -75,7 +74,6 @@ export function atmosphere(
         horizon: 0,
         hazeColor: 0,
         starIntensity: 0,
-        fogColor: 0,
         fogDensity: 0,
         fogLightIntensity: 0,
         exposure: 0,
@@ -96,13 +94,13 @@ export function atmosphere(
     out.moonIlluminance = 420 * Math.max(0, Math.min(1, (0.12 - elevation) / 0.4));
     out.sunColor = blend(0xff9b52, 0xffe8cc, day);
     out.illuminance = (2800 * day) / (0.15 + 0.85 * day);
-    out.ambientColor = 0xd8e4ff;
+    // Sky light is the ambient the haze scatters, so it warms with the horizon at dusk.
+    out.ambientColor = blend(0xd8e4ff, 0xe9a175, dusk);
     out.ambientBrightness = 180 + 340 * daylight - 370 * day * day;
     out.zenith = blend(0x080e26, 0x719aca, daylight);
     out.horizon = blend(0x182039, blend(0xbcc5d4, 0xe9a175, dusk), daylight);
     out.hazeColor = blend(0x182039, blend(0xbcc5d4, 0xe9a175, dusk), daylight);
     out.starIntensity = 1 - daylight;
-    out.fogColor = blend(0x182039, blend(0xbcc5d4, 0xe9a175, dusk), daylight);
     out.fogDensity = 0.003 + 0.012 * dusk;
     out.fogLightIntensity = (0.3 + (4.7 * day) / (0.02 + day)) / Math.PI;
     out.exposure = -0.2 * (1 - daylight);
@@ -154,6 +152,8 @@ function makeScene(world: World): void {
     world.add(scene.sky, Sky, { cloudCoverage: 0.12, cloudDensity: 0.3, starAmount: 0.7 });
     scene.fog = world.create();
     world.add(scene.fog, Fog, {
+        // The sky's ambient light is the scene's AmbientLight; the medium takes no light of its own.
+        brightness: 0,
         heightFalloff: 0.12,
         lightIntensity: 0.3 / Math.PI,
         scatteringAsymmetry: 0.65,
@@ -234,7 +234,6 @@ export const CycleSystem = {
         sky.hazeDensity.set(s.sky, v.fogDensity);
         sky.starIntensity.set(s.sky, v.starIntensity);
         const fog = world.storage(Fog);
-        fog.color.set(s.fog, v.fogColor);
         fog.density.set(s.fog, v.fogDensity);
         fog.lightIntensity.set(s.fog, v.fogLightIntensity);
         world.storage(ColorGrading).exposure.set(s.camera, v.exposure);

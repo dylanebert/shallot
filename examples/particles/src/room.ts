@@ -49,7 +49,8 @@ export const RoomPlugin: Plugin = {
     initialize(world) {
         const ambient = world.resource(GlobalAmbientLight);
         ambient.color = 0xd8e4ff;
-        ambient.brightness = 12;
+        // Light the walls (luminance 0.08) to the average luminance EV100 8 meters for, 2^8 · 12.5 / 100 cd/m².
+        ambient.brightness = (2 ** 8 * 0.125) / 0.08;
         const camera = world.create();
         world.add(camera, Camera, { fov: 70, clearColor: 0x191816 });
         world.add(camera, StandardRenderer);
@@ -118,7 +119,8 @@ export const RoomPlugin: Plugin = {
         world.add(sun, VolumetricLight);
         const fog = world.create();
         world.add(fog, Fog, {
-            color: 0xeee9df,
+            // The room's ambient light is the light the dust scatters; the medium has none of its own.
+            brightness: 0,
             density: 0.025,
             absorption: 0,
             scattering: 1,

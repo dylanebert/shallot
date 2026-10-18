@@ -109,6 +109,52 @@ test("uniform ambient radiance scatters at its own radiance, as a white diffuse 
     expect(values[4]! / (exposed * (1 - Math.exp(-0.1 * (11 - 0.1))))).toBeCloseTo(1, 2);
 });
 
+test("Fog's own light scatters at its exposed radiance, scaled by albedo in the haze, without scene lights", async () => {
+    const { world } = subjects()[0]!;
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera, { antialias: 0, near: 0.1 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, AmbientLight, { brightness: 0 });
+    world.add(camera, Exposure, { ev100: 0 });
+    attachTexture(world, camera, { width: 16, height: 16 });
+    const fog = world.create();
+    world.add(fog, Fog, {
+        color: 0xffffff,
+        brightness: 30,
+        density: 0.1,
+        absorption: 1,
+        scattering: 1,
+        heightFalloff: 0,
+        viewDistance: 20,
+    });
+    const sample = reader(
+        world,
+        camera,
+        `
+        @fragment fn sample(@builtin(position) p: vec4f) -> @location(0) vec4f {
+            if (p.x < 1) { return vec4f(readFogInScatter(vec3f(0,0,-3)), 1); }
+            if (p.x < 2) { return vec4f(readFogInScatter(vec3f(0,0,-30)), 1); }
+            return readFog(vec3f(0,0,-11));
+        }
+        `,
+        3,
+    );
+    const lit = await sample();
+    world.storage(Exposure).ev100.set(camera, 1);
+    const half = await sample();
+    world.destroy(camera);
+    world.destroy(fog);
+    const exposed = 30 / 1.2;
+    const haze = 0.5 * exposed * (1 - Math.exp(-0.2 * (11 - 0.1)));
+    expect([lit[0]! / exposed, lit[4]! / exposed, lit[8]! / haze]).toEqual([
+        expect.closeTo(1, 2),
+        expect.closeTo(1, 2),
+        expect.closeTo(1, 2),
+    ]);
+    expect(half[8]! / lit[8]!).toBeCloseTo(0.5, 2);
+});
+
 test("local light is dark behind a shadow despite bright haze on its ray, exposed once, and zero without fog", async () => {
     const { world } = subjects()[0]!;
     const camera = world.create();
