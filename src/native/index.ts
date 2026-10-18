@@ -175,6 +175,11 @@ function cargoBuild(
 ): string | null {
     requireRustCrate();
     const invocation = resolveCargoInvocation(target, release, portable, isWSL);
+    const marker = target.includes("windows")
+        ? "libcef.dll"
+        : target.includes("darwin")
+          ? CEF_FRAMEWORK
+          : "libcef.so";
 
     // cargo-xwin's clang-cl can't build CEF's libcef_dll_wrapper
     // (no ATL, and CEF's `/MP` trips clang-cl's `/WX`); real cl.exe handles both.
@@ -201,17 +206,9 @@ function cargoBuild(
             );
             process.exit(1);
         }
-        const output = new TextDecoder().decode(r.stdout);
-        const marker = target.includes("windows")
-            ? "libcef.dll"
-            : target.includes("darwin")
-              ? CEF_FRAMEWORK
-              : "libcef.so";
-        const translate =
-            invocation.kind === "devshell"
-                ? (path: string) => execSync(`wslpath -u "${path}"`, { encoding: "utf-8" }).trim()
-                : undefined;
-        return cargoRuntimeDir(output, marker, translate);
+        return cargoRuntimeDir(new TextDecoder().decode(r.stdout), marker, (path: string) =>
+            execSync(`wslpath -u "${path}"`, { encoding: "utf-8" }).trim(),
+        );
     }
 
     const cmd = invocation.kind === "xwin" ? "cargo xwin build" : "cargo build";
@@ -230,11 +227,6 @@ function cargoBuild(
             stdio: ["inherit", "pipe", "inherit"],
         },
     );
-    const marker = target.includes("windows")
-        ? "libcef.dll"
-        : target.includes("darwin")
-          ? CEF_FRAMEWORK
-          : "libcef.so";
     return cargoRuntimeDir(output, marker);
 }
 
