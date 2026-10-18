@@ -82,3 +82,9 @@ export {
     PointShadows,
     pointComboEids,
 } from "./shadows";
+export {
+    applyPbrLighting,
+    extendedMaterial,
+    PbrInput,
+    pbrInputFromStandardMaterial,
+} from "./standard-material";

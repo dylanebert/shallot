@@ -1,9 +1,16 @@
+import tgpu, { type TgpuFn } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { ImageBindings, sampleImage } from "../../core/rendering";
 import { litPbr } from "./engine";
 import { StandardMaterial, StandardMaterialInput } from "./material-data";
-import { AlphaModeCode, materialLayout, materialType } from "./material-type";
+import {
+    AlphaModeCode,
+    MaterialAssets,
+    type MaterialFragmentFn,
+    materialLayout,
+    materialType,
+} from "./material-type";
 import { Pbr } from "./shade";
 
 const standardLayout = materialLayout(StandardMaterialInput, {
@@ -19,42 +26,113 @@ export const Materials = materialType({
     fragmentInputs: { uv: true },
     defaults: StandardMaterial(),
     depthPass: { prepass: true, shadows: true },
-    fragment: (ctx) => {
+    fragment: (ctx): d.v4f => {
         "use gpu";
-        const material = ctx.parameters;
-        let baseColor = d.vec4f(material.baseColor);
-        const uvDx = std.dpdx(ctx.uv);
-        const uvDy = std.dpdy(ctx.uv);
-        if (material.baseColorTexture >= 0) {
-            baseColor = std.mul(
-                baseColor,
-                sampleImage(
-                    standardLayout.$.images,
-                    standardLayout.$.imageSampler,
-                    standardLayout.$.imageSettings,
-                    ctx.uv,
-                    material.baseColorTexture,
-                    uvDx,
-                    uvDy,
-                ),
-            );
-        }
-        const alphaWidth = std.fwidth(baseColor.a);
-        if (material.baseColorTexture >= 0 && ctx.alphaMode === AlphaModeCode.AlphaToCoverage) {
-            baseColor.a = (baseColor.a - ctx.alphaCutoff) / std.max(alphaWidth, 0.0001) + 0.5;
-        }
-        if (material.unlit !== 0) return baseColor;
-        const pbr = Pbr({
-            albedo: baseColor.xyz,
-            metallic: material.metallic,
-            roughness: material.perceptualRoughness,
-            occlusion: material.occlusion,
-            dielectric: 0,
-        });
-        const emissive = material.emissive;
-        return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), baseColor.a);
+        return applyPbrLighting(pbrInputFromStandardMaterial(ctx), ctx);
     },
 });
+
+type StandardContextSchema =
+    MaterialFragmentFn<typeof StandardMaterialInput> extends TgpuFn<infer F>
+        ? Parameters<F>[0]
+        : never;
+const StandardContext: StandardContextSchema = (
+    Materials.fragment as unknown as {
+        shell: { argTypes: [StandardContextSchema] };
+    }
+).shell.argTypes[0];
+
+/** Resolved standard surface values. baseColor includes the sampled texture and sharpened coverage alpha.
+ * perceptualRoughness, metallic and occlusion are unitless; emissive is added only for lit surfaces. */
+export const PbrInput = d.struct({
+    baseColor: d.vec4f,
+    metallic: d.f32,
+    perceptualRoughness: d.f32,
+    occlusion: d.f32,
+    emissive: d.vec3f,
+    unlit: d.u32,
+});
+
+/** Sample standard's parameters into mutable surface values before lighting. Does not change depth-pass coverage. */
+export const pbrInputFromStandardMaterial = tgpu.fn(
+    [StandardContext],
+    PbrInput,
+)((ctx) => {
+    "use gpu";
+    const material = ctx.parameters;
+    let baseColor = d.vec4f(material.baseColor);
+    const uvDx = std.dpdx(ctx.uv);
+    const uvDy = std.dpdy(ctx.uv);
+    if (material.baseColorTexture >= 0) {
+        baseColor = std.mul(
+            baseColor,
+            sampleImage(
+                standardLayout.$.images,
+                standardLayout.$.imageSampler,
+                standardLayout.$.imageSettings,
+                ctx.uv,
+                material.baseColorTexture,
+                uvDx,
+                uvDy,
+            ),
+        );
+    }
+    const alphaWidth = std.fwidth(baseColor.a);
+    if (material.baseColorTexture >= 0 && ctx.alphaMode === AlphaModeCode.AlphaToCoverage) {
+        baseColor.a = (baseColor.a - ctx.alphaCutoff) / std.max(alphaWidth, 0.0001) + 0.5;
+    }
+    return PbrInput({
+        baseColor,
+        metallic: material.metallic,
+        perceptualRoughness: material.perceptualRoughness,
+        occlusion: material.occlusion,
+        emissive: material.emissive,
+        unlit: material.unlit,
+    });
+});
+
+/** Return camera-exposed linear lit colour, including emissive, before fog and presentation.
+ * Unlit input returns baseColor unchanged. Alpha is preserved. */
+export const applyPbrLighting = tgpu.fn(
+    [PbrInput, StandardContext],
+    d.vec4f,
+)((input, ctx) => {
+    "use gpu";
+    if (input.unlit !== 0) return d.vec4f(input.baseColor);
+    const pbr = Pbr({
+        albedo: input.baseColor.xyz,
+        metallic: input.metallic,
+        roughness: input.perceptualRoughness,
+        occlusion: input.occlusion,
+        dielectric: 0,
+    });
+    return d.vec4f(
+        std.add(litPbr(pbr, ctx.worldNormal, ctx.world), input.emissive),
+        input.baseColor.a,
+    );
+});
+
+/** Define a standard-derived material with independently owned rows. Shares the base's parameter schema,
+ * layout, bindings, fragment context identity and depth passes. The fragment returns camera-exposed
+ * linear colour before fog. Extension parameters/bindings and vertex/prepass overrides are not supported. */
+export function extendedMaterial(
+    base: typeof Materials,
+    spec: {
+        name: string;
+        fragment: (context: d.InferGPU<typeof StandardContext>) => d.v4f;
+    },
+): typeof Materials {
+    if (!spec.name) throw new Error("material type name must not be empty");
+    const Context = (base.fragment as unknown as { shell: { argTypes: [StandardContextSchema] } })
+        .shell.argTypes[0];
+    const definition: typeof Materials = {
+        ...base,
+        name: spec.name,
+        fragment: tgpu.fn([Context], d.vec4f)(spec.fragment),
+        create: (world) => new MaterialAssets(world, definition),
+    };
+    return definition;
+}
 
 const vertexVaryings = { litColor: d.vec4f };
 /**
