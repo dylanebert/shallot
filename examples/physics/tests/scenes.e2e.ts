@@ -4,6 +4,8 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     page,
 }, testInfo) => {
     async function capture(name: string) {
+        // Show the stack landing and the bridge bent under gravity, not their initial poses.
+        await page.waitForTimeout(name === "bridge" ? 6000 : 1000);
         await page.waitForFunction(() => {
             const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
             return (

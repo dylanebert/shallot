@@ -14,12 +14,12 @@ export type Scene = "boxStack" | "bridge";
 export const scenes = {
     boxStack: {
         construct: boxStack,
-        camera: { yaw: 40, pitch: 15, distance: 65, target: [0, 23, 0] },
+        camera: { yaw: 40, pitch: 10, distance: 46, target: [0, 23, 0] },
         controls: undefined,
     },
     bridge: {
         construct: bridge,
-        camera: { yaw: 12, pitch: 24, distance: 48, target: [-1.25, 13, 0] },
+        camera: { yaw: 40, pitch: 30, distance: 29, target: [-1.25, 17, 0] },
         controls: { gravityScale: setGravityScale },
     },
 } as const;
