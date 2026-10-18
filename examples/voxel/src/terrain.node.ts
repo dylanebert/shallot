@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import {
     type createApp,
+    eulerToQuat,
     lookAtRotation,
     Meshes,
     MeshInstance,
@@ -129,10 +130,7 @@ async function countsMatch() {
                                 scale,
                                 scale,
                                 scale,
-                                0,
-                                Math.sin(yaw / 2),
-                                0,
-                                Math.cos(yaw / 2),
+                                ...eulerToQuat(0, yaw, 0),
                                 s.placement!.meshes[part],
                                 material.type,
                                 material.material,
