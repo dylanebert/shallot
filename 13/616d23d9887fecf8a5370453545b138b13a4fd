@@ -1,0 +1,2 @@
+stage: 6
+finding: P2 scripts/package-shape.node.ts:34: The Vite relation test passes vacuously when both devDependencies.vite and peerDependencies.vite are removed. semver.subset(undefined, undefined) returns true via its equality shortcut, and dependencies.vite remains undefined, so both assertions pass despite neither dependency existing. Independently reproduced in memory without modifying files. Assert presence/valid ranges before comparing the subset; this fails stage D's explicit non-vacuity requirement.
