@@ -198,9 +198,7 @@ its colour by transmittance only. Without `FogPlugin` or a `Fog` singleton, the 
 an identity read, including in a core-only composition using `CorePipelinePlugin` without
 standard rendering. Fill unused preceding pipeline-layout indices with explicit
 empty layouts when using raw WebGPU. Other transparent renderers, including lines and text,
-now draw unfogged unless they use this read. `readFogInScatter(point)` reads camera-exposed local
-light before the medium's albedo through the same group after fog draws; a particle adds its
-albedo × coverage × this light × `readFog(point).a`, without applying exposure again.
+now draw unfogged unless they use this read.
 
 ## Presenting-camera capacity grows on demand
 

@@ -59,7 +59,6 @@ export const fogGridLayout = tgpu
 export const fogReadLayout = tgpu
     .bindGroupLayout({
         grid: { texture: d.texture3d(d.f32), visibility: ["fragment"] },
-        feedback: { texture: d.texture3d(d.f32), visibility: ["fragment"] },
         gridSampler: { sampler: "filtering", visibility: ["fragment"] },
         view: { uniform: ViewUniforms, visibility: ["fragment"] },
         fog: { uniform: FogGpu, visibility: ["fragment"] },
@@ -279,7 +278,7 @@ function createGridKernel() {
                 const depth = std.dot(std.sub(center, prev.eye.xyz), prev.forward.xyz);
                 const sliceDepth = (depth - prev.range.x) / prev.range.y;
                 // Centres lie at (i²+i+0.5)/N²; invert that, not the slice boundaries.
-                const z = fogCellCoordinate(depth, prev.range.x, prev.range.y);
+                const z = std.sqrt(std.max(sliceDepth - 0.25 / (FOG_SLICES * FOG_SLICES), 0));
                 if (
                     prev.jitter.w > 0 &&
                     clip.w > 0 &&
@@ -353,14 +352,6 @@ function createGridKernel() {
 
 export const fogGridKernel = createGridKernel();
 
-const fogCellCoordinate = tgpu.fn(
-    [d.f32, d.f32, d.f32],
-    d.f32,
-)((depth, near, extent) => {
-    "use gpu";
-    return std.sqrt(std.max((depth - near) / extent - 0.25 / (FOG_SLICES * FOG_SLICES), 0));
-});
-
 const fogTail = tgpu
     .fn(
         [FogGpu, ViewUniforms, d.vec3f, d.vec3f, d.f32, d.vec4f],
@@ -374,24 +365,7 @@ const fogTail = tgpu
         const opticalDepth =
             fogDensity(start, cfg.medium.x, cfg.medium.y, cfg.medium.z) * distance * integral;
         const trans = std.exp(-opticalDepth);
-        const light = fogTailLight(cfg, view, dir);
-        return d.vec4f(
-            std.add(
-                integrated.xyz,
-                std.mul(light, integrated.w * cfg.extra.z * cfg.extra.w * (1 - trans)),
-            ),
-            integrated.w * trans,
-        );
-    })
-    .$name("fogTail");
-
-// The distant medium has no resolved occluders or local lights.
-const fogTailLight = tgpu
-    .fn(
-        [FogGpu, ViewUniforms, d.vec3f],
-        d.vec3f,
-    )((cfg, view, dir) => {
-        "use gpu";
+        // The distant medium has no resolved occluders or local lights.
         let light = std.mul(view.ambientColor.rgb, view.exposure / (4 * Math.PI));
         let k = d.u32(0);
         while (k < fogReadLayout.$.lighting.directionalCount) {
@@ -411,52 +385,15 @@ const fogTailLight = tgpu
             }
             k = k + 1;
         }
-        return light;
-    })
-    .$name("fogTailLight");
-
-/**
- * Read camera-exposed local in-scatter radiance per unit scattering, before the medium's albedo.
- * A particle adds albedo × coverage × readFogInScatter(p) × readFog(p).a; apply no exposure.
- * Returns zero without FogPlugin/Fog, with NoFog, at/before near, or beyond maxDistance. Bind
- * fogReadBindGroup at group 3 with fogReadLayout after this frame's fog draw system. Light is trilinear
- * at cell resolution, with phase toward the camera along the cell ray; history lags moving lights and cameras.
- */
-export const readFogInScatter = tgpu
-    .fn(
-        [d.vec3f],
-        d.vec3f,
-    )((point) => {
-        "use gpu";
-        const view = fogReadLayout.$.view;
-        const cfg = fogReadLayout.$.fog;
-        if (cfg.medium.x === 0) return d.vec3f(0);
-        const forward = std.neg(std.cross(view.right.xyz, view.up.xyz));
-        const viewZ = std.dot(std.sub(point, view.eye.xyz), forward);
-        if (viewZ <= view.projection.x) return d.vec3f(0);
-        const clip = std.mul(view.viewProj, d.vec4f(point, 1));
-        const uv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
-        const nearWorld = reconstructWorld(view.invViewProj, uv, 1);
-        const dir = std.normalize(std.sub(point, nearWorld));
-        const cosine = std.max(std.dot(dir, forward), 1e-6);
-        if (viewZ > cfg.extra.x * cosine || cfg.extra.x <= 0) return d.vec3f(0);
-        if (viewZ > cfg.medium.w) return std.mul(fogTailLight(cfg, view, dir), cfg.extra.w);
-        const z = fogCellCoordinate(
-            viewZ,
-            view.projection.x,
-            std.max(cfg.medium.w - view.projection.x, 0.001),
-        );
-        return std.mul(
-            std.textureSampleLevel(
-                fogReadLayout.$.feedback,
-                fogReadLayout.$.gridSampler,
-                d.vec3f(uv, z),
-                0,
-            ).rgb,
-            cfg.extra.w,
+        return d.vec4f(
+            std.add(
+                integrated.xyz,
+                std.mul(light, integrated.w * cfg.extra.z * cfg.extra.w * (1 - trans)),
+            ),
+            integrated.w * trans,
         );
     })
-    .$name("readFogInScatter");
+    .$name("fogTail");
 
 /**
  * Read added RGB radiance (camera-exposed) and alpha transmittance to a world-space point, bounded by

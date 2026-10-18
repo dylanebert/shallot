@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { type createApp, DiagnosticsStore, probeBuffer, setTransform } from "@dylanebert/shallot";
-import { Fog } from "@dylanebert/shallot/extras";
+import { NoFog } from "@dylanebert/shallot/extras";
 import {
-    AmbientLight,
     attachTexture,
     captureTexture,
     Tonemapping,
@@ -133,8 +132,7 @@ test("without timestamp-query the example draws and reports requires timestamp-q
 test("a mote just in front of the camera adds no light while a mote two metres away still does", async () => {
     const { world } = untimed;
     const camera = world.resource(Room).camera;
-    world.add(camera, AmbientLight, { brightness: 10000 });
-    world.storage(Fog).density.set(world.only([Fog]), 0.00001);
+    world.add(camera, NoFog);
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     world.step(0);
     const motes = world.resource(Motes);
@@ -145,7 +143,7 @@ test("a mote just in front of the camera adds no light while a mote two metres a
         positions.set([0, 1.7, 2 - depth, 0], 0);
         world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
         motes.visible = visible;
-        for (let i = 0; i < 64; i++) world.step(0);
+        world.step(0);
         return (await captureTexture(world, camera)).rgba;
     };
     const background = await image(0.2, false);
@@ -159,7 +157,7 @@ test("a mote just in front of the camera adds no light while a mote two metres a
 test("a one-metre mote covers no more pixels than at the two-metre size cap and a four-metre mote keeps its original footprint", async () => {
     const { world } = untimed;
     const camera = world.resource(Room).camera;
-    world.storage(AmbientLight).brightness.set(camera, 10000);
+    if (!world.has(camera, NoFog)) world.add(camera, NoFog);
     if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
     world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
     world.step(0);
@@ -170,7 +168,7 @@ test("a one-metre mote covers no more pixels than at the two-metre size cap and 
         positions.set([0, 1.7, 2 - depth, 0], 0);
         world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
         motes.visible = visible;
-        for (let i = 0; i < 64; i++) world.step(0);
+        world.step(0);
         return (await captureTexture(world, camera)).rgba;
     };
     const background = await image(1, false);
