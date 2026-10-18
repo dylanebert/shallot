@@ -192,7 +192,7 @@ them. `registerFogSource` and `FogInput` / `FogSource` in `/standard/rendering` 
 supply that read before standard warms; its layout occupies reserved group 3.
 
 Custom fragment passes can use `readFog`, `fogReadLayout` and
-`fogReadBindGroup(world, camera)` from `/extras` or `/fog`, binding the returned group at 3.
+`fogReadBindGroup(world, camera)` from `/extras`, binding the returned group at 3.
 The read returns added RGB radiance and alpha transmittance; additive emission multiplies
 its colour by transmittance only. Without `FogPlugin` or a `Fog` singleton, the accessor supplies
 an identity read, including in a core-only composition using `CorePipelinePlugin` without
