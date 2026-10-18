@@ -29,14 +29,16 @@
 <section bind:this={picker} class="picker" aria-label="Physics scenes">
     {#if open}
         <div id="scene-list" class="scenes" style:--categories={categories.length} aria-label="Scenes">
-            {#each categories as category}
-                <section aria-label={category.name}>
-                    <h2>{category.name}</h2>
-                    {#each category.scenes as sample}
-                        <button aria-current={scene === sample.id ? "true" : undefined} onclick={() => { close(); if (scene !== sample.id) select(sample.id); }}>{sample.name}</button>
-                    {/each}
-                </section>
-            {/each}
+            <div class="categories">
+                {#each categories as category}
+                    <section aria-label={category.name}>
+                        <h2>{category.name}</h2>
+                        {#each category.scenes as sample}
+                            <button aria-current={scene === sample.id ? "true" : undefined} onclick={() => { close(); if (scene !== sample.id) select(sample.id); }}>{sample.name}</button>
+                        {/each}
+                    </section>
+                {/each}
+            </div>
         </div>
     {/if}
     <nav aria-label="Scene navigation">
@@ -61,8 +63,9 @@
     .name { min-width: 112px; }
     button:hover, button[aria-current="true"] { text-decoration: underline; text-underline-offset: 2px; }
     button:focus-visible, input:focus-visible { outline: 1px solid #eee9df; outline-offset: 2px; }
-    .scenes { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: min(100%, calc(var(--categories) * 192px + 8px), 1000px); max-height: calc(100dvh - var(--top) - var(--bottom) - 32px); overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 176px), 1fr)); align-items: start; gap: 16px; padding: 8px; box-sizing: border-box; background: #282622; border-radius: 2px; }
-    .scenes section { min-width: 0; }
+    .scenes { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: min(100%, calc(var(--categories) * 192px + 8px), 1000px); max-height: calc(100dvh - var(--top) - var(--bottom) - 32px); overflow-y: auto; padding: 8px; box-sizing: border-box; background: #282622; border-radius: 2px; }
+    .categories { column-width: 176px; column-gap: 16px; }
+    .scenes section { break-inside: avoid; margin-bottom: 16px; }
     h2 { font: inherit; margin: 0 8px 4px; color: #797369; }
     .scenes button { display: block; width: 100%; text-align: left; }
     .controls { top: var(--top); right: var(--right); display: grid; gap: 4px; padding: 8px; background: #282622; border-radius: 2px; }
@@ -71,7 +74,7 @@
     input::-moz-range-track { height: 2px; background: #797369; }
     input::-webkit-slider-thumb { appearance: none; width: 12px; height: 16px; margin-top: -7px; border: 0; border-radius: 2px; background: #eee9df; }
     input::-moz-range-thumb { width: 12px; height: 16px; border: 0; border-radius: 2px; background: #eee9df; }
-    @media (max-width: 480px) { .scenes { grid-template-columns: 1fr; } }
+    @media (max-width: 480px) { .categories { column-count: 1; } }
     @media (pointer: coarse) {
         button, input { min-height: 44px; }
         .scenes { max-height: calc(100dvh - var(--top) - var(--bottom) - 52px); }
