@@ -50,7 +50,7 @@ window.shadow=async(kind)=>{
  }
  return {darkened,darkenedFraction:darkened/(before.width*before.height),maxDelta};
 };
-window.device={requests,adapter:w.gpuIfAvailable.adapter,limits:{maxStorageBuffersPerShaderStage:w.gpuIfAvailable.device.limits.maxStorageBuffersPerShaderStage}};
+window.device={requests,adapter:w.gpu.adapter,limits:{maxStorageBuffersPerShaderStage:w.gpu.device.limits.maxStorageBuffersPerShaderStage}};
 window.view();
 window.ready=true;
 </script></body></html>

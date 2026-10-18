@@ -40,5 +40,5 @@ window.capture=async()=>{
 };
 document.querySelector('#start').onclick=async()=>{await context.resume();window.started=true;};
 w.step(1/60);w.step(1/60);
-window.adapter=w.gpuIfAvailable.adapter;window.ready=true;
+window.adapter=w.gpu.adapter;window.ready=true;
 </script></body></html>

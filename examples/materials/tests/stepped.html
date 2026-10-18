@@ -87,6 +87,6 @@ window.woodUnlit=(unlit)=>world.resource(Materials).update(world.storage(MeshMat
 window.woodOff=()=>replace(4,world.resource(Materials).add(StandardMaterial({perceptualRoughness:0.72})));
 window.checkerBlue=()=>world.resource(CheckerMaterial).update(gallery.checker,{lightColor:[0.02,0.1,0.95]});
 window.glassOpaque=()=>replace(3,world.resource(Materials).add(StandardMaterial({baseColor:[0.04,0.43,0.53,1],perceptualRoughness:0.08})));
-window.adapter=world.gpuIfAvailable.adapter;
+window.adapter=world.gpu.adapter;
 window.aim(-1);window.ready=true;
 </script></body></html>

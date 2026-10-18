@@ -36,6 +36,6 @@ window.capture=async()=>{
  output.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(frame.rgba),frame.width,frame.height),0,0);
  return output.toDataURL('image/png');
 };
-window.adapter=world.gpuIfAvailable.adapter;
+window.adapter=world.gpu.adapter;
 world.step(0);window.ready=true;
 </script></body></html>

@@ -61,7 +61,7 @@ window.capture = async () => {
  canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);
  return canvas.toDataURL('image/png');
 };
-window.adapter = world.gpuIfAvailable.adapter;
+window.adapter = world.gpu.adapter;
 window.turnAway = () => {
  setInputEnabled(world,true); pointerLockChanged(world,true);
  pointerMove(world,{x:0,y:0,deltaX:Math.PI*1080/1.5});
