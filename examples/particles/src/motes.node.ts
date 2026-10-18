@@ -130,24 +130,32 @@ test("without timestamp-query the example draws and reports requires timestamp-q
     expect(stats.get("compile/particles:compute/elapsed")).toBeDefined();
     expect(stats.get("compile/particles:draw/elapsed")).toBeDefined();
 });
-test("a mote just in front of the camera adds no light while a mote two metres away still does", async () => {
-    const { world } = untimed;
+/** One mote alone in a scene each geometry test sets for itself, since hosts run tests one at a time. */
+function moteImages(world: typeof untimed.world) {
     const camera = world.resource(Room).camera;
-    world.add(camera, AmbientLight, { brightness: 10000 });
-    world.storage(Fog).density.set(world.only([Fog]), 0.00001);
-    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
-    world.step(0);
+    if (!world.has(camera, AmbientLight)) world.add(camera, AmbientLight);
+    world.storage(AmbientLight).brightness.set(camera, 10000);
+    if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
+    world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
+    // Past viewDistance the mote's light is analytic and the grid holds 5 cm of 1e-5 density:
+    // one frame is final, with no history or jitter to settle.
+    const fog = world.only([Fog]);
+    world.storage(Fog).density.set(fog, 0.00001);
+    world.storage(Fog).viewDistance.set(fog, 0.15);
     const motes = world.resource(Motes);
     const positions = new Float32Array(MOTE_COUNT * 4);
     // All other instances stay outside the room and the view.
     for (let i = 0; i < MOTE_COUNT; i++) positions[i * 4] = 100;
-    const image = async (depth: number, visible: boolean) => {
+    return async (depth: number, visible: boolean) => {
         positions.set([0, 1.7, 2 - depth, 0], 0);
         world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
         motes.visible = visible;
-        for (let i = 0; i < 64; i++) world.step(0);
+        world.step(0);
         return (await captureTexture(world, camera)).rgba;
     };
+}
+test("a mote just in front of the camera adds no light while a mote two metres away still does", async () => {
+    const image = moteImages(untimed.world);
     const background = await image(0.2, false);
     const near = await image(0.2, true);
     const far = await image(2, true);
@@ -157,22 +165,7 @@ test("a mote just in front of the camera adds no light while a mote two metres a
     expect(increase).toBeGreaterThan(0);
 });
 test("a one-metre mote covers no more pixels than at the two-metre size cap and a four-metre mote keeps its original footprint", async () => {
-    const { world } = untimed;
-    const camera = world.resource(Room).camera;
-    world.storage(AmbientLight).brightness.set(camera, 10000);
-    if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
-    world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
-    world.step(0);
-    const motes = world.resource(Motes);
-    const positions = new Float32Array(MOTE_COUNT * 4);
-    for (let i = 0; i < MOTE_COUNT; i++) positions[i * 4] = 100;
-    const image = async (depth: number, visible: boolean) => {
-        positions.set([0, 1.7, 2 - depth, 0], 0);
-        world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
-        motes.visible = visible;
-        for (let i = 0; i < 64; i++) world.step(0);
-        return (await captureTexture(world, camera)).rgba;
-    };
+    const image = moteImages(untimed.world);
     const background = await image(1, false);
     const coverage = async (depth: number) => {
         const pixels = await image(depth, true);
