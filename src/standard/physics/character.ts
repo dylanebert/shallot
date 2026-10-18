@@ -22,10 +22,10 @@ import {
     SyncPhysicsConstraintsSystem,
 } from "./runtime";
 import {
+    bodyGetTransform,
     bodySetAwake,
     bodySetLinearVelocity,
     bodySetTransform,
-    readBodyTransform,
 } from "./world/body";
 
 export const GroundState = { InAir: 0, OnGround: 1, OnSteepGround: 2 } as const;
@@ -122,7 +122,7 @@ function moveCharacter(world: World, eid: number): void {
     // Pose-driven kinematics must stay in the solver's live publish set, without periodic wake/clone churn.
     bodySetAwake(state, bodyId, true);
     setBodyField(state, bodyId, BodyField.sleepTime, 0);
-    readBodyTransform(state, bodyId, s.pose);
+    bodyGetTransform(state, bodyId, s.pose);
     const position = s.pose.p;
     s.start.x = position.x;
     s.start.y = position.y;

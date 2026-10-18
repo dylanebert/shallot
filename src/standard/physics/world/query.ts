@@ -9,7 +9,7 @@ import { queryColumns } from "../kernel/querycolumns";
 import type { TreeStats } from "../kernel/treecolumns";
 import type { Capsule } from "../shapes/geometry";
 import { getShapeMaterialCount } from "../shapes/shape";
-import { bodyIsValid, readBodyTransform } from "./body";
+import { bodyGetTransform, bodyIsValid } from "./body";
 import type { WorldState } from "./world";
 
 export type WorldCastHit = {
@@ -355,7 +355,7 @@ export function bodyGetClosestPoint(
     const origin = { x: 0, y: 0, z: 0 };
     const q = queryColumns(world);
     const k = q.prepare(origin);
-    q.placement(readBodyTransform(world, body.index1 - 1, bodyPoseScratch), origin);
+    q.placement(bodyGetTransform(world, body.index1 - 1, bodyPoseScratch), origin);
     q.proxy({ points: [target], count: 1, radius: 0 });
     k.bodyQuery(world.worldId, 3, bodyField(world, body.index1 - 1, BodyField.headShapeId), 0);
     return { point: { x: q.resultF[6], y: q.resultF[7], z: q.resultF[8] }, distance: q.resultF[3] };

@@ -109,13 +109,6 @@ export function makeBodyId(world: WorldState, bodyId: number): EntityId {
         generation: kernel(world.ecsState).bodyGeneration(world.worldId, bodyId),
     };
 }
-export function readBodyTransform(
-    world: WorldState,
-    body: number,
-    out: WorldTransform,
-): WorldTransform {
-    return readSimTransform(world, getBodySim(world, body), out);
-}
 export function bodySetLinearVelocity(world: WorldState, body: number, v: Vec3): void {
     kernel(world.ecsState).bodyVelocitySet(
         world.worldId,
