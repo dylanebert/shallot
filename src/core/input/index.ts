@@ -519,7 +519,7 @@ export function blurCanvas(world: World): void {
     const a = adapters.get(world);
     if (a) a.canvasFocused = false;
     d.focused = -1;
-    releaseAll(world, d);
+    releaseAll(d);
 }
 
 /** Produce a focus transition for a bound canvas. */
@@ -542,7 +542,7 @@ export function pointerLockChanged(
     const wasLocked = d.pointer.lock.status === "locked";
     if (engaged) setPointerLock(d, "locked", null);
     else setPointerLock(d, refusal === null ? "unlocked" : "refused", refusal);
-    if (wasLocked && !engaged) releaseAll(world, d);
+    if (wasLocked && !engaged) releaseAll(d);
 }
 
 /** End every held button without a release. */
@@ -575,7 +575,7 @@ function clearTouch(d: DeviceRecord): void {
     d.touch.deltaY = 0;
 }
 
-function releaseAll(_world: World | null, d: DeviceRecord): void {
+function releaseAll(d: DeviceRecord): void {
     for (const code of [...d.keys.held]) releaseHeldKey(d, code);
     setButtonLevel(d, "left", false);
     setButtonLevel(d, "right", false);
@@ -692,7 +692,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
         if (!a.canvases.has(e.target as HTMLCanvasElement)) {
             a.canvasFocused = false;
             d.focused = -1;
-            releaseAll(world, d);
+            releaseAll(d);
         }
     };
     a.windowBlur = () => blurCanvas(world);
@@ -930,7 +930,7 @@ export function requestPointerLock(world: World): void {
         if (result && typeof result.then === "function") {
             a.pendingLocks.add(canvas);
             result.then(
-                () => finishPointerLockRequest(world, a, canvas),
+                () => finishPointerLockRequest(a, canvas),
                 (error: unknown) => {
                     if (!a.disposed) {
                         pointerLockChanged(
@@ -939,7 +939,7 @@ export function requestPointerLock(world: World): void {
                             error instanceof Error ? error.message : String(error),
                         );
                     }
-                    finishPointerLockRequest(world, a, canvas, true);
+                    finishPointerLockRequest(a, canvas, true);
                 },
             );
         }
@@ -950,12 +950,11 @@ export function requestPointerLock(world: World): void {
                 false,
                 error instanceof Error ? error.message : String(error),
             );
-        finishPointerLockRequest(world, a, canvas, true);
+        finishPointerLockRequest(a, canvas, true);
     }
 }
 
 function finishPointerLockRequest(
-    world: World,
     a: BrowserAdapter,
     canvas: HTMLCanvasElement,
     rejected = false,
@@ -977,7 +976,6 @@ function finishPointerLockRequest(
         return;
     }
     // A settled request never grants a lock fact by itself; pointerlockchange is the host report.
-    void world;
 }
 
 /** Release this adapter's lock, if it owns the currently locked canvas. */
@@ -994,7 +992,7 @@ export function setInputEnabled(world: World, on: boolean): void {
     const d = record(world);
     d.enabled = on;
     if (!on) {
-        releaseAll(world, d);
+        releaseAll(d);
         d.keys.pressed.clear();
         dropPresses(d);
         d.pointer.deltaX = 0;
