@@ -49,9 +49,9 @@ import { TEMPORAL_FRAMES } from "./temporal";
 
 /**
  * The scene's volumetric atmosphere: one per scene (a singleton). A frustum grid accumulates extinction
- * and in-scattered light up to `viewDistance`; beyond it, analytic height fog continues to surfaces with unshadowed
- * ambient and directional in-scatter. A perspective camera's clear background takes the grid's haze at
- * `viewDistance`. `density` is the
+ * and in-scattered light up to `viewDistance`; beyond it, analytic height fog continues with unshadowed
+ * ambient and directional in-scatter. `maxDistance` bounds fog along each ray, including a perspective
+ * camera's clear background. `density` is the
  * base haze thickness; `heightFalloff` makes it an exponential height fog (denser low, thinning with
  * altitude above `heightBase`). Extinction is
  * density × (absorption + scattering); the scattered fraction is scattering / (absorption + scattering).
@@ -75,6 +75,11 @@ export const Fog = component(
         heightFalloff: f32,
         /** Far view-space depth of the shadowed volumetric grid, in world units; unshadowed height fog continues beyond it. */
         viewDistance: f32,
+        /** Maximum fog distance from the camera along each ray, in world units (default 5000).
+         * The perspective clear background lies here; farther surfaces take the same fog. Values below
+         * `viewDistance` end within the grid, without an analytic tail; nonpositive values disable fog.
+         * Set beyond the camera's far plane to blend distant geometry into the sky. */
+        maxDistance: f32,
         /** Nonphysical multiplier on direct and ambient in-scattered light; 1 leaves the light unadjusted.
          * Defaults to 1/π as a tuned look value. */
         lightIntensity: f32,
@@ -89,6 +94,7 @@ export const Fog = component(
             heightBase: 0,
             heightFalloff: 0,
             viewDistance: 64,
+            maxDistance: 5000,
             lightIntensity: 1 / Math.PI,
         }),
     },

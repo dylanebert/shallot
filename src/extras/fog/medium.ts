@@ -17,7 +17,7 @@ const PI = Math.PI;
 /**
  * the `Fog` uniform's layout, the one source of truth for it: `color.rgb` is the linear haze color, `medium`
  * is (extinction density, heightBase, heightFalloff, viewDistance), `extra` is
- * (unused, scatteringAsymmetry, scattering albedo, radiance gain). f32
+ * (maxDistance, scatteringAsymmetry, scattering albedo, radiance gain). f32
  * throughout. `FOG_FLOATS` and `packFog`'s write indices derive
  * from it.
  */

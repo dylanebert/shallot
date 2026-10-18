@@ -14,6 +14,7 @@ export function packFog(world: World, eid: number, out: Float32Array): void {
     out[FOG_PARAMS.medium + 1] = fog.heightBase.get(eid);
     out[FOG_PARAMS.medium + 2] = fog.heightFalloff.get(eid);
     out[FOG_PARAMS.medium + 3] = fog.viewDistance.get(eid);
+    out[FOG_PARAMS.extra] = Math.max(0, fog.maxDistance.get(eid));
     out[FOG_PARAMS.extra + 1] = fog.scatteringAsymmetry.get(eid);
     out[FOG_PARAMS.extra + 2] = extinction > 0 ? fog.scattering.get(eid) / extinction : 0;
     out[FOG_PARAMS.extra + 3] = fog.lightIntensity.get(eid);

@@ -361,6 +361,49 @@ function createGridKernel() {
 
 export const fogGridKernel = createGridKernel();
 
+const fogTail = tgpu
+    .fn(
+        [FogGpu, ViewUniforms, d.vec3f, d.vec3f, d.f32, d.vec4f],
+        d.vec4f,
+    )((cfg, view, start, dir, distance, integrated) => {
+        "use gpu";
+        const x = cfg.medium.z * dir.y * distance;
+        // The series avoids cancellation for horizontal rays and zero height falloff.
+        let integral = d.f32(1 - x * 0.5 + (x * x) / 6);
+        if (std.abs(x) > 0.001) integral = (1 - std.exp(-x)) / x;
+        const opticalDepth =
+            fogDensity(start, cfg.medium.x, cfg.medium.y, cfg.medium.z) * distance * integral;
+        const trans = std.exp(-opticalDepth);
+        // The distant medium has no resolved occluders or local lights.
+        let light = std.mul(view.ambientColor.rgb, view.exposure / (4 * Math.PI));
+        let k = d.u32(0);
+        while (k < fogLayout1.$.lighting.directionalCount) {
+            const sun = fogLayout1.$.lighting.directionalLights[k];
+            if (sun.params.z > 0) {
+                light = d.vec3f(
+                    std.add(
+                        light,
+                        directionalInScatter(
+                            std.mul(sun.color.rgb, sun.params.x * view.exposure),
+                            sun.direction.xyz,
+                            dir,
+                            cfg.extra.y,
+                        ),
+                    ),
+                );
+            }
+            k = k + 1;
+        }
+        return d.vec4f(
+            std.add(
+                integrated.xyz,
+                std.mul(light, integrated.w * cfg.extra.z * cfg.extra.w * (1 - trans)),
+            ),
+            integrated.w * trans,
+        );
+    })
+    .$name("fogTail");
+
 function createApplyKernel(
     layout: typeof fogLayout0 | typeof fogLayout0Multisampled,
     readDepth: typeof loadDepth | typeof loadDepthMultisampled,
@@ -377,27 +420,23 @@ function createApplyKernel(
             const scn = std.textureLoad(layout.$.sceneTex, px, 0).xyz;
             const depth = readDepth(px);
             const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim));
-            if (depth === 0 && layout.$.view.projection.z > 0.5) {
-                // Infinite perspective depth is the clear background: end the ray at the grid's far
-                // slice, as Bevy does, rather than unprojecting depth zero as a finite point.
-                const volume = std.textureSampleLevel(
-                    layout.$.grid,
-                    layout.$.gridSampler,
-                    d.vec3f(uv, (FOG_SLICES + 0.5) / (FOG_SLICES + 1)),
-                    0,
-                );
-                const background = std.add(
-                    fogComposite(scn, layout.$.fog.color.xyz, volume.w),
-                    volume.xyz,
-                );
-                std.textureStore(layout.$.output, px, d.vec4f(background, 1));
-                return;
-            }
-            const p = reconstructWorld(layout.$.view.invViewProj, uv, depth);
             const camView = layout.$.view;
+            const cfg = layout.$.fog;
             const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
-            const viewZ = std.dot(std.sub(p, camView.eye.xyz), forward);
-            const extent = std.max(layout.$.fog.medium.w - camView.projection.x, 0.001);
+            const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+            let dir = d.vec3f(forward);
+            if (camView.projection.z > 0.5)
+                dir = std.normalize(std.sub(nearWorld, camView.eye.xyz));
+            let surfaceZ = d.f32(cfg.extra.x);
+            // Perspective clear depth is infinite; its finite fog endpoint is authored instead.
+            if (depth !== 0 || camView.projection.z <= 0.5) {
+                const p = reconstructWorld(camView.invViewProj, uv, depth);
+                dir = std.normalize(std.sub(p, nearWorld));
+                surfaceZ = std.dot(std.sub(p, camView.eye.xyz), forward);
+            }
+            const cosine = std.max(std.dot(dir, forward), 1e-6);
+            const viewZ = std.min(surfaceZ, std.max(camView.projection.x, cfg.extra.x * cosine));
+            const extent = std.max(cfg.medium.w - camView.projection.x, 0.001);
             const slice = std.sqrt(std.clamp((viewZ - camView.projection.x) / extent, 0, 1));
             // Texels hold slice boundaries, including the identity at the near plane.
             const z = (slice * FOG_SLICES + 0.5) / (FOG_SLICES + 1);
@@ -407,53 +446,20 @@ function createApplyKernel(
                 d.vec3f(uv, z),
                 0,
             );
-            let trans = integrated.w;
-            let radiance = integrated.xyz;
-            if (viewZ > layout.$.fog.medium.w) {
-                const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
-                const dir = std.normalize(std.sub(p, nearWorld));
-                const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
-                const start = std.add(nearWorld, std.mul(dir, extent * rayScale));
-                const distance = (viewZ - layout.$.fog.medium.w) * rayScale;
-                const cfg = layout.$.fog;
-                const x = cfg.medium.z * dir.y * distance;
-                // The series avoids cancellation for horizontal rays and zero height falloff.
-                let integral = d.f32(1 - x * 0.5 + (x * x) / 6);
-                if (std.abs(x) > 0.001) integral = (1 - std.exp(-x)) / x;
-                const opticalDepth =
-                    fogDensity(start, cfg.medium.x, cfg.medium.y, cfg.medium.z) *
-                    distance *
-                    integral;
-                const tailTrans = std.exp(-opticalDepth);
-                // The distant medium has no resolved occluders or local lights.
-                let light = std.mul(camView.ambientColor.rgb, camView.exposure / (4 * Math.PI));
-                let k = d.u32(0);
-                while (k < fogLayout1.$.lighting.directionalCount) {
-                    const sun = fogLayout1.$.lighting.directionalLights[k];
-                    if (sun.params.z > 0) {
-                        light = d.vec3f(
-                            std.add(
-                                light,
-                                directionalInScatter(
-                                    std.mul(sun.color.rgb, sun.params.x * camView.exposure),
-                                    sun.direction.xyz,
-                                    dir,
-                                    cfg.extra.y,
-                                ),
-                            ),
-                        );
-                    }
-                    k = k + 1;
-                }
-                radiance = d.vec3f(
-                    std.add(
-                        radiance,
-                        std.mul(light, trans * cfg.extra.z * cfg.extra.w * (1 - tailTrans)),
-                    ),
+            let volume = d.vec4f(integrated);
+            if (viewZ > cfg.medium.w) {
+                const rayScale = 1 / cosine;
+                const gridDistance = extent * rayScale;
+                volume = fogTail(
+                    cfg,
+                    camView,
+                    std.add(nearWorld, std.mul(dir, gridDistance)),
+                    dir,
+                    (viewZ - cfg.medium.w) * rayScale,
+                    integrated,
                 );
-                trans = trans * tailTrans;
             }
-            const outc = std.add(fogComposite(scn, layout.$.fog.color.xyz, trans), radiance);
+            const outc = std.add(fogComposite(scn, cfg.color.xyz, volume.w), volume.xyz);
             std.textureStore(layout.$.output, px, d.vec4f(outc, 1));
         })
         .$name("fogApply");

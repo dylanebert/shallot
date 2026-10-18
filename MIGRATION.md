@@ -169,12 +169,18 @@ Height falloff and fade `color` are unchanged. Fog now lights a frustum grid and
 integrated radiance and transmittance at each opaque surface. Remove `steps`, `stepCount` and
 `jitter` from fog authoring; `Fog.stepCount` and `Fog.jitter` have no replacements. The grid's
 cell and slice counts are internal constants. `Fog.viewDistance` is new, defaulting to 64 world
-units: it sets the far view-space depth of the grid. Surfaces beyond it use the last slice.
+units: it sets the far view-space depth of the grid. Analytic height fog continues beyond it
+with unshadowed ambient and directional in-scatter.
 
-For perspective cameras, infinite reverse-Z makes depth zero mean no opaque surface. The fog
-pass gives those background pixels the grid's integrated haze at `viewDistance` along their ray,
-without the analytic height fog beyond it, rather than unprojecting depth zero as a finite
-endpoint. Orthographic depth zero still names its far projection plane.
+`Fog.maxDistance` now bounds fog distance along each camera ray, in world units, defaulting to
+5000. Farther surfaces receive fog as if at that distance. Set it beyond the camera's far plane
+to blend distant geometry into the sky. Values at or below `viewDistance` end within the
+grid without an analytic tail; nonpositive values disable fog.
+
+For perspective cameras, infinite reverse-Z makes depth zero mean no opaque surface. Those
+background pixels receive grid haze followed by analytic height fog out to `maxDistance`,
+rather than unprojecting depth zero as a finite endpoint. Orthographic depth zero still names
+its far projection plane, bounded by `maxDistance` like a surface.
 
 ## Presenting-camera capacity grows on demand
 

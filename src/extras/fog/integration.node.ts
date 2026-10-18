@@ -24,6 +24,7 @@ import { Fog, FogPlugin } from ".";
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
+    { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
 ]);
 
 function encode(linear: number): number {
@@ -81,6 +82,48 @@ test("a sub-160×90 view caps its fog grid to its pixels and matches Beer-Lamber
     world.storage(Fog).density.set(fog, 0);
     expect(await pixel()).toBe(0);
     world.destroy(camera);
+    world.destroy(fog);
+});
+
+test("clear sky ends at maxDistance and farther surfaces take the same ray-length haze", async () => {
+    const { world } = subjects()[1]!;
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera, { near: 0.001, far: 100, clearColor: 0, antialias: 0 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+    attachTexture(world, camera, { width: 32, height: 32 });
+    const surface = world.create();
+    world.add(surface, Transform, { translation: [0, 0, -60, 0], scale: [20, 20, 1, 0] });
+    world.add(surface, MeshInstance);
+    world.add(
+        surface,
+        MeshMaterial,
+        world.resource(Materials).add(StandardMaterial({ baseColor: [0, 0, 0, 1] })),
+    );
+    const fog = world.create();
+    world.add(fog, Fog, {
+        color: 0xffffff,
+        density: 0.02,
+        absorption: 1,
+        scattering: 0,
+        viewDistance: 8,
+    });
+    world.storage(Fog).maxDistance.set(fog, 30);
+    for (const distance of [30, 8, 4, 0, -1]) {
+        if (distance !== 30) world.storage(Fog).maxDistance.set(fog, distance);
+        world.step(0);
+        world.step(0);
+        const pixels = (await captureTexture(world, camera)).rgba;
+        const expected = encode(1 - Math.exp(-0.02 * Math.max(0, distance)));
+        const background = pixels[0]!;
+        const beyond = pixels[(16 * 32 + 16) * 4]!;
+        expect(Math.abs(background - expected)).toBeLessThanOrEqual(1);
+        expect(Math.abs(beyond - expected)).toBeLessThanOrEqual(1);
+        expect(Math.abs(beyond - background)).toBeLessThanOrEqual(1);
+    }
+    world.destroy(camera);
+    world.destroy(surface);
     world.destroy(fog);
 });
 
