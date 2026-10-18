@@ -152,7 +152,7 @@ const skewCloud: Vec3[] = [
 const goldHull = (name: string) => gold.hulls.find((h) => h.name === name) as HullGold;
 const goldBox = (name: string) => gold.boxHulls.find((h) => h.name === name) as HullGold;
 
-test("the convex hull builder's quickhull output — points, half-edges, planes, center, inertia, volume, surface area, inner radius and aabb — diverges by a bit from the Box3D C reference on any of the cube, tetrahedron, redundant-cloud, skew, cylinder, cylinder6, cone or rock cases", () => {
+test("the convex hull builder's quickhull output — points, half-edges, planes, center, inertia, volume, surface area, inner radius and aabb — equals the Box3D C reference bit for bit on the cube, tetrahedron, redundant-cloud, skew, cylinder, cylinder6, cone and rock cases", () => {
     const cases: [string, () => HullData][] = [
         ["cube", () => createHull(cubeCorners, 8) as HullData],
         ["tetrahedron", () => createHull(tetCorners, 4) as HullData],
@@ -168,7 +168,7 @@ test("the convex hull builder's quickhull output — points, half-edges, planes,
     }
 });
 
-test("a convex hull built from box half-extents — unit, oblong, or rotated by a quaternion through makeTransformedBoxHull — diverges by a bit from the Box3D C reference", () => {
+test("a convex hull built from box half-extents — unit, oblong, or rotated by a quaternion through makeTransformedBoxHull — equals the Box3D C reference bit for bit", () => {
     assertHull(makeBoxHull(1, 1, 1), goldBox("unit"));
     assertHull(makeBoxHull(0.5, 1, 2), goldBox("oblong"));
 
@@ -216,7 +216,7 @@ function fillSphereSample(count: number, seed: number): Vec3[] {
     return out;
 }
 
-test("a convex hull leaves a broken half-edge topology — counts off the expected 8/24/6 cube or 4/12/4 tetrahedron, or V - E + F away from 2 on dense sphere clouds driven through the merge cascade", () => {
+test("a convex hull's half-edge topology holds: 8/24/6 for the cube, 4/12/4 for the tetrahedron, and V - E + F = 2 on dense sphere clouds driven through the merge cascade", () => {
     const cube = createHull(cubeCorners, 8) as HullData;
     expect([cube.vertexCount, cube.edgeCount, cube.faceCount]).toEqual([8, 24, 6]);
     expect(euler(cube)).toBe(2);
@@ -263,7 +263,7 @@ test("a 64-sided cone accepts Box3D's 256-half-edge boundary", () => {
     expect([hull.vertexCount, hull.edgeCount, hull.faceCount]).toEqual([65, 256, 65]);
 });
 
-test("the convex hull builder returns a hull instead of null for a degenerate point cloud: empty, fewer than four points, collinear, coincident or coplanar", () => {
+test("the convex hull builder returns null for a degenerate point cloud: empty, fewer than four points, collinear, coincident or coplanar", () => {
     const collinear: Vec3[] = [];
     for (let i = 0; i < 8; ++i) collinear.push(v(i, 0, 0));
     const coincident: Vec3[] = [];
@@ -290,7 +290,7 @@ test("the convex hull builder returns a hull instead of null for a degenerate po
     }
 });
 
-test("a convex hull's support vertex is not the extreme point along the query direction, its support face normal is not the one aligned with that direction, or computeHullAABB fails to reproduce the local aabb under identity and translate it", () => {
+test("a convex hull's support vertex is the extreme point along the query direction, its support face normal is the one aligned with it, and computeHullAABB reproduces the local aabb under identity and translates it", () => {
     const cube = createHull(cubeCorners, 8) as HullData;
 
     const world = createTestWorld();
@@ -317,7 +317,7 @@ test("a convex hull's support vertex is not the extreme point along the query di
     expect(moved.upperBound).toEqual(v(2, 3, 4));
 });
 
-test("the convex hull builder is nondeterministic across two identical builds (structure or hash), computeHullMass ignores the hull's volume or center, or cloneHull returns a shallow copy that aliases the original's points", () => {
+test("two identical hull builds are equal in structure and hash, a hull shape's mass follows its volume and center, and cloneHull's copy shares no points with the original", () => {
     const h1 = createHull(cubeCorners, 8) as HullData;
     const h2 = createHull(cubeCorners, 8) as HullData;
     expect(h1.hash).not.toBe(0n);
