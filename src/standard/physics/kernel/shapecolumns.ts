@@ -12,10 +12,9 @@ import { KernelViews } from "./views";
 
 /** Word stride of one kernel shape record, mirroring `shapes.rs`. */
 export const SHAPE_STRIDE = 56;
-/** b3Shape union: inline sphere or capsule, data reference plus mesh scale, or data reference. */
-export const S_GEOM = 48;
-/** First union word: retained hull pointer or non-convex pool word offset. */
-export const S_GEO_REFERENCE = S_GEOM;
+/** b3Shape union: inline sphere or capsule, data reference plus mesh scale, or data reference. Its
+ * first word is the retained hull pointer or non-convex pool word offset. */
+export const S_GEO_REFERENCE = 48;
 /** Kernel shape-record attachment lanes, outside finalize output. */
 export const S_MATERIAL_HEAD = 36;
 
