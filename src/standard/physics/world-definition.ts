@@ -27,6 +27,8 @@ export type PhysicsWorldDefinitionConfig = Omit<
     WorldDef,
     "userData" | "frictionCallback" | "restitutionCallback"
 > & {
+    /** Solver threads including the calling thread; absent selects the host default. Read at build only. */
+    workerCount?: number;
     /** Solver substeps per fixed tick. Box3D's recommended default is four. */
     subStepCount: number;
     /** Whether contact and joint impulses are warm-started. */

@@ -10,7 +10,9 @@ import {
 } from "../../core/physics";
 import { Transform, TransformPlugin } from "../../core/transform";
 import { World } from "../../engine";
+import { buildHull } from "./geometry-builds";
 import { marshalShape, shapeHullGeometry } from "./marshal-shape";
+import { makeBoxHull } from "./shapes/build-hull";
 import { createTestBody, createTestWorld, destroyTestWorld, stepTestWorld } from "./testing";
 import { getMassData, makeBodyId } from "./world/body";
 import { hashWorldState } from "./world/hash";
@@ -27,9 +29,8 @@ test("two worlds marshal their own hull registered under the same name", () => {
             const cube = hulls.get("__unit_cube__")!;
             const scale = i + 1;
             const id = hulls.register({
-                ...cube,
                 name: "shared-name",
-                points: cube.points.map((coordinate) => coordinate * scale),
+                points: cube.points!.map((coordinate) => coordinate * scale),
             });
             expect(id).toBe(1);
             const eid = world.create();
@@ -69,7 +70,7 @@ test("the unit cube at scale 2h builds the hull and world hash of a registered Â
                 ? UNIT_CUBE_ID
                 : world.resource(Hulls).register({
                       name: "cube-2",
-                      points: world.resource(Hulls).get("__unit_cube__")!.points.map(Math.sign),
+                      points: world.resource(Hulls).get("__unit_cube__")!.points!.map(Math.sign),
                   });
             const shape = (h: readonly number[], body: number) => {
                 const eid = world.create();
@@ -112,6 +113,22 @@ test("the unit cube at scale 2h builds the hull and world hash of a registered Â
     });
     expect(unit.hull).toEqual(registered.hull);
     expect(unit.hashes).toEqual(registered.hashes);
+});
+
+test("box hull definitions build Box3D boxes at reflected scale and refuse invalid half-extents", () => {
+    const world = new World();
+    try {
+        expect(buildHull(world, { name: "box", halfExtents: [0.3, 0.7, 1.1] }, -2, 3, 4)).toEqual(
+            makeBoxHull(0.6, 2.1, 4.4, world),
+        );
+        for (const x of [0, -1, Infinity, NaN]) {
+            expect(() => buildHull(world, { name: "invalid", halfExtents: [x, 1, 1] })).toThrow(
+                "requires positive finite box half-extents",
+            );
+        }
+    } finally {
+        world.dispose();
+    }
 });
 
 test("a hull's maxVertexCount bounds the vertices its built hull keeps, and its absence keeps every extreme point", () => {

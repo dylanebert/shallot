@@ -18,7 +18,7 @@ import type { Registry, Resource, World } from "../../engine";
 import { MAX_HULL_VERTICES } from "./common/constants";
 import type { Transform } from "./common/records";
 import { defaultSurfaceMaterial } from "./common/types";
-import { createHull } from "./shapes/build-hull";
+import { createHull, makeBoxHull } from "./shapes/build-hull";
 import { type CompoundData, createCompound, MAX_COMPOUND_MESH_MATERIALS } from "./shapes/compound";
 import { createHeightField, type HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
@@ -217,8 +217,16 @@ export function heightFieldBuild(
     return lookup(world, heightFields, id, sx, sy, sz);
 }
 
-/** Builds a hull from its points scaled per axis; throws for a definition a solver refuses. */
+/** Builds a box or point hull at per-axis scale; throws for a definition a solver refuses. */
 export function buildHull(world: World, def: Hull, sx = 1, sy = 1, sz = 1): HullData {
+    if (def.halfExtents) {
+        const [x, y, z] = def.halfExtents;
+        if (![x, y, z].every((extent) => Number.isFinite(extent) && extent > 0))
+            throw new Error(
+                `physics: hull "${def.name}" requires positive finite box half-extents`,
+            );
+        return makeBoxHull(x * Math.abs(sx), y * Math.abs(sy), z * Math.abs(sz), world);
+    }
     const source = def.points;
     if (source.length % 3 !== 0)
         throw new Error(

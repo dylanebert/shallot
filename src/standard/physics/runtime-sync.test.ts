@@ -1254,7 +1254,7 @@ test("physics sync refuses a hull whose points length is not a multiple of 3", a
     );
     await withPhysics((world) => {
         const hulls = world.resource(Hulls);
-        const cube = hulls.get(hulls.name(0)!)!.points;
+        const cube = hulls.get(hulls.name(0)!)!.points!;
         const points = new Float32Array(cube.length + 1);
         points.set(cube);
         const geometry = hulls.register({ name: "ragged", points });

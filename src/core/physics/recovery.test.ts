@@ -14,7 +14,7 @@ test("core physics recovers mutable hull geometry, deleted ID reservations and f
     expect(hulls.register({ ...structuredClone(cube), name: "live" })).toBe(2);
     hulls.delete("deleted");
     const saved = world.snapshot();
-    hulls.get("live")!.points[0] = 88;
+    hulls.get("live")!.points![0] = 88;
     hulls.delete(cube.name);
     hulls.register({ ...structuredClone(cube), name: "future" });
     hulls.register({ ...structuredClone(cube), name: "deleted" });
@@ -26,7 +26,7 @@ test("core physics recovers mutable hull geometry, deleted ID reservations and f
     expect(hulls.id("deleted")).toBe(1);
     expect(hulls.id("future")).toBeUndefined();
     expect(hulls.size).toBe(2);
-    hulls.get("live")!.points[3] = 99;
+    hulls.get("live")!.points![3] = 99;
     world.restore(saved);
     expect(hulls.get("live")).toEqual({ ...cube, name: "live" });
     expect(hulls.register({ ...cube, name: "replayed" })).toBe(3);

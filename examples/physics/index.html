@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="description" content="Box3D's Box Stack and spring-jointed Bridge, stepped in Shallot." />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <title>physics</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; }
+            html, body, canvas { width: 100%; height: 100%; }
+            body { overflow: hidden; background: #191816; color: #eee9df; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; font-weight: 400; }
+            canvas { display: block; }
+            nav { position: absolute; top: 16px; left: 16px; display: grid; gap: 12px; }
+            select { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; font-weight: 400; color: inherit; background: #282622; border: 1px solid #797369; border-radius: 2px; padding: 6px; }
+            label { display: grid; gap: 6px; }
+            input { accent-color: #b8660d; }
+            [hidden] { display: none; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <nav>
+            <select id="scene" aria-label="Scene">
+                <option value="boxStack">Box Stack</option>
+                <option value="bridge">Bridge</option>
+            </select>
+            <label id="gravity-control" hidden>Gravity scale
+                <input id="gravity" type="range" min="-1" max="1" step="0.1" value="1" />
+            </label>
+        </nav>
+        <script type="module" src="/src/main.ts"></script>
+    </body>
+</html>

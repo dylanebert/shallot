@@ -1967,9 +1967,9 @@ export const StandardPhysicsPlugin: Plugin = {
 
     async warm(world) {
         const runtime = runtimeFor(world);
-        await init(world); // async wasm compile — the browser main thread can't compile it synchronously
-        if (runtime.physicsWorld) destroyWorld(runtime.physicsWorld);
         const definition = world.resource(PhysicsWorldDefinition);
+        await init(world, { threads: definition.workerCount });
+        if (runtime.physicsWorld) destroyWorld(runtime.physicsWorld);
         const id = createWorld(world, {
             ...defaultWorldDef(),
             ...solverWorldDefinition(definition),

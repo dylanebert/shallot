@@ -11,6 +11,7 @@ for (const scene of ["box_stack", "bridge"]) {
         const binary = sampleBinary();
         const hashes = run([binary, scene, String(steps)]);
         expect(run([binary, scene, String(steps)])).toBe(hashes);
+        expect(readFileSync(new URL(`../../examples/physics/tests/${scene === "box_stack" ? "boxStack" : scene}.gold.txt`, import.meta.url), "utf8")).toBe(hashes);
         const copy = mkdtempSync(join(tmpdir(), "box3d-sample-mutation-"));
         try {
             for (const name of ["sample.cpp", "sample_stacking.cpp", "sample_joint.cpp"]) {

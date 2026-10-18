@@ -3,7 +3,23 @@ import { Body, BodyType, Shape, ShapeKind } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { createApp, type EntityRef, Time } from "../../engine";
 import { hashPhysics, PhysicsWorldDefinition, StandardPhysicsPlugin } from ".";
+import { threads } from "./kernel/kernel";
 import { physicsState } from "./runtime";
+
+test("workerCount selects a single-thread solver at build", async () => {
+    const app = await createApp({
+        defaults: false,
+        plugins: [StandardPhysicsPlugin],
+        setup(world) {
+            world.resource(PhysicsWorldDefinition).workerCount = 1;
+        },
+    });
+    try {
+        expect(threads(app.world)).toBe(1);
+    } finally {
+        app.dispose();
+    }
+});
 
 test("a world gravity write after warm changes acceleration on the next tick", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
