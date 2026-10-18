@@ -24,6 +24,7 @@ import {
 
 setDefaultTimeout(TIMEOUT.gpu);
 let imageId = 0;
+let camera = 0;
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
@@ -44,6 +45,15 @@ const subjects = gpuApps(import.meta.path, [
                 },
             },
         ],
+        setup(world) {
+            // A no-AA camera present at warm: warm prepares the single-sample material variant.
+            camera = world.create();
+            world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+            world.add(camera, Camera);
+            world.storage(Camera).antialias.set(camera, 0);
+            world.add(camera, StandardRenderer);
+            world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+        },
     },
 ]);
 
@@ -83,12 +93,6 @@ test("StandardMaterial samples both image halves at mesh UVs and multiplies base
     world.add(eid, Transform);
     world.add(eid, MeshInstance, { mesh });
     world.add(eid, MeshMaterial, row);
-    const camera = world.create();
-    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
-    world.add(camera, Camera);
-    world.storage(Camera).antialias.set(camera, 0);
-    world.add(camera, StandardRenderer);
-    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     attachTexture(world, camera, { width: 32, height: 32 });
     for (const [factor, byte] of [
         [1, 255],

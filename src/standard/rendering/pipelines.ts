@@ -2157,8 +2157,14 @@ export function getBackground(world: World, bg: AnyBackground): CompiledBackgrou
     return compiled;
 }
 
-/** Prepare every material parameter table, pipeline and background at warm, before the first draw. */
-export async function preparePipelines(world: World, capacity: number): Promise<void> {
+/** Prepare every material parameter table, pipeline and background at warm, before the first draw.
+ * `singleSample` also prepares each material's AA-off variant, for a no-AA camera present at warm.
+ * A camera added or switched to AA-off after warm still compiles that variant on its first draw. */
+export async function preparePipelines(
+    world: World,
+    capacity: number,
+    singleSample = false,
+): Promise<void> {
     // A material may first acquire a draw in the draw group, after that frame's table upload.
     // Create its parameter table at warm so the defaults reach the first frame's upload.
     // TypeGPU defers resolve and device pipeline creation until first use. root.unwrap forces
@@ -2175,12 +2181,16 @@ export async function preparePipelines(world: World, capacity: number): Promise<
         ) {
             if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
             const compiled = compileMaterial(world, type, capacity, alphaPipelineKey);
+            if (singleSample) ensureSingle(world, compiled);
             for (const p of [
                 compiled.color,
                 compiled.transparent,
                 compiled.point,
                 compiled.cascade,
                 compiled.prepass,
+                compiled.single?.color,
+                compiled.single?.transparent,
+                compiled.prepassSingle,
             ]) {
                 if (p) world.gpu.root.unwrap(p);
             }

@@ -1199,8 +1199,16 @@ async function prepareStandardRenderer(
     // Compile material types and the shared re-gather pipelines before the first draw.
     await Promise.all([
         prepareRegather(world, device, capacity),
-        preparePipelines(world, capacity),
+        preparePipelines(world, capacity, hasSingleSampleCamera(world)),
     ]);
+}
+
+/** true when a StandardRenderer camera present at warm draws without antialiasing. */
+function hasSingleSampleCamera(world: World): boolean {
+    const antialias = world.storage(Camera).antialias;
+    for (const eid of world.query(STANDARD_RENDERER_CAMERAS))
+        if (antialias.get(eid) === 0) return true;
+    return false;
 }
 
 // Resolve once, after the pack registers draws and replaces their args buffer and before core's prepass;
