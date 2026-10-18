@@ -40,7 +40,7 @@ import {
     stepTestWorld,
     testShapeDef,
 } from "../testing";
-import { bodyIsAwake, getBodyState, readBodyTransform } from "../world/body";
+import { bodyGetTransform, bodyIsAwake, getBodyState } from "../world/body";
 import type { WorldState } from "../world/world";
 import { worldCounters } from "../world/world";
 
@@ -142,7 +142,7 @@ function distance(world: WorldState, a: number, b: number, fields: Record<string
     } as Parameters<typeof createDistanceJoint>[1]).joint;
 }
 function position(world: WorldState, body: number) {
-    return readBodyTransform(world, body, identityPose()).p;
+    return bodyGetTransform(world, body, identityPose()).p;
 }
 function angularVelocity(world: WorldState, body: number): Vec3 {
     const state = getBodyState(world, body);
