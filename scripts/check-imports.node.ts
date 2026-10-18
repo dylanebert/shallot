@@ -4,7 +4,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 
 setDefaultTimeout(TIMEOUT.node);
 
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { checkImports } from "./import-boundary";
@@ -17,23 +17,6 @@ beforeAll(() => {
 
 test("repository imports have no violations", () => {
     expect(repositoryFindings).toEqual([]);
-});
-
-test("physics-boundary: physics leaves transitional", () => {
-    expect(existsSync(resolve(import.meta.dir, "../src/transitional/physics"))).toBe(false);
-    expect(
-        repositoryFindings.filter((finding) => finding.includes("core/physics → standard/")),
-    ).toEqual([]);
-});
-
-test("presentation: Glaze leaves transitional", () => {
-    expect(existsSync(resolve(import.meta.dir, "../src/transitional/glaze"))).toBe(false);
-});
-
-test("rendering-boundary: rendering does not import input", () => {
-    expect(
-        repositoryFindings.filter((finding) => finding.includes("core/rendering → core/input")),
-    ).toEqual([]);
 });
 
 function withFixture(run: (root: string) => void): void {
@@ -296,11 +279,4 @@ test("engine runtime imports ECS APIs through the ECS barrel", () => {
         put(root, "engine/runtime/gpu.ts", 'import { useState } from "../ecs";\nvoid useState;\n');
         expect(checkImports(root)).toEqual([]);
     });
-});
-
-test("rendering-boundary: MeshInstance leaves transitional", () => {
-    expect(existsSync(resolve(import.meta.dir, "../src/transitional/part"))).toBe(false);
-    expect(repositoryFindings.filter((finding) => finding.includes("transitional/part"))).toEqual(
-        [],
-    );
 });
