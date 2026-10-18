@@ -112,7 +112,10 @@ const MOTE_SIZE_DEPTH: f32 = 2.0;
 struct View { viewProj: mat4x4f }
 @group(0) @binding(0) var<uniform> moteView: View;
 @group(0) @binding(1) var<storage, read> positions: array<vec4f>;
-const MOTE_ALBEDO = 1.5;
+// Pure single-scattering albedo; coverage and camera fade are separate factors.
+// Mineral-dust modelling assumption grounded in Saharan dust measurements at 532 nm,
+// not household dust across the visible spectrum: Linke et al. (2006), doi:10.5194/acp-6-3315-2006.
+const MOTE_ALBEDO = 0.98;
 struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @location(1) cameraFade: f32, @location(2) world: vec3f }
 @vertex fn vertex(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> Vertex {
     let corners = array<vec2f, 6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1));

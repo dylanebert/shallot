@@ -44,15 +44,7 @@ test("midnight has no sunlight, visible stars and a darker sky", () => {
 });
 
 test("values are continuous around the day including the midnight wrap", () => {
-    const colors = [
-        "sunColor",
-        "moonColor",
-        "ambientColor",
-        "zenith",
-        "horizon",
-        "hazeColor",
-        "fogColor",
-    ];
+    const colors = ["sunColor", "moonColor", "ambientColor", "zenith", "horizon", "hazeColor"];
     for (let hour = 0; hour <= 24; hour += 0.05) {
         const a = atmosphere(hour - 0.00001),
             b = atmosphere(hour + 0.00001);
@@ -132,7 +124,6 @@ test("the hour resource drives every atmosphere value written by the system", ()
         for (const key of ["zenith", "horizon", "hazeColor", "starIntensity"] as const)
             expect(world.storage(Sky)[key].get(scene.sky)).toBeCloseTo(v[key], 5);
         expect(world.storage(Sky).hazeDensity.get(scene.sky)).toBeCloseTo(v.fogDensity, 6);
-        expect(world.storage(Fog).color.get(scene.fog)).toBe(v.fogColor);
         expect(world.storage(Fog).density.get(scene.fog)).toBeCloseTo(v.fogDensity, 6);
         expect(world.storage(Fog).lightIntensity.get(scene.fog)).toBeCloseTo(
             v.fogLightIntensity,

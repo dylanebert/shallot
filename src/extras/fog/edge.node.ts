@@ -64,8 +64,10 @@ test("MSAA opaque edges blend fog at each covered surface depth", async () => {
     world.add(fog, Fog, {
         color: 0xffffff,
         density: 0.08,
-        absorption: 1,
-        scattering: 0,
+        absorption: 0,
+        scattering: 1,
+        // Only the medium's own light: its haze is color · (1 − T).
+        lightIntensity: 0,
         viewDistance: 32,
     });
     const capture = async () => {

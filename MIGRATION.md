@@ -165,12 +165,22 @@ Rename `anisotropy` to `scatteringAsymmetry` without changing its value.
 `scatterIntensity` is removed; `lightIntensity` is the one nonphysical light scale.
 The new default coefficients are absorption 0 and scattering 1, with lightIntensity `1 / Math.PI`
 as a tuned look value; lightIntensity 1 means no adjustment.
-Height falloff and fade `color` are unchanged. Fog now lights a frustum grid and applies its
+Height falloff is unchanged. Fog now lights a frustum grid and applies its
 integrated radiance and transmittance at each opaque surface. Remove `steps`, `stepCount` and
 `jitter` from fog authoring; `Fog.stepCount` and `Fog.jitter` have no replacements. The grid's
 cell and slice counts are internal constants. `Fog.viewDistance` is new, defaulting to 64 world
 units: it sets the far view-space depth of the grid. Analytic height fog continues beyond it
 with unshadowed ambient and directional in-scatter.
+
+`Fog.color` is now the medium's own ambient light rather than an unexposed fade colour. Like
+Unreal's Fog Inscattering Color, Godot's `fog_light_color` with `fog_light_energy` and Bevy's
+`VolumetricFog.ambient_color` with `ambient_intensity`, it lights the medium without scene
+lights, so the scene still fades toward it. `Fog.brightness` gives its radiance in cd/m², scaled
+by camera exposure; the medium scatters it by its scattering albedo. The default,
+`1.2 * 2 ** 9.7` (about 998), reads as the old fade at the default exposure, EV100 9.7. To keep
+an old fade under another exposure, set `brightness: 1.2 * 2 ** ev100`. An absorption-only fog
+(`scattering: 0`) no longer shows its colour; it only darkens. `Fog.lightIntensity` scales the
+scene's lights in the medium, not this light. `readFogInScatter` includes it.
 
 `Fog.maxDistance` now places the fog endpoint that distance from the camera along each ray,
 in world units, defaulting to 5000. Fog begins at the near plane, like the grid; an endpoint
