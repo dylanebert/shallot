@@ -5,23 +5,14 @@ import { openGpuApp as createApp } from "@dylanebert/shallot/testing/gpu";
 setDefaultTimeout(TIMEOUT.node);
 
 import { Materials, MeshMaterial } from "@dylanebert/shallot";
-import { StandardMaterialInput } from "@dylanebert/shallot/standard/rendering";
-import { readFromArrayBuffer } from "typegpu";
-import * as d from "typegpu/data";
 import { Gallery, GalleryPlugin, presets } from "./gallery";
-import { AnimationParameters, CheckerMaterial, CheckerParameters, WaveMaterial } from "./materials";
+import { CheckerMaterial, WaveMaterial } from "./materials";
 
 test("the gallery's carbon and red colours reach the checkerboard's material row", async () => {
     const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });
     try {
         const world = app.world;
-        const row = world.resource(Gallery).checker!.material;
-        const bytes = world.resource(CheckerMaterial).table.bytes;
-        const offset = row * d.sizeOf(CheckerParameters);
-        const value = readFromArrayBuffer(
-            bytes.slice(offset, offset + d.sizeOf(CheckerParameters)).buffer,
-            CheckerParameters,
-        );
+        const value = world.resource(CheckerMaterial).get(world.resource(Gallery).checker!)!;
         expect(Array.from(value.darkColor)).toEqual([0.042, 0.039, 0.035].map(Math.fround));
         expect(Array.from(value.lightColor)).toEqual([0.658, 0.301, 0.117].map(Math.fround));
     } finally {
@@ -35,15 +26,10 @@ test("the wave's own time parameter advances with the clock", async () => {
         const world = app.world;
         world.step(1 / 60);
         world.step(1 / 60);
-        const row = world.resource(Gallery).wave!.material;
-        const bytes = world.resource(WaveMaterial).table.bytes;
-        const offset = row * d.sizeOf(AnimationParameters);
-        expect(
-            readFromArrayBuffer(
-                bytes.slice(offset, offset + d.sizeOf(AnimationParameters)).buffer,
-                AnimationParameters,
-            ).time,
-        ).toBeCloseTo(2 / 60, 6);
+        expect(world.resource(WaveMaterial).get(world.resource(Gallery).wave!)!.time).toBeCloseTo(
+            2 / 60,
+            6,
+        );
     } finally {
         app.dispose();
     }
@@ -56,12 +42,7 @@ for (const [index, preset] of presets.entries()) {
             const world = app.world;
             const eid = world.resource(Gallery).spheres[index]!;
             const row = world.storage(MeshMaterial).material.get(eid);
-            const bytes = world.resource(Materials).table.bytes;
-            const offset = row * d.sizeOf(StandardMaterialInput);
-            const value = readFromArrayBuffer(
-                bytes.slice(offset, offset + d.sizeOf(StandardMaterialInput)).buffer,
-                StandardMaterialInput,
-            );
+            const value = world.resource(Materials).get(row)!;
             expect(Array.from(value.baseColor)).toEqual(preset.baseColor.map(Math.fround));
             expect(value.metallic).toBe(preset.metallic);
             expect(value.perceptualRoughness).toBeCloseTo(preset.perceptualRoughness, 6);

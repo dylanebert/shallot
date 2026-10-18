@@ -26,9 +26,8 @@
                 return Array.from(image.rgba.slice(offset, offset + 4));
             };
             window.materialHud = () => {
-                const store = app.world.resource(Materials);
                 const handle = app.world.resource(CubeMaterial).handle;
-                return Array.from(new Float32Array(store.table.bytes.buffer, store.table.bytes.byteOffset + handle.material * store.table.rowBytes, 4));
+                return Array.from(app.world.resource(Materials).get(handle).baseColor);
             };
             window.stepHud = (steps) => {
                 for (let step = 0; step < steps; step++) app.world.step(1 / 60);
