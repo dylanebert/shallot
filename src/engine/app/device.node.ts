@@ -399,7 +399,7 @@ test("a failed plugin initialize releases its world and permits a later build", 
     recovered.dispose();
 });
 
-test("disposing a Physics build leaves slab or solver state behind, so a sequential re-entry produces a different fixed-step world", async () => {
+test("a sequential Physics build after disposal produces the same fixed-step world", async () => {
     const author = (world: World) => {
         const eid = world.create();
         world.add(eid, Body);

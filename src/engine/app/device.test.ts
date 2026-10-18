@@ -16,14 +16,14 @@ const fallbackAdapter = {
     },
 } as unknown as GPUAdapter;
 
-test("GPU acquisition accepts a fallback adapter without stamping its verdict, so an app can look like it has real hardware", () => {
+test("a fallback adapter is stamped fallback with its identity, with a warning", () => {
     expectWarning(/fallback adapter, not a real device: google swiftshader fallback SwiftShader/);
     const verdict = stampAdapter(fallbackAdapter);
     expect(verdict.class).toBe("fallback");
     expect(verdict.identity).toContain("SwiftShader");
 });
 
-test("an externally supplied GPU device without its adapter can be mistaken for a real adapter", () => {
+test("an externally supplied GPU device without its adapter is stamped unidentified, with a warning", () => {
     expectWarning(/adapter with no identity, so no real device can be claimed/);
     const verdict = stampAdapter();
     expect(verdict.class).toBe("unidentified");

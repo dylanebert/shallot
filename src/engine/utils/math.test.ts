@@ -46,7 +46,7 @@ test("infinite reverse-Z perspective keeps depth precision beyond the culling fa
     expect(depthAt(1_000_000)).toBeLessThan(depthAt(1000));
 });
 
-test("the quaternion aim returns orients a camera differently from the view matrix lookAt builds for the same eye and target, so a shadow light would cull against one frustum and render through another", () => {
+test("a camera posed with lookAtRotation implies the view matrix lookAt builds for the same eye and target", () => {
     for (const { eye, target } of CASES) {
         const q = lookAtRotation(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
         const view = viewFromAim(eye, q);
@@ -55,7 +55,7 @@ test("the quaternion aim returns orients a camera differently from the view matr
     }
 });
 
-test("aim and lookAt disagree once a caller supplies its own up vector, so a cascade or cube face posed with a non-default up would cull against a rolled frustum", () => {
+test("lookAtRotation and lookAt agree for a caller-supplied up vector", () => {
     // the ups sear passes: a cascade's snap-plane basis, and a cube face's +Z/-Z hint
     const ups: [number, number, number][] = [
         [0, 0, 1],
@@ -102,7 +102,7 @@ test("aim and lookAt disagree once a caller supplies its own up vector, so a cas
     }
 });
 
-test("the view matrix an aimed camera implies does not place the eye at the view origin, so every shadow cast from it would be offset from the light", () => {
+test("the view matrix a camera posed with lookAtRotation implies places the eye at the view origin", () => {
     for (const { eye, target } of CASES) {
         const q = lookAtRotation(eye[0], eye[1], eye[2], target[0], target[1], target[2]);
         const view = viewFromAim(eye, q);

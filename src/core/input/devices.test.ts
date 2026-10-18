@@ -205,7 +205,7 @@ function declaredHost(
     };
 }
 
-test("the production browser adapter bypasses shared input producers or loses focus, pointer, touch and visibility transitions", () => {
+test("the production browser adapter carries focus, pointer, touch and visibility transitions through the shared producers and tears down cleanly", () => {
     const fixture = declaredHost();
     const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -280,7 +280,7 @@ function replaceGlobal(name: "document" | "window", value: unknown): () => void 
     };
 }
 
-test("a browser adapter setup exception leaves listeners or canvas capture effects installed", () => {
+test("a browser adapter setup exception unwinds its listeners and canvas capture effects", () => {
     const fixture = declaredHost({ failOn: "wheel" });
     const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -293,7 +293,7 @@ test("a browser adapter setup exception leaves listeners or canvas capture effec
         throw new Error("partial adapter setup was not unwound");
 });
 
-test("a pointer-lock promise rejection after disposal changes the retired World or releases another canvas", async () => {
+test("a pointer-lock promise rejection after disposal leaves the retired World and other canvases unchanged", async () => {
     const fixture = declaredHost({ pendingLock: true });
     const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -310,7 +310,7 @@ test("a pointer-lock promise rejection after disposal changes the retired World 
         throw new Error("late lock rejection crossed the retired adapter boundary");
 });
 
-test("disposing and recreating a World leaves old listeners delivering input to the replacement", () => {
+test("a World recreated after disposal receives input through its own listeners and leaves none behind", () => {
     const fixture = declaredHost();
     const first = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -328,7 +328,7 @@ test("disposing and recreating a World leaves old listeners delivering input to 
     if (fixture.listenerCount() !== 0) throw new Error("replacement adapter leaked listeners");
 });
 
-test("a DOM keyup leaves an enabled World's key held, or changes a disabled World's record", () => {
+test("a DOM keyup releases an enabled World's key with an edge and leaves a disabled World's record unchanged", () => {
     const fixture = declaredHost();
     const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -351,7 +351,7 @@ test("a DOM keyup leaves an enabled World's key held, or changes a disabled Worl
     }
 });
 
-test("disabling input leaves the pointer locked, or an enabled World's lock is released", () => {
+test("disabling input releases the pointer lock, and an enabled World keeps its lock", () => {
     const fixture = declaredHost();
     const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -372,7 +372,7 @@ test("disabling input leaves the pointer locked, or an enabled World's lock is r
     }
 });
 
-test("releasing one World's pointer lock affects a different World's canvas", () => {
+test("releasing one World's pointer lock leaves a different World's canvas unchanged", () => {
     const firstFixture = declaredHost();
     const secondFixture = declaredHost();
     const first = inputState();
@@ -396,7 +396,7 @@ test("releasing one World's pointer lock affects a different World's canvas", ()
     second.dispose();
 });
 
-test("pointer-lock exit clears the facts but leaves a live adapter's shared canvas permanently owned", () => {
+test("after pointer-lock exit, another live adapter can lock the shared canvas", () => {
     const lock = { element: null as HTMLCanvasElement | null };
     const firstFixture = declaredHost({ lock });
     const secondFixture = declaredHost({
@@ -430,7 +430,7 @@ test("pointer-lock exit clears the facts but leaves a live adapter's shared canv
     second.dispose();
 });
 
-test("a pending second-canvas pointer-lock request leaks the first canvas ownership or lets its late settlement affect a replacement adapter", async () => {
+test("disposing a pending second-canvas pointer-lock request releases the first canvas, and its late settlement leaves a replacement adapter's lock unchanged", async () => {
     const fixture = declaredHost({ canvasCount: 2, pendingCanvas: 1 });
     const first = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -484,7 +484,7 @@ test("a pending second-canvas pointer-lock request leaks the first canvas owners
     if (Number(fixture.releaseCount) !== 2) throw new Error("replacement lock did not release");
 });
 
-test("a pointer-lock grant that arrives after adapter disposal leaves the retired canvas locked", async () => {
+test("a pointer-lock grant that arrives after adapter disposal is released", async () => {
     const fixture = declaredHost({ pendingLock: true });
     const world = inputState();
     const plugin = createBrowserInputPlugin(fixture.host);
@@ -500,7 +500,7 @@ test("a pointer-lock grant that arrives after adapter disposal leaves the retire
         throw new Error("late retired grant was not released");
 });
 
-test("releasing a retired adapter's late pointer-lock grant releases a replacement adapter lock", async () => {
+test("a retired adapter's late pointer-lock grant leaves a replacement adapter's lock held", async () => {
     const fixture = declaredHost({ pendingRequests: 1 });
     const retired = inputState();
     const retiredPlugin = createBrowserInputPlugin(fixture.host);
@@ -571,7 +571,7 @@ test("a controller's lock intent works without browser globals and releases thro
         throw new Error("Player disposal did not release through the adapter");
 });
 
-test("a World with the plain input owner binds browser listeners merely because browser globals exist", () => {
+test("a World with the plain input owner binds no browser listeners where browser globals exist", () => {
     let queried = 0;
     let listeners = 0;
     const canvas = {
@@ -604,7 +604,7 @@ test("a World with the plain input owner binds browser listeners merely because 
     }
 });
 
-test("browser viewport and audio-status producers overwrite application facts when those producers are omitted", () => {
+test("omitting the browser viewport and audio-status producers leaves application facts unchanged", () => {
     let listeners = 0;
     const canvas = {
         style: { touchAction: "" },
@@ -637,7 +637,7 @@ test("browser viewport and audio-status producers overwrite application facts wh
     }
 });
 
-test("the browser input producer fails to bind listeners or request pointer lock when composed", () => {
+test("the composed browser input producer binds listeners and requests pointer lock without requiring it", () => {
     let listeners = 0;
     let requested = 0;
     const canvas = {
@@ -700,7 +700,7 @@ test("composing the browser input producer without host globals preserves the pl
     }
 });
 
-test("a key press, pointer, wheel or touch fact is lost before the frame's readers see it, or a release edge never appears", () => {
+test("key press, pointer, wheel and touch facts reach the frame's readers, and a release edge follows", () => {
     const world = inputState();
     const seen: Array<{ held: boolean; pressed: boolean; released: boolean }> = [];
     const reader = {
@@ -751,7 +751,7 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     world.dispose();
 });
 
-test("a press and release between frames loses an edge or leaves the key held", () => {
+test("a press and release between frames latch both edges and leave the key up", () => {
     const world = inputState();
     let seen = false;
     world.addSystem({
@@ -768,7 +768,7 @@ test("a press and release between frames loses an edge or leaves the key held", 
     world.dispose();
 });
 
-test("window blur leaves keys or pointer buttons held, or releases them without an edge", () => {
+test("window blur releases held keys and pointer buttons with an edge", () => {
     const world = inputState();
     pressKey(world, "KeyW");
     pressButton(world, "left");
@@ -784,7 +784,7 @@ test("window blur leaves keys or pointer buttons held, or releases them without 
     world.dispose();
 });
 
-test("pointer-lock exit leaves keys or pointer buttons held, or loses the lock refusal reason", () => {
+test("pointer-lock exit releases held keys and pointer buttons and records the lock refusal reason", () => {
     const world = inputState();
     const _devices = world.resource(Devices);
     pointerLockChanged(world, true);
@@ -807,7 +807,7 @@ test("pointer-lock exit leaves keys or pointer buttons held, or loses the lock r
     world.dispose();
 });
 
-test("a pointer button reads down before a required pointer lock engages", () => {
+test("a pointer button stays up until a required pointer lock engages", () => {
     const world = inputState();
     const _devices = world.resource(Devices);
     requirePointerLock(world, true);
@@ -819,7 +819,7 @@ test("a pointer button reads down before a required pointer lock engages", () =>
     world.dispose();
 });
 
-test("a pointer button press or release crosses suspension, or a release is held by the lock gate", () => {
+test("suspension blocks pointer presses and releases, and the lock gate never holds a release", () => {
     const world = inputState();
     const pointer = world.resource(Devices).pointer;
     setInputEnabled(world, false);
@@ -845,7 +845,7 @@ test("a pointer button press or release crosses suspension, or a release is held
     world.dispose();
 });
 
-test("a suspended World still reads held keys, pointer or touch data, or accepts new presses", () => {
+test("a suspended World releases held keys with an edge, zeroes pointer and touch reads and refuses new presses", () => {
     const world = inputState();
     pressKey(world, "KeyS");
     pressButton(world, "left");
@@ -860,7 +860,7 @@ test("a suspended World still reads held keys, pointer or touch data, or accepts
     world.dispose();
 });
 
-test("suspending one World suspends or clears a second World's device record", () => {
+test("suspending one World leaves a second World's device record unchanged", () => {
     const first = inputState();
     const second = inputState();
     pressKey(first, "KeyW");
@@ -874,7 +874,7 @@ test("suspending one World suspends or clears a second World's device record", (
     second.dispose();
 });
 
-test("interleaved producer calls on two Worlds leak edges or held keys between their records", () => {
+test("interleaved producer calls on two Worlds keep each World's edges and held keys", () => {
     const a = inputState();
     const b = inputState();
     pressKey(a, "KeyW");
@@ -987,7 +987,7 @@ function edgeReader(world: World) {
     return frames;
 }
 
-test("a mouse press and release between two frames is lost to a simulation reader, seen twice, or seen away from where it happened", () => {
+test("a mouse press and release between two frames reach a simulation reader once, where they happened", () => {
     const world = inputState();
     const frames = edgeReader(world);
     pointerMove(world, 5, 6);
@@ -1004,7 +1004,7 @@ test("a mouse press and release between two frames is lost to a simulation reade
     world.dispose();
 });
 
-test("two clicks between two frames merge, reorder or lose their positions", () => {
+test("two clicks between two frames keep their order and positions", () => {
     const world = inputState();
     const seen: string[][] = [];
     world.addSystem({
@@ -1041,7 +1041,7 @@ test("two clicks between two frames merge, reorder or lose their positions", () 
     world.dispose();
 });
 
-test("suspension keeps a frame's releases, or a later event overwrites one", () => {
+test("suspension keeps a frame's releases, and later events follow them", () => {
     const world = inputState();
     const events = world.resource(Devices).pointer.buttonEvents;
     const read = () =>
@@ -1065,7 +1065,7 @@ test("suspension keeps a frame's releases, or a later event overwrites one", () 
     world.dispose();
 });
 
-test("a browser click between two frames loses its press or release, or reports them away from the down and up events", () => {
+test("a browser click between two frames reports its press and release at the down and up events", () => {
     const fixture = declaredHost();
     const world = browserInputStateWith(fixture.host);
     const frames = edgeReader(world);
@@ -1096,7 +1096,7 @@ test("a browser click between two frames loses its press or release, or reports 
     }
 });
 
-test("a touch tap between two frames is lost to a simulation reader or seen away from where it happened", () => {
+test("a touch tap between two frames reaches a simulation reader once, where it happened", () => {
     const world = inputState();
     const frames = edgeReader(world);
     touchPoint(world, 1, 7, 8);
@@ -1123,7 +1123,7 @@ function touchEvent(canvas: HTMLCanvasElement, pointerId: number, x: number, but
     };
 }
 
-test("a pinch released one finger at a time presents a one-finger press or release", () => {
+test("a pinch released one finger at a time presents no one-finger press or release", () => {
     for (const firstLifted of [1, 2]) {
         const fixture = declaredHost();
         const world = browserInputStateWith(fixture.host);
