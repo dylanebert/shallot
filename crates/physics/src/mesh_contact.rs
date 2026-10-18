@@ -241,12 +241,13 @@ impl MeshCache {
         upper: Vec3,
         previous: &mut [crate::manifold_abi::ContactCache; MAX_TRIANGLES],
     ) {
-        let contains = self.lower.x <= lower.x
-            && self.lower.y <= lower.y
-            && self.lower.z <= lower.z
-            && self.upper.x >= upper.x
-            && self.upper.y >= upper.y
-            && self.upper.z >= upper.z;
+        // b3AABB_Contains: only an ordered excess on an axis escapes the cached bounds.
+        let contains = !(self.lower.x > lower.x
+            || upper.x > self.upper.x
+            || self.lower.y > lower.y
+            || upper.y > self.upper.y
+            || self.lower.z > lower.z
+            || upper.z > self.upper.z);
         if contains {
             return;
         }
