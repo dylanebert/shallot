@@ -249,7 +249,7 @@ function buildTransforms(): CompoundData {
     return createCompound(def) as CompoundData;
 }
 
-test("a compound's materials, inner tree nodes and resolved child transforms drift from the pinned Box3D compound gold, bit for bit.", () => {
+test("a compound's materials, inner tree nodes and resolved child transforms equal the pinned Box3D compound gold bit for bit", () => {
     const scenes: [string, () => CompoundData][] = [
         ["mixed — all child types, shared material, inner tree", buildMixed],
         ["materials — distinct materials, first-seen index order", buildMaterials],
@@ -269,7 +269,7 @@ test("a compound's materials, inner tree nodes and resolved child transforms dri
 // contact/query/mover/serialize subtests land with their own later batches.
 const parityMat = defaultSurfaceMaterial();
 
-test("createCompound mis-sorts a compound's children into the wrong per-type arrays, or leaves its inner tree unbuilt, for the mixed scene or for a lone capsule, hull, mesh or sphere.", () => {
+test("createCompound sorts the children of the mixed scene and of a lone capsule, hull, mesh or sphere into their per-type arrays, and builds the mixed scene's inner tree", () => {
     nativeCase("CompoundCreateMixed — counts + shared diagnostics", () => {
         const c = buildMixed();
         expect(c.capsules.length).toBe(1);
@@ -327,7 +327,7 @@ test("createCompound mis-sorts a compound's children into the wrong per-type arr
     });
 });
 
-test("a compound's material table collapses materials that differ, or duplicates identical ones, across capsules, hulls, spheres and mesh material arrays.", () => {
+test("a compound's material table collapses identical materials to one slot and keeps distinct ones apart, across capsules, hulls, spheres and mesh material arrays", () => {
     nativeCase("CompoundMaterialDedup — identical materials collapse to one slot", () => {
         const m = makeMat(0.4, 7n);
         const c = createCompound({
@@ -407,7 +407,7 @@ test("a compound's material table collapses materials that differ, or duplicates
     );
 });
 
-test("a compound's shared hull and shared mesh counts stop deduplicating identical geometry by content, or wrongly merge geometry that differs.", () => {
+test("a compound's shared hull and shared mesh counts deduplicate identical geometry by content and keep differing geometry apart", () => {
     nativeCase(
         "CompoundHullSharingPointer / Content / Distinct — shared-hull count by content",
         () => {
@@ -481,7 +481,7 @@ test("a compound's shared hull and shared mesh counts stop deduplicating identic
     );
 });
 
-test("a compound's child index stops resolving to the right child shape, its inner-tree AABB query visits the wrong children, or its root AABB fails to contain a child's own AABB.", () => {
+test("a compound's child index resolves its child's shape type, its inner-tree AABB query visits the overlapping children, and its root AABB contains every child's AABB", () => {
     nativeCase("CompoundChildDispatch — getCompoundChild resolves the right type per index", () => {
         const c = buildMixed();
         // Order: capsule (0), hull (1), mesh (2), spheres (3,4).
@@ -584,7 +584,7 @@ test("a compound's child index stops resolving to the right child shape, its inn
 
 const rayDown = (origin: Vec3, translation: Vec3) => ({ origin, translation, maxFraction: 1 });
 
-test("a compound's ray cast, shape cast or overlap query reports the wrong child, fraction, material or hull normal frame, or hits where the compound has a gap.", () => {
+test("a compound's ray cast and shape cast return the nearest child's fraction, material and compound-space normal, a ray misses a compound it passes over, and overlap misses the gap between children and hits a child", () => {
     nativeCase("ray cast misses a compound it passes over", () => {
         const c = createCompound({
             spheres: [
@@ -644,24 +644,53 @@ test("a compound's ray cast, shape cast or overlap query reports the wrong child
         expect(Math.abs(out.normal.z)).toBeLessThanOrEqual(1e-3);
     });
 
-    nativeCase("shape cast returns the nearest child", () => {
-        const mat = defaultSurfaceMaterial();
+    const castAlongX = {
+        proxy: { points: [vector.zero()], count: 1, radius: 0.25 },
+        translation: { x: 20, y: 0, z: 0 },
+        maxFraction: 1,
+        canEncroach: false,
+    };
+
+    nativeCase("shape cast returns the nearest child, its normal and material", () => {
+        // The nearer sphere is child 1 and its material the compound's slot 1, so a child-local
+        // index or material slot would name the far sphere.
+        const matA = makeMat(0.4, 100n);
+        const matB = makeMat(0.4, 200n);
         const c = createCompound({
             spheres: [
-                { sphere: { center: { x: 5, y: 0, z: 0 }, radius: 1 }, material: mat },
-                { sphere: { center: { x: 10, y: 0, z: 0 }, radius: 1 }, material: mat },
+                { sphere: { center: { x: 10, y: 0, z: 0 }, radius: 1 }, material: matA },
+                { sphere: { center: { x: 5, y: 0, z: 0 }, radius: 1 }, material: matB },
             ],
         }) as CompoundData;
-        const out = kernelCast(ShapeType.Compound, c, {
-            proxy: { points: [vector.zero()], count: 1, radius: 0.25 },
-            translation: { x: 20, y: 0, z: 0 },
-            maxFraction: 1,
-            canEncroach: false,
-        });
+        const out = kernelCast(ShapeType.Compound, c, castAlongX);
         expect(out.hit).toBe(true);
         // Caster radius 0.25 + sphere radius 1.0 → first contact at x ≈ 3.75.
         expect(Math.abs(out.fraction - 3.75 / 20)).toBeLessThanOrEqual(1e-3);
-        expect(out.childIndex).toBe(0);
+        expect(Math.abs(out.normal.x + 1)).toBeLessThanOrEqual(1e-4);
+        expect(out.childIndex).toBe(1);
+        const mats = getCompoundMaterials(c);
+        expect(mats[out.materialIndex].userMaterialId).toBe(200n);
+    });
+
+    nativeCase("shape cast rotates a hull child's normal back into compound space", () => {
+        const c = createCompound({
+            hulls: [
+                {
+                    hull: makeBoxHull(1, 1, 1),
+                    transform: {
+                        p: { x: 5, y: 0, z: 0 },
+                        q: quaternion.fromAxisAngle(vector.axisZ(), f32(0.5 * PI)),
+                    },
+                    material: defaultSurfaceMaterial(),
+                },
+            ],
+        }) as CompoundData;
+        const out = kernelCast(ShapeType.Compound, c, castAlongX);
+        expect(out.hit).toBe(true);
+        expect(Math.abs(out.fraction - 3.75 / 20)).toBeLessThanOrEqual(1e-3);
+        expect(Math.abs(out.normal.x + 1)).toBeLessThanOrEqual(1e-3);
+        expect(Math.abs(out.normal.y)).toBeLessThanOrEqual(1e-3);
+        expect(Math.abs(out.normal.z)).toBeLessThanOrEqual(1e-3);
     });
 
     nativeCase("overlap distinguishes the gap between children from a hit on one", () => {
