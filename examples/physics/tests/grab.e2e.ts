@@ -8,6 +8,7 @@ test("a Box Stack cube follows the cursor grab and release removes the mouse and
     expect(await page.evaluate(() => (window as any).marker())).toBe(0);
     const result = await page.evaluate(() => (window as any).drag());
     expect(result.markerDuring).toBe(true);
+    expect(result.markerNoShadow).toBe(true);
     result.markerPosition.forEach((value: number, axis: number) => {
         expect(value).toBeCloseTo(result.target[axis], 5);
     });

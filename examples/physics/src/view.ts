@@ -11,6 +11,7 @@ import {
     Meshes,
     MeshInstance,
     MeshMaterial,
+    NotShadowCaster,
     Shape,
     ShapeKind,
     StandardMaterial,
@@ -50,7 +51,7 @@ export function createView(world: World, scene: Scene): void {
     const subject = materials.add(
         StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.38 }),
     );
-    const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.1, 12, 8) });
+    const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.3, 16, 12) });
     const markerMaterial = materials.add(
         StandardMaterial({ baseColor: [0.855, 0.815, 0.738, 1], unlit: true }),
     );
@@ -68,6 +69,7 @@ export function createView(world: World, scene: Scene): void {
             if (!feedback.marker) {
                 feedback.marker = world.create();
                 world.add(feedback.marker, Transform);
+                world.add(feedback.marker, NotShadowCaster);
                 world.add(feedback.marker, MeshInstance, { mesh: markerMesh });
                 world.add(feedback.marker, MeshMaterial, markerMaterial);
             }
