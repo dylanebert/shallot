@@ -1,9 +1,11 @@
 import { expect, test } from "playwright/test";
 
-test("switching scenes resets the Bridge control and keeps the canvas", async ({
-    page,
-}, testInfo) => {
+test("switching scenes resets the Bridge control and keeps the canvas", async ({ page }) => {
+    // Frames are for a person judging the look: captured only on request, as hud's are, since a
+    // software GPU cannot draw these scenes live within the test budget.
     async function capture(name: string) {
+        const dir = process.env.SHALLOT_CAPTURE_DIR;
+        if (!dir) return;
         // Show the stack landing and the bridge bent under gravity, not their initial poses.
         await page.waitForTimeout(name === "bridge" ? 6000 : 1000);
         await page.waitForFunction(() => {
@@ -15,10 +17,10 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
         });
         await page.evaluate(async () => {
             await (
-                window as Window & { capturePhysicsFrame: () => Promise<void> }
+                window as unknown as { capturePhysicsFrame: () => Promise<void> }
             ).capturePhysicsFrame();
         });
-        await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+        await page.screenshot({ path: `${dir}/${name}.png` });
         await page.locator("#captured-frame").evaluate((element) => element.remove());
     }
     const errors: string[] = [];
