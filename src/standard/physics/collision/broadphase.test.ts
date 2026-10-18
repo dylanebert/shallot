@@ -51,7 +51,7 @@ function assertMoveInvariant(bp: BroadPhase, where: string) {
     expect(new Set(keys).size, `${where}: moveArray holds a duplicate key`).toBe(keys.length);
 }
 
-test("the broad-phase proxy key loses the id or the body type across pack and unpack, so a moved proxy would be attributed to the wrong tree", () => {
+test("the broad-phase proxy key round-trips its id and body type through pack and unpack", () => {
     const types: BodyType[] = [BodyType.Static, BodyType.Kinematic, BodyType.Dynamic];
     for (const type of types) {
         for (const id of [0, 1, 7, 42, 1000, 1 << 20]) {
@@ -63,7 +63,7 @@ test("the broad-phase proxy key loses the id or the body type across pack and un
     }
 });
 
-test("the broad-phase move buffer records a plain static proxy on create, so every static shape would be queried for new pairs on the step it is added", () => {
+test("the broad-phase move buffer records dynamic and forced-static proxies on create, in order, and leaves a plain static proxy unmoved", () => {
     const bp = fresh();
     const dyn = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
     const stat = createProxy(bp, BodyType.Static, box(5, 0.5), DEFAULT_HI, DEFAULT_LO, 1, false);
@@ -80,7 +80,7 @@ test("the broad-phase move buffer records a plain static proxy on create, so eve
     assertMoveInvariant(bp, "static/dynamic create");
 });
 
-test("the broad-phase move buffer appends a key it already holds, so one proxy moved twice in a step would be pair-queried twice", () => {
+test("the broad-phase move buffer holds a proxy moved twice once", () => {
     const bp = fresh();
     const key = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
     bufferMove(bp, key);
@@ -89,7 +89,7 @@ test("the broad-phase move buffer appends a key it already holds, so one proxy m
     assertMoveInvariant(bp, "repeated bufferMove");
 });
 
-test("the broad-phase move buffer reorders buffered keys against creation order, so pair finding would stop being deterministic across runs", () => {
+test("the broad-phase move buffer keeps buffered keys in creation order", () => {
     const bp = fresh();
     const keys: number[] = [];
     for (let i = 0; i < 6; ++i) {
@@ -101,7 +101,7 @@ test("the broad-phase move buffer reorders buffered keys against creation order,
     assertMoveInvariant(bp, "six creates");
 });
 
-test("the broad-phase move buffer keeps a destroyed proxy's key or its moved bit, so a freed tree slot would be pair-queried after destruction", () => {
+test("destroying a buffered proxy drops its key and moved bit and keeps the other keys", () => {
     const bp = fresh();
     const a = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
     const b = createProxy(bp, BodyType.Dynamic, box(2, 0.5), DEFAULT_HI, DEFAULT_LO, 1, false);
@@ -117,7 +117,7 @@ test("the broad-phase move buffer keeps a destroyed proxy's key or its moved bit
     assertMoveInvariant(bp, "destroy middle");
 });
 
-test("the broad-phase move buffer misses a proxy moved after the per-step clear, so a body that moved would never be re-queried for pairs", () => {
+test("the broad-phase move buffer re-buffers a proxy moved after the per-step clear", () => {
     const bp = fresh();
     const key = createProxy(bp, BodyType.Dynamic, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
     // mirror the reset done at the end of each step, then move it.
@@ -130,7 +130,7 @@ test("the broad-phase move buffer misses a proxy moved after the per-step clear,
     assertMoveInvariant(bp, "moveProxy after reset");
 });
 
-test("the broad-phase proxy key overlap test reads the wrong tree slot, so overlapping proxies would report separated and drop the contact", () => {
+test("the broad-phase overlap test reports touching proxies overlapping and distant ones separated", () => {
     const bp = fresh();
     const a = createProxy(bp, BodyType.Dynamic, box(0, 1), DEFAULT_HI, DEFAULT_LO, 0, false);
     const b = createProxy(bp, BodyType.Dynamic, box(1.5, 1), DEFAULT_HI, DEFAULT_LO, 1, false);
@@ -139,7 +139,7 @@ test("the broad-phase proxy key overlap test reads the wrong tree slot, so overl
     expect(testOverlap(bp, a, c), "distant proxies reported overlapping").toBe(false);
 });
 
-test("the broad-phase proxy key guard lets a static proxy be enlarged, so the static tree would silently need rebuilding mid-step", () => {
+test("enlarging a static proxy throws", () => {
     const bp = fresh();
     const stat = createProxy(bp, BodyType.Static, box(0, 0.5), DEFAULT_HI, DEFAULT_LO, 0, false);
     expect(() => enlargeProxy(bp, stat, box(0, 2))).toThrow();
