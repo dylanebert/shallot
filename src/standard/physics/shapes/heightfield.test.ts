@@ -126,7 +126,7 @@ const bumpDef = (clockwiseWinding: boolean) => ({
     clockwiseWinding,
 });
 
-test("a height field built by createGrid or createHeightField would drift from the pinned C reference in its quantized heights, bounds, edge flags, winding remap or decompressed triangle vertices", () => {
+test("a height field built by createGrid or createHeightField equals the pinned C reference in its quantized heights, bounds, edge flags, winding remap and decompressed triangle vertices", () => {
     const cases: Array<{ name: string; build: () => HeightFieldData }> = [
         { name: "grid", build: () => createGrid(5, 5, { x: 1, y: 1, z: 1 }, false) },
         { name: "grid-holes", build: () => createGrid(6, 6, { x: 1, y: 1, z: 1 }, true) },
@@ -140,7 +140,7 @@ test("a height field built by createGrid or createHeightField would drift from t
     }
 });
 
-test("createWave would author a height field with the wrong row, column, material or flag counts, or a triangle decoding to a non-finite vertex or an invalid field AABB", () => {
+test("createWave authors a 6 by 8 height field with one material and two flags per cell, finite triangle vertices and an ordered finite AABB", () => {
     const hf = createWave(6, 8, { x: 1, y: 1, z: 1 }, 0.25, 0.5, false);
     expect(hf.rowCount, "wave rowCount").toBe(6);
     expect(hf.columnCount, "wave columnCount").toBe(8);
@@ -267,7 +267,7 @@ function bruteForceRayCast(hf: HeightFieldData, input: RayCastInput): CastOutput
     return best;
 }
 
-test("rayCastHeightField would miss a flat height field, or recover the wrong hit fraction or a surface normal that is not the field's up axis", () => {
+test("rayCastHeightField hits a flat height field halfway along the ray with the field's up axis as the normal", () => {
     // Tight quantization range keeps the recovered surface within ~1e-5 of y=0.
     const hf = createHeightField({
         heights: new Array(16).fill(0),
@@ -291,7 +291,7 @@ test("rayCastHeightField would miss a flat height field, or recover the wrong hi
     near(out.normal.z, 0, 1e-5, "flat field ray normal.z");
 });
 
-test("overlapHeightField would report a hit for a proxy hovering clear above the field, or miss one whose radius reaches the field surface", () => {
+test("overlapHeightField misses a sphere clear above the field and hits one through its surface", () => {
     const hf = createGrid(4, 4, { x: 1, y: 1, z: 1 }, false);
     const cases: Array<{ name: string; proxy: ShapeProxy; want: boolean }> = [
         {
@@ -413,7 +413,7 @@ for (const delta of [
     });
 }
 
-test("the grid walk in rayCastHeightField would disagree with a brute-force ray against every wave height field triangle on hit or fraction for some origin and translation", () => {
+test("the grid walk in rayCastHeightField agrees on hit and fraction with a brute-force ray against every wave height field triangle, for every origin and translation", () => {
     const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
     const deltas: Vec3[] = [
         { x: 0, y: -8, z: 0 },
