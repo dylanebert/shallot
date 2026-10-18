@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="UTF-8"><title>Physics grab, stepped</title>
 <style>body{margin:0}canvas{width:640px;height:480px;display:block}</style></head>
 <body><canvas width="640" height="480"></canvas><script type="module">
-import { createApp, MeshPlugin, Camera, GlobalTransform, pointerMove, pressButton, releaseButton, StandardPhysicsPlugin } from '@dylanebert/shallot';
+import { createApp, MeshPlugin, Camera, Devices, Outline, GlobalTransform, pointerMove, pressButton, releaseButton, StandardPhysicsPlugin } from '@dylanebert/shallot';
 import { worldToViewport } from '@dylanebert/shallot/rendering';
 import { OrbitPlugin } from '@dylanebert/shallot/extras';
 import { createScene } from '../src/scenes';
@@ -42,6 +42,15 @@ window.emptyDrag=async()=>{
  for(let i=1;i<=10;i++){pointerMove(world,{x:20+i*5,y:20,deltaX:5});await frame();}
  releaseButton(world,'left'); await frame();
  return {before,after:position(camera),bodyBefore,bodyAfter:position(bodies[20]),picked,mouse:world.resource(Grab).mouse};
+};
+window.hover=async()=>{
+ const body=bodies[20];
+ const pixel=worldToViewport(world,camera,position(body));
+ world.resource(Devices).pointer.hover=true;
+ pointerMove(world,{x:pixel[0],y:pixel[1]}); await frame();
+ const added=world.has(body,Outline);
+ world.resource(Devices).pointer.hover=false; await frame();
+ return {added,removed:!world.has(body,Outline)};
 };
 window.ready=true;
 </script></body></html>

@@ -28,21 +28,49 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     await page.goto("/");
     await page.addScriptTag({ type: "module", url: "/tests/capture-page.ts" });
     await page.waitForFunction(() => "capturePhysicsFrame" in window);
-    const scene = page.getByRole("combobox", { name: "Scene" });
+    const scene = page.getByRole("button", { name: "Scene", exact: true });
     await expect(scene).toBeEnabled();
     await expect(page.getByRole("slider")).toBeHidden();
     await capture("box-stack");
-    await scene.selectOption("bridge");
+    await page.mouse.move(640, 300);
+    await capture("hover");
+    await page.mouse.move(20, 20);
+    await scene.click();
+    await expect(
+        page
+            .getByRole("region", { name: "Joints", exact: true })
+            .getByRole("button", { name: "Bridge" }),
+    ).toBeVisible();
+    await expect(
+        page
+            .getByRole("region", { name: "Stacking", exact: true })
+            .getByRole("button", { name: "Box Stack" }),
+    ).toBeVisible();
+    await capture("switcher");
+    await page.getByRole("button", { name: "Bridge", exact: true }).click();
     await expect(scene).toBeEnabled();
     const gravity = page.getByRole("slider", { name: "Gravity scale" });
     await expect(gravity).toHaveValue("1");
     await capture("bridge");
     await gravity.fill("-0.5");
-    await scene.selectOption("boxStack");
+    await scene.click();
+    await page.getByRole("button", { name: "Box Stack", exact: true }).click();
     await expect(scene).toBeEnabled();
     await expect(gravity).toBeHidden();
     await capture("switch-to-stack");
-    await scene.selectOption("bridge");
+    await scene.click();
+    await expect(
+        page
+            .getByRole("region", { name: "Joints", exact: true })
+            .getByRole("button", { name: "Bridge" }),
+    ).toBeVisible();
+    await expect(
+        page
+            .getByRole("region", { name: "Stacking", exact: true })
+            .getByRole("button", { name: "Box Stack" }),
+    ).toBeVisible();
+    await capture("switcher");
+    await page.getByRole("button", { name: "Bridge", exact: true }).click();
     await expect(scene).toBeEnabled();
     await expect(gravity).toHaveValue("1");
     await expect(page.locator("canvas")).toBeVisible();

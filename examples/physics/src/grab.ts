@@ -6,6 +6,8 @@ import {
     GlobalTransform,
     InputPlugin,
     MotorJoint,
+    Outline,
+    OutlinePlugin,
     type Plugin,
     type System,
     Transform,
@@ -26,6 +28,7 @@ import {
 
 export const Grab = {
     create: () => ({
+        outlined: 0,
         mouse: 0,
         joint: 0,
         body: 0,
@@ -52,10 +55,10 @@ export function release(world: World): void {
     }
 }
 
-export function pick(world: World): void {
+export function pick(world: World, sampled = false): void {
     const grab = world.resource(Grab);
     release(world);
-    if (!castRayClosest(world, grab.origin, grab.translation, grab.hit)) return;
+    if (!sampled && !castRayClosest(world, grab.origin, grab.translation, grab.hit)) return;
     const body = grab.hit.body;
     if (world.storage(Body).type.get(body) !== BodyType.Dynamic) return;
     const mass = getMassData(world, body);
@@ -130,15 +133,30 @@ const SampleGrab: System = {
             grab.translation.x = ray.dir[0] * reach;
             grab.translation.y = ray.dir[1] * reach;
             grab.translation.z = ray.dir[2] * reach;
+            const hit =
+                devices.enabled &&
+                (devices.pointer.hover || grab.pending) &&
+                castRayClosest(world, grab.origin, grab.translation, grab.hit);
+            const hovered =
+                hit && world.storage(Body).type.get(grab.hit.body) === BodyType.Dynamic
+                    ? grab.hit.body
+                    : 0;
             if (!grab.held) release(world);
             if (grab.pending) {
-                pick(world);
+                if (hovered) pick(world, true);
                 grab.pending = false;
                 if (grab.body && world.has(camera, Orbit)) {
                     grab.camera = camera;
                     grab.orbitMode = world.storage(Orbit).mode.get(camera);
                     world.storage(Orbit).mode.set(camera, OrbitMode.Locked);
                 }
+            }
+            const target = grab.body || hovered;
+            if (target !== grab.outlined) {
+                if (grab.outlined && world.has(grab.outlined, Outline))
+                    world.remove(grab.outlined, Outline);
+                if (target) world.add(target, Outline, { color: 0xeee9df, width: 4 });
+                grab.outlined = target;
             }
             break;
         }
@@ -169,7 +187,7 @@ const UpdateGrab: System = {
 };
 export const GrabPlugin: Plugin = {
     name: "Grab",
-    dependencies: [InputPlugin],
+    dependencies: [InputPlugin, OutlinePlugin],
     systems: [SampleGrab, UpdateGrab],
     recovery: (world) => ({
         snapshot: () => structuredClone(world.resource(Grab)),

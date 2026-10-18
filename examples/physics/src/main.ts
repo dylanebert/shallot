@@ -1,22 +1,14 @@
-import { type App, MeshPlugin, runApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { MeshPlugin, runApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { OrbitPlugin } from "@dylanebert/shallot/extras";
+import { mount, unmount } from "svelte";
+import Hud from "./Hud.svelte";
 import { GrabPlugin } from "./grab";
 import { createScene, type Scene, scenes } from "./scenes";
 import { createView } from "./view";
 
-const select = document.querySelector<HTMLSelectElement>("#scene")!;
-const gravity = document.querySelector<HTMLInputElement>("#gravity")!;
-const control = document.querySelector<HTMLElement>("#gravity-control")!;
-let app: App | undefined;
-let bodies: number[] = [];
-
-async function switchScene(): Promise<void> {
-    select.disabled = true;
-    app?.dispose();
-    const scene = select.value as Scene;
-    gravity.value = "1";
-    control.hidden = !scenes[scene].controls;
-    app = await runApp({
+async function switchScene(scene: Scene): Promise<void> {
+    let bodies: number[] = [];
+    const app = await runApp({
         plugins: [
             StandardPhysicsPlugin,
             OrbitPlugin,
@@ -30,16 +22,21 @@ async function switchScene(): Promise<void> {
         setup(world) {
             bodies = createScene(world, scene);
         },
+        ui(container, world) {
+            const component = mount(Hud, {
+                target: container,
+                props: {
+                    scene,
+                    select: (next: Scene) => {
+                        app.dispose();
+                        void switchScene(next);
+                    },
+                    gravity: (value: number) =>
+                        scenes[scene].controls?.gravityScale(world, bodies, value),
+                },
+            });
+            return () => void unmount(component);
+        },
     });
-    select.disabled = false;
 }
-select.addEventListener("change", () => void switchScene());
-gravity.addEventListener("input", () => {
-    if (app)
-        scenes[select.value as Scene].controls?.gravityScale(
-            app.world,
-            bodies,
-            Number(gravity.value),
-        );
-});
-await switchScene();
+await switchScene("boxStack");

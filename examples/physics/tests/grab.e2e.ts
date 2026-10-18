@@ -16,6 +16,15 @@ test("a Box Stack cube follows the cursor grab and release removes the mouse and
     expect(result.joint).toBe(0);
 });
 
+test("hover adds an outline and leaving removes it", async ({ page }) => {
+    await page.goto("/tests/stepped.html");
+    await page.waitForFunction(() => (window as any).ready);
+    expect(await page.evaluate(() => (window as any).hover())).toEqual({
+        added: true,
+        removed: true,
+    });
+});
+
 test("a left drag over empty space orbits without grabbing a body", async ({ page }) => {
     await page.goto("/tests/stepped.html");
     await page.waitForFunction(() => (window as any).ready);
