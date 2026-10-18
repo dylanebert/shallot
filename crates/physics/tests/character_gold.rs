@@ -97,10 +97,10 @@ impl World for Transcript {
 }
 #[test]
 fn sample_character_matches_native_queries_motion_and_impulses() {
-    assert_eq!(core::mem::size_of::<Input>(), 120);
+    assert_eq!(core::mem::size_of::<Input>(), 112);
     assert_eq!(core::mem::offset_of!(Input, max_slope), 80);
-    assert_eq!(core::mem::offset_of!(Input, rotation), 100);
-    assert_eq!(core::mem::offset_of!(Input, max_speed), 116);
+    assert_eq!(core::mem::offset_of!(Input, rotation), 88);
+    assert_eq!(core::mem::offset_of!(Input, max_speed), 104);
     let cases: Value = serde_json::from_str(include_str!("character.gold.json")).unwrap();
     for case in cases.as_array().unwrap() {
         let w = words(&case["input"]);
@@ -116,7 +116,6 @@ fn sample_character_matches_native_queries_motion_and_impulses() {
             rest: scalar(&w, 18),
             steep: w[19],
             max_slope: f64::from_bits(w[20] as u64 | ((w[21] as u64) << 32)),
-            center: vector(&w, 22),
             rotation: Quat {
                 v: vector(&w, 25),
                 s: scalar(&w, 28),

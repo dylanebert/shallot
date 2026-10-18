@@ -55,7 +55,6 @@ pub struct Input {
     pub rest: f32,
     pub steep: u32,
     pub max_slope: f64,
-    pub center: Vec3,
     pub rotation: crate::math::Quat,
     pub max_speed: f32,
 }
@@ -93,7 +92,7 @@ pub fn run(world: &mut impl World, input: &Input) -> Output {
         impulse_count: 0,
         bodies: [0; 8],
         impulses: [Vec3::ZERO; 8],
-        center: input.center,
+        center: Vec3::ZERO,
         ground_shape: u32::MAX,
         shapes: [0; 8],
     };
@@ -104,10 +103,12 @@ pub fn run(world: &mut impl World, input: &Input) -> Output {
     let ray_length = rest + input.radius;
     let ray = input.position.add(center1);
     let ground = world.ray(ray, input.up.scale(-ray_length));
+    let mut ground_center = Vec3::ZERO;
     if let Some(hit) = ground {
         out.ground_shape = hit.shape;
         let body = world.body(hit.shape);
         if body.awake {
+            ground_center = body.center;
             out.center = body.center;
             out.ground_velocity = body
                 .linear
@@ -117,10 +118,10 @@ pub fn run(world: &mut impl World, input: &Input) -> Output {
     let up = input.up;
     let residue = 2.0
         * 2_f64.powi(-23)
-        * (out.center.x as f64)
+        * (ground_center.x as f64)
             .abs()
-            .max((out.center.y as f64).abs())
-            .max((out.center.z as f64).abs())
+            .max((ground_center.y as f64).abs())
+            .max((ground_center.z as f64).abs())
         * ((up.x as f64).abs() + (up.y as f64).abs() + (up.z as f64).abs())
         / input.dt as f64;
     if ground.is_none() || input.velocity.sub(out.ground_velocity).dot(up) as f64 > residue {

@@ -73,7 +73,6 @@ export const characterScratch = {
         pose: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
         start: { x: 0, y: 0, z: 0 },
         zeroVelocity: { x: 0, y: 0, z: 0 },
-        center: { x: 0, y: 0, z: 0 },
         input: new Float32Array(0),
         inputU: new Uint32Array(0),
         slope: new Float64Array(0),
@@ -131,8 +130,8 @@ function moveCharacter(world: World, eid: number): void {
     const k = queryColumns(state).prepare(position);
     const memory = k.memory.buffer;
     if (s.input.buffer !== memory) {
-        s.input = new Float32Array(memory, k.characterInputPtr(), 30);
-        s.inputU = new Uint32Array(memory, k.characterInputPtr(), 30);
+        s.input = new Float32Array(memory, k.characterInputPtr(), 27);
+        s.inputU = new Uint32Array(memory, k.characterInputPtr(), 27);
         s.slope = new Float64Array(memory, k.characterInputPtr() + 80, 1);
         s.output = new Float32Array(memory, k.characterOutputPtr(), 63);
         s.outputU = new Uint32Array(memory, k.characterOutputPtr(), 63);
@@ -158,14 +157,11 @@ function moveCharacter(world: World, eid: number): void {
     input[18] = character.pogoRest.column[eid];
     s.inputU[19] = character.steepWalls.column[eid];
     s.slope[0] = character.maxSlope.column[eid];
-    input[22] = s.center.x;
-    input[23] = s.center.y;
-    input[24] = s.center.z;
-    input[25] = s.pose.q.v.x;
-    input[26] = s.pose.q.v.y;
-    input[27] = s.pose.q.v.z;
-    input[28] = s.pose.q.s;
-    input[29] = state.maxLinearSpeed;
+    input[22] = s.pose.q.v.x;
+    input[23] = s.pose.q.v.y;
+    input[24] = s.pose.q.v.z;
+    input[25] = s.pose.q.s;
+    input[26] = state.maxLinearSpeed;
     k.characterMove(state.worldId, bodyId);
     if (s.output.buffer !== k.memory.buffer) {
         s.output = new Float32Array(k.memory.buffer, k.characterOutputPtr(), 63);
@@ -209,9 +205,6 @@ function moveCharacter(world: World, eid: number): void {
         s.impulses[i].z = result[29 + 3 * i];
         s.shapes[i] = words[55 + i];
     }
-    s.center.x = result[51];
-    s.center.y = result[52];
-    s.center.z = result[53];
     s.groundShape = words[54] === 0xffffffff ? -1 : words[54];
     // The kinematic body mirrors the virtual capsule's endpoint; integrating it again would move it twice.
     if (
