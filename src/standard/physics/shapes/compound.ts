@@ -15,7 +15,9 @@ import {
     type Sphere,
 } from "./geometry";
 import { computeHullAABB, type HullData } from "./hull";
-import { computeMeshAABB, type Mesh, type MeshData, safeScale } from "./mesh";
+import { computeMeshAABB, type Mesh, type MeshData } from "./mesh";
+
+const f32 = Math.fround;
 
 // A compound mesh child has a fixed number of material slots (B3_MAX_COMPOUND_MESH_MATERIALS); a
 // triangle's material index is clamped into this range, then remapped through the child's slots.
@@ -283,7 +285,8 @@ export function createCompound(def: CompoundDef): CompoundData | null {
         meshes.push({
             meshData: md.meshData,
             transform: md.transform,
-            scale: safeScale(md.scale),
+            // Unclamped: b3SafeScale applies to mesh shapes, not compound mesh children.
+            scale: { x: f32(md.scale.x), y: f32(md.scale.y), z: f32(md.scale.z) },
             materialIndices,
         });
         if (sharedMeshes.every((m) => meshesEqual(m, md.meshData) === false)) {
