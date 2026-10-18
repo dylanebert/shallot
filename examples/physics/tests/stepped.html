@@ -53,10 +53,15 @@ window.drag=async(move=true)=>{
  const up=[2*(cq[0]*cq[1]-cq[3]*cq[2]),1-2*(cq[0]*cq[0]+cq[2]*cq[2]),2*(cq[1]*cq[2]+cq[3]*cq[0])];
  const ends=[-0.5,0.5].map(sign=>worldToViewport(world,camera,attachment.map((v,i)=>v+sign*scale*up[i])));
  const diameter=Math.hypot(ends[1][0]-ends[0][0],ends[1][1]-ends[0][1]);
+ const mid=worldToViewport(world,camera,attachment.map((v,i)=>(v+grab.point[i])/2));
+ const read=async()=>{await world.frameFence;const pending=captureFrame(document.querySelector('canvas'));await world.step(0);return await pending};
+ const sample=(image,pixel)=>{const offset=(Math.round(pixel[1])*image.width+Math.round(pixel[0]))*4;return Array.from(image.rgba.slice(offset,offset+3))};
+ let lineSamples;
+ if(params.has('capture')){const image=await read();lineSamples=[0.1,0.5,0.9].map(t=>sample(image,worldToViewport(world,camera,attachment.map((v,i)=>v*(1-t)+grab.point[i]*t))))}
  const markerDuring=world.has(marker,GlobalTransform) && !world.has(marker, Body);
- window.finishDrag=async()=>{releaseButton(world,'left');await frame();return {marker:world.resource(GrabFeedback).marker,mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint}};
- if(params.has('capture')) window.captureGrab=async()=>{const pending=captureFrame(document.querySelector('canvas'));await frame();const capture=await pending;const image=document.createElement('canvas');image.width=capture.width;image.height=capture.height;image.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(capture.rgba),capture.width,capture.height),0,0);image.style.cssText='position:absolute;inset:0';document.body.append(image)};
- return {attachment,diameter,body,picked,markerDuring,markerNoShadow:world.has(marker,NotShadowCaster),markerPosition:position(marker),target:[...world.resource(Grab).point],before,after,pixel,projected,cameraBefore,cameraDuring,cameraAfter:pose(camera),mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint};
+ window.finishDrag=async()=>{releaseButton(world,'left');await frame();const linePixel=params.has('capture')?sample(await read(),mid):undefined;return {...(linePixel?{linePixel}:{}),marker:world.resource(GrabFeedback).marker,mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint}};
+ if(params.has('capture')) window.captureGrab=async()=>{const capture=await read();const image=document.createElement('canvas');image.width=capture.width;image.height=capture.height;image.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(capture.rgba),capture.width,capture.height),0,0);image.style.cssText='position:absolute;inset:0';document.body.append(image)};
+ return {attachment,diameter,lineSamples,body,picked,markerDuring,markerNoShadow:world.has(marker,NotShadowCaster),markerPosition:position(marker),target:[...world.resource(Grab).point],before,after,pixel,projected,cameraBefore,cameraDuring,cameraAfter:pose(camera),mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint};
 };
 window.emptyDrag=async()=>{
  const before=position(camera);

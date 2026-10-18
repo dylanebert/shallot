@@ -3,7 +3,7 @@ import { expect, test } from "playwright/test";
 test("a Box Stack cube follows the cursor grab and release removes the mouse and joint", async ({
     page,
 }) => {
-    await page.goto(`/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`);
+    await page.goto("/tests/stepped.html?capture");
     await page.waitForFunction(() => (window as any).ready);
     expect(await page.evaluate(() => (window as any).marker())).toBe(0);
     const result = await page.evaluate(() => (window as any).drag());
@@ -16,12 +16,14 @@ test("a Box Stack cube follows the cursor grab and release removes the mouse and
         Math.hypot(...result.markerPosition.map((v: number, i: number) => v - result.target[i])),
     ).toBeGreaterThan(0.02);
     expect(result.diameter).toBeCloseTo(8, 0);
+    for (const pixel of result.lineSamples) expect(Math.min(...pixel)).toBeGreaterThan(100);
     if (process.env.SHALLOT_CAPTURE_DIR) {
         await page.evaluate(() => (window as any).captureGrab());
         await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/grab.png` });
     }
     const released = await page.evaluate(() => (window as any).finishDrag());
     expect(released.marker).toBe(0);
+    expect(Math.min(...released.linePixel)).toBeLessThan(150);
     expect(result.picked).toBe(result.body);
     expect(result.projected[0] - result.pixel[0]).toBeGreaterThan(60);
     expect(result.projected[0] - result.pixel[0]).toBeLessThan(110);
