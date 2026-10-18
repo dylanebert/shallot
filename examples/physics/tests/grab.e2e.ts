@@ -10,14 +10,20 @@ test("a Box Stack cube follows the cursor grab and release removes the mouse and
     expect(result.markerDuring).toBe(true);
     expect(result.markerNoShadow).toBe(true);
     result.markerPosition.forEach((value: number, axis: number) => {
-        expect(value).toBeCloseTo(result.target[axis], 5);
+        expect(value).toBeCloseTo(result.attachment[axis], 5);
     });
+    expect(
+        Math.hypot(...result.markerPosition.map((v: number, i: number) => v - result.target[i])),
+    ).toBeGreaterThan(0.02);
+    expect(result.diameter).toBeCloseTo(8, 0);
+    for (const pixel of result.lineSamples) expect(Math.min(...pixel)).toBeGreaterThan(100);
     if (process.env.SHALLOT_CAPTURE_DIR) {
         await page.evaluate(() => (window as any).captureGrab());
         await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/grab.png` });
     }
     const released = await page.evaluate(() => (window as any).finishDrag());
     expect(released.marker).toBe(0);
+    expect(Math.min(...released.linePixel)).toBeLessThan(150);
     expect(result.picked).toBe(result.body);
     expect(result.projected[0] - result.pixel[0]).toBeGreaterThan(60);
     expect(result.projected[0] - result.pixel[0]).toBeLessThan(110);
@@ -46,4 +52,12 @@ test("a left drag over empty space orbits without grabbing a body", async ({ pag
     expect(result.after).not.toEqual(result.before);
     expect(result.bodyAfter[0]).toBe(result.bodyBefore[0]);
     expect(result.bodyAfter[2]).toBe(result.bodyBefore[2]);
+});
+
+test("the Bridge attachment marker also spans eight CSS pixels", async ({ page }) => {
+    await page.goto("/tests/stepped.html?scene=bridge");
+    await page.waitForFunction(() => (window as any).ready);
+    const result = await page.evaluate(() => (window as any).drag());
+    expect(result.markerDuring).toBe(true);
+    expect(Math.abs(result.diameter - 8)).toBeLessThan(1);
 });
