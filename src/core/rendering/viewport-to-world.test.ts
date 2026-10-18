@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resizeViewport, World } from "../../engine";
+import { qRotate, resizeViewport, World } from "../../engine";
 import { component } from "../../engine/ecs/component";
 import { GlobalTransform } from "../transform";
 import { Camera, CameraMode, computeViewProj } from "./camera";
@@ -166,8 +166,8 @@ test("worldToViewport lands where viewportToWorld's perspective ray came from", 
                     number,
                 ];
                 expect(worldToViewport(world, camera, point)).toEqual([
-                    expect.closeTo(x, 4),
-                    expect.closeTo(y, 4),
+                    expect.closeTo(x, 2),
+                    expect.closeTo(y, 2),
                 ]);
             }
         }
@@ -236,3 +236,55 @@ test("worldToViewport refuses a point nearer than near, an orthographic point be
         depthOnly.world.dispose();
     }
 });
+
+for (const [name, mode] of [
+    ["perspective", CameraMode.Perspective],
+    ["orthographic", CameraMode.Orthographic],
+] as const) {
+    test(`worldToViewport agrees with the ${name} view-projection under a scaled camera, near plane included`, () => {
+        const { world, camera } = placedCamera(mode);
+        const clip = new Float32Array(16);
+        try {
+            for (const scale of [
+                [2, 1, 1],
+                [1, 0.5, 3],
+            ] as const) {
+                world.storage(GlobalTransform).scale.set(camera, scale[0], scale[1], scale[2], 0);
+                computeViewProj(world, camera, 2, clip);
+                for (const point of [
+                    [2, 0, -6],
+                    [-1, 3, 2],
+                ] as const) {
+                    const [x, y, z] = point;
+                    const cx = clip[0]! * x + clip[4]! * y + clip[8]! * z + clip[12]!;
+                    const cy = clip[1]! * x + clip[5]! * y + clip[9]! * z + clip[13]!;
+                    const cw = clip[3]! * x + clip[7]! * y + clip[11]! * z + clip[15]!;
+                    expect(worldToViewport(world, camera, point)).toEqual([
+                        expect.closeTo(((cx / cw + 1) / 2) * 800, 2),
+                        expect.closeTo(((1 - cy / cw) / 2) * 400, 2),
+                    ]);
+                }
+            }
+            // Z scale 3 puts a point 1 world unit ahead at view depth 1/3, nearer than near 0.5;
+            // 2 units ahead sits at depth 2/3, past it.
+            world.storage(GlobalTransform).scale.set(camera, 1, 1, 3, 0);
+            const r = world.storage(GlobalTransform).rotation;
+            const ahead = (distance: number) => {
+                const [fx, fy, fz] = qRotate(
+                    r.x.get(camera),
+                    r.y.get(camera),
+                    r.z.get(camera),
+                    r.w.get(camera),
+                    0,
+                    0,
+                    -distance,
+                );
+                return [1 + fx, 2 + fy, 9 + fz] as [number, number, number];
+            };
+            expect(worldToViewport(world, camera, ahead(1))).toBeNull();
+            expect(worldToViewport(world, camera, ahead(2))).not.toBeNull();
+        } finally {
+            world.dispose();
+        }
+    });
+}

@@ -1,9 +1,10 @@
 import { qRotate, type Ray, Viewports, type World } from "../../engine";
 import { GlobalTransform } from "../transform";
-import { Camera, CameraMode } from "./camera";
+import { Camera, CameraMode, computeViewFromWorld } from "./camera";
 import { cameraView } from "./view";
 
 const _size = { width: 0, height: 0 };
+const _viewFromWorld = new Float32Array(16);
 
 // The camera's target size in its coordinate pixels: an attached texture's pixels, or the bound
 // canvas's CSS pixels. Null for a depth-only view, an unbound camera or an empty target.
@@ -84,10 +85,11 @@ export function viewportToWorld(world: World, camera: number, x: number, y: numb
 
 /** The pixel at which a world point appears, relative to the camera target's top-left, in the
  * coordinates {@link viewportToWorld} takes: CSS pixels of a bound canvas, or pixels of an attached
- * texture. Projects through fixed-tick camera placement with the target aspect, not a Resolution
- * override. Returns null without camera placement or a non-empty target, and for a point the camera
- * does not draw by depth: nearer than `near`, or, orthographic, beyond `far`. A point outside the
- * frame but in that depth range returns pixels outside the target. */
+ * texture. Projects through the renderer's view of fixed-tick camera placement, scale included,
+ * with the target aspect, not a Resolution override. Returns null without camera placement or a
+ * non-empty target, and for a point the camera does not draw by view depth: nearer than `near`, or,
+ * orthographic, beyond `far`. A point outside the frame but in that depth range returns pixels
+ * outside the target. */
 export function worldToViewport(
     world: World,
     camera: number,
@@ -98,16 +100,13 @@ export function worldToViewport(
     const viewport = targetSize(world, camera);
     if (!viewport) return null;
     const params = world.storage(Camera);
-    const global = world.storage(GlobalTransform);
-    const [vx, vy, vz] = qRotate(
-        -global.rotation.x.get(camera),
-        -global.rotation.y.get(camera),
-        -global.rotation.z.get(camera),
-        global.rotation.w.get(camera),
-        point[0] - global.translation.x.get(camera),
-        point[1] - global.translation.y.get(camera),
-        point[2] - global.translation.z.get(camera),
-    );
+    // The renderer's own view-from-world, so a scaled camera projects and depth-tests as drawn.
+    computeViewFromWorld(world, camera, _viewFromWorld);
+    const m = _viewFromWorld;
+    const [x, y, z] = point;
+    const vx = m[0]! * x + m[4]! * y + m[8]! * z + m[12]!;
+    const vy = m[1]! * x + m[5]! * y + m[9]! * z + m[13]!;
+    const vz = m[2]! * x + m[6]! * y + m[10]! * z + m[14]!;
     const depth = -vz;
     if (!(depth >= params.near.get(camera))) return null;
     const aspect = viewport.width / viewport.height;
