@@ -1,10 +1,9 @@
 import type { Vec3 } from "../common/records";
 import type { HullData } from "./hull";
 
-export type HullImage = HullData;
 const align8 = (n: number): number => (n + 7) & ~7;
 
-export function hullByteCount(h: HullImage): number {
+export function hullByteCount(h: HullData): number {
     return (
         144 +
         align8(h.vertexCount) +
@@ -25,7 +24,7 @@ function vector(f: Float32Array, o: number, p: Vec3): void {
 
 /** Writes the zero-padded b3HullData byte image, including its relative offsets. */
 export function writeHullImage(
-    h: HullImage,
+    h: HullData,
     bytes: Uint8Array,
     u: Uint32Array,
     f: Float32Array,
@@ -101,7 +100,7 @@ export function writeHullImage(
     }
 }
 
-export function hullImage(h: HullImage): Uint8Array {
+export function hullImage(h: HullData): Uint8Array {
     const buffer = new ArrayBuffer(hullByteCount(h));
     const bytes = new Uint8Array(buffer);
     writeHullImage(

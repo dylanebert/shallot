@@ -7,7 +7,8 @@ import type { Pos, Quat, Vec3 } from "./records";
 
 const f32 = Math.fround;
 
-/** Body simulation type (b3BodyType). Numeric values are load-bearing (broadphase tree index). */
+/** Body simulation type (b3BodyType). Numeric values are load-bearing: broadphase tree index and
+ * the proxy key's 2-bit type. */
 export const BodyType = {
     /** Zero mass, zero velocity, may be moved manually. */
     Static: 0,

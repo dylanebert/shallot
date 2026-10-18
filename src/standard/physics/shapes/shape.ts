@@ -49,14 +49,14 @@ export function shapeIsValid(world: WorldState, id: EntityId): boolean {
 export function readShapeSphere(world: WorldState, shape: Shape): Sphere {
     world.shapeStore.refreshViews();
     const f = world.shapeStore.shapeF,
-        o = shape * SHAPE_STRIDE + 48;
+        o = shape * SHAPE_STRIDE + S_GEO_REFERENCE;
     return { center: { x: f[o], y: f[o + 1], z: f[o + 2] }, radius: f[o + 3] };
 }
 
 export function readShapeCapsule(world: WorldState, shape: Shape): Capsule {
     world.shapeStore.refreshViews();
     const f = world.shapeStore.shapeF,
-        o = shape * SHAPE_STRIDE + 48;
+        o = shape * SHAPE_STRIDE + S_GEO_REFERENCE;
     return {
         center1: { x: f[o], y: f[o + 1], z: f[o + 2] },
         center2: { x: f[o + 3], y: f[o + 4], z: f[o + 5] },
@@ -101,7 +101,7 @@ export function getShapeGeometryReference(world: WorldState, shape: Shape): numb
 
 export function getShapeGeometryScale(world: WorldState, shape: Shape): Vec3 {
     world.shapeStore.refreshViews();
-    const offset = shape * SHAPE_STRIDE + 49;
+    const offset = shape * SHAPE_STRIDE + S_GEO_REFERENCE + 1;
     const values = world.shapeStore.shapeF;
     return { x: values[offset], y: values[offset + 1], z: values[offset + 2] };
 }

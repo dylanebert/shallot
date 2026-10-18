@@ -4,24 +4,17 @@ import type { World } from "../../../engine";
 // changed this step, in deterministic insertion order.
 
 import type { AABB } from "../common/records";
+import { BodyType } from "../common/types";
 import { type BroadStore, createBroadStore } from "../kernel/broadcolumns";
 import { kernel } from "../kernel/kernel";
 import type { DynamicTree } from "../kernel/treecolumns";
 import * as tree from "../kernel/treecolumns";
 import { createSet, type HashSet } from "./table";
 
-// b3BodyType. Static must be 0 so the proxy-key pack/unpack (2-bit type) round-trips.
-export const BodyType = {
-    Static: 0,
-    Kinematic: 1,
-    Dynamic: 2,
-} as const;
-export type BodyTypeValue = (typeof BodyType)[keyof typeof BodyType];
-
 // Store the proxy type in the lower 2 bits of the key; the remaining bits hold the proxy id.
-export const proxyType = (key: number): BodyTypeValue => (key & 3) as BodyTypeValue;
+export const proxyType = (key: number): BodyType => (key & 3) as BodyType;
 export const proxyId = (key: number): number => key >> 2;
-export const proxyKey = (id: number, type: BodyTypeValue): number => (id << 2) | type;
+export const proxyKey = (id: number, type: BodyType): number => (id << 2) | type;
 
 export type BroadPhase = {
     // Logical initialization belongs to the World, including when its snapshot predates a claim.
@@ -48,7 +41,7 @@ export function clearMoves(bp: BroadPhase): void {
     bp.store.refreshIfStale();
     kernel(bp.store.ecsState).broadClearMoves();
 }
-export function isMoved(bp: BroadPhase, type: BodyTypeValue, id: number): boolean {
+export function isMoved(bp: BroadPhase, type: BodyType, id: number): boolean {
     bp.store.refreshIfStale();
     const bits = bp.store.movedBits[type];
     return ((bits[id >>> 5] ?? 0) & (1 << (id & 31))) !== 0;
@@ -105,7 +98,7 @@ export function bufferMove(bp: BroadPhase, queryProxy: number): void {
 
 export function createProxy(
     bp: BroadPhase,
-    type: BodyTypeValue,
+    type: BodyType,
     box: AABB,
     categoryHi: number,
     categoryLo: number,
@@ -170,7 +163,7 @@ export function testOverlap(bp: BroadPhase, keyA: number, keyB: number): boolean
 }
 
 /** Clear a proxy's moved flag (b3ClearBit on movedProxies). */
-export function clearMoved(bp: BroadPhase, type: BodyTypeValue, id: number): void {
+export function clearMoved(bp: BroadPhase, type: BodyType, id: number): void {
     bp.store.refreshIfStale();
     kernel(bp.store.ecsState).broadClearMoved(type, id);
 }
