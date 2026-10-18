@@ -161,7 +161,7 @@ test("the active collision route changes the symmetric face-B feature order, the
     }
 });
 
-test("a Shallot physics result diverges from the Box3D reference on any case of the immutable v6 corpus, including the official scenes", () => {
+test("every case of the immutable Box3D v6 corpus TypeScript reaches, including the official scenes, equals the Box3D reference", () => {
     const corpus = loadConsumerCorpus();
     for (const item of corpus.cases) {
         // shape_distance_box3d_corpus in crates/physics/tests/distance_gold.rs checks these
