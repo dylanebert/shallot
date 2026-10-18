@@ -47,7 +47,6 @@ export interface System {
     /** profiler/debug label; falls back to `pluginName/index` when omitted */
     readonly name?: string;
     readonly group?: SystemGroup;
-    readonly annotations?: Record<string, unknown>;
     readonly first?: boolean;
     readonly last?: boolean;
     /** runs after every other system in its group; at most one terminal system is allowed */
