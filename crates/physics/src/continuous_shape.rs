@@ -156,13 +156,12 @@ fn mesh_impact(
     let mut context = MeshImpact::new(visitor, target, fraction, radius, is_sensor);
     match shape {
         Shape::Mesh(mesh) => {
-            crate::mesh_query::visit_triangles(
-                *mesh,
-                lower,
-                upper,
-                mesh.reflected(),
-                |_, triangle| context.triangle(triangle),
-            );
+            // b3QueryMesh tests bounds overlap on the stored winding and reflects after; the
+            // test's rounding depends on vertex order.
+            let reflected = mesh.reflected();
+            crate::mesh_query::visit_triangles(*mesh, lower, upper, false, |_, [a, b, c]| {
+                context.triangle(if reflected { [a, c, b] } else { [a, b, c] })
+            });
         }
         Shape::Height(field) => field.visit_cells(lower, upper, |_, [a, b, c, d]| {
             let lo = min(min(a, b), min(c, d));
