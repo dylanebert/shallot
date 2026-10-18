@@ -27,6 +27,7 @@ import {
     indirectLightSources,
     LightCull,
     Lighting,
+    LightingGpu,
     pointAtlasView,
     pointShadowCasters,
     pointShadowRects,
@@ -120,13 +121,15 @@ const emptyReadKey = {
     create: () => ({
         texture: null as GPUTexture | null,
         buffer: null as (TgpuBuffer<typeof FogGpu> & UniformFlag) | null,
-        groups: new Map<number, { buffer: object; lighting: GPUBuffer; group: GPUBindGroup }>(),
+        lighting: null as (TgpuBuffer<typeof LightingGpu> & UniformFlag) | null,
+        groups: new Map<number, { buffer: object; group: GPUBindGroup }>(),
     }),
 };
 
 /**
  * Per-camera group for readFog at group 3, valid after the fog draw system and for the current frame.
  * Returns an identity read when FogPlugin or the Fog singleton is absent, or the camera has NoFog.
+ * Identity reads require only CorePipelinePlugin, not standard rendering or a lighting resource.
  * The world owns the resources. Custom raw pipeline layouts must fill unused groups below 3 with
  * explicit empty layouts; TypeGPU leaves sparse group indices unfilled.
  */
@@ -147,14 +150,13 @@ export function fogReadBindGroup(world: World, eid: number): GPUBindGroup {
         });
         world.own(state.texture);
         state.buffer = root.createBuffer(FogGpu).$usage("uniform");
+        state.lighting = root.createBuffer(LightingGpu).$usage("uniform");
     }
     const buffer = world.resource(RenderContext).viewBuffers[view.slot];
-    const lighting = world.resource(Lighting).buffer;
     let cached = state.groups.get(eid);
-    if (!cached || cached.buffer !== buffer || cached.lighting !== lighting) {
+    if (!cached || cached.buffer !== buffer) {
         cached = {
             buffer,
-            lighting,
             group: root.unwrap(
                 root.createBindGroup(fogReadLayout, {
                     grid: state.texture.createView(),
@@ -164,7 +166,7 @@ export function fogReadBindGroup(world: World, eid: number): GPUBindGroup {
                     }),
                     view: buffer,
                     fog: state.buffer!,
-                    lighting,
+                    lighting: state.lighting!,
                 }),
             ),
         };

@@ -192,7 +192,9 @@ supply that read before standard warms; its layout occupies reserved group 3.
 Custom fragment passes can use `readFog`, `fogReadLayout` and
 `fogReadBindGroup(world, camera)` from `/extras` or `/fog`, binding the returned group at 3.
 The read returns added RGB radiance and alpha transmittance; additive emission multiplies
-its colour by transmittance only. Fill unused preceding pipeline-layout indices with explicit
+its colour by transmittance only. Without `FogPlugin` or a `Fog` singleton, the accessor supplies
+an identity read, including in a core-only composition using `CorePipelinePlugin` without
+standard rendering. Fill unused preceding pipeline-layout indices with explicit
 empty layouts when using raw WebGPU. Other transparent renderers, including lines and text,
 now draw unfogged unless they use this read.
 

@@ -28,7 +28,7 @@ const subjects = gpuApps(import.meta.path, [
 const encode = (x: number) =>
     Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055));
 
-test("Blend reads the haze at its own depth over a fogged wall; Add attenuates emission and NoFog leaves transparents unchanged", async () => {
+test("Blend, Premultiplied, Add and Multiply apply fog at their own depth and NoFog leaves transparents unchanged", async () => {
     const { world } = subjects()[0]!;
     const camera = world.create();
     world.add(camera, Transform);
@@ -40,11 +40,8 @@ test("Blend reads the haze at its own depth over a fogged wall; Add attenuates e
     const wall = world.create();
     world.add(wall, Transform, { translation: [0, 0, -20.5, 0], scale: [40, 40, 1, 0] });
     world.add(wall, MeshInstance);
-    world.add(
-        wall,
-        MeshMaterial,
-        materials.add(StandardMaterial({ baseColor: [0, 0, 0, 1], unlit: true })),
-    );
+    const wallRow = materials.add(StandardMaterial({ baseColor: [0, 0, 0, 1], unlit: true }));
+    world.add(wall, MeshMaterial, wallRow);
     const surface = world.create();
     world.add(surface, Transform, { translation: [0, 0, -4.5, 0], scale: [20, 20, 1, 0] });
     world.add(surface, MeshInstance);
@@ -78,4 +75,20 @@ test("Blend reads the haze at its own depth over a fogged wall; Add attenuates e
     expect(Math.abs((await pixel()) - encode(1 - wallT + 0.2 * nearT))).toBeLessThanOrEqual(2);
     world.add(camera, NoFog);
     expect(Math.abs((await pixel()) - encode(0.2))).toBeLessThanOrEqual(1);
+    world.remove(camera, NoFog);
+    materials.update(row, { baseColor: [0.2, 0, 0, 0.5] }, { alphaMode: AlphaMode.Premultiplied });
+    const premultiplied = await pixel();
+    const premultipliedExpected = 0.2 * nearT + 0.5 * (1 - nearT) + 0.5 * (1 - wallT);
+    expect(Math.abs(premultiplied - encode(premultipliedExpected))).toBeLessThanOrEqual(2);
+    expect(
+        Math.abs(premultiplied - encode(premultipliedExpected + 0.5 * (1 - nearT))),
+    ).toBeGreaterThan(8);
+
+    world.storage(Fog).color.set(fog, 0x0000ff);
+    materials.update(wallRow, { baseColor: [1, 1, 1, 1] });
+    materials.update(row, {}, { alphaMode: AlphaMode.Multiply });
+    const multiplied = await pixel();
+    const multipliedExpected = wallT * (0.5 * (1 - nearT + 0.2 * nearT) + 0.5);
+    expect(Math.abs(multiplied - encode(multipliedExpected))).toBeLessThanOrEqual(2);
+    expect(Math.abs(multiplied - encode(wallT * (0.5 * 0.2 * nearT + 0.5)))).toBeGreaterThan(5);
 });
