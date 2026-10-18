@@ -10,7 +10,14 @@ class Element {
     innerHTML = "";
     isConnected = false;
     parentElement: Element | null = null;
+    attributes = new Map<string, string>();
     addEventListener(): void {}
+    setAttribute(name: string, value: string): void {
+        this.attributes.set(name, value);
+    }
+    hasAttribute(name: string): boolean {
+        return this.attributes.has(name);
+    }
     appendChild(child: Element): Element {
         this.children.push(child);
         child.parentElement = this;
