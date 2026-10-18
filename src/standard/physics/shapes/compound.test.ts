@@ -717,12 +717,16 @@ test("the kernel compound mover query returns an up-facing plane from each strad
     });
 });
 
-test("a compound mesh child keeps a scale below B3_MIN_SCALE, as b3CreateCompound copies it, and rays meet that surface", () => {
+test("a compound mesh child keeps a scale below B3_MIN_SCALE, as b3CreateCompound copies it, and rays meet that surface or miss a zero axis as Box3D does", () => {
     // Native rows from Box3D 47d7f7cc: b3GetCompoundChild(c, 0).mesh.scale.y, then
     // b3World_CastRayClosest's fraction and point.y, for a box mesh child at scale (1, y, 1).
     const native = [
         { y: 0.005, scale: "3ba3d70a", fraction: "3effbe76", point: "3ba3d800" },
         { y: 0.001, scale: "3a83126f", fraction: "3efff2e5", point: "3a831000" },
+        { y: -0.005, scale: "bba3d70a", fraction: "3effbe76", point: "3ba3d800" },
+        // A zero axis divides to an unordered separation, which Box3D's b3AllLessEq3V rejects.
+        { y: 0, scale: "00000000", fraction: null, point: null },
+        { y: -0, scale: "80000000", fraction: null, point: null },
     ];
     for (const row of native) {
         nativeCase(`mesh child scale y ${row.y}`, () => {
@@ -743,6 +747,10 @@ test("a compound mesh child keeps a scale below B3_MIN_SCALE, as b3CreateCompoun
                 c,
                 rayDown({ x: 0.3, y: 5, z: 0.2 }, { x: 0, y: -10, z: 0 }),
             );
+            if (row.fraction === null || row.point === null) {
+                expect(out.hit).toBe(false);
+                return;
+            }
             expect(out.hit).toBe(true);
             bitEqual(out.fraction, row.fraction, "fraction");
             bitEqual(out.point.y, row.point, "point.y");
