@@ -190,11 +190,10 @@ export const lit = tgpu.fn(
  *  dielectric 0 this reduces to `lit(s.albedo, normal)` exactly.
  */
 export const litPbr = tgpu.fn(
-    [Pbr, d.vec3f, d.vec3f],
+    [Pbr, d.vec3f, d.vec3f, d.vec3f],
     d.vec3f,
-)((s, normal, world) => {
+)((s, normal, world, V) => {
     "use gpu";
-    const V = std.normalize(std.sub(engineLayout.$.view.eye.xyz, world));
     const exposure = engineLayout.$.view.exposure;
     const indirect = indirectLight(
         IndirectLightInput({

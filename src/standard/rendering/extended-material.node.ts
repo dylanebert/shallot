@@ -36,7 +36,7 @@ const Composed = extendedMaterial(Materials, {
     name: "ComposedStandard",
     fragment: (ctx) => {
         "use gpu";
-        return applyPbrLighting(pbrInputFromStandardMaterial(ctx), ctx);
+        return applyPbrLighting(pbrInputFromStandardMaterial(ctx));
     },
 });
 const Rough = extendedMaterial(Materials, {
@@ -45,14 +45,14 @@ const Rough = extendedMaterial(Materials, {
         "use gpu";
         const input = pbrInputFromStandardMaterial(ctx);
         input.perceptualRoughness = 0.8;
-        return applyPbrLighting(input, ctx);
+        return applyPbrLighting(input);
     },
 });
 const Banded = extendedMaterial(Materials, {
     name: "BandedStandard",
     fragment: (ctx) => {
         "use gpu";
-        const color = applyPbrLighting(pbrInputFromStandardMaterial(ctx), ctx);
+        const color = applyPbrLighting(pbrInputFromStandardMaterial(ctx));
         const value = std.min(std.floor(color.r * 4), 3) / 3;
         return d.vec4f(d.vec3f(value), color.a);
     },

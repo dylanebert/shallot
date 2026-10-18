@@ -18,7 +18,7 @@ export const QuantizedMaterial = extendedMaterial(Materials, {
     name: "QuantizedStandard",
     fragment: (ctx) => {
         "use gpu";
-        const color = applyPbrLighting(pbrInputFromStandardMaterial(ctx), ctx);
+        const color = applyPbrLighting(pbrInputFromStandardMaterial(ctx));
         return d.vec4f(std.div(std.floor(std.mul(color.rgb, 4)), 4), color.a);
     },
 });

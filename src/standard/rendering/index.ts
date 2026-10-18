@@ -86,5 +86,6 @@ export {
     applyPbrLighting,
     extendedMaterial,
     PbrInput,
+    pbrInputFromMaterial,
     pbrInputFromStandardMaterial,
 } from "./standard-material";
