@@ -59,6 +59,7 @@ import {
 } from "./cluster";
 import { type Background, Backgrounds, initializeBackgroundState } from "./contract";
 import { engineLayout } from "./engine";
+import { fogSource, sealFogSource } from "./fog";
 import { initializeIndirectLightSources, sealIndirectLightSources } from "./indirect";
 import {
     initializeLightingState,
@@ -1163,6 +1164,8 @@ function drawTransparent(
     pass.setBindGroup(0, group0);
     pass.setBindGroup(1, group1);
     pass.setBindGroup(2, item.r.g.transparentColor!);
+    const fog = fogSource(world);
+    if (fog) pass.setBindGroup(3, fog.bindGroup(world, eid, view));
     pass.setIndexBuffer(world.gpu.root.unwrap(item.r.index), "uint32");
     pass.drawIndexedIndirect(
         world.resource(MeshDrawBuffers).transparentArgs!,
@@ -1371,6 +1374,7 @@ export const StandardRenderingPlugin: Plugin = {
 
     async warm(world) {
         sealIndirectLightSources(world);
+        sealFogSource(world);
         if (!world.gpu.device) return;
         warmClusters(world);
         await withPipelineOwner(world.gpu.device, "StandardRendering", () => warmLightCull(world));

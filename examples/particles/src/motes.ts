@@ -1,5 +1,6 @@
 import type { Plugin, Resource } from "@dylanebert/shallot";
 import { GlobalTransform } from "@dylanebert/shallot";
+import { fogReadBindGroup, fogReadLayout, readFog } from "@dylanebert/shallot/extras";
 import {
     Camera,
     CorePipelinePlugin,
@@ -104,24 +105,24 @@ const CAMERA_FADE_NEAR: f32 = 0.3;
 const CAMERA_FADE_FAR: f32 = 0.8;
 const MOTE_SIZE_DEPTH: f32 = 2.0;
 struct View { viewProj: mat4x4f }
-@group(0) @binding(0) var<uniform> view: View;
+@group(0) @binding(0) var<uniform> moteView: View;
 @group(0) @binding(1) var<storage, read> positions: array<vec4f>;
-struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @location(1) light: f32 }
+struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @location(1) light: f32, @location(2) world: vec3f }
 @vertex fn vertex(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> Vertex {
     let corners = array<vec2f, 6>(vec2f(-1,-1),vec2f(1,-1),vec2f(-1,1),vec2f(-1,1),vec2f(1,-1),vec2f(1,1));
     let p = positions[i];
-    var clip = view.viewProj * vec4f(p.xyz, 1);
+    var clip = moteView.viewProj * vec4f(p.xyz, 1);
     let size = 0.006 * clip.w / max(clip.w, MOTE_SIZE_DEPTH);
     clip.x += corners[v].x * size;
     clip.y += corners[v].y * size;
     let windowY = p.y + (p.z + 3.5) * 0.5;
     let beam = abs(p.x) < 1 && windowY > 1.3 && windowY < 2.8;
     let cameraFade = smoothstep(CAMERA_FADE_NEAR, CAMERA_FADE_FAR, clip.w);
-    return Vertex(clip, corners[v], select(0.015, 1.0, beam) * cameraFade);
+    return Vertex(clip, corners[v], select(0.015, 1.0, beam) * cameraFade, p.xyz);
 }
 @fragment fn fragment(v: Vertex) -> @location(0) vec4f {
     let alpha = max(0, 1 - dot(v.uv, v.uv));
-    return vec4f(vec3f(8, 5, 1.8) * v.light * alpha, 0);
+    return vec4f(vec3f(8, 5, 1.8) * v.light * alpha * readFog(v.world).a, 0);
 }`;
 
 export const MotesPlugin: Plugin = {
@@ -181,7 +182,8 @@ export const MotesPlugin: Plugin = {
                 if (!pipeline) {
                     const module = device.createShaderModule({
                         label: "particles:billboards",
-                        code: shader,
+                        // The fragment read shares fog's fragment-visible layout; the quad carries its centre.
+                        code: tgpu.resolve({ externals: { readFog }, template: shader }),
                     });
                     pipeline = device.createRenderPipeline({
                         label: "particles:draw",
@@ -201,6 +203,9 @@ export const MotesPlugin: Plugin = {
                                         },
                                     ],
                                 }),
+                                device.createBindGroupLayout({ entries: [] }),
+                                device.createBindGroupLayout({ entries: [] }),
+                                world.gpu.root.unwrap(fogReadLayout),
                             ],
                         }),
                         vertex: { module, entryPoint: "vertex" },
@@ -255,6 +260,7 @@ export const MotesPlugin: Plugin = {
                     s.pipelines.get(`${view.framebufferFormat ?? render.format}:${samples}`)!,
                 );
                 pass.setBindGroup(0, s.groups.get(view)!.group);
+                pass.setBindGroup(3, fogReadBindGroup(world, eid));
                 pass.draw(6, MOTE_COUNT);
             },
         });

@@ -183,6 +183,19 @@ background pixels receive grid haze followed by analytic height fog out to `maxD
 rather than unprojecting depth zero as a finite endpoint. Orthographic depth zero still names
 its far projection plane, bounded by `maxDistance` like a surface.
 
+Opaque fog now records through `PhaseRenderer.afterOpaque`, inside the core main pass after
+all opaque renderers and before transparent draws. Standard's Blend, Premultiplied, Add and
+Multiply surfaces take fog at their own world-space depth rather than the opaque depth behind
+them. `registerFogSource` and `FogInput` / `FogSource` in `/standard/rendering` let a plugin
+supply that read before standard warms; its layout occupies reserved group 3.
+
+Custom fragment passes can use `readFog`, `fogReadLayout` and
+`fogReadBindGroup(world, camera)` from `/extras` or `/fog`, binding the returned group at 3.
+The read returns added RGB radiance and alpha transmittance; additive emission multiplies
+its colour by transmittance only. Fill unused preceding pipeline-layout indices with explicit
+empty layouts when using raw WebGPU. Other transparent renderers, including lines and text,
+now draw unfogged unless they use this read.
+
 ## Presenting-camera capacity grows on demand
 
 Per-view rendering state grows lazily as additional cameras become presenting; it starts with

@@ -1,4 +1,5 @@
 import tgpu, { type TgpuBuffer, type TgpuComputePipeline, type UniformFlag } from "typegpu";
+import * as d from "typegpu/data";
 import {
     Camera,
     DepthPrepassRequests,
@@ -21,6 +22,7 @@ import {
     setComputePipeline,
 } from "../../engine/runtime";
 import {
+    FogInput,
     indirectLightSlot,
     indirectLightSources,
     LightCull,
@@ -28,6 +30,7 @@ import {
     pointAtlasView,
     pointShadowCasters,
     pointShadowRects,
+    registerFogSource,
     ShadowMapSystem,
     StandardRenderer,
     StandardRenderingPlugin,
@@ -46,7 +49,11 @@ import {
     fogLayout0Multisampled,
     fogLayout1,
     fogReadLayout,
+    readFog,
 } from "./pipeline";
+
+export { fogReadLayout, readFog } from "./pipeline";
+
 import { TEMPORAL_FRAMES } from "./temporal";
 
 /**
@@ -108,6 +115,71 @@ export const NoFog = component("NoFog", {});
 
 const FOG_SINGLETON_QUERY = [Fog];
 const FOG_CAMERA_QUERY = [Camera, StandardRenderer];
+
+const emptyReadKey = {
+    create: () => ({
+        texture: null as GPUTexture | null,
+        buffer: null as (TgpuBuffer<typeof FogGpu> & UniformFlag) | null,
+        groups: new Map<number, { buffer: object; lighting: GPUBuffer; group: GPUBindGroup }>(),
+    }),
+};
+
+/**
+ * Per-camera group for readFog at group 3, valid after the fog draw system and for the current frame.
+ * Returns an identity read when FogPlugin or the Fog singleton is absent, or the camera has NoFog.
+ * The world owns the resources. Custom raw pipeline layouts must fill unused groups below 3 with
+ * explicit empty layouts; TypeGPU leaves sparse group indices unfilled.
+ */
+export function fogReadBindGroup(world: World, eid: number): GPUBindGroup {
+    const active = fogState(world).views.get(eid);
+    if (active && world.only(FOG_SINGLETON_QUERY) >= 0 && !world.has(eid, NoFog))
+        return active.readGroup;
+    const view = world.resource(Views).get(eid);
+    if (!view) throw new Error(`fog read requires a rendering camera: ${eid}`);
+    const state = world.resource(emptyReadKey);
+    const root = world.gpu.root;
+    if (!state.texture) {
+        state.texture = world.gpu.device.createTexture({
+            dimension: "3d",
+            size: [1, 1, 1],
+            format: "rgba16float",
+            usage: GPUTextureUsage.TEXTURE_BINDING,
+        });
+        world.own(state.texture);
+        state.buffer = root.createBuffer(FogGpu).$usage("uniform");
+    }
+    const buffer = world.resource(RenderContext).viewBuffers[view.slot];
+    const lighting = world.resource(Lighting).buffer;
+    let cached = state.groups.get(eid);
+    if (!cached || cached.buffer !== buffer || cached.lighting !== lighting) {
+        cached = {
+            buffer,
+            lighting,
+            group: root.unwrap(
+                root.createBindGroup(fogReadLayout, {
+                    grid: state.texture.createView(),
+                    gridSampler: world.gpu.device.createSampler({
+                        minFilter: "linear",
+                        magFilter: "linear",
+                    }),
+                    view: buffer,
+                    fog: state.buffer!,
+                    lighting,
+                }),
+            ),
+        };
+        state.groups.set(eid, cached);
+    }
+    return cached.group;
+}
+
+const fogSource = tgpu.fn(
+    [FogInput],
+    d.vec4f,
+)((input) => {
+    "use gpu";
+    return readFog(input.worldPosition);
+});
 
 interface FogState {
     fog: {
@@ -464,6 +536,11 @@ export const FogPlugin: Plugin = {
 
     initialize(world) {
         const state = world.resource(fogStateKey);
+        registerFogSource(world, "fog", {
+            source: fogSource,
+            layout: fogReadLayout,
+            bindGroup: fogReadBindGroup,
+        });
         world.own({ destroy: () => clearViews(state) });
         world.resource(RenderPhases).push({
             afterOpaque(world, eid, _view, pass) {

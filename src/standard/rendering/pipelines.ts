@@ -33,6 +33,7 @@ import {
     pointShadowStub,
     sunVisibility,
 } from "./engine";
+import { foggedColor, fogSlot, fogSource, unfoggedColor } from "./fog";
 import type { Recorded } from "./forward";
 import { indirectLightSlot, indirectLightSources } from "./indirect";
 import { Lighting } from "./lighting";
@@ -591,7 +592,8 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
         .$name(name);
 }
 
-function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
+function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fogged = false) {
+    const fogColor = fogged ? foggedColor : unfoggedColor;
     // Reuse the function's schema identity: a structurally equal context forces an implicit conversion.
     const fragment = materialFragmentFunction(surface);
     const CtxSchema = (fragment as any).shell.argTypes[0];
@@ -660,7 +662,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
             } as any);
             const col = d.vec4f(std.add(fragment(ctx), d.vec4f(forcedZero)));
             const output = alphaColorOutput(
-                col,
+                fogColor(col, input.world, input.alphaMode),
                 input.alphaMode,
                 input.alphaCutoff,
                 alphaToCoverageFallback ? 0xffffffff : 0,
@@ -1022,7 +1024,8 @@ const shadowForce = tgpu
 // The 1..MAX_VARYINGS arms bound the static entry; the copier signature and vertex side already
 // accept arbitrary counts.
 // Reuse fsFn.shell.argTypes[0]: WGSL struct arguments are not typed purely structurally.
-function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
+function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fogged = false) {
+    const fogColor = fogged ? foggedColor : unfoggedColor;
     const varyings = surface.varyings ?? {};
     const varyingKeys = Object.keys(varyings);
     if (varyingKeys.length < 1 || varyingKeys.length > MAX_VARYINGS) {
@@ -1084,7 +1087,11 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                     input.v0,
                     input.row,
                 );
-                const shaded = d.vec4f(std.add(col, d.vec4f(shadowForce())));
+                const shaded = fogColor(
+                    d.vec4f(std.add(col, d.vec4f(shadowForce()))),
+                    input.world,
+                    input.alphaMode,
+                );
                 const output = alphaColorOutput(
                     shaded,
                     input.alphaMode,
@@ -1118,7 +1125,11 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                     input.v1,
                     input.row,
                 );
-                const shaded = d.vec4f(std.add(col, d.vec4f(shadowForce())));
+                const shaded = fogColor(
+                    d.vec4f(std.add(col, d.vec4f(shadowForce()))),
+                    input.world,
+                    input.alphaMode,
+                );
                 const output = alphaColorOutput(
                     shaded,
                     input.alphaMode,
@@ -1159,7 +1170,11 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                     input.v2,
                     input.row,
                 );
-                const shaded = d.vec4f(std.add(col, d.vec4f(shadowForce())));
+                const shaded = fogColor(
+                    d.vec4f(std.add(col, d.vec4f(shadowForce()))),
+                    input.world,
+                    input.alphaMode,
+                );
                 const output = alphaColorOutput(
                     shaded,
                     input.alphaMode,
@@ -1197,7 +1212,11 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false) {
                 input.v3,
                 input.row,
             );
-            const shaded = d.vec4f(std.add(col, d.vec4f(shadowForce())));
+            const shaded = fogColor(
+                d.vec4f(std.add(col, d.vec4f(shadowForce()))),
+                input.world,
+                input.alphaMode,
+            );
             const output = alphaColorOutput(
                 shaded,
                 input.alphaMode,
@@ -1232,11 +1251,16 @@ export function compileMaterial<
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
     const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const vertex = hasVaryings ? varyingVs(surface) : colorVs(surface);
-    const fragment = (hasVaryings ? varyingFs(surface) : colorFs(surface)) as ReturnType<
-        typeof colorFs
-    >;
+    const fogged =
+        !!fogSource(world) &&
+        (alphaPipelineKey === AlphaPipelineKey.Blend ||
+            alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
+            alphaPipelineKey === AlphaPipelineKey.Multiply);
+    const fragment = (
+        hasVaryings ? varyingFs(surface, false, fogged) : colorFs(surface, false, fogged)
+    ) as ReturnType<typeof colorFs>;
     const singleFragment = (
-        hasVaryings ? varyingFs(surface, true) : colorFs(surface, true)
+        hasVaryings ? varyingFs(surface, true, fogged) : colorFs(surface, true, fogged)
     ) as ReturnType<typeof colorFs>;
     const name = `${surface.name}-${alphaPipelineKey}`;
     const primitive = materialPrimitive();
@@ -1265,7 +1289,9 @@ export function compileMaterial<
         depthWriteEnabled: !transparent,
         depthCompare: transparent ? "greater-equal" : "greater",
     };
-    const root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    const fog = fogSource(world);
+    if (fogged && fog) root = root.with(fogSlot, fog.source);
     const pipeline = root.createRenderPipeline({
         vertex,
         fragment,
@@ -1327,7 +1353,9 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
               : alphaPipelineKey === AlphaPipelineKey.Multiply
                 ? MULTIPLY_BLEND
                 : undefined;
-    const root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
+    const fog = fogSource(world);
+    if (transparent && fog) root = root.with(fogSlot, fog.source);
     const pipeline = root
         .createRenderPipeline({
             vertex,

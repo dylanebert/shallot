@@ -395,7 +395,12 @@ const fogTail = tgpu
     })
     .$name("fogTail");
 
-/** Radiance added in front of a world point and transmittance to it, bounded by maxDistance. */
+/**
+ * Read added RGB radiance (camera-exposed) and alpha transmittance to a world-space point, bounded by
+ * Fog.maxDistance. A custom fragment shader resolves this TGSL function through TypeGPU and binds
+ * fogReadBindGroup(world, camera) at group 3 with fogReadLayout. Raw WebGPU pipeline layouts must fill
+ * unused earlier indices with explicit empty layouts: TypeGPU leaves sparse group indices unfilled.
+ */
 export const readFog = tgpu
     .fn(
         [d.vec3f],
@@ -404,6 +409,7 @@ export const readFog = tgpu
         "use gpu";
         const camView = fogReadLayout.$.view;
         const cfg = fogReadLayout.$.fog;
+        if (cfg.medium.x === 0) return d.vec4f(0, 0, 0, 1);
         const clip = std.mul(camView.viewProj, d.vec4f(point, 1));
         const uv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
         const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
