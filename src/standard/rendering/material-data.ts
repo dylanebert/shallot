@@ -1,7 +1,24 @@
 import * as d from "typegpu/data";
 import { component, f32, u32 } from "../../engine";
 
-/** Dense per-MeshInstance fields consumed by preprocess and the material shaders. */
+/**
+ * One instance's mesh, material and culling row, read by preprocess and the material shaders.
+ * Standard fills entity rows from MeshInstance, MeshMaterial and NotShadowCaster; a producer table
+ * writes every field of its rows itself, and a wrong value renders wrong without an error:
+ * - `mesh`: a MeshHandle the table declared. An undeclared or unknown handle draws nothing.
+ * - `materialType`, `material`: a declared MaterialHandle's `type` and `material`. Another pair draws
+ *   nothing; another row of the same type draws with that row's parameters.
+ * - `alphaMode`: that handle's `alphaMode`, an AlphaModeCode. It selects the pipeline: a code no
+ *   declared handle of the type holds draws nothing, as does any code but Opaque, Mask and
+ *   AlphaToCoverage.
+ * - `alphaCutoff`: that handle's `alphaCutoff`, an alpha in [0, 1]. Mask, and AlphaToCoverage on
+ *   single-sample views, discard fragments whose alpha is below the row's value.
+ * - `flags`: bit 0 set keeps the row out of shadow passes, as NotShadowCaster does; write 0 to cast.
+ *   Other bits are reserved and must be 0.
+ * - `cullBounds`: a local-space culling sphere `(center.xyz, radius)` in mesh units, scaled by the
+ *   placement's largest absolute scale; a negative radius uses the mesh's bounds. A radius of 0
+ *   culls the row once its center leaves a view, so write `(0, 0, 0, -1)` unless you supply a sphere.
+ */
 export const MeshInstanceInput = d
     .struct({
         mesh: d.u32,

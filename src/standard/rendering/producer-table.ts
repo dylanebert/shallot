@@ -33,7 +33,8 @@ export interface ProducerEntry {
 /**
  * Register fixed-capacity GPU-only instance columns owned by this World; there is no removal API.
  * Write rows [0, count) before MeshPreprocessSystem on world.frameEncoder(), or during fixed.
- * Standard clamps count to capacity. Placement rows use Xform; meshInstances use MeshInstanceInput.
+ * Standard clamps count to capacity. Placement rows use Xform; meshInstances use
+ * MeshInstanceInput, whose JSDoc gives each field's source and the silent failure a wrong value causes.
  * Material shaders read eid as 0xFFFFFFFF (the invalid entity id) and row as this table's row index.
  * Entity rows instead read their entity id in eid and 0xFFFFFFFF in row.
  * CPU picking, interpolation and snapshots do not include these rows. Blended materials are refused
