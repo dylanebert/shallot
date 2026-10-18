@@ -34,32 +34,32 @@ export const Shape = component(
         scale: vec3,
         /** Shape density in kg/m³; changes apply at the next fixed sync. */
         density: f32,
-        /** Non-dimensional scale used by world explosions. */
+        /** Non-dimensional scale used by world explosions; Box3D has no setter, so a change recreates the shape at the next fixed sync. */
         explosionScale: f32,
         /** Base material's Coulomb friction; changes apply at the next fixed sync. */
         friction: f32,
         /** Base material restitution; changes apply at the next fixed sync. */
         restitution: f32,
-        /** Base material rolling resistance. */
+        /** Base material rolling resistance; changes apply at the next fixed sync. */
         rollingResistance: f32,
-        /** Base material conveyor velocity in shape-local m/s. */
+        /** Base material conveyor velocity in shape-local m/s; changes apply at the next fixed sync. */
         tangentVelocity: vec3,
-        /** Low and high u32 halves of the base material's u64 user id. */
+        /** Low and high u32 halves of the base material's u64 user id; changes apply at the next fixed sync. */
         userMaterialIdLow: u32,
         userMaterialIdHigh: u32,
-        /** Base material debug color; zero disables custom coloring. */
+        /** Base material debug color; zero disables custom coloring. Changes apply at the next fixed sync. */
         customColor: u32,
-        /** Low and high halves of the collision category bit set. */
+        /** Low and high halves of the collision category bit set; changes apply at the next fixed sync. */
         filterCategoryLow: u32,
         filterCategoryHigh: u32,
-        /** Low and high halves of the accepted collision mask. */
+        /** Low and high halves of the accepted collision mask; changes apply at the next fixed sync. */
         filterMaskLow: u32,
         filterMaskHigh: u32,
-        /** Signed collision group, which overrides category/mask tests when nonzero. */
+        /** Signed collision group, which overrides category/mask tests when nonzero; changes apply at the next fixed sync. */
         filterGroupIndex: i32,
-        /** Whether custom filtering is enabled. Spawn-only; Box3D has no setter. */
+        /** Whether custom filtering is enabled; Box3D has no setter, so a change recreates the shape at the next fixed sync. */
         enableCustomFiltering: u32,
-        /** Whether this shape is a sensor. Spawn-only; Box3D has no setter. */
+        /** Whether this shape is a sensor; Box3D has no setter, so a change recreates the shape at the next fixed sync. */
         isSensor: u32,
         /** Whether sensor overlap events are enabled; changes apply at the next fixed sync. */
         enableSensorEvents: u32,
@@ -69,9 +69,9 @@ export const Shape = component(
         enableHitEvents: u32,
         /** Whether pre-solve events are enabled; changes apply at the next fixed sync. */
         enablePreSolveEvents: u32,
-        /** Whether speculative contacts are enabled. Spawn-only; Box3D has no setter. */
+        /** Whether speculative contacts are enabled; Box3D has no setter, so a change recreates the shape at the next fixed sync. */
         enableSpeculativeContact: u32,
-        /** Whether creating this shape requests contact creation. Spawn-only. */
+        /** Whether creating this shape requests contact creation; a change recreates the shape at the next fixed sync. */
         invokeContactCreation: u32,
         /** Whether creation, replacement, and density writes recompute body mass. */
         updateBodyMass: u32,
