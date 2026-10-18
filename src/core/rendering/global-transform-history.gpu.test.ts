@@ -51,25 +51,6 @@ function attachTestCamera(world: World): void {
     attachCanvas(world, camera, canvas);
 }
 
-function bounded<T>(promise: PromiseLike<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(
-            () => reject(new Error("GlobalTransform observation exceeded 750 ms")),
-            750,
-        );
-        promise.then(
-            (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-            (error) => {
-                clearTimeout(timer);
-                reject(error);
-            },
-        );
-    });
-}
-
 {
     let eid = -1;
     configs.push({
@@ -108,8 +89,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             world.gpu.device.pushErrorScope("validation");
             world.step(Time.FIXED_DT * 2.5);
             let words = new Float32Array(
-                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
-                    .bytes,
+                (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
             );
             expect(words[row * 12]).toBeCloseTo(15, 5);
             expect(words[row * 12 + 8]).toBeCloseTo(16, 5);
@@ -120,8 +100,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             expect(world.time.fixedSteps).toBe(0);
             expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(20, 7);
             words = new Float32Array(
-                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
-                    .bytes,
+                (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
             );
             expect(words[row * 12]).toBeCloseTo(17.5, 5);
             expect(words[row * 12 + 8]).toBeCloseTo(18.5, 5);
@@ -129,12 +108,11 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             expect(world.time.fixedSteps).toBe(1);
             expect(world.storage(GlobalTransform).translation.x.get(eid)).toBeCloseTo(30, 7);
             words = new Float32Array(
-                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
-                    .bytes,
+                (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
             );
             expect(words[row * 12]).toBeCloseTo(22.5, 5);
             expect(() => world.resource(TransformRuntime).previous!.bytes).toThrow("GPU-only");
-            expect(await bounded(world.gpu.device.popErrorScope())).toBeNull();
+            expect(await world.gpu.device.popErrorScope()).toBeNull();
         } finally {
             await disposeGpuApps([app]);
         }
@@ -177,8 +155,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
             expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
             const words = new Float32Array(
-                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
-                    .bytes,
+                (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
             );
             expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(15, 5);
         } finally {
@@ -229,8 +206,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
             expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(110);
             const words = new Float32Array(
-                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
-                    .bytes,
+                (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
             );
             expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(105, 5);
         } finally {
@@ -277,8 +253,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             const row = table.rowIndex(eid);
             expect(row).toBeGreaterThanOrEqual(0);
             const words = new Float32Array(
-                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
-                    .bytes,
+                (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
             );
             expect(words[row * 12]).toBeCloseTo(6, 5);
         } finally {
@@ -316,8 +291,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
                 }
                 world.step(Time.FIXED_DT * 0.1);
                 const words = new Float32Array(
-                    (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
-                        .bytes,
+                    (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
                 );
                 expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(
                     previous + (x - previous) * world.time.fixedAlpha,
@@ -353,8 +327,7 @@ function bounded<T>(promise: PromiseLike<T>): Promise<T> {
             const table = globalTransformTable(world);
             world.step(0);
             const words = new Float32Array(
-                (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size })))
-                    .bytes,
+                (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
             );
             for (let i = 0; i < eids.length; i++)
                 expect(words[table.rowIndex(eids[i]) * 12]).toBeCloseTo(placements[i], 5);
@@ -423,7 +396,7 @@ test("public exact ticks submit growth copies and retain interpolation, teleport
         }
         world.step(Time.FIXED_DT / 2);
         const words = new Float32Array(
-            (await bounded(probeBuffer(world, table.buffer, { size: table.buffer.size }))).bytes,
+            (await probeBuffer(world, table.buffer, { size: table.buffer.size })).bytes,
         );
         for (const [eid, x] of [
             [stationary, 33],
