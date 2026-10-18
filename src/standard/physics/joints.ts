@@ -615,6 +615,8 @@ function applyScalarEdits(
     for (const [field] of edits) {
         if (!fieldChanged(binding, mask, field)) continue;
         const value = jointValue(binding, eid, field);
+        // Motor speed keeps its own finite check and write: sending a steady motor-speed edit through
+        // setterAccepts or writeJointScalar allocates (joint-allocation.node.ts).
         const finiteMotorSpeed =
             field === "motorSpeed" && (binding.kind === "Prismatic" || binding.kind === "Revolute");
         const accepted = finiteMotorSpeed
@@ -631,7 +633,6 @@ function applyScalarEdits(
                 k.bodySetActiveWorld(state.worldId);
                 const column = JOINT_SCALAR_COLUMNS[binding.kind][field];
                 jointViews(k).floats[(k.jointSimPtr(id) >>> 2) + column] = Math.fround(value);
-                // The kernel wake is idempotent for awake/static bodies; avoid probing them in JS.
                 state.locked = true;
                 k.jointWakeBodies(state.worldId, id);
                 state.locked = false;
@@ -1009,8 +1010,8 @@ export function syncJoints(
                 clearJointWarnings(cache.warnedJoints, key);
                 continue;
             }
-            const a = (binding.storage.a as import("../../engine").ScalarField).get(eid);
-            const b = (binding.storage.b as import("../../engine").ScalarField).get(eid);
+            const a = (binding.storage.a as ScalarField).get(eid);
+            const b = (binding.storage.b as ScalarField).get(eid);
             const bodyA = bodies.get(a);
             const bodyB = bodies.get(b);
             if (joint && bodyEndpointsMatch(state, joint, bodyA, bodyB)) {
