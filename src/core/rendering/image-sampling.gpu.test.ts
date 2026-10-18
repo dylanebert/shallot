@@ -152,43 +152,49 @@ function prepare() {
     return { world, device, root, bindings, image, pipeline, output, config, gradients };
 }
 let prepared: ReturnType<typeof prepare>;
-beforeAll(() => {
+
+/** Renders one case's tiles and reads them back: Shallot's path on top, the reference below. */
+async function render(layer: number): Promise<Uint8Array> {
+    const { world, device, root, bindings, image, pipeline, output, config, gradients } = prepared;
+    const c = cases[layer];
+    const group = root.createBindGroup(layout, {
+        images: image.createView(),
+        settings: bindings.imageSettings.createView(),
+        sampler: bindings.imageSampler,
+        reference: device.createSampler({
+            addressModeU: c.u,
+            addressModeV: c.v,
+            magFilter: c.magFilter,
+            minFilter: c.minFilter,
+            mipmapFilter: c.mipmapFilter,
+        }),
+        config,
+        gradients,
+    });
+    config.write(d.vec4f(layer, 0, 0, 0));
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+        colorAttachments: [{ view: output.createView(), loadOp: "clear", storeOp: "store" }],
+    });
+    pipeline.with(group).with(pass).draw(3);
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+    return new Uint8Array((await probeTexture(world, output)).bytes);
+}
+
+// The first draw compiles the pipeline: setup, outside the first test's budget.
+beforeAll(async () => {
     prepared = prepare();
+    await render(0);
 });
 
 for (const mode of [0, 1, 2]) {
     test(`${modes[mode]} images match hardware addressing, texel and mipmap filters across seams and between mip levels (including the default)`, async () => {
-        const { world, device, root, bindings, image, pipeline, output, config, gradients } =
-            prepared;
         const width = TILE * GRADIENTS.length;
         for (let layer = 0; layer < cases.length; layer++) {
             const c = cases[layer];
             if (c.sampler.addressModeU !== mode) continue;
-            const group = root.createBindGroup(layout, {
-                images: image.createView(),
-                settings: bindings.imageSettings.createView(),
-                sampler: bindings.imageSampler,
-                reference: device.createSampler({
-                    addressModeU: c.u,
-                    addressModeV: c.v,
-                    magFilter: c.magFilter,
-                    minFilter: c.minFilter,
-                    mipmapFilter: c.mipmapFilter,
-                }),
-                config,
-                gradients,
-            });
-            config.write(d.vec4f(layer, 0, 0, 0));
-            const encoder = device.createCommandEncoder();
-            const pass = encoder.beginRenderPass({
-                colorAttachments: [
-                    { view: output.createView(), loadOp: "clear", storeOp: "store" },
-                ],
-            });
-            pipeline.with(group).with(pass).draw(3);
-            pass.end();
-            device.queue.submit([encoder.finish()]);
-            const bytes = new Uint8Array((await probeTexture(world, output)).bytes);
+            const bytes = await render(layer);
             const maxima = GRADIENTS.map(() => 0);
             for (let y = 0; y < TILE; y++)
                 for (let x = 0; x < width; x++)
