@@ -43,6 +43,10 @@ export const fogGridLayout = tgpu
             storageTexture: d.textureStorage3d("rgba16float", "write-only"),
             visibility: ["compute"],
         },
+        surface: {
+            storageTexture: d.textureStorage2d("r32float", "write-only"),
+            visibility: ["compute"],
+        },
         history: { texture: d.texture3d(d.f32), visibility: ["compute"] },
         historySampler: { sampler: "filtering", visibility: ["compute"] },
         temporal: { uniform: FogHistory, visibility: ["compute"] },
@@ -59,6 +63,13 @@ export const fogFilterLayout = tgpu
             visibility: ["compute"],
         },
         lighting: { texture: d.texture3d(d.f32), visibility: ["compute"] },
+        surface: {
+            texture: d.texture2d(d.f32),
+            sampleType: "unfilterable-float",
+            visibility: ["compute"],
+        },
+        view: { uniform: ViewUniforms, visibility: ["compute"] },
+        fog: { uniform: FogGpu, visibility: ["compute"] },
     })
     .$idx(0);
 
@@ -69,6 +80,11 @@ export const fogIntegrateLayout = tgpu
             visibility: ["compute"],
         },
         lighting: { texture: d.texture3d(d.f32), visibility: ["compute"] },
+        surface: {
+            texture: d.texture2d(d.f32),
+            sampleType: "unfilterable-float",
+            visibility: ["compute"],
+        },
         view: { uniform: ViewUniforms, visibility: ["compute"] },
         fog: { uniform: FogGpu, visibility: ["compute"] },
     })
@@ -97,6 +113,19 @@ export const fogLayout0Multisampled = tgpu
         depthTex: { texture: d.textureDepthMultisampled2d(), visibility: ["fragment"] },
     })
     .$idx(0);
+
+/** The camera's prepass depth, which bounds where each grid column samples the medium. */
+export const fogGridDepthLayout = tgpu
+    .bindGroupLayout({
+        depthTex: { texture: d.textureDepth2d(), visibility: ["compute"] },
+    })
+    .$idx(2);
+
+export const fogGridDepthLayoutMultisampled = tgpu
+    .bindGroupLayout({
+        depthTex: { texture: d.textureDepthMultisampled2d(), visibility: ["compute"] },
+    })
+    .$idx(2);
 
 // Schema instances are scoped to this resolve, independent of standard's declarations.
 const _pointCastersGpu = pointCastersSchema();
@@ -136,9 +165,29 @@ const loadDepthMultisampled = tgpu.fn(
     return std.textureLoad(fogLayout0Multisampled.$.depthTex, px, sample);
 });
 
+const loadGridDepth = tgpu.fn(
+    [d.vec2f, d.vec2f],
+    d.f32,
+)((uv, resolution) => {
+    "use gpu";
+    const size = d.vec2u(resolution);
+    const px = std.min(d.vec2u(std.mul(uv, d.vec2f(size))), std.sub(size, d.vec2u(1)));
+    return std.textureLoad(fogGridDepthLayout.$.depthTex, d.vec2i(px), 0);
+});
+const loadGridDepthMultisampled = tgpu.fn(
+    [d.vec2f, d.vec2f],
+    d.f32,
+)((uv, resolution) => {
+    "use gpu";
+    const size = d.vec2u(resolution);
+    const px = std.min(d.vec2u(std.mul(uv, d.vec2f(size))), std.sub(size, d.vec2u(1)));
+    return std.textureLoad(fogGridDepthLayoutMultisampled.$.depthTex, d.vec2i(px), 0);
+});
+
 /** Light and reproject one frustum column per invocation. */
-function createGridKernel() {
+function createGridKernel(multisampled: boolean) {
     const layout = fogGridLayout;
+    const loadDepth = multisampled ? loadGridDepthMultisampled : loadGridDepth;
     return tgpu
         .computeFn({
             workgroupSize: [WORKGROUP, WORKGROUP],
@@ -181,6 +230,20 @@ function createGridKernel() {
             const slot = d.u32(camView.projection.w);
 
             const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
+            // Centre depth keeps the spatial-filter mask independent of temporal jitter.
+            const centerDepth = loadDepth(uv, camView.resolution);
+            let centerSurface = d.f32(extent);
+            if (centerDepth > 0) {
+                const hit = reconstructWorld(camView.invViewProj, uv, centerDepth);
+                centerSurface = std.dot(std.sub(hit, camView.eye.xyz), forward) - near;
+            }
+            std.textureStore(layout.$.surface, px, d.vec4f(centerSurface));
+            const sceneDepth = loadDepth(sampleUv, camView.resolution);
+            let surface = d.f32(extent);
+            if (sceneDepth > 0) {
+                const hit = reconstructWorld(layout.$.view.invViewProj, sampleUv, sceneDepth);
+                surface = std.dot(std.sub(hit, camView.eye.xyz), forward) - near;
+            }
             // Shadow receivers use free binding names invisible to the call-graph walk.
             // Feed these reads into the feedback so transpilation retains their declarations.
             const forcedZero =
@@ -209,9 +272,14 @@ function createGridKernel() {
                 const end = extent * b * b;
                 const center = std.add(nearWorld, std.mul(dir, (start + end) * 0.5 * rayScale));
                 const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
+                // Unlike HDRP's skipped far cells, near-side light fills them for trilinear and filtered reads.
+                const limit = surface * 0.999;
                 const p = std.add(
                     sampleNear,
-                    std.mul(sampleDir, std.mix(start, end, jitter.z) * sampleScale),
+                    std.mul(
+                        sampleDir,
+                        std.mix(std.min(start, limit), std.min(end, limit), jitter.z) * sampleScale,
+                    ),
                 );
                 let dens = fogDensity(p, density, base, falloff);
 
@@ -346,7 +414,8 @@ function createGridKernel() {
         .$name("fogGrid");
 }
 
-export const fogGridKernel = createGridKernel();
+export const fogGridKernel = createGridKernel(false);
+export const fogGridKernelMultisampled = createGridKernel(true);
 
 // Godot's volumetric fog filter weights, a Gaussian of σ ≈ 1.6 cells.
 const GAUSSIAN = tgpu.const(
@@ -368,6 +437,22 @@ export const fogFilterKernel = tgpu
         if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
         const cell = d.vec3i(input.gid);
         const last = d.i32(dim.x) - 1;
+        const extent = std.max(
+            fogFilterLayout.$.fog.medium.w - fogFilterLayout.$.view.projection.x,
+            0.001,
+        );
+        const b = (d.f32(cell.z) + 1) / FOG_SLICES;
+        const surface = std.textureLoad(fogFilterLayout.$.surface, cell.xy, 0).x;
+        // Neither HDRP's 3×3 nor Godot's 7-tap fog filter is depth-aware; wall cells here keep near-side light.
+        if (extent * b * b >= surface) {
+            const own = std.textureLoad(fogFilterLayout.$.lighting, cell, 0);
+            std.textureStore(
+                fogFilterLayout.$.output,
+                cell,
+                d.vec4f(std.mul(own.xyz, own.w), own.w),
+            );
+            return;
+        }
         let sum = d.vec4f(0);
         let k = d.i32(-3);
         while (k <= 3) {
@@ -410,6 +495,7 @@ export const fogIntegrateKernel = tgpu
         const extent = std.max(cfg.medium.w - camView.projection.x, 0.001);
         const albedo = cfg.extra.z;
         const gain = cfg.extra.w;
+        const surface = std.textureLoad(fogIntegrateLayout.$.surface, px, 0).x;
         std.textureStore(fogIntegrateLayout.$.output, d.vec3i(px, 0), d.vec4f(0, 0, 0, 1));
         let trans = d.f32(1);
         let inScatter = d.vec3f(0);
@@ -420,8 +506,10 @@ export const fogIntegrateKernel = tgpu
             const ds = extent * (b * b - a * a) * rayScale;
             const slice = d.i32(i);
             let cell = d.vec4f(0);
-            let k = d.i32(-3);
-            while (k <= 3) {
+            const wall = extent * b * b >= surface;
+            let k = std.select(d.i32(-3), d.i32(0), wall);
+            const radius = std.select(d.i32(3), d.i32(0), wall);
+            while (k <= radius) {
                 cell = std.add(
                     cell,
                     std.mul(
@@ -430,7 +518,7 @@ export const fogIntegrateKernel = tgpu
                             d.vec3i(px.x, std.clamp(px.y + k, 0, last), slice),
                             0,
                         ),
-                        GAUSSIAN.$[k + 3],
+                        std.select(GAUSSIAN.$[k + 3], 1, wall),
                     ),
                 );
                 k = k + 1;
