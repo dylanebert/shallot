@@ -68,7 +68,10 @@ test("core physics restores every handle, duplicate labels, removed slots and al
     hulls.get(live)!.points![3] = 99;
     world.restore(saved);
     expect(hulls.get(live)).toEqual({ ...cube, name: "same" });
-    expect(hulls.add({ ...cube, name: "same" })).toBe(removed);
+    const successor = hulls.add({ ...cube, name: "same" });
+    expect(successor).not.toBe(removed);
+    expect(hulls.has(removed)).toBe(false);
+    expect(hulls.get(successor)).toEqual({ ...cube, name: "same" });
     expect(hulls.add({ ...cube, name: "same" })).toBe(3);
     world.dispose();
 });

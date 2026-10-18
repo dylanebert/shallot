@@ -53,12 +53,10 @@ function definition(world: World, eid: number): ShapeDef {
     const defaults = defaultShapeDef();
     const materialSetId = shape.materialSet.get(eid);
     let materials: SurfaceMaterial[] | undefined;
-    if (materialSetId !== 0) {
-        const registered = world.resource(ShapeMaterials).get(materialSetId - 1);
+    if (materialSetId !== -1) {
+        const registered = world.resource(ShapeMaterials).get(materialSetId);
         if (!registered)
-            throw new Error(
-                `physics: Shape ${eid} names missing material set ${materialSetId - 1}`,
-            );
+            throw new Error(`physics: Shape ${eid} names missing material set ${materialSetId}`);
         materials = registered.materials;
     }
     return {

@@ -322,7 +322,7 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
             vertices: new Float32Array([0, 0, 0, 2, 0, 0, 0, 1, 0]),
             indices: new Uint32Array([0, 1, 2]),
         });
-        world.resource(ShapeMaterials).add({
+        const material = world.resource(ShapeMaterials).add({
             name: "shape-sync-material-set",
             materials: [
                 {
@@ -348,7 +348,7 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
         try {
             world.storage(Shape).geometry.set(eid, secondId);
             world.storage(Shape).scale.set(eid, 2, 0.5, 1, 0);
-            world.storage(Shape).materialSet.set(eid, 1);
+            world.storage(Shape).materialSet.set(eid, material);
             world.tick();
 
             expect(shapeIsValid(stateFor(world), shape)).toBe(true);
@@ -371,7 +371,7 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
             ]);
             expect(setMesh).toHaveBeenCalledTimes(1);
             expect(setMaterial).toHaveBeenCalledTimes(1);
-            world.storage(Shape).materialSet.set(eid, 1);
+            world.storage(Shape).materialSet.set(eid, material);
             world.tick();
             expect(setMaterial).toHaveBeenCalledTimes(1);
             expect(worldCounters(stateFor(world)).shapeCount).toBe(1);
@@ -379,6 +379,67 @@ test("mesh geometry and per-triangle material edits use Box3D setters and getter
             setMesh.mockRestore();
             setMaterial.mockRestore();
         }
+    });
+});
+
+test("two material handles, including zero and a recycled generation, retain distinct materials through spawn, sync and restore", async () => {
+    await withPhysics((world) => {
+        if (typeof PhysicsPlugin.recovery !== "function")
+            throw new Error("missing physics recovery");
+        world.registerRecovery(PhysicsPlugin.name, PhysicsPlugin.recovery(world));
+        const assets = world.resource(ShapeMaterials);
+        const material = (friction: number, userMaterialId: bigint) => ({
+            friction,
+            userMaterialId,
+            restitution: 0,
+            rollingResistance: 0,
+            tangentVelocity: [0, 0, 0] as [number, number, number],
+            customColor: 0,
+        });
+        const first = assets.add({ name: "same", materials: [material(0.25, 11n)] });
+        const removed = assets.add({ name: "same", materials: [] });
+        assets.remove(removed);
+        const second = assets.add({ name: "same", materials: [material(0.75, 22n)] });
+        expect(first).toBe(0);
+        expect(second).toBeGreaterThan(removed);
+        const geometry = world.resource(PhysicsMeshes).add({
+            name: "triangle",
+            vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+            indices: new Uint32Array([0, 1, 2]),
+        });
+        const entities = [first, second].map((materialSet) => {
+            const eid = world.create();
+            world.add(eid, Body);
+            world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry, materialSet });
+            return eid;
+        });
+        const check = (ids: bigint[]) => {
+            for (let i = 0; i < ids.length; i++) {
+                const materials = getShapeMaterials(stateFor(world), shapeId(world, i).index1 - 1);
+                expect(materials[0].userMaterialId).toBe(ids[i]);
+                expect(materials[0].friction).toBe(ids[i] === 11n ? 0.25 : 0.75);
+            }
+        };
+        world.tick();
+        check([11n, 22n]);
+        const saved = world.snapshot();
+        world.storage(Shape).materialSet.set(entities[0], second);
+        world.storage(Shape).materialSet.set(entities[1], first);
+        world.tick();
+        check([22n, 11n]);
+        assets.clear();
+        assets.add({ name: "same", materials: [material(0.5, 33n)] });
+        world.restore(saved);
+        expect(world.storage(Shape).materialSet.get(entities[0])).toBe(first);
+        expect(world.storage(Shape).materialSet.get(entities[1])).toBe(second);
+        expect(assets.has(removed)).toBe(false);
+        world.tick();
+        check([11n, 22n]);
+        world.storage(Shape).materialSet.set(entities[0], -1);
+        world.tick();
+        expect(
+            getShapeMaterials(stateFor(world), shapeId(world).index1 - 1)[0].userMaterialId,
+        ).toBe(0n);
     });
 });
 

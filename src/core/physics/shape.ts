@@ -75,8 +75,8 @@ export const Shape = component(
         invokeContactCreation: u32,
         /** Whether creation, replacement, and density writes recompute body mass. */
         updateBodyMass: u32,
-        /** ShapeMaterials handle plus one; zero means no per-triangle materials. */
-        materialSet: u32,
+        /** ShapeMaterials handle; -1 means no per-triangle materials. */
+        materialSet: i32,
     },
     {
         defaults: () => ({
@@ -111,7 +111,7 @@ export const Shape = component(
             enableSpeculativeContact: 1,
             invokeContactCreation: 1,
             updateBodyMass: 1,
-            materialSet: 0,
+            materialSet: -1,
         }),
     },
 );
@@ -130,7 +130,7 @@ export interface SurfaceMaterial {
     customColor: number;
 }
 
-/** Optional per-triangle surface materials referenced by Shape.materialSet (handle + 1). */
+/** Optional per-triangle surface materials referenced by Shape.materialSet. */
 export interface ShapeMaterialSet {
     name: string;
     materials: SurfaceMaterial[];

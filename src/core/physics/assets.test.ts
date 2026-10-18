@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { PhysicsAssets } from "./assets";
 
-test("assets keep duplicate labels, remove by handle and reuse the lowest free handle", () => {
+test("duplicate labels retain independent handles and removal cannot redirect a stale handle", () => {
     const assets = new PhysicsAssets<{ name: string; size: number }>();
     const first = { name: "box", size: 1 };
     const second = { name: "box", size: 2 };
@@ -18,13 +18,22 @@ test("assets keep duplicate labels, remove by handle and reuse the lowest free h
     expect([...assets]).toEqual([first, second]);
     expect(assets.remove(a)).toBe(first);
     expect(assets.remove(a)).toBeUndefined();
+    const successor = assets.add(second);
+    expect(successor).not.toBe(a);
     expect(assets.has(a)).toBe(false);
     expect(assets.get(a)).toBeUndefined();
     expect(assets.has(b)).toBe(true);
-    expect(assets.add(first)).toBe(a);
-    expect([...assets.values()]).toEqual([second, first]);
+    expect([...assets.values()]).toEqual([second, second]);
+    const saved = assets.snapshot();
     assets.clear();
-    expect(assets.size).toBe(0);
-    expect([...assets.entries()]).toEqual([]);
-    expect(assets.add(second)).toBe(0);
+    const afterClear = assets.add(first);
+    for (const stale of [a, b, successor]) {
+        expect(assets.has(stale)).toBe(false);
+        expect(assets.remove(stale)).toBeUndefined();
+    }
+    assets.restore(saved);
+    expect(assets.has(a)).toBe(false);
+    expect(assets.has(afterClear)).toBe(false);
+    expect(assets.get(b)).toBe(second);
+    expect(assets.get(successor)).toBe(second);
 });

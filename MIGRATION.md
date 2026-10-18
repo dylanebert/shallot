@@ -233,11 +233,14 @@ keep the returned handle for `Shape.geometry`. `Hulls`, `PhysicsMeshes`, `Height
 `Compounds` and `ShapeMaterials` use `add`, `get(handle)`, `has(handle)` and `remove(handle)`.
 Names are display labels: adding two definitions with the same name keeps both. To replace
 geometry, add a new definition and assign its handle to the shapes that should change;
-do not mutate added definitions. `Shape.materialSet` holds a `ShapeMaterials` handle plus one;
-zero means no material set.
+do not mutate added definitions. Assign the handle returned by `ShapeMaterials.add` directly
+to `Shape.materialSet`; -1 means no material set.
 
-Handles belong to that world; add geometry in each world that uses it. Removing a handle
-can let a later `add` reuse it, so remove its consumers too. Every world's `Hulls` starts with
+Handles belong to that world; add geometry in each world that uses it. Removal and `clear`
+invalidate handles: later additions cannot redirect a stale reference to new geometry.
+Handles include a dense index and generation and fit nonnegative i32; exhausted generations
+retire rather than wrap, and exhausting the 2^20 index space refuses addition. Snapshots
+restore live handles and allocation generations. Every world's `Hulls` starts with
 the unit cube at `UNIT_CUBE_ID` (0), 1 m on a side. `Shape.scale` multiplies an added hull or
 mesh and defaults to `[1, 1, 1]`. URL-keyed images and fonts retain their registry API.
 

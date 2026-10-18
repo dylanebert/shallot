@@ -38,8 +38,8 @@ export {
     type SurfaceMaterial,
 } from "./shape";
 
-/** World-owned per-triangle material lists. `add` returns a handle; `Shape.materialSet` holds
- * that handle plus one (zero means none). Names are display labels. */
+/** World-owned per-triangle material lists. `add` returns the handle for `Shape.materialSet`;
+ * -1 means none. Names are display labels. */
 export const ShapeMaterials: Resource<PhysicsAssets<ShapeMaterialSet>> = {
     create: () => new PhysicsAssets(),
 };

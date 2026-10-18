@@ -161,9 +161,9 @@ function materialSet(
     eid: number,
 ): SurfaceMaterial[] | undefined {
     const id = scalar(binding, eid, "materialSet");
-    if (id === 0) return undefined;
-    const set = world.resource(ShapeMaterials).get(id - 1);
-    if (!set) throw new Error(`physics: Shape ${eid} names missing material set ${id - 1}`);
+    if (id === -1) return undefined;
+    const set = world.resource(ShapeMaterials).get(id);
+    if (!set) throw new Error(`physics: Shape ${eid} names missing material set ${id}`);
     return set.materials;
 }
 

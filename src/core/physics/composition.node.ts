@@ -97,7 +97,7 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         expect(shape.enableSpeculativeContact.get(body)).toBe(1);
         expect(shape.invokeContactCreation.get(body)).toBe(1);
         expect(shape.updateBodyMass.get(body)).toBe(1);
-        expect(shape.materialSet.get(body)).toBe(0);
+        expect(shape.materialSet.get(body)).toBe(-1);
         const spring = world.create();
         world.add(spring, DistanceJoint);
         const s = world.storage(DistanceJoint);

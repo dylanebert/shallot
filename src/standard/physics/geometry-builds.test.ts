@@ -275,6 +275,43 @@ buildTests(mesh);
 buildTests(heightField);
 buildTests(compound);
 
+for (const invalidation of ["remove", "clear"] as const)
+    test(`${invalidation} leaves Shape and compound child handles stale, including after restore`, async () => {
+        await withPhysics((world) => {
+            const hulls = world.resource(Hulls);
+            const hull = hulls.add({ name: "stale", halfExtents: [1, 1, 1] });
+            const parent = world.resource(Compounds).add({
+                name: "parent",
+                hulls: [{ hull, transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1] } }],
+            });
+            expect(compoundBuild(world, parent)).toBeDefined();
+            const direct = geometryShape(world, ShapeKind.Hull, hull);
+            const child = geometryShape(world, ShapeKind.Compound, parent);
+            if (invalidation === "remove") hulls.remove(hull);
+            else hulls.clear();
+            const successor = hulls.add({ name: "stale", halfExtents: [9, 9, 9] });
+            expect(successor).not.toBe(hull);
+            const saved = world.snapshot();
+            for (let replay = 0; replay < 2; replay++) {
+                if (replay) world.restore(saved);
+                expect(hulls.get(hull)).toBeUndefined();
+                expect(() => compoundBuild(world, parent)).toThrow("missing hull");
+                expect(world.storage(Shape).geometry.get(direct)).toBe(hull);
+                expect(world.storage(Shape).geometry.get(child)).toBe(parent);
+                if (!replay) {
+                    expectWarning(
+                        new RegExp(`Shape ${direct} was not attached:.*missing hull ${hull}`),
+                    );
+                    expectWarning(
+                        new RegExp(`Shape ${child} was not attached:.*missing hull ${hull}`),
+                    );
+                }
+                world.tick();
+                expect(worldCounters(state(world)).shapeCount).toBe(0);
+            }
+        });
+    });
+
 test("each PhysicsMesh build option reaches Box3D's mesh build", async () => {
     await withPhysics((world) => {
         const { vertices, indices } = grid(4);
