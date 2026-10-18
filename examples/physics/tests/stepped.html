@@ -18,19 +18,21 @@ world.storage(Camera).antialias.set(camera,0);
 const frame=()=>world.step(1/60);
 await frame(); await frame();
 const position=(eid)=>{const p=world.storage(GlobalTransform).translation;return [p.x.get(eid),p.y.get(eid),p.z.get(eid)]};
+const pose=(eid)=>{const q=world.storage(GlobalTransform).rotation;return {translation:position(eid),rotation:[q.x.get(eid),q.y.get(eid),q.z.get(eid),q.w.get(eid)]}};
 window.drag=async()=>{
  const body=bodies[20];
  const before=position(body);
- const cameraBefore=position(camera);
+ const cameraBefore=pose(camera);
  const pixel=worldToViewport(world,camera,before);
- pointerMove(world,{x:pixel[0],y:pixel[1]}); pressButton(world,'left');
+ pointerMove(world,{x:pixel[0],y:pixel[1],deltaX:3,deltaY:2}); pressButton(world,'left');
  await frame();
+ const cameraDuring=[pose(camera)];
  const picked=world.resource(Grab).body;
- for(let i=1;i<=30;i++) {pointerMove(world,{x:pixel[0]+i*3,y:pixel[1],deltaX:3});await frame();}
+ for(let i=1;i<=30;i++) {pointerMove(world,{x:pixel[0]+i*3,y:pixel[1],deltaX:3});await frame();cameraDuring.push(pose(camera));}
  const after=position(body);
  const projected=worldToViewport(world,camera,after);
  releaseButton(world,'left'); await frame();
- return {body,picked,before,after,pixel,projected,cameraBefore,cameraAfter:position(camera),mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint};
+ return {body,picked,before,after,pixel,projected,cameraBefore,cameraDuring,cameraAfter:pose(camera),mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint};
 };
 window.emptyDrag=async()=>{
  const before=position(camera);

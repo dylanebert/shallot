@@ -10,6 +10,7 @@ test("a Box Stack cube follows the cursor grab and release removes the mouse and
     expect(result.projected[0] - result.pixel[0]).toBeGreaterThan(60);
     expect(result.projected[0] - result.pixel[0]).toBeLessThan(110);
     expect(Math.abs(result.projected[1] - result.pixel[1])).toBeLessThan(15);
+    for (const pose of result.cameraDuring) expect(pose).toEqual(result.cameraBefore);
     expect(result.cameraAfter).toEqual(result.cameraBefore);
     expect(result.mouse).toBe(0);
     expect(result.joint).toBe(0);
