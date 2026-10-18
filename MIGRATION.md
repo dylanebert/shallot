@@ -480,6 +480,8 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `pointAtlasSize` | Read `world.resource(PointShadows).atlas`. |
 | `pointComboCount` | No public replacement; shadow-camera diagnostics are internal. |
 
+`lit` moves from `/sear/core` to `/standard/rendering` and now returns StandardMaterial's response at metallic 0. Within 0.01 world units of a point or spot light it no longer shortens the light direction, so a surface there is brighter and spot cones fade as StandardMaterial's do.
+
 ### `/fog/core` → `/fog`
 
 | Removed name | Replacement |

@@ -1,5 +1,5 @@
 // The canonical engine substrate: the pass-invariant group-0 layout every standard pipeline binds,
-// plus `lit` / `litPbr` / `lightFactor` / `pointFactor` / `clusterOf` and their four private seams, authored
+// plus `lit` / `litPbr` / `clusterOf` and their four private seams, authored
 // once against that layout.
 
 import tgpu from "typegpu";
@@ -11,8 +11,6 @@ import { clusterCell, LightClusters } from "./cluster";
 import { IndirectLightInput, indirectLight } from "./indirect";
 import { distanceAttenuation, LightingGpu, PointLightGpu, spotFactor } from "./lighting";
 import { brdf, brdfSphere, Pbr, pointShadowRef } from "./shade";
-
-const PI = Math.PI;
 
 /**
  * the canonical engine group-0 layout: every pass-invariant binding a standard pipeline reads — frame / view /
@@ -41,7 +39,7 @@ export const engineLayout = tgpu
  *  sun term only. Filled by a real-reference color-pass caller via `sampleSunShadow`; the default
  *  (vertex stage, shadowless frames) is fully lit. */
 export const sunVisibility = tgpu.privateVar(d.f32, 1);
-/** the point-light seam: the fragment's world position, read by {@link pointFactor} / {@link litPbr}'s
+/** the point-light seam: the fragment's world position, read by {@link litPbr}'s
  *  clustered loop. Zero in the vs / prepass entries, where the point term is never enabled. */
 export const fragWorld = tgpu.privateVar(d.vec3f, d.vec3f(0));
 /** the point-light seam: `@builtin(position)`, read by {@link clusterOf} to map the fragment to its
@@ -96,98 +94,10 @@ export const clusterOf = tgpu.fn(
     );
 });
 
-/** the clustered point/spot diffuse sum for one fragment normal. Zero when {@link pointScale} is 0
- *  (the vs / prepass entries).
- */
-export const pointFactor = tgpu.fn(
-    [d.vec3f],
-    d.vec3f,
-)((normal) => {
-    "use gpu";
-    let sum = d.vec3f(0);
-    if (pointScale.$ === 0) return sum;
-    const entry = engineLayout.$.pointLights.grid[clusterOf()];
-    for (let i = d.u32(0); i < entry.y; i++) {
-        const light = PointLightGpu(
-            engineLayout.$.pointLights.lights.lights[
-                engineLayout.$.pointLights.indices[entry.x + i]
-            ],
-        );
-        const toLight = std.sub(light.posRange.xyz, fragWorld.$);
-        const distSq = std.dot(toLight, toLight);
-        const radiusSq = light.params.x * light.params.x;
-        const L = std.mul(toLight, std.inverseSqrt(std.max(distSq, 0.0001)));
-        const diff = std.max(std.dot(normal, L), 0);
-        sum = d.vec3f(
-            std.add(
-                sum,
-                std.mul(
-                    light.color.rgb,
-                    (distanceAttenuation(distSq, light.posRange.w, radiusSq) *
-                        diff *
-                        spotFactor(light, L) *
-                        pointShadowSlot.$(
-                            light,
-                            normal,
-                            fragWorld.$,
-                            d.u32(engineLayout.$.view.shadowFilteringMethod),
-                        ) *
-                        engineLayout.$.view.exposure) /
-                        PI,
-                ),
-            ),
-        );
-    }
-    return sum;
-});
-
-/** Photometric ambient, directional and clustered point illumination. Exposure is camera-local. */
-export const lightFactor = tgpu.fn(
-    [d.vec3f],
-    d.vec3f,
-)((normal) => {
-    "use gpu";
-    const exposure = engineLayout.$.view.exposure;
-    let direct = d.vec3f(0);
-    for (let i = d.u32(0); i < engineLayout.$.lighting.directionalCount; i++) {
-        const light = engineLayout.$.lighting.directionalLights[i];
-        let visibility = d.f32(1);
-        if (light.params.y > 0) visibility = sunVisibility.$;
-        const cosine = std.max(std.dot(normal, std.neg(light.direction.xyz)), 0);
-        direct = d.vec3f(
-            std.add(
-                direct,
-                std.mul(light.color.rgb, (light.params.x * exposure * cosine * visibility) / PI),
-            ),
-        );
-    }
-    const world = fragWorld.$;
-    const view = std.normalize(std.sub(engineLayout.$.view.eye.xyz, world));
-    const indirect = indirectLight(
-        IndirectLightInput({
-            worldPosition: world,
-            normal,
-            view,
-            materialOcclusion: 1,
-            ambientRadiance: engineLayout.$.view.ambientColor.rgb,
-        }),
-    );
-    return std.add(std.add(std.mul(indirect, exposure), direct), pointFactor(normal));
-});
-
-export const lit = tgpu.fn(
-    [d.vec3f, d.vec3f],
-    d.vec3f,
-)((baseColor, normal) => {
-    "use gpu";
-    return std.mul(baseColor, lightFactor(normal));
-});
-
 /** per-pixel (or per-vertex) metallic-roughness shading.
- *  Shares the sun-shadow / point-cluster seam with {@link lightFactor}: {@link sunVisibility} and
- *  {@link pointScale} / {@link fragWorld} are the same fs-scaffold privates, so a vs-side call gets
- *  neither point lights nor sun shadows, same as the diffuse path. At metallic 0 / roughness 1 /
- *  dielectric 0 this reduces to `lit(s.albedo, normal)` exactly.
+ *  Reads the sun-shadow / point-cluster seam: {@link sunVisibility} and {@link pointScale} /
+ *  {@link fragWorld} are fs-scaffold privates, so a vs-side call gets neither point lights nor sun
+ *  shadows. At metallic 0 / dielectric 0 specular vanishes and the response is Lambert at any roughness.
  */
 export const litPbr = tgpu.fn(
     [Pbr, d.vec3f, d.vec3f, d.vec3f],
@@ -254,4 +164,23 @@ export const litPbr = tgpu.fn(
         }
     }
     return radiance;
+});
+
+/** Camera-exposed linear colour of a diffuse surface under ambient, sun and clustered point/spot lights,
+ *  before fog: StandardMaterial's response at metallic 0, which has no specular. Use it in a custom
+ *  material's fragment to light its own base colour; for metallic, roughness, occlusion or emissive,
+ *  use `applyPbrLighting` over `pbrInputFromMaterial`. `normal` is world-space and unit length. */
+export const lit = tgpu.fn(
+    [d.vec3f, d.vec3f],
+    d.vec3f,
+)((baseColor, normal) => {
+    "use gpu";
+    const world = fragWorld.$;
+    const V = std.normalize(std.sub(engineLayout.$.view.eye.xyz, world));
+    return litPbr(
+        Pbr({ albedo: baseColor, metallic: 0, roughness: 1, occlusion: 1, dielectric: 0 }),
+        normal,
+        world,
+        V,
+    );
 });
