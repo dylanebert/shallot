@@ -45,6 +45,31 @@ test("a material row is removed once, and reuse leaves its removed handle unchan
     }
 });
 
+test("update refuses a removed handle, and a reused row's next owner keeps its values and alpha", async () => {
+    const app = await createApp({ defaults: false, plugins: [] });
+    try {
+        const materials = app.world.resource(Materials);
+        const red = materials.add(StandardMaterial({ baseColor: [1, 0, 0, 1] }));
+        materials.remove(red);
+        expect(() => materials.update(red, { baseColor: [0, 0, 1, 1] })).toThrow(
+            "is not held by this handle",
+        );
+        const green = materials.add(StandardMaterial({ baseColor: [0, 1, 0, 1] }));
+        expect(green.material).toBe(red.material);
+        expect(() => materials.update(red, { baseColor: [0, 0, 1, 1] })).toThrow(
+            "is not held by this handle",
+        );
+        expect(() => materials.update(red, {}, { alphaMode: AlphaMode.Blend })).toThrow(
+            "is not held by this handle",
+        );
+        expect(Array.from(materials.get(green)!.baseColor)).toEqual([0, 1, 0, 1]);
+        expect(materials.alpha(green.material).alphaMode).toBe(0);
+        expect(green.alphaMode).toBe(0);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("get returns a row's authored values as a record add accepts, before any GPU table exists", async () => {
     const app = await createApp({ defaults: false, plugins: [] });
     try {
