@@ -13,6 +13,8 @@ export interface SlowTest {
     budget: number;
     adapter?: string;
     subject?: string;
+    /** Time in a file outside its tests: module load and hooks such as `beforeAll`. */
+    setup?: true;
 }
 
 function decodeXml(value: string): string {
@@ -127,6 +129,7 @@ export function slowTests(report: string, log = "", subject?: string): SlowTest[
             });
         return slow;
     }
+    const testTime = new Map<string, number>();
     for (const match of report.matchAll(/<testcase\b[^>]*>/g)) {
         const attrs = attributes(match[0]);
         const name = attrs.get("name");
@@ -138,8 +141,27 @@ export function slowTests(report: string, log = "", subject?: string): SlowTest[
         const tier = tierForFile(file);
         const budget = BUDGET[tier];
         const timeMs = seconds * 1000;
+        testTime.set(file, (testTime.get(file) ?? 0) + timeMs);
         if (timeMs <= budget / 2) continue;
         slow.push({ name, file, tier, timeMs, budget, adapter: adapterForFile(log, file) });
+    }
+    // A file's suite, the outermost and so the longest of its suites, also times what runs outside its tests.
+    // Only the Node tier warns on it: that time includes module load, and the first file to load the engine pays it
+    // for the rest, which alone passes half the cheap and GPU budgets.
+    const suiteTime = new Map<string, number>();
+    for (const match of report.matchAll(/<testsuite\b[^>]*>/g)) {
+        const attrs = attributes(match[0]);
+        const file = attrs.get("file");
+        if (file === undefined || tierForFile(file) !== "node") continue;
+        const seconds = Number(attrs.get("time"));
+        if (!Number.isFinite(seconds) || seconds < 0)
+            throw new Error(`invalid JUnit testsuite: ${match[0]}`);
+        suiteTime.set(file, Math.max(suiteTime.get(file) ?? 0, seconds * 1000));
+    }
+    for (const [file, suiteMs] of suiteTime) {
+        const timeMs = suiteMs - (testTime.get(file) ?? 0);
+        if (timeMs <= BUDGET.node / 2) continue;
+        slow.push({ name: file, file, tier: "node", timeMs, budget: BUDGET.node, setup: true });
     }
     return slow;
 }
@@ -217,7 +239,9 @@ export function warningAnnotation(test: SlowTest, host: string): string {
     const duration = `${test.timeMs.toFixed(2)} ms`;
     const message = [
         ...(test.subject ? [`subject ${JSON.stringify(test.subject)}`] : []),
-        `${test.tier === "browser" && !test.subject ? "subject" : "test"} ${JSON.stringify(test.name)} took ${duration}`,
+        test.setup
+            ? `setup of ${JSON.stringify(test.name)} took ${duration} outside its tests`
+            : `${test.tier === "browser" && !test.subject ? "subject" : "test"} ${JSON.stringify(test.name)} took ${duration}`,
         test.subject
             ? `over half its Playwright project timeout ${test.budget} ms`
             : `over half its ${test.tier} speed budget ${test.budget} ms`,
@@ -225,7 +249,7 @@ export function warningAnnotation(test: SlowTest, host: string): string {
         ...(test.adapter ? [`adapter ${test.adapter}`] : []),
         REMEDY,
     ].join("; ");
-    return `::warning title=${escapeProperty(`Slow test: ${test.name}`)}::${escapeData(message)}`;
+    return `::warning title=${escapeProperty(`Slow ${test.setup ? "setup" : "test"}: ${test.name}`)}::${escapeData(message)}`;
 }
 
 if (import.meta.main) {
