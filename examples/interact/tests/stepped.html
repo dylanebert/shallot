@@ -38,7 +38,6 @@ window.aim = (index, distance=2.6, yaw=0, pitch=0) => {
  const x=t.translation.x.get(target), y=t.translation.y.get(target), z=t.translation.z.get(target);
  const px=x+Math.sin(yaw)*Math.cos(pitch)*distance, py=y+Math.sin(pitch)*distance-0.7, pz=z+Math.cos(yaw)*Math.cos(pitch)*distance;
  setTransform(world, room.player, [px,py,pz], [0,0,0,1]);
- t.translation.set(room.player,px,py,pz);
  world.storage(LocalPlayer).viewYaw.set(room.player,yaw);
  world.storage(LocalPlayer).viewPitch.set(room.player,-pitch);
  world.storage(Player).gravity.set(room.player,0);

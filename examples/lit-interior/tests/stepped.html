@@ -3,7 +3,7 @@
 <style>body{margin:0;background:#191816}canvas{display:block}</style></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { Camera, createApp, Transform, MeshInstance, setTransform } from '@dylanebert/shallot';
+import { Camera, createApp, MeshInstance, setTransform } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap, PointShadows } from '@dylanebert/shallot/standard/rendering';
 import { Room, RoomPlugin } from '../src/room';
@@ -20,7 +20,6 @@ w.storage(Player).gravity.set(room.player,0);
 w.storage(Player).friction.set(room.player,1000);
 window.view=(x=2.5,y=1,z=11,yaw=0.25,pitch=-0.05)=>{
  setTransform(w,room.player,[x,y,z],[0,0,0,1]);
- w.storage(Transform).translation.set(room.player,x,y,z);
  w.storage(LocalPlayer).viewYaw.set(room.player,yaw);
  w.storage(LocalPlayer).viewPitch.set(room.player,pitch);
  w.storage(LocalPlayer).initialized.set(room.player,1);
