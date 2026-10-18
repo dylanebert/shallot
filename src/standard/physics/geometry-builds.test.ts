@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { type Registry, type Resource, Time, TransformPlugin, World } from "@dylanebert/shallot";
+import {
+    type Registry,
+    type Resource,
+    Time,
+    Transform,
+    TransformPlugin,
+    World,
+} from "@dylanebert/shallot";
 import {
     Body,
     type Compound,
@@ -15,7 +22,12 @@ import {
     type SurfaceMaterial,
     UNIT_CUBE_ID,
 } from "@dylanebert/shallot/physics";
-import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
+import {
+    castRayClosest,
+    emptyQueryHit,
+    hashPhysics,
+    StandardPhysicsPlugin,
+} from "@dylanebert/shallot/standard/physics";
 import { expectWarning } from "../../../scripts/test-console";
 import { defaultSurfaceMaterial } from "./common/types";
 import { compoundBuild, heightFieldBuild, meshBuild } from "./geometry-builds";
@@ -742,5 +754,41 @@ test("a Compound Box3D cannot build leaves its Shape unattached with a warning n
         world.tick();
         expect(worldCounters(state(world)).bodyCount).toBe(1);
         expect(worldCounters(state(world)).shapeCount).toBe(0);
+    });
+});
+
+test("a compound mesh child flattened below B3_MIN_SCALE by body Transform.scale meets rays at its scaled height", async () => {
+    await withPhysics((world) => {
+        const box = world.resource(PhysicsMeshes).register({
+            name: "flattened-box",
+            vertices: new Float32Array([
+                -1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1,
+            ]),
+            indices: new Uint32Array([
+                3, 7, 6, 3, 6, 2, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 0, 4, 7, 0, 7, 3, 4, 5, 6, 4,
+                6, 7, 0, 3, 2, 0, 2, 1,
+            ]),
+        });
+        const id = world.resource(Compounds).register({
+            name: "flattened",
+            meshes: [
+                {
+                    mesh: box,
+                    transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1] },
+                    scale: [1, 1, 1],
+                },
+            ],
+        });
+        const eid = world.create();
+        world.add(eid, Transform, { scale: [1, 0.005, 1] });
+        world.add(eid, Body);
+        world.add(eid, Shape, { kind: ShapeKind.Compound, geometry: id });
+        world.step(Time.FIXED_DT);
+        const hit = emptyQueryHit();
+        expect(castRayClosest(world, { x: 0.3, y: 5, z: 0.2 }, { x: 0, y: -10, z: 0 }, hit)).toBe(
+            true,
+        );
+        // Box3D keeps the child's 0.005; b3SafeScale's 0.01 floor is for mesh shapes only.
+        expect(hit.point.y).toBeCloseTo(0.005, 4);
     });
 });
