@@ -40,11 +40,12 @@ window.delivery = {
     },
     async background() {
         const eid = world.resource(Delivery).backing;
-        const sprite = world.storage(Sprite);
-        const original = { image: sprite.image.get(eid), color: sprite.color.get(eid), size: [sprite.size.x.get(eid), sprite.size.y.get(eid)], billboard: sprite.billboard.get(eid) };
+        const original = world.get(eid, Sprite);
         world.remove(eid, Sprite);
-        try { return await this.capture(); }
+        let frame;
+        try { frame = await this.capture(); }
         finally { world.add(eid, Sprite, original); }
+        return { ...frame, restored: JSON.stringify(world.get(eid, Sprite)) === JSON.stringify(original) };
     },
     async capture(png = false) {
         const promise = captureFrame(canvas);

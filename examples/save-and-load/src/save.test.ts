@@ -23,6 +23,24 @@ test("fields encode and decode each coin's chosen components", () => {
     expect([...w.query([Coin])]).toHaveLength(1);
     w.dispose();
 });
+test("a version-2 save with four-number vectors still loads", () => {
+    const w = world();
+    decode(w, {
+        version: 2,
+        entities: [
+            {
+                Coin: { height: 0.25, speed: 2 },
+                Transform: {
+                    translation: [1, 2, 3, 0],
+                    rotation: [0, 0.6, 0, 0.8],
+                    scale: [0.28, 0.08, 0.28, 0],
+                },
+            },
+        ],
+    });
+    expect(encode(w).entities[0]!.Transform!.translation).toEqual([1, 2, 3]);
+    w.dispose();
+});
 test("the previous version's bare count migrates to coins on the platform", () => {
     const w = world();
     decode(w, { version: 1, count: 30 });

@@ -25,11 +25,7 @@ window.aim=(index)=>{
  orbit.target.set(gallery.camera,index<0?0:gallery.spheres[index]);
  world.step(1/60);world.step(1/60);
 };
-const nameValues=gallery.names.map(eid=>{
- const text=world.storage(Text);
- const values=Object.fromEntries(['content','font','billboard','fontSize','maxWidth','justify','opacity','color'].map(key=>[key,text[key].get(eid)]));
- return values;
-});
+const nameValues=gallery.names.map(eid=>world.get(eid,Text));
 window.nameVisible=(index,visible)=>{
  const eid=gallery.names[index];
  if(visible)world.add(eid,Text,nameValues[index]);else world.remove(eid,Text);
@@ -70,7 +66,7 @@ window.advance=async(seconds)=>{
 };
 async function render(){if(!full){world.step(0);return captureTexture(world,gallery.camera);}const pending=captureFrame(canvas);world.step(0);return pending;}
 window.nameInk=async(boxes)=>{
- const before=(await render()).rgba, counts=[];
+ const before=(await render()).rgba, counts=[], restored=[];
  for(let i=0;i<gallery.names.length;i++){
   window.nameVisible(i,false);
   const hidden=(await render()).rgba,box=boxes[i];let ink=0;
@@ -79,8 +75,9 @@ window.nameInk=async(boxes)=>{
    if([0,1,2].some(c=>Math.abs(before[offset+c]-hidden[offset+c])>20))ink++;
   }
   counts.push(ink);window.nameVisible(i,true);
+  restored.push(JSON.stringify(world.get(gallery.names[i],Text))===JSON.stringify(nameValues[i]));
  }
- return counts;
+ return {counts,restored};
 };
 window.pixels=async()=>Array.from((await render()).rgba);
 window.capture=async()=>{const frame=await render();const output=document.createElement('canvas');output.width=frame.width;output.height=frame.height;output.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(frame.rgba),frame.width,frame.height),0,0);return output.toDataURL('image/png');};

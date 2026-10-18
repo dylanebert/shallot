@@ -7,9 +7,14 @@ test("spawn teaches controls in world pixels without an overlay controls panel",
     await page.waitForFunction(() => (window as Window & { ready?: boolean }).ready);
     await expect(page.locator("body")).not.toContainText(/WASD|SPACE|Move|Jump|Look/);
     await expect(page.locator("[data-recipe-controls], [data-control-row]")).toHaveCount(0);
-    const ink = await page.evaluate(() =>
-        (window as unknown as Window & { controlsInk: () => Promise<number> }).controlsInk(),
+    const { ink, restored } = await page.evaluate(() =>
+        (
+            window as unknown as Window & {
+                controlsInk: () => Promise<{ ink: number; restored: boolean }>;
+            }
+        ).controlsInk(),
     );
+    expect(restored, "showing the controls again restores every authored Text value").toBe(true);
     expect(
         ink,
         "hiding the world controls removes visible ink from the spawn frame",

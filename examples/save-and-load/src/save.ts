@@ -1,5 +1,4 @@
 import { component, f32, Transform, type World } from "@dylanebert/shallot";
-import { fields, type ScalarField, type Vector4Field } from "@dylanebert/shallot/ecs";
 
 export const Coin = component("Coin", { height: f32, speed: f32 });
 export const persisted = { Coin, Transform };
@@ -59,23 +58,8 @@ export function encode(world: World): Save {
         version: 2,
         entities: [...world.query([Coin])].map((eid) => {
             const record: Record<string, Values> = {};
-            for (const [key, component] of Object.entries(persisted)) {
-                const storage = world.storage(component) as Record<
-                    string,
-                    ScalarField | Vector4Field
-                >;
-                const values: Values = {};
-                for (const { name, field } of fields(component)) {
-                    const handle = storage[name]!;
-                    values[name] =
-                        field.lanes === 1
-                            ? (handle as ScalarField).get(eid)
-                            : Array.from(
-                                  handle.column.slice(eid * field.lanes, (eid + 1) * field.lanes),
-                              );
-                }
-                record[key] = values;
-            }
+            for (const [key, component] of Object.entries(persisted))
+                record[key] = world.get(eid, component)!;
             return record;
         }),
     };
@@ -105,19 +89,8 @@ export function decode(world: World, record: Save | PreviousSave): number[] {
     for (const eid of world.query([Coin])) world.destroy(eid);
     return save.entities.map((entry) => {
         const eid = world.create();
-        for (const [key, component] of Object.entries(persisted)) {
-            world.add(eid, component);
-            const storage = world.storage(component) as Record<string, ScalarField | Vector4Field>;
-            for (const { name, field } of fields(component)) {
-                const handle = storage[name]!;
-                const value = entry[key]![name]!;
-                if (field.lanes === 1) (handle as ScalarField).set(eid, value as number);
-                else {
-                    handle.column.set(value as number[], eid * field.lanes);
-                    handle.markChanged(eid);
-                }
-            }
-        }
+        for (const [key, component] of Object.entries(persisted))
+            world.add(eid, component, entry[key]);
         return eid;
     });
 }

@@ -19,10 +19,8 @@ test("world names cover pixels within separate projected boxes above the spheres
     );
     const overlaps = (a: number[], b: number[]) =>
         a[0]! < b[2]! && a[2]! > b[0]! && a[1]! < b[3]! && a[3]! > b[1]!;
-    const ink: number[] = await page.evaluate(
-        (boxes) => (window as any).nameInk(boxes),
-        boxes.names,
-    );
+    const { counts: ink, restored }: { counts: number[]; restored: boolean[] } =
+        await page.evaluate((boxes) => (window as any).nameInk(boxes), boxes.names);
     for (const [i, box] of boxes.names.entries()) {
         expect(box[0]).toBeGreaterThan(0);
         expect(box[1]).toBeGreaterThan(0);
@@ -30,6 +28,7 @@ test("world names cover pixels within separate projected boxes above the spheres
         for (const other of [...boxes.names.slice(i + 1), ...boxes.spheres])
             expect(overlaps(box, other)).toBe(false);
         expect(ink[i]).toBeGreaterThan(10);
+        expect(restored[i], "showing a name again restores every authored Text value").toBe(true);
     }
 });
 

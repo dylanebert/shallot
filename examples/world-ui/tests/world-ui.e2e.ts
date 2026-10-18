@@ -16,6 +16,7 @@ type Frame = {
     emptyRgb: number[];
     besideTip: number[];
     trail: number[];
+    restored?: boolean;
 };
 declare global {
     interface Window {
@@ -109,6 +110,9 @@ test.describe("stepped delivery", () => {
             expect(difference).toBeGreaterThan(20);
             expect(Math.max(...frame.emptyRgb) - Math.min(...frame.emptyRgb)).toBeLessThan(20);
         }
+    });
+    test("showing the backing again restores every authored Sprite value", () => {
+        for (const behind of [spawnBehind, lowBehind]) expect(behind.restored).toBe(true);
     });
     test("the trail reaches the car's rear as a plain line, without an arrowhead", () => {
         for (const frame of [low, earlyExit]) expect(frame.besideTip).toEqual([0, 0]);
