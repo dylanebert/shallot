@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import { type createApp, DiagnosticsStore, probeBuffer, setTransform } from "@dylanebert/shallot";
+import {
+    type createApp,
+    DiagnosticsStore,
+    Exposure,
+    probeBuffer,
+    setTransform,
+} from "@dylanebert/shallot";
 import { Fog } from "@dylanebert/shallot/extras";
 import {
     AmbientLight,
@@ -135,6 +141,7 @@ function moteImages(world: typeof untimed.world) {
     const camera = world.resource(Room).camera;
     if (!world.has(camera, AmbientLight)) world.add(camera, AmbientLight);
     world.storage(AmbientLight).brightness.set(camera, 10000);
+    world.storage(Exposure).ev100.set(camera, 8);
     if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
     world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
     // Past viewDistance the mote's light is analytic and the grid holds 5 cm of 1e-5 density,

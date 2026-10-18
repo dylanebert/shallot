@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Exposure, GlobalAmbientLight } from "@dylanebert/shallot";
+import { Exposure } from "@dylanebert/shallot";
 import { NoFog } from "@dylanebert/shallot/extras";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -28,9 +28,6 @@ function profile(rgba: Uint8ClampedArray) {
     }
     return values;
 }
-// The room's sun through its window, interreflected by its walls (ρΦ / πA(1 − ρ)), lights it to
-// about 9.2 cd/m²; the example's brighter ambient hides the shaft edge's temporal swing.
-const BALANCED_AMBIENT = 9.2;
 // One app per exposure, measured once and shared by its two claims; each claim alone measures it.
 const measured = new Map<number, Promise<{ profileError: number; patchSwing: number }>>();
 function measure(ev100: number) {
@@ -50,7 +47,6 @@ async function shaftTemporalError(ev100: number) {
         console.log("shaft adapter", world.gpu.adapter);
         const camera = world.resource(Room).camera;
         world.resource(Motes).visible = false;
-        world.resource(GlobalAmbientLight).brightness = BALANCED_AMBIENT;
         world.storage(Exposure).ev100.set(camera, ev100);
         attachTexture(world, camera, { width: WIDTH, height: 720 });
         world.step(1 / 60);
