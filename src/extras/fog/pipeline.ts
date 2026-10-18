@@ -72,7 +72,7 @@ export const fogLayout0 = tgpu
     })
     .$idx(0);
 
-/** The shared prepass depth lane is multisampled; application reads sample zero. */
+/** Shared multisampled prepass depth: equal-depth pixels apply once; edges apply per sample. */
 export const fogLayout0Multisampled = tgpu
     .bindGroupLayout({
         depthTex: { texture: d.textureDepthMultisampled2d(), visibility: ["fragment"] },
@@ -110,11 +110,11 @@ const loadDepth = tgpu.fn(
     return std.textureLoad(fogLayout0.$.depthTex, px, 0);
 });
 const loadDepthMultisampled = tgpu.fn(
-    [d.vec2i],
+    [d.vec2i, d.u32],
     d.f32,
-)((px) => {
+)((px, sample) => {
     "use gpu";
-    return std.textureLoad(fogLayout0Multisampled.$.depthTex, px, 0);
+    return std.textureLoad(fogLayout0Multisampled.$.depthTex, px, sample);
 });
 
 /** Light and integrate one frustum column per invocation. */
@@ -447,29 +447,67 @@ export const readFog = tgpu
     })
     .$name("readFog");
 
-function createApplyKernel(readDepth: typeof loadDepth | typeof loadDepthMultisampled) {
-    return tgpu
-        .fragmentFn({ in: { position: d.builtin.position }, out: d.vec4f })((input) => {
-            "use gpu";
-            const uv = std.div(input.position.xy, fogReadLayout.$.view.resolution);
-            const depth = readDepth(d.vec2i(input.position.xy));
-            const camView = fogReadLayout.$.view;
-            let point = reconstructWorld(camView.invViewProj, uv, depth);
-            if (depth === 0 && camView.projection.z > 0.5) {
-                const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
-                const dir = std.normalize(std.sub(nearWorld, camView.eye.xyz));
-                point = std.add(
-                    camView.eye.xyz,
-                    std.mul(
-                        dir,
-                        std.max(fogReadLayout.$.fog.extra.x, camView.projection.x + 0.001),
-                    ),
-                );
-            }
-            return readFog(point);
-        })
-        .$name("fogApply");
-}
+const applyFog = tgpu.fn(
+    [d.vec4f, d.f32],
+    d.vec4f,
+)((position, depth) => {
+    "use gpu";
+    const uv = std.div(position.xy, fogReadLayout.$.view.resolution);
+    const camView = fogReadLayout.$.view;
+    let point = reconstructWorld(camView.invViewProj, uv, depth);
+    if (depth === 0 && camView.projection.z > 0.5) {
+        const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+        const dir = std.normalize(std.sub(nearWorld, camView.eye.xyz));
+        point = std.add(
+            camView.eye.xyz,
+            std.mul(dir, std.max(fogReadLayout.$.fog.extra.x, camView.projection.x + 0.001)),
+        );
+    }
+    return readFog(point);
+});
 
-export const fogKernel = createApplyKernel(loadDepth);
-export const fogKernelMultisampled = createApplyKernel(loadDepthMultisampled);
+export const fogKernel = tgpu
+    .fragmentFn({ in: { position: d.builtin.position }, out: d.vec4f })((input) => {
+        "use gpu";
+        return applyFog(input.position, loadDepth(d.vec2i(input.position.xy)));
+    })
+    .$name("fogApply");
+
+// Exact depth equality keeps every discontinuity on the sample-rate path. Sloped surfaces may
+// also take that path; a tolerance could instead merge distinct surfaces and lose their fog edge.
+const isEdge = tgpu.fn(
+    [d.vec2i],
+    d.bool,
+)((pixel) => {
+    "use gpu";
+    const z = loadDepthMultisampled(pixel, 0);
+    // Unrolled for core rendering's SAMPLE_COUNT = 4 to keep sample loads and short-circuiting static.
+    return (
+        z !== loadDepthMultisampled(pixel, 1) ||
+        z !== loadDepthMultisampled(pixel, 2) ||
+        z !== loadDepthMultisampled(pixel, 3)
+    );
+});
+
+export const fogKernelInterior = tgpu
+    .fragmentFn({ in: { position: d.builtin.position }, out: d.vec4f })((input) => {
+        "use gpu";
+        const pixel = d.vec2i(input.position.xy);
+        if (isEdge(pixel)) std.discard();
+        return applyFog(input.position, loadDepthMultisampled(pixel, 0));
+    })
+    .$name("fogApply");
+
+export const fogKernelMultisampled = tgpu
+    .fragmentFn({
+        in: { position: d.builtin.position, sample: d.builtin.sampleIndex },
+        out: d.vec4f,
+    })((input) => {
+        "use gpu";
+        if (!isEdge(d.vec2i(input.position.xy))) std.discard();
+        return applyFog(
+            input.position,
+            loadDepthMultisampled(d.vec2i(input.position.xy), input.sample),
+        );
+    })
+    .$name("fogApply");
