@@ -6,7 +6,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { DetailKind } from "./detail";
-import { detailParts } from "./parts";
+import { DetailPart, detailParts } from "./parts";
 import { radii, slotCount, type TerrainConfig } from "./terrain-data";
 
 const Params = d.struct({ center: d.i32, remainder: d.f32 });
@@ -14,7 +14,7 @@ const layout = tgpu.bindGroupLayout({
     records: { storage: d.arrayOf(d.vec2u), access: "readonly" },
     counts: { storage: d.arrayOf(d.u32), access: "readonly" },
     chunks: { storage: d.arrayOf(d.vec2i), access: "readonly" },
-    parts: { storage: d.arrayOf(d.vec4u), access: "readonly" },
+    parts: { storage: d.arrayOf(DetailPart), access: "readonly" },
     placements: { storage: d.arrayOf(Xform), access: "mutable" },
     instances: { storage: d.arrayOf(MeshInstanceInput), access: "mutable" },
     count: { storage: d.atomic(d.u32), access: "mutable" },
@@ -61,7 +61,7 @@ export function placement(
                 .mul(0.35 * scale);
             yaw = (d.f32(hash >>> 16) / 65535) * 6.283185307179586;
         }
-        const n = layout.$.parts[kind * 2].w;
+        const n = layout.$.parts[kind * 2].count;
         const row = std.atomicAdd(layout.$.count, n);
         for (let p = d.u32(0); p < n; p++) {
             const part = layout.$.parts[kind * 2 + p];
@@ -71,11 +71,11 @@ export function placement(
                 scale: d.vec3f(scale),
             });
             layout.$.instances[row + p] = MeshInstanceInput({
-                mesh: part.x,
-                materialType: part.y,
-                material: part.z,
-                alphaMode: 0,
-                alphaCutoff: 0.5,
+                mesh: part.mesh,
+                materialType: part.materialType,
+                material: part.material,
+                alphaMode: part.alphaMode,
+                alphaCutoff: part.alphaCutoff,
                 flags: 0,
                 cullBounds: d.vec4f(0, 0, 0, -1),
             });
@@ -100,7 +100,7 @@ export function placement(
             counts: root.createBuffer(d.arrayOf(d.u32, slots), counts).$usage("storage"),
             chunks,
             parts: root
-                .createBuffer(d.arrayOf(d.vec4u, parts.rows.length), parts.rows)
+                .createBuffer(d.arrayOf(DetailPart, parts.rows.length), parts.rows)
                 .$usage("storage"),
             placements: table.placements,
             instances: table.meshInstances,

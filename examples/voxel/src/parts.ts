@@ -4,6 +4,16 @@ import * as d from "typegpu/data";
 import { DetailKind } from "./detail";
 
 type Box = [number, number, number, number, number, number];
+
+/** One part of a detail kind: its mesh, its material handle's fields, and the kind's part count. */
+export const DetailPart = d.struct({
+    mesh: d.u32,
+    materialType: d.u32,
+    material: d.u32,
+    alphaMode: d.u32,
+    alphaCutoff: d.f32,
+    count: d.u32,
+});
 function boxes(name: string, parts: Box[]) {
     const vertices: number[] = [],
         indices: number[] = [];
@@ -69,12 +79,15 @@ export function detailParts(world: World) {
     const rows = kinds.flatMap((parts) =>
         [0, 1].map((i) => {
             const part = parts[i] ?? 0;
-            return d.vec4u(
-                handles[part],
-                materials[part].type,
-                materials[part].material,
-                parts.length,
-            );
+            const material = materials[part];
+            return DetailPart({
+                mesh: handles[part],
+                materialType: material.type,
+                material: material.material,
+                alphaMode: material.alphaMode,
+                alphaCutoff: material.alphaCutoff,
+                count: parts.length,
+            });
         }),
     );
     return { meshes: handles, materials, rows };
