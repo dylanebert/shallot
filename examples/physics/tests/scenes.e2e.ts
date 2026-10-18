@@ -36,6 +36,27 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     await capture("hover");
     await page.mouse.move(20, 20);
     await scene.click();
+    await page.mouse.click(20, 20);
+    await expect(scene).toHaveAttribute("aria-expanded", "false");
+    await scene.focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
+    await expect(scene).toHaveAttribute("aria-expanded", "false");
+    await expect(scene).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("button", { name: "Box Stack", exact: true })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Enter");
+    await expect(scene).toHaveText("Bridge");
+    await page.getByRole("button", { name: "Next scene" }).click();
+    await expect(scene).toHaveText("Box Stack");
+    for (const direction of ["Next", "Previous"]) {
+        await page.getByRole("button", { name: `${direction} scene` }).click();
+        await expect(scene).toHaveText("Bridge");
+        await page.getByRole("button", { name: `${direction} scene` }).click();
+        await expect(scene).toHaveText("Box Stack");
+    }
+    await scene.click();
     await expect(
         page
             .getByRole("region", { name: "Joints", exact: true })

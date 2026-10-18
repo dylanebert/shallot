@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><title>Physics grab, stepped</title>
-<style>body{margin:0}canvas{width:640px;height:480px;display:block}</style></head>
-<body><canvas width="640" height="480"></canvas><script type="module">
-import { createApp, MeshPlugin, Camera, Devices, Outline, GlobalTransform, pointerMove, pressButton, releaseButton, StandardPhysicsPlugin } from '@dylanebert/shallot';
-import { worldToViewport } from '@dylanebert/shallot/rendering';
+<style>body{margin:0}canvas{width:1280px;height:720px;display:block}</style></head>
+<body><canvas width="1280" height="720"></canvas><script type="module">
+import { createApp, MeshPlugin, Body, Camera, Devices, Outline, GlobalTransform, pointerMove, pressButton, releaseButton, StandardPhysicsPlugin } from '@dylanebert/shallot';
+import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
 import { OrbitPlugin } from '@dylanebert/shallot/extras';
 import { createScene } from '../src/scenes';
-import { createView } from '../src/view';
+import { createView, GrabFeedback } from '../src/view';
 import { Grab, GrabPlugin } from '../src/grab';
 let bodies;
 const app = await createApp({ plugins: [StandardPhysicsPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin], initialize(world){createView(world,'boxStack')}}], setup(world) {
@@ -19,6 +19,7 @@ const frame=()=>world.step(1/60);
 await frame(); await frame();
 const position=(eid)=>{const p=world.storage(GlobalTransform).translation;return [p.x.get(eid),p.y.get(eid),p.z.get(eid)]};
 const pose=(eid)=>{const q=world.storage(GlobalTransform).rotation;return {translation:position(eid),rotation:[q.x.get(eid),q.y.get(eid),q.z.get(eid),q.w.get(eid)]}};
+window.marker=()=>world.resource(GrabFeedback).marker;
 window.drag=async()=>{
  const body=bodies[20];
  const before=position(body);
@@ -31,8 +32,11 @@ window.drag=async()=>{
  for(let i=1;i<=30;i++) {pointerMove(world,{x:pixel[0]+i*3,y:pixel[1],deltaX:3});await frame();cameraDuring.push(pose(camera));}
  const after=position(body);
  const projected=worldToViewport(world,camera,after);
- releaseButton(world,'left'); await frame();
- return {body,picked,before,after,pixel,projected,cameraBefore,cameraDuring,cameraAfter:pose(camera),mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint};
+ const marker=world.resource(GrabFeedback).marker;
+ const markerDuring=world.has(marker,GlobalTransform) && !world.has(marker, Body);
+ window.finishDrag=async()=>{releaseButton(world,'left');await frame();return {marker:world.resource(GrabFeedback).marker,mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint}};
+ window.captureGrab=async()=>{const pending=captureFrame(document.querySelector('canvas'));await frame();const capture=await pending;const image=document.createElement('canvas');image.width=capture.width;image.height=capture.height;image.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(capture.rgba),capture.width,capture.height),0,0);image.style.cssText='position:absolute;inset:0';document.body.append(image)};
+ return {body,picked,markerDuring,markerPosition:position(marker),target:[...world.resource(Grab).point],before,after,pixel,projected,cameraBefore,cameraDuring,cameraAfter:pose(camera),mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint};
 };
 window.emptyDrag=async()=>{
  const before=position(camera);

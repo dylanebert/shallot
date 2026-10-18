@@ -15,11 +15,15 @@ import {
     ShapeKind,
     StandardMaterial,
     StandardRenderer,
+    sphere,
     Transform,
     type World,
 } from "@dylanebert/shallot";
 import { Orbit } from "@dylanebert/shallot/extras";
+import { Grab } from "./grab";
 import { type Scene, scenes } from "./scenes";
+
+export const GrabFeedback = { create: () => ({ marker: 0 }) };
 
 export function createView(world: World, scene: Scene): void {
     const ambient = world.resource(GlobalAmbientLight);
@@ -46,6 +50,30 @@ export function createView(world: World, scene: Scene): void {
     const subject = materials.add(
         StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.38 }),
     );
+    const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.1, 12, 8) });
+    const markerMaterial = materials.add(
+        StandardMaterial({ baseColor: [0.855, 0.815, 0.738, 1], unlit: true }),
+    );
+    const feedback = world.resource(GrabFeedback);
+    world.addSystem({
+        name: "grab-feedback",
+        group: "fixed",
+        update(world) {
+            const grab = world.resource(Grab);
+            if (!grab.mouse) {
+                if (feedback.marker) world.destroy(feedback.marker);
+                feedback.marker = 0;
+                return;
+            }
+            if (!feedback.marker) {
+                feedback.marker = world.create();
+                world.add(feedback.marker, Transform);
+                world.add(feedback.marker, MeshInstance, { mesh: markerMesh });
+                world.add(feedback.marker, MeshMaterial, markerMaterial);
+            }
+            world.storage(Transform).translation.set(feedback.marker, ...grab.point);
+        },
+    });
     const shapes = world.storage(Shape);
     const types = world.storage(Body).type;
     const meshes = world.resource(Meshes);
