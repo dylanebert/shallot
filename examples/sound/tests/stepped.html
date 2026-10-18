@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>Sound stepped</title><link rel="stylesheet" href="../src/hud.css"/><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas><button id="start">Start audio</button><script type="module">
-import { AudioOutput, Camera, createApp, mountOverlay, Sound, Transform, pressKey, releaseKey, setInputEnabled, setTransform } from '@dylanebert/shallot';
+import { AudioOutput, Camera, createApp, mountOverlay, Sound, Transform, pressKey, releaseKey, setTransform } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { Yard, YardPlugin } from '../src/yard';
 import { LocalPlayer, Player } from '../src/player';
@@ -24,7 +24,7 @@ window.pose=(x,y,z,yaw=0)=>{
  w.step(1/60);w.step(1/60);
 };
 window.aim=()=>{const p=w.storage(Transform).translation;window.pose(p.x.get(yard.speaker),1.4,0.4);};
-window.key=down=>{setInputEnabled(w,true);(down?pressKey:releaseKey)(w,'KeyE');w.step(1/60);};
+window.key=down=>{(down?pressKey:releaseKey)(w,'KeyE');w.step(1/60);};
 window.freeze=()=>{w.remove(yard.speaker,Sliding);};
 window.bell=()=>{window.pose(5,1.4,0.4);window.key(true);window.key(false);};
 window.state=()=>({paused:w.storage(Sound).paused.get(yard.speaker),volume:w.storage(Sound).volume.get(yard.speaker),once:[...w.query([Sound])].filter(e=>e!==yard.speaker).length,hint:w.resource(Hint).action});

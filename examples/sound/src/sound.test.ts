@@ -10,7 +10,6 @@ import {
     Shape,
     Sound,
     StandardPhysicsPlugin,
-    setInputEnabled,
     Transform,
 } from "@dylanebert/shallot";
 import { chime } from "./chime";
@@ -53,7 +52,6 @@ async function scene() {
 }
 test("E on the speaker sets and clears paused on its Sound", async () => {
     const { w, speaker } = await scene();
-    setInputEnabled(w, true);
     pressKey(w, "KeyE");
     w.step(1 / 60);
     expect(w.storage(Sound).paused.get(speaker)).toBe(1);

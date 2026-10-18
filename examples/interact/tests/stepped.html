@@ -3,7 +3,7 @@
 <style>body{margin:0;background:#1c1917}canvas{display:block}</style><link rel="stylesheet" href="../src/hud.css"/></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { Camera, createApp, mountOverlay, Transform, Outline,  pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
+import { Camera, createApp, mountOverlay, Transform, Outline,  pressKey, releaseKey, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
 import { attachView, attachTexture, detachView, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { PointShadows } from '@dylanebert/shallot/standard/rendering';
 import { Room, RoomPlugin } from '../src/room';
@@ -45,7 +45,7 @@ window.aim = (index, distance=2.6, yaw=0, pitch=0) => {
  world.step(1/60);
  world.step(1/60);
 };
-window.key = (down) => { setInputEnabled(world,true); (down?pressKey:releaseKey)(world,'KeyE'); };
+window.key = (down) => { (down?pressKey:releaseKey)(world,'KeyE'); };
 window.advance = (count=1) => {
  world.step(1/60);
  // Sample the input once, then advance the hold without drawing every fixed tick.
@@ -70,7 +70,7 @@ window.capture = async () => {
 };
 window.adapter = world.gpu.adapter;
 window.turnAway = () => {
- setInputEnabled(world,true); pointerLockChanged(world,true);
+ pointerLockChanged(world,true);
  pointerMove(world,{x:0,y:0,deltaX:Math.PI*1080/1.5});
 };
 window.overview = () => {

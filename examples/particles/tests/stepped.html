@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>Particles, stepped</title><link rel="icon" type="image/svg+xml" href="/icon.svg"/><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { createApp, Camera, DirectionalLight, StandardRenderer, GlobalTransform, pressKey, releaseKey, setInputEnabled } from '@dylanebert/shallot';
+import { createApp, Camera, DirectionalLight, StandardRenderer, GlobalTransform, pressKey, releaseKey } from '@dylanebert/shallot';
 import { attachTexture, detachView, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { DiagnosticsStore } from '@dylanebert/shallot';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
@@ -78,7 +78,7 @@ window.particles={
   if (!captures) {detachView(world,room.camera);attachTexture(world,room.camera,{width:16,height:9});}
   const pose=world.storage(GlobalTransform).translation;
   const before=pose.z.get(room.player);
-  setInputEnabled(world,true);pressKey(world,'KeyW');
+  pressKey(world,'KeyW');
   for(let i=0;i<count;i++)world.step(1/60);
   releaseKey(world,'KeyW');
   if (!captures) {detachView(world,room.camera);attachTexture(world,room.camera,{width:320,height:180});}
