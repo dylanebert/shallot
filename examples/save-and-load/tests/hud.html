@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"/><title>Save and load controls</title>
+<link rel="stylesheet" href="../src/hud.css"/></head>
+<body><div id="hud" style="position:relative;width:640px;height:360px"></div>
+<script type="module">
+import { createApp, MeshInstance, Transform } from '@dylanebert/shallot';
+import { addCoin, Game, GamePlugin } from '../src/game';
+import { hud } from '../src/hud';
+const app=await createApp({plugins:[GamePlugin,{name:'HudFixture',components:[MeshInstance,Transform]}]});
+const world=app.world;
+world.resource(Game).storage=localStorage;
+hud(document.querySelector('#hud'),world);
+const advance=(ticks=1)=>{
+ while(ticks>0){const n=Math.min(ticks,4);world.step(n/60);ticks-=n;}
+};
+window.saveAndLoad={
+ advance,
+ click:()=>{addCoin(world);world.step(0);},
+};
+</script></body></html>

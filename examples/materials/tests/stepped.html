@@ -12,7 +12,7 @@ const world=app.world, gallery=world.resource(Gallery), canvas=document.querySel
 // A missing registered background must not pass as the camera's similarly coloured clear.
 world.storage(Camera).clearColor.set(gallery.camera,0xff0000);
 const full=new URLSearchParams(location.search).has('captures');
-if(!full){canvas.width=320;canvas.height=180;attachTexture(world,gallery.camera,{width:320,height:180});world.storage(Camera).antialias.set(gallery.camera,0);world.resource(DirectionalLightShadowMap).size=256;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
+if(!full){canvas.width=new URLSearchParams(location.search).has('names')?640:320;canvas.height=canvas.width*9/16;attachTexture(world,gallery.camera,{width:canvas.width,height:canvas.height});world.storage(Camera).antialias.set(gallery.camera,0);world.resource(DirectionalLightShadowMap).size=256;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
 const orbit=world.storage(Orbit);
 const overview={distance:orbit.distance.get(gallery.camera),yaw:orbit.yaw.get(gallery.camera),pitch:orbit.pitch.get(gallery.camera),pan:[orbit.pan.x.get(gallery.camera),orbit.pan.y.get(gallery.camera),orbit.pan.z.get(gallery.camera)]};
 window.aim=(index)=>{

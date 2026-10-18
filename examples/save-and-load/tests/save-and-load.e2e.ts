@@ -51,6 +51,7 @@ test("the built page opens a new game with clear controls and Load disabled unti
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    await page.setViewportSize({ width: 640, height: 360 });
     await page.goto("/");
     await expect(page.getByRole("status", { name: "Coins", exact: true })).toHaveText("0 coins");
     await expect(page.getByRole("button", { name: "Load L" })).toBeDisabled();
@@ -153,7 +154,7 @@ test("a save survives a page reload, and Load restores its pile and shown count"
 
 test("every control holds still across feedback, disabled, hover and focus", async ({ page }) => {
     await page.goto(
-        `http://127.0.0.1:4190/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`,
+        `http://127.0.0.1:4190/tests/${process.env.SHALLOT_CAPTURE_DIR ? "stepped.html?capture" : "hud.html"}`,
     );
     await page.waitForFunction(() => !!window.saveAndLoad);
     const controls = page.locator(".save-hud button");

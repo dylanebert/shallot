@@ -61,7 +61,9 @@ async function captureCanvasFrame(page: Page, key: string): Promise<Frame> {
  * about 530 ms and one capture about 2.3 s (hosted ubuntu).
  */
 async function screenshotCanvas(page: Page, key: string): Promise<void> {
-    const png = await page.locator("#canvas").screenshot();
+    const bounds = await page.locator("#canvas").boundingBox();
+    if (!bounds) throw new Error("first-person canvas has no page bounds");
+    const png = await page.screenshot({ clip: bounds });
     await page.evaluate(
         async ({ frameKey, encoded }) => {
             const bitmap = await createImageBitmap(

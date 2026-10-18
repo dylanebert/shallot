@@ -1,14 +1,22 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><title>First-person, stepped</title><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas><script type="module">
-import { createApp, Transform } from '@dylanebert/shallot';
+import { createApp, Camera, DirectionalLight, Transform } from '@dylanebert/shallot';
 import { Text } from '@dylanebert/shallot/extras';
 import { attachTexture, captureTexture } from '@dylanebert/shallot/rendering';
+import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { APP_PLUGINS } from '../src/plugins';
 import { Route } from '../src/demo';
 import { LocalPlayer, PlayerInput } from '../src/player';
 const app=await createApp({plugins:APP_PLUGINS});
 const world=app.world, route=world.resource(Route).entities;
-attachTexture(world,route.eye,{width:1280,height:720});
+const captures=new URLSearchParams(location.search).has('captures');
+const width=captures?1280:640,height=width*9/16;
+attachTexture(world,route.eye,{width,height});
+if(!captures){
+ world.storage(Camera).antialias.set(route.eye,0);
+ world.resource(DirectionalLightShadowMap).size=512;
+ for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);
+}
 window.controlsInk=async()=>{
  world.step(0);
  const before=(await captureTexture(world,route.eye)).rgba;

@@ -1,8 +1,9 @@
 <!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>Particles, stepped</title><link rel="icon" type="image/svg+xml" href="/icon.svg"/><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { createApp, Camera, GlobalTransform, pressKey, releaseKey, setInputEnabled } from '@dylanebert/shallot';
+import { createApp, Camera, DirectionalLight, GlobalTransform, pressKey, releaseKey, setInputEnabled } from '@dylanebert/shallot';
 import { attachTexture, detachView, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { DiagnosticsStore } from '@dylanebert/shallot';
+import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { NoFog, showProfiler } from '@dylanebert/shallot/extras';
 import { Motes, MotesPlugin } from '../src/motes';
 import { Room } from '../src/room';
@@ -17,6 +18,8 @@ if (!captures) {
  canvas.width=320;canvas.height=180;
  attachTexture(world,room.camera,{width:320,height:180});
  world.storage(Camera).antialias.set(room.camera,0);
+ world.resource(DirectionalLightShadowMap).size=512;
+ for(const sun of world.query([DirectionalLight])) world.storage(DirectionalLight).numCascades.set(sun,1);
 }
 world.step(1/60);world.step(1/60);
 async function render() {

@@ -4,7 +4,7 @@
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
 import { Camera, createApp, mountOverlay, Transform, Outline,  pressKey, releaseKey, setInputEnabled, setTransform, pointerMove, pointerLockChanged } from '@dylanebert/shallot';
-import { attachTexture, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
+import { attachView, attachTexture, detachView, captureTexture, captureFrame } from '@dylanebert/shallot/rendering';
 import { PointShadows } from '@dylanebert/shallot/standard/rendering';
 import { Room, RoomPlugin } from '../src/room';
 import { LocalPlayer, Player } from '../src/player';
@@ -14,10 +14,12 @@ const app = await createApp({plugins:[RoomPlugin]});
 const world = app.world;
 const room = world.resource(Room);
 const canvas = document.querySelector('canvas');
+const hudOnly = new URLSearchParams(location.search).has('hud');
 // Checks read a small final texture, as first-person does; manual PNGs retain the game's full canvas.
 if (!new URLSearchParams(location.search).has('captures')) {
  canvas.width=320; canvas.height=180;
- attachTexture(world, room.camera, {width:320, height:180});
+ if(hudOnly) attachView(world,room.camera);
+ else attachTexture(world, room.camera, {width:320, height:180});
  world.storage(Camera).antialias.set(room.camera,0);
  world.resource(PointShadows).atlas=512;
  world.resource(PointShadows).casters=1;
@@ -106,6 +108,7 @@ window.lampEvidence = async () => {
  return {changed:changed/(400*180*scale*scale), increase:increase/(400*180*scale*scale)};
 };
 window.holdEvidence = async () => {
+ if(hudOnly){detachView(world,room.camera);attachTexture(world,room.camera,{width:320,height:180});}
  window.aim(2);
  const target=room.targets[2], t=world.storage(Transform);
  const position=()=>[t.translation.x.get(target),t.translation.y.get(target),t.translation.z.get(target)];

@@ -571,32 +571,6 @@ async function inspectScene(page: Page, frameKey: string) {
     };
 }
 
-test("light document and rendered frame differ by at least 0.6 OKLab lightness", async ({
-    page,
-}) => {
-    await waitForScene(page);
-    await page.addScriptTag({ path: CAPTURE_ENTRY });
-    await page.addStyleTag({
-        content: "#frame { width: 1280px !important; height: 720px !important; }",
-    });
-    await expect
-        .poll(() => page.locator("#scene").evaluate((e) => (e as HTMLCanvasElement).width))
-        .toBe(1280);
-    const colors = await page.evaluate(async () => {
-        const shot = await window.shallotCaptureFrame!(
-            document.querySelector<HTMLCanvasElement>("#scene")!,
-        );
-        const page = getComputedStyle(document.body)
-            .backgroundColor.match(/\d+/g)!
-            .slice(0, 3)
-            .map(Number);
-        const clear = Array.from(shot.rgba.slice(0, 3));
-        console.log("rendered clear", clear);
-        return { page, clear };
-    });
-    expect(oklab(colors.page)[0]! - oklab(colors.clear)[0]!).toBeGreaterThanOrEqual(0.6);
-});
-
 async function compareSceneFrames(page: Page, first: string, later: string) {
     return page.evaluate(
         ({ first, later }) => {
@@ -878,11 +852,11 @@ test("the canvas remains hidden after loading cleanup until its first submitted 
     await page.locator("#scene.visible").waitFor();
 });
 
-test("the first and later scene frames match the projected unit cube and remain stable", async ({
+test("first and later frames match the projected unit cube and remain stable, contrast the light document by at least 0.6 OKLab lightness, and fit the description and scene frame in six responsive viewports", async ({
     page,
 }) => {
     await waitForScene(page);
-    await page.addStyleTag({
+    const sizing = await page.addStyleTag({
         content: "#frame { width: 1280px !important; height: 720px !important; }",
     });
     await expect
@@ -939,12 +913,15 @@ test("the first and later scene frames match the projected unit cube and remain 
         later.backgroundDeltaE,
         "the later clear's mean colour is within CSS Color 4's gamut-mapping JND (ΔE_OK 0.02) of the frame",
     ).toBeLessThanOrEqual(0.02);
-});
-
-test("the description and scene frame stay fitted in six responsive viewports", async ({
-    page,
-}) => {
-    await waitForScene(page);
+    const colors = await page.evaluate(() => ({
+        page: getComputedStyle(document.body)
+            .backgroundColor.match(/\d+/g)!
+            .slice(0, 3)
+            .map(Number),
+        clear: Array.from(window.__sceneFrames!.first!.slice(0, 3)),
+    }));
+    expect(oklab(colors.page)[0]! - oklab(colors.clear)[0]!).toBeGreaterThanOrEqual(0.6);
+    await sizing.evaluate((element) => element.remove());
     const viewports = [
         { width: 390, height: 844 },
         { width: 844, height: 390 },

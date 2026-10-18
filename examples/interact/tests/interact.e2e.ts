@@ -26,7 +26,9 @@ declare global {
         }>;
     }
 }
-const STEPPED = `http://127.0.0.1:4186/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?captures" : ""}`;
+const STEPPED = "http://127.0.0.1:4186/tests/stepped.html";
+const PIXELS = `${STEPPED}${process.env.SHALLOT_CAPTURE_DIR ? "?captures" : ""}`;
+const HUD = `${STEPPED}?${process.env.SHALLOT_CAPTURE_DIR ? "captures" : "hud"}`;
 
 async function capture(page: Page, name: string) {
     if (!process.env.SHALLOT_CAPTURE_DIR) return;
@@ -40,7 +42,7 @@ test("aim is sampled before E; in-reach lamp and prompt render, E lights the wal
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(STEPPED);
+    await page.goto(PIXELS);
     await page.waitForFunction(() => window.ready);
     console.log("interact adapter", await page.evaluate(() => window.adapter));
     await page.evaluate(() => {
@@ -93,7 +95,7 @@ test("aim is sampled before E; in-reach lamp and prompt render, E lights the wal
 test("HUD hint stays visible at near, far and oblique views with its hold ring centred on the key", async ({
     page,
 }) => {
-    await page.goto(STEPPED);
+    await page.goto(HUD);
     await page.waitForFunction(() => window.ready);
     for (const [distance, yaw, pitch] of [
         [1.2, 0, 0],
@@ -145,7 +147,7 @@ test("HUD hint stays visible at near, far and oblique views with its hold ring c
 });
 
 test("reticle fills only on focus and the hint begins 96px below its centre", async ({ page }) => {
-    await page.goto(STEPPED);
+    await page.goto(HUD);
     await page.waitForFunction(() => window.ready);
     // The stepped fixture mounts the game's HUD; also check the shipped shell for stray UI.
     const shell = await (await page.request.get("http://127.0.0.1:4186/")).text();
@@ -194,7 +196,7 @@ test("reticle fills only on focus and the hint begins 96px below its centre", as
 test("each HUD hint shows its action, with a half-filled ring during the one-second hold", async ({
     page,
 }) => {
-    await page.goto(STEPPED);
+    await page.goto(HUD);
     await page.waitForFunction(() => window.ready);
     for (const [index, name] of ["lamp", "button", "hold"].entries()) {
         await page.evaluate((i) => window.aim(i), index);

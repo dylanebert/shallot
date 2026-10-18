@@ -3,7 +3,7 @@
 <style>body{margin:0;background:#191816}canvas{display:block;width:640px;height:360px}.capture canvas{width:1280px;height:720px}</style><link rel="stylesheet" href="../src/hud.css"/></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { createApp, mountOverlay, DirectionalLight } from '@dylanebert/shallot';
+import { createApp, mountOverlay, Camera, DirectionalLight } from '@dylanebert/shallot';
 import { pointerMove, pressButton, releaseButton, pressKey, releaseKey } from '@dylanebert/shallot/input';
 import { attachCanvas, attachTexture, detachView, captureFrame } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
@@ -18,7 +18,7 @@ const app=await createApp({plugins:[Scene]});
 const world=app.world, canvas=document.querySelector('canvas');
 attachCanvas(world,world.resource(Game).camera,canvas);
 hud(mountOverlay(canvas,world),world);
-if(!captures){world.resource(DirectionalLightShadowMap).size=128;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
+if(!captures){world.storage(Camera).antialias.set(world.resource(Game).camera,0);world.resource(DirectionalLightShadowMap).size=256;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
 // The pile and feedback advance on the CPU; only their final frame is observed.
 const advance=async(ticks=1)=>{
  const camera=world.resource(Game).camera;
