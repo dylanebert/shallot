@@ -1,15 +1,6 @@
 import { expect, type Page, test } from "playwright/test";
 import { capture } from "../capture";
 
-async function measured<T>(phase: string, run: () => Promise<T>): Promise<T> {
-    const started = performance.now();
-    try {
-        return await run();
-    } finally {
-        console.info("persistence phase ms", phase, performance.now() - started);
-    }
-}
-
 async function count(page: Page, expected: number) {
     expect(await page.evaluate(() => window.saveAndLoad.state().count)).toBe(expected);
     await expect(page.getByRole("status", { name: "Coins", exact: true })).toHaveText(
@@ -17,17 +8,15 @@ async function count(page: Page, expected: number) {
     );
 }
 async function button(page: Page, name: string) {
-    await measured(`${name} DOM click`, () => page.getByRole("button", { name }).click());
-    await measured(`${name} advance`, () => page.evaluate(() => window.saveAndLoad.advance()));
+    await page.getByRole("button", { name }).click();
+    await page.evaluate(() => window.saveAndLoad.advance());
 }
 async function open(page: Page, errors: string[]) {
     page.on("pageerror", (error) => errors.push(error.message));
-    await measured("goto", () =>
-        page.goto(
-            `http://127.0.0.1:4190/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`,
-        ),
+    await page.goto(
+        `http://127.0.0.1:4190/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?capture" : ""}`,
     );
-    await measured("ready", () => page.waitForFunction(() => !!window.saveAndLoad));
+    await page.waitForFunction(() => !!window.saveAndLoad);
 }
 test.describe.configure({ mode: "serial" });
 let page: Page;
@@ -61,7 +50,7 @@ test("three clicks, Save, New game and Load restore the pile and shown count", a
     const saved = await page.evaluate(() => window.saveAndLoad.state().save);
     expect(saved.entities).toHaveLength(3);
     await capture(page, "03-saved");
-    await measured("advance 130", () => page.evaluate(() => window.saveAndLoad.advance(130)));
+    await page.evaluate(() => window.saveAndLoad.advance(130));
     await expect(page.getByRole("button", { name: "Save S", exact: true })).toBeVisible();
     await button(page, "New game N");
     await count(page, 0);
@@ -82,8 +71,8 @@ test("a save survives a page reload, and Load restores its pile and shown count"
     await expect(page.getByRole("button", { name: "Saved S", exact: true })).toBeVisible();
     const saved = await page.evaluate(() => window.saveAndLoad.state().save);
     expect(saved.entities).toHaveLength(3);
-    await measured("real reload", () => page.reload());
-    await measured("reload ready", () => page.waitForFunction(() => !!window.saveAndLoad));
+    await page.reload();
+    await page.waitForFunction(() => !!window.saveAndLoad);
     await count(page, 0);
     await expect(page.getByRole("button", { name: "Load L" })).toBeEnabled();
     await page.evaluate(() => window.saveAndLoad.key("KeyL"));

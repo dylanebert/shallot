@@ -10,10 +10,10 @@ import { Scene } from '../src/scene';
 import { count, Game } from '../src/game';
 import { encode } from '../src/save';
 import { hud } from '../src/hud';
-// Software GPUs draw each frame in tenths of a second: claims run at 640x360, the person's captures at 1280x720.
+// Picking and HUD geometry stay at 640x360 CSS pixels; only manual captures need full-resolution draws.
 const captures=new URLSearchParams(location.search).has('capture');
 if(captures) document.body.classList.add('capture');
-const app=await createApp({plugins:[Scene]});
+const app=await createApp({plugins:[Scene],pixelRatio:captures?'auto':1/40});
 const world=app.world, canvas=document.querySelector('canvas');
 attachCanvas(world,world.resource(Game).camera,canvas);
 hud(mountOverlay(canvas,world),world);
