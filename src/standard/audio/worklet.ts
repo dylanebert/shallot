@@ -1,11 +1,13 @@
-const MAX_VOICES = 64;
-const COMMANDS = 128;
-const STRIDE = 9;
-const FINISHED_OFFSET = 2 + COMMANDS * STRIDE;
-const PLAY = 1;
-const UPDATE = 2;
-const STOP = 3;
-const PAUSE = 4;
+/** The batch protocol shared by the runtime and the processor: voice slots, command records of
+ * STRIDE values after a two-value header, finished handles from FINISHED_OFFSET, and opcodes. */
+export const MAX_VOICES = 64;
+export const COMMANDS = 128;
+export const STRIDE = 9;
+export const FINISHED_OFFSET = 2 + COMMANDS * STRIDE;
+export const PLAY = 1;
+export const UPDATE = 2;
+export const STOP = 3;
+export const PAUSE = 4;
 
 export const WORKLET_CODE = `
 const MAX_VOICES = ${MAX_VOICES};

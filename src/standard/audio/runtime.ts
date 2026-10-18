@@ -7,17 +7,18 @@ import {
     PrepareGlobalTransformSystem,
 } from "../../core/transform";
 import type { EntityRef, Plugin, Resource, System, World } from "../../engine";
-import { createWorkletURL } from "./worklet";
+import {
+    createWorkletURL,
+    FINISHED_OFFSET,
+    MAX_VOICES,
+    PAUSE,
+    PLAY,
+    STOP,
+    STRIDE,
+    UPDATE,
+} from "./worklet";
 
-const MAX_VOICES = 64;
-const COMMANDS = 128;
-const STRIDE = 9;
-const FINISHED_OFFSET = 2 + COMMANDS * STRIDE;
 const BUFFER_LENGTH = FINISHED_OFFSET + MAX_VOICES;
-const PLAY = 1;
-const UPDATE = 2;
-const STOP = 3;
-const PAUSE = 4;
 const MATRIX = new Float32Array(16);
 const SOUND_QUERY = [Sound];
 const LISTENER_QUERY = [Listener, GlobalTransform];
