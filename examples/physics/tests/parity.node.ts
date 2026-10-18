@@ -26,14 +26,17 @@ for (const scene of ["boxStack", "bridge"] satisfies Scene[]) {
                     app.world
                         .storage(Shape)
                         .density.set(bodies[0]!, scene === "bridge" ? 21 : 1001);
-                const hashes: bigint[] = [];
+                let diverged = false;
                 for (const expected of gold) {
                     app.world.tick();
                     const hash = hashPhysics(app.world);
-                    hashes.push(hash);
                     if (!mutated) expect(hash).toBe(expected);
+                    else if (hash !== expected) {
+                        diverged = true;
+                        break;
+                    }
                 }
-                if (mutated) expect(hashes).not.toEqual(gold);
+                if (mutated) expect(diverged).toBe(true);
                 if (!mutated && scene === "bridge") {
                     setGravityScale(app.world, bodies, -0.5);
                     app.world.tick();
