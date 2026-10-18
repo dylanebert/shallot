@@ -14,9 +14,9 @@ test("the stepped city's buildings fill the centre of the view", async ({ page }
     page.on("console", (message) => {
         if (message.type() === "error") errors.push(message.text());
     });
-    await page.goto("/tests/stepped.html");
-    await page.waitForFunction(() => window.city);
     const directory = process.env.SHALLOT_CAPTURE_DIR;
+    await page.goto(`/tests/stepped.html${directory ? "?captures" : ""}`);
+    await page.waitForFunction(() => window.city);
     const { covered, accents, total, png } = await page.evaluate(async (savePng) => {
         const image = await window.city.capture();
         let covered = 0,

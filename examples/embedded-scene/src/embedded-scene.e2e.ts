@@ -921,7 +921,7 @@ test("first and later frames match the projected unit cube and remain stable, co
         clear: Array.from(window.__sceneFrames!.first!.slice(0, 3)),
     }));
     expect(oklab(colors.page)[0]! - oklab(colors.clear)[0]!).toBeGreaterThanOrEqual(0.6);
-    await sizing.evaluate((element) => element.remove());
+    await sizing.evaluate((element) => element.parentNode!.removeChild(element));
     const viewports = [
         { width: 390, height: 844 },
         { width: 844, height: 390 },

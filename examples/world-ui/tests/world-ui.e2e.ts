@@ -50,7 +50,9 @@ test.describe("stepped delivery", () => {
                 return requestDevice.call(this, descriptor);
             };
         });
-        await page.goto("http://127.0.0.1:4194/tests/stepped.html");
+        await page.goto(
+            `http://127.0.0.1:4194/tests/stepped.html${process.env.SHALLOT_CAPTURE_DIR ? "?captures" : ""}`,
+        );
         await page.waitForFunction(() => window.delivery !== undefined);
         const png = !!process.env.SHALLOT_CAPTURE_DIR;
         spawn = await page.evaluate((png) => window.delivery.capture(png), png);

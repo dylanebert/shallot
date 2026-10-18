@@ -4,12 +4,18 @@
 <style>html,body{margin:0;background:#191816}canvas{width:1280px;height:720px;display:block}</style></head>
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
-import { createApp, GlobalTransform, Sprite, Orbit, qRotate } from '@dylanebert/shallot';
+import { createApp, Camera, DirectionalLight, GlobalTransform, Sprite, Orbit, qRotate } from '@dylanebert/shallot';
 import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
+import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { assets, Delivery, DeliveryPlugin } from '../src/delivery';
 const app = await createApp({ plugins: [DeliveryPlugin], setup: assets });
 const world = app.world;
 const canvas = document.querySelector('canvas');
+if(!new URLSearchParams(location.search).has('captures')){
+ world.storage(Camera).antialias.set(world.resource(Delivery).camera,0);
+ world.resource(DirectionalLightShadowMap).size=512;
+ for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);
+}
 for (let i = 0; i < 3; i++) world.step(0);
 function xyz(eid) {
     const p = world.storage(GlobalTransform).translation;
