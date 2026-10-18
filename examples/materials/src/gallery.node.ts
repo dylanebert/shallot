@@ -4,9 +4,9 @@ import { openGpuApp as createApp } from "@dylanebert/shallot/testing/gpu";
 
 setDefaultTimeout(TIMEOUT.node);
 
-import { Materials, MeshMaterial } from "@dylanebert/shallot";
+import { Materials, MeshMaterial, StandardMaterial } from "@dylanebert/shallot";
 import { Gallery, GalleryPlugin, presets } from "./gallery";
-import { CheckerMaterial, WaveMaterial } from "./materials";
+import { CheckerMaterial, QuantizedMaterial, WaveMaterial } from "./materials";
 
 test("the gallery's carbon and red colours reach the checkerboard's material row", async () => {
     const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });
@@ -30,6 +30,21 @@ test("the wave's own time parameter advances with the clock", async () => {
             2 / 60,
             6,
         );
+    } finally {
+        app.dispose();
+    }
+});
+
+test("the final exhibit uses the quantized standard extension", async () => {
+    const app = await createApp({ defaults: false, plugins: [GalleryPlugin] });
+    try {
+        const { world } = app;
+        const eid = world.resource(Gallery).spheres.at(-1)!;
+        const handle = world.get(eid, MeshMaterial)!;
+        expect(handle.type).toBe(world.resource(QuantizedMaterial).add(StandardMaterial()).type);
+        expect(
+            world.resource(QuantizedMaterial).get(handle.material)!.perceptualRoughness,
+        ).toBeCloseTo(0.8);
     } finally {
         app.dispose();
     }

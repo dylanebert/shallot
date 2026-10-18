@@ -1,14 +1,28 @@
 import { xformNormal, xformPoint } from "@dylanebert/shallot/rendering";
 import {
+    applyPbrLighting,
     engineLayout,
+    extendedMaterial,
     lit,
     MaterialPlugin,
+    Materials,
     materialLayout,
     materialType,
+    pbrInputFromStandardMaterial,
 } from "@dylanebert/shallot/standard/rendering";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+
+export const QuantizedMaterial = extendedMaterial(Materials, {
+    name: "QuantizedStandard",
+    fragment: (ctx) => {
+        "use gpu";
+        const color = applyPbrLighting(pbrInputFromStandardMaterial(ctx), ctx);
+        return d.vec4f(std.div(std.floor(std.mul(color.rgb, 4)), 4), color.a);
+    },
+});
+export const QuantizedPlugin = MaterialPlugin(QuantizedMaterial);
 
 export const AnimationParameters = d.struct({ time: d.f32 });
 export const CheckerParameters = d.struct({ darkColor: d.vec3f, lightColor: d.vec3f });

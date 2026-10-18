@@ -37,7 +37,15 @@ import {
 } from "@dylanebert/shallot/standard/rendering";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { CheckerMaterial, CheckerPlugin, WaveMaterial, WavePlugin, waveVector } from "./materials";
+import {
+    CheckerMaterial,
+    CheckerPlugin,
+    QuantizedMaterial,
+    QuantizedPlugin,
+    WaveMaterial,
+    WavePlugin,
+    waveVector,
+} from "./materials";
 
 export const presets = [
     {
@@ -85,7 +93,7 @@ function scene(world: World) {
     world.add(camera, Transform);
     world.add(camera, Camera, { clearColor: 0x191816, fov: 20 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Orbit, { distance: 32, yaw: 0.04, pitch: 0.2, pan: [0, 0.6, 0] });
+    world.add(camera, Orbit, { distance: 36, yaw: 0.04, pitch: 0.2, pan: [0, 0.6, 0] });
 }
 function backdrop(world: World) {
     const background = registerBackground(world, {
@@ -116,6 +124,11 @@ function surfaces(world: World) {
         materials.add(StandardMaterial({ baseColorTexture: wood, perceptualRoughness: 0.72 })),
     );
     handles.push(gallery.checker!, gallery.wave!);
+    handles.push(
+        world
+            .resource(QuantizedMaterial)
+            .add(StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.8 })),
+    );
     const geometry = sphere(0.65, 64, 32);
     const ball = world.resource(Meshes).add({ name: "Gallery sphere", ...geometry });
     const woodVertices = geometry.vertices.slice();
@@ -146,7 +159,7 @@ function surfaces(world: World) {
         }),
     );
     handles.forEach((handle, i) => {
-        const x = (i - 3) * 2.35;
+        const x = (i - (handles.length - 1) / 2) * 2.35;
         const eid = world.create();
         gallery.spheres.push(eid);
         world.add(eid, Transform, { translation: [x, 1.05, 0] });
@@ -164,6 +177,7 @@ function surfaces(world: World) {
                     "Wood",
                     "Scrolling checker",
                     "Vertex wave",
+                    "Quantized PBR",
                 ][i]!,
             ),
             billboard: Billboard.Screen,
@@ -179,7 +193,7 @@ function surfaces(world: World) {
     });
     const backing = world.create();
     gallery.backing = backing;
-    world.add(backing, Transform, { translation: [0, 1.05, -0.85], scale: [0.65, 0.8, 0.15] });
+    world.add(backing, Transform, { translation: [-1.175, 1.05, -0.85], scale: [0.65, 0.8, 0.15] });
     world.add(backing, MeshInstance);
     world.add(
         backing,
@@ -220,7 +234,7 @@ export const AnimationPlugin: Plugin = {
 };
 export const GalleryPlugin: Plugin = {
     name: "Gallery",
-    dependencies: [MeshPlugin, OrbitPlugin, TextPlugin, AnimationPlugin],
+    dependencies: [MeshPlugin, OrbitPlugin, TextPlugin, AnimationPlugin, QuantizedPlugin],
     initialize(world) {
         scene(world);
         surfaces(world);
