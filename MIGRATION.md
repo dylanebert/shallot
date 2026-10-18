@@ -113,7 +113,7 @@ The Error names the system and carries the thrown value as `cause`; later system
 do not run, and the next step retries the failing system. Checks that provoke an
 error must expect it with `expect(() => world.step()).toThrow(...)`. Catch the error
 in a custom frame loop. `runApp` still logs, pauses the failing system until the page
-reloads, and finishes the frame.
+reloads or the system is removed and added again, and finishes the frame.
 
 ## Camera rays belong to rendering
 

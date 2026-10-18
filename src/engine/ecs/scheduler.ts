@@ -268,8 +268,8 @@ export class Scheduler {
                         { cause: e },
                     );
                 }
-                // A hot-reloaded bug must not wedge a live host. Pause until a swap supplies the fix;
-                // failed setup stays uninitialized so the replacement retries it.
+                // A running host keeps its frame loop. The failed system stays paused until it is removed and
+                // added again, which reruns its setup.
                 this._errored.add(system);
                 console.error(
                     `System "${this._names.get(system) ?? system.name ?? "?"}" threw and is paused until its next reload:`,

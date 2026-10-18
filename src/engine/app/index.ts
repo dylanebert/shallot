@@ -45,14 +45,14 @@ export interface Plugin {
     readonly gpu?: GpuRequirements;
     /** @internal Observes the World-owned GPU context at acquisition, before plugin initialization. */
     readonly prepareGpu?: (world: World, gpu: import("../runtime").WorldGpu) => void;
-    /** Initial setup, run before warm-up; idempotent. Nothing paints while this hook runs synchronously, until it awaits. Split long setup into awaited slices and report each through `onProgress`. */
+    /** Initial setup, run before warm-up. Nothing paints while this hook runs synchronously, until it awaits. Split long setup into awaited slices and report each through `onProgress`. */
     readonly initialize?: (
         world: World,
         onProgress?: (progress: number) => void,
     ) => void | Promise<void>;
     /**
      * GPU setup and derived spawns after initialization. Nothing paints while this hook runs synchronously, until it awaits. Split long setup into awaited slices and report each through `onProgress`.
-     * Must be idempotent. Tie external effects to the World via `world.onDispose` / `world.signal`
+     * Tie external effects to the World via `world.onDispose` / `world.signal`
      * so they unwind at disposal; entity storage is already World-owned.
      */
     readonly warm?: (world: World, onProgress?: (progress: number) => void) => void | Promise<void>;
@@ -441,8 +441,9 @@ export function mountOverlay(canvas: HTMLElement | null, world?: World): HTMLDiv
 /**
  * build the app and start the `requestAnimationFrame` frame loop, mounting `config.ui` (web only). the
  * loop drives `world.step(dt)` each frame, GPU-fence backpressured so it never runs far ahead of the GPU.
- * system setup/update errors are logged and the system pauses until swapped or rebuilt; the frame finishes. A
- * non-destroyed device loss stops the loop and reaches the loading screen, without recovery.
+ * system setup/update errors are logged and the system pauses until the page reloads or it is removed and
+ * added again, which reruns its setup; the frame finishes. A non-destroyed device loss stops the loop and
+ * reaches the loading screen, without recovery.
  */
 export async function runApp(config: AppConfig): Promise<App> {
     const loading = config.loading ?? _defaultLoading?.();

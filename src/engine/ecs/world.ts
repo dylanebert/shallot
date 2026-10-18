@@ -921,8 +921,9 @@ export class World {
         this._scheduler.record = fn;
     }
 
-    /** @internal The running host chooses log-and-pause so a hot-reloaded bug cannot wedge it.
-     * Failed systems pause until swapped or rebuilt; later draw systems run, and the frame submits when it recorded work. */
+    /** @internal The running host chooses log-and-pause so one failing system cannot stop its frame loop.
+     * A failed system stays paused until the page reloads or it is removed and added again, which reruns
+     * its setup; later draw systems run, and the frame submits when it recorded work. */
     logAndPauseSystemErrors(): void {
         this._scheduler.logAndPauseErrors = true;
     }
