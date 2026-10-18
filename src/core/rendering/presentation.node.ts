@@ -9,7 +9,7 @@ import { Vignette, VignettePlugin } from "../../extras/vignette";
 import { StandardRenderer } from "../../standard/rendering";
 import { Transform } from "../transform";
 import "../../standard";
-import { attachCanvas, attachTexture, Camera, captureTexture, EffectPasses, Views } from "./index";
+import { attachCanvas, attachTexture, Camera, captureFrame, captureTexture, EffectPasses, Views } from "./index";
 import { PointsPlugin } from "./points.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -42,12 +42,12 @@ test("standard composition, vignette, after-tonemap and points present and captu
         app = await createTestGpuApp({ device, plugins: [VignettePlugin, PointsPlugin] });
         const { world } = app;
         const canvas = {
-            width: 16,
-            height: 16,
+            width: 1280,
+            height: 720,
             style: { imageRendering: "auto" },
-            getBoundingClientRect: () => ({ width: 16, height: 16 }),
+            getBoundingClientRect: () => ({ width: 1280, height: 720 }),
         } as unknown as HTMLCanvasElement;
-        const context = new CanvasContext(canvas, 16, 16);
+        const context = new CanvasContext(canvas, 1280, 720);
         canvas.getContext = ((kind: string) =>
             kind === "webgpu" ? context : null) as typeof canvas.getContext;
         const cameras = [world.create(), world.create()];
@@ -61,6 +61,41 @@ test("standard composition, vignette, after-tonemap and points present and captu
         expect(
             world.resource(Views).get(cameras[1])!.texture!.usage & GPUTextureUsage.STORAGE_BINDING,
         ).toBe(0);
+        const getCurrentTexture = context.getCurrentTexture.bind(context);
+        for (const fresh of [true, false]) {
+            const acquired: GPUTexture[] = [];
+            context.getCurrentTexture = () => {
+                if (fresh)
+                    context.configure({
+                        device,
+                        format: navigator.gpu.getPreferredCanvasFormat(),
+                        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+                    });
+                const texture = getCurrentTexture();
+                acquired.push(texture);
+                return texture;
+            };
+            world.step(0);
+            const pending = captureFrame(canvas);
+            world.step(0);
+            expect(acquired).toHaveLength(2);
+            if (fresh) {
+                expect(acquired[1]).not.toBe(acquired[0]);
+                const shot = await pending;
+                expect(shot.width).toBe(1280);
+                expect(shot.height).toBe(720);
+                expect(shot.rgba.some((byte, i) => i % 4 !== 3 && byte > 0)).toBe(true);
+                expect(
+                    shot.rgba.filter((_byte, i) => i % 4 === 3).every((byte) => byte === 255),
+                ).toBe(true);
+            } else {
+                expect(acquired[1]).toBe(acquired[0]);
+                await expect(pending).rejects.toThrow(
+                    "canvas frame capture: captureFrame refused: canvas texture already used by an earlier frame; await world.frameFence (or yield a task) before the capture frame",
+                );
+            }
+        }
+        context.getCurrentTexture = getCurrentTexture;
         const module = device.createShaderModule({
             code: `
 @vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
@@ -127,7 +162,7 @@ test("standard composition, vignette, after-tonemap and points present and captu
             // A real swapchain texture remains context-owned and is captured in the page.
             world.own(texture);
             const canvasShot = await probeTexture(world, texture);
-            expect(canvasShot.bytes).toHaveLength(16 * 16 * 4);
+            expect(canvasShot.bytes).toHaveLength(1280 * 720 * 4);
         }
         expect(captures[1]).not.toEqual(captures[0]);
         expect(captures[2]).not.toEqual(captures[1]);

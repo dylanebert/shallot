@@ -2,9 +2,9 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { World } from "../../engine";
 import type { WorldGpu } from "../../engine/runtime";
-import { captureFrame, encodeFrameCapture } from "./capture";
+import { captureFrame } from "./capture";
 import { RenderContext } from "./render";
-import { attachCanvas, detachView, Views } from "./view";
+import { attachCanvas, detachView } from "./view";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -62,7 +62,7 @@ function testWorld() {
             const buffer = {
                 destroyed: false,
                 mapAsync: async () => {},
-                getMappedRange: () => new ArrayBuffer(Number(_descriptor.size)),
+                getMappedRange: () => new ArrayBuffer(0),
                 unmap() {},
                 destroy() {
                     buffer.destroyed = true;
@@ -179,46 +179,6 @@ test("a pending canvas frame capture rejects on world disposal with its label", 
         restore();
     }
 });
-
-for (const reused of [true, false]) {
-    test(`a canvas capture ${reused ? "refuses a reused" : "resolves a fresh"} frame texture`, async () => {
-        const canvas = testCanvas();
-        const restore = installCanvasGlobals(canvas);
-        const fixture = testWorld();
-        try {
-            const eid = bindCanvas(fixture.world, canvas);
-            const view = fixture.world.resource(Views).get(eid)!;
-            view.canvasTexture = {
-                width: canvas.width,
-                height: canvas.height,
-                format: "rgba8unorm",
-            } as GPUTexture;
-            view.canvasTextureReused = reused;
-            let copies = 0;
-            fixture.world.frameEncoder = () =>
-                ({ copyTextureToBuffer: () => copies++ }) as unknown as GPUCommandEncoder;
-            const pending = captureFrame(canvas);
-            encodeFrameCapture(fixture.world, view);
-            if (reused) {
-                await expect(pending).rejects.toThrow(
-                    "canvas frame capture: captureFrame refused: canvas texture already used by an earlier frame; await world.frameFence (or yield a task) before the capture frame",
-                );
-                expect(copies).toBe(0);
-            } else {
-                const capture = await pending;
-                expect(capture.width).toBe(canvas.width);
-                expect(capture.height).toBe(canvas.height);
-                expect(capture.rgba.length).toBe(canvas.width * canvas.height * 4);
-                expect(copies).toBe(1);
-            }
-            expect(view.frameCaptures).toBeUndefined();
-            expect(fixture.buffers[0]!.destroyed).toBe(true);
-        } finally {
-            fixture.world.dispose();
-            restore();
-        }
-    });
-}
 
 test("detaching repeatedly does not retain old canvas bindings", async () => {
     const canvas = testCanvas();
