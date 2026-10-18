@@ -3,7 +3,14 @@ import { AudioOutput, Clips, Listener, play, registerClip, Sound } from "../../c
 import { Devices } from "../../core/input";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { World } from "../../engine";
-import { AudioRuntime, installAudioRestore, reconcileAudio, returnAudioBuffer } from "./runtime";
+import {
+    AudioRuntime,
+    disposeAudio,
+    initializeAudio,
+    installAudioRestore,
+    reconcileAudio,
+    returnAudioBuffer,
+} from "./runtime";
 
 interface Message {
     type: string;
@@ -307,4 +314,66 @@ test("the positional command carries listener-relative azimuth for a source at t
     expect(data[2 + 6]).toBeCloseTo(-Math.PI / 2);
     expect(world.has(source, GlobalTransform)).toBe(true);
     world.dispose();
+});
+
+test("a context suspending drops a once Sound at its statechange, before the next frame", async () => {
+    const globals = globalThis as Record<string, unknown>;
+    const previous = {
+        AudioContext: globals.AudioContext,
+        AudioWorkletNode: globals.AudioWorkletNode,
+    };
+    let onStateChange: (() => void) | undefined;
+    const node = () => ({ connect() {}, disconnect() {} });
+    class FakeContext {
+        state = "running";
+        sampleRate = 48000;
+        destination = node();
+        audioWorklet = { addModule: async () => {} };
+        addEventListener(type: string, listener: () => void) {
+            if (type === "statechange") onStateChange = listener;
+        }
+        removeEventListener() {}
+        createConstantSource() {
+            return { ...node(), offset: { value: 1 }, start() {}, stop() {} };
+        }
+        async close() {}
+    }
+    class FakeWorkletNode {
+        onprocessorerror: unknown = null;
+        port = {
+            onmessageerror: null as unknown,
+            postMessage() {},
+            listener: null as ((event: { data: unknown }) => void) | null,
+            get onmessage() {
+                return this.listener;
+            },
+            set onmessage(listener: ((event: { data: unknown }) => void) | null) {
+                const first = this.listener === null && listener !== null;
+                this.listener = listener;
+                if (first) queueMicrotask(() => listener!({ data: { type: "ready" } }));
+            },
+        };
+        connect() {}
+        disconnect() {}
+    }
+    globals.AudioContext = FakeContext;
+    globals.AudioWorkletNode = FakeWorkletNode;
+    const world = new World();
+    try {
+        await initializeAudio(world);
+        const context = world.resource(AudioRuntime).context as unknown as FakeContext;
+        const clip = registerClip(world, new Float32Array([0.25]));
+        const once = play(world, clip);
+        const loop = play(world, clip, { loop: true });
+        context.state = "suspended";
+        onStateChange!();
+        expect(world.resource(Devices).audio.context).toBe("suspended");
+        expect(world.exists(once)).toBe(false);
+        expect(world.exists(loop)).toBe(true);
+    } finally {
+        await disposeAudio(world);
+        world.dispose();
+        globals.AudioContext = previous.AudioContext;
+        globals.AudioWorkletNode = previous.AudioWorkletNode;
+    }
 });
