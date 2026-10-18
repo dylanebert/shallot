@@ -1,3 +1,6 @@
+// Seven-frame averaging limits trails while accumulating sub-cell samples.
+export const HISTORY_WEIGHT = 6 / 7;
+
 function radicalInverse(index: number, base: number): number {
     let value = 0;
     let fraction = 1 / base;

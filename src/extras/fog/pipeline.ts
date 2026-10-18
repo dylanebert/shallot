@@ -27,6 +27,7 @@ import {
     reconstructWorld,
     WORKGROUP,
 } from "./medium";
+import { HISTORY_WEIGHT } from "./temporal";
 
 export const FogHistory = d.struct({
     viewProj: d.mat4x4f,
@@ -321,9 +322,9 @@ function createGridKernel() {
                     noPhase = std.mix(
                         noPhase,
                         std.mul(old.rgb, camView.exposure / std.max(prev.range.z, 1e-8)),
-                        6 / 7,
+                        HISTORY_WEIGHT,
                     );
-                    dens = std.mix(dens, old.a, 6 / 7);
+                    dens = std.mix(dens, old.a, HISTORY_WEIGHT);
                 }
                 std.textureStore(layout.$.feedback, d.vec3i(px, d.i32(i)), d.vec4f(noPhase, dens));
                 lstep = std.mul(noPhase, phase);
