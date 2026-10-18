@@ -25,7 +25,8 @@ test("a mote takes local light exposed once, is zero with NoFog, and takes its o
         const { world } = app;
         const camera = world.resource(Room).camera;
         world.remove(world.resource(Room).player, Player);
-        attachTexture(world, camera, { width: 1024, height: 1024 });
+        // Keep the mote rasterized while the claim reads only its brightest pixel.
+        attachTexture(world, camera, { width: 512, height: 512 });
         world.storage(Transform).translation.set(camera, 0, 0.7, 2, 0);
         world.tick();
         world.add(camera, Tonemapping, { method: TonemappingMethod.None });
@@ -41,7 +42,8 @@ test("a mote takes local light exposed once, is zero with NoFog, and takes its o
         world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
         let previousDensity: number | undefined;
         const frame = async (density: number, visible: boolean, settle = 1) => {
-            if (density !== previousDensity) settle = 32;
+            // A changed fog drops history; the second frame includes its half-float blend.
+            if (density !== previousDensity) settle = 2;
             previousDensity = density;
             world.storage(Fog).density.set(fog, density);
             motes.visible = visible;
@@ -76,7 +78,7 @@ test("a mote takes local light exposed once, is zero with NoFog, and takes its o
         const zeroWithNoFog = noFogMote[at] === noFogBase[at];
         world.remove(camera, NoFog);
         for (const sun of world.query([VolumetricLight])) world.remove(sun, VolumetricLight);
-        const darkBase = await frame(0.00001, false, 32);
+        const darkBase = await frame(0.00001, false, 2);
         const darkMote = await frame(0.00001, true);
         const followsLocalLight = decode(darkMote[at]!) - decode(darkBase[at]!) < added * 0.03;
         expect({ exposedOnce, zeroWithNoFog, followsLocalLight }).toEqual({
