@@ -329,14 +329,6 @@ export const clusterCell = tgpu.fn(
     return slot * d.u32(CLUSTER_COUNT) + cluster;
 });
 
-/** the slice containing a positive view-space depth, clamped to the grid */
-export function zSlice(view: ClusterView, viewZ: number): number {
-    const s = Math.floor(
-        (Math.log(viewZ / view.near) / Math.log(view.far / view.near)) * CLUSTER_Z,
-    );
-    return Math.min(Math.max(s, 0), CLUSTER_Z - 1);
-}
-
 /**
  * View-space cluster AABB: camera looks down -Z, min.z is the far boundary; tile (0,0) starts at NDC (-1,-1).
  * Perspective tile corners widen with depth, so bounds must include both slice boundaries.
