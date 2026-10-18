@@ -1,4 +1,4 @@
-// Builds C harnesses against BOX3D at 47d7f7cc. Libraries are cached by revision and architecture;
+// Builds C and C++ harnesses against BOX3D at 47d7f7cc. Libraries are cached by revision and architecture;
 // each harness binary is keyed by its contents. Existing scene oracles use the host architecture.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,7 +28,7 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
         `box3d-parity-${SHA.slice(0, 8)}${architecture ? `-${architecture}` : ""}`,
     );
     const cmake = join(build, "cmake");
-    const source = join(here, sourceName);
+    const source = resolve(here, sourceName);
     const native = join(
         build,
         `native-${Bun.hash(readFileSync(source)).toString(16).padStart(16, "0")}`,
@@ -51,10 +51,10 @@ export function nativeBinary(sourceName = "native.c", architecture?: "x86_64" | 
     }
     const inc = ["include", "src", "shared"].map((d) => `-I${join(box3d, d)}`);
     run([
-        "cc",
+        source.endsWith(".cpp") ? "c++" : "cc",
         ...(architecture ? ["-arch", architecture] : []),
         "-O2",
-        "-std=c17",
+        source.endsWith(".cpp") ? "-std=c++17" : "-std=c17",
         "-ffp-contract=off",
         ...inc,
         source,
