@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { lookAtRotation } from "@dylanebert/shallot";
+import { Fog, FogPlugin } from "@dylanebert/shallot/extras";
 import { Meshes, MeshInstance, sphere } from "@dylanebert/shallot/mesh";
 import {
     attachTexture,
@@ -66,6 +67,10 @@ const subjects = gpuApps(import.meta.path, [
             MaterialPlugin(Rough),
             MaterialPlugin(Banded),
         ],
+    },
+    {
+        defaults: false,
+        plugins: [StandardRenderingPlugin, MeshRenderPlugin, MaterialPlugin(Banded), FogPlugin],
     },
 ]);
 
@@ -167,4 +172,48 @@ test("extended standard preserves alpha and shading with prepass and sun shadows
     expect(gradient.size).toBeGreaterThan(4);
     expect(colors.size).toBeGreaterThan(1);
     expect(colors.size).toBeLessThanOrEqual(4);
+});
+
+test("fog varies smoothly with surface depth inside one extended-material lighting band", async () => {
+    const { world } = subjects()[1];
+    const camera = world.create();
+    world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+    world.add(camera, Camera, { antialias: 0 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+    attachTexture(world, camera, { width: 32, height: 32 });
+    const sun = world.create();
+    world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, 0, 0, -1) });
+    world.add(sun, DirectionalLight);
+    const surface = world.create();
+    world.add(surface, Transform);
+    world.add(surface, MeshInstance);
+    world.add(
+        surface,
+        MeshMaterial,
+        world.resource(Banded).add(StandardMaterial({ perceptualRoughness: 1 })),
+    );
+    const fog = world.create();
+    world.add(fog, Fog, { color: 0, density: 0, absorption: 1, scattering: 0, viewDistance: 20 });
+    const sampleDepths = async () => {
+        const samples: number[] = [];
+        for (let depth = 0; depth < 5; depth++) {
+            world.storage(Transform).translation.set(surface, 0, 0, -depth, 0);
+            world.step(1 / 60);
+            world.step(1 / 60);
+            const frame = await captureTexture(world, camera);
+            samples.push(frame.rgba[(16 * 32 + 16) * 4]!);
+        }
+        return samples;
+    };
+    const unfogged = await sampleDepths();
+    expect(new Set(unfogged).size).toBe(1);
+    expect(unfogged[0]).toBeGreaterThan(0);
+    world.storage(Fog).density.set(fog, 0.02);
+    const fogged = await sampleDepths();
+    expect(new Set(fogged).size).toBe(5);
+    for (let i = 1; i < fogged.length; i++) {
+        expect(fogged[i]).toBeLessThan(fogged[i - 1]!);
+        expect(fogged[i - 1]! - fogged[i]!).toBeLessThan(8);
+    }
 });

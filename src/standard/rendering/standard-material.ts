@@ -119,10 +119,17 @@ export function extendedMaterial(
     base: typeof Materials,
     spec: {
         name: string;
-        fragment: (context: d.InferGPU<typeof StandardContext>) => d.v4f;
+        fragment: ((context: d.InferGPU<typeof StandardContext>) => d.v4f) & {
+            readonly resourceType?: never;
+        };
     },
 ): typeof Materials {
     if (!spec.name) throw new Error("material type name must not be empty");
+    if ("resourceType" in spec.fragment) {
+        throw new Error(
+            `material type "${spec.name}" fragment shader must be a plain "use gpu" function, not a prebuilt TypeGPU function`,
+        );
+    }
     const Context = (base.fragment as unknown as { shell: { argTypes: [StandardContextSchema] } })
         .shell.argTypes[0];
     const definition: typeof Materials = {
