@@ -13,11 +13,12 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Builds serialize registration and warm-up; completed apps coexist.
 - Components declare fields, not storage or GPU residency.
 - A component's fields promise a value only while an entity holds it.
-- A component's identity is its record; its key only rebinds a reloaded record, and a composition refuses two records under one key.
+- A component's identity is its record; its key only rebinds a hot-updated record, and a composition refuses two records under one key.
 - A component's membership bit is never reassigned, including by restore.
 - Each world owns eid-indexed typed columns that double to cover a component's holders and never shrink during play. Eid indexing spans its highest holder's eid: even a one-holder component on a high eid costs its row bytes per eid, as the public raw-column contract requires.
 - Accessors resolve once with `world.storage(Component)`; growth replaces arrays, not accessors.
-- Compatible hot reload reuses storage; an incompatible schema requires rebuilding.
+- A live page re-evaluates only a module Vite hot-updates in place, such as one only a Svelte component imports; an edit reaching the entry reloads the page.
+- A hot-updated record with a compatible schema reuses its storage; an incompatible one is refused.
 - Field changes are frame-scoped: every consuming table reads them at upload before they clear, and later writes reach the next frame.
 - A raw column write publishes only after `markChanged(eid)` on its field or lane; setters and bulk writes mark automatically. There are no per-component change ticks.
 - Plugin state lives in `world.resource`, never module globals.
