@@ -1,6 +1,7 @@
 import {
     Camera,
     DirectionalLight,
+    eulerToQuat,
     GlobalAmbientLight,
     lookAtRotation,
     Materials,
@@ -39,7 +40,7 @@ function spawn(
     const eid = world.create();
     world.add(eid, Transform, {
         translation: placement.translation,
-        rotation: [0, Math.sin(placement.yaw / 2), 0, Math.cos(placement.yaw / 2)],
+        rotation: eulerToQuat(0, placement.yaw, 0),
         scale: placement.scale,
     });
     world.add(eid, MeshInstance, placement.part === "dome" ? { mesh: dome } : {});
