@@ -12,7 +12,7 @@ These changes require updates to a 0.9.5 app.
 
 ## Hiding sprites, labels and lines
 
-`Sprite.visible`, `Text.visible` and `Line.visible` are removed. Remove the drawing component to hide it; add it again with its authored values to show it. Keep any values needed for re-adding outside the removed component: its fields are valid only while the entity holds it.
+`Sprite.visible`, `Text.visible` and `Line.visible` are removed. Remove the drawing component to hide it; add it again with its authored values to show it. Its fields are valid only while the entity holds it, so read them with `world.get(eid, Sprite)` before removing and pass that record back: `world.add(eid, Sprite, values)`.
 
 ## Retained gizmos and arrowheads
 
@@ -609,7 +609,7 @@ Defaults use declaration field names and vector arrays, as `world.add` does; rep
 
 Keep each key byte-for-byte; hot reload rebinds a reloaded record by it. A composition refuses two different records under one key, naming both plugins. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused, naming the plugin and the record's fields.
 
-`inspect`, `snapshot`, `readFields` and `dump`, and the `EntityData` and `FieldValues` types, are removed. Read component values through `world.storage(Component)`. `world.snapshot()` returns `WorldSnapshot`, opaque, world-local recovery state for `world.restore(snapshot)`, not a save format. To use recovery, plugins with fixed systems declare `recovery: "stateless"` if components hold all their simulation state, or `recovery(world)` returning `{ snapshot(), restore(state) }` for hidden state. Snapshot returns an independent, reusable image; restore runs against the restored ECS and tick clock.
+`inspect`, `snapshot`, `readFields` and `dump`, and the `EntityData` and `FieldValues` types, are removed. For `readFields(Component, eid)`, use `world.get(eid, Component)`: it returns one component's values, or `undefined` when the entity does not hold it, with vectors as arrays (`pos: [x, y]`) instead of dotted lanes (`pos.x`). Per-frame reads stay on `world.storage(Component)`. `world.snapshot()` returns `WorldSnapshot`, opaque, world-local recovery state for `world.restore(snapshot)`, not a save format. To use recovery, plugins with fixed systems declare `recovery: "stateless"` if components hold all their simulation state, or `recovery(world)` returning `{ snapshot(), restore(state) }` for hidden state. Snapshot returns an independent, reusable image; restore runs against the restored ECS and tick clock.
 
 ## Import app plugins in the entry page
 

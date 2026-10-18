@@ -17,6 +17,19 @@ export type ComponentValues<T> = {
         : never;
 };
 
+/** Every declared field's value, as `World.get` returns it; vectors are arrays of their authored length. */
+export type ComponentRecord<T> = {
+    [K in keyof T as T[K] extends FieldType ? K : never]-?: T[K] extends FieldType
+        ? T[K]["lanes"] extends 1
+            ? number
+            : T[K]["lanes"] extends 2
+              ? [number, number]
+              : T[K] extends { readonly components: 3 }
+                ? [number, number, number]
+                : [number, number, number, number]
+        : never;
+};
+
 /** @internal Freeze a component's shared declarations, never its world's storage. */
 export function freezeComponent(component: Component): void {
     for (const value of Object.values(component)) {

@@ -9,6 +9,7 @@ import {
 import { FieldColumns } from "./columns";
 import {
     type Component,
+    type ComponentRecord,
     Components,
     type ComponentValues,
     declaration,
@@ -837,6 +838,29 @@ export class World {
 
     has<T>(eid: number, component: T): boolean {
         return this._components.has(eid, component);
+    }
+
+    /**
+     * Read a component's values as one record that `add` takes back, or undefined when the entity
+     * does not hold it. Vectors are plain arrays of their authored length, three for `vec3`; entity
+     * fields are live eids, 0 once destroyed. Each call allocates a fresh record and marks nothing;
+     * per-frame reads stay on `world.storage(Component)`.
+     */
+    get<T>(eid: number, component: T): ComponentRecord<T> | undefined {
+        if (!this._components.has(eid, component)) return undefined;
+        const record: Record<string, number | number[]> = {};
+        for (const [name, field] of this._storage.get(idOf(component as Component))!.fields) {
+            const type = field.type;
+            if (type.lanes === 1) {
+                record[name] = field.get(eid);
+                continue;
+            }
+            const values: number[] = [];
+            const length = type.components ?? type.lanes;
+            for (let lane = 0; lane < length; lane++) values.push(field.get(eid, lane));
+            record[name] = values;
+        }
+        return record as ComponentRecord<T>;
     }
 
     /** Find matching entities. An idle query starts in ascending eid order; nested iterations keep
