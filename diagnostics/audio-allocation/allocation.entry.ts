@@ -29,10 +29,13 @@ class AudioPort {
     onmessageerror: (() => void) | null = null;
     readonly event: PortMessageEvent = { data: undefined };
 
-    constructor(
-        private readonly owner: FakeAudioWorkletNode,
-        private readonly processorSide: boolean,
-    ) {}
+    private readonly owner: FakeAudioWorkletNode;
+    private readonly processorSide: boolean;
+
+    constructor(owner: FakeAudioWorkletNode, processorSide: boolean) {
+        this.owner = owner;
+        this.processorSide = processorSide;
+    }
 
     postMessage(message: any): void {
         if (this.processorSide) this.owner.fromProcessor(message);

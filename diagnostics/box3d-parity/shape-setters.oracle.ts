@@ -38,6 +38,7 @@ setDefaultTimeout(180_000);
 await init(undefined, { threads: 0 });
 const rows = nativeSseOutput("shape-setters.c", "").trim().split("\n");
 const expected = new Map(rows.map((row) => [row.slice(0, row.indexOf(" ")), row]));
+const unitScale = { x: 1, y: 1, z: 1 };
 function values(name: string): string[] {
     const row = expected.get(name);
     if (!row) throw new Error(`missing native Shape setter row ${name}`);
@@ -61,10 +62,9 @@ function material(name: string, value: SurfaceMaterial): void {
     expect(value.userMaterialId).toBe(BigInt(row[6]!));
     expect(value.customColor >>> 0).toBe(Number(row[7]) >>> 0);
 }
-function scene(type = BodyType.Dynamic): { world: WorldState; body: number } {
+function scene(type: BodyType = BodyType.Dynamic): { world: WorldState; body: number } {
     const world = createTestWorld({
         gravity: { x: 0, y: 0, z: 0 },
-        workerCount: 1,
     });
     return { world, body: createTestBody(world, { type }) };
 }
@@ -74,7 +74,7 @@ function sphereShape(world: WorldState, body: number): number {
         body,
         testShapeDef(),
         { center: { x: 0, y: 0, z: 0 }, radius: 0.5 },
-    );
+    )!;
 }
 function emptyMaterial(): SurfaceMaterial {
     return {
@@ -198,7 +198,7 @@ test("Shape.setCapsule/getCapsule matches Box3D", () => {
                 center2: { x: 0, y: 0.5, z: 0 },
                 radius: 0.25,
             },
-        );
+        )!;
         setShapeCapsule(world, shape, {
             center1: { x: -0.75, y: 0.25, z: 1.5 },
             center2: { x: 0.5, y: 1.25, z: -0.25 },
@@ -228,7 +228,7 @@ test("Shape.setHull/readShapeHull matches Box3D", () => {
         { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 },
     ], 4)!;
     try {
-        const shape = createHullShape(world, body, testShapeDef(), initial);
+        const shape = createHullShape(world, body, testShapeDef(), initial)!;
         setShapeHull(world, shape, next);
         const got = readShapeHull(world, shape);
         const expectedRow = values("hull").map(Number);
@@ -246,7 +246,7 @@ test("Shape.setHull/readShapeHull matches Box3D", () => {
 test("Shape.setMesh/getGeometryScale/readShapeMesh matches Box3D", () => {
     const { world, body } = scene(BodyType.Static);
     try {
-        const shape = createMeshShape(world, body, testShapeDef(), meshData(0));
+        const shape = createMeshShape(world, body, testShapeDef(), meshData(0), unitScale)!;
         setShapeMesh(world, shape, meshData(2), { x: 2, y: 0.5, z: -1.5 });
         const got = readShapeMesh(world, shape);
         const expectedRow = values("mesh").map(Number);
@@ -265,7 +265,7 @@ test("Shape.setMesh/getGeometryScale/readShapeMesh matches Box3D", () => {
 test("Shape.setMeshMaterial/getMaterials matches Box3D", () => {
     const { world, body } = scene(BodyType.Static);
     try {
-        const shape = createMeshShape(world, body, testShapeDef(), meshData(0));
+        const shape = createMeshShape(world, body, testShapeDef(), meshData(0), unitScale)!;
         const next: SurfaceMaterial = {
             friction: 0.78,
             restitution: 0.19,

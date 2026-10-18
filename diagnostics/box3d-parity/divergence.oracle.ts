@@ -74,8 +74,8 @@ test("junkyard with one rock matches native through step 12, its edge-pair norma
     const world = createTestWorld();
     try {
         const body = createTestBody(world, { type: BodyType.Static });
-        const shapeA = createHullShape(world, body, testShapeDef(), a);
-        const shapeB = createHullShape(world, body, testShapeDef(), b);
+        const shapeA = createHullShape(world, body, testShapeDef(), a)!;
+        const shapeB = createHullShape(world, body, testShapeDef(), b)!;
         world.shapeStore.refreshViews();
         const shapeU = world.shapeStore.shapeU;
         const pointerA = shapeU[shapeA * SHAPE_STRIDE + S_GEO_REFERENCE];

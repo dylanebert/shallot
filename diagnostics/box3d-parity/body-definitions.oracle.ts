@@ -143,7 +143,7 @@ test("a default ECS Body hashes equal to native Box3D", async () => {
         const eid = app.world.create();
         app.world.add(eid, Body);
         app.world.tick();
-        expect(hashPhysics(app.world)).toBe(native[0]?.[0]);
+        expect(hashPhysics(app.world)).toBe(native[0]![0] as bigint);
     } finally {
         app.dispose();
     }

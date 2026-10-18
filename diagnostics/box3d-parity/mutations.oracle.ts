@@ -21,7 +21,7 @@ test("cold world mutation timings on warmed records", () => {
         body,
         testShapeDef(),
         { center: { x: 0, y: 0, z: 0 }, radius: 1 },
-    );
+    )!;
     const filters = [{ categoryBits: 1n, maskBits: 1n, groupIndex: 0 }, { categoryBits: 2n, maskBits: 2n, groupIndex: 0 }];
     const definition: Partial<BodyDef> = { type: BodyType.Dynamic };
     const actions = {

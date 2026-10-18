@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { dirname, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { attribute, originalPosition, prepareSamplingSession, subjectSite } from "./allocation-sampler.mjs";
+import { attribute, originalPosition, prepareSamplingSession, subjectSite, type ProfileNode } from "./allocation-sampler.mjs";
 import { isAdmittedAllocationSite } from "./allocation-admissions";
 import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 import {
@@ -52,7 +52,7 @@ test("source-map sites resolve Windows-shaped file URLs as filesystem paths", ()
             originalColumn: 34,
         }),
     };
-    const frame = { lineNumber: 0, columnNumber: 0 };
+    const frame = { functionName: "", lineNumber: 0, columnNumber: 0 };
 
     expect(originalPosition(frame, map, dirname(root), win32)).toEqual({
         source: fileURLToPath(url),
@@ -248,7 +248,7 @@ test("the allocation gate reds on any sampled steady allocation and prints its s
 });
 
 test("repeated samples retain their bytes, count and exact allocation stack", () => {
-    const frame = (id: number, functionName: string, children: unknown[] = []) => ({
+    const frame = (id: number, functionName: string, children: ProfileNode[] = []): ProfileNode => ({
         id,
         callFrame: { functionName, url: "file:///subject.mjs", scriptId: "1", lineNumber: id, columnNumber: 0 },
         children,
@@ -271,7 +271,7 @@ test("repeated samples retain their bytes, count and exact allocation stack", ()
 });
 
 test("an allocation with no JavaScript frame below the run frame is credited to the run frame, so the display control's breakpoint literal lands at the frame loop", () => {
-    const frame = (id: number, functionName: string, url: string, children: unknown[] = []) => ({
+    const frame = (id: number, functionName: string, url: string, children: ProfileNode[] = []): ProfileNode => ({
         id,
         callFrame: { functionName, url, scriptId: String(id), lineNumber: 496, columnNumber: 12 },
         children,

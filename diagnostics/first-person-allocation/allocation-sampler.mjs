@@ -19,7 +19,7 @@ import { normalizePath } from "../../src/project/paths.ts";
  * A profile frame's original source and zero-based line through `map`, a `node:module` SourceMap whose
  * relative sources resolve from `base`; undefined where the map has no entry.
  * @param {{ lineNumber: number, columnNumber?: number }} frame
- * @param {import("node:module").SourceMap | undefined} map
+ * @param {Pick<import("node:module").SourceMap, "findEntry"> | undefined} map
  * @param {string} base
  * @param {typeof import("node:path")} [pathModule]
  * @returns {{ source: string, line: number, column: number } | undefined}
@@ -38,7 +38,7 @@ export function originalPosition(frame, map, base, pathModule = path) {
  * A frame's exact source position, including its column, or `fallback` and its generated position where
  * the map has no entry.
  * @param {{ functionName: string, lineNumber: number, columnNumber?: number }} frame
- * @param {import("node:module").SourceMap | undefined} map
+ * @param {Pick<import("node:module").SourceMap, "findEntry"> | undefined} map
  * @param {string} base
  * @param {string} fallback
  * @param {string} root

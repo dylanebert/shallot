@@ -367,7 +367,7 @@ const hex = (value: number) => {
     return bits[0]!.toString(16).padStart(8, "0");
 };
 const rows: { kind: Kind; sample: number; actual: string[]; native: string[] }[] = [];
-const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 }, workerCount: 1 });
+const world = createTestWorld({ gravity: { x: 0, y: 0, z: 0 } });
 try {
     const a = createTestBody(world, { type: BodyType.Dynamic });
     const b = createTestBody(world, { type: BodyType.Dynamic, position: { x: 2, y: 0, z: 0 } });

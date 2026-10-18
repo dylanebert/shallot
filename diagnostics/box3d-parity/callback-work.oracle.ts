@@ -201,7 +201,7 @@ for (const kind of ["mesh", "compound mesh", "height"] as const)
                     identifyEdges: true,
                 });
                 if (!mesh) throw new Error("mesh construction failed");
-                if (kind === "mesh") createMeshShape(world, ground, definition, mesh);
+                if (kind === "mesh") createMeshShape(world, ground, definition, mesh, { x: 1, y: 1, z: 1 });
                 else {
                     const compound = createCompound({
                         meshes: [{

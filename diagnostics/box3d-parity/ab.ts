@@ -107,7 +107,7 @@ try {
         }
         for (const [i, v] of variants.entries()) {
             console.log(`${v.label} sample wall ms: ${display(samples[i].map(s => s.wall))}`);
-            for (const key of ["startup", "before", "hashing", "window", "other"])
+            for (const key of ["startup", "before", "hashing", "window", "other"] as const)
                 console.log(`  ${key}: ${display(samples[i].map(s => s.costs[key]))}`);
         }
         console.log("startup includes imports, initialization, scene construction and process exit; before/window include scene callbacks and stepping; other includes profile formatting.");
