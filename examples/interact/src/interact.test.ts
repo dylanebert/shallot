@@ -244,7 +244,7 @@ test("a button returns out after one press instead of toggling its pose", async 
     expect(w.storage(Usable).active.get(target)).toBe(0);
 });
 
-test("a completed hold leaves its position unchanged", async () => {
+test("a completed hold toggles active without moving its target", async () => {
     const { w, target, step } = await scene(Action.Hold);
     const y = w.storage(Transform).translation.y.get(target);
     pressKey(w, "KeyE");

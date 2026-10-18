@@ -292,7 +292,7 @@ test("the actual moving lift carries the Character vertically without delivering
     }
 });
 
-test("the actual lift rises monotonically from its authored base, turns repeatedly, stays between that base and the tower top, and keeps fixed X/Z, so live-pose accumulation reds independently", async () => {
+test("the actual lift rises above its authored step before its first turn, turns at least three times in 600 ticks, stays between its base and the tower top, and keeps fixed X/Z", async () => {
     const app = await ascent();
     try {
         const lift = entity(app, "lift");

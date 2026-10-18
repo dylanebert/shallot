@@ -31,7 +31,7 @@ test("voxel scale is one inside, zero outside, and decreases smoothly through th
     expect(voxelScale(outer - 0.001, inner, outer)).toBeLessThan(0.000001);
 });
 
-test("a chunk changes face rule when it meets or leaves the transition, not just when its coordinate changes", () => {
+test("the transition ring excludes the centre and far chunks and holds every chunk with a partly shrunk voxel at each viewer offset", () => {
     expect(inRing(0, 0, 0, config)).toBe(false);
     expect(inRing(2, 0, 0, config)).toBe(true);
     expect(inRing(4, 4, 0, config)).toBe(false);
