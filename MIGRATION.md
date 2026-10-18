@@ -129,7 +129,7 @@ origin lies on its view-space near plane, transformed by the camera's placement
 including scale; account for that offset when interpreting world-space hit distances. `viewportToWorld` reads fixed-tick `GlobalTransform`
 and returns null without camera placement or a non-empty target: a bound canvas or
 an attached texture.
-`generateRay` and `screenToRay` are no longer physics exports.
+`generateRay` and `screenToRay` are removed; use `viewportToWorld`.
 
 ## Camera depth, fog and perspective range
 

@@ -1,4 +1,4 @@
-import { qRotate, type Ray, Viewports, type World } from "../../engine";
+import { type Ray, Viewports, type World } from "../../engine";
 import { composeGlobalTransform, GlobalTransform } from "../transform";
 import { Camera, CameraMode, computeViewFromWorld } from "./camera";
 import { cameraView } from "./view";
@@ -106,58 +106,3 @@ export function worldToViewport(
 }
 
 const DEG2RAD = Math.PI / 180;
-
-/**
- * World-space ray through NDC [-1,1] (x right, y up). fov is vertical degrees; quat is world rotation.
- * Origin lies on the near plane and dir is normalized, so hit distances are world units.
- */
-export function generateRay(
-    ndcX: number,
-    ndcY: number,
-    aspect: number,
-    fov: number,
-    near: number,
-    origin: readonly [number, number, number],
-    quat: readonly [number, number, number, number],
-): Ray {
-    const t = Math.tan((fov * DEG2RAD) / 2);
-    const [dx, dy, dz] = qRotate(
-        quat[0],
-        quat[1],
-        quat[2],
-        quat[3],
-        ndcX * aspect * t,
-        ndcY * t,
-        -1,
-    );
-    const len = Math.hypot(dx, dy, dz) || 1;
-    const nx = dx / len;
-    const ny = dy / len;
-    const nz = dz / len;
-    return {
-        origin: [origin[0] + nx * near, origin[1] + ny * near, origin[2] + nz * near],
-        dir: [nx, ny, nz],
-    };
-}
-
-/** World-space pick ray through canvas pixels from top-left; origin/quat are world pose, fov is vertical degrees. */
-export function screenToRay(
-    screenX: number,
-    screenY: number,
-    width: number,
-    height: number,
-    fov: number,
-    near: number,
-    origin: readonly [number, number, number],
-    quat: readonly [number, number, number, number],
-): Ray {
-    return generateRay(
-        (screenX / width) * 2 - 1,
-        1 - (screenY / height) * 2,
-        width / height,
-        fov,
-        near,
-        origin,
-        quat,
-    );
-}
