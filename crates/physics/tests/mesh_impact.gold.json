@@ -1,0 +1,94 @@
+{
+    "cases": [
+        {
+            "name": "reflected triangle the box only grazes misses",
+            "vertices": [
+                "c012c82e",
+                "402ccee5",
+                "3e7fcb23",
+                "3fde4d3e",
+                "be632328",
+                "400ebdbd",
+                "be8e6daf",
+                "bfce6138",
+                "bfdb944f"
+            ],
+            "scale": [
+                "3f800000",
+                "3f800000",
+                "bf800000"
+            ],
+            "c1": [
+                "00000000",
+                "3fc00000",
+                "00000000"
+            ],
+            "c2": [
+                "00000000",
+                "3f000000",
+                "00000000"
+            ],
+            "output": {
+                "state": 0,
+                "fraction": "00000000",
+                "distance": "00000000",
+                "point": [
+                    "00000000",
+                    "00000000",
+                    "00000000"
+                ],
+                "normal": [
+                    "00000000",
+                    "00000000",
+                    "00000000"
+                ],
+                "usedFallback": false
+            }
+        },
+        {
+            "name": "reflected triangle the box reaches hits",
+            "vertices": [
+                "c0106bf7",
+                "402700d6",
+                "3e9007c2",
+                "3fddb269",
+                "bfade9f3",
+                "400f1168",
+                "be8605b4",
+                "bee68a59",
+                "bfdf500b"
+            ],
+            "scale": [
+                "3f800000",
+                "3f800000",
+                "bf800000"
+            ],
+            "c1": [
+                "00000000",
+                "3fc00000",
+                "00000000"
+            ],
+            "c2": [
+                "00000000",
+                "3f000000",
+                "00000000"
+            ],
+            "output": {
+                "state": 3,
+                "fraction": "3f7dfa24",
+                "distance": "3ba3d733",
+                "point": [
+                    "be80f2a4",
+                    "3e833c60",
+                    "be804a39"
+                ],
+                "normal": [
+                    "3f3d9040",
+                    "3f21fc29",
+                    "3e67f331"
+                ],
+                "usedFallback": false
+            }
+        }
+    ]
+}
