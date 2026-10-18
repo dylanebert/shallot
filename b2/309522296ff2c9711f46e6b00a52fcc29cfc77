@@ -1,2 +1,2 @@
 stage: 4
-finding: P1 src/core/transform/global-transform.ts:11 imports engine/utils/math.ts past engine/utils/index.ts, violating scripts/import-boundary.ts's public-entry gate. Independently running bun test --todo ./scripts/check-imports.node.ts fails repository imports have no violations with this exact finding. Import composeMat4 through the utils barrel instead. Arithmetic expressions and write order match the old body; all in-tree composeGlobalTransform callers supply out; alignment predicate, acquisition runtime/error behavior and platform wording have no additional findings on inspection.
+clean
