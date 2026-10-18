@@ -2,11 +2,9 @@ import {
     Body,
     BodyType,
     Camera,
-    cube,
     DirectionalLight,
     GlobalAmbientLight,
     GlobalTransform,
-    Hulls,
     lookAtRotation,
     Materials,
     Meshes,
@@ -15,9 +13,9 @@ import {
     MotorJoint,
     NotShadowCaster,
     Shape,
-    ShapeKind,
     StandardMaterial,
     StandardRenderer,
+    shapeMesh,
     sphere,
     Transform,
     type World,
@@ -115,19 +113,10 @@ export function createView(world: World, scene: Scene): void {
             drawLine(world, p, grab.point, 0xeee9df, 1);
         },
     });
-    const shapes = world.storage(Shape);
     const types = world.storage(Body).type;
     const meshes = world.resource(Meshes);
     for (const eid of world.query([Shape])) {
-        const hulls = world.resource(Hulls);
-        const hull = hulls.get(shapes.geometry.get(eid));
-        if (shapes.kind.get(eid) !== ShapeKind.Hull || !hull?.halfExtents || shapes.body.get(eid))
-            throw new Error("The physics viewer currently draws body-local box hulls only");
-        const size = hull.halfExtents.map(
-            (extent, axis) =>
-                2 * extent * [shapes.scale.x, shapes.scale.y, shapes.scale.z][axis]!.get(eid),
-        ) as [number, number, number];
-        const mesh = meshes.add({ name: `Shape ${eid}`, ...cube(size) });
+        const mesh = meshes.add({ name: `Shape ${eid}`, ...shapeMesh(world, eid) });
         world.add(eid, MeshInstance, { mesh });
         // Colour encodes affordance and emphasis: static bodies are carbon, grabbable dynamics amber;
         // cyan and brand-orange are reserved for distinct scene roles, never creation order.

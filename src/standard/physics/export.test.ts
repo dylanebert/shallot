@@ -61,6 +61,7 @@ test("standard physics exports consumed world operations and profiling without s
         "setLinearVelocity",
         "setTargetTransform",
         "setTransform",
+        "shapeMesh",
         "solvePlanes",
     ]);
 });

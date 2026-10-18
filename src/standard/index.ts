@@ -39,6 +39,7 @@ export {
     setLinearVelocity,
     setTargetTransform,
     setTransform,
+    shapeMesh,
 } from "./physics";
 export {
     AlphaMode,

@@ -48,6 +48,7 @@ export {
     setTargetTransform,
     setTransform,
 } from "./runtime";
+export { shapeMesh } from "./shape-mesh";
 export type { Capsule } from "./shapes/geometry";
 export type { StepProfile } from "./world/profile";
 export {
