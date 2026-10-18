@@ -24,6 +24,11 @@ declare global {
         };
     }
 }
+test.beforeEach(async ({ page }) => {
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
+});
+
 test("the floor beam outshines adjacent shade, motes brighten the shared view, and injected walking draws on default device limits", async ({
     page,
 }) => {
@@ -129,8 +134,25 @@ test("spawn, mid-stir and profiler captures use the game's composed first-person
     await page.goto(`http://127.0.0.1:4196/tests/stepped.html${directory ? "?captures" : ""}`);
     await page.waitForFunction(() => window.particles);
     const capture = async (name: string) => {
-        const image = await page.evaluate(() => window.particles.capture());
-        if (!directory) return;
+        const { image, colors } = await page.evaluate(async (save) => {
+            const image = await window.particles.capture();
+            const bitmap = await createImageBitmap(await (await fetch(image)).blob());
+            const canvas = document.createElement("canvas");
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            const context = canvas.getContext("2d")!;
+            context.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            const colors = new Set<number>();
+            for (let i = 0; i < rgba.length; i += 4)
+                colors.add((rgba[i]! << 16) | (rgba[i + 1]! << 8) | rgba[i + 2]!);
+            return { image: save ? image : undefined, colors: colors.size };
+        }, Boolean(directory));
+        expect(colors, `${name} captures the composed scene, not a blank canvas`).toBeGreaterThan(
+            32,
+        );
+        if (!directory || !image) return;
         mkdirSync(directory, { recursive: true });
         writeFileSync(`${directory}/${name}.png`, Buffer.from(image.split(",")[1], "base64"));
     };

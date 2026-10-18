@@ -86,6 +86,15 @@ window.delivery = {
         }
         const besideTip = [-1, 1].map(sign => projected([scene.trailEnd[0] - 0.54, scene.trailEnd[1], scene.trailEnd[2] + 0.18 * sign]));
         const trail = [0.15, 0.35, 0.55].map(t => projected([scene.trailStart[0] + (scene.trailEnd[0] - scene.trailStart[0]) * t, scene.trailStart[1], scene.trailStart[2]]));
+        const a=projected(scene.trailStart),b=projected(scene.trailEnd);
+        const dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy);
+        let offShaft=0;
+        if(length>0) for(let y=Math.max(0,Math.floor(Math.min(a.y,b.y)-15));y<Math.min(image.height,Math.ceil(Math.max(a.y,b.y)+15));y++)
+         for(let x=Math.max(0,Math.floor(Math.min(a.x,b.x)-15));x<Math.min(image.width,Math.ceil(Math.max(a.x,b.x)+15));x++){
+          const along=((x+.5-a.x)*dx+(y+.5-a.y)*dy)/(length*length);
+          const distance=Math.abs((x+.5-a.x)*dy-(y+.5-a.y)*dx)/length;
+          if(along>0&&along<1&&distance>1.5&&distance<15)offShaft+=ink({x,y},0,0);
+         }
         let data = '';
         if (png) {
             const output = document.createElement('canvas');
@@ -106,7 +115,7 @@ window.delivery = {
             barEmpty: ink(empty, 1, 1, true),
             emptyRgb,
             trail: trail.map(p => ink(p, 2, 2)),
-            besideTip: besideTip.map(p => ink(p, 0, 0)),
+            besideTip: besideTip.map(p => ink(p, 0, 0)), offShaft,
         };
     },
 };

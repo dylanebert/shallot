@@ -6,6 +6,7 @@ type Frame = JSHandle<Pixels>;
 declare global {
     interface Window {
         frame: (hour?: number, noFog?: boolean) => Promise<Pixels>;
+        orbit(yaw: number): Promise<void>;
     }
 }
 
@@ -131,17 +132,17 @@ test.describe("one stepped app", () => {
             (await mean(night, 0.1, 0.05, 0.9, 0.25)) + 30,
         );
     });
-});
 
-test("morning and afternoon cast a shape's shadow on opposite sides", async ({ page }) => {
-    await open(page, 9, false, true);
-    const morning = await frame(page);
-    const afternoon = await frame(page, 15);
-    await save("morning", morning);
-    await save("afternoon", afternoon);
-    const contrast = async (f: Frame) =>
-        (await mean(f, 0.48, 0.535, 0.5, 0.55)) - (await mean(f, 0.605, 0.535, 0.62, 0.55));
-    expect((await contrast(morning)) * (await contrast(afternoon))).toBeLessThan(-4);
+    test("morning and afternoon cast a shape's shadow on opposite sides", async () => {
+        await page.evaluate(() => window.orbit(0));
+        const morning = await frame(page, 9);
+        const afternoon = await frame(page, 15);
+        await save("morning", morning);
+        await save("afternoon", afternoon);
+        const contrast = async (f: Frame) =>
+            (await mean(f, 0.48, 0.535, 0.5, 0.55)) - (await mean(f, 0.605, 0.535, 0.62, 0.55));
+        expect((await contrast(morning)) * (await contrast(afternoon))).toBeLessThan(-4);
+    });
 });
 
 test("named hours and a low-sun sequence are captured when SHALLOT_CAPTURE_DIR is set", async ({
@@ -157,7 +158,9 @@ test("named hours and a low-sun sequence are captured when SHALLOT_CAPTURE_DIR i
         midnight: 0,
     })) {
         await open(page, hour, hour > 12);
-        await save(name, await frame(page));
+        const captured = await frame(page);
+        expect(await captured.evaluate((frame) => frame.hour)).toBe(hour);
+        await save(name, captured);
         await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/page-${name}.png` });
     }
     for (const hour of [7, 17]) {
@@ -170,6 +173,10 @@ test("named hours and a low-sun sequence are captured when SHALLOT_CAPTURE_DIR i
         );
     }
     await open(page, 7);
-    for (let i = 0; i < 12; i++)
-        await save(`low-sun-${String(i).padStart(2, "0")}`, await frame(page, 7 + i / 150));
+    for (let i = 0; i < 12; i++) {
+        const hour = 7 + i / 150;
+        const captured = await frame(page, hour);
+        expect(await captured.evaluate((frame) => frame.hour)).toBe(hour);
+        await save(`low-sun-${String(i).padStart(2, "0")}`, captured);
+    }
 });

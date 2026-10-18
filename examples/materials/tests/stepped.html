@@ -3,7 +3,7 @@
 import { createApp, Camera, GlobalTransform, Transform, MeshMaterial, Materials, qRotate, StandardMaterial, DirectionalLight } from '@dylanebert/shallot';
 import { Text } from '@dylanebert/shallot/extras';
 import { Orbit } from '@dylanebert/shallot/extras';
-import { attachTexture, captureTexture, captureFrame, Tonemapping, TonemappingMethod, worldToViewport } from '@dylanebert/shallot/rendering';
+import { attachTexture, detachView, captureTexture, captureFrame, Tonemapping, TonemappingMethod, worldToViewport } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { Gallery, GalleryPlugin } from '../src/gallery';
 import { CheckerMaterial } from '../src/materials';
@@ -13,6 +13,7 @@ const world=app.world, gallery=world.resource(Gallery), canvas=document.querySel
 world.storage(Camera).clearColor.set(gallery.camera,0xff0000);
 const full=new URLSearchParams(location.search).has('captures');
 if(!full){canvas.width=new URLSearchParams(location.search).has('names')?640:320;canvas.height=canvas.width*9/16;attachTexture(world,gallery.camera,{width:canvas.width,height:canvas.height});world.storage(Camera).antialias.set(gallery.camera,0);world.resource(DirectionalLightShadowMap).size=256;for(const sun of world.query([DirectionalLight]))world.storage(DirectionalLight).numCascades.set(sun,1);}
+window.resize=(width)=>{canvas.width=width;canvas.height=width*9/16;detachView(world,gallery.camera);attachTexture(world,gallery.camera,{width:canvas.width,height:canvas.height});};
 const orbit=world.storage(Orbit);
 const overview={distance:orbit.distance.get(gallery.camera),yaw:orbit.yaw.get(gallery.camera),pitch:orbit.pitch.get(gallery.camera),pan:[orbit.pan.x.get(gallery.camera),orbit.pan.y.get(gallery.camera),orbit.pan.z.get(gallery.camera)]};
 window.aim=(index)=>{

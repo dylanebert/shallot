@@ -37,6 +37,11 @@ async function capture(page: Page, name: string) {
     await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/${name}.png` });
 }
 
+test.beforeEach(async ({ page }) => {
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
+});
+
 test("aim is sampled before E; in-reach lamp and prompt render, E lights the wall, and far aim clears both", async ({
     page,
 }) => {

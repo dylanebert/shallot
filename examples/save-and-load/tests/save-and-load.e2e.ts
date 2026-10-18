@@ -46,6 +46,11 @@ async function button(page: Page, name: string) {
     await page.evaluate(() => window.saveAndLoad.advance());
 }
 
+test.beforeEach(async ({ page }) => {
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
+});
+
 test("the built page opens a new game with clear controls and Load disabled until Save", async ({
     page,
 }) => {

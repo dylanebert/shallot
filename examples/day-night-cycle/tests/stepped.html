@@ -18,15 +18,18 @@
     } }] });
     const fullSize = new URL(location.href).searchParams.has("capture");
     const camera = app.world.resource(CycleScene).camera;
-    if (new URL(location.href).searchParams.has("evening") || new URL(location.href).searchParams.has("side")) {
+    window.orbit = async (yaw) => {
         const { Orbit } = await import("@dylanebert/shallot/extras");
-        const yaw = new URL(location.href).searchParams.has("side") ? 0 : 1.8;
+        app.world.storage(Orbit).smoothness.set(camera, 1);
         app.world.storage(Orbit).yaw.set(camera, yaw);
         const x = 12 * Math.cos(0.18) * Math.sin(yaw), y = 12 * Math.sin(0.18), z = 12 * Math.cos(0.18) * Math.cos(yaw);
         app.world.storage(Transform).translation.set(camera, x, y, z);
         app.world.storage(Transform).rotation.set(camera, ...lookAtRotation(x, y, z, 0, 0, 0));
-    }
+        app.world.step(1/60);
+    };
     if (!fullSize) attachTexture(app.world, camera, { width: 256, height: 144 });
+    if (new URL(location.href).searchParams.has("evening") || new URL(location.href).searchParams.has("side"))
+        await window.orbit(new URL(location.href).searchParams.has("side") ? 0 : 1.8);
     if (new URL(location.href).searchParams.has("no-shafts")) app.world.remove(app.world.resource(CycleScene).sun, VolumetricLight);
     app.world.tick();
     hud(mountOverlay(canvas, app.world), app.world);

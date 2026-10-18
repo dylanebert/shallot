@@ -1,5 +1,10 @@
 import { expect, test } from "playwright/test";
 
+test.beforeEach(async ({ page }) => {
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
+});
+
 test("spawn teaches controls in world pixels without an overlay controls panel", async ({
     page,
 }) => {

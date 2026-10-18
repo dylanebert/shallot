@@ -144,6 +144,11 @@ async function captureUntilChange(
     return { change, samples };
 }
 
+test.beforeEach(async ({ page }) => {
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setHardwareConcurrencyOverride", { hardwareConcurrency: 1 });
+});
+
 test("the preview serves its isolated page and presents its first frame", async ({ page }) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));

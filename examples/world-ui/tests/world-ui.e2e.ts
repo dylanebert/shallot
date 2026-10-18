@@ -15,6 +15,7 @@ type Frame = {
     barEmpty: number;
     emptyRgb: number[];
     besideTip: number[];
+    offShaft: number;
     trail: number[];
     restored?: boolean;
 };
@@ -117,7 +118,10 @@ test.describe("stepped delivery", () => {
         for (const behind of [spawnBehind, lowBehind]) expect(behind.restored).toBe(true);
     });
     test("the trail reaches the car's rear as a plain line, without an arrowhead", () => {
-        for (const frame of [low, earlyExit]) expect(frame.besideTip).toEqual([0, 0]);
+        for (const frame of [low, earlyExit]) {
+            expect(frame.besideTip).toEqual([0, 0]);
+            expect(frame.offShaft).toBe(0);
+        }
     });
     test("zero-delta captured frames show the trail between road start and car", () => {
         for (const frame of [low, earlyExit])
