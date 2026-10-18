@@ -1,7 +1,7 @@
 import { ShapeKind, ShapeMaterials } from "../../core/physics";
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
-import type { ShapeBinding } from "./authoring";
+import { type FieldBinding, fieldMarked } from "./authoring";
 import type { EntityId } from "./common/ids";
 import type { Filter, SurfaceMaterial } from "./common/types";
 import { meshBuild } from "./geometry-builds";
@@ -41,15 +41,11 @@ import {
 import { updateBodyMassData } from "./world/body";
 import type { WorldState } from "./world/world";
 
-function scalar(binding: ShapeBinding, eid: number, field: string): number {
+function scalar(binding: FieldBinding, eid: number, field: string): number {
     return (binding.storage[field] as { get(eid: number): number }).get(eid);
 }
-function changed(binding: ShapeBinding, mask: number, field: string): boolean {
-    const index = binding.fieldIndices.get(field);
-    return index !== undefined && (mask & (1 << index)) !== 0;
-}
 function vector(
-    binding: ShapeBinding,
+    binding: FieldBinding,
     eid: number,
     field: string,
 ): [number, number, number, number] {
@@ -75,7 +71,7 @@ const RECREATION_FIELD_INDEX: Map<string, number> = new Map(
 /** Captures only authored fields that require shape recreation and lack a live getter. */
 export function captureShapeRecreationState(
     world: World,
-    binding: ShapeBinding,
+    binding: FieldBinding,
     eid: number,
     values: Float64Array<ArrayBufferLike> = new Float64Array(RECREATION_FIELDS.length + 3),
 ): Float64Array<ArrayBufferLike> {
@@ -102,7 +98,7 @@ export function shapeBodyScaleChanged(
 }
 
 function fieldDiffersFromSnapshot(
-    binding: ShapeBinding,
+    binding: FieldBinding,
     eid: number,
     field: string,
     previous: Float64Array | undefined,
@@ -111,8 +107,8 @@ function fieldDiffersFromSnapshot(
     const index = RECREATION_FIELD_INDEX.get(field);
     return index !== undefined && scalar(binding, eid, field) !== previous[index];
 }
-function anyChanged(binding: ShapeBinding, mask: number, fields: readonly string[]): boolean {
-    for (const field of fields) if (changed(binding, mask, field)) return true;
+function anyChanged(binding: FieldBinding, mask: number, fields: readonly string[]): boolean {
+    for (const field of fields) if (fieldMarked(binding, mask, field)) return true;
     return false;
 }
 const MATERIAL_FIELDS = [
@@ -161,7 +157,7 @@ function equalMaterial(a: SurfaceMaterial, b: SurfaceMaterial): boolean {
 
 function materialSet(
     world: World,
-    binding: ShapeBinding,
+    binding: FieldBinding,
     eid: number,
 ): SurfaceMaterial[] | undefined {
     const id = scalar(binding, eid, "materialSet");
@@ -174,7 +170,7 @@ function materialSet(
 
 function expectedMeshScale(
     world: World,
-    binding: ShapeBinding,
+    binding: FieldBinding,
     eid: number,
 ): { x: number; y: number; z: number } {
     const scale = vector(binding, eid, "scale");
@@ -186,7 +182,7 @@ function expectedMeshScale(
 /** Whether a marked definition field lacks a Box3D setter or needs a shape with different creation semantics. */
 export function shapeNeedsRecreation(
     world: World,
-    binding: ShapeBinding,
+    binding: FieldBinding,
     eid: number,
     mask: number,
     previous: Float64Array | undefined,
@@ -200,37 +196,37 @@ export function shapeNeedsRecreation(
     if (bodyScaleChanged && (kind === ShapeKind.HeightField || kind === ShapeKind.Compound))
         return true;
     if (
-        changed(binding, mask, "explosionScale") &&
+        fieldMarked(binding, mask, "explosionScale") &&
         fieldDiffersFromSnapshot(binding, eid, "explosionScale", previous)
     )
         return true;
     if (
-        changed(binding, mask, "enableCustomFiltering") &&
+        fieldMarked(binding, mask, "enableCustomFiltering") &&
         fieldDiffersFromSnapshot(binding, eid, "enableCustomFiltering", previous)
     )
         return true;
     if (
-        changed(binding, mask, "enableSpeculativeContact") &&
+        fieldMarked(binding, mask, "enableSpeculativeContact") &&
         fieldDiffersFromSnapshot(binding, eid, "enableSpeculativeContact", previous)
     )
         return true;
     if (
-        changed(binding, mask, "invokeContactCreation") &&
+        fieldMarked(binding, mask, "invokeContactCreation") &&
         fieldDiffersFromSnapshot(binding, eid, "invokeContactCreation", previous)
     )
         return true;
-    if (changed(binding, mask, "isSensor")) {
+    if (fieldMarked(binding, mask, "isSensor")) {
         const next = scalar(binding, eid, "isSensor") !== 0;
         if (next !== isSensorShape(state, record)) return true;
     }
     if (
-        changed(binding, mask, "geometry") &&
+        fieldMarked(binding, mask, "geometry") &&
         fieldDiffersFromSnapshot(binding, eid, "geometry", previous) &&
         (kind === ShapeKind.HeightField || kind === ShapeKind.Compound)
     )
         return true;
     if (
-        changed(binding, mask, "materialSet") &&
+        fieldMarked(binding, mask, "materialSet") &&
         (kind === ShapeKind.Mesh || kind === ShapeKind.HeightField)
     ) {
         const materials = materialSet(world, binding, eid);
@@ -244,7 +240,7 @@ export function shapeNeedsRecreation(
 export function syncShapeFields(
     world: World,
     state: WorldState,
-    binding: ShapeBinding,
+    binding: FieldBinding,
     eid: number,
     mask: number,
     id: EntityId,
@@ -253,19 +249,19 @@ export function syncShapeFields(
     const shape = id.index1 - 1;
     let geometryChanged = false;
     const kind = scalar(binding, eid, "kind");
-    const materialSetChanged = changed(binding, mask, "materialSet");
+    const materialSetChanged = fieldMarked(binding, mask, "materialSet");
     const hasMeshMaterials = kind === ShapeKind.Mesh || kind === ShapeKind.HeightField;
     const baseMaterialChanged = anyChanged(binding, mask, BASE_MATERIAL_FIELDS);
     const liveMaterials =
         hasMeshMaterials && (materialSetChanged || baseMaterialChanged)
             ? materialSet(world, binding, eid)
             : undefined;
-    if (changed(binding, mask, "density")) {
+    if (fieldMarked(binding, mask, "density")) {
         const next = scalar(binding, eid, "density");
         if (Number.isFinite(next) && next >= 0 && next !== getShapeDensity(state, shape))
             setShapeDensity(state, shape, next, scalar(binding, eid, "updateBodyMass") !== 0);
     }
-    if (changed(binding, mask, "friction") && !liveMaterials?.length) {
+    if (fieldMarked(binding, mask, "friction") && !liveMaterials?.length) {
         const next = scalar(binding, eid, "friction");
         if (
             Number.isFinite(next) &&
@@ -274,7 +270,7 @@ export function syncShapeFields(
         )
             setShapeFriction(state, shape, next);
     }
-    if (changed(binding, mask, "restitution") && !liveMaterials?.length) {
+    if (fieldMarked(binding, mask, "restitution") && !liveMaterials?.length) {
         const next = scalar(binding, eid, "restitution");
         if (
             Number.isFinite(next) &&
@@ -292,22 +288,22 @@ export function syncShapeFields(
         const next = authoredShapeFilter(world, eid);
         if (!equalFilter(next, getShapeFilter(state, shape))) setShapeFilter(state, shape, next);
     }
-    if (changed(binding, mask, "enableSensorEvents")) {
+    if (fieldMarked(binding, mask, "enableSensorEvents")) {
         const next = scalar(binding, eid, "enableSensorEvents") !== 0;
         if (next !== shapeFlag(state, shape, ShapeFlags.enableSensorEvents))
             setShapeFlag(state, shape, ShapeFlags.enableSensorEvents, next);
     }
-    if (changed(binding, mask, "enableContactEvents")) {
+    if (fieldMarked(binding, mask, "enableContactEvents")) {
         const next = scalar(binding, eid, "enableContactEvents") !== 0;
         if (next !== shapeFlag(state, shape, ShapeFlags.enableContactEvents))
             setShapeFlag(state, shape, ShapeFlags.enableContactEvents, next);
     }
-    if (changed(binding, mask, "enableHitEvents")) {
+    if (fieldMarked(binding, mask, "enableHitEvents")) {
         const next = scalar(binding, eid, "enableHitEvents") !== 0;
         if (next !== shapeFlag(state, shape, ShapeFlags.enableHitEvents))
             setShapeFlag(state, shape, ShapeFlags.enableHitEvents, next);
     }
-    if (changed(binding, mask, "enablePreSolveEvents")) {
+    if (fieldMarked(binding, mask, "enablePreSolveEvents")) {
         const next = scalar(binding, eid, "enablePreSolveEvents") !== 0;
         if (next !== shapeFlag(state, shape, ShapeFlags.enablePreSolveEvents))
             setShapeFlag(state, shape, ShapeFlags.enablePreSolveEvents, next);
@@ -316,8 +312,8 @@ export function syncShapeFields(
     if (
         kind === ShapeKind.Sphere &&
         (bodyScaleChanged ||
-            changed(binding, mask, "sphereCenter") ||
-            changed(binding, mask, "radius"))
+            fieldMarked(binding, mask, "sphereCenter") ||
+            fieldMarked(binding, mask, "radius"))
     ) {
         const sphere = shapeGeometry(world, eid).sphere;
         const current = readShapeSphere(state, shape);
@@ -334,9 +330,9 @@ export function syncShapeFields(
     if (
         kind === ShapeKind.Capsule &&
         (bodyScaleChanged ||
-            changed(binding, mask, "capsuleCenter1") ||
-            changed(binding, mask, "capsuleCenter2") ||
-            changed(binding, mask, "radius"))
+            fieldMarked(binding, mask, "capsuleCenter1") ||
+            fieldMarked(binding, mask, "capsuleCenter2") ||
+            fieldMarked(binding, mask, "radius"))
     ) {
         const capsule = shapeGeometry(world, eid).capsule;
         const current = readShapeCapsule(state, shape);
@@ -355,7 +351,9 @@ export function syncShapeFields(
     }
     if (
         kind === ShapeKind.Hull &&
-        (bodyScaleChanged || changed(binding, mask, "geometry") || changed(binding, mask, "scale"))
+        (bodyScaleChanged ||
+            fieldMarked(binding, mask, "geometry") ||
+            fieldMarked(binding, mask, "scale"))
     ) {
         const hull = shapeHullGeometry(world, eid);
         let nextReference: number | undefined;
@@ -374,7 +372,9 @@ export function syncShapeFields(
     }
     if (
         kind === ShapeKind.Mesh &&
-        (bodyScaleChanged || changed(binding, mask, "geometry") || changed(binding, mask, "scale"))
+        (bodyScaleChanged ||
+            fieldMarked(binding, mask, "geometry") ||
+            fieldMarked(binding, mask, "scale"))
     ) {
         const id = scalar(binding, eid, "geometry");
         const mesh = meshBuild(world, id);

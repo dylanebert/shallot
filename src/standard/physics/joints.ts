@@ -2,7 +2,7 @@ import type { ScalarField, Vector4Field, World } from "../../engine";
 import type { Quat, Transform, Vec3 } from "./api";
 import { makeJointId } from "./api/config";
 import type { JointBinding, JointDef } from "./authoring";
-import { JOINT_KIND_COUNT, jointDef } from "./authoring";
+import { fieldMarked, JOINT_KIND_COUNT, jointDef } from "./authoring";
 import { froundConfig } from "./common/config";
 import type { EntityId } from "./common/ids";
 import {
@@ -75,10 +75,6 @@ export function createConstraintCache(): ConstraintCache {
 
 function identity(index: number, eid: number): number {
     return eid * JOINT_KIND_COUNT + index;
-}
-function fieldChanged(binding: JointBinding, mask: number, name: string): boolean {
-    const index = binding.fieldIndices.get(name);
-    return index !== undefined && (mask & (1 << index)) !== 0;
 }
 export function markAllJointCandidates(
     world: World,
@@ -613,7 +609,7 @@ function applyScalarEdits(
     key: number,
 ): void {
     for (const [field] of edits) {
-        if (!fieldChanged(binding, mask, field)) continue;
+        if (!fieldMarked(binding, mask, field)) continue;
         const value = jointValue(binding, eid, field);
         // Motor speed keeps its own finite check and write: sending a steady motor-speed edit through
         // setterAccepts or writeJointScalar allocates (joint-allocation.node.ts).
@@ -654,8 +650,8 @@ function applyBaseFields(
 ): void {
     applyScalarEdits(binding, eid, state, id, mask, BASE_SCALAR_EDITS, warned, key);
     if (
-        fieldChanged(binding, mask, "constraintHertz") ||
-        fieldChanged(binding, mask, "constraintDampingRatio")
+        fieldMarked(binding, mask, "constraintHertz") ||
+        fieldMarked(binding, mask, "constraintDampingRatio")
     ) {
         const hertz = jointValue(binding, eid, "constraintHertz");
         const damping = jointValue(binding, eid, "constraintDampingRatio");
@@ -672,19 +668,13 @@ function applyBaseFields(
             }
         }
     }
-    if (fieldChanged(binding, mask, "drawScale")) {
+    if (fieldMarked(binding, mask, "drawScale")) {
         const drawScale = jointValue(binding, eid, "drawScale");
         if (differs(drawScale, jointDrawScale(state, id))) setJointDrawScale(state, id, drawScale);
     }
-    if (
-        fieldChanged(binding, mask, "localAnchorA") ||
-        fieldChanged(binding, mask, "localRotationA")
-    )
+    if (fieldMarked(binding, mask, "localAnchorA") || fieldMarked(binding, mask, "localRotationA"))
         applyLocalFrame(binding, eid, state, id, "A", J_LOCAL_FRAME_A, warned, key);
-    if (
-        fieldChanged(binding, mask, "localAnchorB") ||
-        fieldChanged(binding, mask, "localRotationB")
-    )
+    if (fieldMarked(binding, mask, "localAnchorB") || fieldMarked(binding, mask, "localRotationB"))
         applyLocalFrame(binding, eid, state, id, "B", J_LOCAL_FRAME_B, warned, key);
 }
 
@@ -754,8 +744,8 @@ function applyJointFields(
             const lowerForce = jointValue(binding, eid, "lowerSpringForce");
             const upperForce = jointValue(binding, eid, "upperSpringForce");
             if (
-                (fieldChanged(binding, mask, "lowerSpringForce") ||
-                    fieldChanged(binding, mask, "upperSpringForce")) &&
+                (fieldMarked(binding, mask, "lowerSpringForce") ||
+                    fieldMarked(binding, mask, "upperSpringForce")) &&
                 (differs(lowerForce, readJointFloat(state, id, DJ_LOWER_SPRING_FORCE)) ||
                     differs(upperForce, readJointFloat(state, id, DJ_UPPER_SPRING_FORCE)))
             ) {
@@ -770,8 +760,8 @@ function applyJointFields(
             const minLength = jointValue(binding, eid, "minLength");
             const maxLength = jointValue(binding, eid, "maxLength");
             if (
-                (fieldChanged(binding, mask, "minLength") ||
-                    fieldChanged(binding, mask, "maxLength")) &&
+                (fieldMarked(binding, mask, "minLength") ||
+                    fieldMarked(binding, mask, "maxLength")) &&
                 (differs(minLength, readJointFloat(state, id, C.DJ_MIN_LENGTH)) ||
                     differs(maxLength, readJointFloat(state, id, C.DJ_MAX_LENGTH)))
             )
@@ -783,7 +773,7 @@ function applyJointFields(
         case "Weld":
             break;
         case "Motor": {
-            if (fieldChanged(binding, mask, "linearVelocity")) {
+            if (fieldMarked(binding, mask, "linearVelocity")) {
                 const linear = storage.linearVelocity as Vector4Field;
                 vector.x = linear.x.get(eid);
                 vector.y = linear.y.get(eid);
@@ -792,7 +782,7 @@ function applyJointFields(
                 if (vectorDiffers(vector.x, vector.y, vector.z, kinVector))
                     writeJointVec3(state, id, MJ_LINEAR_VELOCITY, vector);
             }
-            if (fieldChanged(binding, mask, "angularVelocity")) {
+            if (fieldMarked(binding, mask, "angularVelocity")) {
                 const angular = storage.angularVelocity as Vector4Field;
                 vector.x = angular.x.get(eid);
                 vector.y = angular.y.get(eid);
@@ -805,8 +795,8 @@ function applyJointFields(
         }
         case "Prismatic": {
             if (
-                fieldChanged(binding, mask, "lowerTranslation") ||
-                fieldChanged(binding, mask, "upperTranslation")
+                fieldMarked(binding, mask, "lowerTranslation") ||
+                fieldMarked(binding, mask, "upperTranslation")
             ) {
                 const lower = jointValue(binding, eid, "lowerTranslation");
                 const upper = jointValue(binding, eid, "upperTranslation");
@@ -825,8 +815,8 @@ function applyJointFields(
         }
         case "Revolute": {
             if (
-                fieldChanged(binding, mask, "lowerAngle") ||
-                fieldChanged(binding, mask, "upperAngle")
+                fieldMarked(binding, mask, "lowerAngle") ||
+                fieldMarked(binding, mask, "upperAngle")
             ) {
                 const lower = jointValue(binding, eid, "lowerAngle");
                 const upper = jointValue(binding, eid, "upperAngle");
@@ -844,7 +834,7 @@ function applyJointFields(
             break;
         }
         case "Spherical": {
-            if (fieldChanged(binding, mask, "targetRotation")) {
+            if (fieldMarked(binding, mask, "targetRotation")) {
                 const target = storage.targetRotation as Vector4Field;
                 rotation.v.x = target.x.get(eid);
                 rotation.v.y = target.y.get(eid);
@@ -868,8 +858,8 @@ function applyJointFields(
                 }
             }
             if (
-                fieldChanged(binding, mask, "lowerTwistAngle") ||
-                fieldChanged(binding, mask, "upperTwistAngle")
+                fieldMarked(binding, mask, "lowerTwistAngle") ||
+                fieldMarked(binding, mask, "upperTwistAngle")
             ) {
                 const lower = jointValue(binding, eid, "lowerTwistAngle");
                 const upper = jointValue(binding, eid, "upperTwistAngle");
@@ -884,7 +874,7 @@ function applyJointFields(
                         kernel(state.ecsState).jointSetLimits(state.worldId, id, lower, upper);
                 }
             }
-            if (fieldChanged(binding, mask, "motorVelocity")) {
+            if (fieldMarked(binding, mask, "motorVelocity")) {
                 const velocity = storage.motorVelocity as Vector4Field;
                 vector.x = velocity.x.get(eid);
                 vector.y = velocity.y.get(eid);
@@ -902,8 +892,8 @@ function applyJointFields(
         }
         case "Wheel": {
             if (
-                fieldChanged(binding, mask, "lowerSuspensionLimit") ||
-                fieldChanged(binding, mask, "upperSuspensionLimit")
+                fieldMarked(binding, mask, "lowerSuspensionLimit") ||
+                fieldMarked(binding, mask, "upperSuspensionLimit")
             ) {
                 const lower = jointValue(binding, eid, "lowerSuspensionLimit");
                 const upper = jointValue(binding, eid, "upperSuspensionLimit");
@@ -932,8 +922,8 @@ function applyJointFields(
                 }
             }
             if (
-                fieldChanged(binding, mask, "lowerSteeringLimit") ||
-                fieldChanged(binding, mask, "upperSteeringLimit")
+                fieldMarked(binding, mask, "lowerSteeringLimit") ||
+                fieldMarked(binding, mask, "upperSteeringLimit")
             ) {
                 const lower = jointValue(binding, eid, "lowerSteeringLimit");
                 const upper = jointValue(binding, eid, "upperSteeringLimit");

@@ -1,6 +1,6 @@
 import { BodyType } from "../../core/physics";
 import type { ScalarField } from "../../engine";
-import type { BodyBinding } from "./authoring";
+import { type FieldBinding, fieldMarked } from "./authoring";
 import type { EntityId } from "./common/ids";
 import type { FieldCandidates } from "./field-candidates";
 import {
@@ -15,14 +15,10 @@ import {
 } from "./world/body";
 import type { WorldState } from "./world/world";
 
-function value(binding: BodyBinding, eid: number, field: string): number {
+function value(binding: FieldBinding, eid: number, field: string): number {
     return (binding.storage[field] as ScalarField).get(eid);
 }
-function changed(binding: BodyBinding, mask: number, field: string): boolean {
-    const index = binding.fieldIndices.get(field);
-    return index !== undefined && (mask & (1 << index)) !== 0;
-}
-function warnInvalid(warned: Set<number>, binding: BodyBinding, eid: number, field: string): void {
+function warnInvalid(warned: Set<number>, binding: FieldBinding, eid: number, field: string): void {
     const key = eid * 32 + binding.fieldIndices.get(field)!;
     if (warned.has(key)) return;
     warned.add(key);
@@ -30,21 +26,21 @@ function warnInvalid(warned: Set<number>, binding: BodyBinding, eid: number, fie
 }
 function applyBoolean(
     state: WorldState,
-    binding: BodyBinding,
+    binding: FieldBinding,
     eid: number,
     mask: number,
     field: string,
     body: number,
     property: number,
 ): void {
-    if (!changed(binding, mask, field)) return;
+    if (!fieldMarked(binding, mask, field)) return;
     const next = value(binding, eid, field) !== 0;
     if (Number(next) !== bodyGetProperty(state, body, property))
         bodySetProperty(state, body, property, Number(next));
 }
 function applyFloat(
     state: WorldState,
-    binding: BodyBinding,
+    binding: FieldBinding,
     eid: number,
     mask: number,
     field: string,
@@ -53,7 +49,7 @@ function applyFloat(
     valid: "nonnegative" | "finite" | "any",
     warned: Set<number>,
 ): void {
-    if (!changed(binding, mask, field)) return;
+    if (!fieldMarked(binding, mask, field)) return;
     const next = value(binding, eid, field);
     if (
         (valid === "nonnegative" && (!Number.isFinite(next) || next < 0)) ||
@@ -70,7 +66,7 @@ function applyFloat(
 export function syncBodyFields(
     state: WorldState,
     candidates: FieldCandidates,
-    binding: BodyBinding,
+    binding: FieldBinding,
     bodies: ReadonlyMap<number, EntityId>,
     warned: Set<number>,
 ): void {
@@ -81,7 +77,7 @@ export function syncBodyFields(
         if (!id || !bodyIsValid(state, id)) continue;
         const body = id.index1 - 1;
 
-        if (changed(binding, mask, "type")) {
+        if (fieldMarked(binding, mask, "type")) {
             const next = value(binding, eid, "type");
             if (
                 next !== BodyType.Static &&
@@ -135,7 +131,7 @@ export function syncBodyFields(
             "any",
             warned,
         );
-        if (changed(binding, mask, "motionLocks")) {
+        if (fieldMarked(binding, mask, "motionLocks")) {
             const next = value(binding, eid, "motionLocks");
             if ((next & ~0x3f) !== 0) warnInvalid(warned, binding, eid, "motionLocks");
             else if (next !== bodyGetProperty(state, body, BodyProperty.motionLocks))
@@ -161,7 +157,7 @@ export function syncBodyFields(
             body,
             BodyProperty.enableContactRecycling,
         );
-        if (changed(binding, mask, "isEnabled")) {
+        if (fieldMarked(binding, mask, "isEnabled")) {
             const next = value(binding, eid, "isEnabled") !== 0;
             if (next !== (bodyGetProperty(state, body, BodyProperty.isEnabled) !== 0)) {
                 if (next) bodyEnable(state, body);

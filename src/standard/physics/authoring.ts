@@ -54,8 +54,8 @@ export interface JointDef {
     b: number;
     config: Config;
 }
-export interface JointBinding {
-    kind: JointDef["kind"];
+/** One component's fields, their mark indices, dirty sets and storage, resolved once per World. */
+export interface FieldBinding {
     index: number;
     component: Component;
     fields: { name: string; type: FieldType }[];
@@ -63,85 +63,47 @@ export interface JointBinding {
     dirty: ReturnType<World["fieldStorage"]>[];
     storage: Record<string, ScalarField | Vector4Field>;
 }
+export interface JointBinding extends FieldBinding {
+    kind: JointDef["kind"];
+}
+function fieldBinding(world: World, component: Component, index: number): FieldBinding {
+    const fields = Object.entries(component).map(([name, type]) => ({
+        name,
+        type: type as FieldType,
+    }));
+    return {
+        index,
+        component,
+        fields,
+        fieldIndices: new Map(fields.map(({ name }, fieldIndex) => [name, fieldIndex])),
+        dirty: fields.map(({ name }) => world.fieldStorage(component, name)),
+        storage: world.storage(component) as unknown as Record<string, ScalarField | Vector4Field>,
+    };
+}
+/** Whether `mask`, a candidate's field marks, includes the named field. */
+export function fieldMarked(binding: FieldBinding, mask: number, name: string): boolean {
+    const index = binding.fieldIndices.get(name);
+    return index !== undefined && (mask & (1 << index)) !== 0;
+}
 const bindingsKey = {
     create: (world: World): JointBinding[] =>
-        entries.map(([kind, component], index) => {
-            const fields = Object.entries(component).map(([name, type]) => ({
-                name,
-                type: type as FieldType,
-            }));
-            return {
-                kind,
-                index,
-                component,
-                fields,
-                fieldIndices: new Map(fields.map(({ name }, fieldIndex) => [name, fieldIndex])),
-                dirty: fields.map(({ name }) => world.fieldStorage(component, name)),
-                storage: world.storage(component) as unknown as Record<
-                    string,
-                    ScalarField | Vector4Field
-                >,
-            };
-        }),
+        entries.map(([kind, component], index) => ({
+            kind,
+            ...fieldBinding(world, component, index),
+        })),
 };
 
 export function jointBindings(world: World): readonly JointBinding[] {
     return world.resource(bindingsKey);
 }
 
-export interface BodyBinding {
-    index: number;
-    component: Component;
-    fields: { name: string; type: FieldType }[];
-    fieldIndices: Map<string, number>;
-    dirty: ReturnType<World["fieldStorage"]>[];
-    storage: Record<string, ScalarField | Vector4Field>;
-}
-const bodyBindingKey = {
-    create: (world: World): BodyBinding => {
-        const fields = Object.entries(Body).map(([name, type]) => ({
-            name,
-            type: type as FieldType,
-        }));
-        return {
-            index: 0,
-            component: Body,
-            fields,
-            fieldIndices: new Map(fields.map(({ name }, index) => [name, index])),
-            dirty: fields.map(({ name }) => world.fieldStorage(Body, name)),
-            storage: world.storage(Body) as unknown as Record<string, ScalarField | Vector4Field>,
-        };
-    },
-};
-export function bodyBinding(world: World): BodyBinding {
+const bodyBindingKey = { create: (world: World) => fieldBinding(world, Body, 0) };
+export function bodyBinding(world: World): FieldBinding {
     return world.resource(bodyBindingKey);
 }
 
-export interface ShapeBinding {
-    index: number;
-    component: Component;
-    fields: { name: string; type: FieldType }[];
-    fieldIndices: Map<string, number>;
-    dirty: ReturnType<World["fieldStorage"]>[];
-    storage: Record<string, ScalarField | Vector4Field>;
-}
-const shapeBindingKey = {
-    create: (world: World): ShapeBinding => {
-        const fields = Object.entries(Shape).map(([name, type]) => ({
-            name,
-            type: type as FieldType,
-        }));
-        return {
-            index: 0,
-            component: Shape,
-            fields,
-            fieldIndices: new Map(fields.map(({ name }, index) => [name, index])),
-            dirty: fields.map(({ name }) => world.fieldStorage(Shape, name)),
-            storage: world.storage(Shape) as unknown as Record<string, ScalarField | Vector4Field>,
-        };
-    },
-};
-export function shapeBinding(world: World): ShapeBinding {
+const shapeBindingKey = { create: (world: World) => fieldBinding(world, Shape, 0) };
+export function shapeBinding(world: World): FieldBinding {
     return world.resource(shapeBindingKey);
 }
 
