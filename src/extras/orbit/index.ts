@@ -80,7 +80,7 @@ export const Orbit = component(
         pan: vec3,
         /** WASD/QE fly speed, world units per second; scroll while flying adjusts it (clamped to flyMin/flyMax) */
         flySpeed: f32,
-        /** shift-held fly boost multiplier, transient; scales flySpeed while shift is down, never stored */
+        /** fly speed multiplier while Shift is held; the boosted speed is never written to flySpeed */
         flyBoost: f32,
         /** lower clamp for scroll-adjusted flySpeed, world units per second */
         flyMin: f32,
