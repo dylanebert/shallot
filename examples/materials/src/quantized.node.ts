@@ -57,17 +57,19 @@ test("the quantized PBR exhibit has flat lighting bands across its curved surfac
         world.step(0);
         world.step(0);
         const { rgba } = await captureTexture(world, camera);
-        const reds = new Set<number>();
-        let neighbors = 0;
-        for (let y = 24; y < 40; y++)
-            for (let x = 24; x < 40; x++) {
-                const offset = (y * 64 + x) * 4;
-                reds.add(rgba[offset]!);
-                if (rgba[offset] === rgba[offset + 4]) neighbors++;
-            }
-        expect(reds.size).toBeGreaterThan(1);
-        expect(reds.size).toBeLessThanOrEqual(4);
-        expect(neighbors).toBeGreaterThan(200);
+        for (const [channel, name] of ["red", "green", "blue"].entries()) {
+            const levels = new Set<number>();
+            let neighbors = 0;
+            for (let y = 24; y < 40; y++)
+                for (let x = 24; x < 40; x++) {
+                    const offset = (y * 64 + x) * 4 + channel;
+                    levels.add(rgba[offset]!);
+                    if (rgba[offset] === rgba[offset + 4]) neighbors++;
+                }
+            if (channel === 0) expect(levels.size, "multiple lighting bands").toBeGreaterThan(1);
+            expect(levels.size, `${name} band levels`).toBeLessThanOrEqual(4);
+            expect(neighbors, `${name} flat neighbors`).toBeGreaterThan(200);
+        }
     } finally {
         app.dispose();
     }
