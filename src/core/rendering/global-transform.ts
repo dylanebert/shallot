@@ -75,9 +75,8 @@ export interface GlobalTransformRuntime {
     historyDiscarded: boolean;
     commitOnSubmit: () => void;
 }
-/** @internal GPU history identity survives compatible renderer reloads. */
+/** @internal GlobalTransform's GPU tick history and interpolated render table, with pending promotion and discontinuities. */
 export const GlobalTransformHistory: Resource<GlobalTransformRuntime> = {
-    key: Symbol.for("@dylanebert/shallot/rendering/global-transform-history"),
     create(world) {
         let runtime: GlobalTransformRuntime;
         runtime = {

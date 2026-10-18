@@ -50,7 +50,6 @@ export const TransformRuntime: Resource<{
     discontinuities: Uint32Array;
     poseClaims: Uint32Array;
 }> = {
-    key: Symbol.for("@dylanebert/shallot/transform/runtime"),
     create(world) {
         return {
             placement: world.storage(Transform),
