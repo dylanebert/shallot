@@ -15,6 +15,8 @@ import {
     uploadDiagnosticImages,
 } from "./receding-plane.fixture";
 
+import { hardwarePlaneReference } from "./receding-plane-reference.fixture";
+
 setDefaultTimeout(TIMEOUT.gpu);
 const repeat = { addressModeU: ImageAddressMode.Repeat, addressModeV: ImageAddressMode.Repeat };
 const ids = { hardware: 0, manual: 0, nearest: 0 };
@@ -45,7 +47,7 @@ const subjects = gpuApps(import.meta.path, [
 ]);
 
 // What this covers: the default (hardware) and repeat (manual) paths draw no detail boundary and
-// match trilinear filtering of the uploaded chain at the geometry's level of detail, from the near
+// match independent hardware filtering or exact CPU trilinear filtering, respectively, from the near
 // rows through lod 4.5; an all-nearest sampler steps and draws only texels of its chain. The nearest
 // readback does not establish which level was selected; image-sampling.gpu.test.ts compares
 // selection against hardware.
@@ -53,8 +55,7 @@ const subjects = gpuApps(import.meta.path, [
 // Observed on Apple M4 Max (Metal), 320x180: one selected level steps 230-270 per level of detail
 // within a row or two; filtering between levels stays below 75.
 const STEP = 150;
-// Row contrast within this of the trilinear reference, lod -1..4.5. Observed: 0.21 hardware and
-// 0.05 manual on M4 Max (Metal), with derivatives per 2x2 quad.
+// Maximum row-contrast error against each path's reference, lod -1..4.5.
 const REFERENCE = 1.5;
 
 type Scene = {
@@ -62,13 +63,15 @@ type Scene = {
     plane: ReturnType<typeof spawnRecedingPlane>;
 };
 let scene: Scene;
+let hardwareReference: Awaited<ReturnType<typeof hardwarePlaneReference>>;
 // Upload, the first frame's pipeline compilation and the reference are setup, outside the budget.
 beforeAll(async () => {
     const { world } = subjects()[0];
-    uploadDiagnosticImages(world, 3);
+    const images = uploadDiagnosticImages(world, 3);
     const plane = spawnRecedingPlane(world, ids.hardware, [{ width: 320, height: 180 }]);
     await capturePlane(world, plane, ids.hardware);
     trilinearReference(320, 180);
+    hardwareReference = await hardwarePlaneReference(world, images, 320, 180);
     scene = { world, plane };
 });
 
@@ -77,7 +80,12 @@ test("a receding plane minifies as trilinear filtering, without a detail boundar
     const paths: Record<string, { slope: number; error: number; lod?: number }> = {};
     for (const path of ["hardware", "manual"] as const) {
         const [capture] = await capturePlane(world, plane, ids[path]);
-        const { error, lod } = referenceError(capture, -1, 4.5);
+        const { error, lod } = referenceError(
+            capture,
+            -1,
+            4.5,
+            path === "hardware" ? hardwareReference : undefined,
+        );
         paths[path] = { slope: detailBoundary(capture, 0, 4.5).slope, error, lod };
     }
     const report = JSON.stringify(paths);

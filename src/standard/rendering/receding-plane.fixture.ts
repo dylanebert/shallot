@@ -344,11 +344,15 @@ export function trilinearReference(width: number, height: number): Readback {
 }
 
 /**
- * The largest difference between a capture's row contrast and the trilinear reference's, over plane
+ * The largest difference between a capture's row contrast and its reference's, over plane
  * rows whose centre level of detail lies in [low, high], and the row where it occurs.
  */
-export function referenceError(capture: Readback, low: number, high: number) {
-    const reference = trilinearReference(capture.width, capture.height);
+export function referenceError(
+    capture: Readback,
+    low: number,
+    high: number,
+    reference = trilinearReference(capture.width, capture.height),
+) {
     let error = 0;
     let row = -1;
     for (const y of planeRows(capture)) {
