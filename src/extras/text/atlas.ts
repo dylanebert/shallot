@@ -28,12 +28,9 @@ export interface GlyphAtlas {
     sdfGenerator: SDFGenerator;
 }
 
-/** Releases both the atlas texture and its generator's intermediate texture. @internal */
+/** Releases each atlas texture. @internal */
 export function disposeAtlases(atlases: readonly (GlyphAtlas | null | undefined)[]): void {
-    for (const atlas of atlases) {
-        atlas?.sdfGenerator.destroy();
-        atlas?.texture.destroy();
-    }
+    for (const atlas of atlases) atlas?.texture.destroy();
 }
 
 export function createGlyphAtlas(device: GPUDevice, font: Font): GlyphAtlas {
