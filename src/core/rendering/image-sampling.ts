@@ -13,12 +13,25 @@ const address = tgpu.fn(
     return std.select(wrapped, period - 1 - wrapped, wrapped >= size);
 });
 
+// A level's size from the base size, not textureDimensions(images, level): llvmpipe (Mesa 25.2.8,
+// Dawn Vulkan) answers every lane of a quad with one lane's level, so lanes on a different level
+// addressed past their own and loaded zero.
+const levelSize = tgpu.fn(
+    [d.texture2dArray(), d.i32],
+    d.vec2i,
+)((images, level) => {
+    "use gpu";
+    const base = std.textureDimensions(images);
+    const shift = d.u32(level);
+    return d.vec2i(d.i32(std.max(base.x >>> shift, 1)), d.i32(std.max(base.y >>> shift, 1)));
+});
+
 const texel = tgpu.fn(
     [d.texture2dArray(), d.vec2i, d.i32, d.i32, d.vec2u],
     d.vec4f,
 )((images, position, layer, level, modes) => {
     "use gpu";
-    const size = d.vec2i(std.textureDimensions(images, level));
+    const size = levelSize(images, level);
     return std.textureLoad(
         images,
         d.vec2i(address(position.x, size.x, modes.x), address(position.y, size.y, modes.y)),
@@ -32,7 +45,7 @@ const filtered = tgpu.fn(
     d.vec4f,
 )((images, uv, layer, level, filter, modes) => {
     "use gpu";
-    const position = std.mul(uv, d.vec2f(std.textureDimensions(images, level)));
+    const position = std.mul(uv, d.vec2f(levelSize(images, level)));
     if (filter === 0) {
         return texel(images, d.vec2i(std.floor(position)), layer, level, modes);
     }
