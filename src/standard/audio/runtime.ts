@@ -132,6 +132,13 @@ function discardRestoredOnceSounds(world: World, runtime: Runtime): void {
     }
 }
 
+// A suspended context cannot play a once sound, so it is discarded rather than started late.
+function discardOnceSounds(world: World): void {
+    for (const eid of world.query(SOUND_QUERY)) {
+        if (world.storage(Sound).loop.get(eid) === 0) world.destroy(eid);
+    }
+}
+
 /** Observe restores without snapshotting voice state; only once sounds with a live owner,
  * including paused voices, survive. Restore does not rewind a surviving voice's playhead. */
 export function installAudioRestore(world: World, runtime = world.resource(AudioRuntime)): void {
@@ -258,11 +265,7 @@ export async function initializeAudio(world: World): Promise<void> {
         if (world.disposed) return;
         const next = stateOf(context.state);
         world.resource(Devices).audio.context = next;
-        if (next === "suspended") {
-            for (const eid of world.query(SOUND_QUERY)) {
-                if (world.storage(Sound).loop.get(eid) === 0) world.destroy(eid);
-            }
-        }
+        if (next === "suspended") discardOnceSounds(world);
         if (next === "running" && runtime.suspended) {
             node.port.postMessage({ type: "reset" });
             resetVoices(runtime);
@@ -479,11 +482,7 @@ export function reconcileAudio(world: World): void {
     const runtime = world.resource(AudioRuntime);
     const state = world.resource(Devices).audio.context;
     if (state !== "running") {
-        if (state === "suspended") {
-            for (const eid of world.query(SOUND_QUERY)) {
-                if (world.storage(Sound).loop.get(eid) === 0) world.destroy(eid);
-            }
-        }
+        if (state === "suspended") discardOnceSounds(world);
         return;
     }
     if (!runtime.node || !runtime.buffer) return;
