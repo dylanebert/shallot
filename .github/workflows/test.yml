@@ -227,7 +227,7 @@ jobs:
       - name: Node tier on WARP
         if: matrix.os == 'windows-latest'
         run: |
-          # Windows takes ~300 s in packed-install alone, so it gets its own job.
+          # packed-install alone fills a Windows shard, so it runs as its own job.
           if [[ '${{ matrix.shard }}' == packed ]]; then
             files=(./scripts/packed-install.node.ts)
           else
