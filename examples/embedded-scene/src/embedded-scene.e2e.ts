@@ -791,17 +791,20 @@ test("the canvas remains hidden after loading cleanup until its first submitted 
     page,
 }) => {
     await page.addInitScript(() => {
+        // Hold every queue fence until release, so whichever fence the reveal awaits completes only then.
         const originalFence = GPUQueue.prototype.onSubmittedWorkDone;
-        let fences = 0;
+        const held: (() => void)[] = [];
+        let released = false;
         GPUQueue.prototype.onSubmittedWorkDone = function (this: GPUQueue): Promise<void> {
             const fence = originalFence.call(this) as Promise<void>;
-            fences++;
-            if (fences !== 2) return fence;
+            if (released) return fence;
             window.__firstFrameFenceReady = true;
+            window.__releaseFirstFrameFence ??= () => {
+                released = true;
+                for (const release of held.splice(0)) release();
+            };
             return new Promise<void>((resolve, reject) => {
-                window.__releaseFirstFrameFence = () => {
-                    fence.then(resolve, reject);
-                };
+                held.push(() => fence.then(resolve, reject));
             });
         } as typeof GPUQueue.prototype.onSubmittedWorkDone;
 
@@ -812,7 +815,7 @@ test("the canvas remains hidden after loading cleanup until its first submitted 
             const add = canvas.classList.add.bind(canvas.classList);
             canvas.classList.add = (...tokens: string[]) => {
                 if (tokens.includes("visible")) {
-                    window.__revealBeforeFence = !window.__firstFrameFenceReady;
+                    window.__revealBeforeFence = !released;
                     window.__releaseReveal = () => add(...tokens);
                     return;
                 }

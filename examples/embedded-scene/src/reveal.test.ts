@@ -102,7 +102,12 @@ test("a missing device on the first stepped frame leaves a readable alert inside
             },
         });
         const system = plugin.systems?.[0];
-        system?.update?.({} as World);
+        const noDevice = {
+            onFrameSubmit(callback: () => void) {
+                callback();
+            },
+        } as unknown as World;
+        system?.update?.(noDevice);
         await Promise.resolve();
         errorLine = frame.querySelector(".frame-error");
     } finally {
