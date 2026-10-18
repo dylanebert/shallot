@@ -30,7 +30,7 @@ export function createScene(world: World, scene: Scene): number[] {
 }
 
 function ground(world: World, extent: number): number {
-    const geometry = world.resource(Hulls).register({ name: "box", halfExtents: [0.5, 0.5, 0.5] });
+    const geometry = world.resource(Hulls).add({ name: "box", halfExtents: [0.5, 0.5, 0.5] });
     const ground = world.create();
     world.add(ground, Transform, { translation: [0, -1, 0], scale: [2 * extent, 2, 2 * extent] });
     world.add(ground, Body);

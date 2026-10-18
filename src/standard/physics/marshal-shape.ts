@@ -54,9 +54,7 @@ function definition(world: World, eid: number): ShapeDef {
     const materialSetId = shape.materialSet.get(eid);
     let materials: SurfaceMaterial[] | undefined;
     if (materialSetId !== 0) {
-        const name = world.resource(ShapeMaterials).name(materialSetId - 1);
-        const registered =
-            name === undefined ? undefined : world.resource(ShapeMaterials).get(name);
+        const registered = world.resource(ShapeMaterials).get(materialSetId - 1);
         if (!registered)
             throw new Error(
                 `physics: Shape ${eid} names missing material set ${materialSetId - 1}`,
@@ -110,8 +108,7 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
     const shape = world.storage(ShapeComponent);
     const hulls = world.resource(Hulls);
     const id = shape.geometry.get(eid);
-    const name = hulls.name(id);
-    const hull = name === undefined ? undefined : hulls.get(name);
+    const hull = hulls.get(id);
     if (!hull) throw new Error(`physics: Shape ${eid} names missing hull ${id}`);
     const s = shapeBodyScale(world, eid);
     return buildHull(

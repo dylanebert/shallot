@@ -1,5 +1,6 @@
-import { component, f32, type Plugin, Registry, type Resource, u32, vec3 } from "../../engine";
+import { component, f32, type Plugin, type Resource, u32, vec3 } from "../../engine";
 import { Transform, TransformPlugin } from "../transform";
+import { PhysicsAssets } from "./assets";
 import { Compounds } from "./compound";
 import { HeightFields } from "./height-field";
 import { Hulls } from "./hull";
@@ -17,6 +18,7 @@ import {
 import { PhysicsMeshes } from "./mesh";
 import { Shape, type ShapeMaterialSet } from "./shape";
 
+export type { PhysicsAssets } from "./assets";
 export {
     DistanceJoint,
     FilterJoint,
@@ -36,9 +38,10 @@ export {
     type SurfaceMaterial,
 } from "./shape";
 
-/** Named per-triangle material lists referenced by Shape.materialSet (registry id plus one). */
-export const ShapeMaterials: Resource<Registry<ShapeMaterialSet>> = {
-    create: () => new Registry(),
+/** World-owned per-triangle material lists. `add` returns a handle; `Shape.materialSet` holds
+ * that handle plus one (zero means none). Names are display labels. */
+export const ShapeMaterials: Resource<PhysicsAssets<ShapeMaterialSet>> = {
+    create: () => new PhysicsAssets(),
 };
 
 /** Box3D's static, kinematic and dynamic motion types; Body defaults to static. */

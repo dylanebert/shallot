@@ -1,6 +1,6 @@
 // Built geometry for a World's geometry registries, keyed weakly by the definition each was built
 // from. Shapes naming a definition at the same body scale share one build and geometry-database
-// entry; a definition replaced by name is a new key, and a deleted one the game no longer holds is collected
+// entry; each added definition is a new key, and a removed one the game no longer holds is collected
 // with its build. A compound's build also records its children's builds, and is rebuilt once one
 // of them is no longer current.
 
@@ -11,10 +11,11 @@ import {
     HeightFields,
     type Hull,
     Hulls,
+    type PhysicsAssets,
     type PhysicsMesh,
     PhysicsMeshes,
 } from "../../core/physics";
-import type { Registry, Resource, World } from "../../engine";
+import type { Resource, World } from "../../engine";
 import { MAX_HULL_VERTICES } from "./common/constants";
 import type { Transform } from "./common/records";
 import { defaultSurfaceMaterial } from "./common/types";
@@ -25,7 +26,7 @@ import type { HullData } from "./shapes/hull";
 import { createMesh, type MeshData } from "./shapes/mesh";
 
 interface Geometry<Def extends { name: string }, Built extends object> {
-    registry: Resource<Registry<Def>>;
+    registry: Resource<PhysicsAssets<Def>>;
     builds: Resource<WeakMap<Def, Built>>;
     scaled: Resource<WeakMap<Def, Map<string, Built>>>;
     build(world: World, def: Def, sx?: number, sy?: number, sz?: number): Built;
@@ -42,8 +43,7 @@ function lookup<Def extends { name: string }, Built extends object>(
     sz = 1,
 ): Built | undefined {
     const registry = world.resource(geometry.registry);
-    const name = registry.name(id);
-    const def = name === undefined ? undefined : registry.get(name);
+    const def = registry.get(id);
     if (!def) return undefined;
     if (sx === 1 && sy === 1 && sz === 1) {
         const builds = world.resource(geometry.builds);
@@ -76,12 +76,11 @@ function capture<Def extends { name: string }, Built extends object>(
     const registry = world.resource(geometry.registry);
     const builds = world.resource(geometry.builds);
     const captured: [number, Built, string?][] = [];
-    for (const def of registry) {
+    for (const [handle, def] of registry.entries()) {
         const built = builds.get(def);
-        if (built) captured.push([registry.id(def.name)!, built]);
+        if (built) captured.push([handle, built]);
         const scaled = world.resource(geometry.scaled).get(def);
-        if (scaled)
-            for (const [key, built] of scaled) captured.push([registry.id(def.name)!, built, key]);
+        if (scaled) for (const [key, built] of scaled) captured.push([handle, built, key]);
     }
     return captured;
 }
@@ -94,8 +93,7 @@ function restore<Def extends { name: string }, Built extends object>(
     const registry = world.resource(geometry.registry);
     const builds = world.resource(geometry.builds);
     for (const [id, built, key] of captured) {
-        const name = registry.name(id);
-        const def = name === undefined ? undefined : registry.get(name);
+        const def = registry.get(id);
         if (!def) continue;
         if (key === undefined) builds.set(def, built);
         else {

@@ -226,13 +226,20 @@ exported it from `/render/core` as 8; 0.10 exports it from `/rendering` as 533. 
 that sizes per-view data from this constant should continue to use it rather than retain
 the old literal.
 
-## Hull registries belong to worlds
+## Physics geometry belongs to worlds and uses handles
 
-Replace `Hulls.register(...)` and other registry calls with
-`world.resource(Hulls).register(...)` (or the corresponding registry method).
-Hull ids belong to that world; register geometry in each world that uses it.
-Every world's registry starts with the unit cube at `UNIT_CUBE_ID` (0), 1 m on a side.
-`Shape.scale` multiplies a registered hull or mesh and defaults to `[1, 1, 1]`.
+Replace `Hulls.register(definition)` with `world.resource(Hulls).add(definition)` and
+keep the returned handle for `Shape.geometry`. `Hulls`, `PhysicsMeshes`, `HeightFields`,
+`Compounds` and `ShapeMaterials` use `add`, `get(handle)`, `has(handle)` and `remove(handle)`.
+Names are display labels: adding two definitions with the same name keeps both. To replace
+geometry, add a new definition and assign its handle to the shapes that should change;
+do not mutate added definitions. `Shape.materialSet` holds a `ShapeMaterials` handle plus one;
+zero means no material set.
+
+Handles belong to that world; add geometry in each world that uses it. Removing a handle
+can let a later `add` reuse it, so remove its consumers too. Every world's `Hulls` starts with
+the unit cube at `UNIT_CUBE_ID` (0), 1 m on a side. `Shape.scale` multiplies an added hull or
+mesh and defaults to `[1, 1, 1]`. URL-keyed images and fonts retain their registry API.
 
 ## Hulls hold points
 
@@ -247,14 +254,14 @@ built hull keeps at most `maxVertexCount` vertices.
 Hulls.register({ name: "wedge", verts, faces, edges });
 
 // 0.10
-world.resource(Hulls).register({ name: "wedge", points: new Float32Array(verts.flat()) });
+world.resource(Hulls).add({ name: "wedge", points: new Float32Array(verts.flat()) });
 ```
 
 ## Meshes hold Box3D's mesh input
 
 In 0.9.5, `createMesh(def)` from `/tumble/core` built `MeshData` for a `TumbleBody` mesh shape.
-In 0.10, register the definition as a `PhysicsMesh` in `world.resource(PhysicsMeshes)` and name
-its id in a `Shape` of kind `Mesh`; standard physics builds it once per World. `vertices` is flat
+In 0.10, add the definition as a `PhysicsMesh` in `world.resource(PhysicsMeshes)` and use
+its handle in a `Shape` of kind `Mesh`; standard physics builds it once per World. `vertices` is flat
 xyz as a `Float32Array`, with an optional `stride` in floats, `indices` is a `Uint32Array`,
 `materialIndices` a `Uint8Array`, and the build options keep their names, plus `clockwiseWinding`.
 `createMesh`, `MeshDef`, `MeshData` and the `create*Mesh` helpers are removed.
@@ -265,7 +272,7 @@ const mesh = createMesh({ vertices, indices, identifyEdges: true })!;
 Tumble.body(eid)?.createMesh({}, mesh);
 
 // 0.10
-const geometry = world.resource(PhysicsMeshes).register({
+const geometry = world.resource(PhysicsMeshes).add({
     name: "terrain",
     vertices: new Float32Array(vertices.flatMap((v) => [v.x, v.y, v.z])),
     indices: new Uint32Array(indices),
@@ -277,8 +284,8 @@ world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry });
 ## Height fields hold Box3D's height-field input
 
 In 0.9.5, `createHeightField(def)` from `/tumble/core` built `HeightFieldData` for a `TumbleBody`
-height-field shape. In 0.10, register the definition as a `HeightField` in
-`world.resource(HeightFields)` and name its id in a `Shape` of kind `HeightField`; standard physics
+height-field shape. In 0.10, add the definition as a `HeightField` in
+`world.resource(HeightFields)` and use its handle in a `Shape` of kind `HeightField`; standard physics
 builds it once per World. `heights` is a `Float32Array`, `materialIndices` an optional `Uint8Array`,
 `scale` is `[x, y, z]`, and `clockwiseWinding` is optional. `createHeightField`, `createGrid`,
 `createWave`, `HeightFieldDef`, `HeightFieldData` and `HEIGHT_FIELD_HOLE` are removed; a
@@ -299,7 +306,7 @@ const field = createHeightField({
 Tumble.body(eid)?.createHeightField({}, field);
 
 // 0.10
-const geometry = world.resource(HeightFields).register({
+const geometry = world.resource(HeightFields).add({
     name: "terrain",
     heights: new Float32Array(heights),
     scale: [1, 1, 1],
@@ -314,9 +321,9 @@ world.add(eid, Shape, { kind: ShapeKind.HeightField, geometry });
 ## Compounds hold Box3D's compound input
 
 In 0.9.5, `createCompound(def)` from `/tumble/core` built `CompoundData` for a `TumbleBody`
-compound shape from built hulls and meshes. In 0.10, register the definition as a `Compound` in
-`world.resource(Compounds)` and name its id in a `Shape` of kind `Compound`; standard physics
-builds it once per World. Hull and mesh children name `Hulls` and `PhysicsMeshes` ids, with
+compound shape from built hulls and meshes. In 0.10, add the definition as a `Compound` in
+`world.resource(Compounds)` and use its handle in a `Shape` of kind `Compound`; standard physics
+builds it once per World. Hull and mesh children use `Hulls` and `PhysicsMeshes` handles, with
 `transform: { position: [x, y, z], rotation: [x, y, z, w] }`; capsule and sphere children hold
 their `center1`, `center2` or `center` as `[x, y, z]` and `radius` directly. Each child's
 `material` is optional and defaults to Box3D's default surface material; a mesh child's
@@ -333,8 +340,8 @@ const compound = createCompound({
 Tumble.body(eid)?.createCompound({}, compound);
 
 // 0.10
-const slab = world.resource(Hulls).register({ name: "slab", points: slabCorners });
-const geometry = world.resource(Compounds).register({
+const slab = world.resource(Hulls).add({ name: "slab", points: slabCorners });
+const geometry = world.resource(Compounds).add({
     name: "stairs",
     hulls: [{ hull: slab, transform: { position: [1, 2, 0], rotation: [0, 0, 0, 1] } }],
 });

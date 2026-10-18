@@ -19,7 +19,7 @@ export const Shape = component(
         body: entity,
         /** Box3D shape kind. */
         kind: u32,
-        /** Geometry registry id: Hulls, PhysicsMeshes, HeightFields or Compounds, selected by kind. */
+        /** World-local geometry handle from Hulls, PhysicsMeshes, HeightFields or Compounds, selected by kind. */
         geometry: u32,
         /** Sphere center in body-local meters. */
         sphereCenter: vec3,
@@ -75,7 +75,7 @@ export const Shape = component(
         invokeContactCreation: u32,
         /** Whether creation, replacement, and density writes recompute body mass. */
         updateBodyMass: u32,
-        /** One-based ShapeMaterials registry id; zero means no per-triangle materials. */
+        /** ShapeMaterials handle plus one; zero means no per-triangle materials. */
         materialSet: u32,
     },
     {
@@ -130,7 +130,7 @@ export interface SurfaceMaterial {
     customColor: number;
 }
 
-/** Optional per-triangle surface materials referenced by Shape.materialSet (id + 1). */
+/** Optional per-triangle surface materials referenced by Shape.materialSet (handle + 1). */
 export interface ShapeMaterialSet {
     name: string;
     materials: SurfaceMaterial[];

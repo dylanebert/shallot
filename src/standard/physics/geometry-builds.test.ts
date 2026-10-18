@@ -1,12 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-    type Registry,
-    type Resource,
-    Time,
-    Transform,
-    TransformPlugin,
-    World,
-} from "@dylanebert/shallot";
+import { type Resource, Time, Transform, TransformPlugin, World } from "@dylanebert/shallot";
 import {
     Body,
     type Compound,
@@ -14,6 +7,7 @@ import {
     type HeightField,
     HeightFields,
     Hulls,
+    type PhysicsAssets,
     type PhysicsMesh,
     PhysicsMeshes,
     PhysicsPlugin,
@@ -103,7 +97,7 @@ const field = (name: string, size = 1): HeightField => ({
 interface Geometry<Def extends { name: string }> {
     noun: string;
     plural: string;
-    registry: Resource<Registry<Def>>;
+    registry: Resource<PhysicsAssets<Def>>;
     registryName: string;
     kind: ShapeKind;
     /** A definition `size` meters along x, registering any geometry it names in `world`. */
@@ -139,7 +133,7 @@ const compound: Geometry<Compound> = {
         ],
         meshes: [
             {
-                mesh: world.resource(PhysicsMeshes).register(quad(`${name}-child`)),
+                mesh: world.resource(PhysicsMeshes).add(quad(`${name}-child`)),
                 transform: { position: [-5, 0, 0], rotation: [0, 0, 0, 1] },
                 scale: [1, 1, 1],
             },
@@ -184,12 +178,12 @@ function grid(n: number): { vertices: Float32Array; indices: Uint32Array } {
 
 function buildTests<Def extends { name: string }>(geometry: Geometry<Def>): void {
     const { noun, plural, registryName, kind } = geometry;
-    const register = (world: World, name: string, size?: number) =>
-        world.resource(geometry.registry).register(geometry.define(world, name, size));
+    const add = (world: World, name: string, size?: number) =>
+        world.resource(geometry.registry).add(geometry.define(world, name, size));
 
-    test(`Shapes naming one ${registryName} id share one build and one geometry database entry`, async () => {
+    test(`Shapes naming one ${registryName} handle share one build and one geometry database entry`, async () => {
         await withPhysics((world) => {
-            const id = register(world, "shared");
+            const id = add(world, "shared");
             const before = databaseCount(world);
             geometryShape(world, kind, id);
             geometryShape(world, kind, id);
@@ -201,25 +195,40 @@ function buildTests<Def extends { name: string }>(geometry: Geometry<Def>): void
         });
     });
 
-    test(`a ${noun} registered again under its name builds anew for the next Shape, and earlier Shapes keep theirs`, async () => {
+    test(`two ${plural} with one name have distinct handles and each Shape keeps its own geometry`, async () => {
         await withPhysics((world) => {
-            const id = register(world, "replaced", 1);
+            const id = add(world, "replaced", 1);
             geometryShape(world, kind, id);
             // A marked Shape compares against the registry at each sync; the second frame's sync is its last.
             world.step(Time.FIXED_DT);
             world.step(Time.FIXED_DT);
-            expect(register(world, "replaced", 2)).toBe(id);
-            geometryShape(world, kind, id);
+            const secondId = add(world, "replaced", 2);
+            expect(secondId).not.toBe(id);
+            geometryShape(world, kind, secondId);
             world.tick();
             const [first, second] = geometryReferences(world);
             expect(second).not.toBe(first);
-            expect(geometry.upperX(world, id)).toBe(2);
+            expect(geometry.upperX(world, id)).toBe(1);
+            expect(geometry.upperX(world, secondId)).toBe(2);
+            const saved = world.snapshot();
+            const count = databaseCount(world);
+            world.resource(geometry.registry).clear();
+            world.restore(saved);
+            expect(geometry.upperX(world, id)).toBe(1);
+            expect(geometry.upperX(world, secondId)).toBe(2);
+            geometryShape(world, kind, id);
+            geometryShape(world, kind, secondId);
+            world.tick();
+            const references = geometryReferences(world);
+            expect(references[2]).toBe(references[0]);
+            expect(references[3]).toBe(references[1]);
+            expect(databaseCount(world)).toBe(count);
         });
     });
 
     test(`a restored World keeps its ${noun} builds, so a Shape spawned after restore adds no geometry and hashes alike`, async () => {
         await withPhysics((world) => {
-            const id = register(world, "restored");
+            const id = add(world, "restored");
             geometryShape(world, kind, id);
             // Two frames settle the spawn, so the restored Shape is not compared against the registry again.
             world.step(Time.FIXED_DT);
@@ -245,8 +254,9 @@ function buildTests<Def extends { name: string }>(geometry: Geometry<Def>): void
             // last, unmeasured cycle overwrites the stack slots the final measured one left behind.
             const cycle = (i: number) => {
                 const def = geometry.define(world, `cycle-${i}`);
-                const build = geometry.lookup(world, registry.register(def))!;
-                registry.delete(def.name);
+                const handle = registry.add(def);
+                const build = geometry.lookup(world, handle)!;
+                registry.remove(handle);
                 return { def: new WeakRef(def), build: new WeakRef(build) };
             };
             const cycles = Array.from({ length: 101 }, (_, i) => cycle(i)).slice(0, 100);
@@ -275,7 +285,7 @@ test("each PhysicsMesh build option reaches Box3D's mesh build", async () => {
         }));
         const meshes = world.resource(PhysicsMeshes);
         const built = (def: Omit<PhysicsMesh, "name">) =>
-            meshBuild(world, meshes.register({ name: JSON.stringify(def), ...def }))!;
+            meshBuild(world, meshes.add({ name: JSON.stringify(def), ...def }))!;
         const plain = built({ vertices, indices });
         expect(plain).toEqual(createMesh({ vertices: points, indices })!);
 
@@ -385,7 +395,7 @@ test("a PhysicsMesh Box3D cannot build leaves its Shape unattached with a warnin
             world.add(eid, Shape, {
                 body,
                 kind: ShapeKind.Mesh,
-                geometry: meshes.register({ name: `bad-${i}`, ...def }),
+                geometry: meshes.add({ name: `bad-${i}`, ...def }),
             });
         }
         world.tick();
@@ -398,7 +408,7 @@ test("each HeightField field reaches Box3D's height-field build", async () => {
     await withPhysics((world) => {
         const fields = world.resource(HeightFields);
         const built = (def: Omit<HeightField, "name">) =>
-            heightFieldBuild(world, fields.register({ name: JSON.stringify(def), ...def }))!;
+            heightFieldBuild(world, fields.add({ name: JSON.stringify(def), ...def }))!;
         // Four points along x by three along z, so swapping the counts reorders the grid.
         const heights = new Float32Array([0, 0.5, 0.2, 0.8, 0.7, 1, 0.3, 0.6, 0.1, 0.4, 0.9, 0.35]);
         const base: Omit<HeightField, "name"> = {
@@ -488,7 +498,7 @@ test("a HeightField Box3D cannot build leaves its Shape unattached with a warnin
             world.add(eid, Shape, {
                 body,
                 kind: ShapeKind.HeightField,
-                geometry: fields.register({ name: `bad-${i}`, ...def }),
+                geometry: fields.add({ name: `bad-${i}`, ...def }),
             });
         }
         world.tick();
@@ -501,13 +511,13 @@ test("a HeightField Box3D cannot build leaves its Shape unattached with a warnin
 const tetrahedron = (size: number) =>
     new Float32Array([0, 0, 0, size, 0, 0, 0, size, 0, 0, 0, size]);
 
-test("a compound builds anew for the next Shape once a child hull or mesh is registered again by name, and earlier Shapes keep theirs", async () => {
+test("a compound keeps its child handles when same-name hulls and meshes are added", async () => {
     await withPhysics((world) => {
         const hulls = world.resource(Hulls);
         const meshes = world.resource(PhysicsMeshes);
-        const hull = hulls.register({ name: "child-hull", points: tetrahedron(1) });
-        const mesh = meshes.register(quad("child-mesh"));
-        const id = world.resource(Compounds).register({
+        const hull = hulls.add({ name: "child-hull", points: tetrahedron(1) });
+        const mesh = meshes.add(quad("child-mesh"));
+        const id = world.resource(Compounds).add({
             name: "parent",
             hulls: [{ hull, transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1] } }],
             meshes: [
@@ -532,30 +542,30 @@ test("a compound builds anew for the next Shape once a child hull or mesh is reg
         const [firstHull, firstMesh] = children();
         expect(firstHull.aabb.upperBound.x).toBe(1);
 
-        hulls.register({ name: "child-hull", points: tetrahedron(2) });
+        hulls.add({ name: "child-hull", points: tetrahedron(2) });
         spawn();
         const [secondHull, secondMesh] = children();
-        expect(secondHull.aabb.upperBound.x).toBe(2);
+        expect(secondHull).toBe(firstHull);
         expect(secondMesh).toBe(firstMesh);
 
-        meshes.register(quad("child-mesh", 2));
+        meshes.add(quad("child-mesh", 2));
         spawn();
         const [thirdHull, thirdMesh] = children();
         expect(thirdHull).toBe(secondHull);
-        expect(thirdMesh.bounds.upperBound.x).toBe(2);
+        expect(thirdMesh).toBe(firstMesh);
 
         const [first, second, third] = geometryReferences(world);
-        expect(new Set([first, second, third]).size).toBe(3);
+        expect(new Set([first, second, third]).size).toBe(1);
     });
 });
 
 test("each Compound field reaches Box3D's compound build", async () => {
     await withPhysics((world) => {
         const points = tetrahedron(1);
-        const hull = world.resource(Hulls).register({ name: "fields-hull", points });
+        const hull = world.resource(Hulls).add({ name: "fields-hull", points });
         // Two material indices, so the mesh child takes two materials.
         const twoMaterials = { ...quad("fields-mesh"), materialIndices: new Uint8Array([0, 1]) };
-        const mesh = world.resource(PhysicsMeshes).register(twoMaterials);
+        const mesh = world.resource(PhysicsMeshes).add(twoMaterials);
         const compounds = world.resource(Compounds);
         let count = 0;
         // The tree's spare node floats are NaN, which typed-array equality never matches; arrays compare them alike.
@@ -564,9 +574,7 @@ test("each Compound field reaches Box3D's compound build", async () => {
             tree: { ...data.tree, nf: Array.from(data.tree.nf) },
         });
         const built = (def: Omit<Compound, "name">) =>
-            comparable(
-                compoundBuild(world, compounds.register({ name: `fields-${count++}`, ...def }))!,
-            );
+            comparable(compoundBuild(world, compounds.add({ name: `fields-${count++}`, ...def }))!);
         const materialOf = (userMaterialId: bigint): SurfaceMaterial => ({
             ...defaultSurfaceMaterial(),
             userMaterialId,
@@ -700,11 +708,9 @@ test("a Compound Box3D cannot build leaves its Shape unattached with a warning n
         rotation: [0, 0, 0, 1] as [number, number, number, number],
     };
     await withPhysics((world) => {
-        const ragged = world
-            .resource(Hulls)
-            .register({ name: "ragged", points: new Float32Array(7) });
-        const mesh = world.resource(PhysicsMeshes).register(quad("one-material"));
-        const six = world.resource(PhysicsMeshes).register({
+        const ragged = world.resource(Hulls).add({ name: "ragged", points: new Float32Array(7) });
+        const mesh = world.resource(PhysicsMeshes).add(quad("one-material"));
+        const six = world.resource(PhysicsMeshes).add({
             ...quad("six-materials"),
             materialIndices: new Uint8Array([0, 5]),
         });
@@ -748,7 +754,7 @@ test("a Compound Box3D cannot build leaves its Shape unattached with a warning n
             world.add(eid, Shape, {
                 body,
                 kind: ShapeKind.Compound,
-                geometry: compounds.register({ name: `bad-${i}`, ...def }),
+                geometry: compounds.add({ name: `bad-${i}`, ...def }),
             });
         }
         world.tick();
@@ -759,7 +765,7 @@ test("a Compound Box3D cannot build leaves its Shape unattached with a warning n
 
 test("a compound mesh child flattened below B3_MIN_SCALE by body Transform.scale meets rays at its scaled height", async () => {
     await withPhysics((world) => {
-        const box = world.resource(PhysicsMeshes).register({
+        const box = world.resource(PhysicsMeshes).add({
             name: "flattened-box",
             vertices: new Float32Array([
                 -1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1,
@@ -769,7 +775,7 @@ test("a compound mesh child flattened below B3_MIN_SCALE by body Transform.scale
                 6, 7, 0, 3, 2, 0, 2, 1,
             ]),
         });
-        const id = world.resource(Compounds).register({
+        const id = world.resource(Compounds).add({
             name: "flattened",
             meshes: [
                 {

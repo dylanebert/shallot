@@ -145,7 +145,7 @@ test("core physics recovery restores every Shape geometry and material registry"
             vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
             indices: new Uint32Array([0, 1, 2]),
         };
-        const meshId = mesh.register(structuredClone(triangle));
+        const meshId = mesh.add(structuredClone(triangle));
         const field = {
             name: "recovery-height",
             heights: new Float32Array([0, 0.25, 0.5, 1]),
@@ -155,13 +155,13 @@ test("core physics recovery restores every Shape geometry and material registry"
             globalMinimumHeight: 0,
             globalMaximumHeight: 1,
         };
-        const heightId = heightField.register(structuredClone(field));
+        const heightId = heightField.add(structuredClone(field));
         const ball = {
             name: "recovery-compound",
             spheres: [{ center: [0, 1, 0] as [number, number, number], radius: 0.5 }],
         };
-        const compoundId = compound.register(structuredClone(ball));
-        const materialId = materials.register({
+        const compoundId = compound.add(structuredClone(ball));
+        const materialId = materials.add({
             name: "recovery-materials",
             materials: [
                 {
@@ -175,20 +175,16 @@ test("core physics recovery restores every Shape geometry and material registry"
             ],
         });
         const saved = world.snapshot();
-        mesh.register({ ...triangle, vertices: new Float32Array([0, 0, 0, 2, 0, 0, 0, 2, 0]) });
-        heightField.delete("recovery-height");
-        compound.register({ ...ball, spheres: [{ center: [0, 2, 0], radius: 1 }] });
-        materials.delete("recovery-materials");
+        mesh.add({ ...triangle, vertices: new Float32Array([0, 0, 0, 2, 0, 0, 0, 2, 0]) });
+        heightField.remove(heightId);
+        compound.add({ ...ball, spheres: [{ center: [0, 2, 0], radius: 1 }] });
+        materials.remove(materialId);
         world.restore(saved);
 
-        expect(mesh.id("recovery-mesh")).toBe(meshId);
-        expect(mesh.get("recovery-mesh")).toEqual(triangle);
-        expect(heightField.id("recovery-height")).toBe(heightId);
-        expect(heightField.get("recovery-height")).toEqual(field);
-        expect(compound.id("recovery-compound")).toBe(compoundId);
-        expect(compound.get("recovery-compound")).toEqual(ball);
-        expect(materials.id("recovery-materials")).toBe(materialId);
-        expect(materials.get("recovery-materials")?.materials[0]?.userMaterialId).toBe(44n);
+        expect(mesh.get(meshId)).toEqual(triangle);
+        expect(heightField.get(heightId)).toEqual(field);
+        expect(compound.get(compoundId)).toEqual(ball);
+        expect(materials.get(materialId)?.materials[0]?.userMaterialId).toBe(44n);
     } finally {
         await disposeGpuApps([app]);
     }
@@ -209,8 +205,8 @@ test("recovery restores Shape authoring and its hull registry before fixed sync"
         const expected = hashPhysics(world);
         expect(worldCounters(physicsState(world)!).bodyCount).toBe(1);
         expect(worldCounters(physicsState(world)!).shapeCount).toBe(0);
-        const cube = structuredClone(hulls.get(hulls.name(0)!)!);
-        expect(hulls.register({ ...cube, name: "future-hull" })).toBe(1);
+        const cube = structuredClone(hulls.get(0)!);
+        expect(hulls.add({ ...cube, name: "future-hull" })).toBe(1);
         world.restore(saved);
         world.tick();
         expect(hashPhysics(world)).toBe(expected);
@@ -218,8 +214,8 @@ test("recovery restores Shape authoring and its hull registry before fixed sync"
         expect(worldCounters(physicsState(world)!).shapeCount).toBe(0);
         expect(world.resource(Hulls)).toBe(hulls);
         expect(hulls.size).toBe(1);
-        expect(hulls.id("future-hull")).toBeUndefined();
-        expect(hulls.register({ ...cube, name: "replayed-hull" })).toBe(1);
+        expect(hulls.get(1)).toBeUndefined();
+        expect(hulls.add({ ...cube, name: "replayed-hull" })).toBe(1);
     } finally {
         await disposeGpuApps([app]);
     }

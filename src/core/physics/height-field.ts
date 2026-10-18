@@ -1,4 +1,5 @@
-import { Registry, type Resource } from "../../engine";
+import type { Resource } from "../../engine";
+import { PhysicsAssets } from "./assets";
 
 /**
  * Box3D's `b3HeightFieldDef`: a grid of `countX` by `countZ` points in the shape's xz plane, one unit
@@ -8,8 +9,8 @@ import { Registry, type Resource } from "../../engine";
  * other than `countX * countZ`, a `materialIndices` length other than the cell count, a
  * non-positive `scale`, and `globalMinimumHeight` above `globalMaximumHeight`. `Shape.scale` does
  * not apply; the body's Transform.scale multiplies the definition scale and must be positive and
- * finite. Body-scale changes recreate the shape at the next fixed sync. Replace a height field by registering its name again rather than mutating a
- * registered one.
+ * finite. Body-scale changes recreate the shape at the next fixed sync. Replace a height field
+ * by adding a new definition and assigning its handle, never by mutation.
  */
 export interface HeightField {
     name: string;
@@ -34,7 +35,7 @@ export interface HeightField {
     clockwiseWinding?: boolean;
 }
 
-/** World-owned height fields. Register geometry through `world.resource(HeightFields)`; re-registering a name reuses its id. A `Shape` references an id in its own World's registry. */
-export const HeightFields: Resource<Registry<HeightField>> = {
-    create: () => new Registry(),
+/** World-owned height fields. `add` returns a handle for `Shape.geometry`; names are display labels. */
+export const HeightFields: Resource<PhysicsAssets<HeightField>> = {
+    create: () => new PhysicsAssets(),
 };

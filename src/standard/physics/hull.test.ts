@@ -25,10 +25,10 @@ test("two worlds marshal their own hull registered under the same name", () => {
             for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
                 world.registry.register(component, PhysicsPlugin.name);
             const hulls = world.resource(Hulls);
-            expect(hulls.id("__unit_cube__")).toBe(UNIT_CUBE_ID);
-            const cube = hulls.get("__unit_cube__")!;
+            expect(hulls.has(UNIT_CUBE_ID)).toBe(true);
+            const cube = hulls.get(UNIT_CUBE_ID)!;
             const scale = i + 1;
-            const id = hulls.register({
+            const id = hulls.add({
                 name: "shared-name",
                 points: cube.points!.map((coordinate) => coordinate * scale),
             });
@@ -54,6 +54,37 @@ test("two worlds marshal their own hull registered under the same name", () => {
     }
 });
 
+test("two same-name hull handles keep each Shape's geometry before and after restore", () => {
+    const world = new World();
+    for (const component of [...TransformPlugin.components!, ...PhysicsPlugin.components!])
+        world.registry.register(component, PhysicsPlugin.name);
+    if (typeof PhysicsPlugin.recovery !== "function") throw new Error("missing physics recovery");
+    world.registerRecovery(PhysicsPlugin.name, PhysicsPlugin.recovery(world));
+    const hulls = world.resource(Hulls);
+    const first = hulls.add({ name: "box", halfExtents: [1, 1, 1] });
+    const second = hulls.add({ name: "box", halfExtents: [2, 2, 2] });
+    expect(first).not.toBe(second);
+    const shapes = [first, second].map((geometry) => {
+        const eid = world.create();
+        world.add(eid, Body);
+        world.add(eid, Shape, { geometry });
+        return eid;
+    });
+    const saved = world.snapshot();
+    const check = () => {
+        for (let i = 0; i < shapes.length; i++)
+            expect(shapeHullGeometry(world, shapes[i]).aabb.upperBound.x).toBe(i + 1);
+    };
+    check();
+    hulls.clear();
+    hulls.add({ name: "box", halfExtents: [8, 8, 8] });
+    world.restore(saved);
+    check();
+    expect(world.storage(Shape).geometry.get(shapes[0])).toBe(first);
+    expect(world.storage(Shape).geometry.get(shapes[1])).toBe(second);
+    world.dispose();
+});
+
 // The unit cube spans ±0.5, so a box's Shape.scale is its full lengths: scaled by 2h it builds the
 // same hull, and steps to the same world hash, as a registered ±1 cube scaled by h, the box a ±1 unit
 // cube gave at half-extents h. fround(2h) is 2 * fround(h), so the two meet bit for bit.
@@ -68,9 +99,9 @@ test("the unit cube at scale 2h builds the hull and world hash of a registered �
                 world.registry.register(component, PhysicsPlugin.name);
             const geometry = unitCube
                 ? UNIT_CUBE_ID
-                : world.resource(Hulls).register({
+                : world.resource(Hulls).add({
                       name: "cube-2",
-                      points: world.resource(Hulls).get("__unit_cube__")!.points!.map(Math.sign),
+                      points: world.resource(Hulls).get(UNIT_CUBE_ID)!.points!.map(Math.sign),
                   });
             const shape = (h: readonly number[], body: number) => {
                 const eid = world.create();
@@ -148,8 +179,8 @@ test("a hull's maxVertexCount bounds the vertices its built hull keeps, and its 
             world.add(eid, Shape, { kind: ShapeKind.Hull, geometry, scale: [1, 1, 1] });
             return shapeHullGeometry(world, eid).vertexCount;
         };
-        expect(vertexCount(hulls.register({ name: "prism", points }))).toBe(16);
-        expect(vertexCount(hulls.register({ name: "prism-6", points, maxVertexCount: 6 }))).toBe(6);
+        expect(vertexCount(hulls.add({ name: "prism", points }))).toBe(16);
+        expect(vertexCount(hulls.add({ name: "prism-6", points, maxVertexCount: 6 }))).toBe(6);
     } finally {
         world.dispose();
     }

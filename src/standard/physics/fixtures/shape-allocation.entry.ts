@@ -11,7 +11,7 @@ export default async function create(input: string) {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     if (input === "mesh-lookup") {
         const world = app.world;
-        const id = world.resource(PhysicsMeshes).register({
+        const id = world.resource(PhysicsMeshes).add({
             name: "lookup",
             vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]),
             indices: new Uint32Array([0, 2, 1]),

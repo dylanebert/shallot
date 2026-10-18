@@ -183,7 +183,7 @@ test("height fields build per definition and positive body scale, recreate on ch
     const a = await app();
     try {
         const w = a.world;
-        const geometry = w.resource(HeightFields).register({
+        const geometry = w.resource(HeightFields).add({
             name: "field",
             heights: new Float32Array([0, 1, 1, 0]),
             countX: 2,
@@ -223,7 +223,7 @@ test("compound scale multiplies child positions and geometry in child frames, re
     try {
         const w = a.world,
             rotation: [number, number, number, number] = [0, 0, Math.SQRT1_2, Math.SQRT1_2];
-        const geometry = w.resource(Compounds).register({
+        const geometry = w.resource(Compounds).add({
             name: "compound",
             hulls: [{ hull: 0, transform: { position: [1, 2, 3], rotation } }],
             spheres: [{ center: [2, 3, 4], radius: 0.5 }],
@@ -265,7 +265,7 @@ test("mesh body scale preserves signed per-axis geometry and changes through the
     const a = await app();
     try {
         const w = a.world,
-            geometry = w.resource(PhysicsMeshes).register({
+            geometry = w.resource(PhysicsMeshes).add({
                 name: "mesh",
                 vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]),
                 indices: new Uint32Array([0, 1, 2]),
@@ -313,7 +313,7 @@ test("non-uniform mirrored compounds scale hull and mesh children in their own r
     const a = await app();
     try {
         const w = a.world;
-        const mesh = w.resource(PhysicsMeshes).register({
+        const mesh = w.resource(PhysicsMeshes).add({
             name: "child",
             vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]),
             indices: new Uint32Array([0, 1, 2]),
@@ -322,7 +322,7 @@ test("non-uniform mirrored compounds scale hull and mesh children in their own r
             position: [1, 2, 3] as Scale,
             rotation: [0, 0, 1, 0] as [number, number, number, number],
         };
-        const geometry = w.resource(Compounds).register({
+        const geometry = w.resource(Compounds).add({
             name: "signed",
             hulls: [{ hull: 0, transform }],
             meshes: [{ mesh, transform, scale: [2, 1, 0.5] }],
@@ -353,12 +353,12 @@ test("non-uniform mirrored compounds scale hull and mesh children in their own r
 });
 
 for (const kind of [ShapeKind.HeightField, ShapeKind.Compound])
-    test(`scaled ${kind === ShapeKind.HeightField ? "height-field" : "compound"} cache releases deleted and replaced definitions and their builds`, async () => {
+    test(`scaled ${kind === ShapeKind.HeightField ? "height-field" : "compound"} cache releases removed definitions and their builds`, async () => {
         const a = await app();
         try {
             const w = a.world;
             const refs: WeakRef<object>[] = [];
-            function cycle(i: number) {
+            function cycle() {
                 const def =
                     kind === ShapeKind.HeightField
                         ? {
@@ -373,19 +373,19 @@ for (const kind of [ShapeKind.HeightField, ShapeKind.Compound])
                         : { name: "collect", spheres: [{ center: [0, 0, 0] as Scale, radius: 1 }] };
                 if (kind === ShapeKind.HeightField) {
                     const registry = w.resource(HeightFields);
-                    const id = registry.register(def as import("../../core/physics").HeightField);
+                    const id = registry.add(def as import("../../core/physics").HeightField);
                     const built = heightFieldBuild(w, id, 2, 2, 2)!;
                     refs.push(new WeakRef(def), new WeakRef(built));
-                    if (i % 2) registry.delete("collect");
+                    registry.remove(id);
                 } else {
                     const registry = w.resource(Compounds);
-                    const id = registry.register(def as import("../../core/physics").Compound);
+                    const id = registry.add(def as import("../../core/physics").Compound);
                     const built = compoundBuild(w, id, 2, 2, 2)!;
                     refs.push(new WeakRef(def), new WeakRef(built));
-                    if (i % 2) registry.delete("collect");
+                    registry.remove(id);
                 }
             }
-            for (let i = 0; i < 10; i++) cycle(i);
+            for (let i = 0; i < 10; i++) cycle();
             // The job that made the refs, or a stack slot the conservative scan reads, may keep a target
             // alive through one collection; yielding around each collection leaves only real retention.
             const alive = () => refs.filter((ref) => ref.deref() !== undefined).length;

@@ -1,9 +1,10 @@
-import { Registry, type Resource } from "../../engine";
+import type { Resource } from "../../engine";
+import { PhysicsAssets } from "./assets";
 
 /**
  * Convex geometry in shape-local meters, before `Shape.scale`.
  * A box builds Box3D's `b3MakeBoxHull`; points build `b3CreateHull`, which drops interior points
- * and merges coplanar faces. Replace geometry by registering its name again, never by mutation.
+ * and merges coplanar faces. Add new geometry and assign its handle to replace geometry, never mutate an added definition.
  */
 export type Hull = { name: string } & (
     | {
@@ -21,11 +22,11 @@ export type Hull = { name: string } & (
       }
 );
 
-/** World-owned convex hulls. Re-registering a name reuses its id; Shape.geometry names an id in its own World. */
-export const Hulls: Resource<Registry<Hull>> = {
+/** World-owned convex hulls. `add` returns a handle for `Shape.geometry`; names are display labels. */
+export const Hulls: Resource<PhysicsAssets<Hull>> = {
     create: () => {
-        const hulls = new Registry<Hull>();
-        hulls.register({ name: "__unit_cube__", points: UNIT_CUBE_POINTS.slice() });
+        const hulls = new PhysicsAssets<Hull>();
+        hulls.add({ name: "__unit_cube__", points: UNIT_CUBE_POINTS.slice() });
         return hulls;
     },
 };
@@ -34,5 +35,5 @@ const UNIT_CUBE_POINTS = new Float32Array([
     -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5,
     0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
 ]);
-/** Reserved hull id of the built-in 1 m unit cube; `Shape.scale` supplies its full lengths. */
+/** Reserved hull handle of the built-in 1 m unit cube; `Shape.scale` supplies its full lengths. */
 export const UNIT_CUBE_ID = 0;

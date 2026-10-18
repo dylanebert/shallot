@@ -120,7 +120,7 @@ export function createView(world: World, scene: Scene): void {
     const meshes = world.resource(Meshes);
     for (const eid of world.query([Shape])) {
         const hulls = world.resource(Hulls);
-        const hull = hulls.get(hulls.name(shapes.geometry.get(eid))!);
+        const hull = hulls.get(shapes.geometry.get(eid));
         if (shapes.kind.get(eid) !== ShapeKind.Hull || !hull?.halfExtents || shapes.body.get(eid))
             throw new Error("The physics viewer currently draws body-local box hulls only");
         const size = hull.halfExtents.map(

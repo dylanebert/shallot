@@ -136,7 +136,7 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         ]).toEqual([0, 0, 0, 0]);
         expect(j.enableSpring.get(joint)).toBe(0);
         expect(j.localRotationB.w.get(joint)).toBe(1);
-        expect(world.resource(Hulls).id("__unit_cube__")).toBe(UNIT_CUBE_ID);
+        expect(world.resource(Hulls).has(UNIT_CUBE_ID)).toBe(true);
     } finally {
         await disposeGpuApps([app]);
     }

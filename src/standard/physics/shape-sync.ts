@@ -162,8 +162,7 @@ function materialSet(
 ): SurfaceMaterial[] | undefined {
     const id = scalar(binding, eid, "materialSet");
     if (id === 0) return undefined;
-    const name = world.resource(ShapeMaterials).name(id - 1);
-    const set = name === undefined ? undefined : world.resource(ShapeMaterials).get(name);
+    const set = world.resource(ShapeMaterials).get(id - 1);
     if (!set) throw new Error(`physics: Shape ${eid} names missing material set ${id - 1}`);
     return set.materials;
 }

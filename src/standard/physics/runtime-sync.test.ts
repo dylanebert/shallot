@@ -312,17 +312,17 @@ test("a hull scale edit reaches b3Shape_SetHull without replacing the ECS-bound 
 test("mesh geometry and per-triangle material edits use Box3D setters and getters", async () => {
     await withPhysics((world) => {
         const meshes = world.resource(PhysicsMeshes);
-        const firstId = meshes.register({
+        const firstId = meshes.add({
             name: "shape-sync-first-mesh",
             vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
             indices: new Uint32Array([0, 1, 2]),
         });
-        const secondId = meshes.register({
+        const secondId = meshes.add({
             name: "shape-sync-second-mesh",
             vertices: new Float32Array([0, 0, 0, 2, 0, 0, 0, 1, 0]),
             indices: new Uint32Array([0, 1, 2]),
         });
-        world.resource(ShapeMaterials).register({
+        world.resource(ShapeMaterials).add({
             name: "shape-sync-material-set",
             materials: [
                 {
@@ -1188,8 +1188,8 @@ test("physics sync retries a missing Shape hull when the registry grows", async 
         expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
         expect(worldCounters(stateFor(world)).shapeCount).toBe(0);
 
-        const cube = structuredClone(hulls.get(hulls.name(0)!)!);
-        expect(hulls.register({ ...cube, name: "runtime-sync-recovery-hull" })).toBe(1);
+        const cube = structuredClone(hulls.get(0)!);
+        expect(hulls.add({ ...cube, name: "runtime-sync-recovery-hull" })).toBe(1);
         world.tick();
 
         expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
@@ -1203,7 +1203,7 @@ for (const [kind, label, register] of [
         ShapeKind.Mesh,
         "mesh",
         (world: World) =>
-            world.resource(PhysicsMeshes).register({
+            world.resource(PhysicsMeshes).add({
                 name: "late-mesh",
                 vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]),
                 indices: new Uint32Array([0, 2, 1]),
@@ -1213,7 +1213,7 @@ for (const [kind, label, register] of [
         ShapeKind.HeightField,
         "height-field",
         (world: World) =>
-            world.resource(HeightFields).register({
+            world.resource(HeightFields).add({
                 name: "late-height-field",
                 heights: new Float32Array(4),
                 scale: [1, 1, 1],
@@ -1227,7 +1227,7 @@ for (const [kind, label, register] of [
         ShapeKind.Compound,
         "compound",
         (world: World) =>
-            world.resource(Compounds).register({
+            world.resource(Compounds).add({
                 name: "late-compound",
                 spheres: [{ center: [0, 0, 0], radius: 0.5 }],
             }),
@@ -1254,10 +1254,10 @@ test("physics sync refuses a hull whose points length is not a multiple of 3", a
     );
     await withPhysics((world) => {
         const hulls = world.resource(Hulls);
-        const cube = hulls.get(hulls.name(0)!)!.points!;
+        const cube = hulls.get(0)!.points!;
         const points = new Float32Array(cube.length + 1);
         points.set(cube);
-        const geometry = hulls.register({ name: "ragged", points });
+        const geometry = hulls.add({ name: "ragged", points });
         const eid = world.create();
         world.add(eid, Body);
         world.add(eid, Shape, { kind: ShapeKind.Hull, geometry, scale: [1, 1, 1] });
@@ -1309,8 +1309,8 @@ test("physics sync restores a pending Shape hull when its registry snapshot pred
         expect(worldCounters(stateFor(world)).bodyCount).toBe(1);
         expect(worldCounters(stateFor(world)).shapeCount).toBe(0);
 
-        const cube = structuredClone(hulls.get(hulls.name(0)!)!);
-        hulls.register({ ...cube, name: "runtime-sync-restored-hull" });
+        const cube = structuredClone(hulls.get(0)!);
+        hulls.add({ ...cube, name: "runtime-sync-restored-hull" });
         const saved = world.snapshot();
         world.tick();
         expect(worldCounters(stateFor(world)).bodyCount).toBe(1);

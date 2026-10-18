@@ -1,12 +1,12 @@
-import { Registry, type Resource } from "../../engine";
+import type { Resource } from "../../engine";
+import { PhysicsAssets } from "./assets";
 
 /**
  * Box3D's `b3MeshDef`. A solver builds it once per World and culls degenerate triangles. It
  * refuses an `indices` length that is not a multiple of 3, an index past the last vertex, a
  * `materialIndices` length other than the triangle count, and a mesh with no triangle left.
  * `vertices` must fill whole strides or end immediately after the last vertex's xyz.
- * Replace a mesh by registering its name
- * again rather than mutating a registered one.
+ * Replace a mesh by adding a new definition and assigning its handle, never by mutation.
  */
 export interface PhysicsMesh {
     name: string;
@@ -30,7 +30,7 @@ export interface PhysicsMesh {
     clockwiseWinding?: boolean;
 }
 
-/** World-owned triangle meshes. Register geometry through `world.resource(PhysicsMeshes)`; re-registering a name reuses its id. A `Shape` references an id in its own World's registry. */
-export const PhysicsMeshes: Resource<Registry<PhysicsMesh>> = {
-    create: () => new Registry(),
+/** World-owned triangle meshes. `add` returns a handle for `Shape.geometry`; names are display labels. */
+export const PhysicsMeshes: Resource<PhysicsAssets<PhysicsMesh>> = {
+    create: () => new PhysicsAssets(),
 };

@@ -11,9 +11,7 @@ test("mass data reports solver mass, local center and inertia without lending mu
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const world = app.world;
-        const geometry = world
-            .resource(Hulls)
-            .register({ name: "cube", halfExtents: [0.5, 0.5, 0.5] });
+        const geometry = world.resource(Hulls).add({ name: "cube", halfExtents: [0.5, 0.5, 0.5] });
         const eid = world.create();
         world.add(eid, Transform);
         world.add(eid, Body, { type: BodyType.Dynamic });

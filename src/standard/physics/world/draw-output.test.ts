@@ -75,7 +75,7 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
         world.resource(PhysicsWorldDefinition).gravity = { x: 0, y: 0, z: 0 };
         // b3CreateGridMesh(1, 1, 2, 0, true)'s definition.
         const meshExpected = createGridMesh(1, 1, 2, 0, true);
-        const meshId = world.resource(PhysicsMeshes).register({
+        const meshId = world.resource(PhysicsMeshes).add({
             name: "draw-payload-mesh",
             vertices: new Float32Array([-1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0, 1]),
             indices: new Uint32Array([0, 1, 3, 3, 2, 0]),
@@ -92,7 +92,7 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
             globalMaximumHeight: 1,
             clockwiseWinding: false,
         });
-        const heightId = world.resource(HeightFields).register({
+        const heightId = world.resource(HeightFields).add({
             name: "draw-payload-height-field",
             heights: new Float32Array([0, 0.25, 0.5, 1]),
             scale: [1, 2, 3],
@@ -104,11 +104,11 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
         const corners = [-1, 1].flatMap((x) =>
             [-1, 1].flatMap((y) => [-1, 1].map((z) => ({ x: 0.25 * x, y: 0.5 * y, z: 0.75 * z }))),
         );
-        const childHull = world.resource(Hulls).register({
+        const childHull = world.resource(Hulls).add({
             name: "draw-payload-child",
             points: new Float32Array(corners.flatMap(({ x, y, z }) => [x, y, z])),
         });
-        const compoundId = world.resource(Compounds).register({
+        const compoundId = world.resource(Compounds).add({
             name: "draw-payload-compound",
             hulls: [
                 { hull: childHull, transform: { position: [0.5, 1, 1.5], rotation: [0, 0, 0, 1] } },

@@ -488,7 +488,7 @@ async function runEntityQuery(input: Input): Promise<string[]> {
         } else if (input.kind === 3) {
             kind = ShapeKind.Mesh;
             // b3CreateBoxMesh({ 0, -0.75, 0 }, { 1, 0.75, 0.6 }, true)'s definition.
-            geometry = world.resource(PhysicsMeshes).register({
+            geometry = world.resource(PhysicsMeshes).add({
                 name: "entity-query-mesh",
                 vertices: new Float32Array([
                     1, 0, 0.6, -1, 0, 0.6, -1, -1.5, 0.6, 1, -1.5, 0.6, 1, 0, -0.6, -1, 0, -0.6, -1, -1.5,
@@ -504,7 +504,7 @@ async function runEntityQuery(input: Input): Promise<string[]> {
         } else if (input.kind === 4) {
             kind = ShapeKind.HeightField;
             // b3CreateGrid(4, 4, { 1, 1, 1 }, false)'s definition.
-            geometry = world.resource(HeightFields).register({
+            geometry = world.resource(HeightFields).add({
                 name: "entity-query-heightfield",
                 heights: new Float32Array(16),
                 scale: [1, 1, 1],
@@ -516,14 +516,14 @@ async function runEntityQuery(input: Input): Promise<string[]> {
         } else {
             kind = ShapeKind.Compound;
             // b3MakeBoxHull(1, 0.75, 0.6)'s points.
-            const hull = world.resource(Hulls).register({
+            const hull = world.resource(Hulls).add({
                 name: "entity-query-compound-hull",
                 points: new Float32Array([
                     -1, -0.75, -0.6, 1, -0.75, -0.6, 1, 0.75, -0.6, -1, 0.75, -0.6, -1, -0.75, 0.6, 1, -0.75,
                     0.6, 1, 0.75, 0.6, -1, 0.75, 0.6,
                 ]),
             });
-            geometry = world.resource(Compounds).register({
+            geometry = world.resource(Compounds).add({
                 name: "entity-query-compound",
                 hulls: [
                     {
