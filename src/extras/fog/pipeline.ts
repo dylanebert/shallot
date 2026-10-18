@@ -424,9 +424,7 @@ function createApplyKernel(
             const cfg = layout.$.fog;
             const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
             const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
-            let dir = d.vec3f(forward);
-            if (camView.projection.z > 0.5)
-                dir = std.normalize(std.sub(nearWorld, camView.eye.xyz));
+            let dir = std.normalize(std.sub(nearWorld, camView.eye.xyz));
             let surfaceZ = d.f32(cfg.extra.x);
             // Perspective clear depth is infinite; its finite fog endpoint is authored instead.
             if (depth !== 0 || camView.projection.z <= 0.5) {

@@ -75,8 +75,9 @@ export const Fog = component(
         heightFalloff: f32,
         /** Far view-space depth of the shadowed volumetric grid, in world units; unshadowed height fog continues beyond it. */
         viewDistance: f32,
-        /** Maximum fog distance from the camera along each ray, in world units (default 5000).
-         * The perspective clear background lies here; farther surfaces take the same fog. Values below
+        /** Fog endpoint distance from the camera along each ray, in world units (default 5000).
+         * Fog begins at the near plane, like the grid; an endpoint at or before it gives no fog.
+         * The perspective clear background lies at this endpoint; farther surfaces take the same fog. Values below
          * `viewDistance` end within the grid, without an analytic tail; nonpositive values disable fog.
          * Set beyond the camera's far plane to blend distant geometry into the sky. */
         maxDistance: f32,

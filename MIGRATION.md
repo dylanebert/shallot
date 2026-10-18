@@ -172,8 +172,9 @@ cell and slice counts are internal constants. `Fog.viewDistance` is new, default
 units: it sets the far view-space depth of the grid. Analytic height fog continues beyond it
 with unshadowed ambient and directional in-scatter.
 
-`Fog.maxDistance` now bounds fog distance along each camera ray, in world units, defaulting to
-5000. Farther surfaces receive fog as if at that distance. Set it beyond the camera's far plane
+`Fog.maxDistance` now places the fog endpoint that distance from the camera along each ray,
+in world units, defaulting to 5000. Fog begins at the near plane, like the grid; an endpoint
+at or before it gives no fog. Farther surfaces receive fog as if at the endpoint. Set it beyond the camera's far plane
 to blend distant geometry into the sky. Values at or below `viewDistance` end within the
 grid without an analytic tail; nonpositive values disable fog.
 

@@ -89,12 +89,12 @@ test("clear sky ends at maxDistance and farther surfaces take the same ray-lengt
     const { world } = subjects()[1]!;
     const camera = world.create();
     world.add(camera, Transform);
-    world.add(camera, Camera, { near: 0.001, far: 100, clearColor: 0, antialias: 0 });
+    world.add(camera, Camera, { near: 2, far: 100, fov: 60, clearColor: 0, antialias: 0 });
     world.add(camera, StandardRenderer);
     world.add(camera, Tonemapping, { method: TonemappingMethod.None });
     attachTexture(world, camera, { width: 32, height: 32 });
     const surface = world.create();
-    world.add(surface, Transform, { translation: [0, 0, -60, 0], scale: [20, 20, 1, 0] });
+    world.add(surface, Transform, { translation: [10, 0, -60, 0], scale: [20, 20, 1, 0] });
     world.add(surface, MeshInstance);
     world.add(
         surface,
@@ -110,16 +110,26 @@ test("clear sky ends at maxDistance and farther surfaces take the same ray-lengt
         viewDistance: 8,
     });
     world.storage(Fog).maxDistance.set(fog, 30);
-    for (const distance of [30, 8, 4, 0, -1]) {
+    for (const distance of [30, 8, 4, 1, 0, -1]) {
         if (distance !== 30) world.storage(Fog).maxDistance.set(fog, distance);
         world.step(0);
         world.step(0);
         const pixels = (await captureTexture(world, camera)).rgba;
-        const expected = encode(1 - Math.exp(-0.02 * Math.max(0, distance)));
-        const background = pixels[0]!;
+        for (const [x, y] of [
+            [0, 0],
+            [15, 16],
+            [16, 16],
+        ] as const) {
+            const tan = Math.tan(Math.PI / 6);
+            const rayX = ((2 * (x + 0.5)) / 32 - 1) * tan;
+            const rayY = (1 - (2 * (y + 0.5)) / 32) * tan;
+            const cosine = 1 / Math.sqrt(1 + rayX * rayX + rayY * rayY);
+            const expected = encode(1 - Math.exp(-0.02 * Math.max(0, distance - 2 / cosine)));
+            expect(Math.abs(pixels[(y * 32 + x) * 4]! - expected)).toBeLessThanOrEqual(1);
+        }
+        // Adjacent rays have equal inclination, hence equal near-plane truncation.
+        const background = pixels[(16 * 32 + 15) * 4]!;
         const beyond = pixels[(16 * 32 + 16) * 4]!;
-        expect(Math.abs(background - expected)).toBeLessThanOrEqual(1);
-        expect(Math.abs(beyond - expected)).toBeLessThanOrEqual(1);
         expect(Math.abs(beyond - background)).toBeLessThanOrEqual(1);
     }
     world.destroy(camera);
