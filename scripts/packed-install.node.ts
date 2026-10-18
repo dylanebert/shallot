@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { parse } from "@babel/parser";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -304,6 +305,47 @@ function assertCreatedExample(name: string): void {
     expect(installOutput).not.toContain("build-tooling: generated dist/");
 }
 
+function nodeTestNames(path: string): string[] {
+    const ast = parse(readFileSync(path, "utf8"), {
+        sourceType: "module",
+        plugins: ["typescript"],
+    });
+    const topLevel = new Set(
+        ast.program.body.flatMap((node) =>
+            node.type === "ExpressionStatement" ? [node.expression] : [],
+        ),
+    );
+    const names: string[] = [];
+    const visit = (node: any) => {
+        if (!node || typeof node !== "object") return;
+        if (node.type === "CallExpression") {
+            let callee = node.callee;
+            while (callee.type === "MemberExpression" || callee.type === "CallExpression")
+                callee = callee.object ?? callee.callee;
+            if (callee.type === "Identifier" && ["test", "it", "describe"].includes(callee.name)) {
+                if (
+                    node.callee !== callee ||
+                    callee.name !== "test" ||
+                    !topLevel.has(node) ||
+                    node.arguments[0]?.type !== "StringLiteral"
+                )
+                    throw new Error(
+                        `${path}: per-case packed checks require top-level test calls with literal names`,
+                    );
+                names.push(node.arguments[0].value);
+            }
+        }
+        for (const value of Object.values(node)) {
+            if (Array.isArray(value)) for (const child of value) visit(child);
+            else visit(value);
+        }
+    };
+    visit(ast.program);
+    if (!names.length || new Set(names).size !== names.length)
+        throw new Error(`${path}: per-case packed checks require nonempty, unique test names`);
+    return names;
+}
+
 // Each example owns its setup so a selected subject never depends on an earlier test.
 for (const name of examples) {
     describe(name, () => {
@@ -345,18 +387,31 @@ for (const name of examples) {
                 ).toEqual(nodeSubjects);
             });
         for (const subject of nodeSubjects) {
-            test(`${name} passes ${subject} in its copy`, () => {
-                const { project } = example(name);
-                // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
-                // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
-                const output = run(
-                    [process.execPath, "test", subject],
-                    project,
-                    `bun test ${name} ${subject}`,
-                    "bun",
-                );
-                expect(output).toContain("0 fail");
-            });
+            const cases =
+                name === "particles"
+                    ? nodeTestNames(join(ROOT, "examples", name, subject))
+                    : [undefined];
+            for (const caseName of cases)
+                test(`${name} passes ${subject}${caseName ? `: ${caseName}` : ""} in its copy`, () => {
+                    const { project } = example(name);
+                    // This process's own Bun: on Windows CI it is the copy named node.exe that Dawn requires, and
+                    // argv0 keeps that copy in Bun's mode rather than Node's, as CI's Node tier spawns it.
+                    const output = run(
+                        [
+                            process.execPath,
+                            "test",
+                            subject,
+                            ...(caseName
+                                ? ["-t", `^${caseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`]
+                                : []),
+                        ],
+                        project,
+                        `bun test ${name} ${subject}`,
+                        "bun",
+                    );
+                    expect(output).toContain("0 fail");
+                    if (caseName) expect(output).toContain("1 pass");
+                });
         }
 
         test(`${name} refuses its tests without the TGSL preload`, () => {

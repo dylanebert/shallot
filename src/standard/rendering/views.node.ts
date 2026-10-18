@@ -1,4 +1,4 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Camera, PointLight, StandardRenderingPlugin, Transform } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
@@ -114,159 +114,211 @@ function expectSettledPixels(actual: Uint8ClampedArray, reference: Uint8ClampedA
     expect(largestDelta).toBeLessThanOrEqual(1);
 }
 
-test("growth keeps lit fogged outline pixels coherent with MSAA on and off", async () => {
-    for (const antialias of [0, 1]) {
-        const app = await withVisualRendering();
-        try {
-            const world = app.world;
-            const first = renderedCamera(world, antialias, true, -3);
-            const fog = world.create();
-            world.add(fog, Fog, { density: 0.3 });
-            for (const [x, color] of [
-                [-3, [0.85, 0.08, 0.02, 1]],
-                [3, [0.02, 0.08, 0.85, 1]],
-            ] as const) {
-                const mesh = world.create();
-                world.add(mesh, Transform, { translation: [x, 0, 0, 0] });
-                world.add(mesh, MeshInstance);
-                world.add(
-                    mesh,
-                    MeshMaterial,
-                    world
-                        .resource(Materials)
-                        .add(StandardMaterial({ baseColor: color, perceptualRoughness: 0.8 })),
-                );
-                world.add(mesh, Outline, { color: 0x59ff7c, width: 3 });
-            }
-            const pointSpecs = [
-                { x: -3, light: { color: 0xff8844, intensity: 315225.92, range: 3.5 } },
-                { x: 3, light: { color: 0x4488ff, intensity: 315225.92, range: 3.5 } },
-            ] as const;
-            const points = pointSpecs.map(({ x, light }) => {
-                const point = world.create();
-                world.add(point, Transform, { translation: [x, 0, 2, 0] });
-                world.add(point, PointLight, light);
-                world.add(point, VolumetricLight);
-                return point;
-            });
-            const second = renderedCamera(world, antialias, false, 3);
+describe.each([0, 1])("lit fogged outlined views, antialias %i", (antialias) => {
+    let app: Awaited<ReturnType<typeof withVisualRendering>>;
+    let first: number;
+    let second: number;
+    let fog: number;
+    let points: number[];
+    let beforeGrowth: Awaited<ReturnType<typeof captureTexture>>;
+    let grownFirst: Awaited<ReturnType<typeof captureTexture>>;
+    let grownSecond: Awaited<ReturnType<typeof captureTexture>>;
+    let oldGroup: unknown;
+    let entry: NonNullable<ReturnType<typeof getGroup>>;
+    let drawName: string;
+    const pointSpecs = [
+        { x: -3, light: { color: 0xff8844, intensity: 315225.92, range: 3.5 } },
+        { x: 3, light: { color: 0x4488ff, intensity: 315225.92, range: 3.5 } },
+    ] as const;
+    const litCenter = (rgba: Uint8ClampedArray) => {
+        const at = (32 * 64 + 32) * 4;
+        return [...rgba.subarray(at, at + 3)];
+    };
+    beforeAll(async () => {
+        app = await withVisualRendering();
+        const world = app.world;
+        first = renderedCamera(world, antialias, true, -3);
+        fog = world.create();
+        world.add(fog, Fog, { density: 0.3 });
+        for (const [x, color] of [
+            [-3, [0.85, 0.08, 0.02, 1]],
+            [3, [0.02, 0.08, 0.85, 1]],
+        ] as const) {
+            const mesh = world.create();
+            world.add(mesh, Transform, { translation: [x, 0, 0, 0] });
+            world.add(mesh, MeshInstance);
+            world.add(
+                mesh,
+                MeshMaterial,
+                world
+                    .resource(Materials)
+                    .add(StandardMaterial({ baseColor: color, perceptualRoughness: 0.8 })),
+            );
+            world.add(mesh, Outline, { color: 0x59ff7c, width: 3 });
+        }
+        points = pointSpecs.map(({ x, light }) => {
+            const point = world.create();
+            world.add(point, Transform, { translation: [x, 0, 2, 0] });
+            world.add(point, PointLight, light);
+            world.add(point, VolumetricLight);
+            return point;
+        });
+        second = renderedCamera(world, antialias, false, 3);
 
-            // Compare the same jitter phase after fog's temporal average has settled.
-            for (let i = 0; i < 96; i++) world.step(0);
-            const beforeGrowth = await captureTexture(world, first);
-            const draw = [...world.resource(Draws).values()][0]!;
-            const entry = getGroup(world, draw.name)!;
-            const oldGroup = entry.engineCache.get(0);
-            expect(oldGroup).toBeDefined();
-            let greenOutlinePixels = 0;
-            for (let i = 0; i < beforeGrowth.rgba.length; i += 4) {
-                if (
-                    beforeGrowth.rgba[i + 1]! > beforeGrowth.rgba[i]! &&
-                    beforeGrowth.rgba[i + 1]! > beforeGrowth.rgba[i + 2]!
-                )
-                    greenOutlinePixels++;
-            }
-            expect(greenOutlinePixels).toBeGreaterThan(10);
+        // Compare the same jitter phase after fog's temporal average has settled.
+        for (let i = 0; i < 96; i++) world.step(0);
+        beforeGrowth = await captureTexture(world, first);
+        const draw = [...world.resource(Draws).values()][0]!;
+        drawName = draw.name;
+        entry = getGroup(world, draw.name)!;
+        oldGroup = entry.engineCache.get(0);
+        expect(oldGroup).toBeDefined();
+        let greenOutlinePixels = 0;
+        for (let i = 0; i < beforeGrowth.rgba.length; i += 4) {
+            if (
+                beforeGrowth.rgba[i + 1]! > beforeGrowth.rgba[i]! &&
+                beforeGrowth.rgba[i + 1]! > beforeGrowth.rgba[i + 2]!
+            )
+                greenOutlinePixels++;
+        }
+        expect(greenOutlinePixels).toBeGreaterThan(10);
+    }, TIMEOUT.startup);
+    afterAll(async () => {
+        if (app) await disposeGpuApps([app]);
+    });
 
+    async function grow() {
+        if (grownFirst) return;
+        const { world } = app;
+        if (!world.resource(Views).get(second)?.presented) {
             detachView(world, second);
             attachTexture(world, second, { width: 64, height: 64 });
-            world.gpu.device.pushErrorScope("validation");
-            for (let i = 0; i < 96; i++) world.step(0);
-            await world.gpu.device.queue.onSubmittedWorkDone();
-            const grownFirst = await captureTexture(world, first);
-            const grownSecond = await captureTexture(world, second);
-            expect(Buffer.from(grownFirst.rgba).equals(Buffer.from(grownSecond.rgba))).toBe(false);
-            expect(Buffer.from(beforeGrowth.rgba).equals(Buffer.from(grownFirst.rgba))).toBe(true);
-            const grownEntry = getGroup(world, draw.name)!;
-            expect(grownEntry).toBe(entry);
-            expect(grownEntry.engineCache.get(0)).not.toBe(oldGroup);
-            expect(await world.gpu.device.popErrorScope()).toBeNull();
-
-            for (const eid of [first, second]) {
-                const pixels = (await captureTexture(world, eid)).rgba;
-                let green = 0;
-                for (let i = 0; i < pixels.length; i += 4) {
-                    if (pixels[i + 1]! > pixels[i]! && pixels[i + 1]! > pixels[i + 2]!) green++;
-                }
-                expect(green).toBeGreaterThan(10);
-            }
-
-            const litCenter = (rgba: Uint8ClampedArray) => {
-                const at = (32 * 64 + 32) * 4;
-                return [...rgba.subarray(at, at + 3)];
-            };
-            const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
-            expect(lit[0]).not.toEqual(lit[1]);
-            expect(lit[0][0]!).toBeGreaterThan(lit[0][2]!);
-            expect(lit[1][2]!).toBeGreaterThan(lit[1][0]!);
-
-            world.remove(fog, Fog);
-            for (let i = 0; i < 16; i++) world.step(0);
-            const withoutFog = [
-                await captureTexture(world, first),
-                await captureTexture(world, second),
-            ];
-            for (let slot = 0; slot < 2; slot++) {
-                expect(lit[slot]).not.toEqual(litCenter(withoutFog[slot]!.rgba));
-            }
-
-            world.add(fog, Fog, { density: 0.3 });
-            world.remove(points[0]!, PointLight);
-            for (let i = 0; i < 96; i++) world.step(0);
-            const withoutFirstLight = [
-                await captureTexture(world, first),
-                await captureTexture(world, second),
-            ];
-            expect(litCenter(withoutFirstLight[0]!.rgba)).not.toEqual(lit[0]);
-            expect(litCenter(withoutFirstLight[1]!.rgba)).toEqual(lit[1]);
-
-            world.add(points[0]!, PointLight, pointSpecs[0].light);
-            world.remove(points[1]!, PointLight);
-            for (let i = 0; i < 96; i++) world.step(0);
-            const withoutSecondLight = [
-                await captureTexture(world, first),
-                await captureTexture(world, second),
-            ];
-            expect(litCenter(withoutSecondLight[0]!.rgba)).toEqual(lit[0]);
-            expect(litCenter(withoutSecondLight[1]!.rgba)).not.toEqual(lit[1]);
-
-            world.add(points[1]!, PointLight, pointSpecs[1].light);
-            for (let i = 0; i < 96; i++) world.step(0);
-            const restored = [
-                await captureTexture(world, first),
-                await captureTexture(world, second),
-            ];
-            for (let slot = 0; slot < 2; slot++)
-                expectSettledPixels(restored[slot]!.rgba, [grownFirst, grownSecond][slot]!.rgba);
-
-            for (const eid of [first, second])
-                world.storage(Tonemapping).method.set(eid, TonemappingMethod.None);
-            for (let i = 0; i < 16; i++) world.step(0);
-            const withoutOperator = [
-                await captureTexture(world, first),
-                await captureTexture(world, second),
-            ];
-            for (let slot = 0; slot < 2; slot++) {
-                expect(
-                    Buffer.from(restored[slot]!.rgba).equals(
-                        Buffer.from(withoutOperator[slot]!.rgba),
-                    ),
-                ).toBe(false);
-            }
-
-            for (const eid of [first, second])
-                world.storage(Tonemapping).method.set(eid, TonemappingMethod.KhronosPbrNeutral);
-            for (let i = 0; i < 16; i++) world.step(0);
-            const beforeSlotShift = await captureTexture(world, second);
-            world.remove(first, Camera);
-            for (let i = 0; i < 96; i++) world.step(0);
-            expect(world.resource(Views).get(second)?.slot).toBe(0);
-            const afterSlotShift = await captureTexture(world, second);
-            expectSettledPixels(afterSlotShift.rgba, beforeSlotShift.rgba);
-        } finally {
-            await disposeGpuApps([app]);
         }
+        for (let i = 0; i < 96; i++) world.step(0);
+        grownFirst = await captureTexture(world, first);
+        grownSecond = await captureTexture(world, second);
     }
+
+    test("growth keeps each view's lit fogged outline pixels and replaces its engine group", async () => {
+        const { world } = app;
+        world.gpu.device.pushErrorScope("validation");
+        await grow();
+        expect(Buffer.from(grownFirst.rgba).equals(Buffer.from(grownSecond.rgba))).toBe(false);
+        expect(Buffer.from(beforeGrowth.rgba).equals(Buffer.from(grownFirst.rgba))).toBe(true);
+        const grownEntry = getGroup(world, drawName)!;
+        expect(grownEntry).toBe(entry);
+        expect(grownEntry.engineCache.get(0)).not.toBe(oldGroup);
+        expect(await world.gpu.device.popErrorScope()).toBeNull();
+
+        for (const eid of [first, second]) {
+            const pixels = (await captureTexture(world, eid)).rgba;
+            let green = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+                if (pixels[i + 1]! > pixels[i]! && pixels[i + 1]! > pixels[i + 2]!) green++;
+            }
+            expect(green).toBeGreaterThan(10);
+        }
+
+        const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
+        expect(lit[0]).not.toEqual(lit[1]);
+        expect(lit[0][0]!).toBeGreaterThan(lit[0][2]!);
+        expect(lit[1][2]!).toBeGreaterThan(lit[1][0]!);
+    });
+
+    test("removing fog changes both views' lit pixels after growth", async () => {
+        const { world } = app;
+        await grow();
+        const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
+        world.remove(fog, Fog);
+        for (let i = 0; i < 16; i++) world.step(0);
+        const withoutFog = [
+            await captureTexture(world, first),
+            await captureTexture(world, second),
+        ];
+        for (let slot = 0; slot < 2; slot++) {
+            expect(lit[slot]).not.toEqual(litCenter(withoutFog[slot]!.rgba));
+        }
+
+        world.add(fog, Fog, { density: 0.3 });
+    });
+
+    test("removing the first light changes only its view's pixels after growth", async () => {
+        const { world } = app;
+        await grow();
+        const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
+        world.remove(points[0]!, PointLight);
+        for (let i = 0; i < 96; i++) world.step(0);
+        const withoutFirstLight = [
+            await captureTexture(world, first),
+            await captureTexture(world, second),
+        ];
+        expect(litCenter(withoutFirstLight[0]!.rgba)).not.toEqual(lit[0]);
+        expect(litCenter(withoutFirstLight[1]!.rgba)).toEqual(lit[1]);
+
+        world.add(points[0]!, PointLight, pointSpecs[0].light);
+    });
+
+    test("removing the second light changes only its view's pixels after growth", async () => {
+        const { world } = app;
+        await grow();
+        const lit = [litCenter(grownFirst.rgba), litCenter(grownSecond.rgba)];
+        world.remove(points[1]!, PointLight);
+        for (let i = 0; i < 96; i++) world.step(0);
+        const withoutSecondLight = [
+            await captureTexture(world, first),
+            await captureTexture(world, second),
+        ];
+        expect(litCenter(withoutSecondLight[0]!.rgba)).toEqual(lit[0]);
+        expect(litCenter(withoutSecondLight[1]!.rgba)).not.toEqual(lit[1]);
+
+        world.add(points[1]!, PointLight, pointSpecs[1].light);
+    });
+
+    test("restoring both lights restores both views' pixels after growth", async () => {
+        const { world } = app;
+        await grow();
+        for (const point of points) world.remove(point, PointLight);
+        for (let i = 0; i < 96; i++) world.step(0);
+        for (let i = 0; i < points.length; i++)
+            world.add(points[i]!, PointLight, pointSpecs[i]!.light);
+        for (let i = 0; i < 96; i++) world.step(0);
+        const restored = [await captureTexture(world, first), await captureTexture(world, second)];
+        for (let slot = 0; slot < 2; slot++)
+            expectSettledPixels(restored[slot]!.rgba, [grownFirst, grownSecond][slot]!.rgba);
+    });
+
+    test("the tone operator changes both views' pixels after growth", async () => {
+        const { world } = app;
+        await grow();
+        for (const eid of [first, second])
+            world.storage(Tonemapping).method.set(eid, TonemappingMethod.None);
+        for (let i = 0; i < 16; i++) world.step(0);
+        const withoutOperator = [
+            await captureTexture(world, first),
+            await captureTexture(world, second),
+        ];
+        for (let slot = 0; slot < 2; slot++) {
+            expect(
+                Buffer.from([grownFirst, grownSecond][slot]!.rgba).equals(
+                    Buffer.from(withoutOperator[slot]!.rgba),
+                ),
+            ).toBe(false);
+        }
+
+        for (const eid of [first, second])
+            world.storage(Tonemapping).method.set(eid, TonemappingMethod.KhronosPbrNeutral);
+    });
+
+    test("removing the first camera preserves the remaining view's pixels at slot zero", async () => {
+        const { world } = app;
+        await grow();
+        const beforeSlotShift = grownSecond;
+        world.remove(first, Camera);
+        for (let i = 0; i < 96; i++) world.step(0);
+        expect(world.resource(Views).get(second)?.slot).toBe(0);
+        const afterSlotShift = await captureTexture(world, second);
+        expectSettledPixels(afterSlotShift.rgba, beforeSlotShift.rgba);
+    });
 });
 
 test("removing a camera releases its targets and shifts the remaining tone group with its slot", async () => {

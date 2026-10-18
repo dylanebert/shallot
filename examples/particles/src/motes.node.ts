@@ -157,6 +157,10 @@ test("a mote just in front of the camera adds no light while a mote two metres a
 test("a one-metre mote covers no more pixels than at the two-metre size cap and a four-metre mote keeps its original footprint", async () => {
     const { world } = untimed;
     const camera = world.resource(Room).camera;
+    if (!world.has(camera, NoFog)) world.add(camera, NoFog);
+    if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
+    world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
+    world.step(0);
     const motes = world.resource(Motes);
     const positions = new Float32Array(MOTE_COUNT * 4);
     for (let i = 0; i < MOTE_COUNT; i++) positions[i * 4] = 100;
