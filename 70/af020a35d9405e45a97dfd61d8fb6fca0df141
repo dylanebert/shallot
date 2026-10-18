@@ -1,2 +1,2 @@
 stage: 6
-finding: P3 — diagnostics/pool-slowdown/settle.oracle.ts:1 (deleted), CONTRIBUTING.md:361: pool-slowdown is retired without the required archive/<name> tag on its last retained commit. No archive/pool-slowdown tag exists, and no archive tag points to 1d69802f. The deletion's obsolete-oracle justification is sound, but complete the mandated archival retirement before landing. Independently examined all six diffs, native branch selection and prebuilt producers/callers, import-boundary coverage, repository and strategy references, and scheduler history; ran changed policy tests and unchanged bundle.node.ts (64 pass). No behavioural findings; native tests use fixtures, not real builds on every OS.
+clean
