@@ -56,15 +56,15 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
             .getByRole("button", { name: "Box Stack" }),
     ).toBeVisible();
     await capture("switcher");
-    await page.keyboard.press("Shift+Tab");
-    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Bridge", exact: true }).click();
     await expect(scene).toHaveText("Bridge");
     await expect(scene).toBeEnabled();
     const gravity = page.getByRole("slider", { name: "Gravity scale" });
     await expect(gravity).toHaveValue("1");
     await capture("bridge");
     await gravity.fill("-0.5");
-    await page.getByRole("button", { name: "Next scene" }).click();
+    await scene.click();
+    await page.getByRole("button", { name: "Box Stack", exact: true }).click();
     await expect(scene).toHaveText("Box Stack");
     await expect(scene).toBeEnabled();
     await expect(gravity).toBeHidden();
@@ -82,7 +82,8 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     ).toBeVisible();
     await capture("switcher");
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Previous scene" }).click();
+    await scene.click();
+    await page.getByRole("button", { name: "Bridge", exact: true }).click();
     await expect(scene).toHaveText("Bridge");
     await expect(scene).toBeEnabled();
     await expect(gravity).toHaveValue("1");

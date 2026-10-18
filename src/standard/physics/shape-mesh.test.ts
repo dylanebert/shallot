@@ -112,6 +112,70 @@ test("unspawned box hull covers all faces with outward normals, winding and exac
     verify(boxMesh(), box);
 });
 
+for (const scale of [
+    [1, 1, 1],
+    [-2, 0.5, 3],
+] satisfies Point[]) {
+    test(`transformed box at scale ${scale} has analytic face normals, bounds and area`, () => {
+        const geometry = world.resource(Hulls).add({
+            name: "transformed box",
+            halfExtents: [1, 2, 3],
+            transform: { position: [1, 2, 3], rotation: [0, 0, Math.SQRT1_2, Math.SQRT1_2] },
+        });
+        const center = [1, 2, 3].map((v, i) => v * scale[i]!);
+        const extent = [2, 1, 3].map((v, i) => v * Math.abs(scale[i]!));
+        const [x, y, z] = extent as Point;
+        const surface: Surface = {
+            lower: center.map((v, i) => v - extent[i]!) as Point,
+            upper: center.map((v, i) => v + extent[i]!) as Point,
+            area: 8 * (x * y + x * z + y * z),
+            areaTolerance: 1e-4,
+            distance: (p) =>
+                Math.abs(Math.max(...p.map((v, i) => Math.abs(v - center[i]!) / extent[i]!)) - 1),
+            normal: (p) => {
+                const offset = p.map((v, i) => v - center[i]!);
+                const distances = offset.map((v, i) => Math.abs(v) / extent[i]!);
+                const face = distances.indexOf(Math.max(...distances));
+                return offset.map((v, i) => (i === face ? Math.sign(v) : 0)) as Point;
+            },
+        };
+        verify(shapeMesh(world, definition({ geometry, scale })), surface);
+    });
+}
+
+for (const scale of [
+    [1, 1, 1],
+    [-2, 3, 0.5],
+] satisfies Point[]) {
+    test(`four-sided cylinder at scale ${scale} has analytic prism normals, caps and area`, () => {
+        const geometry = world.resource(Hulls).add({
+            name: "cylinder",
+            cylinder: { height: 0.25, radius: 0.4, yOffset: 0.3, sides: 4 },
+        });
+        const x = 0.4 * Math.abs(scale[0]),
+            z = 0.4 * Math.abs(scale[2]),
+            lo = 0.3 * scale[1],
+            hi = 0.55 * scale[1];
+        verify(shapeMesh(world, definition({ geometry, scale })), {
+            lower: [-x, lo, -z],
+            upper: [x, hi, z],
+            area: 4 * x * z + 4 * Math.hypot(x, z) * (hi - lo),
+            distance: (p) =>
+                Math.min(
+                    Math.abs(p[1] - lo),
+                    Math.abs(p[1] - hi),
+                    Math.abs(Math.abs(p[0]) / x + Math.abs(p[2]) / z - 1),
+                ),
+            normal: (p) =>
+                Math.abs(p[1] - lo) < 1e-6
+                    ? [0, -1, 0]
+                    : Math.abs(p[1] - hi) < 1e-6
+                      ? [0, 1, 0]
+                      : unit([Math.sign(p[0]) / x, 0, Math.sign(p[2]) / z]),
+        });
+    });
+}
+
 test("reversed winding is rejected even when its normals are recomputed to match", () => {
     const mesh = boxMesh();
     for (let i = 0; i < mesh.indices.length; i += 3) {

@@ -19,7 +19,12 @@ import type { Resource, World } from "../../engine";
 import { MAX_HULL_VERTICES } from "./common/constants";
 import type { Transform } from "./common/records";
 import { defaultSurfaceMaterial } from "./common/types";
-import { createHull, makeBoxHull } from "./shapes/build-hull";
+import {
+    createCylinder,
+    createHull,
+    makeBoxHull,
+    makeTransformedBoxHull,
+} from "./shapes/build-hull";
 import { type CompoundData, createCompound, MAX_COMPOUND_MESH_MATERIALS } from "./shapes/compound";
 import { createHeightField, type HeightFieldData } from "./shapes/heightfield";
 import type { HullData } from "./shapes/hull";
@@ -217,12 +222,28 @@ export function heightFieldBuild(
 
 /** Builds a box or point hull at per-axis scale; throws for a definition a solver refuses. */
 export function buildHull(world: World, def: Hull, sx = 1, sy = 1, sz = 1): HullData {
+    if (def.cylinder) {
+        const { height, radius, yOffset, sides } = def.cylinder;
+        if (sx === sz && sx > 0 && sy > 0)
+            return createCylinder(height * sy, radius * sx, yOffset * sy, sides, world);
+        return scaledHull(world, createCylinder(height, radius, yOffset, sides, world), sx, sy, sz);
+    }
     if (def.halfExtents) {
         const [x, y, z] = def.halfExtents;
         if (![x, y, z].every((extent) => Number.isFinite(extent) && extent > 0))
             throw new Error(
                 `physics: hull "${def.name}" requires positive finite box half-extents`,
             );
+        if (def.transform) {
+            const { position: p, rotation: q } = def.transform;
+            const transform = {
+                p: { x: p[0], y: p[1], z: p[2] },
+                q: { v: { x: q[0], y: q[1], z: q[2] }, s: q[3] },
+            };
+            if (sx === 1 && sy === 1 && sz === 1)
+                return makeTransformedBoxHull(x, y, z, transform, world);
+            return scaledHull(world, makeTransformedBoxHull(x, y, z, transform, world), sx, sy, sz);
+        }
         return makeBoxHull(x * Math.abs(sx), y * Math.abs(sy), z * Math.abs(sz), world);
     }
     const source = def.points;
@@ -235,6 +256,17 @@ export function buildHull(world: World, def: Hull, sx = 1, sy = 1, sz = 1): Hull
         points[i] = { x: source[3 * i] * sx, y: source[3 * i + 1] * sy, z: source[3 * i + 2] * sz };
     const built = createHull(points, def.maxVertexCount ?? MAX_HULL_VERTICES, world);
     if (!built) throw new Error(`physics: hull "${def.name}" could not be built`);
+    return built;
+}
+
+// Nonuniform scale can turn a rotated box into a parallelepiped or a cylinder into an elliptical prism.
+function scaledHull(world: World, hull: HullData, sx: number, sy: number, sz: number): HullData {
+    const built = createHull(
+        hull.points.map((p) => ({ x: p.x * sx, y: p.y * sy, z: p.z * sz })),
+        hull.vertexCount,
+        world,
+    );
+    if (!built) throw new Error("physics: scaled hull could not be built");
     return built;
 }
 

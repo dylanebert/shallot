@@ -1,12 +1,22 @@
 <script lang="ts">
     import { tick } from "svelte";
-    import type { Scene } from "./scenes";
-    let { scene, select, gravity }: { scene: Scene; select: (scene: Scene) => void; gravity: (value: number) => void } = $props();
+    import { controlValues, scenes, type Controls, type Scene } from "./scenes";
+    let { scene, select, change }: { scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
+    let values = $state(controlValues(scene));
+    const controls: Controls | undefined = scenes[scene].controls;
+    function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;
     let trigger: HTMLButtonElement;
     const categories = [
-        { name: "Joints", scenes: [{ id: "bridge" as Scene, name: "Bridge" }] },
+        { name: "Joints", scenes: [
+            { id: "bridge" as Scene, name: "Bridge" },
+            { id: "filter" as Scene, name: "Filter" },
+            { id: "parallel" as Scene, name: "Parallel Spring" },
+            { id: "prismatic" as Scene, name: "Prismatic" },
+            { id: "revolute" as Scene, name: "Revolute" },
+            { id: "wheel" as Scene, name: "Wheel" },
+        ] },
         { name: "Stacking", scenes: [{ id: "boxStack" as Scene, name: "Box Stack" }] },
     ];
     const samples = categories.flatMap(category => category.scenes);
@@ -43,14 +53,22 @@
     {/if}
     <nav aria-label="Scene navigation">
         <button aria-label="Previous scene" onclick={() => step(-1)}>←</button>
-        <button bind:this={trigger} class="name" aria-label="Scene" aria-controls="scene-list" aria-expanded={open} onclick={toggle}>{scene === "bridge" ? "Bridge" : "Box Stack"}</button>
+        <button bind:this={trigger} class="name" aria-label="Scene" aria-controls="scene-list" aria-expanded={open} onclick={toggle}>{samples.find(sample => sample.id === scene)!.name}</button>
         <button aria-label="Next scene" onclick={() => step(1)}>→</button>
     </nav>
 </section>
-{#if scene === "bridge"}
-    <section class="controls" aria-label="Bridge controls">
-        <label for="gravity">Gravity scale</label>
-        <input id="gravity" type="range" min="-1" max="1" step="0.1" value="1" oninput={(event) => gravity(Number(event.currentTarget.value))} />
+{#if controls}
+    <section class="controls" class:joint-controls={scene !== "bridge"} aria-label={`${samples.find(sample => sample.id === scene)!.name} controls`}>
+        {#each Object.entries(controls) as [name, control]}
+            {#if !control.when || control.when.every(name => values[name])}
+                {#if control.min === undefined}
+                    <label class="toggle"><input type="checkbox" checked={!!values[name]} onchange={(event) => update(name, Number(event.currentTarget.checked))} />{control.label}</label>
+                {:else}
+                    <label for={`control-${name}`}>{control.label}</label>
+                    <input id={`control-${name}`} type="range" min={control.min} max={control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
+                {/if}
+            {/if}
+        {/each}
     </section>
 {/if}
 
@@ -68,15 +86,18 @@
     .scenes section { break-inside: avoid; margin-bottom: 16px; }
     h2 { font: 400 14px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0 8px 4px; color: #797369; }
     .scenes button { display: block; width: 100%; text-align: left; }
-    .controls { top: var(--top); right: var(--right); display: grid; gap: 4px; padding: 8px; background: #282622; border-radius: 2px; }
-    input { appearance: none; width: 144px; height: 24px; margin: 0; background: transparent; cursor: pointer; }
+    .controls { top: var(--top); right: var(--right); display: grid; gap: 4px; padding: 8px; background: #282622; border-radius: 2px; max-height: calc(100dvh - var(--top) - var(--bottom) - 48px); overflow-y: auto; box-sizing: border-box; }
+    .joint-controls { grid-template-columns: max-content 144px; align-items: center; column-gap: 8px; }
+    .toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 24px; cursor: pointer; }
+    input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: #eee9df; cursor: pointer; }
+    input[type="range"] { appearance: none; width: 144px; height: 24px; margin: 0; background: transparent; cursor: pointer; }
     input::-webkit-slider-runnable-track { height: 2px; background: #797369; }
     input::-moz-range-track { height: 2px; background: #797369; }
     input::-webkit-slider-thumb { appearance: none; width: 12px; height: 16px; margin-top: -7px; border: 0; border-radius: 2px; background: #eee9df; }
     input::-moz-range-thumb { width: 12px; height: 16px; border: 0; border-radius: 2px; background: #eee9df; }
     @media (max-width: 480px) { .categories { column-count: 1; } }
     @media (pointer: coarse) {
-        button, input { min-height: 44px; }
+        button, input[type="range"], .toggle { min-height: 44px; }
         .scenes { max-height: calc(100dvh - var(--top) - var(--bottom) - 52px); }
     }
 </style>

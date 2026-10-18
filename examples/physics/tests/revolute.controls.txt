@@ -1,0 +1,13 @@
+30	Limit	1
+40	Lower Angle	-20
+50	Upper Angle	25
+60	Motor	1
+70	Max Torque	6000
+80	Speed	2
+90	Spring	1
+100	Hertz	3
+110	Damping	0.5
+120	Rotation	15
+180	Limit	0
+190	Motor	0
+200	Spring	0

@@ -3,6 +3,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
+#include <string>
+
+struct Change { int step; std::string name; float value; };
+std::vector<Change> changes;
+int currentStep = 0;
 
 extern "C" {
 struct b3World;
@@ -19,7 +25,18 @@ namespace ImGui
 {
 void PushItemWidth( float ) {}
 float GetFontSize() { return 14.0f; }
-bool SliderFloat( const char*, float*, float, float, const char* ) { return false; }
+bool SliderFloat( const char* name, float* value, float, float, const char* ) {
+    for ( const Change& change : changes )
+        if ( change.step == currentStep && change.name == name ) { *value = change.value; return true; }
+    return false;
+}
+bool Checkbox( const char* name, bool* value ) {
+    float result = *value ? 1.0f : 0.0f;
+    bool changed = SliderFloat( name, &result, 0, 1, "" );
+    if ( changed ) *value = result != 0;
+    return changed;
+}
+void Separator() {}
 void PopItemWidth() {}
 }
 void SetGroundShape( b3ShapeId ) {}
@@ -51,6 +68,8 @@ public:
 	}
 	virtual ~Sample() { b3DestroyWorld( m_worldId ); }
 	virtual bool DrawControls() { return false; }
+	virtual void Render() {}
+	void DrawTextLine( const char*, ... ) {}
 	struct PickRay { b3Pos origin; b3Vec3 translation; };
 	b3BodyId m_mouseBodyId = {};
 	b3JointId m_mouseJointId = {};
@@ -63,7 +82,7 @@ public:
 	}
 	void Release()
 // SAMPLE_UP
-	void Step()
+	virtual void Step()
 	{
 		if ( B3_IS_NON_NULL( m_mouseBodyId ) )
 			b3Body_SetTargetTransform( m_mouseBodyId, { m_mousePoint, b3Quat_identity }, 1.0f / m_context->hertz, true );
@@ -82,22 +101,42 @@ public:
 
 int main( int argc, char** argv )
 {
-	if ( ( argc != 3 && argc != 4 ) || ( strcmp( argv[1], "box_stack" ) && strcmp( argv[1], "bridge" ) ) ||
-		 ( argc == 4 && strcmp( argv[3], "grab" ) ) )
+	if ( argc != 3 && argc != 4 )
 	{
-		fprintf( stderr, "usage: sample box_stack|bridge <steps> [grab]\n" );
+		fprintf( stderr, "usage: sample <scene> <steps> [grab|control-sequence-file]\n" );
 		return 2;
 	}
 	SampleContext context;
-	Sample* sample = strcmp( argv[1], "box_stack" ) == 0 ? BoxStack::Create( &context ) : Bridge::Create( &context );
+	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
+	const Entry entries[] = {
+		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
+		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
+		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
+	};
+	Sample* sample = nullptr;
+	for ( const Entry& entry : entries ) if ( strcmp( argv[1], entry.name ) == 0 ) sample = entry.create( &context );
+	if ( !sample ) { fprintf( stderr, "unknown sample: %s\n", argv[1] ); return 2; }
+	bool grab = argc == 4 && strcmp( argv[3], "grab" ) == 0;
+	if ( argc == 4 && !grab ) {
+		FILE* file = fopen( argv[3], "r" );
+		if ( !file ) { perror( argv[3] ); delete sample; return 2; }
+		char line[256], name[128]; int step; float value;
+		while ( fgets( line, sizeof(line), file ) ) {
+			if ( sscanf( line, "%d\t%127[^\t]\t%f", &step, name, &value ) != 3 ) { fclose(file); delete sample; return 2; }
+			changes.push_back( { step, name, value } );
+		}
+		fclose( file );
+	}
 	for ( int i = 0; i < atoi( argv[2] ); ++i )
 	{
-		if ( argc == 4 )
+		if ( grab )
 		{
 			if ( i == 1 ) sample->Grab( { { 0, 25.75f, 10 }, { 0, 0, -20 } } );
 			if ( i > 1 && i < 31 ) sample->m_mousePoint.x = 0.05f * ( i - 1 );
 			if ( i == 31 ) sample->Release();
 		}
+		currentStep = i;
+		sample->DrawControls();
 		sample->Step();
 		printf( "%d 0x%016llx\n", i, (unsigned long long)b3HashWorldState( b3GetWorldFromId( sample->m_worldId ) ) );
 	}

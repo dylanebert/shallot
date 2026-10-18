@@ -1,0 +1,14 @@
+30	Limit	1
+40	Lower Translation	-2
+50	Upper Translation	2
+60	Motor	1
+70	Max Force	40
+80	Speed	2
+90	Spring	0
+100	Spring	1
+110	Hertz	3
+120	Damping	0.5
+130	Translation	1
+180	Limit	0
+190	Motor	0
+200	Spring	0

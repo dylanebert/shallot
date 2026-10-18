@@ -18,6 +18,8 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
         section(stacking, "class BoxStack :", "static int sampleBoxStack"),
         section(joints, "class Bridge :", "static int sampleBridgeIndex"),
+        ...["Filter", "Prismatic", "Parallel", "Revolute", "Wheel"].map((name) =>
+            section(joints, `class ${name}Joint :`, `static int sample${name}Joint`)),
     ].join("\n");
     const grab = section(sample, "\t\t// Ctrl click grabs", "\n\telse if ( modifiers & MOD_SHIFT )")
         .replace(/\t\tPickRay pickRay = m_camera->BuildPickRay\( p.x, p.y \);/, "")

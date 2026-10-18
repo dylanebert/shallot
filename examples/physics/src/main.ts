@@ -3,7 +3,7 @@ import { LinesPlugin, OrbitPlugin } from "@dylanebert/shallot/extras";
 import { mount, unmount } from "svelte";
 import { GrabPlugin } from "./grab";
 import Hud from "./Hud.svelte";
-import { createScene, type Scene, scenes } from "./scenes";
+import { changeControl, createScene, type Scene } from "./scenes";
 import { createView } from "./view";
 
 async function switchScene(scene: Scene): Promise<void> {
@@ -32,8 +32,8 @@ async function switchScene(scene: Scene): Promise<void> {
                         app.dispose();
                         void switchScene(next);
                     },
-                    gravity: (value: number) =>
-                        scenes[scene].controls?.gravityScale(world, bodies, value),
+                    change: (name: string, value: number, values: Record<string, number>) =>
+                        changeControl(world, scene, bodies, values, name, value),
                 },
             });
             return () => void unmount(component);

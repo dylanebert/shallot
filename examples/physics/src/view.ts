@@ -54,6 +54,9 @@ export function createView(world: World, scene: Scene): void {
     const subject = materials.add(
         StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.38 }),
     );
+    const motorized = materials.add(
+        StandardMaterial({ baseColor: [0.04, 0.43, 0.53, 1], perceptualRoughness: 0.38 }),
+    );
     const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.5, 16, 12) });
     const markerMaterial = materials.add(
         StandardMaterial({ baseColor: [0.855, 0.815, 0.738, 1], unlit: true }),
@@ -116,6 +119,8 @@ export function createView(world: World, scene: Scene): void {
     const types = world.storage(Body).type;
     const meshes = world.resource(Meshes);
     for (const eid of world.query([Shape])) {
+        const body = world.storage(Shape).body.get(eid) || eid;
+        if (body !== eid) world.add(eid, Transform, world.get(body, Transform)!);
         const mesh = meshes.add({
             name: `Shape ${eid}`,
             ...shapeMesh(world, world.get(eid, Shape)!),
@@ -123,6 +128,14 @@ export function createView(world: World, scene: Scene): void {
         world.add(eid, MeshInstance, { mesh });
         // Colour encodes affordance and emphasis: static bodies are carbon, grabbable dynamics amber;
         // cyan and brand-orange are reserved for distinct scene roles, never creation order.
-        world.add(eid, MeshMaterial, types.get(eid) === BodyType.Static ? ground : subject);
+        world.add(
+            eid,
+            MeshMaterial,
+            types.get(body) === BodyType.Static
+                ? ground
+                : scene === "revolute" || scene === "prismatic" || scene === "wheel"
+                  ? motorized
+                  : subject,
+        );
     }
 }

@@ -1,0 +1,21 @@
+30	Suspension Limit	1
+40	Min##Limit	-0.5
+50	Max##Limit	0.8
+60	Motor	1
+70	Max Torque	40
+80	Speed	3
+90	Suspension Spring	1
+100	Hertz##Suspension	3
+110	Damping##Suspension	0.5
+120	Steering	1
+130	Hertz##Steering	2
+140	Damping##Steering	1.2
+150	Degrees##Steering	20
+160	Steering Limit	1
+170	Min Degrees	-30
+180	Max Degrees	30
+230	Suspension Limit	0
+240	Motor	0
+250	Suspension Spring	0
+260	Steering Limit	0
+270	Steering	0

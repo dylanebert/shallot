@@ -10,6 +10,7 @@ import { createView, GrabFeedback } from '../src/view';
 import { Grab, GrabPlugin } from '../src/grab';
 const params=new URLSearchParams(location.search);
 const scene=params.get('scene') || 'boxStack';
+const bodyIndex=scene==='bridge'?10:scene==='boxStack'?20:0;
 let bodies;
 const app = await createApp({ plugins: [StandardPhysicsPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin], initialize(world){createView(world,scene)}}], setup(world) {
  bodies=createScene(world,scene);
@@ -23,7 +24,7 @@ const position=(eid)=>{const p=world.storage(GlobalTransform).translation;return
 const pose=(eid)=>{const q=world.storage(GlobalTransform).rotation;return {translation:position(eid),rotation:[q.x.get(eid),q.y.get(eid),q.z.get(eid),q.w.get(eid)]}};
 window.marker=()=>world.resource(GrabFeedback).marker;
 window.drag=async(move=true)=>{
- const body=bodies[scene==='bridge'?10:20];
+ const body=bodies[bodyIndex];
  const before=position(body);
  const cameraBefore=pose(camera);
  const pixel=worldToViewport(world,camera,before);
@@ -64,15 +65,15 @@ window.drag=async(move=true)=>{
 };
 window.emptyDrag=async()=>{
  const before=position(camera);
- const bodyBefore=position(bodies[20]);
+ const bodyBefore=position(bodies[bodyIndex]);
  pointerMove(world,{x:20,y:20}); pressButton(world,'left'); await frame();
  const picked=world.resource(Grab).body;
  for(let i=1;i<=10;i++){pointerMove(world,{x:20+i*5,y:20,deltaX:5});await frame();}
  releaseButton(world,'left'); await frame();
- return {before,after:position(camera),bodyBefore,bodyAfter:position(bodies[20]),picked,mouse:world.resource(Grab).mouse};
+ return {before,after:position(camera),bodyBefore,bodyAfter:position(bodies[bodyIndex]),picked,mouse:world.resource(Grab).mouse};
 };
 window.hover=async()=>{
- const body=bodies[scene==='bridge'?10:20];
+ const body=bodies[bodyIndex];
  const pixel=worldToViewport(world,camera,position(body));
  world.resource(Devices).pointer.hover=true;
  pointerMove(world,{x:pixel[0],y:pixel[1]}); await frame();

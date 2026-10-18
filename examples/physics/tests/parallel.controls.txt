@@ -1,0 +1,2 @@
+30	Hertz	3
+60	Damping	0.5

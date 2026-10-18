@@ -8,7 +8,14 @@ export class PhysicsAssets<T> implements Iterable<T> {
     private _items: (T | undefined)[] = [];
     private _order: number[] = [];
 
+    private readonly _validate: ((value: T) => void) | undefined;
+
+    constructor(validate?: (value: T) => void) {
+        this._validate = validate;
+    }
+
     add(value: T): number {
+        this._validate?.(value);
         const handle = this._handles.allocate();
         this._items[this._handles.index(handle)!] = value;
         this._order.push(handle);
