@@ -166,6 +166,7 @@ impl OverflowArray {
         self.count += 1;
     }
 
+    #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.count == 0
     }

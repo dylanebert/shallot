@@ -95,10 +95,6 @@ const N_COLS: usize = 15;
 /// The staged solve selects the resident joint array by key.
 pub(crate) const COLOR_SPAN_STRIDE: usize = 6;
 
-/// The worker index the serial (single-crossing) shims run as — the thread driving the step is always
-/// worker 0 (`stages::run`).
-const ORCHESTRATOR: usize = 0;
-
 // LAYOUT indices, in memory order.
 const STATE: usize = 0;
 const FLAGS: usize = 1;
@@ -1711,7 +1707,7 @@ pub(crate) unsafe fn refit_body(
                 let fat_aabb = core::array::from_fn(|n| fat.get(fb + n));
                 let (cand, escaped) = finalize::refit_bounds(bounds, &fat_aabb);
                 for n in 0..6 {
-                    shape_f.set(o + 10 + n, cand[n]);
+                    shape_f.set(o + crate::shapes::S_AABB + n, cand[n]);
                 }
                 let flags = shape_u.get(o + crate::shapes::S_FLAGS);
                 shape_u.set(
@@ -1725,7 +1721,7 @@ pub(crate) unsafe fn refit_body(
                 );
                 if escaped {
                     mark_enlarged(world_index, worker, i);
-                    let margin = shape_f.get(o + 9);
+                    let margin = shape_f.get(o + crate::shapes::S_MARGIN);
                     for n in 0..3 {
                         fat.set(fb + n, cand[n] - margin);
                         fat.set(fb + 3 + n, cand[3 + n] + margin);

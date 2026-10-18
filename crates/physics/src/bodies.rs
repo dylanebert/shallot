@@ -136,7 +136,7 @@ pub fn state_base(world_index: usize) -> usize {
     base(world_index, B_STATE)
 }
 pub fn flags_base(world_index: usize) -> usize {
-    base(world_index, B_STATE) + crate::body::STATE_FLAGS * 4
+    base(world_index, B_FLAGS) + crate::body::STATE_FLAGS * 4
 }
 pub fn sim_base(world_index: usize) -> usize {
     base(world_index, B_SIM)

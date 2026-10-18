@@ -139,14 +139,14 @@ pub(crate) unsafe fn sensor_task(
         let r = crate::shapes::col(world_index);
         let n = sensor_id * SHAPE_STRIDE;
         let lo = Vec3::new(
-            f32::from_bits(r.get(n + 10)),
-            f32::from_bits(r.get(n + 11)),
-            f32::from_bits(r.get(n + 12)),
+            f32::from_bits(r.get(n + crate::shapes::S_AABB)),
+            f32::from_bits(r.get(n + crate::shapes::S_AABB + 1)),
+            f32::from_bits(r.get(n + crate::shapes::S_AABB + 2)),
         );
         let hi = Vec3::new(
-            f32::from_bits(r.get(n + 13)),
-            f32::from_bits(r.get(n + 14)),
-            f32::from_bits(r.get(n + 15)),
+            f32::from_bits(r.get(n + crate::shapes::S_AABB + 3)),
+            f32::from_bits(r.get(n + crate::shapes::S_AABB + 4)),
+            f32::from_bits(r.get(n + crate::shapes::S_AABB + 5)),
         );
         let (sensor, _) = query_abi::active_shape(world_index, sensor_id);
         let sensor_transform = pose(world_index, sensor_id, Vec3::ZERO);

@@ -110,10 +110,10 @@ unsafe fn body_record_bounds(world: usize, id: usize, shape: usize) {
     let f = shapes::col_f(world);
     let o = shape * shapes::SHAPE_STRIDE;
     for lane in 0..6 {
-        f.set(o + 10 + lane, bounds[lane]);
+        f.set(o + shapes::S_AABB + lane, bounds[lane]);
     }
     if escaped {
-        let margin = f.get(o + 9);
+        let margin = f.get(o + shapes::S_MARGIN);
         let mut enlarged = bounds;
         for lane in 0..3 {
             enlarged[lane] -= margin;
@@ -250,14 +250,18 @@ unsafe fn write_bounds(
     let (bounds, _) = crate::finalize::refit_bounds(tight, &[0.0; 6]);
     let f = shapes::col_f(world_index);
     let fat = shapes::col_f(world_index);
-    let margin = if body_type == 0 { 0.02 } else { f.get(o + 9) };
+    let margin = if body_type == 0 {
+        0.02
+    } else {
+        f.get(o + shapes::S_MARGIN)
+    };
     let mut enlarged = bounds;
     for lane in 0..3 {
         enlarged[lane] -= margin;
         enlarged[lane + 3] += margin;
     }
     for lane in 0..6 {
-        f.set(o + 10 + lane, bounds[lane]);
+        f.set(o + shapes::S_AABB + lane, bounds[lane]);
         fat.set(o + shapes::S_FAT_AABB + lane, enlarged[lane]);
     }
     enlarged

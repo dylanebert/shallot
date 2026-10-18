@@ -350,10 +350,10 @@ mod wasm {
         let c = centroid(world, id);
         let f = shapes::col_f(world);
         let o = id * shapes::SHAPE_STRIDE;
-        f.set(o + 22, c.x);
-        f.set(o + 23, c.y);
-        f.set(o + 24, c.z);
-        f.set(o + 9, margin(world, id));
+        f.set(o + shapes::S_CENTROID, c.x);
+        f.set(o + shapes::S_CENTROID + 1, c.y);
+        f.set(o + shapes::S_CENTROID + 2, c.z);
+        f.set(o + shapes::S_MARGIN, margin(world, id));
     }
     #[export_name = "shapeCanCreate"]
     pub unsafe extern "C" fn can_create(world: usize, body: usize, kind: u32) -> bool {

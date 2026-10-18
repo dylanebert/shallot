@@ -277,7 +277,7 @@ fn commit_bounds(u: Col<u32>, f: Col<f32>, s2: Col<u32>, i: usize, o: usize, b: 
     if escaped {
         let flags = u.get(o + shapes::S_FLAGS);
         u.set(o + shapes::S_FLAGS, flags | shapes::ENLARGED_FLAG);
-        let margin = f.get(o + 9);
+        let margin = f.get(o + shapes::S_MARGIN);
         for n in 0..3 {
             f.set(fb + n, b[n] - margin);
             f.set(fb + n + 3, b[n + 3] + margin);
@@ -313,19 +313,19 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
     while id != u32::MAX {
         let fast = id as usize;
         let o = fast * shapes::SHAPE_STRIDE;
-        id = u.get(o + 3);
+        id = u.get(o + shapes::S_NEXT);
         let old = [
-            f.get(o + 10),
-            f.get(o + 11),
-            f.get(o + 12),
-            f.get(o + 13),
-            f.get(o + 14),
-            f.get(o + 15),
+            f.get(o + shapes::S_AABB),
+            f.get(o + shapes::S_AABB + 1),
+            f.get(o + shapes::S_AABB + 2),
+            f.get(o + shapes::S_AABB + 3),
+            f.get(o + shapes::S_AABB + 4),
+            f.get(o + shapes::S_AABB + 5),
         ];
         let box2 = offset(bounds(world_index, fast, end), base);
         if !probe {
             for n in 0..6 {
-                f.set(o + 10 + n, box2[n]);
+                f.set(o + shapes::S_AABB + n, box2[n]);
             }
         }
         if matches!(u.get(o + shapes::S_TYPE), 2 | 4) {
@@ -475,17 +475,17 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                 b[n + 3] += 0.02;
             }
             for n in 0..6 {
-                f.set(o + 10 + n, b[n]);
+                f.set(o + shapes::S_AABB + n, b[n]);
             }
             commit_bounds(u, f, s2, i, o, b);
-            id = u.get(o + 3);
+            id = u.get(o + shapes::S_NEXT);
         }
     } else {
         while id != u32::MAX {
             let o = id as usize * shapes::SHAPE_STRIDE;
-            let b = core::array::from_fn(|n| f.get(o + 10 + n));
+            let b = core::array::from_fn(|n| f.get(o + shapes::S_AABB + n));
             commit_bounds(u, f, s2, i, o, b);
-            id = u.get(o + 3);
+            id = u.get(o + shapes::S_NEXT);
         }
     }
     for (sensor, visitor, t) in hits.into_iter().take(hit_count) {

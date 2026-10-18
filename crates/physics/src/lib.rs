@@ -5,7 +5,9 @@
 //! Native `cargo test` exercises the same logic through the scalar `FloatW` fallback (see `simd`),
 //! which is bit-identical to the wasm-simd128 path.
 
-#![allow(dead_code)]
+// Native builds compile only the modules native tests reach, so items whose callers are wasm-only
+// read as dead there.
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 #![cfg_attr(
     all(target_arch = "wasm32", target_feature = "atomics"),
     feature(stdarch_wasm_atomic_wait)

@@ -168,6 +168,7 @@ impl Scheduler {
             }
         }
     }
+    #[cfg(test)]
     pub fn worker(&self) {
         self.register_worker();
         self.worker_with_fault(false);
