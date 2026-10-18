@@ -10,7 +10,6 @@ import { createView, GrabFeedback } from '../src/view';
 import { Grab, GrabPlugin } from '../src/grab';
 const params=new URLSearchParams(location.search);
 const scene=params.get('scene') || 'boxStack';
-if(params.has('capture')){const canvas=document.querySelector('canvas');canvas.width=1280;canvas.height=720;canvas.style.width='1280px';canvas.style.height='720px'}
 let bodies;
 const app = await createApp({ plugins: [StandardPhysicsPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin], initialize(world){createView(world,scene)}}], setup(world) {
  bodies=createScene(world,scene);
@@ -53,14 +52,14 @@ window.drag=async(move=true)=>{
  const up=[2*(cq[0]*cq[1]-cq[3]*cq[2]),1-2*(cq[0]*cq[0]+cq[2]*cq[2]),2*(cq[1]*cq[2]+cq[3]*cq[0])];
  const ends=[-0.5,0.5].map(sign=>worldToViewport(world,camera,attachment.map((v,i)=>v+sign*scale*up[i])));
  const diameter=Math.hypot(ends[1][0]-ends[0][0],ends[1][1]-ends[0][1]);
- const mid=worldToViewport(world,camera,attachment.map((v,i)=>(v+grab.point[i])/2));
- const read=async()=>{await world.frameFence;const pending=captureFrame(document.querySelector('canvas'));await world.step(0);return await pending};
- const sample=(image,pixel)=>{const offset=(Math.round(pixel[1])*image.width+Math.round(pixel[0]))*4;return Array.from(image.rgba.slice(offset,offset+3))};
+ const mid=attachment.map((v,i)=>(v+grab.point[i])/2);
+ const resize=(width,height)=>{const canvas=document.querySelector('canvas');canvas.width=width;canvas.height=height;canvas.style.width=`${width}px`;canvas.style.height=`${height}px`};
+ const read=async(points=[])=>{resize(1280,720);const pending=captureFrame(document.querySelector('canvas'));await world.step(0);const image=await pending;const pixels=points.map(point=>{const pixel=worldToViewport(world,camera,point);const offset=(Math.round(pixel[1])*image.width+Math.round(pixel[0]))*4;return Array.from(image.rgba.slice(offset,offset+3))});resize(640,480);return {image,pixels}};
  let lineSamples;
- if(params.has('capture')){const image=await read();lineSamples=[0.1,0.5,0.9].map(t=>sample(image,worldToViewport(world,camera,attachment.map((v,i)=>v*(1-t)+grab.point[i]*t))))}
+ if(params.has('capture')) lineSamples=(await read([0.1,0.5,0.9].map(t=>attachment.map((v,i)=>v*(1-t)+grab.point[i]*t)))).pixels;
  const markerDuring=world.has(marker,GlobalTransform) && !world.has(marker, Body);
- window.finishDrag=async()=>{releaseButton(world,'left');await frame();const linePixel=params.has('capture')?sample(await read(),mid):undefined;return {...(linePixel?{linePixel}:{}),marker:world.resource(GrabFeedback).marker,mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint}};
- if(params.has('capture')) window.captureGrab=async()=>{const capture=await read();const image=document.createElement('canvas');image.width=capture.width;image.height=capture.height;image.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(capture.rgba),capture.width,capture.height),0,0);image.style.cssText='position:absolute;inset:0';document.body.append(image)};
+ window.finishDrag=async()=>{releaseButton(world,'left');await frame();const linePixel=params.has('capture')?(await read([mid])).pixels[0]:undefined;return {...(linePixel?{linePixel}:{}),marker:world.resource(GrabFeedback).marker,mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint}};
+ if(params.has('capture')) window.captureGrab=async()=>{const {image:capture}=await read();const image=document.createElement('canvas');image.width=capture.width;image.height=capture.height;image.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(capture.rgba),capture.width,capture.height),0,0);image.style.cssText='position:absolute;inset:0;width:1280px;height:720px';document.body.append(image)};
  return {attachment,diameter,lineSamples,body,picked,markerDuring,markerNoShadow:world.has(marker,NotShadowCaster),markerPosition:position(marker),target:[...world.resource(Grab).point],before,after,pixel,projected,cameraBefore,cameraDuring,cameraAfter:pose(camera),mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint};
 };
 window.emptyDrag=async()=>{
