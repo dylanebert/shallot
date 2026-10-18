@@ -1475,8 +1475,8 @@ async function acquireDevice(
     requirements: readonly NamedGpuRequirements[],
 ): Promise<{ device: GPUDevice; adapter: GPUAdapter }> {
     const gpu = typeof navigator === "undefined" ? undefined : navigator.gpu;
+    const runtime = gpuRuntimeName();
     if (!gpu) {
-        const runtime = gpuRuntimeName();
         const fix =
             runtime === "Bun"
                 ? " Install the optional webgpu peer dependency to enable GPU builds."
@@ -1486,7 +1486,6 @@ async function acquireDevice(
         );
     }
 
-    const runtime = gpuRuntimeName();
     let adapter: GPUAdapter | null;
     try {
         adapter = await gpu.requestAdapter();
