@@ -39,8 +39,8 @@ export type CompoundMeshDef = {
 };
 export type CompoundSphereDef = { sphere: Sphere; material: SurfaceMaterial };
 
-/** Compound definition (b3CompoundDef). Materials and sphere/capsule values are copied;
- * hulls, mesh data and child transforms remain caller-owned references. */
+/** Compound definition (b3CompoundDef). Materials, sphere and capsule values and mesh scales are
+ * copied; hulls, mesh data and child transforms remain caller-owned references. */
 export type CompoundDef = {
     capsules?: CompoundCapsuleDef[];
     hulls?: CompoundHullDef[];
