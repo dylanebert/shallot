@@ -198,6 +198,8 @@ async function reinitialize(world: World): Promise<void> {
     for (let i = 0; i < 3; i++) {
         await MeshPlugin.initialize!(world);
         register(world);
+        for (const eid of world.query([MeshInstance]))
+            world.storage(MeshInstance).mesh.set(eid, handleForLabel(world, "slab"));
         world.step(0);
         families.push(world.resource(Meshes).get(handleForLabel(world, "slab"))!);
     }
