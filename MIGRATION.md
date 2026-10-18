@@ -457,7 +457,7 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `fragCoord` | Use the material fragment context or a core render-phase renderer. |
 | `fragWorld` | Read `.world` from the inferred fragment argument. |
 | `lightFactor` | Use `lit` for the standard lighting response. |
-| `litPbr` | Use `StandardMaterial` or `lit`. |
+| `litPbr` | Use `StandardMaterial`, or `applyPbrLighting` over `pbrInputFromMaterial`. |
 | `pointFactor` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
 | `pointScale` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
 | `sunVisibility` | Use `lit` or the shared `sampleSunShadow` function. |
@@ -471,7 +471,7 @@ In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSl
 | `getCompiledSurface` | No public replacement; compiled-pipeline diagnostics are internal. |
 | `DrawIndirectBuffer` | Infer from `Draw.args.indirect`; allocate with `DrawIndexedIndirect`. |
 | `casterWgsl` | No public replacement; shadow-caster code is internal. |
-| `Pbr` | Use `StandardMaterial` or `lit`. |
+| `Pbr` | Use `StandardMaterial`, or the `PbrInput` that `pbrInputFromMaterial` returns. |
 | `pointShadowWgsl` | Resolve `pointShadowRef()` through TypeGPU. |
 | `SHADOW_PARAMS_BYTES` | Derive layout size from `SunShadow` with TypeGPU. |
 | `sunShadowWgsl` | Resolve `sampleSunShadow` through TypeGPU. |
