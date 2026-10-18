@@ -10,7 +10,7 @@ import {
 } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { worldCounters } from "./world/world";
@@ -58,7 +58,7 @@ test("recycled Shape geometry retries preserve restored bindings", async () => {
         expect(world.storage(GlobalTransform).translation.y.get(eid)).toBe(0);
         expect(worldCounters(solver).bodyCount).toBe(1);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -89,7 +89,7 @@ for (const constraint of [SphericalJoint, DistanceJoint]) {
             expect(physicsBodyIndex(world, replacement)).toBeGreaterThanOrEqual(0);
             expect(worldCounters(solver).jointCount).toBe(0);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }

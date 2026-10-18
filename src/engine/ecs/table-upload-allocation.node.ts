@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { setupGlobals } from "../runtime/webgpu";
 
 await setupGlobals();
@@ -91,6 +91,6 @@ test("whole steady table frames reuse copy records and staging with one completi
         if (copyPushDescriptor) Object.defineProperty(copyPool, "push", copyPushDescriptor);
         else Reflect.deleteProperty(copyPool, "push");
         world.own = own;
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

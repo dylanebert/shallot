@@ -5,7 +5,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 
 await setupGlobals();
 
@@ -38,6 +38,6 @@ test("build awaits an application-owned loading completion promise before cleanu
         expect(held).toBe(true);
         expect(cleaned).toBe(true);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

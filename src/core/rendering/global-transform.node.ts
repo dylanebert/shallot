@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance, MeshPlugin } from "../../core/mesh";
 import { Body, BodyType } from "../../core/physics";
 import {
@@ -113,7 +113,7 @@ test("TransformPlugin boundaries bracket exact ticks and gather after every simu
         world.step(0);
         expect(drawn).toBe(11);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -144,7 +144,7 @@ test("Transform placement lands in the fixed-tick GlobalTransform column and the
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
         expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([2, 3, 4]);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -172,7 +172,7 @@ test("a Body publishes unit scale to fixed-tick GlobalTransform and renderer row
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([12, 7, -3]);
         expect(Array.from(words.subarray(row * 12 + 8, row * 12 + 11))).toEqual([1, 1, 1]);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -199,7 +199,7 @@ test("viewportToWorld reads a body camera's fixed-tick GlobalTransform", async (
             dir: [0, 0, -1],
         });
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -483,7 +483,7 @@ test("aborted GlobalTransform history matches across fixed, restore, and interpo
                 },
             };
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     }
 
@@ -521,7 +521,7 @@ test("a GlobalTransform created after history preparation remains pending for th
         world.step(0);
         expect(marks[eid >>> 5]! & mask).toBe(0);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -560,7 +560,7 @@ test("an unrelated successful draw cannot commit aborted GlobalTransform history
         const result = await probeBuffer(world, previous.buffer, { size: previous.buffer.size });
         expect(new Float32Array(result.bytes)[row * 12]).toBe(10);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -619,7 +619,7 @@ test("Body to Transform keeps its GlobalTransform row for a same-frame producer 
         expect(world.has(eid, GlobalTransform)).toBe(true);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(42);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -639,7 +639,7 @@ test("Transform to Body keeps its GlobalTransform row for a same-frame producer 
         expect(world.has(eid, GlobalTransform)).toBe(true);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(42);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -662,7 +662,7 @@ test("Body to Transform keeps its GlobalTransform row when handover crosses a fi
         expect(world.has(eid, GlobalTransform)).toBe(true);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(42);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -685,7 +685,7 @@ test("Transform to Body keeps its GlobalTransform row when handover crosses a fi
         expect(world.has(eid, GlobalTransform)).toBe(true);
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(42);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -705,7 +705,7 @@ test("the first Body spawn renders at its placement at half a fixed step", async
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         expect(await renderedX(world, table, eid)).toBeCloseTo(100, 5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -745,7 +745,7 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         expect(await renderedX(world, table, spawned)).toBeCloseTo(100, 5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -781,7 +781,7 @@ test("a frame-written mesh row snaps at any alpha and step(0), then the next tic
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         expect(await renderedX(world, table, eid)).toBeCloseTo(written + 2, 5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -805,7 +805,7 @@ test("an author-marked Transform jump of any size snaps instead of interpolating
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         expect(await renderedX(world, table, eid)).toBeCloseTo(0.25, 5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -833,7 +833,7 @@ test("setTargetTransform publishes moved body placement to the fixed GlobalTrans
         );
         expect(Array.from(words.subarray(row * 12, row * 12 + 3))).toEqual([17, 3, -2]);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -849,7 +849,7 @@ test("restore re-stages ticked GlobalTransform rows for the next GPU table uploa
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(10);
         await expectCurrentPlacement(world, eid);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -864,7 +864,7 @@ test("a later no-write tick does not replay the earlier phase-1 GlobalTransform 
         world.step(0);
         await expectCurrentPlacement(world, eid);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -878,7 +878,7 @@ test("a fixed step does not replay the earlier phase-1 GlobalTransform range", a
         expect(world.storage(GlobalTransform).translation.x.get(eid)).toBe(20);
         await expectCurrentPlacement(world, eid);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -914,7 +914,7 @@ test("restoring more than 32 GlobalTransforms leaves every interpolated row at i
             expect(rows[row * 12]).toBeCloseTo(poses[i], 5);
         }
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -960,7 +960,7 @@ test("restore followed by a tick still interpolates between restored and ticked 
         const rows = await interpolatedRows(world, table);
         expect(rows[table.rowIndex(eid) * 12]).toBeCloseTo(5, 5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -989,6 +989,6 @@ test("a kinematic teleport renders at its new placement at half a fixed step", a
         expect(world.time.fixedAlpha).toBeCloseTo(0.5, 5);
         expect(await renderedX(world, table, eid)).toBeCloseTo(100, 5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

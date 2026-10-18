@@ -5,7 +5,7 @@ import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Transform } from "@dylanebert/shallot/transform";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { cpuTotal } from "../../extras/profile/cpu";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -14,8 +14,8 @@ import { setupGlobals } from "@dylanebert/shallot/webgpu";
 
 await setupGlobals();
 let live: Awaited<ReturnType<typeof createApp>> | null = null;
-afterEach(() => {
-    live?.dispose();
+afterEach(async () => {
+    if (live) await disposeGpuApps([live]);
     live = null;
 });
 

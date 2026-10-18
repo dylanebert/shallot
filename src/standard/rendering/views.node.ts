@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Camera, PointLight, StandardRenderingPlugin, Transform } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { cube, Meshes, MeshInstance } from "../../core/mesh";
 import {
     attachTexture,
@@ -101,7 +101,7 @@ test("a ninth presenting camera draws instead of being skipped", async () => {
         expect(render.viewCount).toBe(9);
         for (const eid of cameras) expect(app.world.resource(Views).get(eid)?.presented).toBe(true);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -264,7 +264,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             const afterSlotShift = await captureTexture(world, second);
             expectSettledPixels(afterSlotShift.rgba, beforeSlotShift.rgba);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     }
 });
@@ -320,7 +320,7 @@ test("removing a camera releases its targets and shifts the remaining tone group
             false,
         );
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -343,7 +343,7 @@ test("one presenting camera allocates per-view state for one slot", async () => 
         expect(clusterGpu.rasterArgs?.size).toBe(20);
         expect(tonemapping.buffers).toHaveLength(1);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -397,7 +397,7 @@ test("adding a camera grows once; steady frames allocate and compile nothing", a
                 if (originals[index]) Reflect.set(device, name, originals[index]);
             }
         }
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -436,7 +436,7 @@ test("adding a camera builds engine bind groups per mesh family and view slot, n
         expect(engineGroups).toBeLessThanOrEqual(2 * 3);
     } finally {
         device.createBindGroup = createBindGroup;
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -490,7 +490,7 @@ test("after presenting cameras are removed, light allocation and the pack scan d
         expect(dispatches.get("shallot-mesh-preprocess")).toEqual([render.viewCount]);
     } finally {
         device.createCommandEncoder = createCommandEncoder;
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -522,6 +522,6 @@ test("adding presenting cameras one at a time grows per-view storage by doubling
         expect(created.get("shallot-light-clusters")).toBe(4);
     } finally {
         device.createBuffer = createBuffer;
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

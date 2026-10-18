@@ -17,7 +17,7 @@ import {
     VignettePlugin,
 } from "@dylanebert/shallot";
 import { rawDevice } from "../src/engine/runtime";
-import { createTestGpuApp, gpuRequirements } from "./gpu.fixture";
+import { createTestGpuApp, disposeGpuApps, gpuRequirements } from "./gpu.fixture";
 
 export const compileSubjects = [
     { name: "engine-only", config: { defaults: false, plugins: [] } },
@@ -95,6 +95,6 @@ export async function measureCompile(config: Parameters<typeof createApp>[0]) {
     } finally {
         app?.dispose();
         for (const [index, name] of methods.entries()) Reflect.set(device, name, originals[index]);
-        owner.dispose();
+        await disposeGpuApps([owner]);
     }
 }

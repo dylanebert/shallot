@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { Time } from "../../engine";
@@ -52,7 +52,7 @@ test("a body falling asleep publishes zero ECS velocity, and waking publishes it
         });
         expect(Array.from(velocity.column.subarray(eid * 4, eid * 4 + 4))).toEqual([2, 3, 4, 0]);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -78,6 +78,6 @@ test("a falling body spawns from Transform and writes its pose back each step", 
             previousY = pose.translation.y.get(body);
         }
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

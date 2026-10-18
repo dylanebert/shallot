@@ -3,7 +3,7 @@ import { type Component, type FieldType, Time, type World } from "@dylanebert/sh
 import * as physics from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { JointField, jointField } from "./kernel/jointrecords";
 import { kernel } from "./kernel/kernel";
 import { physicsBodyIndex, physicsState } from "./runtime";
@@ -27,7 +27,9 @@ let app: Awaited<ReturnType<typeof createApp>>;
 beforeAll(async () => {
     app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
 });
-afterAll(() => app?.dispose());
+afterAll(async () => {
+    if (app) await disposeGpuApps([app]);
+});
 
 const kinds = [
     ["Distance", defaultDistanceJointDef],

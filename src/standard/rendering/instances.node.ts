@@ -4,7 +4,7 @@ import * as d from "typegpu/data";
 
 setDefaultTimeout(TIMEOUT.node);
 
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { globalTransformTable } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -79,7 +79,7 @@ test("MeshInstance compaction carries independent dense GlobalTransform and Mesh
         readback.unmap();
     } finally {
         readback.destroy();
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -138,6 +138,6 @@ test("changing MeshMaterial type moves the instance to that type's mesh draw on 
         expect(await counts()).toEqual([1, 0]);
     } finally {
         readback.destroy();
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

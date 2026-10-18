@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import type { Plugin } from "../../engine";
 import { Transform } from "../transform";
 import {
@@ -106,6 +106,10 @@ test("a replacement presents one view while core presents another without steady
     } finally {
         device.createBindGroup = createBindGroup;
         app.dispose();
-        expect(await device.popErrorScope()).toBeNull();
+        try {
+            expect(await device.popErrorScope()).toBeNull();
+        } finally {
+            await disposeGpuApps([app]);
+        }
     }
 });

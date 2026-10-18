@@ -1,6 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
+import {
+    createTestGpuApp as createApp,
+    disposeGpuApps,
+    expectAdapterNotice,
+} from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import { RenderingPlugin } from "../../core/rendering";
 import { type Plugin, runApp } from "./index";
@@ -47,7 +51,7 @@ test("runApp logs a system error once, pauses the failed system, and keeps healt
         await waitFor(() => frames >= before + 3);
         expect(attempts).toBe(1);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -103,7 +107,7 @@ test("runApp delivers each settled frame wait to a fence-wait sink", async () =>
         expect(sinkFrames.slice(0, 5)).toEqual([0, 1, 2, 3, 4]);
         expect(waits.slice(1, 5).every((ms) => Number.isFinite(ms) && ms > 0)).toBe(true);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -165,7 +169,7 @@ test("log-and-pause skips a failed draw system but still submits later draw work
         expect(submissions).toBe(1);
         await app.world.frameFence;
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
         if (queue) {
             if (descriptor) Object.defineProperty(queue, "submit", descriptor);
             else Reflect.deleteProperty(queue, "submit");
@@ -227,6 +231,6 @@ test("runApp waits on the engine frame fence instead of issuing a second complet
         expect(reads).toBeGreaterThanOrEqual(3);
         expect(sameFence).toBe(true);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

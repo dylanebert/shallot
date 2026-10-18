@@ -1,6 +1,7 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
+import { expectError } from "../../../scripts/test-console";
 import type { createApp } from "../app";
 import { rawDevice } from "./gpu";
 
@@ -28,7 +29,11 @@ const subject = compileGpuFile(import.meta.path, async () => {
     apps.push(app);
     return { app, reads: () => reads };
 });
-afterAll(() => disposeGpuApps(apps));
+afterAll(() => {
+    // The supplied proxy has its own device-loss observer.
+    expectError(/^GPU device lost destroyed: device was destroyed$/);
+    return disposeGpuApps(apps);
+});
 
 test("world devices resolve immutable capabilities once rather than invoking native getters during play", () => {
     const { app, reads } = subject();

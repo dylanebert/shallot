@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import * as d from "typegpu/data";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import { RenderingPlugin } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -56,6 +56,6 @@ test("MeshInstance and StandardRenderer warm and compact a component-bound dense
         const data = new DataView(record.bytes);
         expect(data.getUint32(materialOffset, true)).toBe(0);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

@@ -27,7 +27,7 @@ import {
 import { hashPhysics, StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import { physicsState } from "./runtime";
 import { worldCounters } from "./world/world";
@@ -100,7 +100,7 @@ test("world recovery includes gameplay, identity, allocation, clock and physics 
         world.restore(saved);
         expect(advance()).toEqual(first);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 test("recovery restores a Shape on another entity with its body reference and solver binding", async () => {
@@ -128,7 +128,7 @@ test("recovery restores a Shape on another entity with its body reference and so
         expect(worldCounters(physicsState(world)!).shapeCount).toBe(1);
         expect(hashPhysics(world)).toBe(hash);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -190,7 +190,7 @@ test("core physics recovery restores every Shape geometry and material registry"
         expect(materials.id("recovery-materials")).toBe(materialId);
         expect(materials.get("recovery-materials")?.materials[0]?.userMaterialId).toBe(44n);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -221,7 +221,7 @@ test("recovery restores Shape authoring and its hull registry before fixed sync"
         expect(hulls.id("future-hull")).toBeUndefined();
         expect(hulls.register({ ...cube, name: "replayed-hull" })).toBe(1);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -257,7 +257,7 @@ test("snapshot and restore leave device state outside recovery", async () => {
         expect(devices.touch.deltaY).toBe(10);
         expect(devices.audio.context).toBe("running");
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -305,7 +305,7 @@ test.each(["declarative", "initialize"])(
             );
             expect(captures).toBe(0);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     },
 );

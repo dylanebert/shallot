@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { GlobalTransform, Transform } from "../transform";
 import {
     Body,
@@ -138,6 +138,6 @@ test("core PhysicsPlugin builds without a solver and accepts shared components w
         expect(j.localRotationB.w.get(joint)).toBe(1);
         expect(world.resource(Hulls).id("__unit_cube__")).toBe(UNIT_CUBE_ID);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

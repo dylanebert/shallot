@@ -9,7 +9,7 @@ import {
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { GlobalTransform } from "@dylanebert/shallot/transform";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
 await setupGlobals();
@@ -46,7 +46,7 @@ test("setTargetTransform drives a sleeping body back to an unchanged target", as
 
         expect(position.x.get(platform)).toBeCloseTo(0, 5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -62,6 +62,6 @@ test("setTargetTransform does not publish a sub-threshold target a sleeping body
         world.tick();
         expect(position.x.get(platform)).toBe(held);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

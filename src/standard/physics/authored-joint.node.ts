@@ -4,7 +4,7 @@ import { Body, BodyType, Shape } from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { GlobalTransform, Transform } from "@dylanebert/shallot/transform";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { defaultJointDef } from "./solver/joint";
 import { createRevoluteJoint, defaultRevoluteJointDef } from "./solver/revoluteJoint";
@@ -58,6 +58,6 @@ test("the solver world's entity lookup lets a revolute joint constrain two autho
         world.remove(bob, Body);
         expect(physicsBodyIndex(world, bob)).toBe(-1);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

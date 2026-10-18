@@ -1,6 +1,10 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp, expectAdapterNotice } from "../../../scripts/gpu.fixture";
+import {
+    createTestGpuApp as createApp,
+    disposeGpuApps,
+    expectAdapterNotice,
+} from "../../../scripts/gpu.fixture";
 import { expectError } from "../../../scripts/test-console";
 import { component } from "../ecs";
 import { classifyAdapter } from "../runtime/adapter";
@@ -61,9 +65,7 @@ const ResourcePlugin = {
 };
 let apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
-afterEach(() => {
-    for (const app of apps.splice(0)) app.dispose();
-});
+afterEach(() => disposeGpuApps(apps.splice(0)));
 
 function amount(world: World) {
     return world.storage(Value).amount;
@@ -163,7 +165,7 @@ test("live and later worlds keep component columns separate", async () => {
     expect(second.world.resource(textureKey)).not.toBe(first.world.resource(textureKey));
     expect(first.world.resource(typedKey)).not.toBe(second.world.resource(typedKey));
 
-    first.dispose();
+    await disposeGpuApps([first]);
     apps = apps.filter((app) => app !== first);
     const later = await createApp({ defaults: false, plugins: [ResourcePlugin] });
     apps.push(later);
@@ -370,11 +372,11 @@ test("interleaved default worlds with text, sprite and lines equal each world st
     const soloA = await composition("first", 10);
     const a = [];
     for (let i = 0; i < 3; i++) a.push(await compositionFrame(soloA.world, 10, i));
-    soloA.dispose();
+    await disposeGpuApps([soloA]);
     const soloB = await composition("second", 30);
     const b = [];
     for (let i = 0; i < 3; i++) b.push(await compositionFrame(soloB.world, 30, i));
-    soloB.dispose();
+    await disposeGpuApps([soloB]);
     const first = await composition("first", 10);
     const second = await composition("second", 30);
     for (let i = 0; i < 3; i++) {

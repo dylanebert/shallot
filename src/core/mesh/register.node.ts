@@ -1,6 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp, expectAdapterNotice, gpuApps } from "../../../scripts/gpu.fixture";
+import {
+    createTestGpuApp,
+    disposeGpuApps,
+    expectAdapterNotice,
+    gpuApps,
+} from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import type { createApp, Plugin, System, World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
@@ -233,7 +238,7 @@ test("a mesh registered in setup, before MeshPlugin initializes, is refused by n
         expect(String(error)).toContain("MeshPlugin");
         return;
     } finally {
-        app?.dispose();
+        if (app) await disposeGpuApps([app]);
     }
     throw new Error("setup registration was not refused");
 });

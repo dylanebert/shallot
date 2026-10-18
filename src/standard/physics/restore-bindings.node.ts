@@ -8,7 +8,7 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { snapshot } from "./api/snapshot";
 import { physicsBodyIndex, physicsState } from "./runtime";
 import { worldCounters } from "./world/world";
@@ -54,7 +54,7 @@ for (const mutation of ["spawn", "despawn", "joint"] as const) {
             world.tick();
             expect(worldCounters(physicsState(world)!).bodyCount).toBe(2);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }
@@ -88,7 +88,7 @@ test("kinematic targets replay the same physics hashes after world recovery", as
         world.restore(saved);
         expect(advance()).toEqual(expected);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -107,6 +107,6 @@ test("world recovery refuses a solver-only image before changing simulation", as
         );
         expect(hashPhysics(world)).toBe(hash);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

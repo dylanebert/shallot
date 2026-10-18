@@ -1,6 +1,11 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { compileGpuFile, createTestGpuApp, gpuRequirements } from "../../../scripts/gpu.fixture";
+import {
+    compileGpuFile,
+    createTestGpuApp,
+    disposeGpuApps,
+    gpuRequirements,
+} from "../../../scripts/gpu.fixture";
 import { MeshInstance } from "../../core/mesh";
 import {
     AmbientLight,
@@ -216,6 +221,4 @@ test("Gaussian cascade sub-texel camera moves change no more total luminance tha
     }
 });
 
-afterAll(() => {
-    subjects().owner.dispose();
-});
+afterAll(() => disposeGpuApps([subjects().owner]));

@@ -3,7 +3,7 @@ import { type Component, Time } from "@dylanebert/shallot";
 import * as core from "@dylanebert/shallot/physics";
 import { StandardPhysicsPlugin } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import {
     DJ_LOWER_SPRING_FORCE,
@@ -109,7 +109,7 @@ test("values asserted against by Box3D create warn once and skip, while positive
         expect(ids).toHaveLength(1);
         expect(readJointFloat(physicsState(world)!, ids[0]!, WJ_ANGULAR_HERTZ)).toBe(2);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -281,6 +281,6 @@ test("live joint edits reject Box3D setter precondition failures", async () => {
             readJointFloat(state, ids.wheel, WHJ_UPPER_STEERING_LIMIT),
         ]).toEqual(before.wheelSteering);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

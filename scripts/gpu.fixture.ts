@@ -6,7 +6,7 @@ import { rawDevice } from "../src/engine/runtime";
 import type { AdapterVerdict } from "../src/engine/runtime/adapter";
 import { adapterNotice } from "../src/engine/runtime/gpu";
 import { normalizePath } from "../src/project/paths";
-import { expectWarning } from "./test-console";
+import { expectError, expectWarning } from "./test-console";
 
 export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () => T {
     let subject: T;
@@ -55,13 +55,16 @@ export function gpuRequirements(plugins: readonly Plugin[]): NonNullable<Plugin[
 }
 
 type GpuApp = Awaited<ReturnType<typeof createApp>>;
+const ownedDevices = new WeakMap<GpuApp, GPUDevice>();
 
 /** Build a test app and declare the adapter notice emitted by this acquisition, if any. */
 export async function createTestGpuApp(
     config: Parameters<typeof createApp>[0],
 ): ReturnType<typeof createApp> {
     const app = await createApp(config);
-    expectAdapterNotice(app.world.gpuIfAvailable?.adapter);
+    const gpu = app.world.gpuIfAvailable;
+    if (config.device === undefined && gpu) ownedDevices.set(app, rawDevice(gpu.device));
+    expectAdapterNotice(gpu?.adapter);
     return app;
 }
 
@@ -72,10 +75,15 @@ export function expectAdapterNotice(verdict: AdapterVerdict | undefined): void {
     expectWarning(new RegExp(`^${notice.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
 }
 
-/** Wait for all fixture submissions before releasing the fixture's worlds. */
+/** Wait for submissions, dispose worlds, then destroy their fixture-acquired devices.
+ * Including an acquisition owner declares that all consumers of its device have finished.
+ * Supplied devices remain caller-owned, including when only a borrower is disposed.
+ */
 export async function disposeGpuApps(apps: GpuApp[]): Promise<void> {
     const devices = new Set<GPUDevice>();
     for (const app of apps) {
+        const owned = ownedDevices.get(app);
+        if (owned) devices.add(owned);
         try {
             devices.add(rawDevice(app.world.gpu.device));
         } catch {
@@ -93,7 +101,15 @@ export async function disposeGpuApps(apps: GpuApp[]): Promise<void> {
             }),
         );
     } finally {
-        for (const app of apps.reverse()) app.dispose();
+        for (let i = apps.length - 1; i >= 0; i--) apps[i].dispose();
+        for (const app of apps) {
+            const device = ownedDevices.get(app);
+            if (!device) continue;
+            expectError(/^GPU device lost destroyed: device was destroyed$/);
+            device.destroy();
+            ownedDevices.delete(app);
+            await device.lost;
+        }
     }
 }
 

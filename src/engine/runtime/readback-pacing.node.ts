@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { component, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 
@@ -69,7 +69,7 @@ test("a deterministic composition hashes identically under two frame pacings wit
                 ),
             );
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     }
     expect(await run(1 / 120, 120)).toBe(await run(1 / 30, 30));

@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { probeBuffer, Time } from "../../engine";
 import { GlobalTransform, resetInterpolation, Transform } from "../transform";
 import {
@@ -155,6 +155,6 @@ test("new and reattached lights snap until fixed capture, then match GPU history
         }
         expect(world.storage(GlobalTransform).translation.x.get(eids[0]!)).toBe(90);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

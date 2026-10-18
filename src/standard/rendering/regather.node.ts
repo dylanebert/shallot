@@ -1,6 +1,6 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { compileGpuFile, createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { compileGpuFile, createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { createRegather, prepareRegather, SHADOW_ARG_STRIDE } from "./regather";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -12,7 +12,7 @@ const subject = compileGpuFile(import.meta.path, async () => {
     await prepareRegather(app.world, app.world.gpu.device, 16384);
     return app;
 });
-afterAll(() => subject().dispose());
+afterAll(() => disposeGpuApps([subject()]));
 
 test("parallel regather preserves every payload, mesh run and cascade depth against a CPU survivor reference", async () => {
     const { world } = subject();

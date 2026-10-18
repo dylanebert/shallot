@@ -13,7 +13,7 @@ import {
 } from "@dylanebert/shallot/standard/physics";
 import { Transform } from "@dylanebert/shallot/transform";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import type { PhysicsSnapshot } from "./api";
 import { restore, snapshot } from "./api/snapshot";
 import { physicsCounters, physicsState } from "./runtime";
@@ -66,7 +66,7 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
             if (tick > 2) leftAfterSaved.push(hashPhysics(left.world).toString(16));
         }
     } finally {
-        left.app.dispose();
+        await disposeGpuApps([left.app]);
     }
 
     const right = await cleanState();
@@ -78,7 +78,7 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
             rightHashes.push(hashPhysics(right.world).toString(16));
         }
     } finally {
-        right.app.dispose();
+        await disposeGpuApps([right.app]);
     }
     expect(leftHashes).toEqual(rightHashes);
 
@@ -99,7 +99,7 @@ test("sequential clean physics Worlds and an owner-world snapshot replay one fix
         expect(hashPhysics(replay.world).toString(16)).toBe(leftAfterSaved[0]);
         expect(hashPhysics(replay.world)).not.toBe(before);
     } finally {
-        replay.app.dispose();
+        await disposeGpuApps([replay.app]);
     }
 });
 
@@ -150,8 +150,7 @@ test("a solver snapshot restores into a fresh compatible PhysicsWorld with an eq
         restore(targetState!, saved);
         expect(hashPhysics(target.world)).toBe(expected);
     } finally {
-        target.dispose();
-        source.app.dispose();
+        await disposeGpuApps([source.app, target]);
     }
 });
 
@@ -187,7 +186,7 @@ test("snapshot logical state and WASM bytes are collectable after the caller dro
         // Keep the registry alive through collection, not just its callback's result set.
         expect(registry.unregister(control.saved)).toBe(true);
     } finally {
-        subject.app.dispose();
+        await disposeGpuApps([subject.app]);
     }
 });
 
@@ -209,6 +208,6 @@ test("physics reports the same body visit count for every scene, so a body-conte
         expect(changed.bodiesVisited).toBe(2);
         expect(one.world.has(second, Body)).toBe(true);
     } finally {
-        one.app.dispose();
+        await disposeGpuApps([one.app]);
     }
 });

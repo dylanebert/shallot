@@ -5,7 +5,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 setDefaultTimeout(TIMEOUT.node);
 
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { Body, BodyType, Shape } from "../../core/physics";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
@@ -107,6 +107,6 @@ test("placement interpolation uploads one GlobalTransform range and preserves un
     } finally {
         if (descriptor) Object.defineProperty(queue, "writeBuffer", descriptor);
         else Reflect.deleteProperty(queue, "writeBuffer");
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

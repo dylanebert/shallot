@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { PhysicsPlugin } from "../physics";
 import { globalTransformTable, RenderingPlugin } from "../rendering";
 import { GlobalTransform, Transform, TransformPlugin } from "./index";
@@ -42,7 +42,7 @@ test("placement without rendering refuses placement GPU residency", async () => 
             if (descriptor) Object.defineProperty(device, name, descriptor);
             else Reflect.deleteProperty(device, name);
         });
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -61,7 +61,7 @@ for (const plugin of [PhysicsPlugin, RenderingPlugin]) {
             app.world.step(1 / 60);
             expect(app.world.storage(GlobalTransform).translation.x.get(eid)).toBe(3);
         } finally {
-            app.dispose();
+            await disposeGpuApps([app]);
         }
     });
 }
@@ -75,6 +75,6 @@ test("a composition with no placement reader registers no placement and steps", 
         app.world.step(1 / 60);
         expect(app.world.time.fixedTick).toBeGreaterThan(0);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

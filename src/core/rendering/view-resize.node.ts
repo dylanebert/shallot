@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { Viewports } from "../../engine";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { Transform } from "../transform";
@@ -56,7 +56,7 @@ test("a canvas DPR change is sampled by the next frame when its CSS size is unch
         expect([view.width, view.height]).toEqual([64, 48]);
         expect(world.resource(Viewports).get(view.viewportIndex)?.dpr).toBe(2);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
         if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
         else Reflect.deleteProperty(globalThis, "window");
     }
@@ -100,6 +100,6 @@ test("a canvas display resize is sampled by the next frame without a resize call
             cssHeight: 36,
         });
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

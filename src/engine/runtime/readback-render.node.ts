@@ -3,6 +3,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import {
     createTestGpuApp,
+    disposeGpuApps,
     expectAdapterNotice,
     gpuRequirements,
 } from "../../../scripts/gpu.fixture";
@@ -49,6 +50,6 @@ test("rendered frames without a request map nothing", async () => {
     } finally {
         device.createBuffer = original;
         subject?.dispose();
-        owner.dispose();
+        await disposeGpuApps([owner]);
     }
 });

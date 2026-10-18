@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { attachCanvas, Camera, RenderingPlugin } from "../../core/rendering";
 import { CanvasContext } from "../../engine/app/canvas.fixture";
 import { GlobalTransform, globalTransformTable, probeBuffer, Time, Transform } from "../../index";
@@ -104,6 +104,6 @@ test("built world recovery publishes restored fields and discards old interpolat
             fields: [...world.storage(Transform).translation.column],
         }).toEqual(continuation);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

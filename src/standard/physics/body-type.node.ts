@@ -1,6 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { Body, BodyType, Shape } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { Time } from "../../engine";
@@ -36,7 +36,7 @@ test("a default Body is static, takes no velocity, and refuses target transforms
             pose.translation.z.get(eid),
         ]).toEqual([0, 5, 0]);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -51,7 +51,7 @@ test("a dynamic Body with zero mass does not fall", async () => {
         for (let i = 0; i < 10; i++) app.world.step(Time.FIXED_DT);
         expect(app.world.storage(GlobalTransform).translation.y.get(eid)).toBe(5);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });
 
@@ -64,6 +64,6 @@ test("body sync publishes rigid pose without collider scale", async () => {
         const scale = app.world.storage(GlobalTransform).scale;
         expect([scale.x.get(eid), scale.y.get(eid), scale.z.get(eid)]).toEqual([1, 1, 1]);
     } finally {
-        app.dispose();
+        await disposeGpuApps([app]);
     }
 });

@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { setupGlobals } from "@dylanebert/shallot/webgpu";
-import { createTestGpuApp as createApp } from "../../../scripts/gpu.fixture";
+import { createTestGpuApp as createApp, disposeGpuApps } from "../../../scripts/gpu.fixture";
 import { Body, BodyType } from "../../core/physics";
 import { GlobalTransform, Transform } from "../../core/transform";
 import { Time } from "../../engine";
@@ -33,7 +33,6 @@ test("exact ticks then draw match frame ticks in physics hash and published fiel
         expect(a.world.gpu.frame).toBe(1);
         expect(b.world.gpu.frame).toBe(120);
     } finally {
-        a.dispose();
-        b.dispose();
+        await disposeGpuApps([b, a]);
     }
 });
