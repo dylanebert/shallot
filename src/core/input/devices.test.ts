@@ -702,15 +702,31 @@ test("composing the browser input producer without host globals preserves the pl
 
 test("key press, pointer, wheel and touch facts reach the frame's readers, and a release edge follows", () => {
     const world = inputState();
-    const seen: Array<{ held: boolean; pressed: boolean; released: boolean }> = [];
+    const seen: Array<{
+        held: boolean;
+        pressed: boolean;
+        released: boolean;
+        pointer: { x: number; y: number; deltaX: number; deltaY: number; scroll: number };
+        left: boolean;
+        touches: number;
+    }> = [];
     const reader = {
         group: "simulation" as const,
         update(s: World) {
-            const keys = s.resource(Devices).keys;
+            const { keys, pointer, touch } = s.resource(Devices);
             seen.push({
                 held: keys.held.has("KeyW"),
                 pressed: keys.pressed.has("KeyW"),
                 released: keys.released.has("KeyW"),
+                pointer: {
+                    x: pointer.x,
+                    y: pointer.y,
+                    deltaX: pointer.deltaX,
+                    deltaY: pointer.deltaY,
+                    scroll: pointer.scroll,
+                },
+                left: pointer.left,
+                touches: touch.count,
             });
         },
     };
@@ -723,6 +739,9 @@ test("key press, pointer, wheel and touch facts reach the frame's readers, and a
     world.step(Time.FIXED_DT);
     if (!seen[0]?.held || !seen[0].pressed || seen[0].released)
         throw new Error("press edge was not visible");
+    expect(seen[0].pointer).toEqual({ x: 12, y: 24, deltaX: 3, deltaY: -2, scroll: 7 });
+    expect(seen[0].left).toBe(true);
+    expect(seen[0].touches).toBe(1);
     const d = world.resource(Devices);
     if (
         d.pointer.x !== 12 ||
@@ -849,12 +868,27 @@ test("a suspended World releases held keys with an edge, zeroes pointer and touc
     const world = inputState();
     pressKey(world, "KeyS");
     pressButton(world, "left");
-    setInputEnabled(world, false);
+    pointerMove(world, 10, 20, 4, 3);
+    pointerWheel(world, 5);
+    touchPoint(world, 1, 30, 40);
     const input = world.resource(Devices);
+    expect({
+        left: input.pointer.left,
+        deltaX: input.pointer.deltaX,
+        deltaY: input.pointer.deltaY,
+        scroll: input.pointer.scroll,
+        touches: input.touch.count,
+    }).toEqual({ left: true, deltaX: 4, deltaY: 3, scroll: 5, touches: 1 });
+    setInputEnabled(world, false);
     if (input.enabled || input.keys.held.has("KeyS") || !input.keys.released.has("KeyS"))
         throw new Error("suspension did not neutralize the key with an edge");
-    if (input.pointer.left || input.pointer.deltaX !== 0 || input.touch.count !== 0)
-        throw new Error("suspension did not neutralize pointer/touch reads");
+    expect({
+        left: input.pointer.left,
+        deltaX: input.pointer.deltaX,
+        deltaY: input.pointer.deltaY,
+        scroll: input.pointer.scroll,
+        touches: input.touch.count,
+    }).toEqual({ left: false, deltaX: 0, deltaY: 0, scroll: 0, touches: 0 });
     pressKey(world, "KeyQ");
     if (input.keys.held.has("KeyQ")) throw new Error("suspended producer changed the record");
     world.dispose();
@@ -879,17 +913,19 @@ test("interleaved producer calls on two Worlds keep each World's edges and held 
     const b = inputState();
     pressKey(a, "KeyW");
     pressKey(b, "KeyW");
+    pressKey(a, "KeyA");
     a.step(Time.FIXED_DT);
     b.step(Time.FIXED_DT);
-    if (a.resource(Devices).keys.held.has("KeyW") !== b.resource(Devices).keys.held.has("KeyW"))
-        throw new Error("twin held mismatch");
+    expect([...a.resource(Devices).keys.held].sort()).toEqual(["KeyA", "KeyW"]);
+    expect([...b.resource(Devices).keys.held]).toEqual(["KeyW"]);
     releaseKey(a, "KeyW");
+    expect([...a.resource(Devices).keys.held]).toEqual(["KeyA"]);
+    expect([...a.resource(Devices).keys.released]).toEqual(["KeyW"]);
+    expect([...b.resource(Devices).keys.held]).toEqual(["KeyW"]);
+    expect([...b.resource(Devices).keys.released]).toEqual([]);
     releaseKey(b, "KeyW");
-    if (
-        !a.resource(Devices).keys.released.has("KeyW") ||
-        !b.resource(Devices).keys.released.has("KeyW")
-    )
-        throw new Error("twin release mismatch");
+    expect([...b.resource(Devices).keys.held]).toEqual([]);
+    expect([...b.resource(Devices).keys.released]).toEqual(["KeyW"]);
     a.dispose();
     b.dispose();
 });
