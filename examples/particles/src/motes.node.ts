@@ -137,8 +137,8 @@ function moteImages(world: typeof untimed.world) {
     world.storage(AmbientLight).brightness.set(camera, 10000);
     if (!world.has(camera, Tonemapping)) world.add(camera, Tonemapping);
     world.storage(Tonemapping).method.set(camera, TonemappingMethod.None);
-    // Past viewDistance the mote's light is analytic and the grid holds 5 cm of 1e-5 density:
-    // one frame is final, with no history or jitter to settle.
+    // Past viewDistance the mote's light is analytic and the grid holds 5 cm of 1e-5 density,
+    // uniform, so jitter changes nothing.
     const fog = world.only([Fog]);
     world.storage(Fog).density.set(fog, 0.00001);
     world.storage(Fog).viewDistance.set(fog, 0.15);
@@ -146,6 +146,10 @@ function moteImages(world: typeof untimed.world) {
     const positions = new Float32Array(MOTE_COUNT * 4);
     // All other instances stay outside the room and the view.
     for (let i = 0; i < MOTE_COUNT; i++) positions[i * 4] = 100;
+    // A changed Fog drops the grid's history, and the next frame blends it back in at rgba16float
+    // precision, so the first frame can differ from the second by a byte. Compare settled frames.
+    motes.visible = false;
+    world.step(0);
     return async (depth: number, visible: boolean) => {
         positions.set([0, 1.7, 2 - depth, 0], 0);
         world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
