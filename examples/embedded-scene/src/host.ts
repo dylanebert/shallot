@@ -18,10 +18,7 @@ export function mountHost(): HostFrame {
         },
         fail(error) {
             console.error(error);
-            const loadingOverlay = Array.from(frame.children).some(
-                (child) => (child as HTMLElement).style.zIndex === "10000",
-            );
-            if (loadingOverlay) return;
+            if (frame.querySelector(":scope > [data-shallot-loading]")) return;
 
             let line = frame.querySelector<HTMLElement>(".frame-error");
             if (!line) {
