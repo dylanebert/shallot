@@ -105,8 +105,11 @@ function expectedJobs(templateFiles: string[]): string[] {
     return [
         {
             name: "cheap",
+            // A Svelte component brings svelte-check, which runs in the cheap job.
             exists: templateFiles.some(
-                (file) => /\.test\.ts$/.test(file) && !/\.gpu\.test\.ts$/.test(file),
+                (file) =>
+                    (/\.test\.ts$/.test(file) && !/\.gpu\.test\.ts$/.test(file)) ||
+                    /\.svelte$/.test(file),
             ),
         },
         { name: "gpu", exists: templateFiles.some((file) => /\.gpu\.test\.ts$/.test(file)) },
