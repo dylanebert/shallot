@@ -1,6 +1,5 @@
 export { Anchor } from "./anchor";
 export { Billboard, billboardCorner } from "./billboard";
-export { EXPOSURE_EV100_BLENDER } from "./camera";
 export {
     GlobalTransformHistory,
     globalTransformTable,

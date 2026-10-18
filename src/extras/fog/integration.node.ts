@@ -45,10 +45,8 @@ test("a sub-160×90 view caps its fog grid to its pixels and matches Beer-Lamber
     world.add(fog, Fog, {
         color: 0xffffff,
         density: 0.02,
-        absorption: 0,
-        scattering: 1,
-        // Only the medium's own light: its haze is color · (1 − T).
-        lightIntensity: 0,
+        absorption: 1,
+        scattering: 0,
         viewDistance: 8,
     });
     const pixel = async () => {
@@ -107,10 +105,8 @@ test("clear sky ends at maxDistance and farther surfaces take the same ray-lengt
     world.add(fog, Fog, {
         color: 0xffffff,
         density: 0.02,
-        absorption: 0,
-        scattering: 1,
-        // Only the medium's own light: its haze is color · (1 − T).
-        lightIntensity: 0,
+        absorption: 1,
+        scattering: 0,
         viewDistance: 8,
     });
     world.storage(Fog).maxDistance.set(fog, 30);

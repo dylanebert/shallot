@@ -20,6 +20,7 @@ import {
     directionalInScatter,
     FOG_SLICES,
     FogGpu,
+    fogComposite,
     fogDensity,
     henyeyGreenstein,
     inScatterContribution,
@@ -197,8 +198,7 @@ function createGridKernel() {
                         ambientRadiance: camView.ambientColor.rgb,
                     }),
                 );
-                // Uniform ambient radiance against a normalized phase integrates to itself (Hillaire 2015).
-                let lstep = std.mul(ambient, camView.exposure);
+                let lstep = std.mul(ambient, camView.exposure / (4 * Math.PI));
                 let j = d.u32(0);
                 while (j < entry.y) {
                     // the array-element read is a pointer, not a copy — wrap in the element schema to
@@ -392,7 +392,7 @@ const fogTailLight = tgpu
         d.vec3f,
     )((cfg, view, dir) => {
         "use gpu";
-        let light = std.mul(view.ambientColor.rgb, view.exposure);
+        let light = std.mul(view.ambientColor.rgb, view.exposure / (4 * Math.PI));
         let k = d.u32(0);
         while (k < fogReadLayout.$.lighting.directionalCount) {
             const sun = fogReadLayout.$.lighting.directionalLights[k];
@@ -416,8 +416,7 @@ const fogTailLight = tgpu
     .$name("fogTailLight");
 
 /**
- * Read camera-exposed local in-scatter radiance per unit scattering, before the medium's albedo: Fog's own
- * light plus the scene's lights times lightIntensity.
+ * Read camera-exposed local in-scatter radiance per unit scattering, before the medium's albedo.
  * A particle adds albedo × coverage × readFogInScatter(p) × readFog(p).a; apply no exposure.
  * Returns zero without FogPlugin/Fog, with NoFog, at/before near, or beyond maxDistance. Bind
  * fogReadBindGroup at group 3 with fogReadLayout after this frame's fog draw system. Light is trilinear
@@ -441,25 +440,20 @@ export const readFogInScatter = tgpu
         const dir = std.normalize(std.sub(point, nearWorld));
         const cosine = std.max(std.dot(dir, forward), 1e-6);
         if (viewZ > cfg.extra.x * cosine || cfg.extra.x <= 0) return d.vec3f(0);
-        const own = std.mul(cfg.color.xyz, view.exposure);
-        if (viewZ > cfg.medium.w)
-            return std.add(own, std.mul(fogTailLight(cfg, view, dir), cfg.extra.w));
+        if (viewZ > cfg.medium.w) return std.mul(fogTailLight(cfg, view, dir), cfg.extra.w);
         const z = fogCellCoordinate(
             viewZ,
             view.projection.x,
             std.max(cfg.medium.w - view.projection.x, 0.001),
         );
-        return std.add(
-            own,
-            std.mul(
-                std.textureSampleLevel(
-                    fogReadLayout.$.feedback,
-                    fogReadLayout.$.gridSampler,
-                    d.vec3f(uv, z),
-                    0,
-                ).rgb,
-                cfg.extra.w,
-            ),
+        return std.mul(
+            std.textureSampleLevel(
+                fogReadLayout.$.feedback,
+                fogReadLayout.$.gridSampler,
+                d.vec3f(uv, z),
+                0,
+            ).rgb,
+            cfg.extra.w,
         );
     })
     .$name("readFogInScatter");
@@ -509,9 +503,10 @@ export const readFog = tgpu
                 integrated,
             );
         }
-        // The medium's own light is uniform, so its in-scatter along any density is albedo · L · (1 − T).
-        const own = std.mul(cfg.color.xyz, camView.exposure * cfg.extra.z * (1 - volume.w));
-        return d.vec4f(std.add(own, volume.xyz), volume.w);
+        return d.vec4f(
+            std.add(fogComposite(d.vec3f(0), cfg.color.xyz, volume.w), volume.xyz),
+            volume.w,
+        );
     })
     .$name("readFog");
 

@@ -12,7 +12,7 @@ import {
     VolumetricLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { probeTexture, type World } from "../../engine";
+import { probeTexture } from "../../engine";
 import { DEFAULT_PLUGINS } from "../../standard";
 import { StandardRenderer } from "../../standard/rendering";
 import {
@@ -29,131 +29,6 @@ setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [
     { defaults: false, plugins: [...DEFAULT_PLUGINS, FogPlugin] },
 ]);
-
-function reader(world: World, camera: number, fragment: string, width: number) {
-    const device = world.gpu.device;
-    const module = device.createShaderModule({
-        code: tgpu.resolve({
-            externals: { readFog, readFogInScatter },
-            template: `
-        @vertex fn fullscreenVertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-            let x = f32((i << 1u) & 2u); let y = f32(i & 2u);
-            return vec4f(x * 2 - 1, y * 2 - 1, 0, 1);
-        }
-        ${fragment}`,
-        }),
-    });
-    const empty = device.createBindGroupLayout({ entries: [] });
-    const pipeline = device.createRenderPipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [empty, empty, empty, world.gpu.root.unwrap(fogReadLayout)],
-        }),
-        vertex: { module, entryPoint: "fullscreenVertex" },
-        fragment: { module, entryPoint: "sample", targets: [{ format: "rgba32float" }] },
-    });
-    const output = device.createTexture({
-        size: [width, 1],
-        format: "rgba32float",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-    });
-    world.own(output);
-    return async () => {
-        for (let i = 0; i < 64; i++) world.step(0);
-        const encoder = device.createCommandEncoder();
-        const pass = encoder.beginRenderPass({
-            colorAttachments: [{ view: output.createView(), loadOp: "clear", storeOp: "store" }],
-        });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(3, fogReadBindGroup(world, camera));
-        pass.draw(3);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-        return new Float32Array((await probeTexture(world, output)).bytes);
-    };
-}
-
-test("uniform ambient radiance scatters at its own radiance, as a white diffuse surface reflects it", async () => {
-    const { world } = subjects()[0]!;
-    const camera = world.create();
-    world.add(camera, Transform);
-    world.add(camera, Camera, { antialias: 0, near: 0.1 });
-    world.add(camera, StandardRenderer);
-    world.add(camera, AmbientLight, { brightness: 100 });
-    world.add(camera, Exposure, { ev100: 0 });
-    attachTexture(world, camera, { width: 16, height: 16 });
-    const fog = world.create();
-    world.add(fog, Fog, {
-        color: 0,
-        density: 0.1,
-        heightFalloff: 0,
-        viewDistance: 20,
-        lightIntensity: 1,
-    });
-    const sample = reader(
-        world,
-        camera,
-        `
-        @fragment fn sample(@builtin(position) p: vec4f) -> @location(0) vec4f {
-            if (p.x < 1) { return vec4f(readFogInScatter(vec3f(0,0,-3)), 1); }
-            return readFog(vec3f(0,0,-11));
-        }
-        `,
-        2,
-    );
-    const exposed = 100 / 1.2;
-    const values = await sample();
-    world.destroy(camera);
-    world.destroy(fog);
-    // An isotropic phase integrates to one over the sphere: the source per unit scattering is the radiance.
-    expect(values[0]! / exposed).toBeCloseTo(1, 2);
-    expect(values[4]! / (exposed * (1 - Math.exp(-0.1 * (11 - 0.1))))).toBeCloseTo(1, 2);
-});
-
-test("Fog's own light scatters at its exposed radiance, scaled by albedo in the haze, without scene lights", async () => {
-    const { world } = subjects()[0]!;
-    const camera = world.create();
-    world.add(camera, Transform);
-    world.add(camera, Camera, { antialias: 0, near: 0.1 });
-    world.add(camera, StandardRenderer);
-    world.add(camera, AmbientLight, { brightness: 0 });
-    world.add(camera, Exposure, { ev100: 0 });
-    attachTexture(world, camera, { width: 16, height: 16 });
-    const fog = world.create();
-    world.add(fog, Fog, {
-        color: 0xffffff,
-        brightness: 30,
-        density: 0.1,
-        absorption: 1,
-        scattering: 1,
-        heightFalloff: 0,
-        viewDistance: 20,
-    });
-    const sample = reader(
-        world,
-        camera,
-        `
-        @fragment fn sample(@builtin(position) p: vec4f) -> @location(0) vec4f {
-            if (p.x < 1) { return vec4f(readFogInScatter(vec3f(0,0,-3)), 1); }
-            if (p.x < 2) { return vec4f(readFogInScatter(vec3f(0,0,-30)), 1); }
-            return readFog(vec3f(0,0,-11));
-        }
-        `,
-        3,
-    );
-    const lit = await sample();
-    world.storage(Exposure).ev100.set(camera, 1);
-    const half = await sample();
-    world.destroy(camera);
-    world.destroy(fog);
-    const exposed = 30 / 1.2;
-    const haze = 0.5 * exposed * (1 - Math.exp(-0.2 * (11 - 0.1)));
-    expect([lit[0]! / exposed, lit[4]! / exposed, lit[8]! / haze]).toEqual([
-        expect.closeTo(1, 2),
-        expect.closeTo(1, 2),
-        expect.closeTo(1, 2),
-    ]);
-    expect(half[8]! / lit[8]!).toBeCloseTo(0.5, 2);
-});
 
 test("local light is dark behind a shadow despite bright haze on its ray, exposed once, and zero without fog", async () => {
     const { world } = subjects()[0]!;
@@ -186,10 +61,15 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
     world.add(roof, Transform, { translation: [0, 2, -10], scale: [10, 0.2, 8] });
     world.add(roof, MeshInstance);
     world.tick();
-    const sample = reader(
-        world,
-        camera,
-        `
+    const device = world.gpu.device;
+    const module = device.createShaderModule({
+        code: tgpu.resolve({
+            externals: { readFog, readFogInScatter },
+            template: `
+        @vertex fn fullscreenVertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+            let x = f32((i << 1u) & 2u); let y = f32(i & 2u);
+            return vec4f(x * 2 - 1, y * 2 - 1, 0, 1);
+        }
         @fragment fn sample(@builtin(position) p: vec4f) -> @location(0) vec4f {
             if (p.x < 1) { return vec4f(readFogInScatter(vec3f(0,0,-3)), 1); }
             if (p.x < 2) { return vec4f(readFogInScatter(vec3f(0,0,-11)), 1); }
@@ -198,8 +78,35 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
             return vec4f(readFogInScatter(vec3f(0,0,-0.1)), 1);
         }
         `,
-        5,
-    );
+        }),
+    });
+    const empty = device.createBindGroupLayout({ entries: [] });
+    const pipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [empty, empty, empty, world.gpu.root.unwrap(fogReadLayout)],
+        }),
+        vertex: { module, entryPoint: "fullscreenVertex" },
+        fragment: { module, entryPoint: "sample", targets: [{ format: "rgba32float" }] },
+    });
+    const output = device.createTexture({
+        size: [5, 1],
+        format: "rgba32float",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    world.own(output);
+    const sample = async () => {
+        for (let i = 0; i < 64; i++) world.step(0);
+        const encoder = device.createCommandEncoder();
+        const pass = encoder.beginRenderPass({
+            colorAttachments: [{ view: output.createView(), loadOp: "clear", storeOp: "store" }],
+        });
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(3, fogReadBindGroup(world, camera));
+        pass.draw(3);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        return new Float32Array((await probeTexture(world, output)).bytes);
+    };
     const lit = await sample();
     expect(lit[8]!).toBeGreaterThan(0.1);
     expect(lit[0]!).toBeGreaterThan(1);

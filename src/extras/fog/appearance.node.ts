@@ -88,10 +88,8 @@ test("Fog tints a distant surface, preserves a near surface, and leaves NoFog un
     world.add(fog, Fog, {
         density: 0.01,
         color: 0xff0000,
-        absorption: 0,
-        scattering: 1,
-        // Only the medium's own light: its haze is color · (1 − T).
-        lightIntensity: 0,
+        absorption: 1,
+        scattering: 0,
     });
     world.step(0);
     world.step(0);

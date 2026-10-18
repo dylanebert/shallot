@@ -4,8 +4,6 @@
 
 Fog now uses a per-camera frustum grid for opaque surfaces, with closed-form integration and trilinear application before tonemapping. `Fog.viewDistance` sets its far view-space depth in world units (default 64); surfaces beyond it read the last slice. `Fog.stepCount` and `Fog.jitter` are removed; grid dimensions are internal constants.
 
-`Fog.color` is the medium's own ambient light, scattered at the new `Fog.brightness` (cd/m², scaled by exposure and scattering albedo; the default matches the old fade at EV100 9.7). Ambient in-scatter now scatters uniform ambient radiance at its own radiance, 4π brighter than before.
-
 `lookAtRotationInto(aim, out)` writes a quaternion into caller-owned `Float64Array` storage. Like `lookAtPacked`, `aim` holds eye at lane 0, target at 3 and up at 6. `lookAtRotation` keeps its signature and fresh tuple result. Sky packing now uses the existing `unpackColorInto(packed, out, offset?)`; `unpackColor` keeps its signature and fresh RGB result.
 
 Entity ids reserve `0xFFFFFFFF` as the invalid id. Allocation refuses when the u32 id range is exhausted; restoring an allocator image refuses a next id beyond that value or a live invalid id.
