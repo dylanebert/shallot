@@ -90,6 +90,17 @@ export function boxLevel(pixels: Uint8Array, size: number): Uint8Array {
     return out;
 }
 
+let cachedChain: Uint8Array[] | undefined;
+
+/** The diagnostic texture's full box-filtered mip chain, base level first. */
+export function diagnosticChain(): readonly Uint8Array[] {
+    if (cachedChain) return cachedChain;
+    const chain = [diagnosticPixels()];
+    for (let size = IMAGE_SIZE; size > 1; size >>= 1) chain.push(boxLevel(chain.at(-1)!, size));
+    cachedChain = chain;
+    return chain;
+}
+
 /**
  * Replaces the world's image array with `layers` copies of the diagnostic texture and its box-filtered
  * mip chain; `generate` instead fills each layer's chain from its base level. Layers listed in
@@ -105,6 +116,7 @@ export function uploadDiagnosticImages(
 ): GPUTexture {
     const device = world.gpu.device;
     const levels = Math.log2(IMAGE_SIZE) + 1;
+    const levelPixels = diagnosticChain();
     // The image array's descriptor plus COPY_SRC, so a check can read the levels back.
     const texture = device.createTexture({
         label: "receding-plane-images",
@@ -118,15 +130,12 @@ export function uploadDiagnosticImages(
             GPUTextureUsage.RENDER_ATTACHMENT,
     });
     world.own(texture);
-    const chain = [diagnosticPixels()];
-    for (let level = 1; level < levels; level++)
-        chain.push(boxLevel(chain[level - 1], IMAGE_SIZE >> (level - 1)));
     for (let layer = 0; layer < layers; layer++) {
         for (let level = 0; level < (options.generate ? 1 : levels); level++) {
             const size = IMAGE_SIZE >> level;
             device.queue.writeTexture(
                 { texture, mipLevel: level, origin: [0, 0, layer] },
-                chain[level],
+                levelPixels[level],
                 { bytesPerRow: size * 4, rowsPerImage: size },
                 [size, size, 1],
             );
@@ -314,6 +323,19 @@ export function rowContrast({ rgba, width }: Readback, y: number): number {
     }
     const mean = sum / n;
     return Math.sqrt(Math.max(0, square / n - mean * mean));
+}
+
+/** Mean row contrast over plane rows whose centre level of detail lies in [low, high]. */
+export function meanContrast(capture: Readback, low: number, high: number): number {
+    let sum = 0;
+    let rows = 0;
+    for (const y of planeRows(capture)) {
+        const lod = planeLod(capture.width, capture.height, capture.width / 2, y);
+        if (lod === undefined || lod < low || lod > high) continue;
+        sum += rowContrast(capture, y);
+        rows++;
+    }
+    return rows === 0 ? 0 : sum / rows;
 }
 
 /**

@@ -1,13 +1,13 @@
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { ImageAddressMode, ImageFilterMode, registerImage } from "../../core/rendering";
-import { probeTexture } from "../../engine";
 import { MeshRenderPlugin, StandardRenderingPlugin } from "./index";
 import {
     capturePlane,
     detailBoundary,
-    IMAGE_SIZE,
+    diagnosticChain,
+    meanContrast,
     planeLod,
     spawnRecedingPlane,
     TONES,
@@ -46,35 +46,48 @@ const subjects = gpuApps(import.meta.path, [
 // Observed on Apple M4 Max (Metal), 320x180: one selected level steps 230-270 per level of detail
 // within a row or two; filtering between levels stays below 75.
 const STEP = 150;
+// The near rows where minification begins (lod -0.5..0.5) keep the texture's contrast: its rows hold
+// both tones equally (deviation 72.5) and filtering keeps 56.1 there on M4 Max. A grey, faded or
+// blurred output falls below; a +0.5 level bias gives 46.3, the last level everywhere 0.
+const NEAR_CONTRAST = 51;
+
+type Scene = {
+    world: ReturnType<typeof subjects>[number]["world"];
+    plane: ReturnType<typeof spawnRecedingPlane>;
+};
+let scene: Scene;
+// Upload and the first frame's pipeline compilation are setup, outside the test's budget.
+beforeAll(async () => {
+    const { world } = subjects()[0];
+    uploadDiagnosticImages(world, 3);
+    const plane = spawnRecedingPlane(world, ids.hardware, [{ width: 320, height: 180 }]);
+    await capturePlane(world, plane, ids.hardware);
+    scene = { world, plane };
+});
 
 test("a receding plane minifies without a detail boundary; explicit nearest draws nearest texels", async () => {
-    const { world } = subjects()[0];
-    const texture = uploadDiagnosticImages(world, 3);
-    const plane = spawnRecedingPlane(world, ids.hardware, [{ width: 320, height: 180 }]);
-    const paths: Record<string, ReturnType<typeof detailBoundary>> = {};
+    const { world, plane } = scene;
+    const paths: Record<string, { slope: number; lod?: number; nearContrast: number }> = {};
     for (const path of ["hardware", "manual"] as const) {
         const [capture] = await capturePlane(world, plane, ids[path]);
-        paths[path] = detailBoundary(capture, 0, 4.5);
+        const { slope, lod } = detailBoundary(capture, 0, 4.5);
+        paths[path] = { slope, lod, nearContrast: meanContrast(capture, -0.5, 0.5) };
     }
-    const steepest = Math.max(...Object.values(paths).map((boundary) => boundary.slope));
-    expect(steepest, JSON.stringify(paths)).toBeLessThan(STEP);
+    const report = JSON.stringify(paths);
+    for (const path of Object.values(paths)) {
+        expect(path.slope, report).toBeLessThan(STEP);
+        expect(path.nearContrast, report).toBeGreaterThan(NEAR_CONTRAST);
+    }
 
     const [nearest] = await capturePlane(world, plane, ids.nearest);
     // The measure sees a boundary where one level is requested.
     expect(detailBoundary(nearest, 0, 4.5).slope).toBeGreaterThan(STEP);
     const texels = new Set<number>();
-    for (let level = 0; level < texture.mipLevelCount; level++) {
-        const size = IMAGE_SIZE >> level;
-        const { bytes } = await probeTexture(world, texture, {
-            mipLevel: level,
-            origin: [0, 0, ids.nearest],
-            size: [size, size, 1],
-        });
-        const red = new Uint8Array(bytes);
-        for (let i = 0; i < red.length; i += 4) texels.add(red[i]);
-    }
-    const near = (value: number, set: Iterable<number>) =>
-        [...set].some((texel) => Math.abs(texel - value) <= 1);
+    for (const level of diagnosticChain())
+        for (let i = 0; i < level.length; i += 4) texels.add(level[i]);
+    const values = [...texels];
+    const near = (value: number, set: readonly number[]) =>
+        set.some((texel) => Math.abs(texel - value) <= 1);
     const { rgba, width, height } = nearest;
     const strays: string[] = [];
     let base = 0;
@@ -83,7 +96,7 @@ test("a receding plane minifies without a detail boundary; explicit nearest draw
             const lod = planeLod(width, height, x, y);
             if (lod === undefined) continue;
             const value = rgba[(y * width + x) * 4];
-            if (!near(value, texels)) strays.push(`(${x}, ${y}) = ${value}`);
+            if (!near(value, values)) strays.push(`(${x}, ${y}) = ${value}`);
             if (lod >= 0.25) continue;
             base++;
             if (!near(value, TONES)) strays.push(`level 0 (${x}, ${y}) = ${value}`);

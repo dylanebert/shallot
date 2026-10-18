@@ -13,28 +13,42 @@ import { fullscreenVertex } from "./tonemapping";
 setDefaultTimeout(TIMEOUT.gpu);
 const modes = ["clamp-to-edge", "repeat", "mirror-repeat"] as const;
 const filters = ["nearest", "linear"] as const;
-const cases = modes.flatMap((u, addressModeU) =>
-    modes.flatMap((v, addressModeV) =>
-        filters.flatMap((magFilter, mag) =>
-            filters.flatMap((minFilter, min) =>
-                filters.map((mipmapFilter, mip) => ({
-                    u,
-                    v,
-                    magFilter,
-                    minFilter,
-                    mipmapFilter,
-                    sampler: {
-                        addressModeU: addressModeU as ImageAddressMode,
-                        addressModeV: addressModeV as ImageAddressMode,
-                        magFilter: mag as ImageFilterMode,
-                        minFilter: min as ImageFilterMode,
-                        mipmapFilter: mip as ImageFilterMode,
-                    },
-                })),
-            ),
-        ),
-    ),
-);
+// sampleImage reads each setting at one place: U and V only in their axis's addressing, mag and min
+// only in the texel filter chosen by the sign of the level of detail, mipmap only in the level
+// branch; texel positions and levels come from the pixel and gradient, which every case sweeps. No
+// term depends on two settings jointly, except the hardware-path gate on the exact default. So the
+// cases are the default, each single-setting departure from it, and rows completing every pair of
+// settings (U x V, U or V x each filter, filter x filter), rather than the 72-case cross product.
+const L = 1;
+const N = 0;
+const rows: [number, number, number, number, number][] = [
+    [0, 0, L, L, L],
+    [0, 0, N, L, L],
+    [0, 0, L, N, L],
+    [0, 0, L, L, N],
+    [1, 0, L, L, L],
+    [2, 0, L, L, L],
+    [0, 1, L, L, L],
+    [0, 2, L, L, L],
+    [1, 1, N, N, N],
+    [1, 2, N, N, L],
+    [2, 1, N, L, N],
+    [2, 2, L, N, N],
+];
+const cases = rows.map(([addressModeU, addressModeV, mag, min, mip]) => ({
+    u: modes[addressModeU],
+    v: modes[addressModeV],
+    magFilter: filters[mag],
+    minFilter: filters[min],
+    mipmapFilter: filters[mip],
+    sampler: {
+        addressModeU: addressModeU as ImageAddressMode,
+        addressModeV: addressModeV as ImageAddressMode,
+        magFilter: mag as ImageFilterMode,
+        minFilter: min as ImageFilterMode,
+        mipmapFilter: mip as ImageFilterMode,
+    },
+}));
 // One 64x64 tile per gradient; the top row of tiles samples Shallot's path, the bottom the reference.
 const GRADIENTS = [0, 0.03125, 0.14, 0.18, 0.25, 0.35, 0.5, 0.7, 2];
 const TILE = 64;
