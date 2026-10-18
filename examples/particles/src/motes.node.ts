@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { type createApp, DiagnosticsStore, probeBuffer, setTransform } from "@dylanebert/shallot";
-import { attachTexture } from "@dylanebert/shallot/rendering";
+import { NoFog } from "@dylanebert/shallot/extras";
+import {
+    attachTexture,
+    captureTexture,
+    Tonemapping,
+    TonemappingMethod,
+} from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { MOTE_COUNT, Motes, MotesPlugin } from "./motes";
@@ -22,7 +28,7 @@ beforeAll(async () => {
         requiredFeatures: ["indirect-first-instance"],
     });
     untimed = await openGpuApp({ plugins: [MotesPlugin], device: untimedDevice, adapter });
-    attachTexture(untimed.world, untimed.world.resource(Room).camera, { width: 16, height: 16 });
+    attachTexture(untimed.world, untimed.world.resource(Room).camera, { width: 512, height: 512 });
 });
 afterAll(async () => {
     app?.dispose();
@@ -119,6 +125,31 @@ test("without timestamp-query the example draws and reports requires timestamp-q
     expect(stats.get("render/particles:advance/elapsed_gpu")).toBeUndefined();
     expect(stats.get("compile/particles:compute/elapsed")).toBeDefined();
     expect(stats.get("compile/particles:draw/elapsed")).toBeDefined();
+});
+test("a mote just in front of the camera adds no light while a mote two metres away still does", async () => {
+    const { world } = untimed;
+    const camera = world.resource(Room).camera;
+    world.add(camera, NoFog);
+    world.add(camera, Tonemapping, { method: TonemappingMethod.None });
+    world.step(0);
+    const motes = world.resource(Motes);
+    const positions = new Float32Array(MOTE_COUNT * 4);
+    // All other instances stay outside the room and the view.
+    for (let i = 0; i < MOTE_COUNT; i++) positions[i * 4] = 100;
+    const image = async (depth: number, visible: boolean) => {
+        positions.set([0, 1.7, 2 - depth, 0], 0);
+        world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
+        motes.visible = visible;
+        world.step(0);
+        return (await captureTexture(world, camera)).rgba;
+    };
+    const background = await image(0.2, false);
+    const near = await image(0.2, true);
+    const far = await image(2, true);
+    expect(near).toEqual(background);
+    let increase = 0;
+    for (let i = 0; i < far.length; i += 4) increase += Math.max(0, far[i]! - background[i]!);
+    expect(increase).toBeGreaterThan(0);
 });
 test("the profiler buffer total includes exactly the motes storage and frame uniform allocations", () => {
     const { world } = app;

@@ -100,6 +100,8 @@ export const Motes: Resource<{
 
 // WGSL escape hatch: camera-facing dust quads do not use a mesh or surface contract.
 const shader = `
+const CAMERA_FADE_NEAR: f32 = 0.3;
+const CAMERA_FADE_FAR: f32 = 0.8;
 struct View { viewProj: mat4x4f }
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> positions: array<vec4f>;
@@ -112,7 +114,8 @@ struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f, @loc
     clip.y += corners[v].y * 0.006;
     let windowY = p.y + (p.z + 3.5) * 0.5;
     let beam = abs(p.x) < 1 && windowY > 1.3 && windowY < 2.8;
-    return Vertex(clip, corners[v], select(0.015, 1.0, beam));
+    let cameraFade = smoothstep(CAMERA_FADE_NEAR, CAMERA_FADE_FAR, clip.w);
+    return Vertex(clip, corners[v], select(0.015, 1.0, beam) * cameraFade);
 }
 @fragment fn fragment(v: Vertex) -> @location(0) vec4f {
     let alpha = max(0, 1 - dot(v.uv, v.uv));
