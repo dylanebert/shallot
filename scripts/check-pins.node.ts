@@ -7,9 +7,9 @@ setDefaultTimeout(TIMEOUT.node);
 test("documented dependency and Bun pins match their manifests", async () => {
     const root = resolve(import.meta.dir, "..");
     const packageJson = await Bun.file(resolve(root, "package.json")).json();
-    expect(packageJson.packageManager).toBe("bun@1.4.3");
-    expect(packageJson.engines.bun).toBe(">=1.4.3");
-    expect((await Bun.file(resolve(root, ".bun-version")).text()).trim()).toBe("1.4.3");
+    const bun = (await Bun.file(resolve(root, ".bun-version")).text()).trim();
+    expect(packageJson.packageManager).toBe(`bun@${bun}`);
+    expect(packageJson.engines.bun).toBe(`>=${bun}`);
 
     // The doc set is what Git tracks, not what the filesystem holds. A checkout may contain generated
     // or third-party Markdown that is not part of the repository's install instructions.
