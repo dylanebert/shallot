@@ -54,7 +54,7 @@ import {
     readFog,
 } from "./pipeline";
 
-export { fogReadLayout, readFog } from "./pipeline";
+export { fogReadLayout, readFog, readFogInScatter } from "./pipeline";
 
 import { TEMPORAL_FRAMES } from "./temporal";
 
@@ -137,7 +137,7 @@ const emptyReadKey = {
 export function fogReadBindGroup(world: World, eid: number): GPUBindGroup {
     const active = fogState(world).views.get(eid);
     if (active && world.only(FOG_SINGLETON_QUERY) >= 0 && !world.has(eid, NoFog))
-        return active.readGroup;
+        return active.readGroups[1 - active.parity];
     const view = world.resource(Views).get(eid);
     if (!view) throw new Error(`fog read requires a rendering camera: ${eid}`);
     const state = world.resource(emptyReadKey);
@@ -161,6 +161,7 @@ export function fogReadBindGroup(world: World, eid: number): GPUBindGroup {
             group: root.unwrap(
                 root.createBindGroup(fogReadLayout, {
                     grid: state.texture.createView(),
+                    feedback: state.texture.createView(),
                     gridSampler: world.gpu.device.createSampler({
                         minFilter: "linear",
                         magFilter: "linear",
@@ -211,7 +212,7 @@ interface FogState {
             format: GPUTextureFormat;
             pipeline: GPURenderPipeline;
             interiorPipeline: GPURenderPipeline | null;
-            readGroup: GPUBindGroup;
+            readGroups: GPUBindGroup[];
             depth: GPUTextureView;
             slot: number;
             multisampled: boolean;
@@ -463,14 +464,17 @@ const FogSystem: System = {
                           depthTex: view.depth,
                       })
                     : world.gpu.root.createBindGroup(fogLayout0, { depthTex: view.depth });
-                const readGroup = world.gpu.root.unwrap(
-                    world.gpu.root.createBindGroup(fogReadLayout, {
-                        grid: gridView,
-                        gridSampler,
-                        view: _render.viewBuffers[view.slot],
-                        fog: _fogState.fog.buffer,
-                        lighting,
-                    }),
+                const readGroups = feedbackViews.map((feedback) =>
+                    world.gpu.root.unwrap(
+                        world.gpu.root.createBindGroup(fogReadLayout, {
+                            grid: gridView,
+                            feedback,
+                            gridSampler,
+                            view: _render.viewBuffers[view.slot],
+                            fog: _fogState.fog.buffer!,
+                            lighting,
+                        }),
+                    ),
                 );
                 cam = {
                     grid,
@@ -489,7 +493,7 @@ const FogSystem: System = {
                     format,
                     pipeline,
                     interiorPipeline,
-                    readGroup,
+                    readGroups,
                     depth: view.depth,
                     slot: view.slot,
                     multisampled,
@@ -564,7 +568,7 @@ export const FogPlugin: Plugin = {
                 if (!cam) return;
                 pass.setPipeline(cam.pipeline);
                 pass.setBindGroup(0, cam.bindGroup);
-                pass.setBindGroup(3, cam.readGroup);
+                pass.setBindGroup(3, cam.readGroups[1 - cam.parity]);
                 if (cam.interiorPipeline) {
                     pass.setPipeline(cam.interiorPipeline);
                     pass.draw(3);

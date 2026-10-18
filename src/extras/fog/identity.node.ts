@@ -14,7 +14,7 @@ import {
     TonemappingMethod,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { fogReadBindGroup, fogReadLayout, readFog } from ".";
+import { fogReadBindGroup, fogReadLayout, readFog, readFogInScatter } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [CorePipelinePlugin] }]);
@@ -22,7 +22,17 @@ const fragment = tgpu
     .fragmentFn({ out: d.vec4f })(() => {
         "use gpu";
         const fog = readFog(d.vec3f(0, 0, -2));
-        if (fog.r === 0 && fog.g === 0 && fog.b === 0 && fog.a === 1) return d.vec4f(0, 1, 0, 1);
+        const light = readFogInScatter(d.vec3f(0, 0, -2));
+        if (
+            fog.r === 0 &&
+            fog.g === 0 &&
+            fog.b === 0 &&
+            fog.a === 1 &&
+            light.x === 0 &&
+            light.y === 0 &&
+            light.z === 0
+        )
+            return d.vec4f(0, 1, 0, 1);
         return d.vec4f(1, 0, 0, 1);
     })
     .$name("identityFragment");
