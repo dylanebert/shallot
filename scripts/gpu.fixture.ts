@@ -2,18 +2,46 @@ import { afterAll, beforeAll } from "bun:test";
 import { relative } from "node:path";
 import { createApp, type Plugin } from "@dylanebert/shallot";
 import { CEILING } from "@dylanebert/shallot/testing";
+import { attachTexture, Camera, CorePipelinePlugin, captureTexture } from "../src/core/rendering";
+import { Transform } from "../src/core/transform";
 import { rawDevice } from "../src/engine/runtime";
 import type { AdapterVerdict } from "../src/engine/runtime/adapter";
 import { adapterNotice } from "../src/engine/runtime/gpu";
 import { normalizePath } from "../src/project/paths";
 import { expectError, expectWarning } from "./test-console";
 
+// On llvmpipe the first camera frame a process draws pays the driver's first-draw cost, below the
+// engine: a core camera drawn first took 593 ms, an MSAA camera next 63 ms and a third 4 ms (run
+// 39098643216). Whichever file drew first was charged it, so the tier pays it once here, printed.
+// Elsewhere no such cost was shown, and the warm-up took 1.3-1.6 s on hosted macOS.
+let driverWarmup: Promise<void> | undefined;
+async function warmDriver(): Promise<void> {
+    const info = (await navigator.gpu.requestAdapter())?.info;
+    if (!/llvmpipe/i.test(`${info?.architecture} ${info?.device} ${info?.description}`)) return;
+    const start = performance.now();
+    const app = await createTestGpuApp({ defaults: false, plugins: [CorePipelinePlugin] });
+    const world = app.world;
+    const cameras = [0, 1].map((antialias) => {
+        const camera = world.create();
+        world.add(camera, Transform);
+        world.add(camera, Camera);
+        world.storage(Camera).antialias.set(camera, antialias);
+        attachTexture(world, camera, { width: 8, height: 8 });
+        return camera;
+    });
+    world.step(1 / 60);
+    for (const camera of cameras) await captureTexture(world, camera);
+    await disposeGpuApps([app]);
+    console.info(JSON.stringify({ gpuDriverWarmup: performance.now() - start }));
+}
+
 export function compileGpuFile<T>(path: string, compile: () => Promise<T>): () => T {
     let subject: T;
     beforeAll(async () => {
-        const start = performance.now();
         const { setupGlobals } = await import("@dylanebert/shallot/webgpu");
         await setupGlobals();
+        await (driverWarmup ??= warmDriver());
+        const start = performance.now();
         subject = await compile();
         if (process.env.SHALLOT_GPU_COMPILE_ORACLE === "1") {
             console.log(
