@@ -34,7 +34,7 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
     const { world } = subjects()[0]!;
     const camera = world.create();
     world.add(camera, Transform);
-    world.add(camera, Camera, { antialias: 0 });
+    world.add(camera, Camera, { antialias: 0, near: 0.1 });
     world.add(camera, StandardRenderer);
     world.add(camera, AmbientLight, { brightness: 0 });
     world.add(camera, Exposure, { ev100: 0 });
@@ -46,6 +46,8 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
         heightFalloff: 0,
         scatteringAsymmetry: 0,
         viewDistance: 20,
+        // Keep the endpoint guard from masking a reversed ray before the near plane.
+        maxDistance: 1_000_000,
     });
     const sun = world.create();
     world.add(sun, Transform, { rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2] });
@@ -71,7 +73,9 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
         @fragment fn sample(@builtin(position) p: vec4f) -> @location(0) vec4f {
             if (p.x < 1) { return vec4f(readFogInScatter(vec3f(0,0,-3)), 1); }
             if (p.x < 2) { return vec4f(readFogInScatter(vec3f(0,0,-11)), 1); }
-            return readFog(vec3f(0,0,-11));
+            if (p.x < 3) { return readFog(vec3f(0,0,-11)); }
+            if (p.x < 4) { return vec4f(readFogInScatter(vec3f(0,0,-0.05)), 1); }
+            return vec4f(readFogInScatter(vec3f(0,0,-0.1)), 1);
         }
         `,
         }),
@@ -85,7 +89,7 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
         fragment: { module, entryPoint: "sample", targets: [{ format: "rgba32float" }] },
     });
     const output = device.createTexture({
-        size: [3, 1],
+        size: [5, 1],
         format: "rgba32float",
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
@@ -107,6 +111,13 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
     expect(lit[8]!).toBeGreaterThan(0.1);
     expect(lit[0]!).toBeGreaterThan(1);
     expect(lit[4]!).toBeLessThan(lit[0]! * 0.02);
+    world.storage(AmbientLight).brightness.set(camera, 100);
+    const boundary = await sample();
+    expect({
+        beforeNear: Array.from(boundary.slice(12, 15)),
+        atNear: Array.from(boundary.slice(16, 19)),
+    }).toEqual({ beforeNear: [0, 0, 0], atNear: [0, 0, 0] });
+    world.storage(AmbientLight).brightness.set(camera, 0);
     world.storage(Exposure).ev100.set(camera, 1);
     const half = await sample();
     expect(half[0]! / lit[0]!).toBeCloseTo(0.5, 2);

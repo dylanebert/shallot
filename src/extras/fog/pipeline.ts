@@ -418,9 +418,9 @@ const fogTailLight = tgpu
 /**
  * Read camera-exposed local in-scatter radiance per unit scattering, before the medium's albedo.
  * A particle adds albedo × coverage × readFogInScatter(p) × readFog(p).a; apply no exposure.
- * Returns zero without FogPlugin/Fog, with NoFog, or beyond maxDistance. Bind fogReadBindGroup at
- * group 3 with fogReadLayout after this frame's fog draw system. Trilinear cell-resolution light
- * includes phase toward the camera along the cell ray; history lags moving lights and cameras.
+ * Returns zero without FogPlugin/Fog, with NoFog, at/before near, or beyond maxDistance. Bind
+ * fogReadBindGroup at group 3 with fogReadLayout after this frame's fog draw system. Light is trilinear
+ * at cell resolution, with phase toward the camera along the cell ray; history lags moving lights and cameras.
  */
 export const readFogInScatter = tgpu
     .fn(
@@ -431,12 +431,13 @@ export const readFogInScatter = tgpu
         const view = fogReadLayout.$.view;
         const cfg = fogReadLayout.$.fog;
         if (cfg.medium.x === 0) return d.vec3f(0);
+        const forward = std.neg(std.cross(view.right.xyz, view.up.xyz));
+        const viewZ = std.dot(std.sub(point, view.eye.xyz), forward);
+        if (viewZ <= view.projection.x) return d.vec3f(0);
         const clip = std.mul(view.viewProj, d.vec4f(point, 1));
         const uv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
-        const forward = std.neg(std.cross(view.right.xyz, view.up.xyz));
         const nearWorld = reconstructWorld(view.invViewProj, uv, 1);
         const dir = std.normalize(std.sub(point, nearWorld));
-        const viewZ = std.dot(std.sub(point, view.eye.xyz), forward);
         const cosine = std.max(std.dot(dir, forward), 1e-6);
         if (viewZ > cfg.extra.x * cosine || cfg.extra.x <= 0) return d.vec3f(0);
         if (viewZ > cfg.medium.w) return std.mul(fogTailLight(cfg, view, dir), cfg.extra.w);
