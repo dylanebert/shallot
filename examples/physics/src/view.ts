@@ -43,15 +43,9 @@ export function createView(world: World, scene: Scene): void {
     const ground = materials.add(
         StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1], perceptualRoughness: 0.82 }),
     );
-    const accents = [
-        [0.72, 0.4, 0.05, 1],
-        [0.04, 0.43, 0.53, 1],
-        [0.658, 0.301, 0.117, 1],
-    ] as const;
-    const subjects = accents.map((baseColor) =>
-        materials.add(StandardMaterial({ baseColor: [...baseColor], perceptualRoughness: 0.38 })),
+    const subject = materials.add(
+        StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.38 }),
     );
-    let dynamic = 0;
     const shapes = world.storage(Shape);
     const types = world.storage(Body).type;
     const meshes = world.resource(Meshes);
@@ -66,10 +60,8 @@ export function createView(world: World, scene: Scene): void {
         ) as [number, number, number];
         const mesh = meshes.add({ name: `Shape ${eid}`, ...cube(size) });
         world.add(eid, MeshInstance, { mesh });
-        world.add(
-            eid,
-            MeshMaterial,
-            types.get(eid) === BodyType.Static ? ground : subjects[dynamic++ % subjects.length]!,
-        );
+        // Colour encodes affordance and emphasis: static bodies are carbon, grabbable dynamics amber;
+        // cyan and brand-orange are reserved for distinct scene roles, never creation order.
+        world.add(eid, MeshMaterial, types.get(eid) === BodyType.Static ? ground : subject);
     }
 }
