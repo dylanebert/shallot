@@ -18,7 +18,6 @@ analysers.forEach((a,i)=>splitter.connect(a,i));
 window.energy=()=>analysers.map((a,i)=>{a.getFloatTimeDomainData(samples[i]);return samples[i].reduce((sum,x)=>sum+x*x,0)/samples[i].length;});
 window.pose=(x,y,z,yaw=0)=>{
  setTransform(w,yard.player,[x,y-0.7,z],[0,0,0,1]);
- w.storage(Transform).translation.set(yard.player,x,y-0.7,z);
  w.storage(LocalPlayer).viewYaw.set(yard.player,yaw);
  w.storage(LocalPlayer).viewPitch.set(yard.player,0);
  w.storage(Player).gravity.set(yard.player,0);w.storage(Player).friction.set(yard.player,1000);
