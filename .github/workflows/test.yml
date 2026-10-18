@@ -170,7 +170,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && inputs.os == 'windows-latest' && '[{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"}]' || github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && format('[{{"os":"{0}","shard":"1/2"}},{{"os":"{0}","shard":"2/2"}}]', inputs.os) || '[{"os":"macos-15","shard":"1/2"},{"os":"macos-15","shard":"2/2"},{"os":"ubuntu-latest","shard":"1/2"},{"os":"ubuntu-latest","shard":"2/2"},{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"}]') }}
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && inputs.os == 'windows-latest' && '[{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"},{"os":"windows-latest","shard":"packed"}]' || github.event_name == 'workflow_dispatch' && inputs.tier == 'node' && format('[{{"os":"{0}","shard":"1/2"}},{{"os":"{0}","shard":"2/2"}}]', inputs.os) || '[{"os":"macos-15","shard":"1/2"},{"os":"macos-15","shard":"2/2"},{"os":"ubuntu-latest","shard":"1/2"},{"os":"ubuntu-latest","shard":"2/2"},{"os":"windows-latest","shard":"1/3"},{"os":"windows-latest","shard":"2/3"},{"os":"windows-latest","shard":"3/3"},{"os":"windows-latest","shard":"packed"}]') }}
     steps:
       - uses: actions/checkout@v7
       - name: capture runner image
@@ -227,7 +227,15 @@ jobs:
       - name: Node tier on WARP
         if: matrix.os == 'windows-latest'
         run: |
-          time -p node -e "const child = Bun.spawn([process.execPath, 'test', '--reporter=junit', '--reporter-outfile=node-junit.xml', '--shard=${{ matrix.shard }}', ...process.argv.slice(1)], { argv0: 'bun.exe', env: { ...process.env, PATH: process.env.SHALLOT_REAL_NODE_DIR + ';' + process.env.PATH }, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); child.exited.then((code) => process.exit(code));" -- $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print | sort) 2>&1 | tee node-test.log
+          # Windows takes ~300 s in packed-install alone, so it gets its own job.
+          if [[ '${{ matrix.shard }}' == packed ]]; then
+            files=(./scripts/packed-install.node.ts)
+          else
+            files=(--shard=${{ matrix.shard }} $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' ! -path ./scripts/packed-install.node.ts -print | sort))
+          fi
+          # Bun named node.exe drops the first argument after -e, so the list travels in the environment.
+          export SHALLOT_TEST_ARGS="$(printf '%s\n' "${files[@]}")"
+          time -p node -e "const child = Bun.spawn([process.execPath, 'test', '--reporter=junit', '--reporter-outfile=node-junit.xml', ...process.env.SHALLOT_TEST_ARGS.split('\n').filter(Boolean)], { argv0: 'bun.exe', env: { ...process.env, PATH: process.env.SHALLOT_REAL_NODE_DIR + ';' + process.env.PATH }, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); child.exited.then((code) => process.exit(code));" 2>&1 | tee node-test.log
       - name: report slow Node tests
         if: always()
         env:
