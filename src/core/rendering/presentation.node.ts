@@ -9,7 +9,15 @@ import { Vignette, VignettePlugin } from "../../extras/vignette";
 import { StandardRenderer } from "../../standard/rendering";
 import { Transform } from "../transform";
 import "../../standard";
-import { attachCanvas, attachTexture, Camera, captureFrame, captureTexture, EffectPasses, Views } from "./index";
+import {
+    attachCanvas,
+    attachTexture,
+    Camera,
+    captureFrame,
+    captureTexture,
+    EffectPasses,
+    Views,
+} from "./index";
 import { PointsPlugin } from "./points.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
