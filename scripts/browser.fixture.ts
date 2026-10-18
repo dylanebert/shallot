@@ -27,7 +27,7 @@ export const test = base.extend({
         await page.addInitScript((prefix) => {
             const inspect = (): void => {
                 for (const notice of document.querySelectorAll<HTMLElement>(
-                    '[role="alert"], [style*="z-index: 10000"]',
+                    '[role="alert"], [data-shallot-loading]',
                 )) {
                     const text = notice.textContent?.replace(/\s+/g, " ").trim() ?? "";
                     if (/^(?:Something went wrong|Unsupported configuration)\b/.test(text)) {

@@ -2,7 +2,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { expect, type Page, test } from "playwright/test";
 
 const entry = "**/assets/index-*.js";
-const loadingOverlay = "body > div[style*='z-index: 10000']";
+const loadingOverlay = "body > [data-shallot-loading]";
 
 async function holdEntry(page: Page) {
     let release!: () => void;

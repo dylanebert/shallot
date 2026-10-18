@@ -41,7 +41,7 @@ declare global {
     }
 }
 
-const overlaySelector = "#frame > div[style*='z-index: 10000']";
+const overlaySelector = "#frame > [data-shallot-loading]";
 
 async function openPage(page: Page): Promise<void> {
     await page.goto("/");
@@ -316,9 +316,7 @@ async function inspectPageScreenshot(page: Page, encoded: string) {
             const description = document
                 .querySelector<HTMLElement>(".description")!
                 .getBoundingClientRect();
-            const overlay = document.querySelector<HTMLElement>(
-                "#frame > div[style*='z-index: 10000']",
-            );
+            const overlay = document.querySelector<HTMLElement>("#frame > [data-shallot-loading]");
             const progress = [...(overlay?.querySelectorAll<HTMLElement>("div") ?? [])].find(
                 (node) =>
                     node.style.height === "100%" && node.parentElement?.style.overflow === "hidden",
@@ -615,9 +613,7 @@ test("embedded-scene progress stays in its owned frame and reaches the bar; its 
                 )
                     window.__progressWidths!.push(width);
             }
-            const overlay = document.querySelector<HTMLElement>(
-                "#frame > div[style*='z-index: 10000']",
-            );
+            const overlay = document.querySelector<HTMLElement>("#frame > [data-shallot-loading]");
             if (!overlay || overlay.dataset.cleanupHeld) return;
             overlay.dataset.cleanupHeld = "true";
             const remove = overlay.remove.bind(overlay);

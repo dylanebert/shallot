@@ -84,7 +84,7 @@ export const test = base.extend({
             const reported = new WeakSet<HTMLElement>();
             const inspect = (): void => {
                 for (const notice of document.querySelectorAll<HTMLElement>(
-                    '[role="alert"], [style*="z-index: 10000"]',
+                    '[role="alert"], [data-shallot-loading]',
                 )) {
                     const text = notice.textContent?.replace(/\s+/g, " ").trim() ?? "";
                     // A software adapter's notice is accepted, as browser observations accept software adapters.
