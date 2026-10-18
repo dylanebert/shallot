@@ -112,7 +112,6 @@ test("the npm package contains only declared files and required consumers", asyn
         "src/extras/text/Inter-Regular.ttf",
         "src/extras/text/Inter-OFL.txt",
         "bin/shallot.ts",
-        "src/project/policy.ts",
         "src/cli/index.ts",
         "src/cli/skill.md",
         "src/project/assets.js",
