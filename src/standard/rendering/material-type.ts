@@ -622,7 +622,8 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
      * The values at one type-local row, as a fresh record that add and update accept; vectors keep
      * their authored length. Undefined for a row outside this type's rows, or a handle that no longer
      * holds its row; a handle of another material type is refused. Reads the values add, setAt and
-     * update wrote, before or after upload. Allocates the record: not a per-frame read.
+     * update wrote, before or after upload. Allocates the record: not a per-frame read. A MeshMaterial
+     * value read from an entity is a copy, not the handle: pass its `material` row.
      */
     get(handle: number | MaterialHandle): d.Infer<P> | undefined {
         let row: number;
@@ -649,7 +650,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
      * place; fields left out or undefined keep their values. Scalar and vector f32, i32 and u32 fields are
      * written directly; other field types, such as f16, matrices, arrays and structs, are encoded by TypeGPU,
      * which allocates. A handle whose row it does not currently hold, such as one already removed, is
-     * refused.
+     * refused, as is a MeshMaterial value read from an entity, which is a copy: pass its `material` row.
      */
     update(
         handle: number | MaterialHandle,
