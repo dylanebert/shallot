@@ -5,9 +5,8 @@
 <body><canvas width="1280" height="720"></canvas>
 <script type="module">
 import { createApp, GlobalTransform, Sprite, Orbit, qRotate } from '@dylanebert/shallot';
-import { captureFrame } from '@dylanebert/shallot/rendering';
+import { captureFrame, worldToViewport } from '@dylanebert/shallot/rendering';
 import { assets, Delivery, DeliveryPlugin } from '../src/delivery';
-import { project } from './project';
 const app = await createApp({ plugins: [DeliveryPlugin], setup: assets });
 const world = app.world;
 const canvas = document.querySelector('canvas');
@@ -16,7 +15,7 @@ function xyz(eid) {
     const p = world.storage(GlobalTransform).translation;
     return [p.x.get(eid), p.y.get(eid), p.z.get(eid)];
 }
-function projected(p) { return project(world, world.resource(Delivery).camera, p); }
+function projected(p) { const [x, y] = worldToViewport(world, world.resource(Delivery).camera, p); return { x, y }; }
 function rect(eid, scaled = true) {
     const scene = world.resource(Delivery);
     const q = world.storage(GlobalTransform).rotation;

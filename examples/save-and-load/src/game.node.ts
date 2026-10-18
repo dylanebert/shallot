@@ -1,12 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, setDefaultTimeout, test } from "bun:test";
-import {
-    type createApp,
-    internText,
-    Outline,
-    resizeViewport,
-    Text,
-    Transform,
-} from "@dylanebert/shallot";
+import { type createApp, internText, Outline, Text, Transform } from "@dylanebert/shallot";
 import { Orbit } from "@dylanebert/shallot/extras";
 import {
     pointerMove,
@@ -15,7 +8,7 @@ import {
     releaseButton,
     releaseKey,
 } from "@dylanebert/shallot/input";
-import { attachTexture, Views } from "@dylanebert/shallot/rendering";
+import { attachTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { addCoin, count, Game, loadGame, newGame, saveGame, saveLabel } from "./game";
@@ -29,8 +22,6 @@ beforeAll(async () => {
     app = await openGpuApp({ plugins: [Scene] });
     const world = app.world;
     attachTexture(world, world.resource(Game).camera, { width: 320, height: 180 });
-    world.resource(Views).get(world.resource(Game).camera)!.viewportIndex = 0;
-    resizeViewport(world, 0, 320, 180, 1);
     world.resource(Game).storage = {
         getItem: (key) => records.get(key) ?? null,
         setItem: (key, value) => {

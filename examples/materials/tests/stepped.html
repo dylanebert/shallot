@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><title>Materials, stepped</title><style>body{margin:0;background:#1c1917}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas><script type="module">
-import { createApp, Camera, Transform, MeshMaterial, Materials, StandardMaterial, DirectionalLight } from '@dylanebert/shallot';
+import { createApp, Camera, GlobalTransform, Transform, MeshMaterial, Materials, qRotate, StandardMaterial, DirectionalLight } from '@dylanebert/shallot';
 import { Text } from '@dylanebert/shallot/extras';
 import { Orbit } from '@dylanebert/shallot/extras';
-import { attachTexture, captureTexture, captureFrame, Tonemapping, TonemappingMethod } from '@dylanebert/shallot/rendering';
+import { attachTexture, captureTexture, captureFrame, Tonemapping, TonemappingMethod, worldToViewport } from '@dylanebert/shallot/rendering';
 import { DirectionalLightShadowMap } from '@dylanebert/shallot/standard/rendering';
 import { Gallery, GalleryPlugin } from '../src/gallery';
 import { CheckerMaterial } from '../src/materials';
@@ -41,17 +41,15 @@ window.nameClose=()=>{
  world.step(1/60);world.step(1/60);
 };
 window.boxes=()=>{
- const t=world.storage(Transform), camera=gallery.camera;
- const q=[t.rotation.x.get(camera),t.rotation.y.get(camera),t.rotation.z.get(camera),t.rotation.w.get(camera)];
+ const t=world.storage(Transform), camera=gallery.camera, q=world.storage(GlobalTransform).rotation;
  const position=(eid)=>[t.translation.x.get(eid),t.translation.y.get(eid),t.translation.z.get(eid)];
- const eye=position(camera);
+ const right=qRotate(q.x.get(camera),q.y.get(camera),q.z.get(camera),q.w.get(camera),1,0,0);
  const project=(p)=>{
-  const [x,y,z]=p.map((v,i)=>v-eye[i]);
-  const [qx,qy,qz,qw]=q;
-  const tx=2*(-qy*z+qz*y),ty=2*(-qz*x+qx*z),tz=2*(-qx*y+qy*x);
-  const v=[x+qw*tx-qy*tz+qz*ty,y+qw*ty-qz*tx+qx*tz,z+qw*tz-qx*ty+qy*tx];
-  const scale=canvas.height/(2*Math.tan(world.storage(Camera).fov.get(camera)*Math.PI/360)*-v[2]);
-  return [canvas.width/2+v[0]*scale,canvas.height/2-v[1]*scale,scale];
+  const [x,y]=worldToViewport(world,camera,p);
+  // Pixels per world unit at p's depth, across a unit of the camera's right axis.
+  const [left]=worldToViewport(world,camera,p.map((v,i)=>v-right[i]*.5));
+  const [rightEdge]=worldToViewport(world,camera,p.map((v,i)=>v+right[i]*.5));
+  return [x,y,rightEdge-left];
  };
  return {
   names:gallery.names.map(eid=>{const [x,y,s]=project(position(eid));return [x-.55*s,y-.5*s,x+.55*s,y];}),
