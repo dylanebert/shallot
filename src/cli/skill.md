@@ -16,4 +16,4 @@ From the project root, run `bun install` before using these commands.
 - Put whole-app checks in `tests/`; the directory sets scope, the suffix sets tier.
 - Put full default-renderer or physics-kernel compositions in `tests/<goal>.node.ts`, not `*.gpu.test.ts`; run them by path.
 - `bunfig.toml` preloads `tests/preload.ts`, which registers Shallot's Bun plugin for the TypeGPU transform.
-- Package scripts are `dev`, `build` and `preview`; checks run by the verbs above, with no `test`, `check` or renamed tier script.
+- Package scripts are `dev`, `build` and `preview`, plus `typecheck` running `svelte-check` when the app has Svelte components; checks run by the verbs above, with no `test`, `check` or renamed tier script.
