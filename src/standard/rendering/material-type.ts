@@ -598,6 +598,33 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         this.publish(Math.min(row, previousHighWater), Math.max(1, row - previousHighWater + 1));
     }
 
+    /**
+     * The values at one type-local row, as a fresh record that add and update accept; vectors keep
+     * their authored length. Undefined for a row outside this type's rows, or a handle that no longer
+     * holds its row; a handle of another material type is refused. Reads the values add, setAt and
+     * update wrote, before or after upload. Allocates the record: not a per-frame read.
+     */
+    get(handle: number | MaterialHandle): d.Infer<P> | undefined {
+        if (typeof handle === "number") {
+            if (!Number.isSafeInteger(handle) || handle < 0 || handle >= this._highWater)
+                return undefined;
+            return this._read(handle);
+        }
+        if (handle.type !== materialTypeId(this._world, this._type)) {
+            throw new RangeError("Materials.get: handle belongs to another material type");
+        }
+        if (this._handles[handle.material] !== handle) return undefined;
+        return this._read(handle.material);
+    }
+
+    private _read(row: number): d.Infer<P> {
+        const offset = row * this._rowBytes;
+        return readFromArrayBuffer(
+            this._bytes.slice(offset, offset + this._rowBytes).buffer,
+            this._type.parameters,
+        ) as d.Infer<P>;
+    }
+
     /** Publish changed fields at one type-local row for the next frame upload. */
     update(
         handle: number | MaterialHandle,
@@ -612,15 +639,9 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
             throw new RangeError(`Materials.update: unknown ${this._type.name} row ${row}`);
         }
         if (options.alphaMode) alphaModeFields(options.alphaMode);
-        const offset = row * this._rowBytes;
-        const currentBytes = this._bytes.slice(offset, offset + this._rowBytes).buffer;
-        const current = readFromArrayBuffer(currentBytes, this._type.parameters) as Record<
-            string,
-            unknown
-        >;
-        const merged = { ...current, ...values } as d.InferInput<P>;
+        const merged = { ...this._read(row), ...values } as d.InferInput<P>;
         writeToArrayBuffer(this._scratch, this._type.parameters, merged);
-        this._bytes.set(new Uint8Array(this._scratch), offset);
+        this._bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
         if (options.alphaMode) this._writeAlpha(row, options.alphaMode);
         this.publish(row, 1);
     }
