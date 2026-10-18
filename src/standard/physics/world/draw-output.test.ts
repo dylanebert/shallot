@@ -279,7 +279,7 @@ test("drawPhysics preserves ECS-authored primitive, frame, bounds and mass paylo
     }
 });
 
-test("drawPhysics reports the deleted golden's exact stepped ECS joint reactions", async () => {
+test("drawPhysics reports exact stepped ECS reactions for seven joint kinds", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const { world } = app;
