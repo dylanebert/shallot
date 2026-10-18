@@ -89,6 +89,9 @@ window.particles={
   return {gpuTiming,passes:[...stats.iter()].filter(d=>d.path.path.endsWith('/elapsed_gpu')).map(d=>d.path.path.slice(7,-12))};
  },
  profiler() {showProfiler(world);world.step(0);},
+ async converge(count=64) {
+  for(let i=0;i<count;i++) {world.step(0);await world.gpu.sync();}
+ },
  async capture() {
   const image=await render();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;
   c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.rgba),image.width,image.height),0,0);

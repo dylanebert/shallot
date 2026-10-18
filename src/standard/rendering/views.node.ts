@@ -105,6 +105,15 @@ test("a ninth presenting camera draws instead of being skipped", async () => {
     }
 });
 
+function expectSettledPixels(actual: Uint8ClampedArray, reference: Uint8ClampedArray): void {
+    // Half-float history can settle one output byte apart after a reset or light edit.
+    const largestDelta = actual.reduce(
+        (max, value, i) => Math.max(max, Math.abs(value - reference[i]!)),
+        0,
+    );
+    expect(largestDelta).toBeLessThanOrEqual(1);
+}
+
 test("growth keeps lit fogged outline pixels coherent with MSAA on and off", async () => {
     for (const antialias of [0, 1]) {
         const app = await withVisualRendering();
@@ -142,8 +151,8 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             });
             const second = renderedCamera(world, antialias, false, 3);
 
-            world.step(0);
-            world.step(0);
+            // Compare the same jitter phase after fog's temporal average has settled.
+            for (let i = 0; i < 96; i++) world.step(0);
             const beforeGrowth = await captureTexture(world, first);
             const draw = [...world.resource(Draws).values()][0]!;
             const entry = getGroup(world, draw.name)!;
@@ -162,8 +171,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             detachView(world, second);
             attachTexture(world, second, { width: 64, height: 64 });
             world.gpu.device.pushErrorScope("validation");
-            world.step(0);
-            world.step(0);
+            for (let i = 0; i < 96; i++) world.step(0);
             await world.gpu.device.queue.onSubmittedWorkDone();
             const grownFirst = await captureTexture(world, first);
             const grownSecond = await captureTexture(world, second);
@@ -193,8 +201,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             expect(lit[1][2]!).toBeGreaterThan(lit[1][0]!);
 
             world.remove(fog, Fog);
-            world.step(0);
-            world.step(0);
+            for (let i = 0; i < 16; i++) world.step(0);
             const withoutFog = [
                 await captureTexture(world, first),
                 await captureTexture(world, second),
@@ -205,8 +212,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
 
             world.add(fog, Fog, { density: 0.3 });
             world.remove(points[0]!, PointLight);
-            world.step(0);
-            world.step(0);
+            for (let i = 0; i < 96; i++) world.step(0);
             const withoutFirstLight = [
                 await captureTexture(world, first),
                 await captureTexture(world, second),
@@ -216,8 +222,7 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
 
             world.add(points[0]!, PointLight, pointSpecs[0].light);
             world.remove(points[1]!, PointLight);
-            world.step(0);
-            world.step(0);
+            for (let i = 0; i < 96; i++) world.step(0);
             const withoutSecondLight = [
                 await captureTexture(world, first),
                 await captureTexture(world, second),
@@ -226,23 +231,17 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
             expect(litCenter(withoutSecondLight[1]!.rgba)).not.toEqual(lit[1]);
 
             world.add(points[1]!, PointLight, pointSpecs[1].light);
-            world.step(0);
-            world.step(0);
+            for (let i = 0; i < 96; i++) world.step(0);
             const restored = [
                 await captureTexture(world, first),
                 await captureTexture(world, second),
             ];
             for (let slot = 0; slot < 2; slot++)
-                expect(
-                    Buffer.from(restored[slot]!.rgba).equals(
-                        Buffer.from([grownFirst, grownSecond][slot]!.rgba),
-                    ),
-                ).toBe(true);
+                expectSettledPixels(restored[slot]!.rgba, [grownFirst, grownSecond][slot]!.rgba);
 
             for (const eid of [first, second])
                 world.storage(Tonemapping).method.set(eid, TonemappingMethod.None);
-            world.step(0);
-            world.step(0);
+            for (let i = 0; i < 16; i++) world.step(0);
             const withoutOperator = [
                 await captureTexture(world, first),
                 await captureTexture(world, second),
@@ -257,17 +256,13 @@ test("growth keeps lit fogged outline pixels coherent with MSAA on and off", asy
 
             for (const eid of [first, second])
                 world.storage(Tonemapping).method.set(eid, TonemappingMethod.KhronosPbrNeutral);
-            world.step(0);
-            world.step(0);
+            for (let i = 0; i < 16; i++) world.step(0);
             const beforeSlotShift = await captureTexture(world, second);
             world.remove(first, Camera);
-            world.step(0);
-            world.step(0);
+            for (let i = 0; i < 96; i++) world.step(0);
             expect(world.resource(Views).get(second)?.slot).toBe(0);
             const afterSlotShift = await captureTexture(world, second);
-            expect(Buffer.from(afterSlotShift.rgba).equals(Buffer.from(beforeSlotShift.rgba))).toBe(
-                true,
-            );
+            expectSettledPixels(afterSlotShift.rgba, beforeSlotShift.rgba);
         } finally {
             app.dispose();
         }

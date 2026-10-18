@@ -22,10 +22,19 @@ import {
     FogGpu,
     fogComposite,
     fogDensity,
+    henyeyGreenstein,
     inScatterContribution,
     reconstructWorld,
     WORKGROUP,
 } from "./medium";
+
+export const FogHistory = d.struct({
+    viewProj: d.mat4x4f,
+    eye: d.vec4f,
+    forward: d.vec4f,
+    range: d.vec4f,
+    jitter: d.vec4f,
+});
 
 export const fogGridLayout = tgpu
     .bindGroupLayout({
@@ -33,6 +42,13 @@ export const fogGridLayout = tgpu
             storageTexture: d.textureStorage3d("rgba16float", "write-only"),
             visibility: ["compute"],
         },
+        feedback: {
+            storageTexture: d.textureStorage3d("rgba16float", "write-only"),
+            visibility: ["compute"],
+        },
+        history: { texture: d.texture3d(d.f32), visibility: ["compute"] },
+        historySampler: { sampler: "filtering", visibility: ["compute"] },
+        temporal: { uniform: FogHistory, visibility: ["compute"] },
         view: { uniform: ViewUniforms, visibility: ["compute"] },
         fog: { uniform: FogGpu, visibility: ["compute"] },
     })
@@ -121,9 +137,18 @@ function createGridKernel() {
             if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
             const px = d.vec2i(input.gid.xy);
             const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim.xy));
+            const sampleUv = std.div(
+                std.add(d.vec2f(input.gid.xy), layout.$.temporal.jitter.xy),
+                d.vec2f(dim.xy),
+            );
             const nearWorld = reconstructWorld(layout.$.view.invViewProj, uv, 1);
             const farWorld = reconstructWorld(layout.$.view.invViewProj, uv, 0.0001);
+            // Phase uses the unjittered ray, so moving the sample cannot jitter anisotropy.
             const dir = std.normalize(std.sub(farWorld, nearWorld));
+            const sampleNear = reconstructWorld(layout.$.view.invViewProj, sampleUv, 1);
+            const sampleDir = std.normalize(
+                std.sub(reconstructWorld(layout.$.view.invViewProj, sampleUv, 0.0001), sampleNear),
+            );
 
             // `cfg`/`camView` — not `fog`/`view` — to avoid colliding with the group-0 binding keys of the same
             // name (a local named identically to its own binding forces a confusing double-pointer alias)
@@ -154,12 +179,22 @@ function createGridKernel() {
                 const start = extent * a * a;
                 const end = extent * b * b;
                 const ds = (end - start) * rayScale;
-                const p = std.add(nearWorld, std.mul(dir, (start + end) * 0.5 * rayScale));
-                const dens = fogDensity(p, density, base, falloff);
-                const sampleTrans = std.exp(-dens * ds);
+                const center = std.add(nearWorld, std.mul(dir, (start + end) * 0.5 * rayScale));
+                const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
+                const p = std.add(
+                    sampleNear,
+                    std.mul(
+                        sampleDir,
+                        std.mix(start, end, layout.$.temporal.jitter.z) * sampleScale,
+                    ),
+                );
+                let dens = fogDensity(p, density, base, falloff);
+
                 const viewZ = std.max(std.dot(std.sub(p, camView.eye.xyz), forward), near);
                 const entry =
-                    fogLayout1.$.pointLights.grid[clusterCell(uv.x, uv.y, viewZ, near, far, slot)];
+                    fogLayout1.$.pointLights.grid[
+                        clusterCell(sampleUv.x, sampleUv.y, viewZ, near, far, slot)
+                    ];
                 const ambient = indirectLight(
                     IndirectLightInput({
                         worldPosition: p,
@@ -170,6 +205,7 @@ function createGridKernel() {
                     }),
                 );
                 let lstep = std.mul(ambient, camView.exposure / (4 * Math.PI));
+                let noPhase = d.vec3f(lstep);
                 let j = d.u32(0);
                 while (j < entry.y) {
                     // the array-element read is a pointer, not a copy — wrap in the element schema to
@@ -194,10 +230,24 @@ function createGridKernel() {
                         std.add(
                             lstep,
                             std.mul(
-                                inScatterContribution(light, p, dir, g),
-                                shadow * camView.exposure,
+                                inScatterContribution(light, p, dir, 0),
+                                shadow *
+                                    camView.exposure *
+                                    4 *
+                                    Math.PI *
+                                    henyeyGreenstein(
+                                        g,
+                                        std.dot(
+                                            dir,
+                                            std.normalize(std.sub(light.posRange.xyz, center)),
+                                        ),
+                                    ),
                             ),
                         ),
+                    );
+                    noPhase = std.add(
+                        noPhase,
+                        std.mul(inScatterContribution(light, p, dir, 0), shadow * camView.exposure),
                     );
                     j = j + 1;
                 }
@@ -228,9 +278,56 @@ function createGridKernel() {
                                 ),
                             ),
                         );
+                        noPhase = std.add(
+                            noPhase,
+                            std.mul(
+                                directionalInScatter(
+                                    std.mul(light.color.rgb, light.params.x * camView.exposure),
+                                    light.direction.xyz,
+                                    dir,
+                                    0,
+                                ),
+                                visibility,
+                            ),
+                        );
                     }
                     k = k + 1;
                 }
+                // HDRP reprojects phase-free lighting; restore only this frame's phase ratio.
+                const phase = std.div(lstep, std.max(noPhase, d.vec3f(1e-8)));
+                const prev = layout.$.temporal;
+                const clip = std.mul(prev.viewProj, d.vec4f(center, 1));
+                const prevUv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
+                const depth = std.dot(std.sub(center, prev.eye.xyz), prev.forward.xyz);
+                const sliceDepth = (depth - prev.range.x) / prev.range.y;
+                // Centres lie at (i²+i+0.5)/N²; invert that, not the slice boundaries.
+                const z = std.sqrt(std.max(sliceDepth - 0.25 / (FOG_SLICES * FOG_SLICES), 0));
+                if (
+                    prev.jitter.w > 0 &&
+                    clip.w > 0 &&
+                    prevUv.x > 0 &&
+                    prevUv.x < 1 &&
+                    prevUv.y > 0 &&
+                    prevUv.y < 1 &&
+                    depth > prev.range.x &&
+                    sliceDepth < 1
+                ) {
+                    const old = std.textureSampleLevel(
+                        layout.$.history,
+                        layout.$.historySampler,
+                        d.vec3f(prevUv, z),
+                        0,
+                    );
+                    noPhase = std.mix(
+                        noPhase,
+                        std.mul(old.rgb, camView.exposure / std.max(prev.range.z, 1e-8)),
+                        6 / 7,
+                    );
+                    dens = std.mix(dens, old.a, 6 / 7);
+                }
+                std.textureStore(layout.$.feedback, d.vec3i(px, d.i32(i)), d.vec4f(noPhase, dens));
+                lstep = std.mul(noPhase, phase);
+                const sampleTrans = std.exp(-dens * ds);
                 // Hillaire's closed-form cell integral S*(1-exp(-sigma*ds))/sigma:
                 // S = sigma*albedo*lstep, so sigma cancels, including the clear-medium limit.
                 inScatter = d.vec3f(

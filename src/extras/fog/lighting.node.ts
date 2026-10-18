@@ -65,6 +65,8 @@ async function frame(camera: number) {
     world.tick();
     world.step(1 / 60);
     world.step(1 / 60);
+    // Light edits are visible after the temporal average settles.
+    for (let i = 0; i < 40; i++) world.step(0);
     return (await captureTexture(world, camera)).rgba;
 }
 function patch(rgba: Uint8ClampedArray, x = 24, y = 24) {

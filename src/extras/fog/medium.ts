@@ -84,7 +84,7 @@ export const reconstructWorld = tgpu.fn(
 /** the Henyey-Greenstein single-scatter phase function. `g` in [-1,1]: 0 isotropic (1/4π), →1 forward-peaked
  *  (a bright halo toward a light), →-1 back-scatter. `cosTheta` is the cosine between the view ray and the
  *  direction toward the light. */
-const henyeyGreenstein = tgpu.fn(
+export const henyeyGreenstein = tgpu.fn(
     [d.f32, d.f32],
     d.f32,
 )((g, cosTheta) => {

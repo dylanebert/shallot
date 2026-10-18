@@ -45,6 +45,7 @@ import {
     fogLayout0Multisampled,
     fogLayout1,
 } from "./pipeline";
+import { haltonOffset } from "./temporal";
 
 /**
  * The scene's volumetric atmosphere: one per scene (a singleton). A frustum grid accumulates extinction
@@ -113,7 +114,14 @@ interface FogState {
             grid: GPUTexture;
             width: number;
             height: number;
-            gridGroup: GPUBindGroup;
+            feedback: GPUTexture[];
+            temporal: GPUBuffer;
+            staging: Float32Array<ArrayBuffer>;
+            valid: boolean;
+            config: Float32Array;
+            parity: number;
+            camera: number;
+            gridGroups: GPUBindGroup[];
             gridPass: GPUComputePassDescriptor;
             read: GPUTextureView;
             write: GPUTextureView;
@@ -136,8 +144,14 @@ const createFogState = (): FogState => ({
 const fogState = (world: World) => world.resource(fogStateKey);
 
 function clearViews(state: FogState): void {
-    for (const cam of state.views.values()) cam.grid.destroy();
+    for (const cam of state.views.values()) destroyView(cam);
     state.views.clear();
+}
+
+function destroyView(cam: FogState["views"] extends Map<number, infer V> ? V : never): void {
+    cam.grid.destroy();
+    for (const texture of cam.feedback) texture.destroy();
+    cam.temporal.destroy();
 }
 
 // One light group serves all cameras. Shadow resources can change identity, invalidating the cache.
@@ -226,7 +240,7 @@ const FogSystem: System = {
                 world.has(eid, NoFog) ||
                 !world.resource(Views).get(eid)?.framebuffer
             ) {
-                cam.grid.destroy();
+                destroyView(cam);
                 _fogState.views.delete(eid);
             }
         }
@@ -245,6 +259,7 @@ const FogSystem: System = {
             let cam = fogState(world).views.get(eid);
             if (
                 !cam ||
+                cam.camera !== world.ref(eid) ||
                 cam.width !== view.width ||
                 cam.height !== view.height ||
                 cam.read !== read ||
@@ -253,7 +268,7 @@ const FogSystem: System = {
                 cam.slot !== view.slot ||
                 cam.multisampled !== multisampled
             ) {
-                cam?.grid.destroy();
+                if (cam) destroyView(cam);
                 const grid = world.gpu.device.createTexture({
                     label: `fog-grid/${eid}`,
                     dimension: "3d",
@@ -266,12 +281,37 @@ const FogSystem: System = {
                     usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
                 });
                 const gridView = grid.createView();
-                const gridGroup = world.gpu.root.unwrap(
-                    world.gpu.root.createBindGroup(fogGridLayout, {
-                        output: gridView,
-                        view: _render.viewBuffers[view.slot],
-                        fog: _fogState.fog.buffer,
+                const feedback = [0, 1].map(() =>
+                    world.gpu.device.createTexture({
+                        label: `fog-lighting/${eid}`,
+                        dimension: "3d",
+                        size: [grid.width, grid.height, FOG_SLICES],
+                        format: "rgba16float",
+                        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
                     }),
+                );
+                const temporal = world.gpu.device.createBuffer({
+                    label: `fog-history/${eid}`,
+                    size: 128,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+                const historySampler = world.gpu.device.createSampler({
+                    minFilter: "linear",
+                    magFilter: "linear",
+                });
+                const feedbackViews = feedback.map((texture) => texture.createView());
+                const gridGroups = [0, 1].map((parity) =>
+                    world.gpu.root.unwrap(
+                        world.gpu.root.createBindGroup(fogGridLayout, {
+                            output: gridView,
+                            feedback: feedbackViews[parity],
+                            history: feedbackViews[1 - parity],
+                            historySampler,
+                            temporal,
+                            view: _render.viewBuffers[view.slot],
+                            fog: _fogState.fog.buffer!,
+                        }),
+                    ),
                 );
                 const gridSampler = world.gpu.device.createSampler({
                     minFilter: "linear",
@@ -300,7 +340,14 @@ const FogSystem: System = {
                     grid,
                     width: view.width,
                     height: view.height,
-                    gridGroup,
+                    feedback,
+                    temporal,
+                    staging: new Float32Array(32),
+                    valid: false,
+                    config: new Float32Array(FOG_FLOATS),
+                    parity: 0,
+                    camera: world.ref(eid),
+                    gridGroups,
                     gridPass: { label: `fog-grid/${eid}` },
                     read,
                     write,
@@ -312,10 +359,36 @@ const FogSystem: System = {
                 };
                 fogState(world).views.set(eid, cam);
             }
+            for (let i = 0; i < FOG_FLOATS; i++) {
+                if (cam.config[i] !== _fogState.staging[i]) cam.valid = false;
+                cam.config[i] = _fogState.staging[i];
+            }
+            const offset = haltonOffset(world.gpu.frame);
+            cam.staging[28] = offset[0];
+            cam.staging[29] = offset[1];
+            cam.staging[30] = offset[2];
+            cam.staging[31] = cam.valid ? 1 : 0;
+            world.gpu.device.queue.writeBuffer(cam.temporal, 0, cam.staging);
+            const current = _render.viewStaging;
+            const start = view.slot * 64;
+            for (let i = 0; i < 16; i++) cam.staging[i] = current[start + i];
+            for (let i = 0; i < 3; i++) cam.staging[16 + i] = current[start + 32 + i];
+            const rx = current[start + 20],
+                ry = current[start + 21],
+                rz = current[start + 22];
+            const ux = current[start + 24],
+                uy = current[start + 25],
+                uz = current[start + 26];
+            cam.staging[20] = -(ry * uz - rz * uy);
+            cam.staging[21] = -(rz * ux - rx * uz);
+            cam.staging[22] = -(rx * uy - ry * ux);
+            cam.staging[24] = current[start + 28];
+            cam.staging[25] = Math.max(_fogState.staging[7] - cam.staging[24], 0.001);
+            cam.staging[26] = current[start + 56];
             cam.gridPass.timestampWrites = world.gpu.span?.("fog:grid");
             const gridPass = beginComputePass(world.frameEncoder()!, cam.gridPass);
             setComputePipeline(gridPass, world.gpu.root.unwrap(_fogState.fog.gridPipeline));
-            setComputeBindGroup(gridPass, 0, cam.gridGroup);
+            setComputeBindGroup(gridPass, 0, cam.gridGroups[cam.parity]);
             setComputeBindGroup(gridPass, 1, lights);
             dispatchWorkgroups2(
                 gridPass,
@@ -323,6 +396,8 @@ const FogSystem: System = {
                 Math.ceil(cam.grid.height / WORKGROUP),
             );
             endComputePass(gridPass);
+            cam.valid = true;
+            cam.parity = 1 - cam.parity;
             cam.pass.timestampWrites = world.gpu.span?.("fog:apply");
             const pass = beginComputePass(world.frameEncoder()!, cam.pass);
             setComputePipeline(pass, world.gpu.root.unwrap(pipeline));
