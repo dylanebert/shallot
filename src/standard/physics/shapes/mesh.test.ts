@@ -120,7 +120,7 @@ function exerciseMeshShape(mesh: MeshData): void {
     destroyTestWorld(world);
 }
 
-test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the kernel builds", () => {
+test("the triangle mesh builders equal the Box3D C reference in BVH nodes, vertices, winding, edge flags and surface area, and the box mesh lives and dies as a kernel shape", () => {
     const cases: [string, () => MeshData, string][] = [
         [
             "box (SAH split, edge identification)",
@@ -146,7 +146,7 @@ test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes
     }
 });
 
-test("createWaveMesh emits the wrong triangle count for its cell grid, lifts the zero-sine boundary row or column off the plane, or rides its sine product past the requested amplitude", () => {
+test("createWaveMesh emits two triangles per cell, keeps its zero-sine boundary row and column flat, and bounds its heights by the amplitude", () => {
     const xCount = 6;
     const zCount = 5;
     const cellWidth = 1;
