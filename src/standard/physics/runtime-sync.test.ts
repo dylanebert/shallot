@@ -507,7 +507,7 @@ test("a marked friction write compares against the live Box3D value", async () =
     });
 });
 
-test("changing the spawn-only sensor flag recreates its Box3D shape definition", async () => {
+test("a sensor flag change recreates the Box3D shape at the next fixed sync", async () => {
     await withPhysics((world) => {
         const eid = world.create();
         world.add(eid, Body, { type: BodyType.Dynamic });
