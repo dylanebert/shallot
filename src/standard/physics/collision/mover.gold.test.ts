@@ -80,7 +80,7 @@ const moverFrom = (m: { center1: string[]; center2: string[]; radius: string }):
     radius: fromBits(m.radius),
 });
 
-test("the mover plane solver drifts from the Box3D C reference in its delta bits or iteration count, so a character resolves penetration differently than the pinned reference", () => {
+test("the mover plane solver's delta bits and iteration count equal the Box3D C reference", () => {
     for (const g of gold.solvePlanes) {
         const planes = g.planes.map((p) => collisionPlane(p as PlaneJson));
         const result = solvePlanes(vecFromHex(g.target), planes, planes.length);
@@ -94,7 +94,7 @@ test("the mover plane solver drifts from the Box3D C reference in its delta bits
     expect(gold.solvePlanes.length).toBeGreaterThan(0);
 });
 
-test("the mover velocity clip drifts from the Box3D C reference, so a character keeps or loses velocity against a contact plane differently than the pinned reference", () => {
+test("the mover velocity clip's bits equal the Box3D C reference", () => {
     for (const g of gold.clipVector) {
         const planes = g.planes.map((p) => collisionPlane(p as PlaneJson));
         const out = clipVector(vecFromHex(g.vector), planes, planes.length);
