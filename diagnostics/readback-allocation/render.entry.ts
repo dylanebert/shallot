@@ -100,7 +100,10 @@ export default async function create(input = "", device?: GPUDevice) {
     world.gpu.device.queue.writeBuffer(count, 0, new Uint32Array([geometry.indexCount]));
     const mesh = meshes.add({ ...geometry, name: "allocation-gpu-count", indirectIndexCount: { buffer: count } });
     const part = world.create(); world.add(part, Transform); world.add(part, MeshInstance, { mesh });
-    const material = world.resource(Materials).add(StandardMaterial());
+    const materials = world.resource(Materials);
+    const material = materials.add(StandardMaterial());
+    // An animated material parameter, written every frame as the materials example's wave is.
+    const materialValues = { perceptualRoughness: 0.5 };
     const producer = registerProducerTable(world, { name: "allocation-producer", capacity: 1, meshes: [mesh], materials: [material] });
     producer.placements.write([{ pos: d.vec3f(1, 0, 0), quat: d.vec4f(0, 0, 0, 1), scale: d.vec3f(1) }]);
     producer.meshInstances.write([{ mesh, materialType: material.type, material: material.material, alphaMode: 0, alphaCutoff: 0.5, flags: 0, cullBounds: d.vec4f(0, 0, 0, -1) }]);
@@ -118,6 +121,8 @@ export default async function create(input = "", device?: GPUDevice) {
     world.add(gizmo, Gizmo, { handle: registerGizmo(world, asset) });
     let frame = 0;
     const compose = () => {
+        materialValues.perceptualRoughness = 0.25 + (frame % 60) / 120;
+        materials.update(material, materialValues);
         drawLine(world, a, b, 0xffaa55);
         drawArrow(world, a, b, 0x55aaff);
         drawWireBox(world, min, max, 0xffffff);
