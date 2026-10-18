@@ -39,30 +39,6 @@ function createSegmentState(capacity = INITIAL): SegmentState {
 /** Retained local-space geometry, built with the immediate drawing functions. */
 export class GizmoAsset {
     readonly segments = createSegmentState(16);
-    private _packed: { f32: Float32Array; u32: Uint32Array; count: number } | undefined;
-    private _rebuildCount = 0;
-
-    /** Number of times the engine has packed this asset's geometry for rendering. */
-    get rebuilds(): number {
-        return this._rebuildCount;
-    }
-
-    /** @internal */
-    geometry() {
-        if (!this._packed || this._packed.count !== this.segments.count) this.rebuildGeometry();
-        return this._packed!;
-    }
-
-    /** @internal */
-    rebuildGeometry(): void {
-        const length = this.segments.count * SEGMENT_FLOATS;
-        this._packed = {
-            f32: this.segments.f32.slice(0, length),
-            u32: this.segments.u32.slice(0, length),
-            count: this.segments.count,
-        };
-        this._rebuildCount++;
-    }
 }
 
 export function segmentState(target: World | GizmoAsset): SegmentState {

@@ -68,7 +68,7 @@ function expandRetained(world: World): void {
         const asset = assets[gizmos.handle.get(eid) - 1];
         if (!asset) continue;
         composeGlobalTransform(world, eid, matrix);
-        const source = asset.geometry();
+        const source = asset.segments;
         const width = gizmos.width.get(eid);
         const alpha = packColor(0, gizmos.opacity.get(eid)) & 0xff000000;
         if (target.count + source.count > target.capacity)
