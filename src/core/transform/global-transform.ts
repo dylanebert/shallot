@@ -8,6 +8,7 @@ import {
     vec4,
     type World,
 } from "../../engine/ecs";
+import { composeMat4 } from "../../engine/utils";
 
 /** Derived fixed-tick world placement, never authored. Gameplay and physics read these
  * columns; rendering owns interpolated GPU rows in core/rendering. */
@@ -196,33 +197,5 @@ export function composeGlobalTransform(world: World, eid: number, out: Float32Ar
     const sx = scale.x.get(eid),
         sy = scale.y.get(eid),
         sz = scale.z.get(eid);
-    const x2 = qx + qx,
-        y2 = qy + qy,
-        z2 = qz + qz;
-    const xx = qx * x2,
-        xy = qx * y2,
-        xz = qx * z2,
-        yy = qy * y2,
-        yz = qy * z2,
-        zz = qz * z2;
-    const wx = qw * x2,
-        wy = qw * y2,
-        wz = qw * z2;
-    out[0] = (1 - yy - zz) * sx;
-    out[1] = (xy + wz) * sx;
-    out[2] = (xz - wy) * sx;
-    out[3] = 0;
-    out[4] = (xy - wz) * sy;
-    out[5] = (1 - xx - zz) * sy;
-    out[6] = (yz + wx) * sy;
-    out[7] = 0;
-    out[8] = (xz + wy) * sz;
-    out[9] = (yz - wx) * sz;
-    out[10] = (1 - xx - yy) * sz;
-    out[11] = 0;
-    out[12] = px;
-    out[13] = py;
-    out[14] = pz;
-    out[15] = 1;
-    return out;
+    return composeMat4(px, py, pz, qx, qy, qz, qw, sx, sy, sz, out);
 }
