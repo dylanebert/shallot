@@ -1,5 +1,5 @@
 import { MeshPlugin, runApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { OrbitPlugin } from "@dylanebert/shallot/extras";
+import { LinesPlugin, OrbitPlugin } from "@dylanebert/shallot/extras";
 import { mount, unmount } from "svelte";
 import { GrabPlugin } from "./grab";
 import Hud from "./Hud.svelte";
@@ -12,6 +12,7 @@ async function switchScene(scene: Scene): Promise<void> {
         plugins: [
             StandardPhysicsPlugin,
             OrbitPlugin,
+            LinesPlugin,
             GrabPlugin,
             {
                 name: "SampleView",
