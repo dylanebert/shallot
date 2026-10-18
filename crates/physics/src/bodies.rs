@@ -166,11 +166,6 @@ pub extern "C" fn body_layout_ptr_in_world(world_index: usize) -> *const u32 {
         w.columns.layout.as_ptr()
     }
 }
-#[export_name = "reserveBodies"]
-pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
-    reserve_bodies_in_world(crate::regions::active(), cap)
-}
-
 pub extern "C" fn reserve_bodies_in_world(world_index: usize, cap: usize) -> u32 {
     unsafe {
         let w = world_mut(world_index);

@@ -102,12 +102,6 @@ unsafe fn body_record_bounds(world: usize, id: usize, shape: usize) {
         }
     }
 }
-#[export_name = "shapeDestroyProxy"]
-pub unsafe extern "C" fn destroy_proxy(world: usize, id: usize) {
-    crate::regions::select(world as u32);
-    unsafe { destroy_proxy_in_world(world, id) }
-}
-
 pub unsafe extern "C" fn destroy_proxy_in_world(world: usize, id: usize) {
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE + shapes::S_PROXY_KEY;
@@ -123,47 +117,6 @@ pub unsafe extern "C" fn create_proxy_in_world(world: usize, id: usize, force: b
     let o = id * shapes::SHAPE_STRIDE;
     let body_id = u.get(o + 1) as usize;
     let tight = crate::continuous::bounds(world, id, bodies::geometry(world, body_id).0);
-    create_proxy_bounds(
-        world, id, force, tight[0], tight[1], tight[2], tight[3], tight[4], tight[5],
-    );
-}
-#[export_name = "shapeCreateProxyTransform"]
-pub unsafe extern "C" fn create_proxy_transform(
-    world: usize,
-    id: usize,
-    force: bool,
-    x: f32,
-    y: f32,
-    z: f32,
-    qx: f32,
-    qy: f32,
-    qz: f32,
-    qs: f32,
-) {
-    crate::regions::select(world as u32);
-    unsafe { create_proxy_transform_in_world(world, id, force, x, y, z, qx, qy, qz, qs) }
-}
-
-pub unsafe extern "C" fn create_proxy_transform_in_world(
-    world: usize,
-    id: usize,
-    force: bool,
-    x: f32,
-    y: f32,
-    z: f32,
-    qx: f32,
-    qy: f32,
-    qz: f32,
-    qs: f32,
-) {
-    let pose = crate::math::Transform {
-        p: crate::math::Vec3::new(x, y, z),
-        q: crate::math::Quat {
-            v: crate::math::Vec3::new(qx, qy, qz),
-            s: qs,
-        },
-    };
-    let tight = crate::shape_geometry::bounds(world, id, pose);
     create_proxy_bounds(
         world, id, force, tight[0], tight[1], tight[2], tight[3], tight[4], tight[5],
     );

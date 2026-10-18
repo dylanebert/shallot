@@ -142,7 +142,6 @@ pub(crate) unsafe fn height_view(r: *const u32) -> crate::height_query::HeightFi
     }
 }
 
-#[export_name = "shapeMaterialIndex"]
 pub extern "C" fn shape_material_index(
     world: usize,
     shape: usize,

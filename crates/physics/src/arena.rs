@@ -1,7 +1,7 @@
 //! Shared step storage and phase export shims.
 //!
 //! Each world owns a LIFO stack. Phase reservations publish column byte offsets in `LAYOUT`;
-//! TypeScript derives views from this header after allocations, which may grow linear memory.
+//! allocations may grow linear memory.
 //!
 //! Columns alias WASM linear memory through shared-mutable [`Col`] handles.
 //! See col.rs for the aliasing contract.
@@ -107,11 +107,10 @@ const WIDE: usize = 11;
 // Per-active-color spans (wide/mesh/joint start+count) for the batched color loop + staged solve.
 const COLOR_SPAN: usize = 14;
 
-/// Per-column byte offsets into linear memory, rewritten by every `reserve`. TS reads this header
-/// (`layoutPtr`) to build its column views.
+/// Per-column byte offsets into linear memory, rewritten by every `reserve_in_world`.
 static mut LAYOUT: [u32; N_COLS] = [0; N_COLS];
 
-// The per-step counts the shims size their slices from (set by `reserve`).
+// The per-step counts the shims size their slices from (set by `reserve_in_world`).
 static mut BODY_COUNT: usize = 0;
 static mut CONTACT_COUNT: usize = 0;
 static mut MANIFOLD_COUNT: usize = 0;
@@ -134,36 +133,8 @@ unsafe fn u32s(idx: usize, len: usize) -> Col<'static, u32> {
     Col::new(LAYOUT[idx] as *mut u32, len)
 }
 
-/// Byte offset of the layout header (`[u32; N_COLS]` of per-column byte offsets). Stable across the
-/// static-data section, but the buffer it lives in still detaches on `memory.grow`, so TS re-derives
-/// its view after every `reserve`.
-#[export_name = "layoutPtr"]
-pub extern "C" fn layout_ptr() -> *const u32 {
-    &raw const LAYOUT as *const u32
-}
-
 /// Lay out all solver columns for the given per-step counts, growing memory to fit. Recomputes offsets
-/// within shared scratch each call; TS re-derives its views from `layoutPtr` afterwards.
-#[export_name = "reserve"]
-pub extern "C" fn reserve(
-    body: usize,
-    contact: usize,
-    manifold: usize,
-    point: usize,
-    wide: usize,
-    color: usize,
-) {
-    reserve_in_world(
-        crate::regions::active(),
-        body,
-        contact,
-        manifold,
-        point,
-        wide,
-        color,
-    )
-}
-
+/// within shared scratch each call.
 pub extern "C" fn reserve_in_world(
     world_index: usize,
     body: usize,

@@ -56,9 +56,9 @@ export class BodyStore extends KernelViews {
     // The held layout header view the column views are derived from.
     private _layout = new Uint32Array(0);
 
-    /** Re-derive the column views over the current region. No-op before the first `reserveBodies` (the
-     * region has zero capacity), and when the buffer, layout offsets and capacity are those the views were
-     * derived at, so a steady step mints no typed-array views. */
+    /** Re-derive the column views over the current region. No-op before the kernel first reserves
+     * bodies (the region has zero capacity), and when the buffer, layout offsets and capacity are those
+     * the views were derived at, so a steady step mints no typed-array views. */
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.bodySetActiveWorld(this.worldId);

@@ -161,11 +161,6 @@ pub extern "C" fn shape_cap() -> usize {
 pub extern "C" fn shape_cap_in_world(world_index: usize) -> usize {
     unsafe { world(world_index).shape.cap }
 }
-#[export_name = "reserveShapes"]
-pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
-    reserve_shapes_in_world(crate::regions::active(), cap)
-}
-
 pub extern "C" fn reserve_shapes_in_world(world_index: usize, cap: usize) -> u32 {
     unsafe {
         let w = world_mut(world_index);
@@ -217,10 +212,6 @@ pub unsafe extern "C" fn allocate_materials(id: u32, shape: u32, count: usize) -
     *p.add(S_MATERIAL_HEAD) = ptr as u32;
     *p.add(S_MATERIAL_COUNT) = count as u32;
     material_ptr(id as usize, shape as usize) as usize
-}
-#[export_name = "shapeFreeMaterials"]
-pub unsafe extern "C" fn release_materials(id: u32, shape: u32) {
-    free_materials(id as usize, shape as usize);
 }
 unsafe fn material_ptr(id: usize, shape: usize) -> *mut u32 {
     let p = record(id, shape);

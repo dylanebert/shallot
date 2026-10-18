@@ -78,8 +78,8 @@ export class ShapeStore extends KernelViews {
     }
     restoreCheckpoint(_state: unknown): void {}
 
-    /** Re-derive the column views over the current region. No-op before the first `reserveShapes`, and
-     * when the buffer, offset and capacity are those the views were derived at. */
+    /** Re-derive the column views over the current region. No-op before the kernel first reserves
+     * shapes, and when the buffer, offset and capacity are those the views were derived at. */
     protected deriveViews(): void {
         const k = kernel(this.ecsState);
         k.shapeSetActiveWorld(this._worldId);

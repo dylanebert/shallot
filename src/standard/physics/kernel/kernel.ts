@@ -72,21 +72,6 @@ export type Kernel = {
     sensorVisitorCount(world: number, index: number): number;
     sensorVisitorWord(world: number, index: number, visitor: number, word: number): number;
 
-    // Shared-column arena (kernel/src/arena.rs). `reserve` lays out the columns for one step's counts
-    // and may grow memory; `layoutPtr` returns the byte-offset header the TS views derive from (see
-    // columns.ts). The phase shims drive the solve over those columns, one phase at a time.
-    reserve(
-        body: number,
-        contact: number,
-        manifold: number,
-        point: number,
-        wide: number,
-        color: number,
-    ): void;
-    layoutPtr(): number;
-
-    // Allocator-owned body columns for the selected World, sized to its body high-water.
-    reserveBodies(cap: number): number;
     islandSplit(id: number): void;
     islandCreate(set: number): number;
     islandCount(): number;
@@ -108,7 +93,7 @@ export type Kernel = {
     bodyLayoutPtr(): number;
     bodySetEntity(world: number, body: number, eid: number): void;
     /** The record capacity the resident body region is sized to — the single source of truth for the
-     * TS body-store's column-view lengths (bodycolumns.ts). Zero before the first `reserveBodies`. */
+     * TS body-store's column-view lengths (bodycolumns.ts). Zero before the kernel first reserves bodies. */
     bodyCap(): number;
     /** Set the world context used by kernel finalization's move publication. */
     bodySetActiveWorld(world: number): void;
@@ -289,10 +274,7 @@ export type Kernel = {
     islandSplitCandidate(): number;
     islandSetSplitCandidate(id: number): void;
 
-    // One allocator-owned fat AABB per shape in the selected World.
-
     // Allocator-owned shape records and lifecycle columns for the selected World.
-    reserveShapes(cap: number): number;
     shapeLayoutPtr(): number;
     shapeCap(): number;
     /** Allocate/release a world-local shape slot; generation and validity stay in wasm. */
@@ -317,18 +299,9 @@ export type Kernel = {
         g: number,
     ): number;
     shapeGeometryOutputPtr(): number;
-    shapeMaterialIndex(world: number, shape: number, child: number, triangle: number): number;
     shapeComputeMass(world: number, id: number): void;
     shapeComputeExtent(world: number, id: number, x: number, y: number, z: number): void;
     shapeGetCentroid(world: number, id: number): void;
-    computeQuatBetween(
-        ax: number,
-        ay: number,
-        az: number,
-        bx: number,
-        by: number,
-        bz: number,
-    ): number;
     shapeFindHullSupportVertex(world: number, id: number, x: number, y: number, z: number): number;
     shapeFindHullSupportFace(world: number, id: number, x: number, y: number, z: number): number;
     shapeQueryCompound(
@@ -354,25 +327,11 @@ export type Kernel = {
         extra: number,
     ): void;
     shapeFinishGeometry(world: number, id: number): void;
-    shapeCreateProxyTransform(
-        world: number,
-        id: number,
-        force: number,
-        x: number,
-        y: number,
-        z: number,
-        qx: number,
-        qy: number,
-        qz: number,
-        qs: number,
-    ): void;
-    shapeDestroyProxy(world: number, id: number): void;
     shapeGeneration(world: number, id: number): number;
     shapeAlive(world: number, id: number): number;
     shapeCount(world: number): number;
     /** Kernel-owned live material records attached to shape slots. */
     shapeAllocateMaterials(world: number, id: number, count: number): number;
-    shapeFreeMaterials(world: number, id: number): void;
     shapeMaterialPtr(world: number, id: number): number;
     shapeMaterialSet(
         world: number,
@@ -507,14 +466,6 @@ export type Kernel = {
     broadEnsureSet(capacity: number): void;
     broadAddPair(a: number, b: number, child: number): number;
     broadRemovePair(a: number, b: number, child: number): number;
-
-    // `reservePairs` reserves move-result lists and rebuild scratch. ParKind.Pairs queries the
-    // resident proxies, shapes, body types and pair table, including compound recursion and default
-    // filtering. Survivors beyond 16 times the move count are discarded.
-    // Each result is (child, shapeA, shapeB, next), prepended at its proxy's `pairsCandEndPtr` head
-    // (u32::MAX for empty). TypeScript creates contacts from those lists in place after the join.
-    reservePairs(): void;
-    pairsCandEndPtr(): number;
 
     // Immutable native geometry images are retained by caller identity inside each world; shapes
     // and compounds hold the resulting kernel address. Hulls remain content-interned separately.

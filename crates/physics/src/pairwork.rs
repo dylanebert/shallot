@@ -111,11 +111,6 @@ pub unsafe fn rebuild_pending() -> bool {
 }
 
 /// Reserve shared pair-finding scratch, consumed before dispatch, recycle or solve reserves it.
-#[export_name = "reservePairs"]
-pub extern "C" fn reserve_pairs() {
-    reserve_pairs_in_world(crate::regions::active())
-}
-
 pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
     unsafe {
         let collect = crate::callbacks::filter_enabled(world_index);
@@ -157,7 +152,6 @@ pub extern "C" fn reserve_pairs_in_world(world_index: usize) {
     }
 }
 
-#[export_name = "pairsCandEndPtr"]
 pub extern "C" fn pairs_cand_end_ptr() -> *const u32 {
     unsafe { CANDEND_PTR as *const u32 }
 }
@@ -351,7 +345,8 @@ fn shapes_collide(a: &[u32], b: &[u32]) -> bool {
 /// and traversal stack; the candidate allocator assigns shared storage.
 ///
 /// # Safety
-/// reservePairs must precede the round; trees, shapes and membership stay fixed until its join.
+/// `reserve_pairs_in_world` precedes the round; trees, shapes and membership stay fixed until its
+/// join.
 pub unsafe fn query_block(world_index: usize, start: usize, end: usize, set_cap: usize) {
     unsafe {
         let move_count = MOVE_COUNT;
