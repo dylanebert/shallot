@@ -4,7 +4,7 @@ import { World } from "../../engine";
 import { type Mesh, Meshes } from "./index";
 import { cube } from "./primitives";
 
-test("mesh removal clears every reader and handle reuse appends the new mesh in insertion order", () => {
+test("mesh removal clears every reader and index reuse appends the new mesh in insertion order", () => {
     const world = new World();
     const meshes = world.resource(Meshes);
     const mesh = (name: string) =>
@@ -22,11 +22,14 @@ test("mesh removal clears every reader and handle reuse appends the new mesh in 
         expect([...meshes]).toEqual([second]);
         expect(meshes.size).toBe(1);
         const replacement = mesh("replacement");
-        expect(meshes.add(replacement)).toBe(handle);
-        expect(meshes.get(handle)).toBe(replacement);
+        const next = meshes.add(replacement);
+        expect(next).not.toBe(handle);
+        expect(meshes.get(handle)).toBeUndefined();
+        expect(meshes.remove(handle)).toBeUndefined();
+        expect(meshes.get(next)).toBe(replacement);
         expect([...meshes.entries()]).toEqual([
             [other, second],
-            [handle, replacement],
+            [next, replacement],
         ]);
         expect([...meshes.values()]).toEqual([second, replacement]);
         meshes.clear();
@@ -34,6 +37,9 @@ test("mesh removal clears every reader and handle reuse appends the new mesh in 
         expect(meshes.has(handle)).toBe(false);
         expect(meshes.get(other)).toBeUndefined();
         expect(meshes.size).toBe(0);
+        const afterClear = meshes.add(first);
+        expect([handle, other, next]).not.toContain(afterClear);
+        for (const stale of [handle, other, next]) expect(meshes.get(stale)).toBeUndefined();
     } finally {
         world.dispose();
     }

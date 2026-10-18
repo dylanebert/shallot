@@ -7,7 +7,14 @@ import type { World } from "../../engine";
 import type { MaterialHandle } from "./material";
 import { MeshInstanceInput } from "./material-data";
 import { ALPHA_PIPELINE_KEY_COUNT, AlphaModeCode, AlphaPipelineKey } from "./material-type";
-import { CULL_STRIDE, CullParams, countLayout, scatterLayout, visibility } from "./pack";
+import {
+    CULL_STRIDE,
+    CullParams,
+    countLayout,
+    MeshBounds,
+    scatterLayout,
+    visibility,
+} from "./pack";
 
 /** World-owned GPU instance columns. The producer owns initialization, count reset and frame ordering. */
 export interface ProducerTable {
@@ -109,7 +116,7 @@ export const producerCullLayout = tgpu
     .bindGroupLayout({
         instances: { storage: d.arrayOf(MeshInstanceInput), access: "readonly" },
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
-        meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        meshBounds: { storage: d.arrayOf(MeshBounds), access: "readonly" },
         args: { storage: ProducerDispatch, access: "readonly" },
         producer: { uniform: ProducerParams },
         params: { uniform: CullParams },
@@ -136,10 +143,12 @@ const producerPair = tgpu.fn(
 )((row, slot) => {
     "use gpu";
     const instance = producerCullLayout.$.instances[row];
+    const mid = instance.mesh & 0xfffff;
     const params = producerCullLayout.$.params;
     const basePairs = producerCullLayout.$.producer.basePairs;
     if (
-        instance.mesh >= params.meshCount ||
+        mid >= params.meshCount ||
+        producerCullLayout.$.meshBounds[mid].handle !== instance.mesh ||
         instance.materialType >= d.u32(basePairs / (ALPHA_PIPELINE_KEY_COUNT * params.meshCount)) ||
         (instance.alphaMode !== AlphaModeCode.Opaque &&
             instance.alphaMode !== AlphaModeCode.Mask &&
@@ -148,13 +157,13 @@ const producerPair = tgpu.fn(
         return params.pairCount;
     if ((instance.flags & 1) !== 0 && producerCullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0)
         return params.pairCount;
-    if (!producerVisible(instance.mesh, row, row, slot)) return params.pairCount;
+    if (!producerVisible(mid, row, row, slot)) return params.pairCount;
     let key: number = instance.alphaMode;
     if (key === AlphaModeCode.AlphaToCoverage) key = AlphaPipelineKey.AlphaToCoverage;
     return (
         producerCullLayout.$.producer.pairOffset +
         (instance.materialType * ALPHA_PIPELINE_KEY_COUNT + key) * params.meshCount +
-        instance.mesh
+        mid
     );
 });
 export const producerCountKernel = tgpu.computeFn({

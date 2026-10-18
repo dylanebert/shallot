@@ -603,7 +603,7 @@ function resolveDraw(world: World, draw: Draw, capacity: number, meshCount: numb
     state.frameDraws[state.frameCount++] = item;
     const pair =
         (draw.materialType * ALPHA_PIPELINE_KEY_COUNT + draw.alphaPipelineKey) * meshCount +
-        draw.mesh;
+        world.resource(meshResourcesKey).meshes.index(draw.mesh)!;
     if (!item.r.g.producer && pair < state.framePairCount) state.frameDrawPairs[pair] = item;
 }
 
@@ -891,7 +891,9 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
         if (!mesh || mesh.pending) continue;
         const type = materials.type.get(instanceEid);
         const key = alphaPipelineKey(alphaMode);
-        const pair = (type * ALPHA_PIPELINE_KEY_COUNT + key) * meshCount + meshId;
+        const pair =
+            (type * ALPHA_PIPELINE_KEY_COUNT + key) * meshCount +
+            world.resource(meshResourcesKey).meshes.index(meshId)!;
         if (!state.frameDrawPairs[pair]) continue;
 
         // Typed locals: an optional-chained default leaves each one untyped, so the override

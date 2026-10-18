@@ -965,7 +965,7 @@ const mesh = world.resource(Meshes).add({ name: "block", ...cube() });
 world.add(eid, MeshInstance, { mesh });
 ```
 
-Replace `Meshes.id(name)` with the retained handle from `Meshes.add`; names no longer resolve mesh identity. `Meshes.register(mesh)` becomes `Meshes.add(mesh)`: a GPU-resident `Mesh` record is added as-is, while typed arrays are staged and packed. `MeshPlugin` adds only the default cube. To use another built-in geometry constructor, add its mesh explicitly:
+Replace `Meshes.id(name)` with the retained handle from `Meshes.add`; names no longer resolve mesh identity. Handles are opaque, generation-checked identities, not GPU row indices or packed vertex mesh IDs. Removing a mesh or clearing `Meshes` invalidates its handles: instances retaining them draw nothing, even after later additions or an ECS snapshot restore. To draw a replacement, write its newly returned handle to `MeshInstance.mesh` (or a producer's `MeshInstanceInput.mesh`). `Meshes.register(mesh)` becomes `Meshes.add(mesh)`: a GPU-resident `Mesh` record is added as-is, while typed arrays are staged and packed. `MeshPlugin` adds only the default cube. To use another built-in geometry constructor, add its mesh explicitly:
 
 ```ts
 import { Meshes, sphere } from "@dylanebert/shallot/mesh";

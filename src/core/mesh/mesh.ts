@@ -3,7 +3,7 @@ import type { AnyData, AnyWgslData, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import type { System, World } from "../../engine";
 
-import { octEncode, packUnorm2 } from "../../engine/utils";
+import { HandleAllocator, octEncode, packUnorm2 } from "../../engine/utils";
 import { MeshQuant } from "./vertex";
 
 export type MeshStorage<T extends AnyWgslData> = TgpuBuffer<WgslArray<T>> & StorageFlag;
@@ -16,7 +16,8 @@ export type MeshBinding =
 
 declare const meshHandleBrand: unique symbol;
 
-/** World-local identity returned by `Meshes.add`, valid until removal or clear. */
+/** World-local generation-checked identity returned by `Meshes.add`, valid until removal or clear.
+ * Opaque: not a GPU row or a packed vertex mesh ID. */
 export type MeshHandle = number & { readonly [meshHandleBrand]: true };
 const DEFAULT_MESH_HANDLE = 0 as MeshHandle;
 
@@ -92,8 +93,7 @@ interface MeshRegistry extends Iterable<Mesh> {
      */
     add(mesh: Mesh): MeshHandle;
     /** Removes and returns the mesh, if present, without destroying its buffers. Typed-array
-     * families retain their slices until `clearMeshes`. A later add reissues the lowest free
-     * handle: remove the mesh's instances too, or they will reference its successor. */
+     * families retain their slices until `clearMeshes`. Removed handles never resolve to later additions. */
     remove(handle: MeshHandle): Mesh | undefined;
     get(handle: MeshHandle): Mesh | undefined;
     has(handle: MeshHandle): boolean;
@@ -106,10 +106,11 @@ interface MeshRegistry extends Iterable<Mesh> {
 class MeshRegistryImpl implements MeshRegistry {
     private readonly _world: World;
     private _nextHandle = 0;
-    private _freeHandle = 0;
+    private readonly _handles = new HandleAllocator();
     version = 0;
     private readonly _entriesByHandle: (Mesh | undefined)[] = [];
     private readonly _order: MeshHandle[] = [];
+    private readonly _handlesByIndex: (MeshHandle | undefined)[] = [];
 
     constructor(world: World) {
         this._world = world;
@@ -132,57 +133,66 @@ class MeshRegistryImpl implements MeshRegistry {
                     `mesh ${mesh.name}: indirectIndexCount requires a STORAGE buffer and a finite, aligned in-range u32 byte offset`,
                 );
         }
-        const handle = this._freeHandle as MeshHandle;
-        this._nextHandle = Math.max(this._nextHandle, handle + 1);
-        this._entriesByHandle[handle] = mesh as Mesh;
+        const handle = this._handles.allocate() as MeshHandle;
+        const index = this._handles.index(handle)!;
+        this._nextHandle = Math.max(this._nextHandle, index + 1);
+        this._entriesByHandle[index] = mesh as Mesh;
+        this._handlesByIndex[index] = handle;
         this._order.push(handle);
-        while (this._entriesByHandle[this._freeHandle] !== undefined) this._freeHandle++;
         this.version++;
         return handle;
     }
 
     replace(handle: MeshHandle, mesh: Mesh): void {
         if (!this.has(handle)) throw new Error(`unknown mesh handle ${handle}`);
-        this._entriesByHandle[handle] = mesh;
+        this._entriesByHandle[this.index(handle)!] = mesh;
         this.version++;
     }
 
     remove(handle: MeshHandle): Mesh | undefined {
-        const mesh = this._entriesByHandle[handle];
-        if (!mesh) return undefined;
-        this._entriesByHandle[handle] = undefined;
+        const index = this.index(handle);
+        if (index === undefined) return undefined;
+        const mesh = this._entriesByHandle[index]!;
+        this._handles.release(handle);
+        this._entriesByHandle[index] = undefined;
+        this._handlesByIndex[index] = undefined;
         const orderIndex = this._order.indexOf(handle);
         for (let i = orderIndex + 1; i < this._order.length; i++)
             this._order[i - 1] = this._order[i];
         this._order.pop();
-        this._freeHandle = Math.min(this._freeHandle, handle);
         const pending = this._world.resource(meshResourcesKey).pending;
-        let index = -1;
-        for (let i = 0; i < pending.length; i++) {
-            if (pending[i].handle === handle) {
-                index = i;
-                break;
-            }
-        }
-        if (index !== -1) pending.splice(index, 1);
+        const pendingIndex = pending.findIndex((mesh) => mesh.handle === handle);
+        if (pendingIndex !== -1) pending.splice(pendingIndex, 1);
         this.version++;
         return mesh;
     }
 
     get(handle: MeshHandle): Mesh | undefined {
-        return this._entriesByHandle[handle];
+        const index = this.index(handle);
+        return index === undefined ? undefined : this._entriesByHandle[index];
     }
 
     has(handle: MeshHandle): boolean {
-        return this._entriesByHandle[handle] !== undefined;
+        return this.index(handle) !== undefined;
+    }
+
+    /** Dense GPU table row only for a live generation-checked handle. @internal */
+    index(handle: number): number | undefined {
+        return this._handles.index(handle);
+    }
+
+    /** Live handle at a dense GPU table row. @internal */
+    handleAt(index: number): MeshHandle | undefined {
+        return this._handlesByIndex[index];
     }
 
     *entries(): IterableIterator<[MeshHandle, Mesh]> {
-        for (const handle of this._order) yield [handle, this._entriesByHandle[handle]!];
+        for (const handle of this._order)
+            yield [handle, this._entriesByHandle[this.index(handle)!]!];
     }
 
     *values(): IterableIterator<Mesh> {
-        for (const handle of this._order) yield this._entriesByHandle[handle]!;
+        for (const handle of this._order) yield this._entriesByHandle[this.index(handle)!]!;
     }
 
     [Symbol.iterator](): IterableIterator<Mesh> {
@@ -199,9 +209,11 @@ class MeshRegistryImpl implements MeshRegistry {
 
     clear(): void {
         this._entriesByHandle.fill(undefined);
+        this._handlesByIndex.fill(undefined);
         this._order.length = 0;
         // Handle-indexed consumers retain their allocation and addressing stride across clear.
-        this._freeHandle = 0;
+        this._handles.clear();
+        this._world.resource(meshResourcesKey).pending.length = 0;
         this.version++;
     }
 }

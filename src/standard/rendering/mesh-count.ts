@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Meshes, type MeshHandle } from "../../core/mesh";
+import { meshResourcesKey } from "../../core/mesh";
 import type { World } from "../../engine";
 import {
     beginComputePass,
@@ -65,11 +65,12 @@ export function rebuildMeshCounts(
     slots: number,
 ): void {
     const state = world.resource(key);
-    const meshes = world.resource(Meshes);
+    const meshes = world.resource(meshResourcesKey).meshes;
     for (let i = 0; i < state.sources.length; i++) state.sources[i]!.cursor = 0;
     state.activeCount = 0;
     for (let handle = 0; handle < meshCount; handle++) {
-        const mesh = meshes.get(handle as MeshHandle);
+        const live = meshes.handleAt(handle);
+        const mesh = live === undefined ? undefined : meshes.get(live);
         const source = mesh?.indirectIndexCount;
         if (!mesh || !source) continue;
         let entry = state.cache.get(source.buffer);

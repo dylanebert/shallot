@@ -39,7 +39,7 @@ test("a hundred warm count-bearing turnovers create no device buffers or bind gr
         const buffer = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE });
         s.world.own(buffer);
         s.meshes.remove(handle);
-        expect(s.meshes.add({ ...s.spec, indirectIndexCount: { buffer } })).toBe(handle);
+        expect(s.meshes.add({ ...s.spec, indirectIndexCount: { buffer } })).not.toBe(handle);
     }
     s.world.step(0);
     const buffer = device.createBuffer.bind(device),
@@ -58,12 +58,11 @@ test("a hundred warm count-bearing turnovers create no device buffers or bind gr
         for (let i = 0; i < 100; i++) {
             const handle = s.handles[0]!;
             s.meshes.remove(handle);
-            expect(
-                s.meshes.add({
-                    ...s.spec,
-                    indirectIndexCount: { buffer: s.buffer, offset: (i % 2) * 4 },
-                }),
-            ).toBe(handle);
+            s.handles[0] = s.meshes.add({
+                ...s.spec,
+                indirectIndexCount: { buffer: s.buffer, offset: (i % 2) * 4 },
+            });
+            expect(s.handles[0]).not.toBe(handle);
             s.world.step(0);
         }
     } finally {
@@ -131,7 +130,7 @@ test("failed draw publication does not consume a new alpha key before its record
     const s = setup(5);
     const handle = s.handles[0]!;
     s.meshes.remove(handle);
-    s.meshes.add({ ...s.spec, indexBase: 6 });
+    const next = s.meshes.add({ ...s.spec, indexBase: 6 });
     s.world.step(0);
     s.world.resource(Materials).add(StandardMaterial(), { alphaMode: AlphaMode.Blend });
     const queue = s.world.gpu.device.queue,
@@ -152,7 +151,7 @@ test("failed draw publication does not consume a new alpha key before its record
     expect(failures).toBe(1);
     s.world.step(0);
     const draw = [...s.world.resource(Draws)].find(
-        (d) => d.mesh === handle && d.alphaPipelineKey === AlphaPipelineKey.Blend,
+        (d) => d.mesh === next && d.alphaPipelineKey === AlphaPipelineKey.Blend,
     )!;
     const args = (await draw.args.indirect.read()) as { firstIndex: number }[];
     expect(args[draw.args.offset! / 20]!.firstIndex).toBe(6);
@@ -161,9 +160,8 @@ test("a failed existing count-table upload retries the new count instead of trus
     const s = setup(4);
     const handle = s.handles[0]!;
     s.meshes.remove(handle);
-    expect(s.meshes.add({ ...s.spec, indirectIndexCount: { buffer: s.buffer, offset: 4 } })).toBe(
-        handle,
-    );
+    const next = s.meshes.add({ ...s.spec, indirectIndexCount: { buffer: s.buffer, offset: 4 } });
+    expect(next).not.toBe(handle);
     const queue = s.world.gpu.device.queue,
         write = queue.writeBuffer.bind(queue);
     let failures = 0;
@@ -181,7 +179,7 @@ test("a failed existing count-table upload retries the new count instead of trus
     }
     expect(failures).toBe(1);
     s.world.step(0);
-    const draw = [...s.world.resource(Draws)].find((d) => d.mesh === handle)!;
+    const draw = [...s.world.resource(Draws)].find((d) => d.mesh === next)!;
     const args = (await draw.args.indirect.read()) as { indexCount: number }[];
     expect(args[draw.args.offset! / 20]!.indexCount).toBe(9);
 });

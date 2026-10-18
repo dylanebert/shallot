@@ -44,7 +44,7 @@ test("freed mesh handles clear bounds and entity/producer records, then publish 
         const state = world.resource(meshPreprocessKey);
         return new Float32Array(
             (await probeBuffer(world, world.gpu.root.unwrap(state.meshBounds!))).bytes,
-        ).slice(handle * 4, handle * 4 + 4);
+        ).slice(handle * 8, handle * 8 + 4);
     };
     const records = async () =>
         new Uint32Array(
@@ -89,11 +89,16 @@ test("freed mesh handles clear bounds and entity/producer records, then publish 
         indexCount: 3,
         indexBase: original.indexBase + 3,
     };
-    expect(meshes.add(successor)).toBe(handle);
-    world.add(eid, MeshInstance, { mesh: handle });
+    const next = meshes.add(successor);
+    expect(next).not.toBe(handle);
+    world.add(eid, MeshInstance, { mesh: next });
     world.step(0);
     expect(await bounds()).toEqual(new Float32Array(successor.bounds));
-    const expectedOrder = [...survivors, ...draws];
+    const successorDraws = draws.filter((draw) => draw.name.startsWith("mesh:"));
+    expect(
+        [...registry].some((draw) => draw.name.startsWith("producer:") && draw.mesh === next),
+    ).toBe(false);
+    const expectedOrder = [...survivors, ...successorDraws];
     expect([...registry]).toEqual(expectedOrder);
     expect(Array.from(registry)).toEqual(expectedOrder);
     expect([...registry.values()]).toEqual(expectedOrder);
@@ -104,7 +109,7 @@ test("freed mesh handles clear bounds and entity/producer records, then publish 
     expect(registered).toEqual(expectedOrder);
     expect(registry.size).toBe(expectedOrder.length);
     const current = await records();
-    for (const draw of draws) {
+    for (const draw of successorDraws) {
         expect(world.resource(Draws).get(draw.name)).toBe(draw);
         const offset = draw.args.offset! / 4;
         expect(current[offset]).toBe(3);

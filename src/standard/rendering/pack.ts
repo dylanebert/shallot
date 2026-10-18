@@ -22,6 +22,9 @@ export const CullParams = d.struct({
     instanceCapacity: d.u32,
 });
 
+/** Generation and bounds share one binding, indexed by the dense handle index. @internal */
+export const MeshBounds = d.struct({ sphere: d.vec4f, handle: d.u32 });
+
 /** shared dense inputs for count + scatter, plus mesh bounds and per-view cull volumes @internal */
 export const cullLayout = tgpu
     .bindGroupLayout({
@@ -29,7 +32,7 @@ export const cullLayout = tgpu
         instances: { storage: d.arrayOf(MeshInstanceInput), access: "readonly" },
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
-        meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        meshBounds: { storage: d.arrayOf(MeshBounds), access: "readonly" },
         cullVolumes: { uniform: CullVolumes },
         params: { uniform: CullParams },
     })
@@ -84,7 +87,7 @@ export function visibility(
         "use gpu";
         if (slot >= layout.$.params.viewCount) return true;
         const xf = layout.$.globalTransforms[globalTransformRow];
-        let b = d.vec4f(layout.$.meshBounds[mid]);
+        let b = d.vec4f(layout.$.meshBounds[mid].sphere);
         const override = layout.$.instances[instanceRow].cullBounds;
         if (override.w >= 0) b = d.vec4f(override);
         const center = xformPoint(xf, d.vec3f(b.x, b.y, b.z));
@@ -128,17 +131,19 @@ function pairFactory(materialTypeCount: number) {
             const instance = cullLayout.$.instances[row];
             const encodedGlobalTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
+            const mid = instance.mesh & 0xfffff;
             const materialType = instance.materialType;
             const alphaMode = instance.alphaMode;
             if (
                 materialType >= materialTypeCount ||
                 alphaMode > 6 ||
-                instance.mesh >= cullLayout.$.params.meshCount ||
+                mid >= cullLayout.$.params.meshCount ||
+                cullLayout.$.meshBounds[mid].handle !== instance.mesh ||
                 encodedGlobalTransform === 0
             ) {
                 return Pair({
                     pair: invalidPair,
-                    mid: instance.mesh,
+                    mid,
                     eid,
                     row,
                     globalTransformRow: 0,
@@ -149,8 +154,8 @@ function pairFactory(materialTypeCount: number) {
             else if (alphaMode === 5) alphaKey = 4;
             else if (alphaMode === 6) alphaKey = 5;
             return Pair({
-                pair: (materialType * 6 + alphaKey) * cullLayout.$.params.meshCount + instance.mesh,
-                mid: instance.mesh,
+                pair: (materialType * 6 + alphaKey) * cullLayout.$.params.meshCount + mid,
+                mid,
                 eid,
                 row,
                 globalTransformRow: encodedGlobalTransform - 1,

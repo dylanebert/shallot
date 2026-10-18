@@ -45,6 +45,7 @@ import {
     countKernel,
     countLayout,
     cullLayout,
+    MeshBounds,
     scanKernel,
     scanLayout,
     scatterKernel,
@@ -63,7 +64,7 @@ const DRAW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 const MESH_INSTANCES = [MeshInstance];
 type InstanceBuffer = TgpuBuffer<d.WgslArray<d.Vec4u>> & StorageFlag;
 type AtomicU32Buffer = TgpuBuffer<d.WgslArray<d.Atomic<d.U32>>> & StorageFlag;
-type Vec4fBuffer = TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag;
+type MeshBoundsBuffer = TgpuBuffer<d.WgslArray<typeof MeshBounds>> & StorageFlag;
 type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
     StorageFlag & { usableAsIndirect: true };
 
@@ -91,7 +92,7 @@ export interface MeshDrawBuffers {
 interface MeshPreprocessState {
     meshDraws: MeshDrawBuffers;
     counts: AtomicU32Buffer | null;
-    meshBounds: Vec4fBuffer | null;
+    meshBounds: MeshBoundsBuffer | null;
     cullParams: (TgpuBuffer<typeof CullParams> & UniformFlag) | null;
     cullGroup: TgpuBindGroup<(typeof cullLayout)["entries"]> | null;
     countPipe: TgpuComputePipeline | null;
@@ -544,11 +545,11 @@ function syncBuffers(world: World): void {
     }
 
     // Bounds follow membership even when a freed handle is reused without growth.
-    let staleBounds: Vec4fBuffer | null = null;
+    let staleBounds: MeshBoundsBuffer | null = null;
     if (growMesh || !_meshPreprocess.meshBounds) {
         staleBounds = _meshPreprocess.meshBounds;
         _meshPreprocess.meshBounds = world.gpu.root
-            .createBuffer(d.arrayOf(d.vec4f, _meshPreprocess.meshCount))
+            .createBuffer(d.arrayOf(MeshBounds, _meshPreprocess.meshCount))
             .$usage("storage")
             .$name("shallot-mesh-bounds");
     }
@@ -593,34 +594,38 @@ function alphaKeysChanged(world: World): boolean {
 }
 
 /**
- * Fill the per-mesh local bounding sphere buffer (one `vec4` per
- * mesh handle: `xyz` center, `w` radius). A mesh without `bounds` (a procedural
+ * Fill the dense per-mesh table with a live handle and local bounding sphere
+ * (`xyz` center, `w` radius). A mesh without `bounds` (a procedural
  * producer that didn't supply one) gets a sentinel radius so the cull keeps it
  * always-visible rather than wrongly culling it
  */
 function writeMeshBounds(world: World, device: GPUDevice): void {
     const _meshPreprocess = world.resource(meshPreprocessKey);
-    const _meshes = world.resource(Meshes);
+    const _meshes = world.resource(meshResourcesKey).meshes;
 
     const buffer = _meshPreprocess.meshBounds!;
-    if (_meshPreprocess.boundsData.length < _meshPreprocess.meshCount * 4)
+    if (_meshPreprocess.boundsData.length < _meshPreprocess.meshCount * 8)
         _meshPreprocess.boundsData = new Float32Array(
-            Math.max(_meshPreprocess.meshCount * 4, _meshPreprocess.boundsData.length * 2),
+            Math.max(_meshPreprocess.meshCount * 8, _meshPreprocess.boundsData.length * 2),
         );
     const data = _meshPreprocess.boundsData;
+    const words = new Uint32Array(data.buffer);
     data.fill(0);
-    for (let handle = 0; handle < _meshPreprocess.meshCount; handle++) {
-        const mesh = _meshes.get(handle as MeshHandle);
+    for (let index = 0; index < _meshPreprocess.meshCount; index++) {
+        words[index * 8 + 4] = 0xffffffff;
+        const handle = _meshes.handleAt(index);
+        const mesh = handle === undefined ? undefined : _meshes.get(handle);
         if (!mesh) continue;
-        if (mesh.bounds) data.set(mesh.bounds, handle * 4);
-        else data[handle * 4 + 3] = 1e30; // never-cull sentinel
+        words[index * 8 + 4] = handle!;
+        if (mesh.bounds) data.set(mesh.bounds, index * 8);
+        else data[index * 8 + 3] = 1e30; // never-cull sentinel
     }
     device.queue.writeBuffer(
         world.gpu.root.unwrap(buffer),
         0,
         data,
         0,
-        _meshPreprocess.meshCount * 4,
+        _meshPreprocess.meshCount * 8,
     );
 }
 
@@ -639,13 +644,14 @@ function publishDraw(
     const owner = (table * state.materialTypeCount + type) * ALPHA_PIPELINE_KEY_COUNT + alpha;
     let lookup = state.drawLookup[owner];
     if (!lookup) state.drawLookup[owner] = lookup = [];
-    let slot = lookup[handle];
+    const index = world.resource(meshResourcesKey).meshes.index(handle)!;
+    let slot = lookup[index];
     const producers = world.resource(producerTables);
     if (!slot) {
         const name =
             table === 0
-                ? `mesh:material:${world.resource(MaterialTypes).types[type]!.name}:${alpha}:${handle}`
-                : `producer:${producers.tables[table - 1]!.table.name}:${type}:${alpha}:${handle}`;
+                ? `mesh:material:${world.resource(MaterialTypes).types[type]!.name}:${alpha}:${index}`
+                : `producer:${producers.tables[table - 1]!.table.name}:${type}:${alpha}:${index}`;
         slot = {
             draw: {
                 name,
@@ -657,12 +663,13 @@ function publishDraw(
             active: false,
             seen: false,
         };
-        lookup[handle] = slot;
+        lookup[index] = slot;
         state.drawSlots.push(slot);
     }
     if (slot.seen) return;
     slot.seen = true;
     const draw = slot.draw;
+    draw.mesh = handle as MeshHandle;
     draw.args.indirect = indirect;
     draw.args.offset = pair * DRAW_ARG_STRIDE;
     draw.args.viewStride = state.pairCount * DRAW_ARG_STRIDE;
@@ -687,7 +694,7 @@ export function publishMeshInstanceDraws(
     pairCount: number,
 ): void {
     const { types: materialTypes, sources } = world.resource(MaterialTypes);
-    const meshes = world.resource(Meshes);
+    const meshes = world.resource(meshResourcesKey).meshes;
     const state = world.resource(meshPreprocessKey);
     const invalidPairs = state.invalidPairs;
     for (let materialType = 0; materialType < materialTypes.length; materialType++) {
@@ -697,7 +704,8 @@ export function publishMeshInstanceDraws(
         if (!known) state.pairingMeshes[materialType] = known = [];
         let rejected = invalidPairs.get(materialType);
         for (let handle = 0; handle < state.meshCount; handle++) {
-            const mesh = meshes.get(handle as MeshHandle);
+            const live = meshes.handleAt(handle);
+            const mesh = live === undefined ? undefined : meshes.get(live);
             if (known[handle] === mesh) continue;
             known[handle] = mesh;
             const cause = mesh ? materialAttributeError(mesh, definition) : null;
@@ -719,14 +727,15 @@ export function publishMeshInstanceDraws(
             // a key no row has held has no instance; its records stay unwritten and undrawn
             if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
             for (let handle = 0; handle < world.resource(meshPreprocessKey).meshCount; handle++) {
-                const m = meshes.get(handle as MeshHandle);
+                const live = meshes.handleAt(handle);
+                const m = live === undefined ? undefined : meshes.get(live);
                 if (!m) continue;
                 if (rejected?.has(handle)) continue;
                 const pair =
                     (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) *
                         (pairCount / (materialTypes.length * ALPHA_PIPELINE_KEY_COUNT)) +
                     handle;
-                publishDraw(world, 0, materialType, alphaPipelineKey, handle, pair, drawArgs);
+                publishDraw(world, 0, materialType, alphaPipelineKey, live!, pair, drawArgs);
             }
         }
     }
@@ -736,7 +745,7 @@ function publishProducerDraws(world: World, basePairs: number): void {
     const state = world.resource(meshPreprocessKey);
     const producers = world.resource(producerTables);
     const types = world.resource(MaterialTypes).types;
-    const meshes = world.resource(Meshes);
+    const meshes = world.resource(meshResourcesKey).meshes;
     for (let tableIndex = 0; tableIndex < producers.tables.length; tableIndex++) {
         const entry = producers.tables[tableIndex]!;
         for (const material of entry.materials) {
@@ -749,7 +758,7 @@ function publishProducerDraws(world: World, basePairs: number): void {
                 const pair =
                     (tableIndex + 1) * basePairs +
                     (material.type * ALPHA_PIPELINE_KEY_COUNT + alphaKey) * state.meshCount +
-                    handle;
+                    meshes.index(handle)!;
                 publishDraw(
                     world,
                     tableIndex + 1,
@@ -769,7 +778,11 @@ function warnInvalidInstance(world: World, eid: number): void {
     const { invalidPairs, warnedPairs } = world.resource(meshPreprocessKey);
     const rejected = invalidPairs
         .get(world.storage(MeshMaterial).type.get(eid))
-        ?.get(world.storage(MeshInstance).mesh.get(eid));
+        ?.get(
+            world
+                .resource(meshResourcesKey)
+                .meshes.index(world.storage(MeshInstance).mesh.get(eid))!,
+        );
     if (!rejected || warnedPairs.has(rejected.name)) return;
     warnedPairs.add(rejected.name);
     console.warn(`standard: draw "${rejected.name}" skipped — ${rejected.cause}`);

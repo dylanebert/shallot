@@ -100,9 +100,10 @@ test("removing the middle of three meshes stops only its draw", async () => {
     expect(counts[1]).toBe(0);
     expect(counts[2]).toBeGreaterThan(0);
 });
-test("a reissued mesh handle draws the new geometry without a membership-count change", async () => {
+test("a removed mesh stays undrawn after index reuse and snapshot restore until explicitly rebound", async () => {
     const s = scene(1);
     const before = (await coverage(s))[1]!;
+    const snapshot = s.world.snapshot();
     s.meshes.remove(s.handles[1]!);
     const geometry = cube([0.2, 0.2, 0.2]);
     const replacement = s.meshes.add({
@@ -110,7 +111,13 @@ test("a reissued mesh handle draws the new geometry without a membership-count c
         ...geometry,
         indices: geometry.indices.slice(0, 6),
     });
-    expect(replacement).toBe(s.handles[1]!);
+    expect(replacement).not.toBe(s.handles[1]!);
+    s.world.step(0);
+    expect((await coverage(s))[1]).toBe(0);
+    s.world.restore(snapshot);
+    s.world.step(0);
+    expect((await coverage(s))[1]).toBe(0);
+    s.world.storage(MeshInstance).mesh.set(s.entities[1]!, replacement);
     s.world.step(0);
     s.world.step(0);
     const after = (await coverage(s))[1]!;
@@ -119,6 +126,13 @@ test("a reissued mesh handle draws the new geometry without a membership-count c
     const draw = [...s.world.resource(Draws)].find((draw) => draw.mesh === replacement)!;
     const args = await draw.args.indirect.read();
     expect((args as { indexCount: number }[])[draw.args.offset! / 20]!.indexCount).toBe(6);
+    clearMeshes(s.world);
+    s.meshes.add({ name: "after-clear-stale", ...cube() });
+    s.world.step(0);
+    expect(await coverage(s)).toEqual([0, 0, 0]);
+    s.world.restore(snapshot);
+    s.world.step(0);
+    expect(await coverage(s)).toEqual([0, 0, 0]);
 });
 test("a hundred fixed-live-count mesh turnovers keep draw and bounds buffer sizes flat", () => {
     const s = scene(2);
