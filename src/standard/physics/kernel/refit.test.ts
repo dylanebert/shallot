@@ -14,7 +14,7 @@ import { bodyGetTransform } from "../world/body";
 import { bounds } from "./math";
 import { readFatAabb, readShapeAabb } from "./shapecolumns";
 
-test("kernel finalization commits a moving non-convex mesh's tight and fat bounds", () => {
+test("kernel finalization commits a moving non-convex mesh's tight and fat bounds, read as independent snapshots", () => {
     const world = createTestWorld({
         gravity: { x: 0, y: 0, z: 0 },
         enableSleep: false,
@@ -37,6 +37,10 @@ test("kernel finalization commits a moving non-convex mesh's tight and fat bound
             angularVelocity: { x: 0, y: 1, z: 0 },
         });
         const shape = createMeshShape(world, body, testShapeDef(), mesh, { x: -2, y: 1, z: 0.5 })!;
+        const initialTight = readShapeAabb(world, shape, {
+            lowerBound: { x: 0, y: 0, z: 0 },
+            upperBound: { x: 0, y: 0, z: 0 },
+        });
         const initialFat = readFatAabb(world, shape, {
             lowerBound: { x: 0, y: 0, z: 0 },
             upperBound: { x: 0, y: 0, z: 0 },
@@ -52,12 +56,12 @@ test("kernel finalization commits a moving non-convex mesh's tight and fat bound
                 }),
                 SPECULATIVE_DISTANCE,
             );
-            expect(
-                readShapeAabb(world, shape, {
-                    lowerBound: { x: 0, y: 0, z: 0 },
-                    upperBound: { x: 0, y: 0, z: 0 },
-                }),
-            ).toEqual(expected);
+            const tight = readShapeAabb(world, shape, {
+                lowerBound: { x: 0, y: 0, z: 0 },
+                upperBound: { x: 0, y: 0, z: 0 },
+            });
+            expect(tight).toEqual(expected);
+            expect(tight).not.toEqual(initialTight);
             const fat = readFatAabb(world, shape, {
                 lowerBound: { x: 0, y: 0, z: 0 },
                 upperBound: { x: 0, y: 0, z: 0 },
