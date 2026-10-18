@@ -40,7 +40,10 @@ beforeAll(async () => {
     attachTexture(world, camera, { width: WIDTH, height: 720 });
     world.step(1 / 60);
     world.step(1 / 60);
-    for (let i = 0; i < 96; i++) world.step(0);
+    for (let i = 0; i < 64; i++) {
+        world.step(0);
+        await world.gpu.sync();
+    }
     const profiles: Float64Array[] = [];
     const patches: number[] = [];
     for (let i = 0; i < 16; i++) {
