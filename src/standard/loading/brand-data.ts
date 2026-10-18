@@ -28,10 +28,3 @@ export const DARK = {
     ink: "#f0e6d6",
     bg: "#141210",
 } as const;
-
-export const LIGHT = {
-    gold: "#d49560",
-    dim: "#e6c6a4",
-    ink: "#2a231e",
-    bg: "#f7f3ec",
-} as const;

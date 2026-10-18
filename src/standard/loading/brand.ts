@@ -1,8 +1,8 @@
 // Internal renderer for the default loading screen and generated icons. Its source data lives in
 // assets/branding; brand-data.ts embeds that data so published source needs no branding files.
-import { DARK, FONT, LIGHT, MARK, NAME } from "./brand-data";
+import { DARK, FONT, MARK, NAME } from "./brand-data";
 
-export { DARK, LIGHT };
+export { DARK };
 
 type Tone = "gold" | "dim" | "ink";
 
