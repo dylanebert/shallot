@@ -1,5 +1,7 @@
 export type {
     Component,
+    ComponentRecord,
+    ComponentValues,
     FieldType,
     ScalarField,
     TypedArray,

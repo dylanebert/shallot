@@ -26,6 +26,8 @@ export {
 export {
     and,
     type Component,
+    type ComponentRecord,
+    type ComponentValues,
     component,
     type EntityRef,
     entity,
