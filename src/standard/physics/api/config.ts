@@ -42,7 +42,7 @@ export function makeJointId(world: WorldState, joint: JointRecord): EntityId {
     };
 }
 
-/** Options shared by every joint (all optional; ported defaults fill the rest). */
+/** Options shared by every joint. */
 export type BaseJointConfig = {
     localFrameA: Transform;
     localFrameB: Transform;
@@ -55,7 +55,7 @@ export type BaseJointConfig = {
     userData: unknown;
 };
 
-/** Revolute-specific options, on top of the shared base (all optional). */
+/** Revolute-specific options, on top of the shared base. */
 export type RevoluteJointConfig = BaseJointConfig & {
     targetAngle: number;
     enableSpring: boolean;
@@ -69,7 +69,7 @@ export type RevoluteJointConfig = BaseJointConfig & {
     motorSpeed: number;
 };
 
-/** Weld-specific options, on top of the shared base (all optional). */
+/** Weld-specific options, on top of the shared base. */
 export type WeldJointConfig = BaseJointConfig & {
     linearHertz: number;
     linearDampingRatio: number;
@@ -77,14 +77,14 @@ export type WeldJointConfig = BaseJointConfig & {
     angularDampingRatio: number;
 };
 
-/** Parallel-specific options, on top of the shared base (all optional). */
+/** Parallel-specific options, on top of the shared base. */
 export type ParallelJointConfig = BaseJointConfig & {
     hertz: number;
     dampingRatio: number;
     maxTorque: number;
 };
 
-/** Motor-specific options, on top of the shared base (all optional). */
+/** Motor-specific options, on top of the shared base. */
 export type MotorJointConfig = BaseJointConfig & {
     linearVelocity: Vec3;
     maxVelocityForce: number;
@@ -98,7 +98,7 @@ export type MotorJointConfig = BaseJointConfig & {
     maxSpringTorque: number;
 };
 
-/** Distance-specific options, on top of the shared base (all optional). */
+/** Distance-specific options, on top of the shared base. */
 export type DistanceJointConfig = BaseJointConfig & {
     length: number;
     enableSpring: boolean;
@@ -114,7 +114,7 @@ export type DistanceJointConfig = BaseJointConfig & {
     motorSpeed: number;
 };
 
-/** Prismatic-specific options, on top of the shared base (all optional). */
+/** Prismatic-specific options, on top of the shared base. */
 export type PrismaticJointConfig = BaseJointConfig & {
     enableSpring: boolean;
     hertz: number;
@@ -128,7 +128,7 @@ export type PrismaticJointConfig = BaseJointConfig & {
     motorSpeed: number;
 };
 
-/** Spherical-specific options, on top of the shared base (all optional). */
+/** Spherical-specific options, on top of the shared base. */
 export type SphericalJointConfig = BaseJointConfig & {
     enableSpring: boolean;
     hertz: number;
@@ -144,7 +144,7 @@ export type SphericalJointConfig = BaseJointConfig & {
     motorVelocity: Vec3;
 };
 
-/** Wheel-specific options, on top of the shared base (all optional). */
+/** Wheel-specific options, on top of the shared base. */
 export type WheelJointConfig = BaseJointConfig & {
     enableSuspensionSpring: boolean;
     suspensionHertz: number;
