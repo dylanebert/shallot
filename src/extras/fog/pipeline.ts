@@ -354,7 +354,10 @@ const GAUSSIAN = tgpu.const(
     [0.071303, 0.131514, 0.189879, 0.214607, 0.189879, 0.131514, 0.071303],
 );
 
-/** Blur the reprojected lighting along x; the integration kernel blurs along y. */
+/**
+ * Blur extinction-weighted light (σt·L, σt) along x, as Godot blurs σs·L with σt; the integration kernel blurs
+ * along y and divides by σt. Blurring L and σt apart would light dense shadowed air with its thin lit neighbour.
+ */
 export const fogFilterKernel = tgpu
     .computeFn({
         workgroupSize: [WORKGROUP, WORKGROUP],
@@ -368,17 +371,12 @@ export const fogFilterKernel = tgpu
         let sum = d.vec4f(0);
         let k = d.i32(-3);
         while (k <= 3) {
-            sum = std.add(
-                sum,
-                std.mul(
-                    std.textureLoad(
-                        fogFilterLayout.$.lighting,
-                        d.vec3i(std.clamp(cell.x + k, 0, last), cell.y, cell.z),
-                        0,
-                    ),
-                    GAUSSIAN.$[k + 3],
-                ),
+            const tap = std.textureLoad(
+                fogFilterLayout.$.lighting,
+                d.vec3i(std.clamp(cell.x + k, 0, last), cell.y, cell.z),
+                0,
             );
+            sum = std.add(sum, std.mul(d.vec4f(std.mul(tap.xyz, tap.w), tap.w), GAUSSIAN.$[k + 3]));
             k = k + 1;
         }
         std.textureStore(fogFilterLayout.$.output, cell, sum);
@@ -437,14 +435,14 @@ export const fogIntegrateKernel = tgpu
                 );
                 k = k + 1;
             }
-            const sampleTrans = std.exp(-cell.w * ds);
-            // Hillaire's closed-form cell integral S*(1-exp(-sigma*ds))/sigma:
-            // S = sigma*albedo*lstep, so sigma cancels, including the clear-medium limit.
+            const opticalDepth = cell.w * ds;
+            const sampleTrans = std.exp(-opticalDepth);
+            // Hillaire's closed-form cell integral S*(1-exp(-sigma*ds))/sigma, with S = albedo*(sigma*lstep)
+            // filtered; the series keeps the clear-medium limit S*ds.
+            let span = ds * (1 - opticalDepth * 0.5);
+            if (opticalDepth > 1e-3) span = (1 - sampleTrans) / cell.w;
             inScatter = d.vec3f(
-                std.add(
-                    inScatter,
-                    std.mul(std.mul(cell.xyz, trans * albedo * gain), 1 - sampleTrans),
-                ),
+                std.add(inScatter, std.mul(cell.xyz, trans * albedo * gain * span)),
             );
             trans = trans * sampleTrans;
             std.textureStore(

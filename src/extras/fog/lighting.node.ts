@@ -204,3 +204,29 @@ test("ambient in-scatter increases with the camera's AmbientLight brightness", a
     expect(dim).toBeGreaterThan(dark + 10);
     expect(bright).toBeGreaterThan(dim + 10);
 });
+
+test("dense shadowed haze takes little light from thin lit haze beside it", async () => {
+    const { world } = subjects()[0]!;
+    const camera = scene();
+    // Height fog: dense below y = 0, thin above it.
+    world.storage(Fog).heightFalloff.set(world.only([Fog]), 3);
+    const sun = entity();
+    // The sun shines along −x; a slab at x = 4.5 shades everything below y = 0.
+    world.add(sun, Transform, { rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2] });
+    world.add(sun, DirectionalLight, {
+        illuminance: 1000,
+        shadowMapsEnabled: 1,
+        maximumDistance: 20,
+    });
+    world.add(sun, VolumetricLight);
+    const slab = entity();
+    world.add(slab, Transform, { translation: [4.5, -3, 0, 0], scale: [0.2, 6, 24, 0] });
+    world.add(slab, MeshInstance);
+    const rgba = await frame(camera);
+    // Rows 20–22 are lit thin air; rows 24–26 lie wholly in the dense shadow, inside the filter's reach.
+    const lit = patch(rgba, 16, 21);
+    const shade = patch(rgba, 16, 25);
+    console.log("height-fog shadow edge", { lit, shade });
+    expect(lit).toBeGreaterThan(20);
+    expect(shade).toBeLessThan(lit / 4);
+});
