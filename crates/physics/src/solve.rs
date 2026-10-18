@@ -58,7 +58,6 @@ struct Work {
     joint_bases: [usize; MAX_COLORS],
     color_count: usize,
     overflow_joints: Col<'static, f32>,
-    fin: Col<'static, f32>,
     overflow_joint_count: usize,
     /// box3d's `context->enableWarmStarting` — `prepare` zeroes the impulses when false.
     enable_warm_starting: bool,
@@ -587,10 +586,6 @@ pub extern "C" fn solve_build_in_world(
             joint_bases,
             color_count,
             overflow_joints: crate::joints::column(world_index, MAX_COLORS - 1),
-            fin: Col::new(
-                crate::bodies::fin_base(world_index) as *mut f32,
-                crate::bodies::body_cap_in_world(world_index) * crate::body::FIN_STRIDE,
-            ),
             overflow_joint_count,
             enable_warm_starting: warm_start_scale != 0.0,
             contact_softness: Softness {
