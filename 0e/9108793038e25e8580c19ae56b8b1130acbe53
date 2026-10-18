@@ -1,0 +1,2 @@
+stage: 3
+finding: P3 src/standard/physics/shapes/compound.test.ts:587: The renamed query test over-claims: it says ray cast, shape cast and overlap report the nearest child with fraction, material and compound-space hull normal, and miss gaps. Only ray cast checks material and the transformed hull normal; shape cast checks only hit/fraction/childIndex; overlap returns only a boolean and checks gap versus hit. A broken shape-cast material or normal still passes. Name the separate assertions rather than attributing ray-only results to all three queries.
