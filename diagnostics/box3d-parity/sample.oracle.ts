@@ -5,6 +5,12 @@ import { join } from "node:path";
 import { run } from "./native";
 import { sampleBinary } from "./sample";
 
+test("grab sequence reproduces the example's native gold", () => {
+    const hashes = run([sampleBinary(), "box_stack", "45", "grab"]);
+    expect(run([sampleBinary(), "box_stack", "45", "grab"])).toBe(hashes);
+    expect(readFileSync(new URL("../../examples/physics/tests/grab.gold.txt", import.meta.url), "utf8")).toBe(hashes);
+});
+
 const steps = 600;
 for (const scene of ["box_stack", "bridge"]) {
     test(`${scene}: upstream sample hashes repeat and a source constant changes them`, () => {

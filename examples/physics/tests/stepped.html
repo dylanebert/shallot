@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Physics grab, stepped</title>
+<style>body{margin:0}canvas{width:640px;height:480px;display:block}</style></head>
+<body><canvas width="640" height="480"></canvas><script type="module">
+import { createApp, Camera, GlobalTransform, pointerMove, pressButton, releaseButton, StandardPhysicsPlugin } from '@dylanebert/shallot';
+import { worldToViewport } from '@dylanebert/shallot/rendering';
+import { OrbitPlugin } from '@dylanebert/shallot/extras';
+import { createScene } from '../src/scenes';
+import { createView } from '../src/view';
+import { Grab, GrabPlugin } from '../src/grab';
+let bodies;
+const app = await createApp({ plugins: [StandardPhysicsPlugin, OrbitPlugin, GrabPlugin], setup(world) {
+ bodies=createScene(world,'boxStack'); createView(world,'boxStack');
+} });
+const world=app.world;
+const camera=[...world.query([Camera])][0];
+world.storage(Camera).antialias.set(camera,0);
+const frame=()=>world.step(1/60);
+await frame(); await frame();
+const position=(eid)=>{const p=world.storage(GlobalTransform).translation;return [p.x.get(eid),p.y.get(eid),p.z.get(eid)]};
+window.drag=async()=>{
+ const body=bodies[20];
+ const before=position(body);
+ const pixel=worldToViewport(world,camera,before);
+ pointerMove(world,{x:pixel[0],y:pixel[1]}); pressButton(world,'left');
+ await frame();
+ const picked=world.resource(Grab).body;
+ for(let i=1;i<=30;i++) {pointerMove(world,{x:pixel[0]+i*3,y:pixel[1]});await frame();}
+ const after=position(body);
+ const projected=worldToViewport(world,camera,after);
+ releaseButton(world,'left'); await frame();
+ return {body,picked,before,after,pixel,projected,mouse:world.resource(Grab).mouse,joint:world.resource(Grab).joint};
+};
+window.ready=true;
+</script></body></html>

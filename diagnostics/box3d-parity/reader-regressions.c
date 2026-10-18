@@ -35,7 +35,7 @@ int main(void) {
     // Preserve the host's f64 authoring-to-f32 storage boundary as well as the native f32 call.
     b3Vec3 offset = b3RotateVector(q, b3Body_GetLocalCenter(b));
     b3Pos hostCenter = {(float)((double)offset.x + 5.6), (float)((double)offset.y + 6.7), (float)((double)offset.z + 7.8)};
-    const float hostInvDt = (float)(1.0 / (1.0 / 60.0));
+    const float hostInvDt = 1.0f / (float)(1.0 / 60.0);
     printf("],\"targetHostLinear\":[");
     vector(b3MulSV(hostInvDt, b3SubPos(hostCenter, b3Body_GetWorldCenter(b))));
     b3Quat q1 = b3Body_GetRotation(b);

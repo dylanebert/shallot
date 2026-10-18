@@ -51,6 +51,8 @@ test("standard physics exports consumed world operations and profiling without s
         "defaultDebugDraw",
         "drawPhysics",
         "emptyQueryHit",
+        "getLocalPoint",
+        "getMassData",
         "hashPhysics",
         "overlapAABB",
         "overlapShape",

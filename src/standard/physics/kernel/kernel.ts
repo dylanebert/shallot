@@ -258,6 +258,7 @@ export type Kernel = {
     bodyColumnPtr(world: number, id: number, column: number): number;
     simColumnPtr(world: number, set: number, index: number, column: number): number;
     bodyStateIndex(world: number, id: number): number;
+    bodyLocalPoint(world: number, id: number, x: number, y: number, z: number): number;
     bodyTargetVelocity(
         world: number,
         id: number,

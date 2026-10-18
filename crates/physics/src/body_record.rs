@@ -484,8 +484,30 @@ pub(crate) mod runtime {
         id
     }
 
-    // Preserve the JS API's rounding point for host translation and dt: subtraction and reciprocal
-    // precede f32 conversion. The resident pose and velocities remain f32.
+    static mut LOCAL_POINT: [f32; 3] = [0.0; 3];
+
+    #[export_name = "bodyLocalPoint"]
+    pub unsafe extern "C" fn local_point(
+        world: usize,
+        id: usize,
+        x: f64,
+        y: f64,
+        z: f64,
+    ) -> *const f32 {
+        crate::regions::select(world as u32);
+        let (pose, _, _) = bodies::geometry(world, id);
+        let delta = crate::math::Vec3::new(
+            (x - pose.p.x as f64) as f32,
+            (y - pose.p.y as f64) as f32,
+            (z - pose.p.z as f64) as f32,
+        );
+        let p = pose.q.inv_rotate(delta);
+        unsafe {
+            LOCAL_POINT = [p.x, p.y, p.z];
+            (&raw const LOCAL_POINT).cast()
+        }
+    }
+
     #[export_name = "bodyTargetVelocity"]
     pub unsafe extern "C" fn target_velocity(
         world: usize,
@@ -538,7 +560,7 @@ pub(crate) mod runtime {
             (rotated.y as f64 + ty) as f32,
             (rotated.z as f64 + tz) as f32,
         );
-        let inv_dt = (1.0 / time_step) as f32;
+        let inv_dt = 1.0_f32 / time_step as f32;
         let linear = center.sub(fin.center).scale(inv_dt);
         let sign = if pose.q.dot(q) < 0.0 { -1.0 } else { 1.0 };
         let difference = q.v.scale(sign).sub(pose.q.v);

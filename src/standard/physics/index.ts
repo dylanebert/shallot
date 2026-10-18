@@ -32,6 +32,8 @@ export {
     castShapeClosest,
     drawPhysics,
     emptyQueryHit,
+    getLocalPoint,
+    getMassData,
     hashPhysics,
     overlapAABB,
     overlapShape,

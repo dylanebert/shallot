@@ -51,8 +51,22 @@ public:
 	}
 	virtual ~Sample() { b3DestroyWorld( m_worldId ); }
 	virtual bool DrawControls() { return false; }
+	struct PickRay { b3Pos origin; b3Vec3 translation; };
+	b3BodyId m_mouseBodyId = {};
+	b3JointId m_mouseJointId = {};
+	b3Pos m_mousePoint = {};
+	float m_mouseForceScale = 100.0f;
+	float m_mouseFraction = 0.0f;
+	void SetSelectedBody( b3BodyId ) {}
+	void Grab( PickRay pickRay ) {
+// SAMPLE_GRAB
+	}
+	void Release()
+// SAMPLE_UP
 	void Step()
 	{
+		if ( B3_IS_NON_NULL( m_mouseBodyId ) )
+			b3Body_SetTargetTransform( m_mouseBodyId, { m_mousePoint, b3Quat_identity }, 1.0f / m_context->hertz, true );
 		b3World_EnableSleeping( m_worldId, m_context->enableSleep );
 		b3World_EnableWarmStarting( m_worldId, m_context->enableWarmStarting );
 		b3World_EnableContinuous( m_worldId, m_context->enableContinuous );
@@ -68,15 +82,22 @@ public:
 
 int main( int argc, char** argv )
 {
-	if ( argc != 3 || ( strcmp( argv[1], "box_stack" ) && strcmp( argv[1], "bridge" ) ) )
+	if ( ( argc != 3 && argc != 4 ) || ( strcmp( argv[1], "box_stack" ) && strcmp( argv[1], "bridge" ) ) ||
+		 ( argc == 4 && strcmp( argv[3], "grab" ) ) )
 	{
-		fprintf( stderr, "usage: sample box_stack|bridge <steps>\n" );
+		fprintf( stderr, "usage: sample box_stack|bridge <steps> [grab]\n" );
 		return 2;
 	}
 	SampleContext context;
 	Sample* sample = strcmp( argv[1], "box_stack" ) == 0 ? BoxStack::Create( &context ) : Bridge::Create( &context );
 	for ( int i = 0; i < atoi( argv[2] ); ++i )
 	{
+		if ( argc == 4 )
+		{
+			if ( i == 1 ) sample->Grab( { { 0, 25.75f, 10 }, { 0, 0, -20 } } );
+			if ( i > 1 && i < 31 ) sample->m_mousePoint.x = 0.05f * ( i - 1 );
+			if ( i == 31 ) sample->Release();
+		}
 		sample->Step();
 		printf( "%d 0x%016llx\n", i, (unsigned long long)b3HashWorldState( b3GetWorldFromId( sample->m_worldId ) ) );
 	}

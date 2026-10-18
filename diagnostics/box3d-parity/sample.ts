@@ -19,10 +19,14 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(stacking, "class BoxStack :", "static int sampleBoxStack"),
         section(joints, "class Bridge :", "static int sampleBridgeIndex"),
     ].join("\n");
-    const source = readFileSync(join(import.meta.dir, "sample.cpp"), "utf8").replace(
-        "// SAMPLE_SOURCES",
-        sources,
-    );
+    const grab = section(sample, "\t\t// Ctrl click grabs", "\n\telse if ( modifiers & MOD_SHIFT )")
+        .replace(/\t\tPickRay pickRay = m_camera->BuildPickRay\( p.x, p.y \);/, "")
+        .replace(/\n\t}\s*$/, "");
+    const up = section(sample, "void Sample::MouseUp(", "void Sample::MouseMove(");
+    const source = readFileSync(join(import.meta.dir, "sample.cpp"), "utf8")
+        .replace("// SAMPLE_GRAB", grab)
+        .replace("// SAMPLE_UP", up.slice(up.indexOf("{")))
+        .replace("// SAMPLE_SOURCES", sources);
     const path = join(tmpdir(), `box3d-sample-${Bun.hash(source).toString(16)}.cpp`);
     writeFileSync(path, source);
     return nativeBinary(path);

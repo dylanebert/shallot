@@ -27,6 +27,7 @@ export function createView(world: World, scene: Scene): void {
     world.add(camera, Camera, { clearColor: 0x191816 });
     world.add(camera, StandardRenderer);
     world.add(camera, Orbit, {
+        orbitButton: 2,
         yaw: (view.yaw * Math.PI) / 180,
         pitch: (view.pitch * Math.PI) / 180,
         distance: view.distance,

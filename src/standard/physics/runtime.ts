@@ -100,6 +100,7 @@ import {
     bodyApplyLinearImpulseToCenter,
     bodyApplyTorque,
     bodyGetLinearVelocity,
+    getMassData as bodyGetMassData,
     bodyGetTransform,
     bodyGetType,
     bodyIsAwake,
@@ -1020,6 +1021,29 @@ export function applyAngularImpulse(world: World, eid: number, impulse: Vec3, wa
     stateVector.y = impulse.y;
     stateVector.z = impulse.z;
     bodyApplyAngularImpulse(state, body.index1 - 1, stateVector, wake);
+}
+
+/** Converts a world point in meters to the body's unscaled local frame.
+ * Returns null for a body not yet synchronized. The returned record belongs to the caller. */
+export function getLocalPoint(world: World, eid: number, point: Pos): Vec3 | null {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return null;
+    const k = kernel(state.ecsState);
+    const ptr = k.bodyLocalPoint(state.worldId, body.index1 - 1, point.x, point.y, point.z);
+    const p = new Float32Array(k.memory.buffer, ptr, 3);
+    return { x: p[0], y: p[1], z: p[2] };
+}
+
+/** Current solver mass in kg, center in local meters and inertia in kg·m² about that center.
+ * Returns null for a body not yet synchronized. The returned record belongs to the caller. */
+export function getMassData(world: World, eid: number) {
+    const runtime = runtimeFor(world);
+    const body = runtime.bodies.get(eid);
+    return runtime.physicsWorld && body
+        ? bodyGetMassData(runtime.physicsWorld, body.index1 - 1)
+        : null;
 }
 
 /** Wakes a body and its island, or asks Box3D to put the whole island to sleep. A body added since the last fixed sync ignores it and spawns with `Body.isAwake`. */
