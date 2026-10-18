@@ -198,3 +198,12 @@ export function dispatchWorkgroupsIndirect(
 ): void {
     pass.dispatchWorkgroupsIndirect(buffer, offset);
 }
+
+export function dispatchWorkgroups3(
+    pass: GPUComputePassEncoder,
+    x: number,
+    y: number,
+    z: number,
+): void {
+    pass.dispatchWorkgroups(x, y, z);
+}

@@ -39,10 +39,6 @@ export const FogHistory = d.struct({
 
 export const fogGridLayout = tgpu
     .bindGroupLayout({
-        output: {
-            storageTexture: d.textureStorage3d("rgba16float", "write-only"),
-            visibility: ["compute"],
-        },
         feedback: {
             storageTexture: d.textureStorage3d("rgba16float", "write-only"),
             visibility: ["compute"],
@@ -50,6 +46,29 @@ export const fogGridLayout = tgpu
         history: { texture: d.texture3d(d.f32), visibility: ["compute"] },
         historySampler: { sampler: "filtering", visibility: ["compute"] },
         temporal: { uniform: FogHistory, visibility: ["compute"] },
+        view: { uniform: ViewUniforms, visibility: ["compute"] },
+        fog: { uniform: FogGpu, visibility: ["compute"] },
+    })
+    .$idx(0);
+
+/** Godot's separable fog filter: one 7-tap pass along x into the spent history texture. */
+export const fogFilterLayout = tgpu
+    .bindGroupLayout({
+        output: {
+            storageTexture: d.textureStorage3d("rgba16float", "write-only"),
+            visibility: ["compute"],
+        },
+        lighting: { texture: d.texture3d(d.f32), visibility: ["compute"] },
+    })
+    .$idx(0);
+
+export const fogIntegrateLayout = tgpu
+    .bindGroupLayout({
+        output: {
+            storageTexture: d.textureStorage3d("rgba16float", "write-only"),
+            visibility: ["compute"],
+        },
+        lighting: { texture: d.texture3d(d.f32), visibility: ["compute"] },
         view: { uniform: ViewUniforms, visibility: ["compute"] },
         fog: { uniform: FogGpu, visibility: ["compute"] },
     })
@@ -117,7 +136,7 @@ const loadDepthMultisampled = tgpu.fn(
     return std.textureLoad(fogLayout0Multisampled.$.depthTex, px, sample);
 });
 
-/** Light and integrate one frustum column per invocation. */
+/** Light and reproject one frustum column per invocation. */
 function createGridKernel() {
     const layout = fogGridLayout;
     return tgpu
@@ -126,7 +145,7 @@ function createGridKernel() {
             in: { gid: d.builtin.globalInvocationId },
         })((input) => {
             "use gpu";
-            const dim = std.textureDimensions(layout.$.output);
+            const dim = std.textureDimensions(layout.$.feedback);
             if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
             const px = d.vec2i(input.gid.xy);
             // Decorrelate neighbouring columns without changing their shared ray offset.
@@ -154,8 +173,6 @@ function createGridKernel() {
             const falloff = cfg.medium.z;
             const extent = std.max(cfg.medium.w - layout.$.view.projection.x, 0.001);
             const g = cfg.extra.y;
-            const albedo = cfg.extra.z;
-            const gain = cfg.extra.w;
 
             const camView = layout.$.view;
             const near = camView.projection.x;
@@ -164,9 +181,25 @@ function createGridKernel() {
             const slot = d.u32(camView.projection.w);
 
             const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
-            std.textureStore(layout.$.output, d.vec3i(px, 0), d.vec4f(0, 0, 0, 1));
-            let trans = d.f32(1);
-            let inScatter = d.vec3f(0);
+            // Shadow receivers use free binding names invisible to the call-graph walk.
+            // Feed these reads into the feedback so transpilation retains their declarations.
+            const forcedZero =
+                (fogLayout1.$.pointShadows.casters[0].pos.x +
+                    fogLayout1.$.tileRects.rects[0].x +
+                    fogLayout1.$.sunShadow.enabled +
+                    std.textureSampleCompareLevel(
+                        fogLayout1.$.pointAtlas,
+                        fogLayout1.$.shadowSamp,
+                        d.vec2f(0, 0),
+                        0,
+                    ) +
+                    std.textureSampleCompareLevel(
+                        fogLayout1.$.shadowMap,
+                        fogLayout1.$.shadowSamp,
+                        d.vec2f(0, 0),
+                        0,
+                    )) *
+                0;
             let i = d.u32(0);
             while (i < FOG_SLICES) {
                 const a = d.f32(i) / FOG_SLICES;
@@ -174,7 +207,6 @@ function createGridKernel() {
                 // Quadratic view-depth boundaries crowd slices near the camera.
                 const start = extent * a * a;
                 const end = extent * b * b;
-                const ds = (end - start) * rayScale;
                 const center = std.add(nearWorld, std.mul(dir, (start + end) * 0.5 * rayScale));
                 const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
                 const p = std.add(
@@ -303,55 +335,127 @@ function createGridKernel() {
                     );
                     dens = std.mix(dens, old.a, HISTORY_WEIGHT);
                 }
-                std.textureStore(layout.$.feedback, d.vec3i(px, d.i32(i)), d.vec4f(lstep, dens));
-                const sampleTrans = std.exp(-dens * ds);
-                // Hillaire's closed-form cell integral S*(1-exp(-sigma*ds))/sigma:
-                // S = sigma*albedo*lstep, so sigma cancels, including the clear-medium limit.
-                inScatter = d.vec3f(
-                    std.add(
-                        inScatter,
-                        std.mul(std.mul(lstep, trans * albedo * gain), 1 - sampleTrans),
-                    ),
-                );
-                trans = trans * sampleTrans;
                 std.textureStore(
-                    layout.$.output,
-                    d.vec3i(px, d.i32(i + 1)),
-                    d.vec4f(inScatter, trans),
+                    layout.$.feedback,
+                    d.vec3i(px, d.i32(i)),
+                    d.vec4f(lstep, dens + forcedZero),
                 );
                 i = i + 1;
             }
-
-            // Shadow receivers use free binding names invisible to the call-graph walk.
-            // Feed these reads into the output so transpilation retains their declarations.
-            const forcedZero =
-                (fogLayout1.$.pointShadows.casters[0].pos.x +
-                    fogLayout1.$.tileRects.rects[0].x +
-                    fogLayout1.$.sunShadow.enabled +
-                    std.textureSampleCompareLevel(
-                        fogLayout1.$.pointAtlas,
-                        fogLayout1.$.shadowSamp,
-                        d.vec2f(0, 0),
-                        0,
-                    ) +
-                    std.textureSampleCompareLevel(
-                        fogLayout1.$.shadowMap,
-                        fogLayout1.$.shadowSamp,
-                        d.vec2f(0, 0),
-                        0,
-                    )) *
-                0;
-
-            std.textureStore(
-                layout.$.output,
-                d.vec3i(px, FOG_SLICES),
-                d.vec4f(inScatter, trans + forcedZero),
-            );
         })
         .$name("fogGrid");
 }
 
 export const fogGridKernel = createGridKernel();
+
+// Godot's volumetric fog filter weights, a Gaussian of σ ≈ 1.6 cells.
+const GAUSSIAN = tgpu.const(
+    d.arrayOf(d.f32, 7),
+    [0.071303, 0.131514, 0.189879, 0.214607, 0.189879, 0.131514, 0.071303],
+);
+
+/** Blur the reprojected lighting along x; the integration kernel blurs along y. */
+export const fogFilterKernel = tgpu
+    .computeFn({
+        workgroupSize: [WORKGROUP, WORKGROUP],
+        in: { gid: d.builtin.globalInvocationId },
+    })((input) => {
+        "use gpu";
+        const dim = std.textureDimensions(fogFilterLayout.$.output);
+        if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
+        const cell = d.vec3i(input.gid);
+        const last = d.i32(dim.x) - 1;
+        let sum = d.vec4f(0);
+        let k = d.i32(-3);
+        while (k <= 3) {
+            sum = std.add(
+                sum,
+                std.mul(
+                    std.textureLoad(
+                        fogFilterLayout.$.lighting,
+                        d.vec3i(std.clamp(cell.x + k, 0, last), cell.y, cell.z),
+                        0,
+                    ),
+                    GAUSSIAN.$[k + 3],
+                ),
+            );
+            k = k + 1;
+        }
+        std.textureStore(fogFilterLayout.$.output, cell, sum);
+    })
+    .$name("fogFilter");
+
+/**
+ * Filter along y and integrate one frustum column per invocation. As in Godot and HDRP, reprojected lighting is
+ * blurred across columns before integration while history keeps it unfiltered: neighbours sample different
+ * jitter phases, so a shadow edge that one column's depth sample flips across averages within the frame.
+ */
+export const fogIntegrateKernel = tgpu
+    .computeFn({
+        workgroupSize: [WORKGROUP, WORKGROUP],
+        in: { gid: d.builtin.globalInvocationId },
+    })((input) => {
+        "use gpu";
+        const dim = std.textureDimensions(fogIntegrateLayout.$.output);
+        if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
+        const px = d.vec2i(input.gid.xy);
+        const last = d.i32(dim.y) - 1;
+        const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim.xy));
+        const camView = fogIntegrateLayout.$.view;
+        const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+        const dir = std.normalize(
+            std.sub(reconstructWorld(camView.invViewProj, uv, 0.0001), nearWorld),
+        );
+        const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
+        const rayScale = 1 / std.max(std.dot(dir, forward), 1e-6);
+        const cfg = fogIntegrateLayout.$.fog;
+        const extent = std.max(cfg.medium.w - camView.projection.x, 0.001);
+        const albedo = cfg.extra.z;
+        const gain = cfg.extra.w;
+        std.textureStore(fogIntegrateLayout.$.output, d.vec3i(px, 0), d.vec4f(0, 0, 0, 1));
+        let trans = d.f32(1);
+        let inScatter = d.vec3f(0);
+        let i = d.u32(0);
+        while (i < FOG_SLICES) {
+            const a = d.f32(i) / FOG_SLICES;
+            const b = d.f32(i + 1) / FOG_SLICES;
+            const ds = extent * (b * b - a * a) * rayScale;
+            const slice = d.i32(i);
+            let cell = d.vec4f(0);
+            let k = d.i32(-3);
+            while (k <= 3) {
+                cell = std.add(
+                    cell,
+                    std.mul(
+                        std.textureLoad(
+                            fogIntegrateLayout.$.lighting,
+                            d.vec3i(px.x, std.clamp(px.y + k, 0, last), slice),
+                            0,
+                        ),
+                        GAUSSIAN.$[k + 3],
+                    ),
+                );
+                k = k + 1;
+            }
+            const sampleTrans = std.exp(-cell.w * ds);
+            // Hillaire's closed-form cell integral S*(1-exp(-sigma*ds))/sigma:
+            // S = sigma*albedo*lstep, so sigma cancels, including the clear-medium limit.
+            inScatter = d.vec3f(
+                std.add(
+                    inScatter,
+                    std.mul(std.mul(cell.xyz, trans * albedo * gain), 1 - sampleTrans),
+                ),
+            );
+            trans = trans * sampleTrans;
+            std.textureStore(
+                fogIntegrateLayout.$.output,
+                d.vec3i(px, slice + 1),
+                d.vec4f(inScatter, trans),
+            );
+            i = i + 1;
+        }
+    })
+    .$name("fogIntegrate");
 
 const fogCellCoordinate = tgpu.fn(
     [d.f32, d.f32, d.f32],

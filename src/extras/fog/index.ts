@@ -17,6 +17,7 @@ import { component, f32 } from "../../engine";
 import {
     beginComputePass,
     dispatchWorkgroups2,
+    dispatchWorkgroups3,
     endComputePass,
     precompile,
     setComputeBindGroup,
@@ -43,8 +44,12 @@ import {
 import { FOG_FLOATS, FOG_HEIGHT, FOG_SLICES, FOG_WIDTH, FogGpu, WORKGROUP } from "./medium";
 import { packFog } from "./pack";
 import {
+    fogFilterKernel,
+    fogFilterLayout,
     fogGridKernel,
     fogGridLayout,
+    fogIntegrateKernel,
+    fogIntegrateLayout,
     fogKernel,
     fogKernelInterior,
     fogKernelMultisampled,
@@ -194,6 +199,8 @@ const fogSource = tgpu.fn(
 interface FogState {
     fog: {
         gridPipeline: TgpuComputePipeline | null;
+        filterPipeline: TgpuComputePipeline | null;
+        integratePipeline: TgpuComputePipeline | null;
         pipelines: Map<string, GPURenderPipeline>;
         buffer: (TgpuBuffer<typeof FogGpu> & UniformFlag) | null;
     };
@@ -213,6 +220,8 @@ interface FogState {
             parity: number;
             camera: number;
             gridGroups: GPUBindGroup[];
+            filterGroups: GPUBindGroup[];
+            integrateGroups: GPUBindGroup[];
             gridPass: GPUComputePassDescriptor;
             lighting: GPUBuffer;
             format: GPUTextureFormat;
@@ -229,7 +238,13 @@ interface FogState {
 
 const fogStateKey = { create: () => createFogState() };
 const createFogState = (): FogState => ({
-    fog: { gridPipeline: null, pipelines: new Map(), buffer: null },
+    fog: {
+        gridPipeline: null,
+        filterPipeline: null,
+        integratePipeline: null,
+        pipelines: new Map(),
+        buffer: null,
+    },
     staging: new Float32Array(FOG_FLOATS),
     lights: null,
     views: new Map(),
@@ -365,7 +380,13 @@ const FogSystem: System = {
         const _render = world.resource(RenderContext);
         const _fogState = world.resource(fogStateKey);
 
-        if (!_fogState.fog.gridPipeline || !_fogState.fog.buffer) return;
+        if (
+            !_fogState.fog.gridPipeline ||
+            !_fogState.fog.filterPipeline ||
+            !_fogState.fog.integratePipeline ||
+            !_fogState.fog.buffer
+        )
+            return;
         const fogEid = world.only(FOG_SINGLETON_QUERY);
         if (fogEid < 0) {
             clearViews(_fogState);
@@ -451,11 +472,29 @@ const FogSystem: System = {
                 const gridGroups = [0, 1].map((parity) =>
                     world.gpu.root.unwrap(
                         world.gpu.root.createBindGroup(fogGridLayout, {
-                            output: gridView,
                             feedback: feedbackViews[parity],
                             history: feedbackViews[1 - parity],
                             historySampler,
                             temporal,
+                            view: _render.viewBuffers[view.slot],
+                            fog: _fogState.fog.buffer!,
+                        }),
+                    ),
+                );
+                // The x pass writes into the spent history; the integration reads it there.
+                const filterGroups = [0, 1].map((parity) =>
+                    world.gpu.root.unwrap(
+                        world.gpu.root.createBindGroup(fogFilterLayout, {
+                            output: feedbackViews[1 - parity],
+                            lighting: feedbackViews[parity],
+                        }),
+                    ),
+                );
+                const integrateGroups = [0, 1].map((parity) =>
+                    world.gpu.root.unwrap(
+                        world.gpu.root.createBindGroup(fogIntegrateLayout, {
+                            output: gridView,
+                            lighting: feedbackViews[1 - parity],
                             view: _render.viewBuffers[view.slot],
                             fog: _fogState.fog.buffer!,
                         }),
@@ -494,6 +533,8 @@ const FogSystem: System = {
                     parity: 0,
                     camera: world.ref(eid),
                     gridGroups,
+                    filterGroups,
+                    integrateGroups,
                     gridPass: { label: `fog-grid/${eid}` },
                     lighting,
                     format,
@@ -535,11 +576,15 @@ const FogSystem: System = {
             setComputePipeline(gridPass, world.gpu.root.unwrap(_fogState.fog.gridPipeline));
             setComputeBindGroup(gridPass, 0, cam.gridGroups[cam.parity]);
             setComputeBindGroup(gridPass, 1, lights);
-            dispatchWorkgroups2(
-                gridPass,
-                Math.ceil(cam.grid.width / WORKGROUP),
-                Math.ceil(cam.grid.height / WORKGROUP),
-            );
+            const groupsX = Math.ceil(cam.grid.width / WORKGROUP);
+            const groupsY = Math.ceil(cam.grid.height / WORKGROUP);
+            dispatchWorkgroups2(gridPass, groupsX, groupsY);
+            setComputePipeline(gridPass, world.gpu.root.unwrap(_fogState.fog.filterPipeline));
+            setComputeBindGroup(gridPass, 0, cam.filterGroups[cam.parity]);
+            dispatchWorkgroups3(gridPass, groupsX, groupsY, FOG_SLICES);
+            setComputePipeline(gridPass, world.gpu.root.unwrap(_fogState.fog.integratePipeline));
+            setComputeBindGroup(gridPass, 0, cam.integrateGroups[cam.parity]);
+            dispatchWorkgroups2(gridPass, groupsX, groupsY);
             endComputePass(gridPass);
             cam.valid = true;
             cam.parity = 1 - cam.parity;
@@ -605,6 +650,12 @@ export const FogPlugin: Plugin = {
         _fogState.fog.gridPipeline = root
             .createComputePipeline({ compute: fogGridKernel })
             .$name("fog-grid");
+        _fogState.fog.filterPipeline = world.gpu.root
+            .createComputePipeline({ compute: fogFilterKernel })
+            .$name("fog-filter");
+        _fogState.fog.integratePipeline = world.gpu.root
+            .createComputePipeline({ compute: fogIntegrateKernel })
+            .$name("fog-integrate");
         _fogState.fog.pipelines.clear();
         const format = world.resource(RenderContext).format;
         const pipeline = applyPipeline(world, format, false);
@@ -614,6 +665,8 @@ export const FogPlugin: Plugin = {
         clearViews(_fogState);
 
         precompile(world, "fog-grid", () => _fogState.fog.gridPipeline!);
+        precompile(world, "fog-filter", () => _fogState.fog.filterPipeline!);
+        precompile(world, "fog-integrate", () => _fogState.fog.integratePipeline!);
         precompile(world, "fog", () => [pipeline]);
         precompile(world, "fog-msaa", () => [multisampledPipeline, interiorPipeline]);
     },
@@ -624,6 +677,8 @@ export const FogPlugin: Plugin = {
         _fogState.fog.buffer?.destroy();
         _fogState.fog.buffer = null;
         _fogState.fog.gridPipeline = null;
+        _fogState.fog.filterPipeline = null;
+        _fogState.fog.integratePipeline = null;
         _fogState.fog.pipelines.clear();
         fogState(world).lights = null;
         clearViews(_fogState);

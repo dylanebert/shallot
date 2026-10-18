@@ -139,7 +139,8 @@ for (const kind of ["point", "spot"] as const) {
         const marked = await frame(camera);
         expect(patch(marked)).toBeGreaterThan(patch(unmarked) + 20);
         expect(patch(marked, 45)).toBe(0);
-        if (kind === "spot") expect(patch(marked, 29)).toBe(0);
+        // Beyond the cone's edge by the grid filter's three-cell reach, inside the light's range.
+        if (kind === "spot") expect(patch(marked, 31)).toBe(0);
         world.storage(Transform).translation.set(light, 0, 0, 10, 0);
         expect(patch(await frame(camera))).toBe(0);
         world.remove(light, VolumetricLight);

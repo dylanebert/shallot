@@ -2,7 +2,7 @@
 
 ## 0.10.0
 
-Fog now uses a per-camera frustum grid for opaque surfaces, with closed-form integration and trilinear application before tonemapping. `Fog.viewDistance` sets its far view-space depth in world units (default 64); surfaces beyond it read the last slice. `Fog.stepCount` and `Fog.jitter` are removed; grid dimensions are internal constants.
+Fog now uses a per-camera frustum grid for opaque surfaces, with closed-form integration and trilinear application before tonemapping. `Fog.viewDistance` sets its far view-space depth in world units (default 64); surfaces beyond it read the last slice. `Fog.stepCount` and `Fog.jitter` are removed; grid dimensions are internal constants. As in Godot's volumetric fog, the lit grid is blurred across neighbouring cells before integration, so a shadow edge in the haze holds still between frames.
 
 `Fog.color` is the medium's own ambient light, scattered at the new `Fog.brightness` (cd/m², scaled by exposure and scattering albedo; the default matches the old fade at EV100 9.7). Ambient in-scatter now scatters uniform ambient radiance at its own radiance, 4π brighter than before.
 

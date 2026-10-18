@@ -8,6 +8,7 @@ export {
     createFrameEncoder,
     dispatchWorkgroups,
     dispatchWorkgroups2,
+    dispatchWorkgroups3,
     dispatchWorkgroupsIndirect,
     draw,
     drawIndexedIndirect,

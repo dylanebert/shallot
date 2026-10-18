@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import type { createApp } from "@dylanebert/shallot";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { type createApp, Exposure, GlobalAmbientLight } from "@dylanebert/shallot";
 import { NoFog } from "@dylanebert/shallot/extras";
 import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
@@ -8,9 +8,6 @@ import { Motes, MotesPlugin } from "./motes";
 import { Room } from "./room";
 
 setDefaultTimeout(TIMEOUT.node);
-let app: Awaited<ReturnType<typeof createApp>>;
-let profileError = 0;
-let patchSwing = 0;
 const WIDTH = 1280;
 const LEFT = 450;
 const RIGHT = 530;
@@ -31,55 +28,67 @@ function profile(rgba: Uint8ClampedArray) {
     }
     return values;
 }
-beforeAll(async () => {
-    app = await openGpuApp({ plugins: [MotesPlugin] });
-    const { world } = app;
-    console.log("shaft adapter", world.gpu.adapter);
-    const camera = world.resource(Room).camera;
-    world.resource(Motes).visible = false;
-    attachTexture(world, camera, { width: WIDTH, height: 720 });
-    world.step(1 / 60);
-    world.step(1 / 60);
-    for (let i = 0; i < 64; i++) {
-        world.step(0);
-        await world.gpu.sync();
-    }
-    const profiles: Float64Array[] = [];
-    const patches: number[] = [];
-    for (let i = 0; i < 16; i++) {
-        world.step(0);
-        const { rgba } = await captureTexture(world, camera);
-        profiles.push(profile(rgba));
-        let patch = 0;
-        for (let y = 431; y <= 435; y++) {
-            for (let x = 489; x <= 493; x++) patch += luminance(rgba, x, y) / 25;
-        }
-        patches.push(patch);
-    }
-    const reference = new Float64Array(RIGHT - LEFT);
-    for (let i = 0; i < 16; i++) {
-        // Opt-out discards history. A three-frame stride visits all 16 Halton phases.
-        world.add(camera, NoFog);
-        world.step(0);
-        world.step(0);
-        world.remove(camera, NoFog);
-        world.step(0);
-        const current = profile((await captureTexture(world, camera)).rgba);
-        for (let x = 0; x < reference.length; x++) reference[x] += current[x]! / 16;
-    }
-    for (const current of profiles) {
-        for (let x = 0; x < reference.length; x++)
-            profileError = Math.max(profileError, Math.abs(current[x]! - reference[x]!));
-    }
-    patchSwing = Math.max(...patches) - Math.min(...patches);
-    console.log("shaft temporal error", { profileError, patchSwing, patches });
-});
-afterAll(() => app?.dispose());
+// The room's sun through its window, interreflected by its walls (ρΦ / πA(1 − ρ)), lights it to
+// about 9.2 cd/m²; the example's brighter ambient hides the shaft edge's temporal swing.
+const BALANCED_AMBIENT = 9.2;
+for (const ev100 of [5, 6]) {
+    describe(`at the balanced ambient and EV${ev100}`, () => {
+        let app: Awaited<ReturnType<typeof createApp>>;
+        let profileError = 0;
+        let patchSwing = 0;
+        beforeAll(async () => {
+            app = await openGpuApp({ plugins: [MotesPlugin] });
+            const { world } = app;
+            console.log("shaft adapter", world.gpu.adapter);
+            const camera = world.resource(Room).camera;
+            world.resource(Motes).visible = false;
+            world.resource(GlobalAmbientLight).brightness = BALANCED_AMBIENT;
+            world.storage(Exposure).ev100.set(camera, ev100);
+            attachTexture(world, camera, { width: WIDTH, height: 720 });
+            world.step(1 / 60);
+            world.step(1 / 60);
+            for (let i = 0; i < 64; i++) {
+                world.step(0);
+                await world.gpu.sync();
+            }
+            const profiles: Float64Array[] = [];
+            const patches: number[] = [];
+            for (let i = 0; i < 16; i++) {
+                world.step(0);
+                const { rgba } = await captureTexture(world, camera);
+                profiles.push(profile(rgba));
+                let patch = 0;
+                for (let y = 431; y <= 435; y++) {
+                    for (let x = 489; x <= 493; x++) patch += luminance(rgba, x, y) / 25;
+                }
+                patches.push(patch);
+            }
+            const reference = new Float64Array(RIGHT - LEFT);
+            for (let i = 0; i < 16; i++) {
+                // Opt-out discards history. A three-frame stride visits all 16 Halton phases.
+                world.add(camera, NoFog);
+                world.step(0);
+                world.step(0);
+                world.remove(camera, NoFog);
+                world.step(0);
+                const current = profile((await captureTexture(world, camera)).rgba);
+                for (let x = 0; x < reference.length; x++) reference[x] += current[x]! / 16;
+            }
+            for (const current of profiles) {
+                for (let x = 0; x < reference.length; x++)
+                    profileError = Math.max(profileError, Math.abs(current[x]! - reference[x]!));
+            }
+            patchSwing = Math.max(...patches) - Math.min(...patches);
+            console.log("shaft temporal error", { ev100, profileError, patchSwing, patches });
+        });
+        afterAll(() => app?.dispose());
 
-test("every converged shaft-edge profile agrees with the equal 16-phase linear average", () => {
-    expect(profileError).toBeLessThan(0.005);
-});
+        test("every converged shaft-edge profile agrees with the equal 16-phase linear average", () => {
+            expect(profileError).toBeLessThan(0.005);
+        });
 
-test("a still shaft-edge patch stays calm across all 16 consecutive phases", () => {
-    expect(patchSwing).toBeLessThan(0.005);
-});
+        test("a still shaft-edge patch stays calm across all 16 consecutive phases", () => {
+            expect(patchSwing).toBeLessThan(0.005);
+        });
+    });
+}
