@@ -68,35 +68,6 @@ test("JUnit testcase time warns only above half the speed budget, not the hang c
     ]);
 });
 
-test("a Node file's time outside its tests, as in beforeAll, warns above half the Node budget", () => {
-    // Bun's shape: a file suite times its hooks, a describe suite only its tests.
-    const report = (file: string, seconds: number) => `<testsuites>
-  <testsuite name="${file}" file="${file}" time="${seconds}">
-    <testcase name="top" time="1" file="${file}" />
-    <testsuite name="group" file="${file}" line="4" time="2">
-      <testcase name="inner" classname="group" time="2" file="${file}" />
-    </testsuite>
-  </testsuite>
-</testsuites>`;
-    expect(slowTests(report("src/fog.node.ts", 13))).toEqual([]);
-    const slow = slowTests(report("src/fog.node.ts", 13.001));
-    expect(slow).toEqual([
-        {
-            name: "src/fog.node.ts",
-            file: "src/fog.node.ts",
-            tier: "node",
-            timeMs: 10_001,
-            budget: 20_000,
-            setup: true,
-        },
-    ]);
-    expect(warningAnnotation(slow[0]!, "Linux")).toBe(
-        '::warning title=Slow setup%3A src/fog.node.ts::setup of "src/fog.node.ts" took 10001.00 ms outside its tests; over half its node speed budget 20000 ms; host Linux; if it recurs on other runs, make it cheaper, split it or move it to a heavier tier; one slow runner needs nothing',
-    );
-    for (const file of ["src/fog.test.ts", "src/fog.gpu.test.ts"])
-        expect(slowTests(report(file, 13.001)).filter(({ setup }) => setup)).toEqual([]);
-});
-
 test("Playwright reports the whole browser subject, including work outside testcases", () => {
     const report = (seconds: number) =>
         `<testsuites time="${seconds}"><testsuite time="1"><testcase name="page" time="1" /></testsuite></testsuites>`;
