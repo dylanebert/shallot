@@ -17,7 +17,7 @@ type FakeElement = {
     textContent: string | null;
     parent: FakeElement | null;
     children: FakeElement[];
-    style: { zIndex: string; setProperty(name: string, value: string): void };
+    style: { setProperty(name: string, value: string): void };
     innerHTML: string;
     classList: { add(name: string): void };
     setAttribute(name: string, value: string): void;
@@ -47,7 +47,7 @@ function fakeElement(): FakeElement {
         textContent: "",
         parent: null,
         children: [],
-        style: { zIndex: "", setProperty() {} },
+        style: { setProperty() {} },
         innerHTML: "",
         classList: { add() {} },
         setAttribute(name, value) {
