@@ -24,20 +24,20 @@ const rigidPlane = (normal: Vec3, offset: number): CollisionPlane => ({
     clipVelocity: true,
 });
 
-test("the mover plane solver stops converging on an easy pair of parallel planes, burning iterations or landing short of the deeper plane", () => {
+test("the mover plane solver resolves two parallel planes in two iterations, onto the deeper plane", () => {
     const planes = [rigidPlane(v(0, 0, 1), 0.5), rigidPlane(v(0, 0, 1), 1.0)];
     const result = solvePlanes(v(0, 0, 0), planes, 2);
     expect(result.iterationCount).toBe(2);
     expect(absf(result.delta.z - 1.0)).toBeLessThan(0.0055);
 });
 
-test("mover-versus-sphere invents a contact plane for a mover nowhere near the sphere, so a character snags on empty space", () => {
+test("mover-versus-sphere returns no plane for a mover nowhere near the sphere", () => {
     const shape: Sphere = { center: v(0, 0, 0), radius: 0.5 };
     const mover: Capsule = { center1: v(4, 3, 0), center2: v(6, 3, 0), radius: 0.2 };
     expect(kernelMover(ShapeType.Sphere, shape, mover)[0] ?? null).toBeNull();
 });
 
-test("mover-versus-sphere returns an unnormalized normal, the wrong push direction, or a depth other than the actual overlap on a shallow touch", () => {
+test("mover-versus-sphere returns a normalized upward plane at the overlap depth on a shallow touch", () => {
     const shape: Sphere = { center: v(0, 0, 0), radius: 0.5 };
     const mover: Capsule = { center1: v(-1, 0.6, 0), center2: v(1, 0.6, 0), radius: 0.2 };
     const r = kernelMover(ShapeType.Sphere, shape, mover)[0] ?? null;
@@ -48,7 +48,7 @@ test("mover-versus-sphere returns an unnormalized normal, the wrong push directi
     expect(absf(r.plane.offset - 0.1)).toBeLessThan(1e-5);
 });
 
-test("mover-versus-sphere degenerates when the mover axis runs through the sphere centre, emitting a zero or axis-aligned-with-the-mover normal instead of the perpendicular fallback at the combined radius", () => {
+test("mover-versus-sphere gives a mover whose axis runs through the sphere centre a normalized normal perpendicular to that axis at the combined radius", () => {
     const shape: Sphere = { center: v(0, 0, 0), radius: 0.5 };
     const mover: Capsule = { center1: v(-1, 0, 0), center2: v(1, 0, 0), radius: 0.2 };
     const r = kernelMover(ShapeType.Sphere, shape, mover)[0] ?? null;
@@ -63,12 +63,12 @@ test("mover-versus-sphere degenerates when the mover axis runs through the spher
 
 const capsuleShape: Capsule = { center1: v(-1, 0, 0), center2: v(1, 0, 0), radius: 0.3 };
 
-test("mover-versus-capsule invents a contact plane for a mover well above the capsule, so a character snags on empty space", () => {
+test("mover-versus-capsule returns no plane for a mover well above the capsule", () => {
     const mover: Capsule = { center1: v(-1, 5, 0), center2: v(1, 5, 0), radius: 0.2 };
     expect(kernelMover(ShapeType.Capsule, capsuleShape, mover)[0] ?? null).toBeNull();
 });
 
-test("mover-versus-capsule returns an unnormalized normal, the wrong push direction, or a depth other than the actual overlap on a shallow touch", () => {
+test("mover-versus-capsule returns a normalized upward plane at the overlap depth on a shallow touch", () => {
     const mover: Capsule = { center1: v(-1, 0.4, 0), center2: v(1, 0.4, 0), radius: 0.2 };
     const r = kernelMover(ShapeType.Capsule, capsuleShape, mover)[0] ?? null;
     expect(r).not.toBeNull();
@@ -78,7 +78,7 @@ test("mover-versus-capsule returns an unnormalized normal, the wrong push direct
     expect(absf(r.plane.offset - 0.1)).toBeLessThan(1e-5);
 });
 
-test("mover-versus-capsule picks a normal in the plane of two crossing core segments instead of the mutual perpendicular, so a crossed character is pushed along a shape axis", () => {
+test("mover-versus-capsule gives two crossing core segments their mutual perpendicular as the normal, at the combined radius", () => {
     const mover: Capsule = { center1: v(0, 0, -1), center2: v(0, 0, 1), radius: 0.2 };
     const r = kernelMover(ShapeType.Capsule, capsuleShape, mover)[0] ?? null;
     expect(r).not.toBeNull();
@@ -89,7 +89,7 @@ test("mover-versus-capsule picks a normal in the plane of two crossing core segm
     expect(absf(r.plane.offset - 0.5)).toBeLessThan(1e-5);
 });
 
-test("mover-versus-capsule degenerates when both core segments lie on the same axis, emitting a zero or along-axis normal instead of a perpendicular at the combined radius", () => {
+test("mover-versus-capsule gives core segments on one axis a normalized normal perpendicular to it at the combined radius", () => {
     const mover: Capsule = { center1: v(-1, 0, 0), center2: v(1, 0, 0), radius: 0.2 };
     const r = kernelMover(ShapeType.Capsule, capsuleShape, mover)[0] ?? null;
     expect(r).not.toBeNull();
@@ -101,12 +101,12 @@ test("mover-versus-capsule degenerates when both core segments lie on the same a
 
 const boxHull = makeBoxHull(0.5, 0.5, 0.5);
 
-test("mover-versus-hull invents a contact plane for a mover far above the box, so a character snags on empty space", () => {
+test("mover-versus-hull returns no plane for a mover far above the box", () => {
     const mover: Capsule = { center1: v(-0.3, 5, 0), center2: v(0.3, 5, 0), radius: 0.2 };
     expect(kernelMover(ShapeType.Hull, boxHull, mover)[0] ?? null).toBeNull();
 });
 
-test("mover-versus-hull returns an unnormalized normal, a push that is not the touched face normal, or a depth other than the actual overlap", () => {
+test("mover-versus-hull returns the touched face's normalized normal at the overlap depth", () => {
     const mover: Capsule = { center1: v(-0.3, 0.6, 0), center2: v(0.3, 0.6, 0), radius: 0.2 };
     const r = kernelMover(ShapeType.Hull, boxHull, mover)[0] ?? null;
     expect(r).not.toBeNull();
@@ -116,7 +116,7 @@ test("mover-versus-hull returns an unnormalized normal, a push that is not the t
     expect(absf(r.plane.offset - 0.1)).toBeLessThan(1e-4);
 });
 
-test("mover-versus-hull emits a plane with a degenerate zero normal for a mover fully inside the box instead of dropping the contact", () => {
+test("mover-versus-hull returns no plane for a mover fully inside the box", () => {
     const mover: Capsule = { center1: v(-0.2, 0, 0), center2: v(0.2, 0, 0), radius: 0.1 };
     expect(kernelMover(ShapeType.Hull, boxHull, mover)[0] ?? null).toBeNull();
 });
