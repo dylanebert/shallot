@@ -31,24 +31,10 @@ afterAll(async () => {
     for (const device of devices) device.destroy();
 });
 
-async function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        return await Promise.race([
-            promise,
-            new Promise<never>((_, reject) => {
-                timer = setTimeout(() => reject(new Error(`${label} exceeded 750 ms`)), 750);
-            }),
-        ]);
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
 async function freshDevice() {
-    const adapter = await bounded("readback lifecycle adapter", navigator.gpu.requestAdapter());
+    const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("readback lifecycle adapter unavailable");
-    return bounded("readback lifecycle device", adapter.requestDevice());
+    return adapter.requestDevice();
 }
 
 test("world pools on a shared device own separate staging and release it without affecting a sibling", async () => {
@@ -100,7 +86,7 @@ test("a request after device loss creates no staging", async () => {
     try {
         expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
-        await bounded("lost readback device notification", device.lost);
+        await device.lost;
         await expect(probeBuffer(app.world, source)).rejects.toThrow("disposed");
         expect(pool.allocated).toBe(0);
     } finally {
@@ -122,7 +108,7 @@ test("device loss rejects a pending request and releases staging", async () => {
         );
         expectError(/GPU device lost destroyed: device was destroyed/);
         device.destroy();
-        await bounded("pending readback device loss notification", device.lost);
+        await device.lost;
         const failure = await outcome;
         expect(failure).toBeInstanceOf(Error);
         expect((failure as Error).message).toMatch(

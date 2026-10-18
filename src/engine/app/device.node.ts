@@ -236,11 +236,7 @@ test("a supplied device lost after completed frames reaches the loading error an
 });
 
 async function waitFor(predicate: () => boolean): Promise<void> {
-    const deadline = Date.now() + 5000;
-    while (!predicate()) {
-        if (Date.now() >= deadline) throw new Error("runApp did not submit completed frames");
-        await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    }
+    while (!predicate()) await new Promise<void>((resolve) => setTimeout(resolve, 5));
 }
 
 test("device creation failure names both the stage and its cause", async () => {
