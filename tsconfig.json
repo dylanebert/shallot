@@ -1,5 +1,5 @@
 {
     "extends": "./tsconfig.base.json",
-    "include": ["src", "bin", "examples", "scripts", "crates/physics/scripts", "diagnostics/default-look"],
+    "include": ["src", "bin", "examples", "scripts", "crates/physics/scripts", "diagnostics/default-look", "diagnostics/texture-minification"],
     "exclude": ["**/dist", "**/build"]
 }

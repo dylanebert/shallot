@@ -16,36 +16,47 @@ const filters = ["nearest", "linear"] as const;
 const cases = modes.flatMap((u, addressModeU) =>
     modes.flatMap((v, addressModeV) =>
         filters.flatMap((magFilter, mag) =>
-            filters.map((minFilter, min) => ({
-                u,
-                v,
-                magFilter,
-                minFilter,
-                sampler: {
-                    addressModeU: addressModeU as ImageAddressMode,
-                    addressModeV: addressModeV as ImageAddressMode,
-                    magFilter: mag as ImageFilterMode,
-                    minFilter: min as ImageFilterMode,
-                },
-            })),
+            filters.flatMap((minFilter, min) =>
+                filters.map((mipmapFilter, mip) => ({
+                    u,
+                    v,
+                    magFilter,
+                    minFilter,
+                    mipmapFilter,
+                    sampler: {
+                        addressModeU: addressModeU as ImageAddressMode,
+                        addressModeV: addressModeV as ImageAddressMode,
+                        magFilter: mag as ImageFilterMode,
+                        minFilter: min as ImageFilterMode,
+                        mipmapFilter: mip as ImageFilterMode,
+                    },
+                })),
+            ),
         ),
     ),
 );
+// One 64x64 tile per gradient; the top row of tiles samples Shallot's path, the bottom the reference.
+const GRADIENTS = [0, 0.03125, 0.14, 0.18, 0.25, 0.35, 0.5, 0.7, 2];
+const TILE = 64;
 const layout = tgpu.bindGroupLayout({
     images: { texture: d.texture2dArray() },
     settings: { texture: d.texture2d() },
     sampler: { sampler: "filtering" },
     reference: { sampler: "filtering" },
     config: { uniform: d.vec4f },
+    gradients: { uniform: d.arrayOf(d.vec4f, GRADIENTS.length) },
 });
 const fragment = tgpu.fragmentFn({ in: { pos: d.builtin.position }, out: d.vec4f })((input) => {
     "use gpu";
+    const tile = std.floor(std.div(input.pos.xy, TILE));
+    const local = std.sub(input.pos.xy, std.mul(tile, TILE));
     // Both axes cross negative coordinates and multiple seams, including fractional footprints.
-    const uv = d.vec2f(input.pos.x / 16 - 2, input.pos.y / 16 - 2);
+    const uv = d.vec2f(local.x / 16 - 2, local.y / 16 - 2);
     const layer = d.i32(layout.$.config.x);
-    const dx = d.vec2f(layout.$.config.y, 0);
-    const dy = d.vec2f(0, layout.$.config.y);
-    if (layout.$.config.z !== 0) {
+    const gradient = layout.$.gradients[d.i32(tile.x)].x;
+    const dx = d.vec2f(gradient, 0);
+    const dy = d.vec2f(0, gradient);
+    if (tile.y !== 0) {
         return std.textureSampleGrad(layout.$.images, layout.$.reference, uv, layer, dx, dy);
     }
     return sampleImage(layout.$.images, layout.$.sampler, layout.$.settings, uv, layer, dx, dy);
@@ -63,7 +74,8 @@ const subjects = gpuApps(import.meta.path, [
                             c.u === "clamp-to-edge" &&
                             c.v === "clamp-to-edge" &&
                             c.magFilter === "linear" &&
-                            c.minFilter === "linear";
+                            c.minFilter === "linear" &&
+                            c.mipmapFilter === "linear";
                         registerImage(
                             world,
                             new Blob(),
@@ -111,13 +123,19 @@ function prepare() {
         targets: { format: "rgba8unorm" },
     });
     const output = device.createTexture({
-        size: [64, 64],
+        size: [TILE * GRADIENTS.length, TILE * 2],
         format: "rgba8unorm",
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
     world.own(output);
     const config = root.createBuffer(d.vec4f).$usage("uniform");
-    return { world, device, root, bindings, image, pipeline, output, config };
+    const gradients = root
+        .createBuffer(
+            d.arrayOf(d.vec4f, GRADIENTS.length),
+            GRADIENTS.map((gradient) => d.vec4f(gradient, 0, 0, 0)),
+        )
+        .$usage("uniform");
+    return { world, device, root, bindings, image, pipeline, output, config, gradients };
 }
 let prepared: ReturnType<typeof prepare>;
 beforeAll(() => {
@@ -125,8 +143,10 @@ beforeAll(() => {
 });
 
 for (const mode of [0, 1, 2]) {
-    test(`${modes[mode]} images match hardware addressing and filters across seams and mip levels (including the default)`, async () => {
-        const { world, device, root, bindings, image, pipeline, output, config } = prepared;
+    test(`${modes[mode]} images match hardware addressing, texel and mipmap filters across seams and between mip levels (including the default)`, async () => {
+        const { world, device, root, bindings, image, pipeline, output, config, gradients } =
+            prepared;
+        const width = TILE * GRADIENTS.length;
         for (let layer = 0; layer < cases.length; layer++) {
             const c = cases[layer];
             if (c.sampler.addressModeU !== mode) continue;
@@ -139,29 +159,38 @@ for (const mode of [0, 1, 2]) {
                     addressModeV: c.v,
                     magFilter: c.magFilter,
                     minFilter: c.minFilter,
+                    mipmapFilter: c.mipmapFilter,
                 }),
                 config,
+                gradients,
             });
-            for (const gradient of [0, 0.03125, 0.14, 0.18, 0.25, 0.5, 2]) {
-                const results: Uint8Array[] = [];
-                for (const reference of [0, 1]) {
-                    config.write(d.vec4f(layer, gradient, reference, 0));
-                    const encoder = device.createCommandEncoder();
-                    const pass = encoder.beginRenderPass({
-                        colorAttachments: [
-                            { view: output.createView(), loadOp: "clear", storeOp: "store" },
-                        ],
-                    });
-                    pipeline.with(group).with(pass).draw(3);
-                    pass.end();
-                    device.queue.submit([encoder.finish()]);
-                    results.push(new Uint8Array((await probeTexture(world, output)).bytes));
-                }
-                let maximum = 0;
-                for (let i = 0; i < results[0].length; i++)
-                    maximum = Math.max(maximum, Math.abs(results[0][i] - results[1][i]));
-                expect(maximum, JSON.stringify({ c, gradient })).toBeLessThanOrEqual(1);
-            }
+            config.write(d.vec4f(layer, 0, 0, 0));
+            const encoder = device.createCommandEncoder();
+            const pass = encoder.beginRenderPass({
+                colorAttachments: [
+                    { view: output.createView(), loadOp: "clear", storeOp: "store" },
+                ],
+            });
+            pipeline.with(group).with(pass).draw(3);
+            pass.end();
+            device.queue.submit([encoder.finish()]);
+            const bytes = new Uint8Array((await probeTexture(world, output)).bytes);
+            const maxima = GRADIENTS.map(() => 0);
+            for (let y = 0; y < TILE; y++)
+                for (let x = 0; x < width; x++)
+                    for (let channel = 0; channel < 4; channel++) {
+                        const i = (y * width + x) * 4 + channel;
+                        const difference = Math.abs(bytes[i] - bytes[i + TILE * width * 4]);
+                        const tile = Math.floor(x / TILE);
+                        maxima[tile] = Math.max(maxima[tile], difference);
+                    }
+            // Hardware's level-of-detail fraction is coarser than f32: blending two levels
+            // differed by 2 at a 0.16 fraction on Apple M4 Max (Metal).
+            const tolerance = c.mipmapFilter === "linear" ? 2 : 1;
+            for (const [index, gradient] of GRADIENTS.entries())
+                expect(maxima[index], JSON.stringify({ c, gradient })).toBeLessThanOrEqual(
+                    tolerance,
+                );
         }
     });
 }

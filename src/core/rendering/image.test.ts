@@ -27,6 +27,7 @@ test("URL identity includes the effective sampler and omitted fields equal defau
                 addressModeV: ImageAddressMode.ClampToEdge,
                 magFilter: ImageFilterMode.Linear,
                 minFilter: ImageFilterMode.Linear,
+                mipmapFilter: ImageFilterMode.Linear,
             },
         }),
     ).toBe(first);
@@ -35,6 +36,8 @@ test("URL identity includes the effective sampler and omitted fields equal defau
         { addressModeV: ImageAddressMode.MirrorRepeat },
         { magFilter: ImageFilterMode.Nearest },
         { minFilter: ImageFilterMode.Nearest },
+        { mipmapFilter: ImageFilterMode.Nearest },
+        { minFilter: ImageFilterMode.Nearest, mipmapFilter: ImageFilterMode.Nearest },
     ]) {
         const id = registerImage(world, "image.png", { sampler });
         expect(id).not.toBe(first);

@@ -24,12 +24,14 @@ export type ImageAddressMode = (typeof ImageAddressMode)[keyof typeof ImageAddre
 export const ImageFilterMode = { Nearest: 0, Linear: 1 } as const;
 export type ImageFilterMode = (typeof ImageFilterMode)[keyof typeof ImageFilterMode];
 
-/** The 2D addressing and texel filters of Bevy's ImageSamplerDescriptor. */
+/** The 2D addressing and filters of Bevy's ImageSamplerDescriptor; anisotropy stays 1. */
 export interface ImageSamplerDescriptor {
     addressModeU?: ImageAddressMode;
     addressModeV?: ImageAddressMode;
     magFilter?: ImageFilterMode;
     minFilter?: ImageFilterMode;
+    /** Filtering between mip levels, matching Bevy's mipmap_filter. */
+    mipmapFilter?: ImageFilterMode;
 }
 
 /** Registration settings, matching the sampler field of Bevy's ImageLoaderSettings. */
@@ -46,8 +48,9 @@ export const Images = {
  * Register before warm, normally in a plugin's initialize. The returned id selects a layer of the
  * world's shared sRGB image array, used by Sprite and StandardMaterial.baseColorTexture.
  * URLs with the same effective sampler return the same id; different samplers return distinct ids.
- * Each Blob registration returns a new id, distinct from all URLs. Omitted sampler fields use
- * clamp-to-edge and linear texel filtering; mip selection remains nearest, with the full mip chain.
+ * Each Blob registration returns a new id, distinct from all URLs. Omitted sampler fields take
+ * Bevy's ImagePlugin default, ImageSamplerDescriptor::linear(): clamp-to-edge, linear texel filters
+ * and linear filtering between levels of the full mip chain.
  */
 export function registerImage(
     world: World,
@@ -56,11 +59,12 @@ export function registerImage(
 ): number {
     const images = world.resource(Images);
     const s = settings.sampler;
+    // One settings texel per image; the alpha byte packs the min filter with the mipmap filter.
     const sampler = [
         s?.addressModeU ?? 0,
         s?.addressModeV ?? 0,
         s?.magFilter ?? 1,
-        s?.minFilter ?? 1,
+        (s?.minFilter ?? 1) | ((s?.mipmapFilter ?? 1) << 1),
     ];
     if (typeof source === "string") {
         return images.register({
@@ -121,7 +125,7 @@ export async function warmImages(world: World): Promise<void> {
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     const data = new Uint8Array(Math.max(1, images.size) * 4);
-    data.set([0, 0, 1, 1]);
+    data.set([0, 0, 1, 3]);
     for (let id = 0; id < images.size; id++) {
         data.set(images.get(images.name(id)!)!.sampler, id * 4);
     }
@@ -135,6 +139,7 @@ export async function warmImages(world: World): Promise<void> {
         label: "images",
         magFilter: "linear",
         minFilter: "linear",
+        mipmapFilter: "linear",
     });
 }
 
@@ -205,7 +210,7 @@ function blitPipeline(world: World, format: GPUTextureFormat): TgpuRenderPipelin
 }
 
 // Per-layer submissions let staged builders budget a complete mip chain per frame.
-function genMipmapsLayer(
+export function genMipmapsLayer(
     world: World,
     device: GPUDevice,
     texture: GPUTexture,

@@ -27,9 +27,37 @@ const texel = tgpu.fn(
     );
 });
 
+const filtered = tgpu.fn(
+    [d.texture2dArray(), d.vec2f, d.i32, d.i32, d.u32, d.vec2u],
+    d.vec4f,
+)((images, uv, layer, level, filter, modes) => {
+    "use gpu";
+    const position = std.mul(uv, d.vec2f(std.textureDimensions(images, level)));
+    if (filter === 0) {
+        return texel(images, d.vec2i(std.floor(position)), layer, level, modes);
+    }
+    const centered = std.sub(position, d.vec2f(0.5));
+    const base = d.vec2i(std.floor(centered));
+    const weight = std.fract(centered);
+    const a = std.mix(
+        texel(images, base, layer, level, modes),
+        texel(images, std.add(base, d.vec2i(1, 0)), layer, level, modes),
+        weight.x,
+    );
+    const b = std.mix(
+        texel(images, std.add(base, d.vec2i(0, 1)), layer, level, modes),
+        texel(images, std.add(base, d.vec2i(1, 1)), layer, level, modes),
+        weight.x,
+    );
+    return std.mix(a, b, weight.y);
+});
+
 // Address texel taps, not just UVs: repeat's linear footprint straddles the opposite edges.
 // Derivatives precede addressing so wrap boundaries cannot spuriously select coarser mips.
-/** @internal Shared fragment sampling for the built-in image consumers; dx/dy are unwrapped UV derivatives. */
+/**
+ * @internal Shared fragment sampling for the built-in image consumers; dx/dy are unwrapped UV
+ * derivatives. Level of detail is isotropic, from the larger footprint axis, as with anisotropy 1.
+ */
 export const sampleImage = tgpu.fn(
     [d.texture2dArray(), d.sampler(), d.texture2d(), d.vec2f, d.i32, d.vec2f, d.vec2f],
     d.vec4f,
@@ -44,34 +72,30 @@ export const sampleImage = tgpu.fn(
             ),
         ),
     );
-    if (s.x === 0 && s.y === 0 && s.z === 1 && s.w === 1) {
+    // s.w packs the min filter (bit 0) with the mipmap filter (bit 1); the shared sampler is all linear.
+    if (s.x === 0 && s.y === 0 && s.z === 1 && s.w === 3) {
         return std.textureSampleGrad(images, sampler, uv, layer, dx, dy);
     }
     const dimensions = d.vec2f(std.textureDimensions(images));
     const x = std.mul(dx, dimensions);
     const y = std.mul(dy, dimensions);
     const lod = 0.5 * std.log2(std.max(std.dot(x, x), std.dot(y, y)));
-    const level = d.i32(
-        std.clamp(std.floor(lod + 0.5), 0, d.f32(std.textureNumLevels(images) - 1)),
-    );
-    const size = d.vec2f(std.textureDimensions(images, level));
-    const position = std.mul(uv, size);
-    const filter = std.select(s.w, s.z, lod <= 0);
-    if (filter === 0) {
-        return texel(images, d.vec2i(std.floor(position)), layer, level, s.xy);
+    const last = d.f32(std.textureNumLevels(images) - 1);
+    const filter = std.select(s.w & 1, s.z, lod <= 0);
+    if (s.w >>> 1 === 0) {
+        const level = d.i32(std.clamp(std.floor(lod + 0.5), 0, last));
+        return filtered(images, uv, layer, level, filter, s.xy);
     }
-    const centered = std.sub(position, d.vec2f(0.5));
-    const base = d.vec2i(std.floor(centered));
-    const weight = std.fract(centered);
-    const a = std.mix(
-        texel(images, base, layer, level, s.xy),
-        texel(images, std.add(base, d.vec2i(1, 0)), layer, level, s.xy),
-        weight.x,
+    const clamped = std.clamp(lod, 0, last);
+    const level = d.i32(std.floor(clamped));
+    const finer = filtered(images, uv, layer, level, filter, s.xy);
+    const coarser = filtered(
+        images,
+        uv,
+        layer,
+        d.i32(std.min(d.f32(level + 1), last)),
+        filter,
+        s.xy,
     );
-    const b = std.mix(
-        texel(images, std.add(base, d.vec2i(0, 1)), layer, level, s.xy),
-        texel(images, std.add(base, d.vec2i(1, 1)), layer, level, s.xy),
-        weight.x,
-    );
-    return std.mix(a, b, weight.y);
+    return std.mix(finer, coarser, std.fract(clamped));
 });
