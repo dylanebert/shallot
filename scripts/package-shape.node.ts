@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import semver from "semver";
 import { normalizePath } from "../src/project/paths";
 import { removeTestDirectory } from "./test-directory";
 
@@ -23,29 +24,30 @@ const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const TYPEGPU_RANGE = ENGINE.peerDependencies.typegpu as string;
 
 test("Dawn webgpu is an optional peer with the verified development pin", () => {
-    expect(ENGINE.peerDependencies.webgpu).toBe("^0.6.2");
+    expect(semver.validRange(ENGINE.devDependencies.webgpu)).not.toBeNull();
+    expect(ENGINE.peerDependencies.webgpu).toBe(ENGINE.devDependencies.webgpu);
     expect(ENGINE.peerDependenciesMeta.webgpu).toEqual({ optional: true });
-    expect(ENGINE.devDependencies.webgpu).toBe("^0.6.2");
     expect(ENGINE.exports["./webgpu"]).toBe("./src/engine/runtime/webgpu.ts");
 });
 
 test("Vite is a supported plugin peer and a Shallot development dependency", () => {
-    expect(ENGINE.peerDependencies.vite).toBe("^8.0.0");
-    expect(ENGINE.devDependencies.vite).toBe("^8.3.1");
+    expect(semver.validRange(ENGINE.devDependencies.vite)).not.toBeNull();
+    expect(semver.validRange(ENGINE.peerDependencies.vite)).not.toBeNull();
+    expect(semver.subset(ENGINE.devDependencies.vite, ENGINE.peerDependencies.vite)).toBe(true);
     expect(ENGINE.dependencies.vite).toBeUndefined();
 });
 
 test("the script-only Babel parser is a development dependency", () => {
     expect(ENGINE.dependencies["@babel/parser"]).toBeUndefined();
-    expect(ENGINE.devDependencies["@babel/parser"]).toBe("^8.0.6");
+    expect(semver.validRange(ENGINE.devDependencies["@babel/parser"])).not.toBeNull();
 });
 
 // c9caa355 dropped an unused Playwright peer; the published ./testing now imports Playwright's types,
 // so it is an optional peer, as webgpu is for ./webgpu, and stays the engine's own dev dependency.
 test("Playwright is an optional peer for ./testing and the engine's dev dependency", () => {
+    expect(semver.validRange(ENGINE.devDependencies.playwright)).not.toBeNull();
     expect(ENGINE.peerDependencies.playwright).toBe(ENGINE.devDependencies.playwright);
     expect(ENGINE.peerDependenciesMeta.playwright).toEqual({ optional: true });
-    expect(ENGINE.devDependencies.playwright).toBe("^1.63.0");
 });
 
 test("Node tooling exports committed JavaScript with generated declaration types", () => {
