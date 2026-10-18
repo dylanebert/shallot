@@ -118,7 +118,7 @@ function exercisePublicShapeLifecycle(): void {
     destroyTestWorld(world);
 }
 
-test("computeSphereMass or computeCapsuleMass drifts from the Box3D C reference's f32 bits for a sphere or capsule vector, including the ragdoll bone capsule where an unrounded 0.4 sphere-inertia literal costs a ULP", () => {
+test("sphere and capsule shape mass equals the Box3D C reference's f32 bits, including the ragdoll bone capsule whose sphere inertia needs an f32 0.4 literal", () => {
     exercisePublicShapeLifecycle();
     const world = createTestWorld();
     try {
@@ -185,7 +185,7 @@ test("computeSphereMass or computeCapsuleMass drifts from the Box3D C reference'
     }
 });
 
-test("computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule at center +/- radius, or stops following the transform's translation", () => {
+test("sphere and capsule AABBs bound center +/- radius and follow the transform's translation, and a rotated capsule shape's AABB fills caller storage", () => {
     exercisePublicShapeLifecycle();
     // AABBs compose transform.point (bit-exact) with min/max/sub/add; concrete extremes pin the
     // wrapper without reimplementing the transform.
@@ -243,7 +243,7 @@ test("computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule
     }
 });
 
-test("roundSphere or roundCapsule leaves an f64 sphere or capsule field unrounded at the storage boundary, so solver arithmetic on it diverges from the C's f32 struct fields", () => {
+test("roundSphere and roundCapsule round every sphere and capsule field to f32", () => {
     exercisePublicShapeLifecycle();
     // The C holds geometry as f32 struct fields; callers pass f64 JS numbers. A field that is
     // not f32-exact (e.g. 0.3) must be rounded on storage or the solver arithmetic diverges
@@ -269,4 +269,9 @@ test("roundSphere or roundCapsule leaves an f64 sphere or capsule field unrounde
     expect(c.radius, "roundCapsule(0.3 radius): radius must not stay f64").not.toBe(0.3);
     expect(c.center1.x, "roundCapsule(-0.3 center1.x): center1.x").toBe(f32(-0.3));
     expect(c.center1.z, "roundCapsule(0.7 center1.z): center1.z").toBe(f32(0.7));
+    expect(c.center2, "roundCapsule(0.3, 0, 0.7 center2): center2").toEqual({
+        x: f32(0.3),
+        y: 0,
+        z: f32(0.7),
+    });
 });
