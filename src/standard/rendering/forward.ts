@@ -1263,7 +1263,7 @@ const ShadowCameraSystem: System = {
 // Run after PrepassSystem so position-writing producers have emitted and this frame's draws are
 // resolved; run before MainPassSystem so atlas depth and receiver parameters are ready for shading.
 // With no casting light, record no shadow pass and use the fully-lit fallback.
-const ShadowMapSystem: System = {
+export const ShadowMapSystem: System = {
     name: "shadowmap",
     group: "draw",
     after: [PrepassSystem],

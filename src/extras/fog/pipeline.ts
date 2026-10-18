@@ -56,35 +56,26 @@ export const fogGridLayout = tgpu
     })
     .$idx(0);
 
-/** Per-camera scene application resources. */
+export const fogReadLayout = tgpu
+    .bindGroupLayout({
+        grid: { texture: d.texture3d(d.f32), visibility: ["fragment"] },
+        gridSampler: { sampler: "filtering", visibility: ["fragment"] },
+        view: { uniform: ViewUniforms, visibility: ["fragment"] },
+        fog: { uniform: FogGpu, visibility: ["fragment"] },
+        lighting: { uniform: LightingGpu, visibility: ["fragment"] },
+    })
+    .$idx(3);
+
 export const fogLayout0 = tgpu
     .bindGroupLayout({
-        grid: { texture: d.texture3d(d.f32), visibility: ["compute"] },
-        gridSampler: { sampler: "filtering", visibility: ["compute"] },
-        sceneTex: { texture: d.texture2d(d.f32), visibility: ["compute"] },
-        depthTex: { texture: d.textureDepth2d(), visibility: ["compute"] },
-        output: {
-            storageTexture: d.textureStorage2d("rgba16float", "write-only"),
-            visibility: ["compute"],
-        },
-        view: { uniform: ViewUniforms, visibility: ["compute"] },
-        fog: { uniform: FogGpu, visibility: ["compute"] },
+        depthTex: { texture: d.textureDepth2d(), visibility: ["fragment"] },
     })
     .$idx(0);
 
-/** MSAA variant: compute loads sample zero from the main pass's multisampled depth lane. */
+/** The shared prepass depth lane is multisampled; application reads sample zero. */
 export const fogLayout0Multisampled = tgpu
     .bindGroupLayout({
-        grid: { texture: d.texture3d(d.f32), visibility: ["compute"] },
-        gridSampler: { sampler: "filtering", visibility: ["compute"] },
-        sceneTex: { texture: d.texture2d(d.f32), visibility: ["compute"] },
-        depthTex: { texture: d.textureDepthMultisampled2d(), visibility: ["compute"] },
-        output: {
-            storageTexture: d.textureStorage2d("rgba16float", "write-only"),
-            visibility: ["compute"],
-        },
-        view: { uniform: ViewUniforms, visibility: ["compute"] },
-        fog: { uniform: FogGpu, visibility: ["compute"] },
+        depthTex: { texture: d.textureDepthMultisampled2d(), visibility: ["fragment"] },
     })
     .$idx(0);
 
@@ -377,8 +368,8 @@ const fogTail = tgpu
         // The distant medium has no resolved occluders or local lights.
         let light = std.mul(view.ambientColor.rgb, view.exposure / (4 * Math.PI));
         let k = d.u32(0);
-        while (k < fogLayout1.$.lighting.directionalCount) {
-            const sun = fogLayout1.$.lighting.directionalLights[k];
+        while (k < fogReadLayout.$.lighting.directionalCount) {
+            const sun = fogReadLayout.$.lighting.directionalLights[k];
             if (sun.params.z > 0) {
                 light = d.vec3f(
                     std.add(
@@ -404,67 +395,75 @@ const fogTail = tgpu
     })
     .$name("fogTail");
 
-function createApplyKernel(
-    layout: typeof fogLayout0 | typeof fogLayout0Multisampled,
-    readDepth: typeof loadDepth | typeof loadDepthMultisampled,
-) {
-    return tgpu
-        .computeFn({
-            workgroupSize: [WORKGROUP, WORKGROUP],
-            in: { gid: d.builtin.globalInvocationId },
-        })((input) => {
-            "use gpu";
-            const dim = std.textureDimensions(layout.$.output);
-            if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
-            const px = d.vec2i(input.gid.xy);
-            const scn = std.textureLoad(layout.$.sceneTex, px, 0).xyz;
-            const depth = readDepth(px);
-            const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim));
-            const camView = layout.$.view;
-            const cfg = layout.$.fog;
-            const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
-            const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
-            let dir = std.normalize(std.sub(nearWorld, camView.eye.xyz));
-            let surfaceZ = d.f32(cfg.extra.x);
-            // Perspective clear depth is infinite; its finite fog endpoint is authored instead.
-            if (depth !== 0 || camView.projection.z <= 0.5) {
-                const p = reconstructWorld(camView.invViewProj, uv, depth);
-                dir = std.normalize(std.sub(p, nearWorld));
-                surfaceZ = std.dot(std.sub(p, camView.eye.xyz), forward);
-            }
-            const cosine = std.max(std.dot(dir, forward), 1e-6);
-            const viewZ = std.min(surfaceZ, std.max(camView.projection.x, cfg.extra.x * cosine));
-            const extent = std.max(cfg.medium.w - camView.projection.x, 0.001);
-            const slice = std.sqrt(std.clamp((viewZ - camView.projection.x) / extent, 0, 1));
-            // Texels hold slice boundaries, including the identity at the near plane.
-            const z = (slice * FOG_SLICES + 0.5) / (FOG_SLICES + 1);
-            const integrated = std.textureSampleLevel(
-                layout.$.grid,
-                layout.$.gridSampler,
-                d.vec3f(uv, z),
-                0,
+/** Radiance added in front of a world point and transmittance to it, bounded by maxDistance. */
+export const readFog = tgpu
+    .fn(
+        [d.vec3f],
+        d.vec4f,
+    )((point) => {
+        "use gpu";
+        const camView = fogReadLayout.$.view;
+        const cfg = fogReadLayout.$.fog;
+        const clip = std.mul(camView.viewProj, d.vec4f(point, 1));
+        const uv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
+        const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
+        const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+        const dir = std.normalize(std.sub(point, nearWorld));
+        const surfaceZ = std.dot(std.sub(point, camView.eye.xyz), forward);
+        const cosine = std.max(std.dot(dir, forward), 1e-6);
+        const viewZ = std.min(surfaceZ, std.max(camView.projection.x, cfg.extra.x * cosine));
+        const extent = std.max(cfg.medium.w - camView.projection.x, 0.001);
+        const slice = std.sqrt(std.clamp((viewZ - camView.projection.x) / extent, 0, 1));
+        // Texels hold slice boundaries, including the identity at the near plane.
+        const z = (slice * FOG_SLICES + 0.5) / (FOG_SLICES + 1);
+        const integrated = std.textureSampleLevel(
+            fogReadLayout.$.grid,
+            fogReadLayout.$.gridSampler,
+            d.vec3f(uv, z),
+            0,
+        );
+        let volume = d.vec4f(integrated);
+        if (viewZ > cfg.medium.w) {
+            const rayScale = 1 / cosine;
+            volume = fogTail(
+                cfg,
+                camView,
+                std.add(nearWorld, std.mul(dir, extent * rayScale)),
+                dir,
+                (viewZ - cfg.medium.w) * rayScale,
+                integrated,
             );
-            let volume = d.vec4f(integrated);
-            if (viewZ > cfg.medium.w) {
-                const rayScale = 1 / cosine;
-                const gridDistance = extent * rayScale;
-                volume = fogTail(
-                    cfg,
-                    camView,
-                    std.add(nearWorld, std.mul(dir, gridDistance)),
-                    dir,
-                    (viewZ - cfg.medium.w) * rayScale,
-                    integrated,
+        }
+        return d.vec4f(
+            std.add(fogComposite(d.vec3f(0), cfg.color.xyz, volume.w), volume.xyz),
+            volume.w,
+        );
+    })
+    .$name("readFog");
+
+function createApplyKernel(readDepth: typeof loadDepth | typeof loadDepthMultisampled) {
+    return tgpu
+        .fragmentFn({ in: { position: d.builtin.position }, out: d.vec4f })((input) => {
+            "use gpu";
+            const uv = std.div(input.position.xy, fogReadLayout.$.view.resolution);
+            const depth = readDepth(d.vec2i(input.position.xy));
+            const camView = fogReadLayout.$.view;
+            let point = reconstructWorld(camView.invViewProj, uv, depth);
+            if (depth === 0 && camView.projection.z > 0.5) {
+                const nearWorld = reconstructWorld(camView.invViewProj, uv, 1);
+                const dir = std.normalize(std.sub(nearWorld, camView.eye.xyz));
+                point = std.add(
+                    camView.eye.xyz,
+                    std.mul(
+                        dir,
+                        std.max(fogReadLayout.$.fog.extra.x, camView.projection.x + 0.001),
+                    ),
                 );
             }
-            const outc = std.add(fogComposite(scn, cfg.color.xyz, volume.w), volume.xyz);
-            std.textureStore(layout.$.output, px, d.vec4f(outc, 1));
+            return readFog(point);
         })
         .$name("fogApply");
 }
 
-export const fogKernel = createApplyKernel(fogLayout0, loadDepth);
-export const fogKernelMultisampled = createApplyKernel(
-    fogLayout0Multisampled,
-    loadDepthMultisampled,
-);
+export const fogKernel = createApplyKernel(loadDepth);
+export const fogKernelMultisampled = createApplyKernel(loadDepthMultisampled);

@@ -1,13 +1,13 @@
-import type { TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
+import tgpu, { type TgpuBuffer, type TgpuComputePipeline, type UniformFlag } from "typegpu";
 import {
     Camera,
     DepthPrepassRequests,
+    fullscreenVertex,
     MainPassSystem,
-    OverlaySystem,
     RenderContext,
     RenderingPlugin,
-    sceneTransform,
-    TonemappingSystem,
+    RenderPhases,
+    SAMPLE_COUNT,
     Views,
 } from "../../core/rendering";
 import type { Plugin, System, World } from "../../engine";
@@ -28,6 +28,7 @@ import {
     pointAtlasView,
     pointShadowCasters,
     pointShadowRects,
+    ShadowMapSystem,
     StandardRenderer,
     StandardRenderingPlugin,
     shadowSampler,
@@ -44,6 +45,7 @@ import {
     fogLayout0,
     fogLayout0Multisampled,
     fogLayout1,
+    fogReadLayout,
 } from "./pipeline";
 import { TEMPORAL_FRAMES } from "./temporal";
 
@@ -110,8 +112,7 @@ const FOG_CAMERA_QUERY = [Camera, StandardRenderer];
 interface FogState {
     fog: {
         gridPipeline: TgpuComputePipeline | null;
-        pipeline: TgpuComputePipeline | null;
-        multisampledPipeline: TgpuComputePipeline | null;
+        pipelines: Map<string, GPURenderPipeline>;
         buffer: (TgpuBuffer<typeof FogGpu> & UniformFlag) | null;
     };
     staging: Float32Array;
@@ -131,20 +132,20 @@ interface FogState {
             camera: number;
             gridGroups: GPUBindGroup[];
             gridPass: GPUComputePassDescriptor;
-            read: GPUTextureView;
-            write: GPUTextureView;
+            lighting: GPUBuffer;
+            pipeline: GPURenderPipeline;
+            readGroup: GPUBindGroup;
             depth: GPUTextureView;
             slot: number;
             multisampled: boolean;
             bindGroup: GPUBindGroup;
-            pass: GPUComputePassDescriptor;
         }
     >;
 }
 
 const fogStateKey = { create: () => createFogState() };
 const createFogState = (): FogState => ({
-    fog: { gridPipeline: null, pipeline: null, multisampledPipeline: null, buffer: null },
+    fog: { gridPipeline: null, pipelines: new Map(), buffer: null },
     staging: new Float32Array(FOG_FLOATS),
     lights: null,
     views: new Map(),
@@ -212,30 +213,74 @@ function fogLights(world: World): GPUBindGroup {
     return group;
 }
 
-/**
- * Per camera, light and integrate the fog grid, then apply it at the scene's opaque depth through the
- * `sceneTransform` scratch so tonemapping reads it. No-op unless the scene has a {@link Fog} singleton and the
- * camera is a standard view without {@link NoFog}; the plugin requests the shared depth lane. Ordered after the
- * main color pass and before tonemapping.
- */
+function applyPipeline(
+    world: World,
+    format: GPUTextureFormat,
+    multisampled: boolean,
+): GPURenderPipeline {
+    const pipelines = fogState(world).fog.pipelines;
+    const samples = multisampled ? SAMPLE_COUNT : 1;
+    const key = `${format}:${samples}`;
+    let pipeline = pipelines.get(key);
+    if (!pipeline) {
+        const device = world.gpu.device;
+        const code = tgpu.resolve(
+            [
+                fullscreenVertex.$name("fullscreenVertex"),
+                multisampled ? fogKernelMultisampled : fogKernel,
+            ],
+            { names: "strict" },
+        );
+        const module = device.createShaderModule({ label: "fog-apply", code });
+        // TypeGPU leaves sparse group indices unfilled; WebGPU requires explicit empty layouts.
+        const empty = device.createBindGroupLayout({ entries: [] });
+        pipeline = device.createRenderPipeline({
+            label: "fog-apply",
+            layout: device.createPipelineLayout({
+                bindGroupLayouts: [
+                    world.gpu.root.unwrap(multisampled ? fogLayout0Multisampled : fogLayout0),
+                    empty,
+                    empty,
+                    world.gpu.root.unwrap(fogReadLayout),
+                ],
+            }),
+            vertex: { module, entryPoint: "fullscreenVertex" },
+            fragment: {
+                module,
+                entryPoint: "fogApply",
+                targets: [
+                    {
+                        format,
+                        blend: {
+                            color: { srcFactor: "one", dstFactor: "src-alpha", operation: "add" },
+                            alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" },
+                        },
+                    },
+                ],
+            },
+            depthStencil: {
+                format: "depth32float",
+                depthCompare: "always",
+                depthWriteEnabled: false,
+            },
+            multisample: { count: samples },
+        });
+        pipelines.set(key, pipeline);
+    }
+    return pipeline;
+}
+
+/** Integrates each standard camera's grid after shadows and light culling, before the main pass. */
 const FogSystem: System = {
     name: "fog",
     group: "draw",
-    after: [MainPassSystem],
-    // a scene-transform effect runs before the overlay anchor, so a screen-space overlay (outline)
-    // composites on top of the haze rather than receiving fog
-    before: [TonemappingSystem, OverlaySystem],
+    after: [ShadowMapSystem],
+    before: [MainPassSystem],
     update(world) {
         const _render = world.resource(RenderContext);
         const _fogState = world.resource(fogStateKey);
 
-        if (
-            !_fogState.fog.gridPipeline ||
-            !_fogState.fog.pipeline ||
-            !_fogState.fog.multisampledPipeline ||
-            !_fogState.fog.buffer
-        )
-            return;
+        if (!_fogState.fog.gridPipeline || !_fogState.fog.buffer) return;
         const fogEid = world.only(FOG_SINGLETON_QUERY);
         if (fogEid < 0) {
             clearViews(_fogState);
@@ -260,18 +305,19 @@ const FogSystem: System = {
             const view = world.resource(Views).get(eid);
             if (!view?.framebuffer || !view.depth) continue;
             const multisampled = world.storage(Camera).antialias.get(eid) !== 0;
-            const pipeline = multisampled
-                ? _fogState.fog.multisampledPipeline
-                : _fogState.fog.pipeline;
-            const { read, write } = sceneTransform(world, view, eid);
+            const pipeline = applyPipeline(
+                world,
+                view.framebufferFormat ?? _render.format,
+                multisampled,
+            );
+            const lighting = world.resource(Lighting).buffer;
             let cam = fogState(world).views.get(eid);
             if (
                 !cam ||
                 cam.camera !== world.ref(eid) ||
                 cam.width !== view.width ||
                 cam.height !== view.height ||
-                cam.read !== read ||
-                cam.write !== write ||
+                cam.lighting !== lighting ||
                 cam.depth !== view.depth ||
                 cam.slot !== view.slot ||
                 cam.multisampled !== multisampled
@@ -327,23 +373,18 @@ const FogSystem: System = {
                 });
                 const group = multisampled
                     ? world.gpu.root.createBindGroup(fogLayout0Multisampled, {
-                          grid: gridView,
-                          gridSampler,
-                          sceneTex: read,
                           depthTex: view.depth,
-                          output: write,
-                          view: _render.viewBuffers[view.slot],
-                          fog: _fogState.fog.buffer,
                       })
-                    : world.gpu.root.createBindGroup(fogLayout0, {
-                          grid: gridView,
-                          gridSampler,
-                          sceneTex: read,
-                          depthTex: view.depth,
-                          output: write,
-                          view: _render.viewBuffers[view.slot],
-                          fog: _fogState.fog.buffer,
-                      });
+                    : world.gpu.root.createBindGroup(fogLayout0, { depthTex: view.depth });
+                const readGroup = world.gpu.root.unwrap(
+                    world.gpu.root.createBindGroup(fogReadLayout, {
+                        grid: gridView,
+                        gridSampler,
+                        view: _render.viewBuffers[view.slot],
+                        fog: _fogState.fog.buffer,
+                        lighting,
+                    }),
+                );
                 cam = {
                     grid,
                     width: view.width,
@@ -357,16 +398,17 @@ const FogSystem: System = {
                     camera: world.ref(eid),
                     gridGroups,
                     gridPass: { label: `fog-grid/${eid}` },
-                    read,
-                    write,
+                    lighting,
+                    pipeline,
+                    readGroup,
                     depth: view.depth,
                     slot: view.slot,
                     multisampled,
                     bindGroup: world.gpu.root.unwrap(group),
-                    pass: { label: `fog/${eid}` },
                 };
                 fogState(world).views.set(eid, cam);
             }
+            cam.pipeline = pipeline;
             for (let i = 0; i < FOG_FLOATS; i++) {
                 if (cam.config[i] !== _fogState.staging[i]) cam.valid = false;
                 cam.config[i] = _fogState.staging[i];
@@ -403,17 +445,6 @@ const FogSystem: System = {
             endComputePass(gridPass);
             cam.valid = true;
             cam.parity = 1 - cam.parity;
-            cam.pass.timestampWrites = world.gpu.span?.("fog:apply");
-            const pass = beginComputePass(world.frameEncoder()!, cam.pass);
-            setComputePipeline(pass, world.gpu.root.unwrap(pipeline));
-            setComputeBindGroup(pass, 0, cam.bindGroup);
-            setComputeBindGroup(pass, 1, lights);
-            dispatchWorkgroups2(
-                pass,
-                Math.ceil(view.width / WORKGROUP),
-                Math.ceil(view.height / WORKGROUP),
-            );
-            endComputePass(pass);
         }
     },
 };
@@ -421,7 +452,7 @@ const FogSystem: System = {
 /**
  * volumetric atmosphere (fog + height fog). Opt-in: add `FogPlugin` to the plugin set, give the scene one
  * {@link Fog} singleton; fog requests the shared camera depth lane, and {@link NoFog} opts a camera out. The grid
- * composites before tonemapping via the `sceneTransform` seam.
+ * composites opaque fog inside the main pass before transparent draws.
  */
 export const FogPlugin: Plugin = {
     gpu: {},
@@ -434,6 +465,16 @@ export const FogPlugin: Plugin = {
     initialize(world) {
         const state = world.resource(fogStateKey);
         world.own({ destroy: () => clearViews(state) });
+        world.resource(RenderPhases).push({
+            afterOpaque(world, eid, _view, pass) {
+                const cam = fogState(world).views.get(eid);
+                if (!cam) return;
+                pass.setPipeline(cam.pipeline);
+                pass.setBindGroup(0, cam.bindGroup);
+                pass.setBindGroup(3, cam.readGroup);
+                pass.draw(3);
+            },
+        });
         world
             .resource(DepthPrepassRequests)
             .push(
@@ -456,16 +497,16 @@ export const FogPlugin: Plugin = {
         _fogState.fog.gridPipeline = root
             .createComputePipeline({ compute: fogGridKernel })
             .$name("fog-grid");
-        _fogState.fog.pipeline = root.createComputePipeline({ compute: fogKernel }).$name("fog");
-        _fogState.fog.multisampledPipeline = root
-            .createComputePipeline({ compute: fogKernelMultisampled })
-            .$name("fog-multisampled");
+        _fogState.fog.pipelines.clear();
+        const format = world.resource(RenderContext).format;
+        const pipeline = applyPipeline(world, format, false);
+        const multisampledPipeline = applyPipeline(world, format, true);
         fogState(world).lights = null;
         clearViews(_fogState);
 
         precompile(world, "fog-grid", () => _fogState.fog.gridPipeline!);
-        precompile(world, "fog", () => _fogState.fog.pipeline!);
-        precompile(world, "fog-msaa", () => _fogState.fog.multisampledPipeline!);
+        precompile(world, "fog", () => [pipeline]);
+        precompile(world, "fog-msaa", () => [multisampledPipeline]);
     },
 
     dispose(world: World) {
@@ -474,8 +515,7 @@ export const FogPlugin: Plugin = {
         _fogState.fog.buffer?.destroy();
         _fogState.fog.buffer = null;
         _fogState.fog.gridPipeline = null;
-        _fogState.fog.pipeline = null;
-        _fogState.fog.multisampledPipeline = null;
+        _fogState.fog.pipelines.clear();
         fogState(world).lights = null;
         clearViews(_fogState);
     },

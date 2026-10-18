@@ -13,7 +13,12 @@ export { Clusters, clusterCell, LightClusters, LightCull } from "./cluster";
 export type { Background, BackgroundHandle } from "./contract";
 export { BackgroundContext, Backgrounds, backgroundLayout, registerBackground } from "./contract";
 export { engineLayout, lit } from "./engine";
-export { CameraBackground, StandardRenderer, StandardRenderingPlugin } from "./forward";
+export {
+    CameraBackground,
+    ShadowMapSystem,
+    StandardRenderer,
+    StandardRenderingPlugin,
+} from "./forward";
 export type { IndirectLightSource } from "./indirect";
 export {
     IndirectLightInput,

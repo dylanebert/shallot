@@ -257,6 +257,8 @@ export const TransparentPhases: Resource<Map<number, TransparentPhase>> = {
 export interface PhaseRenderer {
     prepass?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
     opaque?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
+    /** Records into the core-owned main pass after every renderer's opaque record and before the first transparent draw. Must not end the pass. */
+    afterOpaque?(world: World, eid: number, view: View, pass: GPURenderPassEncoder): void;
     transparent?(world: World, eid: number, view: View, phase: TransparentPhase): void;
     prepareTransparent?(
         world: World,
@@ -335,6 +337,7 @@ function recordMainPass(this: World, view: View, eid: number): void {
         colorPassDescriptor(this, eid, targets, view.framebuffer),
     );
     for (let i = 0; i < renderers.length; i++) renderers[i].opaque?.(this, eid, view, pass);
+    for (let i = 0; i < renderers.length; i++) renderers[i].afterOpaque?.(this, eid, view, pass);
     let index = 0;
     started = phase.measureTimings ? performance.now() : 0;
     while (index < phase.length) {
