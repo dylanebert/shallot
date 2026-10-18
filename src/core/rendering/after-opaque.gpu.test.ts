@@ -4,7 +4,7 @@ import { gpuApps } from "../../../scripts/gpu.fixture";
 import { Transform } from "../transform";
 import { attachTexture, Camera, CorePipelinePlugin, RenderPhases } from ".";
 
-setDefaultTimeout(TIMEOUT.node);
+setDefaultTimeout(TIMEOUT.gpu);
 const subjects = gpuApps(import.meta.path, [{ defaults: false, plugins: [CorePipelinePlugin] }]);
 
 test("every opaque record precedes every afterOpaque record and the first transparent draw in the same core-owned pass", () => {
