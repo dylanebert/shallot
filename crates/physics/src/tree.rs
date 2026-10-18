@@ -5,7 +5,7 @@
 //! Native tests use owned pools; wasm operations use resident or uploaded columns.
 
 use crate::math::Vec3;
-use crate::mesh_query::{bounds_overlap, bounds_ray_overlap, max, min};
+use crate::mesh_query::{aabb_overlaps, bounds_ray_overlap, max, min};
 
 /// Four-byte slots per node (`sizeof(b3TreeNode) / 4`).
 pub const STRIDE: usize = 12;
@@ -608,7 +608,7 @@ pub(crate) fn cast<const FLAGS_SHIFT: u32, F: FnMut(f32, i32, u32) -> f32>(
         stats.0 += 1;
         let (node_lo, node_hi) = bounds(pool, id);
         if !matches(pool, id, mask_hi, mask_lo, require_all)
-            || !bounds_overlap(node_lo, node_hi, total_lo, total_hi)
+            || !aabb_overlaps(node_lo, node_hi, total_lo, total_hi)
             || !bounds_ray_overlap(
                 if box_cast {
                     node_lo.sub(extent)

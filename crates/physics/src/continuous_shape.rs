@@ -1,7 +1,7 @@
 //! Shape impact traversals from Box3D shape.c (Erin Catto, MIT).
 use crate::distance::{time_of_impact, ShapeProxy, Sweep, TOIInput, TOIOutput};
 use crate::math::{maxf, Mat3, Transform, Vec3};
-use crate::mesh_query::{bounds_overlap, max, min};
+use crate::mesh_query::{aabb_overlaps, max, min};
 use crate::query::Shape;
 
 /// Geometry of the convex visitor, computed once for a target traversal.
@@ -156,15 +156,18 @@ fn mesh_impact(
     let mut context = MeshImpact::new(visitor, target, fraction, radius, is_sensor);
     match shape {
         Shape::Mesh(mesh) => {
-            let flip = mesh.scale.x * mesh.scale.y * mesh.scale.z <= 0.0;
-            crate::mesh_query::visit_triangles(*mesh, lower, upper, flip, |_, triangle| {
-                context.triangle(triangle)
-            });
+            crate::mesh_query::visit_triangles(
+                *mesh,
+                lower,
+                upper,
+                mesh.reflected(),
+                |_, triangle| context.triangle(triangle),
+            );
         }
         Shape::Height(field) => field.visit_cells(lower, upper, |_, [a, b, c, d]| {
             let lo = min(min(a, b), min(c, d));
             let hi = max(max(a, b), max(c, d));
-            if bounds_overlap(lower, upper, lo, hi) {
+            if aabb_overlaps(lower, upper, lo, hi) {
                 if field.clockwise() {
                     context.triangle([a, b, c]);
                     context.triangle([d, c, b]);

@@ -6,7 +6,7 @@ use crate::distance::{
 use crate::manifold::Capsule;
 use crate::math::{absf, Plane, Transform, Vec3, FLT_MAX};
 use crate::mesh_query::{
-    bounds_overlap, bounds_triangle_overlap, intersect_ray_triangle, max, min, mul, proxy_bounds,
+    aabb_overlaps, bounds_triangle_overlap, intersect_ray_triangle, max, min, mul, proxy_bounds,
     signed_volume,
 };
 use crate::query::{PlaneResult, RayCastInput, ShapeCastInput};
@@ -237,7 +237,7 @@ pub fn shape_cast_height(field: HeightField, input: &ShapeCastInput) -> CastOutp
                 let [a, b, c, d] = corners;
                 let lo = min(min(a, b), min(c, d));
                 let hi = max(max(a, b), max(c, d));
-                if !bounds_overlap(bounds_min, bounds_max, lo, hi) {
+                if !aabb_overlaps(bounds_min, bounds_max, lo, hi) {
                     continue;
                 }
                 if input.proxy.count == 1 && input.proxy.radius == 0.0 {

@@ -55,11 +55,22 @@ pub(crate) fn max(a: Vec3, b: Vec3) -> Vec3 {
 pub(crate) fn component(a: Vec3, i: usize) -> f32 {
     [a.x, a.y, a.z][i]
 }
-fn positive(a: Vec3) -> bool {
-    a.x > 0.0 || a.y > 0.0 || a.z > 0.0
+/// b3AllLessEq3V against zero: an unordered lane fails.
+fn all_nonpositive(a: Vec3) -> bool {
+    a.x <= 0.0 && a.y <= 0.0 && a.z <= 0.0
 }
-pub(crate) fn bounds_overlap(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> bool {
-    !positive(a.sub(d)) && !positive(c.sub(b))
+/// b3TestBoundsOverlap: an unordered separation, such as a zero scale axis gives, does not overlap.
+pub(crate) fn bounds_overlap(lower1: Vec3, upper1: Vec3, lower2: Vec3, upper2: Vec3) -> bool {
+    all_nonpositive(max(lower2.sub(upper1), lower1.sub(upper2)))
+}
+/// b3AABB_Overlaps: only an ordered separation on an axis separates.
+pub(crate) fn aabb_overlaps(lower1: Vec3, upper1: Vec3, lower2: Vec3, upper2: Vec3) -> bool {
+    !(upper1.x < lower2.x
+        || lower1.x > upper2.x
+        || upper1.y < lower2.y
+        || lower1.y > upper2.y
+        || upper1.z < lower2.z
+        || lower1.z > upper2.z)
 }
 pub(crate) fn bounds_ray_overlap(lower: Vec3, upper: Vec3, start: Vec3, delta: Vec3) -> bool {
     let center = lower.add(upper).scale(0.5);
@@ -68,7 +79,7 @@ pub(crate) fn bounds_ray_overlap(lower: Vec3, upper: Vec3, start: Vec3, delta: V
         .cross(start.sub(center))
         .abs()
         .sub(delta.abs().modified_cross(extent));
-    !positive(separation)
+    all_nonpositive(separation)
 }
 pub(crate) fn bounds_triangle_overlap(center: Vec3, extent: Vec3, vertices: [Vec3; 3]) -> bool {
     crate::simd::bounds_triangle_overlap(center, extent, vertices)
@@ -94,8 +105,10 @@ impl Mesh<'_> {
     fn inverse_scale(self) -> Vec3 {
         Vec3::new(1.0 / self.scale.x, 1.0 / self.scale.y, 1.0 / self.scale.z)
     }
-    fn reflected(self) -> bool {
-        self.scale.x * self.scale.y * self.scale.z <= 0.0
+    /// Box3D's `ccw == false`: a NaN volume reflects too.
+    pub(crate) fn reflected(self) -> bool {
+        let ccw = self.scale.x * self.scale.y * self.scale.z > 0.0;
+        !ccw
     }
     fn triangle(self, index: usize, flip: bool) -> [Vec3; 3] {
         let mut indices = self.triangles[index].indices;

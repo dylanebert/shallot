@@ -87,7 +87,9 @@ impl TriangleSource<'_> {
     }
 
     pub fn query(&self, lower: Vec3, upper: Vec3, indices: &mut [usize; MAX_TRIANGLES]) -> usize {
-        use crate::mesh_query::{bounds_overlap, bounds_triangle_overlap, max, min, mul};
+        use crate::mesh_query::{
+            aabb_overlaps, bounds_overlap, bounds_triangle_overlap, max, min, mul,
+        };
         let mut count = 0;
         match self {
             Self::Mesh { mesh, .. } => {
@@ -147,7 +149,7 @@ impl TriangleSource<'_> {
                         let [a, b, c, d] = field.corners(row as usize, column as usize);
                         let cell_lower = min(min(a, b), min(c, d));
                         let cell_upper = max(max(a, b), max(c, d));
-                        if bounds_overlap(lower, upper, cell_lower, cell_upper) {
+                        if aabb_overlaps(lower, upper, cell_lower, cell_upper) {
                             for i in [2 * cell, 2 * cell + 1] {
                                 if count < MAX_TRIANGLES {
                                     indices[count] = i;
