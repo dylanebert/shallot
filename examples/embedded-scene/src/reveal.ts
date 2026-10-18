@@ -20,17 +20,13 @@ export function revealAfterFirstFrame(host: HostFrame, loading: Pick<Loading, "e
                 update(world: World) {
                     if (waiting || disposed) return;
                     waiting = true;
-                    // This draw system runs before the terminal submission. Ask for the queue fence only
-                    // after state.step returns, when the frame's commands have been submitted.
-                    queueMicrotask(() => {
-                        if (disposed) return;
-                        const device = world.gpu?.device;
-                        if (!device) {
+                    world.onFrameSubmit(() => {
+                        const fence = world.frameFence;
+                        if (!fence) {
                             fail(new Error("the first frame had no WebGPU device"));
                             return;
                         }
-                        void device.queue
-                            .onSubmittedWorkDone()
+                        fence
                             .then(() => {
                                 if (!disposed) host.reveal();
                             })
