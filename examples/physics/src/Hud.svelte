@@ -39,7 +39,9 @@
     .scenes { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: 280px; max-width: calc(100vw - 32px); max-height: min(480px, calc(100dvh - 96px)); overflow-y: auto; padding: 12px; box-sizing: border-box; background: #282622; border: 1px solid #797369; border-radius: 2px; }
     .scenes section + section { margin-top: 12px; }
     h2 { font: 400 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0 0 8px; color: #eee9df; }
-    .scenes button { width: 100%; margin-top: 8px; }
+    .scenes button { width: 100%; margin-top: 8px; border: 2px solid transparent; }
+    .scenes button[aria-current="true"] { border-color: #eee9df; }
+    .scenes button:hover, .scenes button:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
     input { appearance: none; width: 140px; height: 28px; margin: 0; background: transparent; cursor: pointer; }
     input::-webkit-slider-runnable-track { height: 2px; background: #797369; }
     input::-moz-range-track { height: 2px; background: #797369; }
