@@ -45,7 +45,7 @@ test("documented dependency and Bun pins match their manifests", async () => {
         const json = await Bun.file(resolve(root, manifest)).json();
         const range = json[field]?.[name];
         if (typeof range !== "string")
-            throw new Error(`${manifest} declares no ${field}.${name} — update PIN_SOURCES.`);
+            throw new Error(`${manifest} declares no ${field}.${name} — update PinSources.`);
         declared[name] = range;
     }
 

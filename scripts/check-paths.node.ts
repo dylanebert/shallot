@@ -68,10 +68,7 @@ function isUrlConstructor(node: AstNode | null | undefined): node is AstNode {
 function isHttpUrl(node: AstNode | null | undefined): boolean {
     if (!isUrlConstructor(node)) return false;
     const args = node.arguments as AstNode[];
-    if (
-        args.some((arg) => arg.type === "StringLiteral" && /^https?:\/\//i.test(arg.value)) ||
-        args.slice(1).some((arg) => arg.type === "StringLiteral" && /^https?:\/\//i.test(arg.value))
-    )
+    if (args.some((arg) => arg.type === "StringLiteral" && /^https?:\/\//i.test(arg.value)))
         return true;
 
     // Vite's server.url is already an HTTP URL; parsing it for its route is not a file conversion.
