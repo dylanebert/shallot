@@ -49,8 +49,9 @@ import { TEMPORAL_FRAMES } from "./temporal";
 
 /**
  * The scene's volumetric atmosphere: one per scene (a singleton). A frustum grid accumulates extinction
- * and in-scattered light up to `viewDistance`; beyond it, analytic height fog continues with unshadowed
- * ambient and directional in-scatter. `density` is the
+ * and in-scattered light up to `viewDistance`; beyond it, analytic height fog continues to surfaces with unshadowed
+ * ambient and directional in-scatter. A perspective camera's clear background takes the grid's haze at
+ * `viewDistance`. `density` is the
  * base haze thickness; `heightFalloff` makes it an exponential height fog (denser low, thinning with
  * altitude above `heightBase`). Extinction is
  * density × (absorption + scattering); the scattered fraction is scattering / (absorption + scattering).

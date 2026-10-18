@@ -16,7 +16,12 @@ import {
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import { DEFAULT_PLUGINS } from "../../standard";
-import { StandardRenderer } from "../../standard/rendering";
+import {
+    Materials,
+    MeshMaterial,
+    StandardMaterial,
+    StandardRenderer,
+} from "../../standard/rendering";
 import { Fog, FogPlugin } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
@@ -142,6 +147,49 @@ for (const kind of ["point", "spot"] as const) {
         expect(patch(await frame(camera))).toBe(0);
     });
 }
+
+test("a spot cone in front of the clear background brightens it as it does an object behind the cone", async () => {
+    const { world } = subjects()[0]!;
+    const camera = entity();
+    world.add(camera, Transform);
+    // Perspective clear depth is infinite under reverse-Z, unlike the orthographic scene's far plane.
+    world.add(camera, Camera, { fov: 30, clearColor: 0 });
+    world.add(camera, DebandDither, { enabled: 0 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, AmbientLight, { brightness: 0 });
+    attachTexture(world, camera, { width: SIZE, height: SIZE });
+    world.add(entity(), Fog, {
+        color: 0,
+        density: 0.15,
+        absorption: 0,
+        scattering: 1,
+        lightIntensity: 10 / Math.PI,
+    });
+    // A black wall covers the left half; the right half is clear background.
+    const wall = entity();
+    world.add(wall, Transform, { translation: [-15, 0, -20, 0], scale: [30, 40, 0.02, 0] });
+    world.add(wall, MeshInstance);
+    world.add(
+        wall,
+        MeshMaterial,
+        world.resource(Materials).add(StandardMaterial({ baseColor: [0, 0, 0, 1] })),
+    );
+    // A downward cone at depth 8 crosses both halves symmetrically.
+    const spot = entity();
+    world.add(spot, Transform, {
+        translation: [0, 6, -8, 0],
+        rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2],
+    });
+    world.add(spot, SpotLight, { intensity: 400000, range: 12, innerAngle: 0.2, outerAngle: 0.4 });
+    const unmarked = await frame(camera);
+    expect(patch(unmarked, 12)).toBe(0);
+    expect(patch(unmarked, 36)).toBe(0);
+    world.add(spot, VolumetricLight);
+    const marked = await frame(camera);
+    const wallHaze = patch(marked, 12);
+    expect(wallHaze).toBeGreaterThan(20);
+    expect(Math.abs(patch(marked, 36) - wallHaze)).toBeLessThanOrEqual(2);
+});
 
 test("ambient in-scatter increases with the camera's AmbientLight brightness", async () => {
     const { world } = subjects()[0]!;

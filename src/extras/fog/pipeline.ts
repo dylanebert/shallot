@@ -376,11 +376,23 @@ function createApplyKernel(
             const px = d.vec2i(input.gid.xy);
             const scn = std.textureLoad(layout.$.sceneTex, px, 0).xyz;
             const depth = readDepth(px);
+            const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim));
             if (depth === 0 && layout.$.view.projection.z > 0.5) {
-                std.textureStore(layout.$.output, px, d.vec4f(scn, 1));
+                // Infinite perspective depth is the clear background: end the ray at the grid's far
+                // slice, as Bevy does, rather than unprojecting depth zero as a finite point.
+                const volume = std.textureSampleLevel(
+                    layout.$.grid,
+                    layout.$.gridSampler,
+                    d.vec3f(uv, (FOG_SLICES + 0.5) / (FOG_SLICES + 1)),
+                    0,
+                );
+                const background = std.add(
+                    fogComposite(scn, layout.$.fog.color.xyz, volume.w),
+                    volume.xyz,
+                );
+                std.textureStore(layout.$.output, px, d.vec4f(background, 1));
                 return;
             }
-            const uv = std.div(std.add(d.vec2f(input.gid.xy), 0.5), d.vec2f(dim));
             const p = reconstructWorld(layout.$.view.invViewProj, uv, depth);
             const camView = layout.$.view;
             const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));

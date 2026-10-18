@@ -171,8 +171,9 @@ integrated radiance and transmittance at each opaque surface. Remove `steps`, `s
 cell and slice counts are internal constants. `Fog.viewDistance` is new, defaulting to 64 world
 units: it sets the far view-space depth of the grid. Surfaces beyond it use the last slice.
 
-For perspective cameras, infinite reverse-Z makes depth zero mean no opaque surface, so the
-fog pass leaves those background pixels unchanged rather than unprojecting them as a finite
+For perspective cameras, infinite reverse-Z makes depth zero mean no opaque surface. The fog
+pass gives those background pixels the grid's integrated haze at `viewDistance` along their ray,
+without the analytic height fog beyond it, rather than unprojecting depth zero as a finite
 endpoint. Orthographic depth zero still names its far projection plane.
 
 ## Presenting-camera capacity grows on demand

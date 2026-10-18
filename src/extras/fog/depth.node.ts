@@ -100,7 +100,10 @@ test("fog requests a multisampled depth lane without DepthPrepass and skips NoFo
     const fogged = await captureTexture(world, camera);
     const clear = await captureTexture(world, noFogCamera);
     expect(maximumDifference(fogged.rgba, clear.rgba)).toBeGreaterThan(10);
-    expect(maximumDifference(fogged.rgba.slice(0, 4), clear.rgba.slice(0, 4))).toBe(0);
+    // The clear-background corner takes the grid's far slice, so the red haze replaces the blue clear.
+    const corner = fogged.rgba.slice(0, 4);
+    expect(corner[0]!).toBeGreaterThan(clear.rgba[0]! + 100);
+    expect(corner[2]!).toBeLessThan(clear.rgba[2]! - 30);
 });
 
 test("NoFog opts out even when the user explicitly requests DepthPrepass", async () => {
