@@ -6,7 +6,7 @@ import { MeshInstance } from "../../core/mesh";
 import { Xform } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
 import type { GpuTable, Plugin, Resource, World } from "../../engine";
-import type { ComponentStorage } from "../../engine/ecs";
+import { type ComponentStorage, type LaneFormat, laneLayout, writeLane } from "../../engine/ecs";
 import { MeshInstanceInput, MeshMaterial } from "./material-data";
 
 type ShaderStage = "vertex" | "fragment";
@@ -419,7 +419,9 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
     private readonly _rowBytes: number;
     private readonly _scratch: ArrayBuffer;
     private readonly _freeRows: number[] = [];
+    private readonly _fields: readonly ParameterField[];
     private _bytes: Uint8Array;
+    private _view: DataView;
     private _alphaModes = new Uint32Array([AlphaModeCode.Opaque]);
     private _alphaCutoffs = new Float32Array([0.5]);
     private readonly _handles: (MaterialHandle | undefined)[] = [undefined];
@@ -441,6 +443,20 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         this._rowBytes = d.sizeOf(type.parameters);
         this._scratch = new ArrayBuffer(this._rowBytes);
         this._bytes = new Uint8Array(this._rowBytes);
+        this._view = new DataView(this._bytes.buffer);
+        this._fields = Object.entries(type.parameters.propTypes as Record<string, AnyWgslData>).map(
+            ([name, field]) => {
+                const layout = laneLayout(field);
+                return {
+                    name,
+                    type: field,
+                    offset: d.memoryLayoutOf(type.parameters, (row: any) => row[name]).offset,
+                    size: d.sizeOf(field),
+                    format: layout?.format,
+                    lanes: layout?.lanes ?? 0,
+                };
+            },
+        );
         writeToArrayBuffer(this._scratch, type.parameters, type.defaults ?? ({} as never));
         this._bytes.set(new Uint8Array(this._scratch), 0);
     }
@@ -464,6 +480,7 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
             const bytes = new Uint8Array(capacity * this._rowBytes);
             bytes.set(this._bytes);
             this._bytes = bytes;
+            this._view = new DataView(bytes.buffer);
             const alphaModes = new Uint32Array(capacity);
             alphaModes.set(this._alphaModes);
             this._alphaModes = alphaModes;
@@ -479,7 +496,10 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         const start = firstRow * this._rowBytes;
         const end = (firstRow + count) * this._rowBytes;
         this._table.reserveSlots(this._highWater);
-        this._table.bytes.set(this._bytes.subarray(start, end), start);
+        // A byte copy: a subarray view would allocate on every per-frame update.
+        const target = this._table.bytes;
+        const source = this._bytes;
+        for (let i = start; i < end; i++) target[i] = source[i];
         this._table.markRange(firstRow, count);
     }
 
@@ -605,19 +625,18 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
      * update wrote, before or after upload. Allocates the record: not a per-frame read.
      */
     get(handle: number | MaterialHandle): d.Infer<P> | undefined {
+        let row: number;
         if (typeof handle === "number") {
             if (!Number.isSafeInteger(handle) || handle < 0 || handle >= this._highWater)
                 return undefined;
-            return this._read(handle);
+            row = handle;
+        } else {
+            if (handle.type !== materialTypeId(this._world, this._type)) {
+                throw new RangeError("Materials.get: handle belongs to another material type");
+            }
+            if (this._handles[handle.material] !== handle) return undefined;
+            row = handle.material;
         }
-        if (handle.type !== materialTypeId(this._world, this._type)) {
-            throw new RangeError("Materials.get: handle belongs to another material type");
-        }
-        if (this._handles[handle.material] !== handle) return undefined;
-        return this._read(handle.material);
-    }
-
-    private _read(row: number): d.Infer<P> {
         const offset = row * this._rowBytes;
         return readFromArrayBuffer(
             this._bytes.slice(offset, offset + this._rowBytes).buffer,
@@ -625,11 +644,16 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         ) as d.Infer<P>;
     }
 
-    /** Publish changed fields at one type-local row for the next frame upload. */
+    /**
+     * Publish changed fields at one type-local row for the next frame upload, writing each given field in
+     * place; fields left out or undefined keep their values. Scalar and vector f32, i32 and u32 fields are
+     * written directly; other field types, such as f16, matrices, arrays and structs, are encoded by TypeGPU,
+     * which allocates.
+     */
     update(
         handle: number | MaterialHandle,
         values: Partial<d.InferInput<P>>,
-        options: { alphaMode?: AlphaMode } = {},
+        options?: { alphaMode?: AlphaMode },
     ): void {
         const row = typeof handle === "number" ? handle : handle.material;
         if (typeof handle !== "number" && handle.type !== materialTypeId(this._world, this._type)) {
@@ -638,13 +662,44 @@ export class MaterialAssets<P extends AnyWgslStruct = AnyWgslStruct> {
         if (!Number.isSafeInteger(row) || row < 0 || row >= this._highWater) {
             throw new RangeError(`Materials.update: unknown ${this._type.name} row ${row}`);
         }
-        if (options.alphaMode) alphaModeFields(options.alphaMode);
-        const merged = { ...this._read(row), ...values } as d.InferInput<P>;
-        writeToArrayBuffer(this._scratch, this._type.parameters, merged);
-        this._bytes.set(new Uint8Array(this._scratch), row * this._rowBytes);
-        if (options.alphaMode) this._writeAlpha(row, options.alphaMode);
+        const alphaMode = options?.alphaMode;
+        if (alphaMode) alphaModeFields(alphaMode);
+        const base = row * this._rowBytes;
+        const given = values as Record<string, unknown>;
+        for (let i = 0; i < this._fields.length; i++) {
+            const field = this._fields[i];
+            // Test presence first: loading every field name would make the load site megamorphic,
+            // and a megamorphic load boxes a double value.
+            if (!(field.name in given)) continue;
+            const value = given[field.name];
+            if (value === undefined) continue;
+            const offset = base + field.offset;
+            if (field.format === undefined) {
+                writeToArrayBuffer(this._bytes.buffer as ArrayBuffer, field.type, value as never, {
+                    startOffset: offset,
+                    endOffset: offset + field.size,
+                });
+            } else if (field.lanes === 1) {
+                writeLane(this._view, offset, field.format, value as number);
+            } else {
+                const lanes = value as ArrayLike<number>;
+                for (let lane = 0; lane < field.lanes; lane++)
+                    writeLane(this._view, offset + lane * 4, field.format, lanes[lane]);
+            }
+        }
+        if (alphaMode) this._writeAlpha(row, alphaMode);
         this.publish(row, 1);
     }
+}
+
+/** A parameter field's place in a row; `format` is undefined where TypeGPU writes the field. */
+interface ParameterField {
+    readonly name: string;
+    readonly type: AnyWgslData;
+    readonly offset: number;
+    readonly size: number;
+    readonly format: LaneFormat | undefined;
+    readonly lanes: number;
 }
 
 type ErasedMaterialType = MaterialType<any, any, any>;

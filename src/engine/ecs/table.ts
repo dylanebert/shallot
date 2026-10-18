@@ -14,15 +14,57 @@ export interface GpuTableOptions {
     rowSource?: GpuTable;
 }
 
+/** @internal Lane encoding of a record leaf written through a DataView: f32, i32 or u32. */
+export type LaneFormat = "f" | "i" | "u";
+
+/** @internal A scalar or vector record type of 4-byte f32, i32 or u32 lanes; undefined for any other
+ * WGSL type, such as f16, bool, matrices, arrays, structs and decorated types. */
+export function laneLayout(type: d.BaseData): { format: LaneFormat; lanes: number } | undefined {
+    const name = (type as unknown as { type: string }).type;
+    const format =
+        name === "f32" || name.endsWith("f")
+            ? "f"
+            : name === "i32" || name.endsWith("i")
+              ? "i"
+              : name === "u32" || name.endsWith("u")
+                ? "u"
+                : undefined;
+    if (format === undefined) return undefined;
+    const lanes = (type as unknown as { componentCount?: number }).componentCount ?? 1;
+    return d.sizeOf(type as d.AnyWgslData) === lanes * 4 ? { format, lanes } : undefined;
+}
+
+/** @internal Write one little-endian lane at a byte offset; true when the stored value changed. */
+export function writeLane(
+    view: DataView,
+    offset: number,
+    format: LaneFormat,
+    value: number,
+): boolean {
+    if (format === "f") {
+        const changed = !Object.is(view.getFloat32(offset, true), value);
+        view.setFloat32(offset, value, true);
+        return changed;
+    }
+    if (format === "i") {
+        const changed = view.getInt32(offset, true) !== value;
+        view.setInt32(offset, value, true);
+        return changed;
+    }
+    const changed = view.getUint32(offset, true) !== value;
+    view.setUint32(offset, value, true);
+    return changed;
+}
+
 type Consumer = (buffer: GPUBuffer, generation: number) => void;
 const ACTIVE_ROW = d.struct({ eid: d.u32, row: d.u32 });
 type BoundField = {
     readonly recordName: string;
     readonly componentName: string;
     readonly offset: number;
+    readonly format: LaneFormat;
     readonly lanes: number;
     readonly sourceLanes: number;
-    readonly bytesPerLane: number;
     readonly source: { readonly column: TypedArray; readonly dirty: Uint32Array };
 };
 type ComponentBinding = {
@@ -298,8 +340,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                     `GpuTable "${this.name}": component field "${componentName}" is not a field schema`,
                 );
             }
-            const recordType = recordFields[recordName];
-            const recordTypeName = (recordType as unknown as { type: string }).type;
+            const layout = laneLayout(recordFields[recordName]);
             const format =
                 descriptor.ctor === Float32Array
                     ? "f"
@@ -308,23 +349,10 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                       : descriptor.ctor === Uint32Array
                         ? "u"
                         : null;
-            const expectedFormat =
-                recordTypeName === "f32" || recordTypeName.endsWith("f")
-                    ? "f"
-                    : recordTypeName === "i32" || recordTypeName.endsWith("i")
-                      ? "i"
-                      : recordTypeName === "u32" || recordTypeName.endsWith("u")
-                        ? "u"
-                        : null;
-            const lanes =
-                (recordType as unknown as { componentCount?: number }).componentCount ?? 1;
-            const bytesPerLane = d.sizeOf(recordType as d.AnyWgslData) / lanes;
-            const sourceBytesPerLane = descriptor.ctor.BYTES_PER_ELEMENT;
             if (
-                format === null ||
-                format !== expectedFormat ||
-                sourceBytesPerLane !== bytesPerLane ||
-                descriptor.lanes < lanes ||
+                layout === undefined ||
+                format !== layout.format ||
+                descriptor.lanes < layout.lanes ||
                 descriptor.encode !== undefined ||
                 descriptor.decode !== undefined
             ) {
@@ -337,9 +365,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 recordName,
                 componentName,
                 offset,
-                lanes,
+                format: layout.format,
+                lanes: layout.lanes,
                 sourceLanes: descriptor.lanes,
-                bytesPerLane,
                 source: this._world.fieldStorage(component, componentName),
             };
             binding.fields.push(field);
@@ -678,19 +706,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                     const targetBase = row * this.rowBytes + field.offset;
                     let fieldChanged = seed;
                     for (let lane = 0; lane < field.lanes; lane++) {
-                        const offset = targetBase + lane * field.bytesPerLane;
                         const value = column[sourceBase + lane] ?? 0;
-                        if (column instanceof Float32Array) {
-                            if (!Object.is(view.getFloat32(offset, true), value))
-                                fieldChanged = true;
-                            view.setFloat32(offset, value, true);
-                        } else if (column instanceof Int32Array) {
-                            if (view.getInt32(offset, true) !== value) fieldChanged = true;
-                            view.setInt32(offset, value, true);
-                        } else {
-                            if (view.getUint32(offset, true) !== value) fieldChanged = true;
-                            view.setUint32(offset, value, true);
-                        }
+                        if (writeLane(view, targetBase + lane * 4, field.format, value))
+                            fieldChanged = true;
                     }
                     changed ||= fieldChanged;
                 }
@@ -730,19 +748,9 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                         const targetBase = row * this.rowBytes + field.offset;
                         let changed = false;
                         for (let lane = 0; lane < field.lanes; lane++) {
-                            const offset = targetBase + lane * field.bytesPerLane;
                             const value = column[sourceBase + lane] ?? 0;
-                            if (column instanceof Float32Array) {
-                                if (!Object.is(view.getFloat32(offset, true), value))
-                                    changed = true;
-                                view.setFloat32(offset, value, true);
-                            } else if (column instanceof Int32Array) {
-                                if (view.getInt32(offset, true) !== value) changed = true;
-                                view.setInt32(offset, value, true);
-                            } else {
-                                if (view.getUint32(offset, true) !== value) changed = true;
-                                view.setUint32(offset, value, true);
-                            }
+                            if (writeLane(view, targetBase + lane * 4, field.format, value))
+                                changed = true;
                         }
                         if (changed) {
                             this._dirtyFirst = Math.min(this._dirtyFirst, row);

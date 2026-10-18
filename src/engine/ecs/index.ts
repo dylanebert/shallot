@@ -31,5 +31,12 @@ export { and, not, or } from "./query";
 export { type System, Time } from "./scheduler";
 export type { Recovery, WorldSnapshot } from "./snapshot";
 export type { ComponentStorage } from "./storage";
-export { GpuTable, type GpuTableOptions, type TableUploadPath } from "./table";
+export {
+    GpuTable,
+    type GpuTableOptions,
+    type LaneFormat,
+    laneLayout,
+    type TableUploadPath,
+    writeLane,
+} from "./table";
 export { type Resource, World } from "./world";
