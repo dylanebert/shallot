@@ -112,7 +112,7 @@ function backdrop(world: World) {
 function surfaces(world: World) {
     const gallery = world.resource(Gallery);
     const materials = world.resource(Materials);
-    const wood = registerImage(world, `${import.meta.env.BASE_URL}wood.jpg`, {
+    const wood = registerImage(world, "wood.jpg", {
         sampler: { addressModeU: ImageAddressMode.Repeat, addressModeV: ImageAddressMode.Repeat },
     });
     const handles = presets.map((preset) =>
