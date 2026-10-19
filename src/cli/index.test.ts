@@ -66,9 +66,17 @@ test("bare shallot presents the project map, loop, commands, targets and help co
     --portable                bundle the Chromium runtime (CEF)
 
   Help
+    -V, --version             print the installed version
     --skill                   print the Shallot project skill
     shallot <command> --help`.trim(),
     );
+});
+
+test("version flags print the installed package version", async () => {
+    const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    for (const flag of ["--version", "-V"]) {
+        expect(await cli(flag)).toEqual({ code: 0, stdout: version, stderr: "" });
+    }
 });
 
 test("shallot --skill prints the project skill and bare usage names it", async () => {

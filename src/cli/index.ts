@@ -26,6 +26,7 @@ const usage = `
     --portable                bundle the Chromium runtime (CEF)
 
   Help
+    -V, --version             print the installed version
     --skill                   print the Shallot project skill
     shallot <command> --help
 `;
@@ -107,6 +108,7 @@ const commandUsage = {
 export type CliArgs =
     | { kind: "create"; rest: string[] }
     | { kind: "skill" }
+    | { kind: "version" }
     | { kind: "migrate" }
     | { kind: "command-help"; command: keyof typeof commandUsage }
     | { kind: "unknown"; verb: string }
@@ -131,6 +133,7 @@ function isNativeTarget(target: string): target is NativeTarget {
 /** Separate Shallot's target flags; preserve every Vite argument and its order. */
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
+    if (raw.length === 1 && (verb === "--version" || verb === "-V")) return { kind: "version" };
     if (raw.length === 1 && verb === "--skill") return { kind: "skill" };
     if (verb === "create") return { kind: "create", rest: raw.slice(1) };
     if (verb === "migrate") {
@@ -204,6 +207,11 @@ export async function main(
     }
     if (parsed.kind === "command-help") {
         console.log(commandUsage[parsed.command]);
+        exit(0);
+    }
+    if (parsed.kind === "version") {
+        const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+        console.log(version);
         exit(0);
     }
     if (parsed.kind === "skill") {
