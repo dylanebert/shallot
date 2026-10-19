@@ -18,11 +18,11 @@ import {
 } from "../../standard/rendering";
 import {
     directionalInScatter,
+    equiangularInScatter,
     FOG_SLICES,
     FogGpu,
     fogDensity,
     henyeyGreenstein,
-    inScatterContribution,
     reconstructWorld,
     WORKGROUP,
 } from "./medium";
@@ -202,7 +202,11 @@ function createGridKernel(multisampled: boolean) {
             const dim = std.textureDimensions(layout.$.feedback);
             if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
             const px = d.vec2i(input.gid.xy);
-            // Decorrelate neighbouring columns without changing their shared ray offset.
+            // Decorrelate neighbouring columns without changing their shared ray offset. Godot's volumetric fog
+            // gives every cell one Halton phase per frame; HDRP hashes only the depth variate per pixel. Each column
+            // here starts the sequence at its own phase, so the spatial filter below averages neighbours that sample
+            // different offsets within one frame. Under a shared phase every column moves together each frame, and
+            // the filter would leave the frame-to-frame swing that stage 6 measured it removing.
             const seed = (input.gid.x + input.gid.y * dim.x) * 747796405 + 2891336453;
             const word = ((seed >>> ((seed >>> 28) + 4)) ^ seed) * 277803737;
             const phaseOffset = ((word >>> 22) ^ word) % TEMPORAL_FRAMES;
@@ -214,6 +218,25 @@ function createGridKernel(multisampled: boolean) {
             const farWorld = reconstructWorld(layout.$.view.invViewProj, uv, 0.0001);
             // Phase uses the unjittered ray, so moving the sample cannot jitter anisotropy.
             const dir = std.normalize(std.sub(farWorld, nearWorld));
+            // The angle one froxel subtends: twice HDRP's _HalfVoxelArcLength.
+            const edgeUv = std.div(
+                std.add(d.vec2f(input.gid.xy), d.vec2f(0.5, 1)),
+                d.vec2f(dim.xy),
+            );
+            const edgeNear = reconstructWorld(layout.$.view.invViewProj, edgeUv, 1);
+            const froxelArc =
+                2 *
+                std.length(
+                    std.sub(
+                        std.normalize(
+                            std.sub(
+                                reconstructWorld(layout.$.view.invViewProj, edgeUv, 0.0001),
+                                edgeNear,
+                            ),
+                        ),
+                        dir,
+                    ),
+                );
             const sampleNear = reconstructWorld(layout.$.view.invViewProj, sampleUv, 1);
             const sampleDir = std.normalize(
                 std.sub(reconstructWorld(layout.$.view.invViewProj, sampleUv, 0.0001), sampleNear),
@@ -279,12 +302,11 @@ function createGridKernel(multisampled: boolean) {
                 const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
                 // Unlike HDRP's skipped far cells, near-side light fills them for trilinear and filtered reads.
                 const limit = surface * 0.999;
+                const segmentStart = std.min(start, limit) * sampleScale;
+                const segmentEnd = std.min(end, limit) * sampleScale;
                 const p = std.add(
                     sampleNear,
-                    std.mul(
-                        sampleDir,
-                        std.mix(std.min(start, limit), std.min(end, limit), jitter.z) * sampleScale,
-                    ),
+                    std.mul(sampleDir, std.mix(segmentStart, segmentEnd, jitter.z)),
                 );
                 let dens = fogDensity(p, density, base, falloff);
 
@@ -318,21 +340,32 @@ function createGridKernel(multisampled: boolean) {
                         j = j + 1;
                         continue;
                     }
+                    // HDRP raises a light's radius to the froxel's size at the segment's entry, so a ray through
+                    // the lamp cannot sample its singular core; it compares a squared radius with a length, so
+                    // this takes the intent, the froxel's width, and keeps the glow's brightness (stage 10).
+                    const froxelWidth = froxelArc * segmentStart;
+                    const sample = equiangularInScatter(
+                        light,
+                        sampleNear,
+                        sampleDir,
+                        segmentStart,
+                        segmentEnd,
+                        jitter.z,
+                        froxelWidth * froxelWidth,
+                    );
                     const shadow = pointShadowOf(
                         light,
                         d.vec3f(0),
-                        p,
+                        sample.position,
                         d.u32(ShadowFilteringMethodMode.Hardware2x2),
                     );
                     lstep = d.vec3f(
                         std.add(
                             lstep,
                             std.mul(
-                                inScatterContribution(light, p, dir, 0),
+                                sample.radiance,
                                 shadow *
                                     camView.exposure *
-                                    4 *
-                                    Math.PI *
                                     henyeyGreenstein(
                                         g,
                                         std.dot(
@@ -422,7 +455,7 @@ function createGridKernel(multisampled: boolean) {
 export const fogGridKernel = createGridKernel(false);
 export const fogGridKernelMultisampled = createGridKernel(true);
 
-// Godot's volumetric fog filter weights, a Gaussian of σ ≈ 1.6 cells.
+// Godot's volumetric fog filter weights: a Gaussian of σ ≈ 2.0 cells cut at ±3, about 1.5σ, so nearly a box.
 const GAUSSIAN = tgpu.const(
     d.arrayOf(d.f32, 7),
     [0.071303, 0.131514, 0.189879, 0.214607, 0.189879, 0.131514, 0.071303],
