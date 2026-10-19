@@ -10,24 +10,26 @@ const usage = `
   Shallot is a library: Vite runs your project and Bun tests it.
 
   Your loop
-    bun run dev               run the Vite project
-    bun test                  run cheap and GPU tests
-    bun test ./<file>         run a Node or oracle file by path
-    bunx playwright test      run browser tests
-    shallot dev --target <platform> (desktop)
+    bun run dev                  run the Vite project
+    bun test                     run cheap and GPU tests
+    bun test ./<file>            run a Node or oracle file by path
+    bunx playwright test         run browser tests
 
   Commands
-    create <name>             create a project from minimal or an example
-    migrate                   print the 0.9.5 to 0.10 migration guide
+    create <name>                create a project from minimal or an example
+    migrate                      print the 0.9.5 to 0.10 migration guide
+    dev --target <platform>      develop a desktop app
+    build --target <platform>    build a desktop app
+    preview --target <platform>  launch a desktop build
 
-  Targets
-    --target <platform>       windows, mac, linux
-    --release                 optimized native build
-    --portable                bundle the Chromium runtime (CEF)
+  Desktop options
+    --target <platform>          windows, mac, linux
+    --release                    optimized native build
+    --portable                   bundle the Chromium runtime (CEF)
 
   Help
-    -V, --version             print the installed version
-    --skill                   print the Shallot project skill
+    -V, --version                print the installed version
+    --skill                      print the Shallot project skill
     shallot <command> --help
 `;
 
