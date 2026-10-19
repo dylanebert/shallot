@@ -101,9 +101,6 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
             * crate::math::maxf(radius(shape_a), radius(shape_b)))
         .to_bits(),
     );
-    if (flags_a | flags_b) & 16 != 0 {
-        flags |= 0x0020_0000;
-    }
     d.set(o + DIR_FLAGS, flags);
     id
 }
