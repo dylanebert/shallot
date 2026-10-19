@@ -123,7 +123,7 @@ pub(crate) mod runtime {
         z: f32,
     ) -> bool {
         let record = *bodies::record(world, id);
-        if record.body_type == 0 {
+        if record.body_type == crate::body::body_type::STATIC {
             return false;
         }
         let v = if angular {
@@ -417,14 +417,14 @@ pub(crate) mod runtime {
         use crate::math::{Quat, Vec3};
 
         let flags = (flags & !body::flags::DYNAMIC)
-            | if body_type == 2 {
+            | if body_type == crate::body::body_type::DYNAMIC {
                 body::flags::DYNAMIC
             } else {
                 0
             };
         let set = if !enabled {
             1
-        } else if body_type == 0 {
+        } else if body_type == crate::body::body_type::STATIC {
             0
         } else if awake || flags & body::flags::ENABLE_SLEEP == 0 {
             2
@@ -543,7 +543,7 @@ pub(crate) mod runtime {
 
         let record = bodies::record(world, id);
         if record.set_index == 1
-            || record.body_type == 0
+            || record.body_type == crate::body::body_type::STATIC
             || time_step <= 0.0
             || (record.set_index != 2 && !wake)
         {
@@ -621,7 +621,7 @@ pub(crate) mod runtime {
     pub unsafe extern "C" fn change_type_in_world(world: usize, id: usize, body_type: i32) {
         let record = bodies::record_mut(world, id);
         record.body_type = body_type;
-        if body_type == 2 {
+        if body_type == crate::body::body_type::DYNAMIC {
             record.flags |= body::flags::DYNAMIC;
         } else {
             record.flags &= !body::flags::DYNAMIC;
@@ -660,7 +660,7 @@ pub(crate) mod runtime {
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
         let pose = bodies::geometry(world, id).0;
         let mut center = Vec3::ZERO;
-        if record.body_type == 2 {
+        if record.body_type == crate::body::body_type::DYNAMIC {
             let mut shape = record.head_shape_id;
             while shape != -1 {
                 let id = shape as usize;
@@ -783,7 +783,7 @@ pub(crate) mod runtime {
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
         let center = body::read_fin(sim, 0).local_center;
         let record = bodies::record(world, id);
-        let mut shape = if record.body_type == 0 {
+        let mut shape = if record.body_type == crate::body::body_type::STATIC {
             -1
         } else {
             record.head_shape_id

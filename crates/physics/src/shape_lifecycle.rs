@@ -38,7 +38,7 @@ pub unsafe extern "C" fn unlink_in_world(world: usize, id: usize) {
 }
 
 pub unsafe extern "C" fn body_allows_type_in_world(world: usize, body: usize, kind: u32) -> bool {
-    if kind == 0 {
+    if kind == crate::body::body_type::STATIC as u32 {
         return true;
     }
     let mut shape = bodies::record(world, body).head_shape_id;
@@ -163,7 +163,7 @@ unsafe fn write_bounds(
     let (bounds, _) = crate::finalize::refit_bounds(tight, &[0.0; 6]);
     let f = shapes::col_f(world_index);
     let fat = shapes::col_f(world_index);
-    let margin = if body_type == 0 {
+    let margin = if body_type == crate::body::body_type::STATIC as usize {
         0.02
     } else {
         f.get(o + shapes::S_MARGIN)

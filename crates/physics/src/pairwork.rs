@@ -13,9 +13,9 @@ use crate::tree;
 /// `ShapeType.Compound`, as stored in the shape column.
 const SHAPE_COMPOUND: u32 = 1;
 
-/// Body types (broadphase.ts `BodyType`), packed into a proxy key's low 2 bits.
-const KINEMATIC: u32 = 1;
-const DYNAMIC: u32 = 2;
+/// Body types, packed into a proxy key's low 2 bits.
+const KINEMATIC: u32 = crate::body::body_type::KINEMATIC as u32;
+const DYNAMIC: u32 = crate::body::body_type::DYNAMIC as u32;
 
 /// u32 slots per survivor: childIndex, shapeA, shapeB, next.
 /// Each proxy owns a LIFO list; allocation order across proxies is immaterial.

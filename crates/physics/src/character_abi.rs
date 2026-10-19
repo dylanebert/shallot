@@ -112,7 +112,7 @@ impl World for Resident {
             };
             Body {
                 id: id as u32,
-                dynamic: record.body_type == 2,
+                dynamic: record.body_type == crate::body::body_type::DYNAMIC,
                 awake,
                 center: fin.center,
                 linear,

@@ -9,7 +9,9 @@ pub unsafe extern "C" fn should_collide_in_world(world_index: usize, a: u32, b: 
     let world_id = world_index;
     let a = record(world_id, a as usize);
     let b = record(world_id, b as usize);
-    if a.body_type != 2 && b.body_type != 2 {
+    if a.body_type != crate::body::body_type::DYNAMIC
+        && b.body_type != crate::body::body_type::DYNAMIC
+    {
         return false;
     }
     let (mut key, other) = if a.joint_count < b.joint_count {

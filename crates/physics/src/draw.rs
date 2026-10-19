@@ -145,7 +145,7 @@ unsafe fn color(world: usize, id: usize) -> u32 {
     let b = bodies::record(world, body_id);
     let sim = bodies::column(world, body_id, 1, body::SIM_STRIDE);
     let flags = sim.get(body::FLAGS).to_bits();
-    if b.body_type == 2 && b.mass == 0.0 {
+    if b.body_type == crate::body::body_type::DYNAMIC && b.mass == 0.0 {
         0xff0000
     } else if b.set_index == 1 {
         0x708090
@@ -159,9 +159,9 @@ unsafe fn color(world: usize, id: usize) -> u32 {
         0xffff00
     } else if flags & body::flags::IS_FAST != 0 {
         0xffa500
-    } else if b.body_type == 0 {
+    } else if b.body_type == crate::body::body_type::STATIC {
         0xa9a9a9
-    } else if b.body_type == 1 {
+    } else if b.body_type == crate::body::body_type::KINEMATIC {
         if b.set_index == 2 {
             0x4682b4
         } else {
@@ -276,7 +276,7 @@ pub unsafe extern "C" fn run_in_world(
     if flags & 4 != 0 {
         for &id in order.iter() {
             let b = bodies::record(world, id);
-            if b.body_type != 2 {
+            if b.body_type != crate::body::body_type::DYNAMIC {
                 continue;
             }
             let sim = bodies::column(world, id, 1, body::SIM_STRIDE);

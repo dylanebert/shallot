@@ -221,8 +221,10 @@ pub unsafe extern "C" fn set_type_in_world(world: usize, id: usize, kind: i32) {
         let r = *joints::record(world, id);
         key = r.edges[(key & 1) as usize].next_key;
         if r.set_index != 1
-            && (bodies::record(world, r.edges[0].body_id as usize).body_type == 2
-                || bodies::record(world, r.edges[1].body_id as usize).body_type == 2)
+            && (bodies::record(world, r.edges[0].body_id as usize).body_type
+                == crate::body::body_type::DYNAMIC
+                || bodies::record(world, r.edges[1].body_id as usize).body_type
+                    == crate::body::body_type::DYNAMIC)
         {
             joint::transfer_in_world(world, id, 2);
         }
@@ -235,7 +237,10 @@ pub unsafe extern "C" fn set_type_in_world(world: usize, id: usize, kind: i32) {
         let other = r.edges[((key & 1) ^ 1) as usize].body_id as usize;
         key = r.edges[(key & 1) as usize].next_key;
         let b = bodies::record(world, other);
-        if b.set_index != 1 && (kind == 2 || b.body_type == 2) {
+        if b.set_index != 1
+            && (kind == crate::body::body_type::DYNAMIC
+                || b.body_type == crate::body::body_type::DYNAMIC)
+        {
             joint::link_record_in_world(world, joint_id);
         }
     }
@@ -298,7 +303,7 @@ pub unsafe extern "C" fn enable_in_world(world: usize, id: usize) {
     if bodies::record(world, id).set_index != 1 {
         return;
     }
-    let target = if bodies::record(world, id).body_type == 0 {
+    let target = if bodies::record(world, id).body_type == crate::body::body_type::STATIC {
         0
     } else {
         2

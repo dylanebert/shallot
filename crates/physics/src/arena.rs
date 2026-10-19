@@ -1411,8 +1411,8 @@ unsafe fn contact_block_impl(
             let lb = sb[crate::shapes::S_QUERY_BODY] as usize;
             let body_a = crate::bodies::record(world_index, la);
             let body_b = crate::bodies::record(world_index, lb);
-            let static_a = body_a.body_type == 0;
-            let static_b = body_b.body_type == 0;
+            let static_a = body_a.body_type == crate::body::body_type::STATIC;
+            let static_b = body_b.body_type == crate::body::body_type::STATIC;
             dir.set(
                 o + DIR_INDEX_A,
                 if static_a {

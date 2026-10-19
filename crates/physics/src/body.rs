@@ -201,6 +201,13 @@ pub fn clear_sim_force_torque(col: Col<f32>, i: usize) {
         col.set(o + k, 0.0);
     }
 }
+/// b3BodyType (types.h:226-235), as stored in `BodyRecord::body_type`. It also indexes a body's
+/// broad-phase tree.
+pub mod body_type {
+    pub const STATIC: i32 = 0;
+    pub const KINEMATIC: i32 = 1;
+    pub const DYNAMIC: i32 = 2;
+}
 pub mod flags {
     pub const LOCK_LINEAR_X: u32 = 0x0000_0001;
     pub const LOCK_LINEAR_Y: u32 = 0x0000_0002;

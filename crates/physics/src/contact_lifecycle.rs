@@ -46,7 +46,9 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     {
         flags |= contact_flags::SIM_MESH_CONTACT;
     }
-    if body_a.body_type == 0 || body_b.body_type == 0 {
+    if body_a.body_type == crate::body::body_type::STATIC
+        || body_b.body_type == crate::body::body_type::STATIC
+    {
         flags |= contact_flags::STATIC;
     }
     let shape_flags = shapes.get(shape_a * stride + crate::shapes::S_FLAGS)
@@ -80,7 +82,7 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
         body.contact_count += 1;
         d.set(
             o + DIR_INDEX_A + side,
-            if body.body_type == 0 {
+            if body.body_type == crate::body::body_type::STATIC {
                 u32::MAX
             } else {
                 body.local_index as u32

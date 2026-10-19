@@ -358,7 +358,8 @@ mod wasm {
     #[export_name = "shapeCanCreate"]
     pub unsafe extern "C" fn can_create(world: usize, body: usize, kind: u32) -> bool {
         regions::select(world as u32);
-        crate::bodies::record(world, body).body_type == 0 || (kind != 1 && kind != 2)
+        crate::bodies::record(world, body).body_type == crate::body::body_type::STATIC
+            || (kind != 1 && kind != 2)
     }
     #[export_name = "shapeSetGeometry"]
     pub unsafe extern "C" fn set_geometry(
