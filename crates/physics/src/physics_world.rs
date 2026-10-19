@@ -203,41 +203,13 @@ pub unsafe extern "C" fn solve_build_in_world(
     continuous: bool,
 ) {
     let count = solver_set::body_count_in_world(world_index, 2);
-    let layout = constraint_graph::compute_layout_in_world(world_index) as *const u32;
-    crate::arena::reserve_in_world(
-        world_index,
-        count,
-        *layout as usize,
-        *layout.add(1) as usize,
-        *layout.add(2) as usize,
-        *layout.add(3) as usize,
-        *layout.add(9) as usize,
-    );
+    let (contacts, manifolds, wide) = constraint_graph::compute_layout_in_world(world_index);
+    crate::arena::reserve_in_world(world_index, count, contacts, manifolds, wide);
     constraint_graph::initialize_constraints(world_index);
-    let (spans, colors) = crate::arena::color_span_column();
-    let mut total = 0;
-    for i in 0..colors {
-        let o = 10 + i * 5;
-        for j in 0..4 {
-            spans.set(i * 6 + j, *layout.add(o + 1 + j));
-        }
-        let color = *layout.add(o) as usize;
-        let n = crate::joints::count_in_world(world_index, color);
-        spans.set(i * 6 + 4, color as u32);
-        spans.set(i * 6 + 5, n as u32);
-        total += n;
-    }
     crate::solve::solve_build_in_world(
         world_index,
         threads,
         substeps,
-        *layout.add(6) as usize,
-        *layout.add(4) as usize,
-        *layout.add(5) as usize,
-        *layout.add(7) as usize,
-        *layout.add(8) as usize,
-        total,
-        crate::joints::count_in_world(world_index, 23),
         gx,
         gy,
         gz,

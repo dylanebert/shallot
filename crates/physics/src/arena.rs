@@ -91,10 +91,7 @@ pub unsafe fn extend_scratch(world: usize, bytes: usize) -> usize {
     EXTRA_SCRATCH_PTR[world] = ptr;
     ptr
 }
-const N_COLS: usize = 15;
-/// Active-color span: wideStart, wideCount, meshStart, meshCount, jointArrayKey, jointCount.
-/// The staged solve selects the resident joint array by key.
-pub(crate) const COLOR_SPAN_STRIDE: usize = 6;
+const N_COLS: usize = 12;
 
 // LAYOUT indices, in memory order.
 const STATE: usize = 0;
@@ -105,8 +102,6 @@ const MC: usize = 8;
 const OVERFLOW_CC: usize = 7;
 const OVERFLOW_MC: usize = 9;
 const WIDE: usize = 11;
-// Per-active-color spans (wide/mesh/joint start+count) for the batched color loop + staged solve.
-const COLOR_SPAN: usize = 14;
 
 /// Per-column byte offsets into linear memory, rewritten by every `reserve_in_world`.
 static mut LAYOUT: [u32; N_COLS] = [0; N_COLS];
@@ -119,8 +114,6 @@ static mut OVERFLOW_CONTACT_COUNT: usize = 0;
 static mut OVERFLOW_MANIFOLD_COUNT: usize = 0;
 // Wide record count (each groups up to 4 convex contacts); sizes the wide transient columns.
 static mut WIDE_COUNT: usize = 0;
-// Active color count — the number of spans in the COLOR_SPAN column the batched shims loop over.
-static mut COLOR_COUNT: usize = 0;
 
 /// Column of len f32 at LAYOUT[idx]. len must match the reserved column size.
 #[inline]
@@ -141,9 +134,7 @@ pub extern "C" fn reserve_in_world(
     body: usize,
     contact: usize,
     manifold: usize,
-    point: usize,
     wide: usize,
-    color: usize,
 ) {
     unsafe {
         BODY_COUNT = body;
@@ -151,9 +142,7 @@ pub extern "C" fn reserve_in_world(
         OVERFLOW_MANIFOLD_COUNT = crate::constraint_graph::overflow_manifold_count(world_index);
         CONTACT_COUNT = contact - OVERFLOW_CONTACT_COUNT;
         MANIFOLD_COUNT = manifold - OVERFLOW_MANIFOLD_COUNT;
-        let _ = point;
         WIDE_COUNT = wide;
-        COLOR_COUNT = color;
 
         // Body LAYOUT entries alias resident sim/state storage; constraint entries use step scratch.
         LAYOUT[STATE] = crate::bodies::state_base(world_index) as u32;
@@ -170,14 +159,12 @@ pub extern "C" fn reserve_in_world(
         off += OVERFLOW_CONTACT_COUNT * core::mem::size_of::<ContactConstraint>();
         LAYOUT[OVERFLOW_MC] = off as u32;
         off += OVERFLOW_MANIFOLD_COUNT * core::mem::size_of::<ManifoldConstraint>();
-        LAYOUT[COLOR_SPAN] = off as u32;
-        off += color * COLOR_SPAN_STRIDE * 4;
 
         let bullet_offset = off;
         off += body * 4;
         let base = reserve_scratch(world_index, off);
         crate::continuous::reserve_bullets(world_index, base + bullet_offset);
-        for column in [CC, MC, OVERFLOW_CC, OVERFLOW_MC, WIDE, COLOR_SPAN] {
+        for column in [CC, MC, OVERFLOW_CC, OVERFLOW_MC, WIDE] {
             LAYOUT[column] += base as u32;
         }
     }
@@ -249,13 +236,6 @@ pub(crate) unsafe fn wide_columns(
 /// The awake body count the current reservation was sized for (the body blocks' item count).
 pub(crate) unsafe fn body_count() -> usize {
     BODY_COUNT
-}
-
-/// Active-color span storage populated by physics_world before solve construction.
-/// Returns COLOR_COUNT records of COLOR_SPAN_STRIDE u32s and the record count.
-pub(crate) unsafe fn color_span_column() -> (Col<'static, u32>, usize) {
-    let c = COLOR_COUNT;
-    (u32s(COLOR_SPAN, c * COLOR_SPAN_STRIDE), c)
 }
 
 // --- b3CollideTask / b3UpdateContact --------------------------------------------------------

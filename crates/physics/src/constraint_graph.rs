@@ -310,14 +310,13 @@ pub(crate) unsafe fn solver_colors(
     (active, wide, contacts, joints)
 }
 
-const LAYOUT_STRIDE: usize = 5;
-const LAYOUT_HEADER: usize = 10;
-static mut SOLVE_LAYOUT: [[u32; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS] =
-    [[0; LAYOUT_HEADER + OVERFLOW * LAYOUT_STRIDE]; MAX_WORLDS];
+/// Active (non-empty) graph colors at the last `compute_layout_in_world`.
+static mut ACTIVE_COLORS: [usize; MAX_WORLDS] = [0; MAX_WORLDS];
 
-pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
+/// Lays out the step's prepare spans and manifold starts; returns the contact, manifold and wide
+/// record totals the solver columns are reserved for.
+pub(crate) fn compute_layout_in_world(world_index: usize) -> (usize, usize, usize) {
     unsafe {
-        let result = &mut SOLVE_LAYOUT[world_index];
         let g = colors(world_index);
         CONTACT_SPANS[world_index].fill(EMPTY_CONTACT_SPAN);
         WIDE_SPANS[world_index].fill(EMPTY_WIDE_SPAN);
@@ -329,14 +328,6 @@ pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
                 continue;
             }
             let nw = if n == 0 { 0 } else { (n - 1) / 4 + 1 };
-            let o = LAYOUT_HEADER + active * LAYOUT_STRIDE;
-            result[o..o + LAYOUT_STRIDE].copy_from_slice(&[
-                color as u32,
-                wide as u32,
-                nw as u32,
-                contacts as u32,
-                count as u32,
-            ]);
             WIDE_SPANS[world_index][active] = WidePrepareSpan {
                 start: wide,
                 count: n,
@@ -383,28 +374,18 @@ pub extern "C" fn compute_layout_in_world(world_index: usize) -> usize {
                 ..EMPTY_CONTACT_SPAN
             },
         ];
-        result[..LAYOUT_HEADER].copy_from_slice(&[
-            (contacts + overflow_count) as u32,
-            (manifolds + overflow_manifolds) as u32,
-            0,
-            wide as u32,
-            0,
-            contacts as u32,
-            wide as u32,
-            0,
-            overflow_count as u32,
-            active as u32,
-        ]);
-        result.as_ptr() as usize
+        ACTIVE_COLORS[world_index] = active;
+        (
+            (contacts + overflow_count) as usize,
+            (manifolds + overflow_manifolds) as usize,
+            wide as usize,
+        )
     }
 }
 
 pub(crate) unsafe fn initialize_constraints(world: usize) {
     let (wide, _, _) = crate::arena::wide_columns(world);
-    for span in WIDE_SPANS[world]
-        .iter()
-        .take(SOLVE_LAYOUT[world][9] as usize)
-    {
+    for span in WIDE_SPANS[world].iter().take(ACTIVE_COLORS[world]) {
         let count = span.count as usize;
         if count % crate::contact_wide::LANES != 0 {
             let tail = span.start as usize + count.div_ceil(crate::contact_wide::LANES) - 1;
