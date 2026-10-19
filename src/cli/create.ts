@@ -305,7 +305,9 @@ function projectAgents(): string {
 
 /** Copies an installed example and generates project metadata. */
 export function runCreate(args: string[], e: Env = env()): number {
-    if (args.some((arg) => arg === "--help" || arg === "-h")) {
+    const separator = args.indexOf("--");
+    const options = separator < 0 ? args : args.slice(0, separator);
+    if (options.some((arg) => arg === "--help" || arg === "-h")) {
         console.log(CREATE_USAGE);
         console.log("  Templates");
         for (const entry of templateEntries(e.examplesDir))

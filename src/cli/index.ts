@@ -135,6 +135,15 @@ function isNativeTarget(target: string): target is NativeTarget {
 
 /** Separate Shallot's target flags; preserve every Vite argument and its order. */
 export function parseCliArgs(raw: string[]): CliArgs {
+    const separator = raw.indexOf("--");
+    const options = separator < 0 ? raw : raw.slice(0, separator);
+    if (options.some((arg) => arg === "--help" || arg === "-h")) {
+        const command = raw[0] === "help" ? options[1] : options[0];
+        if (command === "create") return { kind: "create", rest: ["--help"] };
+        if (command && Object.hasOwn(commandUsage, command))
+            return { kind: "command-help", command: command as keyof typeof commandUsage };
+        return { kind: "usage", exitCode: 0 };
+    }
     if (raw[0] === "help") {
         if (raw.length > 2) throw new Error(`unexpected argument: ${raw[2]}`);
         const command = raw[1];
@@ -146,32 +155,31 @@ export function parseCliArgs(raw: string[]): CliArgs {
     }
     const verb = raw[0];
     if (verb === "--version" || verb === "-V" || verb === "--skill") {
-        if (raw.includes("--help") || raw.includes("-h")) return { kind: "usage", exitCode: 0 };
         if (raw.length > 1) throw new Error(`${verb} takes no arguments`);
         return { kind: verb === "--skill" ? "skill" : "version" };
     }
     if (verb === "create") return { kind: "create", rest: raw.slice(1) };
     if (verb === "migrate") {
         if (raw.length === 1) return { kind: "migrate" };
-        if (raw.length === 2 && (raw[1] === "--help" || raw[1] === "-h"))
-            return { kind: "command-help", command: "migrate" };
         throw new Error("migrate takes no arguments");
     }
     const subcmd = PROJECT_VERBS.find((command) => command === verb);
     if (!subcmd) {
-        if (!verb || raw.includes("--help") || raw.includes("-h"))
-            return { kind: "usage", exitCode: 0 };
+        if (!verb) return { kind: "usage", exitCode: 0 };
         if (verb.startsWith("-")) throw new Error(`unknown option: ${verb}`);
         return { kind: "unknown", verb };
     }
     let target: string | undefined;
     let release = false;
     let portable = false;
-    let help = false;
     const viteArgs: string[] = [];
 
     for (let i = subcmd ? 1 : 0; i < raw.length; i++) {
         const arg = raw[i];
+        if (arg === "--") {
+            viteArgs.push(...raw.slice(i));
+            break;
+        }
         if (arg === "--target") {
             const value = raw[i + 1];
             if (!value || value.startsWith("-")) throw new Error("--target requires a platform");
@@ -184,14 +192,11 @@ export function parseCliArgs(raw: string[]): CliArgs {
             release = true;
         } else if (arg === "--portable") {
             portable = true;
-        } else if (arg === "--help" || arg === "-h") {
-            help = true;
         } else {
             viteArgs.push(arg);
         }
     }
 
-    if (help && subcmd) return { kind: "command-help", command: subcmd };
     if (subcmd === "dev" && release) throw new Error("--release is not supported by dev");
 
     // A leading positional is Vite's root, expressed as the command's working directory.

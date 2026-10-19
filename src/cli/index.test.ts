@@ -98,6 +98,28 @@ test("version and skill flags refuse extra arguments without calling the flags u
     }
 });
 
+test("help precedes argument validation and stops at the Vite argument separator", async () => {
+    for (const flag of ["--help", "-h"]) {
+        for (const [args, command] of [
+            [["help"], undefined],
+            [["dev", "--target"], "dev"],
+            [["build", "--target="], "build"],
+            [["migrate", "extra"], "migrate"],
+            [["create", "--template"], "create"],
+            [["create", "a", "b"], "create"],
+        ] as const) {
+            expect(await cli(...args, flag)).toEqual(
+                await cli(...(command ? [command, "--help"] : ["--help"])),
+            );
+        }
+        for (const command of ["dev", "build"]) {
+            const parsed = parseCliArgs([command, "--target", "mac", "--", flag, "--release"]);
+            expect(parsed.kind === "run" && parsed.viteArgs).toEqual(["--", flag, "--release"]);
+            expect(parsed.kind === "run" && parsed.release).toBe(false);
+        }
+    }
+});
+
 test("shallot --skill prints the project skill and bare usage names it", async () => {
     const result = await cli("--skill");
     expect(result.code).toBe(0);

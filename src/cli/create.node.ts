@@ -338,6 +338,27 @@ test("create detects conditional imports in inline module scripts", () => {
     assertProject(destination, ["index.html"], "html-import");
 });
 
+test("create help precedes validation but not the argument separator", () => {
+    const log = console.log;
+    const output: string[] = [];
+    console.log = (...values: unknown[]) => output.push(values.join(" "));
+    try {
+        for (const flag of ["--help", "-h"]) {
+            for (const args of [["--template"], ["a", "b"]]) {
+                expect(runCreate([...args, flag])).toBe(0);
+                expect(output.join("\n")).toContain("shallot create <name>");
+                output.length = 0;
+            }
+            expectError(/^unknown option: --$/);
+            expectError(/^See `shallot create --help`/);
+            expect(runCreate(["--", flag])).toBe(1);
+            expect(output).toEqual([]);
+        }
+    } finally {
+        console.log = log;
+    }
+});
+
 test("create help lists the same installed templates and descriptions as an unknown template", () => {
     const log = console.log;
     const error = console.error;
