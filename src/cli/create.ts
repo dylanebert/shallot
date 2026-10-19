@@ -282,15 +282,21 @@ ${jobs}`;
 function projectReadme(name: string): string {
     return `# ${name}
 
-A Shallot game project.
+a shallot game.
 
-## Run
+\`\`\`bash
+# run it
+bun install
+bun run dev
 
-\`bun install\`, then \`bun run dev\`. Build with \`bun run build\` and serve the build with \`bun run preview\`.
+# build, then serve the build
+bun run build
+bun run preview
+\`\`\`
 
-## Hosting
+## hosting
 
-\`bun run dev\`, \`bun run preview\` and the native shell serve the page with cross-origin isolation. Elsewhere, Physics steps the single-threaded artifact after one log naming the missing headers.
+\`bun run dev\`, \`bun run preview\` and the native shell serve the page with cross-origin isolation. elsewhere, physics runs single-threaded and logs once naming the missing headers.
 `;
 }
 

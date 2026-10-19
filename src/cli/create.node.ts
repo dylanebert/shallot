@@ -164,7 +164,7 @@ function assertProject(
         "`bun run dev`, `bun run preview` and the native shell serve the page with cross-origin isolation.",
     );
     expect(readme).toContain(
-        "Elsewhere, Physics steps the single-threaded artifact after one log naming the missing headers.",
+        "elsewhere, physics runs single-threaded and logs once naming the missing headers.",
     );
     expect(readme).not.toContain("Create another project");
     expect(readme).not.toContain("publish targets");
