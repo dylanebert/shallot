@@ -642,7 +642,7 @@ test("hull placement recreates only on a different value and recovers pending wr
         world.tick();
         expect(computeBodyAABB(world, eid)).toEqual(bounds);
         const q = rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, 0.5);
-        world.storage(Shape).hullRotation.set(eid, q.v.x, q.v.y, q.v.z, q.s);
+        world.storage(Shape).hullRotation.set(eid, ...q);
         world.tick();
         expect(shapeIsValid(stateFor(world), placed)).toBe(false);
     });

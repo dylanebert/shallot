@@ -506,10 +506,10 @@ function spawnDebris(world: World): void {
     const cs2 = rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, f(2 * u2));
     const cs3 = rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, f(2 * u3));
     const rotation: [number, number, number, number] = [
-        f(a * cs2.v.z),
-        f(a * cs2.s),
-        f(b * cs3.v.z),
-        f(b * cs3.s),
+        f(a * cs2[2]),
+        f(a * cs2[3]),
+        f(b * cs3[2]),
+        f(b * cs3[3]),
     ];
     const linearVelocity: Point = [
         random(world, -2, 2),
@@ -677,12 +677,11 @@ function driveMotor(world: World): void {
         y: f(10 + f(4 * f(Math.sin(sample.time)))),
         z: 0,
     };
-    const rotation = rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, f(2 * sample.time));
     setTargetTransform(
         world,
         sample.target,
         [position.x, position.y, position.z],
-        [rotation.v.x, rotation.v.y, rotation.v.z, rotation.s],
+        rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, f(2 * sample.time)),
         f(1 / 60),
     );
 }
