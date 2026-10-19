@@ -120,6 +120,56 @@ pub(crate) fn window_icon() -> image::RgbaImage {
     decode_icon(data.as_deref())
 }
 
+pub(crate) fn launch_url(dev_url: Option<String>, fallback: String) -> String {
+    dev_url
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or(fallback)
+}
+
+pub(crate) fn app_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "shallot".into())
+}
+
+pub(crate) fn content_type(path: &str) -> &'static str {
+    if path.ends_with(".html") {
+        "text/html"
+    } else if path.ends_with(".js") {
+        "text/javascript"
+    } else if path.ends_with(".css") {
+        "text/css"
+    } else if path.ends_with(".wasm") {
+        "application/wasm"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if path.ends_with(".ico") {
+        "image/x-icon"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else if path.ends_with(".woff") {
+        "font/woff"
+    } else if path.ends_with(".glb") {
+        "model/gltf-binary"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+fn main() {
+    #[cfg(feature = "portable")]
+    cef_backend::run();
+    #[cfg(not(feature = "portable"))]
+    wry_backend::run();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,7 +228,7 @@ mod tests {
         // A binary that bakes its assets does not fall through to disk for a path it doesn't carry
         // — that would mask a stale dist/ behind a fresh embed. Miss is a 404.
         let assets: &[(&str, &[u8])] = &[("index.html", b"<html></html>")];
-        assert!(matches!(resolve_asset(assets, "missing.js"), None));
+        assert!(resolve_asset(assets, "missing.js").is_none());
     }
 
     #[test]
@@ -195,54 +245,4 @@ mod tests {
             "shallot://localhost/"
         );
     }
-}
-
-pub(crate) fn launch_url(dev_url: Option<String>, fallback: String) -> String {
-    dev_url
-        .filter(|url| !url.trim().is_empty())
-        .unwrap_or(fallback)
-}
-
-pub(crate) fn app_name() -> String {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| "shallot".into())
-}
-
-pub(crate) fn content_type(path: &str) -> &'static str {
-    if path.ends_with(".html") {
-        "text/html"
-    } else if path.ends_with(".js") {
-        "text/javascript"
-    } else if path.ends_with(".css") {
-        "text/css"
-    } else if path.ends_with(".wasm") {
-        "application/wasm"
-    } else if path.ends_with(".json") {
-        "application/json"
-    } else if path.ends_with(".svg") {
-        "image/svg+xml"
-    } else if path.ends_with(".png") {
-        "image/png"
-    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if path.ends_with(".ico") {
-        "image/x-icon"
-    } else if path.ends_with(".woff2") {
-        "font/woff2"
-    } else if path.ends_with(".woff") {
-        "font/woff"
-    } else if path.ends_with(".glb") {
-        "model/gltf-binary"
-    } else {
-        "application/octet-stream"
-    }
-}
-
-fn main() {
-    #[cfg(feature = "portable")]
-    cef_backend::run();
-    #[cfg(not(feature = "portable"))]
-    wry_backend::run();
 }
