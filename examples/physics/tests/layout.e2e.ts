@@ -23,6 +23,15 @@ for (const viewport of [
         await page.getByRole("button", { name: "Wheel", exact: true }).click();
         const panel = page.getByRole("region", { name: "Wheel controls", exact: true });
         await expect(panel).toBeVisible();
+        const toggles = panel.getByRole("checkbox");
+        for (let index = 1; index < (await toggles.count()); index++) {
+            const previous = await toggles
+                .nth(index - 1)
+                .locator("..")
+                .boundingBox();
+            const current = await toggles.nth(index).locator("..").boundingBox();
+            expect.soft(current!.y - previous!.y - previous!.height).toBe(4);
+        }
         const before = await panel.boundingBox();
         expect(before!.x + before!.width).toBe(viewport.width - 24);
         expect(before!.y).toBe(24);

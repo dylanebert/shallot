@@ -48,19 +48,23 @@
 </section>
 {#if scene === "contact"}<span class="input-help">WASD to roll</span>{/if}
 {#if scenes[scene].controls}
-    <section class="controls" class:joint-controls={scene !== "bridge"} aria-label={`${samples.find(sample => sample.id === scene)!.name} controls`}>
+    {#snippet fields(sizing: boolean)}
         {#each Object.entries(scenes[scene].controls ?? {}) as [name, control]}
-            <div class="control" class:inactive={!(name in controls)}>
+            {#if sizing || name in controls}
                 {#if control.button}
                     <button class="action" onclick={() => update(name, 1)}>{control.label}</button>
                 {:else if control.min === undefined}
                     <label class="toggle"><input type="checkbox" checked={!!values[name]} onchange={(event) => update(name, Number(event.currentTarget.checked))} />{control.label}</label>
                 {:else}
-                    <label for={`control-${name}`}>{control.label}</label>
-                    <input id={`control-${name}`} type="range" min={control.min} max={control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
+                    <label for={`${sizing ? "sizing" : "control"}-${name}`}>{control.label}</label>
+                    <input id={`${sizing ? "sizing" : "control"}-${name}`} type="range" min={control.min} max={control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
                 {/if}
-            </div>
+            {/if}
         {/each}
+    {/snippet}
+    <section class="controls" aria-label={`${samples.find(sample => sample.id === scene)!.name} controls`}>
+        <div class="fields sizing" class:joint-controls={scene !== "bridge"} inert aria-hidden="true">{@render fields(true)}</div>
+        <div class="fields" class:joint-controls={scene !== "bridge"}>{@render fields(false)}</div>
     </section>
 {/if}
 
@@ -78,10 +82,10 @@
     .scenes section { break-inside: avoid; margin-bottom: 16px; }
     h2 { font: 400 14px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0 8px 4px; color: #797369; }
     .scenes button { display: block; width: 100%; text-align: left; }
-    .controls { top: var(--top); right: var(--right); display: grid; gap: 4px; padding: 12px; background: #282622; border: 1px solid #797369; border-radius: 2px; max-height: calc(100dvh - var(--top) - var(--bottom) - 48px); overflow-y: auto; box-sizing: border-box; }
+    .controls { top: var(--top); right: var(--right); display: grid; padding: 12px; background: #282622; border: 1px solid #797369; border-radius: 2px; max-height: calc(100dvh - var(--top) - var(--bottom) - 48px); overflow-y: auto; box-sizing: border-box; }
     .joint-controls { grid-template-columns: max-content 144px; align-items: center; column-gap: 8px; }
-    .control { display: contents; }
-    .inactive { visibility: hidden; }
+    .fields { grid-area: 1 / 1; display: grid; gap: 4px; align-content: start; align-self: start; }
+    .sizing { visibility: hidden; }
     .action { grid-column: 1 / -1; border: 1px solid #797369; }
     .input-help { top: var(--top); left: var(--left); pointer-events: none; }
     .toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 24px; cursor: pointer; }
