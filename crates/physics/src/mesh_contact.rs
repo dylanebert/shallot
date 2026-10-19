@@ -87,79 +87,26 @@ impl TriangleSource<'_> {
     }
 
     pub fn query(&self, lower: Vec3, upper: Vec3, indices: &mut [usize; MAX_TRIANGLES]) -> usize {
-        use crate::mesh_query::{
-            aabb_overlaps, bounds_overlap, bounds_triangle_overlap, max, min, mul,
-        };
+        use crate::mesh_query::{aabb_overlaps, max, min};
         let mut count = 0;
+        // b3CollectTriangleIndicesCallback: stop once the buffer is full.
+        let mut collect = |index: usize| {
+            indices[count] = index;
+            count += 1;
+            count < MAX_TRIANGLES
+        };
         match self {
             Self::Mesh { mesh, .. } => {
-                let inv = Vec3::new(1.0 / mesh.scale.x, 1.0 / mesh.scale.y, 1.0 / mesh.scale.z);
-                let a = mul(inv, lower);
-                let b = mul(inv, upper);
-                let lower = min(a, b);
-                let upper = max(a, b);
-                let center = lower.add(upper).scale(0.5);
-                let extent = upper.sub(center);
-                let mut stack = [0usize; 256];
-                let mut top = 0;
-                let mut index = 0;
-                loop {
-                    let node = mesh.nodes[index];
-                    if bounds_overlap(node.lower, node.upper, lower, upper) {
-                        if node.is_leaf() {
-                            for i in
-                                node.triangle_offset..node.triangle_offset + node.triangle_count()
-                            {
-                                let vertices = mesh.triangles[i as usize]
-                                    .indices
-                                    .map(|v| mesh.vertices[v as usize]);
-                                if bounds_triangle_overlap(center, extent, vertices) {
-                                    indices[count] = i as usize;
-                                    count += 1;
-                                    if count == MAX_TRIANGLES {
-                                        return count;
-                                    }
-                                }
-                            }
-                        } else {
-                            stack[top] = index + node.child_offset();
-                            top += 1;
-                            index += 1;
-                            continue;
-                        }
-                    }
-                    if top == 0 {
-                        break;
-                    }
-                    top -= 1;
-                    index = stack[top];
-                }
+                crate::mesh_query::visit_triangles(*mesh, lower, upper, false, |index, _| {
+                    collect(index)
+                });
             }
-            Self::Height { field, .. } => {
-                let min_row = (lower.z / field.scale.z).floor() as i32;
-                let max_row = (upper.z / field.scale.z).floor() as i32;
-                let min_column = (lower.x / field.scale.x).floor() as i32;
-                let max_column = (upper.x / field.scale.x).floor() as i32;
-                for row in min_row.max(0)..=max_row.min(field.rows() as i32 - 2) {
-                    for column in min_column.max(0)..=max_column.min(field.columns() as i32 - 2) {
-                        let cell = row as usize * (field.columns() - 1) + column as usize;
-                        if field.materials[cell] == 255 {
-                            continue;
-                        }
-                        let [a, b, c, d] = field.corners(row as usize, column as usize);
-                        let cell_lower = min(min(a, b), min(c, d));
-                        let cell_upper = max(max(a, b), max(c, d));
-                        if aabb_overlaps(lower, upper, cell_lower, cell_upper) {
-                            for i in [2 * cell, 2 * cell + 1] {
-                                if count < MAX_TRIANGLES {
-                                    indices[count] = i;
-                                    count += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            Self::Height { field, .. } => field.visit_cells(lower, upper, |cell, [a, b, c, d]| {
+                let cell_lower = min(min(a, b), min(c, d));
+                let cell_upper = max(max(a, b), max(c, d));
+                !aabb_overlaps(lower, upper, cell_lower, cell_upper)
+                    || (collect(2 * cell) && collect(2 * cell + 1))
+            }),
         }
         count
     }
