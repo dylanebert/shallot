@@ -2,7 +2,12 @@
 use crate::body::{BodySim, BodyState, STATE_STRIDE};
 use crate::regions::{self, MAX_WORLDS};
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
-const AWAKE: usize = 2;
+/// b3SolverSetType (physics_world.h:48-54), as a body's, joint's, contact's or island's set index.
+/// Every set from `FIRST_SLEEPING_SET` up holds one sleeping island.
+pub const STATIC_SET: i32 = 0;
+pub const DISABLED_SET: i32 = 1;
+pub const AWAKE_SET: i32 = 2;
+pub const FIRST_SLEEPING_SET: i32 = 3;
 
 #[repr(C)]
 struct BodyArray<T> {
@@ -194,7 +199,7 @@ pub unsafe extern "C" fn body_count_in_world(world_index: usize, id: usize) -> u
 pub unsafe extern "C" fn body_append_in_world(world_index: usize, id: usize) -> usize {
     let s = set(world_index, id);
     let i = s.body_sims.emplace();
-    if id == AWAKE {
+    if id == AWAKE_SET as usize {
         let state_index = s.body_states.emplace();
         debug_assert_eq!(i, state_index);
     }
@@ -347,7 +352,7 @@ pub unsafe extern "C" fn sleeping_body_allocations(world: usize, body: usize) ->
 }
 
 pub unsafe fn awake_base(world_index: usize, column: usize) -> usize {
-    let s = set(world_index, AWAKE);
+    let s = set(world_index, AWAKE_SET as usize);
     match column {
         0 | 4 => s.body_states.data as usize,
         1 => s.body_sims.data as usize,
@@ -360,7 +365,7 @@ pub unsafe fn reserve_sleeping(world_index: usize, id: usize, bodies: usize, con
     s.indices[0].reserve(contacts);
 }
 pub unsafe fn reserve_awake(world_index: usize, cap: usize) {
-    let s = set(world_index, AWAKE);
+    let s = set(world_index, AWAKE_SET as usize);
     s.body_sims.reserve(cap);
     s.body_states.reserve(cap);
 }
@@ -435,16 +440,16 @@ unsafe fn remove_body(world_index: usize, source: usize, index: usize) -> u32 {
     } else {
         u32::MAX
     };
-    if source == AWAKE {
+    if source == AWAKE_SET as usize {
         let state_removed = s.body_states.remove_swap(index);
         debug_assert_eq!(removed, state_removed);
     }
     moved
 }
 unsafe fn wake_state(world_index: usize, index: usize, flags: u32, head: i32) {
-    body_ptr(world_index, AWAKE, index, 0).write_bytes(0, STATE_STRIDE);
-    *body_ptr(world_index, AWAKE, index, 0).add(12) = 1.0f32.to_bits();
-    *body_ptr(world_index, AWAKE, index, 4) = flags;
+    body_ptr(world_index, AWAKE_SET as usize, index, 0).write_bytes(0, STATE_STRIDE);
+    *body_ptr(world_index, AWAKE_SET as usize, index, 0).add(12) = 1.0f32.to_bits();
+    *body_ptr(world_index, AWAKE_SET as usize, index, 4) = flags;
     let _ = head;
 }
 static mut BODY_RESULT: [u32; 2] = [0; 2];
@@ -471,7 +476,7 @@ pub unsafe extern "C" fn transfer_body_in_world(
                 | crate::body::flags::HAD_TIME_OF_IMPACT);
     }
     let id = *body_ptr(world_index, target, destination, 1).add(crate::body::BODY_ID);
-    if source == AWAKE && target >= 3 {
+    if source == AWAKE_SET as usize && target >= FIRST_SLEEPING_SET as usize {
         let record = crate::bodies::record_mut(world_index, id as usize);
         if record.body_move_index != -1 {
             crate::bodies::mark_move_asleep(world_index, record.body_move_index as usize);
@@ -479,7 +484,7 @@ pub unsafe extern "C" fn transfer_body_in_world(
         }
     }
     let moved = remove_body(world_index, source, index);
-    if target == AWAKE {
+    if target == AWAKE_SET as usize {
         let state_index = set(world_index, target).body_states.emplace();
         debug_assert_eq!(state_index, destination);
         wake_state(world_index, destination, flags, head);
@@ -496,11 +501,11 @@ pub unsafe extern "C" fn wake_body_in_world(
     flags: u32,
     head: i32,
 ) -> usize {
-    let destination = body_append_in_world(world_index, AWAKE);
-    copy_body(world_index, source, index, AWAKE, destination);
+    let destination = body_append_in_world(world_index, AWAKE_SET as usize);
+    copy_body(world_index, source, index, AWAKE_SET as usize, destination);
     wake_state(world_index, destination, flags, head);
-    let id = *body_ptr(world_index, AWAKE, destination, 1).add(crate::body::BODY_ID);
-    crate::bodies::set_location(world_index, id as usize, AWAKE, destination);
+    let id = *body_ptr(world_index, AWAKE_SET as usize, destination, 1).add(crate::body::BODY_ID);
+    crate::bodies::set_location(world_index, id as usize, AWAKE_SET as usize, destination);
     crate::bodies::record_mut(world_index, id as usize).sleep_time = 0.0;
     destination
 }
@@ -577,7 +582,11 @@ pub unsafe extern "C" fn move_island_in_world(
 }
 pub unsafe fn merge(world_index: usize, mut target: usize, mut source: usize) {
     use crate::manifold_abi::*;
-    assert!(target >= 3 && source >= 3 && target != source);
+    assert!(
+        target >= FIRST_SLEEPING_SET as usize
+            && source >= FIRST_SLEEPING_SET as usize
+            && target != source
+    );
     if body_count_in_world(world_index, target) < body_count_in_world(world_index, source) {
         core::mem::swap(&mut target, &mut source);
     }
@@ -620,16 +629,16 @@ pub unsafe fn transfer_joint(
     a: usize,
     b: usize,
 ) {
-    let source_key = if source == AWAKE {
+    let source_key = if source == AWAKE_SET as usize {
         color
     } else {
         crate::constraint_graph::COLORS + source
     };
-    if target == AWAKE {
+    if target == AWAKE_SET as usize {
         crate::constraint_graph::add_joint(world_index, source_key, index, a, b);
         crate::joints::remove_in_world(world_index, source_key, index);
     } else {
-        if source == AWAKE {
+        if source == AWAKE_SET as usize {
             crate::constraint_graph::clear_in_world(world_index, color, a, b);
         }
         crate::joints::move_record_in_world(
@@ -646,7 +655,7 @@ pub unsafe fn wake(world_index: usize, set: usize) {
         bodies, constraint_graph as graph, island, joint_abi::J_JOINT_ID, joint_record as records,
         joints, manifold_abi::*, manifolds,
     };
-    if set < 3 {
+    if set < FIRST_SLEEPING_SET as usize {
         return;
     }
     let world = world_index;
@@ -661,8 +670,13 @@ pub unsafe fn wake(world_index: usize, set: usize) {
             let o = id * DIR_STRIDE;
             let d = manifolds::dir_col(world_index);
             key = d.get(o + DIR_EDGE_A + 2 + 3 * (key & 1) as usize) as i32;
-            if d.get(o + DIR_SET_INDEX) == 1 {
-                move_contact_in_world(world_index, 1, d.get(o + DIR_LOCAL_INDEX) as usize, 2);
+            if d.get(o + DIR_SET_INDEX) == DISABLED_SET as u32 {
+                move_contact_in_world(
+                    world_index,
+                    DISABLED_SET as usize,
+                    d.get(o + DIR_LOCAL_INDEX) as usize,
+                    AWAKE_SET as usize,
+                );
             }
         }
     }
@@ -678,7 +692,7 @@ pub unsafe fn wake(world_index: usize, set: usize) {
             bodies::record(world, a).local_index as u32,
             bodies::record(world, b).local_index as u32,
         );
-        d.set(o + DIR_SET_INDEX, 2);
+        d.set(o + DIR_SET_INDEX, AWAKE_SET as u32);
     }
     let key = graph::COLORS + set;
     let count_joints = joints::count_in_world(world_index, key);
@@ -696,8 +710,8 @@ pub unsafe fn wake(world_index: usize, set: usize) {
     }
     for i in 0..array_count_in_world(world_index, set, 1) {
         let id = array_get_in_world(world_index, set, 1, i);
-        let index = array_push_in_world(world_index, 2, 1, id);
-        island::set_field_in_world(world_index, id as usize, 0, 2);
+        let index = array_push_in_world(world_index, AWAKE_SET as usize, 1, id);
+        island::set_field_in_world(world_index, id as usize, 0, AWAKE_SET);
         island::set_field_in_world(world_index, id as usize, 1, index as i32);
     }
     destroy_in_world(world_index, set);

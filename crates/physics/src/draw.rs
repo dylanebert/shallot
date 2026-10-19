@@ -1,5 +1,6 @@
 //! Read-only debug draw, buffered before JavaScript callback dispatch.
 use crate::finalize::{TY_CAPSULE, TY_COMPOUND, TY_HULL, TY_MESH, TY_SPHERE};
+use crate::solver_set::{AWAKE_SET, DISABLED_SET};
 use crate::{
     bodies, body, broad,
     joint_abi::*,
@@ -157,13 +158,13 @@ unsafe fn color(world: usize, id: usize) -> u32 {
     let flags = sim.get(body::FLAGS).to_bits();
     if b.body_type == crate::body::body_type::DYNAMIC && b.mass == 0.0 {
         0xff0000
-    } else if b.set_index == 1 {
+    } else if b.set_index == DISABLED_SET {
         0x708090
     } else if r[n + shapes::S_FLAGS] & shapes::SENSOR_FLAG != 0 {
         0xf5deb3
     } else if b.flags & body::flags::HAD_TIME_OF_IMPACT != 0 {
         0x00ff00
-    } else if flags & body::flags::IS_BULLET != 0 && b.set_index == 2 {
+    } else if flags & body::flags::IS_BULLET != 0 && b.set_index == AWAKE_SET {
         0x40e0d0
     } else if b.flags & body::flags::IS_SPEED_CAPPED != 0 {
         0xffff00
@@ -172,12 +173,12 @@ unsafe fn color(world: usize, id: usize) -> u32 {
     } else if b.body_type == crate::body::body_type::STATIC {
         0xa9a9a9
     } else if b.body_type == crate::body::body_type::KINEMATIC {
-        if b.set_index == 2 {
+        if b.set_index == AWAKE_SET {
             0x4682b4
         } else {
             0xb0c4de
         }
-    } else if b.set_index == 2 {
+    } else if b.set_index == AWAKE_SET {
         0xd2b48c
     } else {
         0x778899
@@ -309,7 +310,9 @@ pub unsafe extern "C" fn run_in_world(
             }
             let a = j.edges[0].body_id as usize;
             let b = j.edges[1].body_id as usize;
-            if bodies::record(world, a).set_index == 1 || bodies::record(world, b).set_index == 1 {
+            if bodies::record(world, a).set_index == DISABLED_SET
+                || bodies::record(world, b).set_index == DISABLED_SET
+            {
                 continue;
             }
             let ta = pose(world, a);

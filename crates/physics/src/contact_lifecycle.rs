@@ -19,11 +19,12 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     let b = shapes.get(shape_b * stride + crate::shapes::S_QUERY_BODY) as usize;
     let body_a = bodies::record(world, a);
     let body_b = bodies::record(world, b);
-    let set = if body_a.set_index == 2 || body_b.set_index == 2 {
-        2
-    } else {
-        1
-    };
+    let set =
+        if body_a.set_index == solver_set::AWAKE_SET || body_b.set_index == solver_set::AWAKE_SET {
+            solver_set::AWAKE_SET as usize
+        } else {
+            solver_set::DISABLED_SET as usize
+        };
     let id = manifolds::alloc_contact_in_world(world);
     let d = manifolds::dir_col(world);
     let o = id * DIR_STRIDE;

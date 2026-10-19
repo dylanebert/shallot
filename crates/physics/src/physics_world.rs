@@ -118,8 +118,12 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
             bodies::record(world, a).local_index as u32,
             bodies::record(world, b).local_index as u32,
         );
-        if solver_set::array_remove_in_world(world_index, 2, 0, old) != -1 {
-            let moved = solver_set::array_get_in_world(world_index, 2, 0, old) as usize;
+        if solver_set::array_remove_in_world(world_index, solver_set::AWAKE_SET as usize, 0, old)
+            != -1
+        {
+            let moved =
+                solver_set::array_get_in_world(world_index, solver_set::AWAKE_SET as usize, 0, old)
+                    as usize;
             d.set(moved * DIR_STRIDE + DIR_LOCAL_INDEX, old as u32);
         }
     } else {
@@ -133,7 +137,12 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
         d.set(o + DIR_COLOR_INDEX, u32::MAX);
         d.set(
             o + DIR_LOCAL_INDEX,
-            solver_set::array_push_in_world(world_index, 2, 0, id as i32) as u32,
+            solver_set::array_push_in_world(
+                world_index,
+                solver_set::AWAKE_SET as usize,
+                0,
+                id as i32,
+            ) as u32,
         );
         constraint_graph::remove_contact_in_world(
             world_index,
@@ -202,7 +211,7 @@ pub unsafe extern "C" fn solve_build_in_world(
     hit: f32,
     continuous: bool,
 ) {
-    let count = solver_set::body_count_in_world(world_index, 2);
+    let count = solver_set::body_count_in_world(world_index, solver_set::AWAKE_SET as usize);
     let (contacts, manifolds, wide) = constraint_graph::compute_layout_in_world(world_index);
     crate::arena::reserve_in_world(world_index, count, contacts, manifolds, wide);
     constraint_graph::initialize_constraints(world_index);
@@ -492,8 +501,12 @@ unsafe fn create_pairs(world_index: usize) {
     crate::broad::clear_moves_in_world(world_index);
 }
 unsafe fn sleep_islands(world_index: usize) {
-    for index in (0..solver_set::array_count_in_world(world_index, 2, 1)).rev() {
-        let id = solver_set::array_get_in_world(world_index, 2, 1, index) as usize;
+    for index in
+        (0..solver_set::array_count_in_world(world_index, solver_set::AWAKE_SET as usize, 1)).rev()
+    {
+        let id =
+            solver_set::array_get_in_world(world_index, solver_set::AWAKE_SET as usize, 1, index)
+                as usize;
         if !crate::arena::awake_islands(world_index).get(index) {
             try_sleep_island_in_world(world_index, id);
         }
@@ -529,16 +542,18 @@ pub unsafe extern "C" fn try_sleep_island_in_world(world_index: usize, id: usize
             let o = (key >> 1) as usize * DIR_STRIDE;
             let side = (key & 1) as usize;
             key = d.get(o + DIR_EDGE_A + 2 + 3 * side) as i32;
-            if d.get(o + DIR_SET_INDEX) == 1 || d.get(o + DIR_COLOR_INDEX) != u32::MAX {
+            if d.get(o + DIR_SET_INDEX) == solver_set::DISABLED_SET as u32
+                || d.get(o + DIR_COLOR_INDEX) != u32::MAX
+            {
                 continue;
             }
             let other = d.get(o + DIR_EDGE_A + 3 * (side ^ 1)) as usize;
-            if bodies::record(world, other).set_index != 2 {
+            if bodies::record(world, other).set_index != solver_set::AWAKE_SET {
                 solver_set::move_contact_in_world(
                     world_index,
-                    2,
+                    solver_set::AWAKE_SET as usize,
                     d.get(o + DIR_LOCAL_INDEX) as usize,
-                    1,
+                    solver_set::DISABLED_SET as usize,
                 );
             }
         }
@@ -557,7 +572,12 @@ pub unsafe extern "C" fn try_sleep_island_in_world(world_index: usize, id: usize
             target,
         );
     }
-    let result = solver_set::move_island_in_world(world_index, 2, index, target) as *const u32;
+    let result = solver_set::move_island_in_world(
+        world_index,
+        solver_set::AWAKE_SET as usize,
+        index,
+        target,
+    ) as *const u32;
     if *result.add(1) != u32::MAX {
         island::set_field_in_world(world_index, *result.add(1) as usize, 1, index as i32);
     }
@@ -659,7 +679,8 @@ pub unsafe extern "C" fn advance_in_world(world_index: usize) -> u32 {
                 }
                 accumulate(world_index, 2, DRIVER.phase_start);
                 DRIVER.solve_start = ticks();
-                DRIVER.count = solver_set::body_count_in_world(world_index, 2);
+                DRIVER.count =
+                    solver_set::body_count_in_world(world_index, solver_set::AWAKE_SET as usize);
                 DRIVER.phase = 6;
                 if CONTEXT[0] <= 0.0 || DRIVER.count == 0 {
                     finish_tree();

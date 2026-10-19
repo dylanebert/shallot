@@ -141,7 +141,7 @@ mod runtime {
     pub unsafe fn set_location(world_index: usize, id: usize, key: usize, index: usize) {
         let r = record_mut(world_index, id);
         if key < crate::constraint_graph::COLORS {
-            r.set_index = 2;
+            r.set_index = crate::solver_set::AWAKE_SET;
             r.color_index = key as i32;
         } else {
             r.set_index = (key - crate::constraint_graph::COLORS) as i32;
@@ -177,7 +177,7 @@ mod runtime {
     pub unsafe extern "C" fn sim_pointer_in_world(world_index: usize, id: usize) -> usize {
         let r = record(world_index, id);
         assert!(r.set_index >= 0 && r.local_index >= 0);
-        let key = if r.set_index == 2 {
+        let key = if r.set_index == crate::solver_set::AWAKE_SET {
             r.color_index as usize
         } else {
             crate::constraint_graph::COLORS + r.set_index as usize

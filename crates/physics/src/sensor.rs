@@ -122,7 +122,7 @@ pub unsafe fn task(world_index: usize, worker: usize, start: usize, end: usize) 
         let r = shapes::col(world_index);
         let n = s.shape_id * shapes::SHAPE_STRIDE;
         let body = r.get(n + shapes::S_QUERY_BODY) as usize;
-        if bodies::record(world, body).set_index == 1
+        if bodies::record(world, body).set_index == crate::solver_set::DISABLED_SET
             || r.get(n + shapes::S_FLAGS) & shapes::SENSOR_FLAG == 0
         {
             if !s.overlaps1.is_empty() {

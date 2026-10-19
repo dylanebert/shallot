@@ -308,7 +308,9 @@ pub extern "C" fn body_destroy_in_world(world_index: usize, id: u32, body: u32) 
                 source,
                 previous.local_index as usize,
             );
-            if source >= 3 && crate::solver_set::body_count_in_world(world_index, source) == 0 {
+            if source >= crate::solver_set::FIRST_SLEEPING_SET as usize
+                && crate::solver_set::body_count_in_world(world_index, source) == 0
+            {
                 crate::solver_set::destroy_in_world(world_index, source);
             }
             moved

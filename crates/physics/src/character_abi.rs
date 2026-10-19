@@ -100,7 +100,7 @@ impl World for Resident {
                 crate::bodies::column(self.world, id, 1, crate::body::SIM_STRIDE),
                 0,
             );
-            let awake = record.set_index == 2;
+            let awake = record.set_index == crate::solver_set::AWAKE_SET;
             let (linear, angular) = if awake {
                 let s = crate::body::read_state(
                     crate::bodies::column(self.world, id, 0, crate::body::STATE_STRIDE),

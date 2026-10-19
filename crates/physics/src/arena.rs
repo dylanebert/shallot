@@ -277,7 +277,8 @@ unsafe fn task_context(world: usize, worker: usize) -> *mut TaskContext {
 }
 
 pub(crate) unsafe fn prepare_finalize(world: usize, count: usize) {
-    let islands = crate::solver_set::array_count_in_world(world, 2, 1);
+    let islands =
+        crate::solver_set::array_count_in_world(world, crate::solver_set::AWAKE_SET as usize, 1);
     for context in &mut TASK_CONTEXTS[world] {
         context
             .awake_island_bitset
@@ -382,7 +383,10 @@ pub unsafe extern "C" fn reset_joint_event_bits(world: usize) {
 
 #[export_name = "jointSetEventBit"]
 pub unsafe extern "C" fn set_joint_event_bit(world: usize, id: usize) {
-    assert_eq!(crate::joint_record::record(world, id).set_index, 2);
+    assert_eq!(
+        crate::joint_record::record(world, id).set_index,
+        crate::solver_set::AWAKE_SET
+    );
     joint_states(world, 0).set(id);
 }
 

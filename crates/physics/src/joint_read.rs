@@ -195,15 +195,16 @@ unsafe fn motion(world: usize, id: usize, pose: Transform) -> Motion {
         crate::bodies::column(world, id, 1, crate::body::SIM_STRIDE),
         0,
     );
-    let (linear, angular) = if crate::bodies::record(world, id).set_index == 2 {
-        let state = crate::body::read_state(
-            crate::bodies::column(world, id, 0, crate::body::STATE_STRIDE),
-            0,
-        );
-        (state.linear_velocity, state.angular_velocity)
-    } else {
-        (Vec3::ZERO, Vec3::ZERO)
-    };
+    let (linear, angular) =
+        if crate::bodies::record(world, id).set_index == crate::solver_set::AWAKE_SET {
+            let state = crate::body::read_state(
+                crate::bodies::column(world, id, 0, crate::body::STATE_STRIDE),
+                0,
+            );
+            (state.linear_velocity, state.angular_velocity)
+        } else {
+            (Vec3::ZERO, Vec3::ZERO)
+        };
     Motion {
         pose,
         center: fin.center,

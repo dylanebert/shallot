@@ -196,7 +196,7 @@ unsafe fn target_sweep(world_index: usize, id: usize, base: Vec3) -> Sweep {
     let o = id * shapes::SHAPE_STRIDE;
     let body_id = u.get(o + 1) as usize;
     let record = bodies::record(world_index, body_id);
-    if record.set_index == 2 {
+    if record.set_index == crate::solver_set::AWAKE_SET {
         return sweep(world_index, record.local_index as usize, base);
     }
     let sim = bodies::column(world_index, body_id, 1, body::SIM_STRIDE);
@@ -357,7 +357,7 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                     }
                     let target_body = u.get(a + 1) as usize;
                     let record = bodies::record(world_index, target_body);
-                    let target_flags = if record.set_index == 2 {
+                    let target_flags = if record.set_index == crate::solver_set::AWAKE_SET {
                         su.atomic_get(record.local_index as usize * body::SIM_STRIDE + body::FLAGS)
                     } else {
                         bodies::column(world_index, target_body, 1, body::SIM_STRIDE)

@@ -237,7 +237,7 @@ pub unsafe extern "C" fn finish_create_in_world(
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
     let body = u.get(o + 1) as usize;
-    if bodies::record(world, body).set_index != 1 {
+    if bodies::record(world, body).set_index != crate::solver_set::DISABLED_SET {
         create_proxy_in_world(world, id, force && u.get(o + shapes::S_TYPE) != TY_COMPOUND);
     }
     link_in_world(world, id, body);

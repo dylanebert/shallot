@@ -490,7 +490,7 @@ pub unsafe fn split_task(world_index: usize, base: usize, worker: usize) {
     }
     let ids = alloc_split_array(world_index, island_count, 3);
     for i in 0..island_count {
-        let id = create_in_world(world_index, 2);
+        let id = create_in_world(world_index, solver_set::AWAKE_SET as usize);
         ids.add(i).write(id);
         let s = record(world_index, id);
         s.bodies.reserve(body_counts[i]);

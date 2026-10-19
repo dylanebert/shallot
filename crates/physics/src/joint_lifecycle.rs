@@ -17,7 +17,7 @@ pub unsafe extern "C" fn collect_events_in_world(world_index: usize) -> usize {
         while word != 0 {
             let id = 64 * k + word.trailing_zeros() as usize;
             let r = records::record(world_index, id);
-            assert_eq!(r.set_index, 2);
+            assert_eq!(r.set_index, sets::AWAKE_SET);
             crate::events::joint(world_index, id, r.generation as u32);
             word &= word - 1;
         }
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn create_in_world(
         sets::merge(world_index, sa as usize, sb as usize);
     }
     let r = records::record(world_index, id);
-    let key = if r.set_index == 2 {
+    let key = if r.set_index == sets::AWAKE_SET {
         r.color_index as usize
     } else {
         graph::COLORS + r.set_index as usize
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn create_in_world(
     joints::write_float_in_world(world_index, key, index, J_CONSTRAINT_SOFTNESS + 2, 0.0);
     joints::write_float_in_world(world_index, key, index, J_FORCE_THRESHOLD, force);
     joints::write_float_in_world(world_index, key, index, J_TORQUE_THRESHOLD, torque);
-    if records::record(world_index, id).set_index > 1 {
+    if records::record(world_index, id).set_index > sets::DISABLED_SET {
         link(world_index, id);
     }
     id as u32
@@ -274,7 +274,7 @@ pub unsafe extern "C" fn wake_bodies_in_world(world: usize, id: usize) {
 unsafe fn location(world_index: usize, id: usize) -> (usize, usize) {
     let r = records::record(world_index, id);
     (
-        if r.set_index == 2 {
+        if r.set_index == sets::AWAKE_SET {
             r.color_index as usize
         } else {
             graph::COLORS + r.set_index as usize
@@ -502,7 +502,7 @@ pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize, wake_at
     records::unlink_bodies(world_index, id);
     unlink_record_in_world(world_index, id);
     let r = records::record(world_index, id);
-    if r.set_index == 2 {
+    if r.set_index == sets::AWAKE_SET {
         graph::remove_joint(
             world_index,
             r.edges[0].body_id as usize,

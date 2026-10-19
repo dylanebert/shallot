@@ -99,6 +99,7 @@ mod tests {
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod runtime {
     use crate::math::Mat3;
+    use crate::solver_set::{AWAKE_SET, DISABLED_SET, FIRST_SLEEPING_SET, STATIC_SET};
     use crate::{bodies, body, island};
 
     #[export_name = "bodyVelocitySet"]
@@ -147,11 +148,11 @@ pub(crate) mod runtime {
         } else {
             crate::math::Vec3::new(x, y, z)
         };
-        if record.set_index >= 3 && v.length_sq() != 0.0 {
+        if record.set_index >= FIRST_SLEEPING_SET && v.length_sq() != 0.0 {
             crate::body_mutation::wake_body_in_world(world, id);
         }
         let record = bodies::record(world, id);
-        if record.set_index == 2 {
+        if record.set_index == AWAKE_SET {
             let state = crate::col::Col::new(
                 bodies::state_base(world) as *mut f32,
                 (record.local_index as usize + 1) * body::STATE_STRIDE,
@@ -202,7 +203,7 @@ pub(crate) mod runtime {
             crate::body_mutation::wake_body_in_world(world, id);
         }
         let record = bodies::record(world, id);
-        if record.set_index != 2 {
+        if record.set_index != AWAKE_SET {
             return;
         }
         let sim = bodies::column(world, id, 1, body::SIM_STRIDE);
@@ -423,11 +424,11 @@ pub(crate) mod runtime {
                 0
             };
         let set = if !enabled {
-            1
+            DISABLED_SET as usize
         } else if body_type == crate::body::body_type::STATIC {
-            0
+            STATIC_SET as usize
         } else if awake || flags & body::flags::ENABLE_SLEEP == 0 {
-            2
+            AWAKE_SET as usize
         } else {
             crate::solver_set::create_in_world(world as usize)
         };
@@ -461,7 +462,7 @@ pub(crate) mod runtime {
         sim.set(body::MIN_EXTENT, 1.0e5);
         sim.set(body::BODY_ID, f32::from_bits(id));
         sim.set(body::FLAGS, f32::from_bits(flags));
-        if set == 2 {
+        if set == AWAKE_SET as usize {
             crate::solver_set::body_ptr(world as usize, set, index, 0)
                 .write_bytes(0, body::STATE_STRIDE);
             let state = body::State {
@@ -477,7 +478,7 @@ pub(crate) mod runtime {
             );
             *(crate::solver_set::body_ptr(world as usize, set, index, 4)) = flags;
         }
-        if set >= 2 {
+        if set >= AWAKE_SET as usize {
             let island = island::create_in_world(world as usize, set);
             island::add_body_in_world(world as usize, island, id as i32);
         }
@@ -542,10 +543,10 @@ pub(crate) mod runtime {
         use crate::math::{Quat, Vec3};
 
         let record = bodies::record(world, id);
-        if record.set_index == 1
+        if record.set_index == DISABLED_SET
             || record.body_type == crate::body::body_type::STATIC
             || time_step <= 0.0
-            || (record.set_index != 2 && !wake)
+            || (record.set_index != AWAKE_SET && !wake)
         {
             return false;
         }
@@ -571,7 +572,7 @@ pub(crate) mod runtime {
             .add(conjugate.scale(ds))
             .add(difference.scale(pose.q.s))
             .scale(2.0 * inv_dt);
-        if record.set_index != 2 {
+        if record.set_index != AWAKE_SET {
             let speed = linear.length()
                 + Vec3::new(
                     angular.x * fin.max_extent.x,
@@ -608,8 +609,13 @@ pub(crate) mod runtime {
                 | body::flags::IS_SPEED_CAPPED
                 | body::flags::HAD_TIME_OF_IMPACT);
         bodies::column(world, id, 1, body::SIM_STRIDE).set(body::FLAGS, f32::from_bits(flags));
-        if record.set_index == 2 {
-            *crate::solver_set::body_ptr(world, 2, record.local_index as usize, 4) = flags;
+        if record.set_index == AWAKE_SET {
+            *crate::solver_set::body_ptr(
+                world,
+                AWAKE_SET as usize,
+                record.local_index as usize,
+                4,
+            ) = flags;
         }
     }
 
@@ -734,7 +740,7 @@ pub(crate) mod runtime {
             sim.set(body::LOCAL_CENTER + 2, center.z);
             let next_center = pose.point(center);
             body::write_sim_center(sim, 0, next_center);
-            if record.set_index == 2 {
+            if record.set_index == AWAKE_SET {
                 let state = bodies::column(world, id, 0, body::STATE_STRIDE);
                 let velocity = Vec3::new(state.get(0), state.get(1), state.get(2));
                 let angular = Vec3::new(state.get(3), state.get(4), state.get(5));
@@ -836,7 +842,7 @@ pub(crate) mod runtime {
     #[export_name = "bodyStateIndex"]
     pub unsafe extern "C" fn state_index(world: usize, id: usize) -> i32 {
         let record = bodies::record(world, id);
-        if record.set_index == 2 {
+        if record.set_index == AWAKE_SET {
             record.local_index
         } else {
             -1

@@ -144,7 +144,7 @@ pub unsafe fn prepare_world(
         let b = get(joints, slot, J_BODY_ID_B).to_bits() as usize;
         let index = |id| {
             let body = crate::bodies::record(world_index, id);
-            if body.set_index == 2 {
+            if body.set_index == crate::solver_set::AWAKE_SET {
                 body.local_index as u32
             } else {
                 u32::MAX
