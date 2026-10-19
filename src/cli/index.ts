@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveViteCli, startViteDev } from "../project";
 import { buildProject, type NativeTarget } from "./build";
@@ -192,10 +192,12 @@ export function parseCliArgs(raw: string[]): CliArgs {
     }
 
     if (help && subcmd) return { kind: "command-help", command: subcmd };
-    if (help || !subcmd) return { kind: "usage", exitCode: 0 };
+    if (subcmd === "dev" && release) throw new Error("--release is not supported by dev");
 
     // A leading positional is Vite's root, expressed as the command's working directory.
     const dir = viteArgs[0] && !viteArgs[0].startsWith("-") ? viteArgs.shift()! : ".";
+    if (subcmd === "preview" && viteArgs.length)
+        throw new Error(`unexpected argument: ${viteArgs[0]}`);
     return { kind: "run", subcmd, dir, target, release, portable, viteArgs };
 }
 
@@ -228,7 +230,9 @@ export async function main(
         exit(0);
     }
     if (parsed.kind === "version") {
-        const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+        const { version } = JSON.parse(
+            readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+        );
         console.log(version);
         exit(0);
     }
@@ -264,6 +268,10 @@ export async function main(
     }
 
     const projectDir = resolve(parsed.dir);
+    if (!statSync(projectDir, { throwIfNoEntry: false })?.isDirectory()) {
+        console.error(`no project directory at ${projectDir}`);
+        exit(1);
+    }
     if (parsed.subcmd === "dev") {
         let viteCli: string;
         try {

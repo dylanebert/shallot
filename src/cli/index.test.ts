@@ -76,7 +76,9 @@ test("bare shallot presents the project map, loop, commands, targets and help co
 });
 
 test("version flags print the installed package version", async () => {
-    const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    const { version } = JSON.parse(
+        readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    );
     for (const flag of ["--version", "-V"]) {
         expect(await cli(flag)).toEqual({ code: 0, stdout: version, stderr: "" });
     }
@@ -142,7 +144,14 @@ test("leading flags never become a project command and unknown top-level input f
         expect(result.stdout).toBe("");
     }
 
-    for (const args of [["--help"], ["-h"], ["--target", "--help"], ["--skill", "--help"], ["--foo", "-h"], ["typo", "--help"]]) {
+    for (const args of [
+        ["--help"],
+        ["-h"],
+        ["--target", "--help"],
+        ["--skill", "--help"],
+        ["--foo", "-h"],
+        ["typo", "--help"],
+    ]) {
         const result = await cli(...args);
         expect(result.code).toBe(0);
         expect(result.stdout).toContain("shallot — tools for a Shallot project");
@@ -291,6 +300,37 @@ test("Vite-specific flags are passed through rather than interpreted as Shallot 
         portable: false,
         viteArgs: ["--host", "localhost", "--mode", "development"],
     });
+});
+
+test("dev refuses release and preview refuses arguments it cannot forward", async () => {
+    for (const [command, rest, message] of [
+        ["dev", ["--release"], "--release is not supported by dev"],
+        ["preview", [".", "--foo", "extra"], "unexpected argument: --foo"],
+        ["preview", ["--foo", "extra"], "unexpected argument: --foo"],
+        ["preview", [".", "extra"], "unexpected argument: extra"],
+    ] as const) {
+        expect(() => parseCliArgs([command, "--target", "mac", ...rest])).toThrow(message);
+        expectError(new RegExp(`^${message}$`));
+        expectError(new RegExp("^See `shallot " + command + " --help`"));
+        const result = await cli(command, "--target", "mac", ...rest);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain(message);
+    }
+    for (const command of ["dev", "build"]) {
+        const parsed = parseCliArgs([command, "--target", "mac", ".", "--foo", "extra"]);
+        expect(parsed.kind === "run" && parsed.viteArgs).toEqual(["--foo", "extra"]);
+    }
+});
+
+test("native commands name a missing project directory before looking for a build", async () => {
+    const path = `/shallot-missing-project-${process.pid}`;
+    for (const command of ["preview", "dev", "build"]) {
+        expectError(new RegExp(`^no project directory at ${path}$`));
+        const result = await cli(command, "--target", "mac", path);
+        expect(result.code).toBe(1);
+        expect(result.stderr).toBe(`no project directory at ${path}`);
+    }
 });
 
 test("an unknown build target reports its invocation error", async () => {
