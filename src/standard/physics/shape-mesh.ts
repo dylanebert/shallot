@@ -217,11 +217,18 @@ export function shapeEdges(world: World, shape: Parameters<typeof shapeMesh>[1])
         string,
         { edge: [Point, Point]; normal: Point; crease: boolean; count: number }
     >();
+    const faces = new Set<string>();
     for (let i = 0; i < indices.length; i += 3) {
         const points = Array.from(
             indices.subarray(i, i + 3),
             (index) => Array.from(vertices.subarray(index * 8, index * 8 + 3)) as Point,
         );
+        const face = points
+            .map((p) => p.join(","))
+            .sort()
+            .join(";");
+        if (faces.has(face)) continue;
+        faces.add(face);
         const index = indices[i]! * 8;
         const normal = Array.from(vertices.subarray(index + 4, index + 7)) as Point;
         for (let j = 0; j < 3; j++) {
@@ -233,7 +240,8 @@ export function shapeEdges(world: World, shape: Parameters<typeof shapeMesh>[1])
             if (previous) {
                 previous.count++;
                 previous.crease ||=
-                    normal.reduce((sum, v, k) => sum + v * previous.normal[k]!, 0) < 1 - 1e-6;
+                    Math.abs(normal.reduce((sum, v, k) => sum + v * previous.normal[k]!, 0)) <
+                    1 - 1e-6;
             } else candidates.set(key, { edge: [a, b], normal, crease: false, count: 1 });
         }
     }

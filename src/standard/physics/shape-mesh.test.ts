@@ -371,6 +371,37 @@ test("mesh retains open boundaries and creases but not coplanar diagonals", () =
     ).toBe(false);
 });
 
+for (const { name, indices, count } of [
+    { name: "repeated face", indices: [0, 1, 2, 0, 1, 2], count: 3 },
+    { name: "opposite winding", indices: [0, 1, 2, 0, 3, 2], count: 4 },
+]) {
+    test(`mesh ${name} preserves boundaries without coplanar diagonals`, () => {
+        const geometry = world.resource(PhysicsMeshes).add({
+            name,
+            vertices: new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]),
+            indices: new Uint32Array(indices),
+        });
+        expect(shapeEdges(world, definition({ kind: ShapeKind.Mesh, geometry }))).toHaveLength(
+            count,
+        );
+    });
+}
+
+function closedUniqueLoops(edges: [Point, Point][], stride: number): void {
+    const key = (p: Point) => p.map((v) => v.toFixed(6)).join(",");
+    const keys = edges.map((edge) => edge.map(key).sort().join(";"));
+    expect(new Set(keys).size).toBe(edges.length);
+    for (let start = 0; start < edges.length; start += stride)
+        for (let i = 0; i < stride; i++)
+            expect(edges[start + i]![1]).toEqual(edges[start + ((i + 1) % stride)]![0]);
+}
+
+const cross = (a: Point, b: Point): Point => [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+];
+
 test("sphere has three great circles, not latitude or triangulation edges", () => {
     const center: Point = [1, 2, 3];
     const edges = shapeEdges(
@@ -378,6 +409,8 @@ test("sphere has three great circles, not latitude or triangulation edges", () =
         definition({ kind: ShapeKind.Sphere, sphereCenter: center, radius: 2 }),
     );
     expect(edges).toHaveLength(96);
+    closedUniqueLoops(edges, 32);
+    const planes: number[] = [];
     for (let ring = 0; ring < 3; ring++) {
         const circle = edges.slice(ring * 32, (ring + 1) * 32);
         for (const [a, b] of circle) {
@@ -387,12 +420,13 @@ test("sphere has three great circles, not latitude or triangulation edges", () =
                 6,
             );
         }
-        expect(
-            [0, 1, 2].some((axis) =>
-                circle.every((edge) => edge.every((p) => p[axis] === center[axis])),
-            ),
-        ).toBe(true);
+        const plane = [0, 1, 2].find((axis) =>
+            circle.every((edge) => edge.every((p) => Math.abs(p[axis]! - center[axis]!) < 1e-6)),
+        );
+        expect(plane).toBeDefined();
+        planes.push(plane!);
     }
+    expect(planes.sort()).toEqual([0, 1, 2]);
 });
 
 for (const b of [
@@ -407,6 +441,18 @@ for (const b of [
             definition({ kind: ShapeKind.Capsule, capsuleCenter1: a, capsuleCenter2: b }),
         );
         expect(edges).toHaveLength(68);
+        closedUniqueLoops(edges, 34);
+        const normals = [0, 34].map((start) => {
+            const radial = edges[start]![0].map((v, i) => v - a[i]!) as Point;
+            const normal = unit(cross(b, radial));
+            for (const edge of edges.slice(start, start + 34))
+                for (const p of edge)
+                    expect(Math.abs(dot(normal, p.map((v, i) => v - a[i]!) as Point))).toBeLessThan(
+                        1e-6,
+                    );
+            return normal;
+        });
+        expect(Math.abs(dot(normals[0]!, normals[1]!))).toBeLessThan(1e-6);
         const surface = roundSurface(a, b, 0.5);
         for (const edge of edges)
             for (const p of edge) expect(surface.distance(p)).toBeLessThan(1e-6);
