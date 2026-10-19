@@ -12,6 +12,7 @@ import {
     MeshMaterial,
     MotorJoint,
     NotShadowCaster,
+    qRotate,
     Shape,
     StandardMaterial,
     StandardRenderer,
@@ -99,29 +100,36 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 ay = anchor.y.get(grab.joint),
                 az = anchor.z.get(grab.joint);
             const q = pose.rotation;
-            const x = q.x.get(grab.body),
-                y = q.y.get(grab.body),
-                z = q.z.get(grab.body),
-                w = q.w.get(grab.body);
-            const tx = 2 * (y * az - z * ay),
-                ty = 2 * (z * ax - x * az),
-                tz = 2 * (x * ay - y * ax);
+            const offset = qRotate(
+                q.x.get(grab.body),
+                q.y.get(grab.body),
+                q.z.get(grab.body),
+                q.w.get(grab.body),
+                ax,
+                ay,
+                az,
+            );
             const p = feedback.attachment;
-            p[0] = pose.translation.x.get(grab.body) + ax + w * tx + y * tz - z * ty;
-            p[1] = pose.translation.y.get(grab.body) + ay + w * ty + z * tx - x * tz;
-            p[2] = pose.translation.z.get(grab.body) + az + w * tz + x * ty - y * tx;
+            p[0] = pose.translation.x.get(grab.body) + offset[0];
+            p[1] = pose.translation.y.get(grab.body) + offset[1];
+            p[2] = pose.translation.z.get(grab.body) + offset[2];
             const transform = world.storage(Transform);
             transform.translation.set(feedback.marker, ...p);
             // Project a camera-up metre at the attachment depth to keep the diameter in CSS pixels.
-            const cx = q.x.get(camera),
-                cy = q.y.get(camera),
-                cz = q.z.get(camera),
-                cw = q.w.get(camera);
+            const cameraUp = qRotate(
+                q.x.get(camera),
+                q.y.get(camera),
+                q.z.get(camera),
+                q.w.get(camera),
+                0,
+                1,
+                0,
+            );
             const center = worldToViewport(world, camera, p);
             const up = worldToViewport(world, camera, [
-                p[0] + 2 * (cx * cy - cw * cz),
-                p[1] + 1 - 2 * (cx * cx + cz * cz),
-                p[2] + 2 * (cy * cz + cw * cx),
+                p[0] + cameraUp[0],
+                p[1] + cameraUp[1],
+                p[2] + cameraUp[2],
             ]);
             if (center && up) {
                 const scale = 8 / Math.hypot(up[0] - center[0], up[1] - center[1]);
