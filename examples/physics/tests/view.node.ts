@@ -1,6 +1,10 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Body, BodyType, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { applyLinearImpulseToCenter, isAwake } from "@dylanebert/shallot/standard/physics";
+import {
+    applyLinearImpulseToCenter,
+    isAwake,
+    setAwake,
+} from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
@@ -20,6 +24,31 @@ test("sleep changes a body's colour without changing its role", async () => {
         expect(Array.from(shapeMaterial(app.world, "subject", body!).baseColor)).not.toEqual(
             before,
         );
+        // Compare chromaticity: brightness changes with state and lighting, affordance does not.
+        const chromaticity = (color: ArrayLike<number>) => {
+            const sum = color[0]! + color[1]! + color[2]!;
+            return [color[0]! / sum, color[1]! / sum, color[2]! / sum];
+        };
+        const distance = (a: number[], b: number[]) =>
+            Math.hypot(...a.map((value, i) => value - b[i]!));
+        const ground = chromaticity(shapeMaterial(app.world, "ground", body!).baseColor);
+        for (const role of ["subject", "motorized", "sensor", "reaction"] as const) {
+            if (role === "reaction")
+                app.world.resource(EventSample).reactions.add(app.world.ref(body!));
+            const materialRole = role === "reaction" ? "subject" : role;
+            setAwake(app.world, body!, true);
+            const awake = shapeMaterial(app.world, materialRole, body!);
+            setAwake(app.world, body!, false);
+            const asleep = shapeMaterial(app.world, materialRole, body!);
+            const tint = chromaticity(asleep.baseColor);
+            expect(distance(tint, chromaticity(awake.baseColor)), role).toBeLessThan(
+                distance(tint, ground),
+            );
+            expect(asleep.perceptualRoughness).toBeGreaterThan(awake.perceptualRoughness);
+            expect(asleep.baseColor[0]! + asleep.baseColor[1]! + asleep.baseColor[2]!).toBeLessThan(
+                awake.baseColor[0]! + awake.baseColor[1]! + awake.baseColor[2]!,
+            );
+        }
     } finally {
         app.dispose();
     }

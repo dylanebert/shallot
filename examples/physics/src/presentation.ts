@@ -22,13 +22,13 @@ const materials = {
 
 const sleeping = {
     ground: materials.ground,
-    subject: StandardMaterial({ baseColor: [0.48, 0.42, 0.3, 1], perceptualRoughness: 0.9 }),
-    motorized: StandardMaterial({ baseColor: [0.29, 0.43, 0.46, 1], perceptualRoughness: 0.9 }),
-    sensor: StandardMaterial({ baseColor: [0.29, 0.43, 0.46, 1], perceptualRoughness: 0.9 }),
+    subject: StandardMaterial({ baseColor: [0.52, 0.29, 0.065, 1], perceptualRoughness: 0.9 }),
+    motorized: StandardMaterial({ baseColor: [0.055, 0.29, 0.35, 1], perceptualRoughness: 0.9 }),
+    sensor: StandardMaterial({ baseColor: [0.055, 0.29, 0.35, 1], perceptualRoughness: 0.9 }),
 };
 const reaction = StandardMaterial({ baseColor: [1, 0.22, 0.035, 1], perceptualRoughness: 0.3 });
 const restingReaction = StandardMaterial({
-    baseColor: [0.53, 0.34, 0.26, 1],
+    baseColor: [0.65, 0.16, 0.045, 1],
     perceptualRoughness: 0.9,
 });
 
