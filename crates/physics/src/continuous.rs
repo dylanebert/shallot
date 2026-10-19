@@ -8,10 +8,7 @@ use crate::{
     query::Shape,
     shapes, tree,
 };
-pub(crate) const IS_FAST: u32 = 0x40;
-pub(crate) const IS_BULLET: u32 = 0x80;
-const HAD_TIME_OF_IMPACT: u32 = 0x200;
-pub(crate) const ENLARGE_BOUNDS: u32 = 0x800;
+use body::flags::{ENLARGE_BOUNDS, HAD_TIME_OF_IMPACT, IS_BULLET};
 static mut BULLET_BODIES: *mut u32 = core::ptr::null_mut();
 static BULLET_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 

@@ -191,7 +191,7 @@ pub unsafe fn finalize(
         let awake = !crate::continuous::sleep_enabled()
             || body.flags & crate::body::flags::ENABLE_SLEEP == 0
             || sleep_velocity > body.sleep_threshold;
-        let flags = sim_col.get(o + FLAGS).to_bits() & !crate::continuous::IS_FAST;
+        let flags = sim_col.get(o + FLAGS).to_bits() & !crate::body::flags::IS_FAST;
         sim_col.set(o + FLAGS, f32::from_bits(flags));
         let mut fast_candidate = false;
         if awake {
@@ -207,9 +207,9 @@ pub unsafe fn finalize(
         if fast_candidate {
             sim_col.set(
                 o + FLAGS,
-                f32::from_bits(flags | crate::continuous::IS_FAST),
+                f32::from_bits(flags | crate::body::flags::IS_FAST),
             );
-            if flags & crate::continuous::IS_BULLET != 0 {
+            if flags & crate::body::flags::IS_BULLET != 0 {
                 crate::continuous::add_bullet(i);
             } else if crate::continuous::callback_body(world_index, i) {
                 crate::callback_work::note(

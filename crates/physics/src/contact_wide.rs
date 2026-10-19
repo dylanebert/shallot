@@ -211,13 +211,6 @@ struct BodyStateW {
     dq: QuatW,
 }
 
-const ALL_LOCKS: u32 = body_flags::LOCK_LINEAR_X
-    | body_flags::LOCK_LINEAR_Y
-    | body_flags::LOCK_LINEAR_Z
-    | body_flags::LOCK_ANGULAR_X
-    | body_flags::LOCK_ANGULAR_Y
-    | body_flags::LOCK_ANGULAR_Z;
-
 // Box3D contact_solver.c's SIMD scatter writes only velocities; explicit lane blocks keep null and
 // non-dynamic bodies out of the write set.
 fn scatter(state: Col<f32>, flags: Col<u32>, idx: Col<u32>, io: usize, v: &Vec3W, w: &Vec3W) {
@@ -239,7 +232,7 @@ fn scatter(state: Col<f32>, flags: Col<u32>, idx: Col<u32>, io: usize, v: &Vec3W
         }
         let mut v = [vx[lane], vy[lane], vz[lane]];
         let mut w = [wx[lane], wy[lane], wz[lane]];
-        if f & ALL_LOCKS != 0 {
+        if f & body_flags::ALL_MOTION_LOCKS != 0 {
             if f & body_flags::LOCK_LINEAR_X != 0 {
                 v[0] = 0.0;
             }

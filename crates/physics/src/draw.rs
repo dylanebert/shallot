@@ -151,13 +151,13 @@ unsafe fn color(world: usize, id: usize) -> u32 {
         0x708090
     } else if r[n + shapes::S_FLAGS] & shapes::SENSOR_FLAG != 0 {
         0xf5deb3
-    } else if b.flags & 0x200 != 0 {
+    } else if b.flags & body::flags::HAD_TIME_OF_IMPACT != 0 {
         0x00ff00
-    } else if flags & 0x80 != 0 && b.set_index == 2 {
+    } else if flags & body::flags::IS_BULLET != 0 && b.set_index == 2 {
         0x40e0d0
-    } else if b.flags & 0x100 != 0 {
+    } else if b.flags & body::flags::IS_SPEED_CAPPED != 0 {
         0xffff00
-    } else if flags & 0x40 != 0 {
+    } else if flags & body::flags::IS_FAST != 0 {
         0xffa500
     } else if b.body_type == 0 {
         0xa9a9a9

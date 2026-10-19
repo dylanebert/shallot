@@ -210,9 +210,11 @@ pub mod flags {
     pub const LOCK_ANGULAR_Z: u32 = 0x0000_0020;
     pub const ALL_MOTION_LOCKS: u32 = 0x0000_003f;
     pub const IS_FAST: u32 = 0x0000_0040;
-    pub const HAD_TIME_OF_IMPACT: u32 = 0x0000_0200;
+    pub const IS_BULLET: u32 = 0x0000_0080;
     pub const IS_SPEED_CAPPED: u32 = 0x0000_0100;
+    pub const HAD_TIME_OF_IMPACT: u32 = 0x0000_0200;
     pub const ALLOW_FAST_ROTATION: u32 = 0x0000_0400;
+    pub const ENLARGE_BOUNDS: u32 = 0x0000_0800;
     pub const DYNAMIC: u32 = 0x0000_1000;
     pub const ENABLE_SLEEP: u32 = 0x0000_2000;
     pub const ENABLE_CONTACT_RECYCLING: u32 = 0x0000_4000;

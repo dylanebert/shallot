@@ -1456,7 +1456,7 @@ unsafe fn contact_block_impl(
             } else {
                 fin_b.max_extent
             };
-            let fast = (flags_a | flags_b) & 0x40 != 0;
+            let fast = (flags_a | flags_b) & crate::body::flags::IS_FAST != 0;
             let fast_mesh = flags & 0x0040_0000 != 0 && fast;
             let tol = if flags & 0x0001_0000 != 0 {
                 recycle_dist
@@ -1629,7 +1629,9 @@ pub(crate) unsafe fn refit_body(world_index: usize, worker: usize, sim: Col<f32>
         let shape_f = crate::shapes::col_f(world_index);
         let fat = crate::shapes::col_f(world_index);
         {
-            if sim_u.atomic_get(i * SIM_STRIDE + crate::body::FLAGS) & 0x40 != 0 {
+            if sim_u.atomic_get(i * SIM_STRIDE + crate::body::FLAGS) & crate::body::flags::IS_FAST
+                != 0
+            {
                 if crate::bodies::record(
                     world_index,
                     sim_u.get(i * SIM_STRIDE + crate::body::BODY_ID) as usize,

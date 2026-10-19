@@ -71,7 +71,7 @@ pub unsafe fn get_property_in_world(world: usize, id: usize, property: u32) -> f
         3 => record.sleep_threshold,
         4 => (u8::from(record.flags & crate::body::flags::ENABLE_SLEEP != 0)) as f32,
         5 => (record.flags & crate::body::flags::ALL_MOTION_LOCKS) as f32,
-        6 => (u8::from(record.flags & crate::continuous::IS_BULLET != 0)) as f32,
+        6 => (u8::from(record.flags & crate::body::flags::IS_BULLET != 0)) as f32,
         7 => (u8::from(record.flags & crate::body::flags::ALLOW_FAST_ROTATION != 0)) as f32,
         8 => (u8::from(record.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0)) as f32,
         9 => (u8::from(record.set_index != 1)) as f32,
@@ -136,7 +136,7 @@ pub unsafe fn set_property_in_world(world: usize, id: usize, property: u32, valu
             }
         }
         6 => {
-            let flag = crate::continuous::IS_BULLET;
+            let flag = crate::body::flags::IS_BULLET;
             let record = bodies::record_mut(world, id);
             record.flags = if value != 0.0 {
                 record.flags | flag

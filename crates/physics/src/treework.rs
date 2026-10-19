@@ -1,6 +1,6 @@
 //! Serial tree operations over resident or caller-uploaded columns.
+use crate::body::flags::{ENLARGE_BOUNDS, IS_BULLET, IS_FAST};
 use crate::body::{BODY_ID, FLAGS, SIM_STRIDE};
-use crate::continuous::{ENLARGE_BOUNDS, IS_BULLET, IS_FAST};
 use crate::regions::Buffer;
 use crate::tree::{self, Rebuild, STACK_SIZE, STRIDE};
 use std::slice;
