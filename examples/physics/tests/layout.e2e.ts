@@ -36,7 +36,9 @@ for (const viewport of [
             }
         }
         const before = await panel.boundingBox();
-        expect(before!.height).toBe(128);
+        expect(before!.height).toBe(136);
+        await expect(panel).toHaveCSS("padding", "8px");
+        await expect(panel.locator(".group").first()).toHaveCSS("column-gap", "8px");
         expect(before!.width).toBeLessThanOrEqual(300);
         expect(before!.x + before!.width).toBe(viewport.width - 24);
         expect(before!.y).toBe(24);
@@ -86,6 +88,22 @@ for (const viewport of [
         await trigger.click();
         const list = page.locator("#scene-list");
         await expect(list).toBeVisible();
+        await expect(list).toHaveCSS("padding", "8px");
+        for (const alignment of await list
+            .locator(".categories > section")
+            .evaluateAll((sections) =>
+                sections.map((section) => {
+                    const header = section.querySelector("h2")!;
+                    const item = section.querySelector("button")!;
+                    return {
+                        header: header.getBoundingClientRect().left,
+                        text:
+                            item.getBoundingClientRect().left +
+                            parseFloat(getComputedStyle(item).paddingLeft),
+                    };
+                }),
+            ))
+            expect(alignment.header).toBe(alignment.text);
         const bounds = await list.boundingBox();
         expect(bounds).not.toBeNull();
         expect(bounds!.x).toBeGreaterThanOrEqual(24);

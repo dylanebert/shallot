@@ -84,13 +84,13 @@
     .name { flex: none; white-space: nowrap; }
     nav button:hover { text-decoration: underline; text-underline-offset: 2px; }
     button:focus-visible, input:focus-visible { outline: 1px solid #eee9df; outline-offset: 2px; }
-    .scenes { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 100%; max-height: calc(100dvh - var(--top) - var(--bottom) - 32px); overflow-y: auto; padding: 4px; box-sizing: border-box; background: #282622; border-radius: 2px; }
+    .scenes { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 100%; max-height: calc(100dvh - var(--top) - var(--bottom) - 32px); overflow-y: auto; padding: 8px; box-sizing: border-box; background: #282622; border-radius: 2px; }
     .categories { display: grid; grid-template-columns: repeat(var(--categories), max-content); gap: 8px; }
-    h2 { font: 400 14px/24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0 4px 4px; color: #797369; }
+    h2 { font: 400 14px/24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0 8px 4px; color: #797369; }
     .scenes button { display: block; width: 100%; text-align: left; }
-    .controls { top: var(--top); right: var(--right); padding: 4px; background: #282622; border-radius: 2px; max-height: calc(100dvh - var(--top) - var(--bottom) - 48px); overflow-y: auto; box-sizing: border-box; }
-    .fields { display: grid; width: calc(var(--label) + 116px); gap: 8px; }
-    .group { display: grid; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; gap: 4px; }
+    .controls { top: var(--top); right: var(--right); padding: 8px; background: #282622; border-radius: 2px; max-height: calc(100dvh - var(--top) - var(--bottom) - 48px); overflow-y: auto; box-sizing: border-box; }
+    .fields { display: grid; width: calc(var(--label) + 120px); gap: 8px; }
+    .group { display: grid; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; row-gap: 4px; column-gap: 8px; }
     .group > label:not(.toggle) { line-height: 24px; }
     .dependents { grid-column: 1 / -1; display: grid; gap: 4px; padding-left: 8px; }
     .action { grid-column: 1 / -1; }
@@ -101,7 +101,7 @@
     .controls button:focus-visible, .scenes button:focus-visible, input:focus-visible { outline: 1px solid #eee9df; outline-offset: 0; }
     .scenes button + button { margin-top: 4px; }
     .input-help { top: var(--top); left: var(--left); pointer-events: none; }
-    .toggle { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; gap: 4px; height: 24px; cursor: pointer; }
+    .toggle { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; column-gap: 8px; height: 24px; cursor: pointer; }
     input[type="checkbox"] { appearance: none; display: grid; place-content: center; width: 20px; height: 20px; margin: 0; border: 0; border-radius: 2px; background: #191816; cursor: pointer; }
     input[type="checkbox"]:hover:not(:checked) { background: #454440; }
     input[type="checkbox"]:checked::after { content: ""; width: 8px; height: 4px; border: solid #eee9df; border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
