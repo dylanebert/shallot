@@ -2039,12 +2039,6 @@ pub fn collide_hulls(
         return;
     }
 
-    let face_query = if axis_query.face_a.separation > axis_query.face_b.separation {
-        axis_query.face_a
-    } else {
-        // The active target chooses face B on an exact tie.
-        axis_query.face_b
-    };
     if axis_query.face_a.separation > axis_query.face_b.separation {
         build_face_a_contact(
             manifold,
@@ -2052,7 +2046,7 @@ pub fn collide_hulls(
             hull_a,
             hull_b,
             transform_b_to_a,
-            face_query,
+            axis_query.face_a,
             cache,
         );
     } else {
@@ -2062,7 +2056,7 @@ pub fn collide_hulls(
             hull_a,
             hull_b,
             transform_b_to_a,
-            face_query,
+            axis_query.face_b,
             cache,
         );
     }
