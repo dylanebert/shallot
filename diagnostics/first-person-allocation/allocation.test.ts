@@ -31,6 +31,16 @@ test("a sampling session starts after one collected and drained subject step", a
     expect(otherSubject).toEqual(["collect"]);
 });
 
+test("a session that runs no subject step collects without rewarming the subject", async () => {
+    const order: string[] = [];
+    await prepareSamplingSession(
+        { warmSamplingSessions: true, samplingWarmFrames: 60, step: () => order.push("step"), wait: async () => { order.push("wait"); } },
+        () => order.push("collect"),
+        false,
+    );
+    expect(order).toEqual(["collect"]);
+});
+
 test("the sampler keeps lazy feedback but disables allocation-site pretenuring for every window", () => {
     expect(TIER_FLAGS).not.toContain("--no-lazy-feedback-allocation");
     expect(TIER_FLAGS).toEqual([

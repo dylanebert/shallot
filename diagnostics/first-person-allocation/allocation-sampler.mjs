@@ -62,13 +62,16 @@ export function subjectSite(frame, map, base, fallback, root = process.cwd(), pa
  */
 
 /**
- * Collect and, for a subject that opts in, rewarm and drain before allocation sampling.
+ * Collect and, for a subject that opts in, rewarm and drain before allocation sampling. A session that
+ * runs no subject step, such as the control's, passes `rewarm` false: the rewarm settles the subject's
+ * code after the collection, which only its own windows run.
  * @param {{ step(): void, wait?: () => Promise<void>, warmSamplingSessions?: boolean, samplingWarmFrames?: number }} subject
  * @param {() => void} collect
+ * @param {boolean} [rewarm]
  */
-export async function prepareSamplingSession(subject, collect) {
+export async function prepareSamplingSession(subject, collect, rewarm = true) {
     collect();
-    if (!subject.warmSamplingSessions) return;
+    if (!rewarm || !subject.warmSamplingSessions) return;
     for (let i = 0; i < (subject.samplingWarmFrames ?? 1); i++) {
         subject.step();
         if ((i + 1) % 60 === 0) await subject.wait?.();
@@ -261,7 +264,7 @@ async function main() {
         await session.post("HeapProfiler.enable");
 
         async function sample(run, n, label = "transition") {
-            await prepareSamplingSession(subject, collect);
+            await prepareSamplingSession(subject, collect, run !== controls);
             await session.post("HeapProfiler.startSampling", {
                 samplingInterval: 1,
                 includeObjectsCollectedByMajorGC: true,
