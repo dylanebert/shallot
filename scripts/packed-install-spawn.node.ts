@@ -158,7 +158,7 @@ function offlineFixture(
                 name: "offline-consumer",
                 dependencies: {
                     "@dylanebert/shallot": "file:../packed.tgz",
-                    typegpu: "~0.12.6",
+                    typegpu: "~0.12.8",
                 },
             }),
         );
@@ -189,7 +189,7 @@ const engine = { name: "@dylanebert/shallot", version: "0.0.0" };
 
 test("packed registry dependencies install from a manifest-free cache with an unreachable registry", () => {
     offlineFixture(({ project, pack }) => {
-        pack({ ...engine, dependencies: { typegpu: "~0.12.6" } });
+        pack({ ...engine, dependencies: { typegpu: "~0.12.8" } });
         packedInstall(["install"], project, "offline fixture");
         expect(existsSync(join(project, "node_modules/typegpu/package.json"))).toBe(true);
         writeFileSync(
@@ -208,7 +208,7 @@ test("packed registry dependencies install from a manifest-free cache with an un
 
 test("a lock-pinned tarball absent from the cache fails with the offline cache cause", () => {
     offlineFixture(({ project, pack }) => {
-        pack({ ...engine, dependencies: { typegpu: "~0.12.6" } });
+        pack({ ...engine, dependencies: { typegpu: "~0.12.8" } });
         let failure = "";
         try {
             packedInstall(["install"], project, "missing cache fixture");
@@ -225,23 +225,23 @@ for (const [claim, edges, refusal] of [
     [
         "out-of-range peer",
         { peerDependencies: { typegpu: "^0.11.0" } },
-        "typegpu range ^0.11.0 installed 0.12.6",
+        "typegpu range ^0.11.0 installed 0.12.8",
     ],
     [
         "unsupported git peer",
         { peerDependencies: { typegpu: "git+https://example.invalid/typegpu.git" } },
-        "typegpu range git+https://example.invalid/typegpu.git installed 0.12.6: unsupported spec",
+        "typegpu range git+https://example.invalid/typegpu.git installed 0.12.8: unsupported spec",
     ],
     [
         "dependency hidden by a peer",
-        { dependencies: { typegpu: "^0.11.0" }, peerDependencies: { typegpu: "~0.12.6" } },
-        "typegpu range ^0.11.0 installed 0.12.6",
+        { dependencies: { typegpu: "^0.11.0" }, peerDependencies: { typegpu: "~0.12.8" } },
+        "typegpu range ^0.11.0 installed 0.12.8",
     ],
-    ["matching npm alias", { peerDependencies: { typegpu: "npm:typegpu@~0.12.6" } }, ""],
+    ["matching npm alias", { peerDependencies: { typegpu: "npm:typegpu@~0.12.8" } }, ""],
     [
         "out-of-range npm alias",
         { peerDependencies: { typegpu: "npm:typegpu@^0.11.0" } },
-        "typegpu range npm:typegpu@^0.11.0 installed 0.12.6",
+        "typegpu range npm:typegpu@^0.11.0 installed 0.12.8",
     ],
     [
         "wrong npm alias target",
@@ -269,7 +269,7 @@ for (const spec of [
         offlineFixture(({ project, pack }) => {
             pack({ ...engine, peerDependencies: { typegpu: spec } });
             expect(() => packedInstall(["install"], project, "spec fixture")).toThrow(
-                `typegpu range ${spec} installed 0.12.6: unsupported spec`,
+                `typegpu range ${spec} installed 0.12.8: unsupported spec`,
             );
         });
     });
@@ -280,7 +280,7 @@ for (const spec of ["latest", "^banana"]) {
         offlineFixture(({ project, pack }) => {
             pack({ ...engine, peerDependencies: { typegpu: spec } });
             expect(() => packedInstall(["install"], project, "invalid range fixture")).toThrow(
-                `@dylanebert/shallot peer typegpu range ${spec} installed 0.12.6: unsupported spec`,
+                `@dylanebert/shallot peer typegpu range ${spec} installed 0.12.8: unsupported spec`,
             );
         });
     });

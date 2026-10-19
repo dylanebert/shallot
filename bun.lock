@@ -7,7 +7,7 @@
       "dependencies": {
         "@types/node": "^26.6.3",
         "@webgpu/types": "^0.1.74",
-        "unplugin-typegpu": "~0.12.4",
+        "unplugin-typegpu": "~0.12.6",
       },
       "devDependencies": {
         "@arethetypeswrong/cli": "0.18.5",
@@ -22,14 +22,14 @@
         "semver": "7.8.5",
         "svelte": "^5.57.2",
         "svelte-check": "^4.7.6",
-        "typegpu": "~0.12.6",
+        "typegpu": "~0.12.8",
         "typescript": "^7.0.2",
         "vite": "^8.3.1",
         "webgpu": "^0.6.2",
       },
       "peerDependencies": {
         "playwright": "^1.63.0",
-        "typegpu": "~0.12.6",
+        "typegpu": "~0.12.8",
         "vite": "^8.0.0",
         "webgpu": "^0.6.2",
       },

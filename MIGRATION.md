@@ -1337,7 +1337,7 @@ export default defineConfig({ plugins: [shallot()] });
 The peer TypeGPU version has also changed:
 
 ```sh
-bun add typegpu@~0.12.6
+bun add typegpu@~0.12.8
 ```
 
 ## Scalar sparse values now use their declared numeric type

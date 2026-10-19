@@ -75,7 +75,7 @@ test("a Vite project built from the packed Shallot captures through its public r
                 type: "module",
                 dependencies: {
                     "@dylanebert/shallot": `file:../${tarballName}`,
-                    typegpu: "~0.12.5",
+                    typegpu: "~0.12.8",
                     vite: "^8.3.0",
                 },
             }),
