@@ -126,8 +126,20 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(bounds[1]![1]).toBeCloseTo(0);
                 expect(ground.mesh.indices.length).toBeGreaterThan(0);
             } else expect(presentation.ground).toBeUndefined();
-            // A bounded 1 m orientation grid leaves the distant ground's tone untouched.
-            const extent = 10;
+            const extent = {
+                boxStack: 40,
+                bridge: 25,
+                contact: 80,
+                hit: 60,
+                joint: 20,
+                sensor: 10,
+                motor: 10,
+                revolute: 10,
+                prismatic: 10,
+                wheel: 10,
+                filter: 10,
+                parallel: 20,
+            }[id];
             const grid = presentation.grid;
             expect(grid).toBeDefined();
             expect(grid.width).toBe(1);

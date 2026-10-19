@@ -10,7 +10,7 @@ import {
 } from "@dylanebert/shallot";
 import { isAwake } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
-import { controlValues, type Scene, visibleControls } from "./scenes";
+import { controlValues, type Scene, scenes, visibleControls } from "./scenes";
 
 const materials = {
     ground: StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1], perceptualRoughness: 0.82 }),
@@ -66,9 +66,7 @@ export function shapePresentation(world: World, scene: Scene, eid: number) {
 
 export function scenePresentation(world: World, scene: Scene) {
     const shapes = Array.from(world.query([Shape]), (eid) => shapePresentation(world, scene, eid));
-    // Box3D's DrawGroundGrid(10) bounds its orientation grid. Unlike its procedural
-    // surface grid, retained pixel-width lines cannot filter out at distance.
-    const extent = 10;
+    const extent = scenes[scene].gridExtent;
     const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
     for (let offset = -extent; offset <= extent; offset++) {
         const color = offset === 0 ? 0x797369 : 0x49453f;

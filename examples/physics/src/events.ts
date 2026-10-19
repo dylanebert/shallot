@@ -709,21 +709,25 @@ function driveMotor(world: World): void {
 export const eventScenes = {
     joint: {
         construct: joint,
+        gridExtent: 20,
         camera: { yaw: 0, pitch: 30, distance: 40, target: [0, 5, 0] },
         controls: undefined,
     },
     sensor: {
         construct: sensor,
+        gridExtent: 10,
         camera: { yaw: 0, pitch: 30, distance: 20, target: [0, 5, 0] },
         controls: undefined,
     },
     hit: {
         construct: hit,
+        gridExtent: 60,
         camera: { yaw: 0, pitch: 30, distance: 100, target: [0, 5, 0] },
         controls: undefined,
     },
     contact: {
         construct: contact,
+        gridExtent: 80,
         camera: { yaw: 0, pitch: 35, distance: 60, target: [0, 0, 0] },
         controls: {
             torque: {
@@ -740,6 +744,7 @@ export const eventScenes = {
     },
     motor: {
         construct: motor,
+        gridExtent: 10,
         camera: { yaw: 0, pitch: 0, distance: 25, target: [0, 8, 0] },
         controls: {
             Speed: {
