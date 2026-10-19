@@ -37,6 +37,9 @@ export const Exposure = component(
  * presentation. The bottom camera clears the target with its `clearColor`; every camera above it
  * starts from transparent black, its `clearColor` unused, and its presented image is blended over the
  * target by its premultiplied alpha, so pixels it draws nothing on keep what the cameras below left.
+ * That alpha is coverage: a camera above another cannot add light to or multiply the cameras below,
+ * so standard's AlphaMode.Add light over pixels it left empty is dropped, and AlphaMode.Multiply
+ * darkens the cameras below toward black by its alpha.
  * `clearColor` is sRGB hex, decoded to linear when recording the render pass.
  */
 export const Camera = component(

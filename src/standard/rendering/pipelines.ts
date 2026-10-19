@@ -90,6 +90,24 @@ const alphaColorOutput = tgpu
     .$name("materialAlphaOutput");
 
 const colorOutput = { color: d.vec4f };
+const coverageOutput = { color: d.vec4f, mask: d.builtin.sampleMask };
+
+/**
+ * AlphaToCoverage's sample mask: the first round(alpha × SAMPLE_COUNT) samples. Covered samples then
+ * store alpha 1, so resolved scene alpha is coverage, which a camera stacked over others composites
+ * by. Hardware alphaToCoverage would store the material alpha in each covered sample too and count it
+ * twice; Bevy's alpha_discard keeps that alpha because its stacked cameras share one main texture.
+ */
+const coverageMask = tgpu
+    .fn(
+        [d.f32],
+        d.u32,
+    )((alpha) => {
+        "use gpu";
+        const samples = d.u32(std.round(std.saturate(alpha) * SAMPLE_COUNT));
+        return (d.u32(1) << samples) - 1;
+    })
+    .$name("coverageMask");
 
 export type BindResource =
     | import("typegpu").TgpuBuffer<AnyData>
@@ -595,7 +613,12 @@ function colorVs(surface: AnyMaterialType, clip = false, suffix = clip ? "Clip" 
         .$name(name);
 }
 
-function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fogged = false) {
+function colorFs(
+    surface: AnyMaterialType,
+    alphaToCoverageFallback = false,
+    fogged = false,
+    coverage = false,
+) {
     const fogColor = fogged ? foggedColor : unfoggedColor;
     // Reuse the function's schema identity: a structurally equal context forces an implicit conversion.
     const fragment = materialFragmentFunction(surface);
@@ -617,7 +640,7 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fogg
     return tgpu
         .fragmentFn({
             in: inputSchema,
-            out: colorOutput,
+            out: (coverage ? coverageOutput : colorOutput) as typeof colorOutput,
         })((input: any) => {
             "use gpu";
             const worldNormal = std.normalize(input.worldNormal);
@@ -670,9 +693,9 @@ function colorFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fogg
                 input.alphaCutoff,
                 alphaToCoverageFallback ? 0xffffffff : 0,
             );
-            return {
-                color: output,
-            };
+            if (coverage)
+                return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
+            return { color: output };
         })
         .$name(`${surface.name}${alphaToCoverageFallback ? "Single" : ""}Fs`);
 }
@@ -1027,7 +1050,13 @@ const shadowForce = tgpu
 // The 1..MAX_VARYINGS arms bound the static entry; the copier signature and vertex side already
 // accept arbitrary counts.
 // Reuse fsFn.shell.argTypes[0]: WGSL struct arguments are not typed purely structurally.
-function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fogged = false) {
+function varyingFs(
+    surface: AnyMaterialType,
+    alphaToCoverageFallback = false,
+    fogged = false,
+    coverage = false,
+) {
+    const out = (coverage ? coverageOutput : colorOutput) as typeof colorOutput;
     const fogColor = fogged ? foggedColor : unfoggedColor;
     const varyings = surface.varyings ?? {};
     const varyingKeys = Object.keys(varyings);
@@ -1076,7 +1105,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fo
     if (varyingKeys.length === 1) {
         const entryIn = { ...base, v0: slot(0) } as unknown as typeof base & { v0: d.Vec3f };
         return tgpu
-            .fragmentFn({ in: entryIn, out: colorOutput })((input) => {
+            .fragmentFn({ in: entryIn, out })((input) => {
                 "use gpu";
                 const col = copier(
                     input.pos,
@@ -1101,9 +1130,9 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fo
                     input.alphaCutoff,
                     alphaToCoverageFallback ? 0xffffffff : 0,
                 );
-                return {
-                    color: output,
-                };
+                if (coverage)
+                    return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
+                return { color: output };
             })
             .$name(name);
     }
@@ -1113,7 +1142,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fo
             v1: d.Vec3f;
         };
         return tgpu
-            .fragmentFn({ in: entryIn, out: colorOutput })((input) => {
+            .fragmentFn({ in: entryIn, out })((input) => {
                 "use gpu";
                 const col = copier(
                     input.pos,
@@ -1139,9 +1168,9 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fo
                     input.alphaCutoff,
                     alphaToCoverageFallback ? 0xffffffff : 0,
                 );
-                return {
-                    color: output,
-                };
+                if (coverage)
+                    return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
+                return { color: output };
             })
             .$name(name);
     }
@@ -1157,7 +1186,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fo
             v2: d.Vec3f;
         };
         return tgpu
-            .fragmentFn({ in: entryIn, out: colorOutput })((input) => {
+            .fragmentFn({ in: entryIn, out })((input) => {
                 "use gpu";
                 const col = copier(
                     input.pos,
@@ -1184,9 +1213,9 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fo
                     input.alphaCutoff,
                     alphaToCoverageFallback ? 0xffffffff : 0,
                 );
-                return {
-                    color: output,
-                };
+                if (coverage)
+                    return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
+                return { color: output };
             })
             .$name(name);
     }
@@ -1198,7 +1227,7 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fo
         v3: slot(3),
     } as unknown as typeof base & { v0: d.Vec3f; v1: d.Vec3f; v2: d.Vec3f; v3: d.Vec3f };
     return tgpu
-        .fragmentFn({ in: entryIn, out: colorOutput })((input) => {
+        .fragmentFn({ in: entryIn, out })((input) => {
             "use gpu";
             const col = copier(
                 input.pos,
@@ -1226,9 +1255,9 @@ function varyingFs(surface: AnyMaterialType, alphaToCoverageFallback = false, fo
                 input.alphaCutoff,
                 alphaToCoverageFallback ? 0xffffffff : 0,
             );
-            return {
-                color: output,
-            };
+            if (coverage)
+                return { color: d.vec4f(output.xyz, 1), mask: coverageMask(output.w) } as never;
+            return { color: output };
         })
         .$name(name);
 }
@@ -1254,13 +1283,16 @@ export function compileMaterial<
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
     const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const vertex = hasVaryings ? varyingVs(surface) : colorVs(surface);
+    const coverage = alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage;
     const fogged =
         !!fogSource(world) &&
         (alphaPipelineKey === AlphaPipelineKey.Blend ||
             alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
             alphaPipelineKey === AlphaPipelineKey.Multiply);
     const fragment = (
-        hasVaryings ? varyingFs(surface, false, fogged) : colorFs(surface, false, fogged)
+        hasVaryings
+            ? varyingFs(surface, false, fogged, coverage)
+            : colorFs(surface, false, fogged, coverage)
     ) as ReturnType<typeof colorFs>;
     const singleFragment = (
         hasVaryings ? varyingFs(surface, true, fogged) : colorFs(surface, true, fogged)
@@ -1301,10 +1333,7 @@ export function compileMaterial<
         targets: { color: { format: _render.format, ...(blend ? { blend } : {}) } },
         primitive,
         depthStencil,
-        multisample: {
-            count: SAMPLE_COUNT,
-            alphaToCoverageEnabled: alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage,
-        },
+        multisample: { count: SAMPLE_COUNT },
     });
     const compiled: CompiledMaterial = {
         owner: surface as AnyMaterialType,

@@ -60,3 +60,35 @@ test("a camera stacked over another draws opaque and masked surfaces opaque what
         }
     }
 });
+
+test("an AlphaToCoverage surface on a camera stacked over another covers it by coverage alone", async () => {
+    const { world } = subjects()[0];
+    const lower = world.create();
+    world.add(lower, Transform, { translation: [0, 0, 5, 0] });
+    world.add(lower, Camera, { clearColor: 0x0000ff });
+    world.add(lower, Tonemapping, { method: TonemappingMethod.None });
+    const target = attachTexture(world, lower, { width: SIZE, height: SIZE });
+    const upper = world.create();
+    world.add(upper, Transform, { translation: [0, 0, 5, 0] });
+    world.add(upper, Camera, { order: 1 });
+    world.add(upper, StandardRenderer);
+    world.add(upper, Tonemapping, { method: TonemappingMethod.None });
+    attachTexture(world, upper, target);
+    const cube = world.create();
+    world.add(cube, Transform);
+    world.add(cube, MeshInstance);
+    const material = StandardMaterial({ baseColor: [1, 0, 0, 0.5], unlit: true });
+    world.add(
+        cube,
+        MeshMaterial,
+        world.resource(Materials).add(material, { alphaMode: AlphaMode.AlphaToCoverage }),
+    );
+
+    // Half the samples carry the red cube at full alpha, half the lower camera's blue.
+    const [r, g, b, a] = center(await frame(world, lower));
+    expect([g, a]).toEqual([0, 255]);
+    expect(Math.abs(r! - 128)).toBeLessThanOrEqual(2);
+    expect(Math.abs(r! + b! - 255)).toBeLessThanOrEqual(2);
+    for (const eid of [cube, upper, lower]) world.destroy(eid);
+    world.step(0);
+});
