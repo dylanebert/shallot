@@ -114,6 +114,7 @@ interface MeshPreprocessState {
     drawSlots: DrawSlot[];
     drawLookup: DrawSlot[][];
     boundsData: Float32Array<ArrayBuffer>;
+    boundsWords: Uint32Array<ArrayBuffer>;
     drawData: Uint32Array<ArrayBuffer>;
     pairCount: number;
     viewDim: number;
@@ -178,6 +179,7 @@ function createMeshPreprocessState(): MeshPreprocessState {
         drawSlots: [],
         drawLookup: [],
         boundsData: new Float32Array(0),
+        boundsWords: new Uint32Array(0),
         drawData: new Uint32Array(0),
         pairCount: 0,
         viewDim: 1,
@@ -604,12 +606,14 @@ function writeMeshBounds(world: World, device: GPUDevice): void {
     const _meshes = world.resource(meshResourcesKey).meshes;
 
     const buffer = _meshPreprocess.meshBounds!;
-    if (_meshPreprocess.boundsData.length < _meshPreprocess.meshCount * 8)
+    if (_meshPreprocess.boundsData.length < _meshPreprocess.meshCount * 8) {
         _meshPreprocess.boundsData = new Float32Array(
             Math.max(_meshPreprocess.meshCount * 8, _meshPreprocess.boundsData.length * 2),
         );
+        _meshPreprocess.boundsWords = new Uint32Array(_meshPreprocess.boundsData.buffer);
+    }
     const data = _meshPreprocess.boundsData;
-    const words = new Uint32Array(data.buffer);
+    const words = _meshPreprocess.boundsWords;
     data.fill(0);
     for (let index = 0; index < _meshPreprocess.meshCount; index++) {
         words[index * 8 + 4] = 0xffffffff;
