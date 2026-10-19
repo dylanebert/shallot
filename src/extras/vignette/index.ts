@@ -23,8 +23,8 @@ import {
 } from "../../engine/runtime";
 
 /** HDR vignette. Color is 0xRRGGBB sRGB, mixed unconverted; center is UV. Only carrying cameras run the pass.
- * It mixes the camera's premultiplied scene toward `color` by the scene's alpha, so on a camera stacked over
- * others it shades only what that camera drew and leaves the cameras below untouched. */
+ * On a camera stacked over others it mixes that camera's premultiplied scene toward `color` scaled by the
+ * scene's alpha, so it shades only what that camera drew and leaves the cameras below untouched. */
 export const Vignette = component(
     "Vignette",
     {
@@ -56,7 +56,8 @@ const Settings = d.struct({
     roundness: d.f32,
     center: d.vec2f,
     edgeCompensation: d.f32,
-    unused: d.u32,
+    /** 1 on a camera stacked over others, whose scene color is premultiplied by coverage. */
+    stacked: d.u32,
     color: d.vec4f,
 });
 const layout = tgpu
@@ -87,7 +88,8 @@ const vignette = tgpu
     let final_uv = uv_from_center * scale_vec;
     let dist = length(final_uv) * (1.0 / radius);
     let factor = pow(clamp(1.0 - dist * dist, 0.0, 1.0), smoothness);
-    return mix(color, g.color.rgb * alpha, (1.0 - factor) * intensity);
+    let coverage = select(1.0, alpha, g.stacked != 0u);
+    return mix(color, g.color.rgb * coverage, (1.0 - factor) * intensity);
 }`)
     .$uses({ Settings });
 const fragment = tgpu.fragmentFn({ in: { position: d.builtin.position }, out: d.vec4f })(
@@ -116,6 +118,7 @@ const stateKey = {
             {
                 buffer: GPUBuffer;
                 bytes: Float32Array;
+                words: Uint32Array;
                 effect: EffectPass;
                 groups: WeakMap<GPUTextureView, GPUBindGroup>;
             }
@@ -178,9 +181,11 @@ export const VignettePlugin: Plugin = {
                             world.gpu.root.createBuffer(Settings).$usage("uniform"),
                         );
                         const groups = new WeakMap<GPUTextureView, GPUBindGroup>();
+                        const bytes = new Float32Array(12);
                         camera = {
                             buffer,
-                            bytes: new Float32Array(12),
+                            bytes,
+                            words: new Uint32Array(bytes.buffer),
                             groups,
                             effect: vignetteEffect(state, buffer, groups),
                         };
@@ -200,7 +205,7 @@ export const VignettePlugin: Plugin = {
                     b[4] = s.center.x.get(eid);
                     b[5] = s.center.y.get(eid);
                     b[6] = s.edgeCompensation.get(eid);
-                    b[7] = 0;
+                    camera.words[7] = views.get(eid)!.sortedIndexForTarget === 0 ? 0 : 1;
                     const color = s.color.get(eid);
                     b[8] = ((color >> 16) & 0xff) / 255;
                     b[9] = ((color >> 8) & 0xff) / 255;

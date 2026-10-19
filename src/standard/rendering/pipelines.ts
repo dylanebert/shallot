@@ -93,10 +93,10 @@ const colorOutput = { color: d.vec4f };
 const coverageOutput = { color: d.vec4f, mask: d.builtin.sampleMask };
 
 /**
- * AlphaToCoverage's sample mask: the first round(alpha × SAMPLE_COUNT) samples. Covered samples then
- * store alpha 1, so resolved scene alpha is coverage, which a camera stacked over others composites
- * by. Hardware alphaToCoverage would store the material alpha in each covered sample too and count it
- * twice; Bevy's alpha_discard keeps that alpha because its stacked cameras share one main texture.
+ * AlphaToCoverage's sample mask on a camera stacked over others: the first round(alpha × SAMPLE_COUNT)
+ * samples, each storing alpha 1, so resolved scene alpha is coverage, which that camera composites by.
+ * Hardware alphaToCoverage stores the material alpha in each covered sample too, counting it twice;
+ * it stays the path for a lone or bottom camera, which composites by nothing.
  */
 const coverageMask = tgpu
     .fn(
@@ -170,6 +170,9 @@ export interface CompiledMaterial {
     // the point/cascade shadow-atlas pipelines. `null` when the type opts out of that shadow route.
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
+    /** AlphaToCoverage's coverage-mask variant, created by ensureStacked on the first frame a 4× MSAA
+     * camera stacked over another draws it. */
+    stacked: TgpuRenderPipeline<{ color: d.Vec4f }> | null;
     /** AA-off variant, created by ensureSingle on the first frame a no-AA camera draws it. */
     single: {
         color: TgpuRenderPipeline<{ color: d.Vec4f }> | null;
@@ -1283,16 +1286,13 @@ export function compileMaterial<
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
     const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
     const vertex = hasVaryings ? varyingVs(surface) : colorVs(surface);
-    const coverage = alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage;
     const fogged =
         !!fogSource(world) &&
         (alphaPipelineKey === AlphaPipelineKey.Blend ||
             alphaPipelineKey === AlphaPipelineKey.Premultiplied ||
             alphaPipelineKey === AlphaPipelineKey.Multiply);
     const fragment = (
-        hasVaryings
-            ? varyingFs(surface, false, fogged, coverage)
-            : colorFs(surface, false, fogged, coverage)
+        hasVaryings ? varyingFs(surface, false, fogged) : colorFs(surface, false, fogged)
     ) as ReturnType<typeof colorFs>;
     const singleFragment = (
         hasVaryings ? varyingFs(surface, true, fogged) : colorFs(surface, true, fogged)
@@ -1333,7 +1333,10 @@ export function compileMaterial<
         targets: { color: { format: _render.format, ...(blend ? { blend } : {}) } },
         primitive,
         depthStencil,
-        multisample: { count: SAMPLE_COUNT },
+        multisample: {
+            count: SAMPLE_COUNT,
+            alphaToCoverageEnabled: alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage,
+        },
     });
     const compiled: CompiledMaterial = {
         owner: surface as AnyMaterialType,
@@ -1348,6 +1351,7 @@ export function compileMaterial<
         point: null,
         cascade: null,
         single: null,
+        stacked: null,
         args,
     };
     if (surface.depthPass?.shadows !== false && !transparent) {
@@ -1404,6 +1408,37 @@ export function ensureSingle(world: World, t: CompiledMaterial): void {
         .$name(`standard-${name}-1x`);
     t.single = { color: transparent ? null : pipeline, transparent: transparent ? pipeline : null };
     if (t.prepass) t.prepassSingle = compilePrepass(world, t.owner, alphaPipelineKey, 1);
+}
+
+/**
+ * Creates the AlphaToCoverage variant a 4× MSAA camera stacked over another draws, once: the same
+ * vertex and material fragment writing {@link coverageMask} instead of hardware alphaToCoverage.
+ * A lone or bottom camera never creates it.
+ */
+export function ensureStacked(world: World, t: CompiledMaterial): TgpuRenderPipeline<any> {
+    if (t.stacked) return t.stacked;
+    const { vertex, primitive, name } = t.args;
+    const surface = t.owner;
+    const hasVaryings = !!surface.varyings && Object.keys(surface.varyings).length > 0;
+    const fragment = (
+        hasVaryings ? varyingFs(surface, false, false, true) : colorFs(surface, false, false, true)
+    ) as ReturnType<typeof colorFs>;
+    t.stacked = world.gpu.root
+        .with(indirectLightSlot, indirectLightSources(world))
+        .createRenderPipeline({
+            vertex,
+            fragment,
+            targets: { color: { format: world.resource(RenderContext).format } },
+            primitive,
+            depthStencil: {
+                format: DEPTH_FORMAT,
+                depthWriteEnabled: true,
+                depthCompare: "greater",
+            },
+            multisample: { count: SAMPLE_COUNT },
+        })
+        .$name(`standard-${name}-stacked`);
+    return t.stacked;
 }
 
 /** Opaque uses the compact depth stream; Mask and AlphaToCoverage use alpha-tested material inputs. */

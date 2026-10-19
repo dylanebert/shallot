@@ -229,6 +229,9 @@ interface FogView {
     format: GPUTextureFormat;
     pipeline: GPURenderPipeline;
     interiorPipeline: GPURenderPipeline | null;
+    /** The coverage-weighted pair, created the first frame this camera draws stacked over another. */
+    stackedPipeline: GPURenderPipeline | null;
+    stackedInteriorPipeline: GPURenderPipeline | null;
     readGroups: GPUBindGroup[];
     depth: GPUTextureView;
     slot: number;
@@ -340,10 +343,11 @@ function applyPipeline(
     format: GPUTextureFormat,
     multisampled: boolean,
     interior = false,
+    stacked = false,
 ): GPURenderPipeline {
     const pipelines = fogState(world).fog.pipelines;
     const samples = multisampled ? SAMPLE_COUNT : 1;
-    const key = `${format}:${samples}:${interior}`;
+    const key = `${format}:${samples}:${interior}:${stacked}`;
     let pipeline = pipelines.get(key);
     if (!pipeline) {
         const device = world.gpu.device;
@@ -375,10 +379,10 @@ function applyPipeline(
                     {
                         format,
                         blend: {
-                            // In-scatter scales by the scene's coverage, so on a camera stacked over
-                            // others fog reaches only what that camera drew.
+                            // On a camera stacked over others, in-scatter scales by the scene's
+                            // coverage, so fog reaches only what that camera drew.
                             color: {
-                                srcFactor: "dst-alpha",
+                                srcFactor: stacked ? "dst-alpha" : "one",
                                 dstFactor: "src-alpha",
                                 operation: "add",
                             },
@@ -624,6 +628,8 @@ const FogSystem: System = {
                     format,
                     pipeline,
                     interiorPipeline,
+                    stackedPipeline: null,
+                    stackedInteriorPipeline: null,
                     readGroups,
                     depth: view.depth,
                     slot: view.slot,
@@ -726,16 +732,36 @@ export const FogPlugin: Plugin = {
         });
         world.own({ destroy: () => clearViews(state) });
         world.resource(RenderPhases).push({
-            afterOpaque(world, eid, _view, pass) {
+            afterOpaque(world, eid, view, pass) {
                 const cam = fogState(world).views.get(eid);
                 if (!cam) return;
-                pass.setPipeline(cam.pipeline);
+                const stacked = view.sortedIndexForTarget !== 0;
+                if (stacked && !cam.stackedPipeline) {
+                    cam.stackedPipeline = applyPipeline(
+                        world,
+                        cam.format,
+                        cam.multisampled,
+                        false,
+                        true,
+                    );
+                    if (cam.multisampled)
+                        cam.stackedInteriorPipeline = applyPipeline(
+                            world,
+                            cam.format,
+                            true,
+                            true,
+                            true,
+                        );
+                }
+                const pipeline = stacked ? cam.stackedPipeline! : cam.pipeline;
+                const interior = stacked ? cam.stackedInteriorPipeline : cam.interiorPipeline;
+                pass.setPipeline(pipeline);
                 pass.setBindGroup(0, cam.bindGroup);
                 pass.setBindGroup(3, cam.readGroups[1 - cam.parity]);
-                if (cam.interiorPipeline) {
-                    pass.setPipeline(cam.interiorPipeline);
+                if (interior) {
+                    pass.setPipeline(interior);
                     pass.draw(3);
-                    pass.setPipeline(cam.pipeline);
+                    pass.setPipeline(pipeline);
                 }
                 pass.draw(3);
             },
