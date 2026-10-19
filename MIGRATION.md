@@ -237,11 +237,11 @@ do not mutate added definitions. Assign the handle returned by `ShapeMaterials.a
 to `Shape.materialSet`; -1 means no material set.
 
 Handles belong to that world; add geometry in each world that uses it. Removal and `clear`
-invalidate handles: later additions cannot redirect a stale reference to new geometry.
-Handles include a dense index and generation and fit nonnegative i32; exhausted generations
-retire rather than wrap, and exhausting the 2^20 index space refuses addition. Snapshots
-restore live handles and allocation generations. Every world's `Hulls` starts with
-the unit cube at `UNIT_CUBE_ID` (0), 1 m on a side. `Shape.scale` multiplies an added hull or
+invalidate handles: a stale reference resolves to nothing until its index has been reused
+2^11 times, after which later geometry may alias it. Handles include a dense index and an
+11-bit generation that wraps and fit nonnegative i32; with 2^20 handles live, addition is
+refused. Snapshots restore live handles and allocation generations. Every world's `Hulls`
+starts with the unit cube at `UNIT_CUBE_ID` (0), 1 m on a side. `Shape.scale` multiplies an added hull or
 mesh and defaults to `[1, 1, 1]`. URL-keyed images and fonts retain their registry API.
 
 ## Hulls hold points

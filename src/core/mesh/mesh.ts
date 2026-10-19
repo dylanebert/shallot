@@ -93,7 +93,8 @@ interface MeshRegistry extends Iterable<Mesh> {
      */
     add(mesh: Mesh): MeshHandle;
     /** Removes and returns the mesh, if present, without destroying its buffers. Typed-array
-     * families retain their slices until `clearMeshes`. Removed handles never resolve to later additions. */
+     * families retain their slices until `clearMeshes`. A removed handle resolves to nothing
+     * until its index has been reused 2^11 times, after which a later addition may alias it. */
     remove(handle: MeshHandle): Mesh | undefined;
     get(handle: MeshHandle): Mesh | undefined;
     has(handle: MeshHandle): boolean;

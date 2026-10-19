@@ -1,8 +1,9 @@
 import { HandleAllocator } from "../../engine/utils";
 
 /** World-local assets keyed by generation-checked handles, never by their display names.
- * Definitions are immutable after addition. Removal and clear invalidate handles; a later add
- * cannot make a stale handle resolve to a different definition. Handles fit nonnegative i32. */
+ * Definitions are immutable after addition. Removal and clear invalidate handles; a stale handle
+ * resolves to nothing until its index has been reused 2^11 times, after which a later add may
+ * alias it. Handles fit nonnegative i32. */
 export class PhysicsAssets<T> implements Iterable<T> {
     private readonly _handles = new HandleAllocator();
     private _items: (T | undefined)[] = [];

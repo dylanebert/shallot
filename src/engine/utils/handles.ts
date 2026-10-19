@@ -7,8 +7,9 @@ const MAX_HANDLE = 2 ** 31 - 1;
 export const HANDLE_INDEX_MASK = INDEX_COUNT - 1;
 
 /** Numeric handles with a 20-bit dense index and an 11-bit generation, fitting nonnegative i32.
- * Released indices recycle with a new generation; exhausted generations retire, never wrap.
- * At most 2^20 indices can be issued. Snapshots restore the captured allocation timeline. */
+ * A released index recycles with the next generation, which wraps after 2^11, so a stale handle
+ * is rejected until its index has been reused 2^11 times and may alias a live one after that.
+ * At most 2^20 indices are live at once. Snapshots restore the captured allocation timeline. */
 export class HandleAllocator {
     private _generations: number[] = [];
     private _live: boolean[] = [];
