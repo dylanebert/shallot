@@ -72,7 +72,13 @@ function failures(test: TestConsole, context: string): string[] {
             return item.pattern.test(call.message);
         });
         if (expected) expected.observed = true;
-        return expected === undefined;
+        // Lifecycle checks also run on software adapters; retain their classification notice.
+        const fallbackNotice =
+            call.level === "warn" &&
+            /^\[shallot\] WebGPU reports a fallback adapter, not a real device: [^\r\n]+$/.test(
+                call.message,
+            );
+        return expected === undefined && !fallbackNotice;
     });
     const missing = test.expected.filter((item) => item.required && !item.observed);
     return [
