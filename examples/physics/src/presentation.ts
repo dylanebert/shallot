@@ -1,6 +1,7 @@
 import {
     Body,
     BodyType,
+    cube,
     Shape,
     StandardMaterial,
     shapeMesh,
@@ -13,7 +14,7 @@ const materials = {
     ground: StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1], perceptualRoughness: 0.82 }),
     subject: StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.38 }),
     motorized: StandardMaterial({ baseColor: [0.04, 0.43, 0.53, 1], perceptualRoughness: 0.38 }),
-    sensor: StandardMaterial({ baseColor: [0.04, 0.43, 0.53, 0.2], perceptualRoughness: 0.38 }),
+    sensor: StandardMaterial({ baseColor: [0.04, 0.43, 0.53, 1], perceptualRoughness: 0.38 }),
 };
 
 export function shapePresentation(world: World, scene: Scene, eid: number) {
@@ -36,6 +37,13 @@ export function shapePresentation(world: World, scene: Scene, eid: number) {
 export function scenePresentation(world: World, scene: Scene) {
     return {
         shapes: Array.from(world.query([Shape]), (eid) => shapePresentation(world, scene, eid)),
+        ground:
+            scene === "sensor"
+                ? {
+                      mesh: { name: "Ground", ...cube([20, 0.2, 20]) },
+                      translation: [0, -0.1, 0] as [number, number, number],
+                  }
+                : undefined,
         materials,
         controls: visibleControls(scene, controlValues(scene)),
     };

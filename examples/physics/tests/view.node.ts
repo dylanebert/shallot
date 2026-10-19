@@ -36,6 +36,26 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 expect(role).toBe(expected);
                 expect(presentation.materials[role]).toBeDefined();
             }
+            expect(Array.from(presentation.materials.sensor.baseColor)).toEqual(
+                [0.04, 0.43, 0.53, 1].map(Math.fround),
+            );
+            if (id === "sensor") {
+                const ground = presentation.ground!;
+                const bounds = [0, 1, 2].map((axis) => {
+                    const values = Array.from(ground.mesh.vertices).filter(
+                        (_, index) => index % 8 === axis,
+                    );
+                    return [
+                        Math.min(...values) + ground.translation[axis]!,
+                        Math.max(...values) + ground.translation[axis]!,
+                    ];
+                });
+                expect(bounds[0]).toEqual([-10, 10]);
+                expect(bounds[2]).toEqual([-10, 10]);
+                expect(bounds[1]![0]).toBeCloseTo(-0.2);
+                expect(bounds[1]![1]).toBeCloseTo(0);
+                expect(ground.mesh.indices.length).toBeGreaterThan(0);
+            } else expect(presentation.ground).toBeUndefined();
             expect(presentation.controls).toEqual(visibleControls(id, controlValues(id)));
         } finally {
             app.dispose();

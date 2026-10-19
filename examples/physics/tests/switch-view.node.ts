@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { Meshes, MeshInstance, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { Body, Meshes, MeshInstance, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { LinesPlugin, OrbitPlugin, TextPlugin } from "@dylanebert/shallot/extras";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
@@ -29,6 +29,16 @@ test("scene presentation releases old meshes, systems and grab feedback in the r
         for (const scene of Object.keys(scenes) as Scene[]) {
             select(scene);
             const meshes = world.resource(Meshes);
+            if (scene === "sensor") {
+                const groundMesh = [...meshes.entries()].find(([, mesh]) => mesh.name === "Ground");
+                expect(groundMesh).toBeDefined();
+                const ground = [...world.query([MeshInstance])].filter(
+                    (eid) => world.storage(MeshInstance).mesh.get(eid) === groundMesh![0],
+                );
+                expect(ground).toHaveLength(1);
+                expect(world.has(ground[0]!, Body)).toBe(false);
+                expect(world.has(ground[0]!, Shape)).toBe(false);
+            }
             const freshCount = meshes.size;
             const freshEntities = [...world.query([MeshInstance])].length;
             select("contact");

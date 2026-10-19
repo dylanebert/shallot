@@ -1,5 +1,4 @@
 import {
-    AlphaMode,
     Camera,
     DirectionalLight,
     type EntityRef,
@@ -70,7 +69,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         ground: materials.add(presentation.materials.ground),
         subject: materials.add(presentation.materials.subject),
         motorized: materials.add(presentation.materials.motorized),
-        sensor: materials.add(presentation.materials.sensor, { alphaMode: AlphaMode.Blend }),
+        sensor: materials.add(presentation.materials.sensor),
     };
     const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.5, 16, 12) });
     const markerMaterial = materials.add(
@@ -132,6 +131,14 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         },
     });
     const meshes = world.resource(Meshes);
+    let groundMesh: MeshHandle | undefined;
+    if (presentation.ground) {
+        const ground = world.create();
+        groundMesh = meshes.add(presentation.ground.mesh);
+        world.add(ground, Transform, { translation: presentation.ground.translation });
+        world.add(ground, MeshInstance, { mesh: groundMesh });
+        world.add(ground, MeshMaterial, roles.ground);
+    }
     const views = new Map<EntityRef, MeshHandle>();
     const labels: number[] = [];
     function updateShapes(world: World): void {
@@ -226,6 +233,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         for (const system of systems) world.removeSystem(system);
         for (const mesh of views.values()) meshes.remove(mesh);
         meshes.remove(markerMesh);
+        if (groundMesh !== undefined) meshes.remove(groundMesh);
         for (const material of Object.values(roles)) materials.remove(material);
         materials.remove(markerMaterial);
         Object.assign(feedback, GrabFeedback.create());
