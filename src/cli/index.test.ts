@@ -58,6 +58,7 @@ test("bare shallot presents the project map, loop, commands, targets and help co
 
   Commands
     create <name>             create a project from minimal or an example
+    migrate                   print the 0.9.5 to 0.10 migration guide
 
   Targets
     --target <platform>       windows, mac, linux
@@ -81,6 +82,25 @@ test("shallot --skill prints the project skill and bare usage names it", async (
     const usage = await cli();
     expect(usage.code).toBe(0);
     expect(usage.stdout).toContain("--skill");
+});
+
+test("shallot migrate prints the bundled migration guide and refuses arguments", async () => {
+    const result = await cli("migrate");
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(
+        readFileSync(new URL("../../MIGRATION.md", import.meta.url), "utf8").trimEnd(),
+    );
+
+    const help = await cli("migrate", "--help");
+    expect(help.code).toBe(0);
+    expect(help.stdout).toContain("It changes no files.");
+
+    expectError(/^migrate takes no arguments$/);
+    expectError(/^See `shallot --help`/);
+    const refused = await cli("migrate", "src");
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toBe("");
 });
 
 test("leading flags show usage instead of becoming a project command", async () => {

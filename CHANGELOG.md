@@ -26,4 +26,4 @@ Fonts are identified by URL, without registration aliases. Text font 0 always se
 
 `OrbitPick` is removed. Orbit runs on every drag; games decide click selection using pointer events and their own travel threshold.
 
-To port a 0.9.5 app, see [`MIGRATION.md`](MIGRATION.md). Changes before 0.10 are at the [`archive/changelog-pre-0.10`](https://github.com/dylanebert/shallot/tree/archive/changelog-pre-0.10) tag and in the git history.
+To port a 0.9.5 app, run `shallot migrate` or see [`MIGRATION.md`](MIGRATION.md). Changes before 0.10 are at the [`archive/changelog-pre-0.10`](https://github.com/dylanebert/shallot/tree/archive/changelog-pre-0.10) tag and in the git history.

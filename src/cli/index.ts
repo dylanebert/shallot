@@ -18,6 +18,7 @@ const usage = `
 
   Commands
     create <name>             create a project from minimal or an example
+    migrate                   print the 0.9.5 to 0.10 migration guide
 
   Targets
     --target <platform>       windows, mac, linux
@@ -93,11 +94,20 @@ const commandUsage = {
 
   Native targets use the requirements documented by 'shallot build --help'.
 `,
+    migrate: `
+  shallot migrate
+
+  Print the guide to migrating a 0.9.5 app to 0.10. It changes no files.
+
+  Shallot options
+    -h, --help   Show this help
+`,
 } as const;
 
 export type CliArgs =
     | { kind: "create"; rest: string[] }
     | { kind: "skill" }
+    | { kind: "migrate" }
     | { kind: "command-help"; command: keyof typeof commandUsage }
     | { kind: "unknown"; verb: string }
     | { kind: "usage"; exitCode: 0 | 1 }
@@ -123,6 +133,12 @@ export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (raw.length === 1 && verb === "--skill") return { kind: "skill" };
     if (verb === "create") return { kind: "create", rest: raw.slice(1) };
+    if (verb === "migrate") {
+        if (raw.length === 1) return { kind: "migrate" };
+        if (raw.length === 2 && (raw[1] === "--help" || raw[1] === "-h"))
+            return { kind: "command-help", command: "migrate" };
+        throw new Error("migrate takes no arguments");
+    }
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.some((command) => command === verb))
         return { kind: "unknown", verb };
 
@@ -192,6 +208,10 @@ export async function main(
     }
     if (parsed.kind === "skill") {
         console.log(readFileSync(new URL("./skill.md", import.meta.url), "utf8").trimEnd());
+        exit(0);
+    }
+    if (parsed.kind === "migrate") {
+        console.log(readFileSync(new URL("../../MIGRATION.md", import.meta.url), "utf8").trimEnd());
         exit(0);
     }
     if (parsed.kind === "create") {

@@ -73,6 +73,7 @@ test("the npm package contains only declared files and required consumers", asyn
             (f) =>
                 f.endsWith(".md") &&
                 f !== "README.md" &&
+                f !== "MIGRATION.md" &&
                 f !== "src/cli/skill.md" &&
                 !f.startsWith("examples/"),
         ],
@@ -114,6 +115,7 @@ test("the npm package contains only declared files and required consumers", asyn
         "bin/shallot.ts",
         "src/cli/index.ts",
         "src/cli/skill.md",
+        "MIGRATION.md",
         "src/project/assets.js",
         "src/project/testing.js",
         "src/project/vite.js",

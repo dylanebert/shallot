@@ -62,6 +62,7 @@
         "src",
         "bin",
         "tsconfig.base.json",
+        "MIGRATION.md",
         "crates/audio/pkg",
         "crates/native",
         "assets/icon-1024.png",
