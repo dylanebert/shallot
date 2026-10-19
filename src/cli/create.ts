@@ -285,7 +285,7 @@ function projectReadme(name: string): string {
 a shallot game.
 
 \`\`\`bash
-# run it
+# run the game
 bun install
 bun run dev
 

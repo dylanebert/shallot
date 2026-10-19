@@ -15,7 +15,10 @@ bun create shallot my-game
 cd my-game
 bun install
 
-# run it
+# list commands
+bunx shallot --help
+
+# run the game
 bun run dev
 ```
 
@@ -31,13 +34,6 @@ bun create shallot --help
 
 # copy one
 bun create shallot first-person --template first-person
-```
-
-## cli
-
-```bash
-bunx shallot --help    # commands
-bunx shallot --skill   # agent skill
 ```
 
 ## more
