@@ -74,7 +74,7 @@ export class World {
     private readonly _commandBuffers: GPUCommandBuffer[] = [];
     private _frameFence: Promise<void> | undefined;
     private _inDrawGroup = false;
-    private _retiredBuffers: GPUBuffer[] = [];
+    private _retiredResources: (GPUBuffer | GPUTexture)[] = [];
     private _frameCopies: FrameCopy[] = [];
     private _frameCopyCount = 0;
     private _uploadChunks: UploadChunk[] = [];
@@ -257,7 +257,7 @@ export class World {
         const encoder = this._frameEncoder;
         this._frameEncoder = undefined;
         if (encoder && !this._disposed) this.submitDrawEncoder(encoder);
-        else this.releaseRetiredBuffers();
+        else this.releaseRetiredResources();
         this.resetFrameCopies();
         if (!this._disposed) this.runFrameSubmitCallbacks();
         else this.resetFrameSubmitCallbacks();
@@ -304,7 +304,7 @@ export class World {
             }
             this.submitDrawEncoder(encoder);
         } else {
-            this.releaseRetiredBuffers();
+            this.releaseRetiredResources();
         }
         this.resetFrameCopies();
     }
@@ -322,12 +322,12 @@ export class World {
             chunk.fence = this.gpu.fences.issued + 1;
         }
         this._frameFence = this.gpu.sync();
-        this.releaseRetiredBuffers();
+        this.releaseRetiredResources();
     }
 
-    private releaseRetiredBuffers(): void {
-        for (const buffer of this._retiredBuffers) buffer.destroy();
-        this._retiredBuffers.length = 0;
+    private releaseRetiredResources(): void {
+        for (const resource of this._retiredResources) resource.destroy();
+        this._retiredResources.length = 0;
     }
 
     private recordFrameCopy(
@@ -369,7 +369,7 @@ export class World {
         if (this._inDrawGroup) {
             this.frameEncoder()!.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
             this.recordFrameCopy(previous, 0, buffer, 0, previous.size);
-            this._retiredBuffers.push(previous);
+            this._retiredResources.push(previous);
         } else {
             const encoder = this.gpu.device.createCommandEncoder();
             encoder.copyBufferToBuffer(previous, 0, buffer, 0, previous.size);
@@ -378,10 +378,11 @@ export class World {
         }
     }
 
-    /** @internal CPU metadata replaces old buffers without a GPU copy. */
-    retireGpuBuffer(buffer: GPUBuffer): void {
-        if (this._frameEncoder) this._retiredBuffers.push(buffer);
-        else buffer.destroy();
+    /** @internal Destroy a buffer or texture the open frame encoder may reference once that frame submits;
+     * with no encoder open, destroy it now. */
+    retireGpuResource(resource: GPUBuffer | GPUTexture): void {
+        if (this._frameEncoder) this._retiredResources.push(resource);
+        else resource.destroy();
     }
 
     /** @internal Outside draw, writes use queue order. Draw uploads share the encoder and recycle after its fence. */
@@ -994,8 +995,8 @@ export class World {
         this._frameSubmitCallbackCount = 0;
         this._commandBuffers.length = 0;
         this._inDrawGroup = false;
-        for (const buffer of this._retiredBuffers) buffer.destroy();
-        this._retiredBuffers.length = 0;
+        for (const resource of this._retiredResources) resource.destroy();
+        this._retiredResources.length = 0;
         this.resetFrameCopies();
         this._uploadChunks.length = 0;
         this._frameUploadBytes = 0;

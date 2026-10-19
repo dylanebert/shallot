@@ -119,7 +119,7 @@ export function rebuildMeshCounts(
                 table.destroy();
                 throw error;
             }
-            if (entry.table) world.retireGpuBuffer(entry.table);
+            if (entry.table) world.retireGpuResource(entry.table);
             entry.table = table;
             entry.group = group;
             entry.staging = staging;
@@ -225,7 +225,7 @@ export function publishTransparentCounts(
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
         world.own(table);
-        if (state.table) world.retireGpuBuffer(state.table);
+        if (state.table) world.retireGpuResource(state.table);
         state.table = table;
         state.staging = new Uint32Array(capacity);
         state.group = null;

@@ -358,7 +358,7 @@ function captureCurrent(world: World, phase: number): void {
     const size = current.pendingUploadSize;
     let buffer = runtime.stages[phase];
     if (size && (!buffer || buffer.size < size)) {
-        if (buffer) world.retireGpuBuffer(buffer);
+        if (buffer) world.retireGpuResource(buffer);
         buffer = world.gpu.device.createBuffer({
             label: `global-transform-tick-${phase}`,
             size,

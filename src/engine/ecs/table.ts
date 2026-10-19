@@ -799,7 +799,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
         this._world.own(buffer);
-        if (previous) this._world.retireGpuBuffer(previous);
+        if (previous) this._world.retireGpuResource(previous);
         // Metadata has a complete CPU source; copying the old GPU range would overwrite new marks.
         this._world.gpu.device.queue.writeBuffer(
             buffer,
@@ -882,7 +882,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
         this._world.own(buffer);
-        if (previous) this._world.retireGpuBuffer(previous);
+        if (previous) this._world.retireGpuResource(previous);
         if (this._activeCount)
             this._world.gpu.device.queue.writeBuffer(
                 buffer,

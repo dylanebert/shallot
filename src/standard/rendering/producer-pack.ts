@@ -130,7 +130,7 @@ export function syncProducerPack(
                 { binding: 6, resource: { buffer: cullVolumes } },
             ],
         });
-        if (entry) world.retireGpuBuffer(entry.params);
+        if (entry) world.retireGpuResource(entry.params);
         entry = { args, params: producer, argsGroup, cullGroup };
         state.producers[i] = entry;
     }
