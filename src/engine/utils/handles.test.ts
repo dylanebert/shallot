@@ -37,20 +37,20 @@ test("clear invalidates handles, and reusable snapshots preserve generations and
     }
 });
 
-test("generation exhaustion retires an index rather than aliasing any earlier handle", () => {
+test("generation wraps after 2^11 reuses and keeps reusing the index; a stale handle stays rejected until its generation comes round", () => {
     const allocator = new HandleAllocator();
     const first = allocator.allocate();
     let handle = first;
-    for (let generation = 0; generation < 2 ** 11; generation++) {
-        expect(allocator.index(handle)).toBe(0);
+    for (let reuse = 1; reuse <= 2 ** 11 + 1; reuse++) {
         allocator.release(handle);
         handle = allocator.allocate();
+        expect(allocator.index(handle)).toBe(0);
+        expect(allocator.index(first)).toBe(reuse === 2 ** 11 ? 0 : undefined);
     }
-    expect(allocator.index(first)).toBeUndefined();
-    expect(allocator.index(handle)).toBe(1);
+    expect(allocator.snapshot().generations).toEqual([1]);
 });
 
-test("index exhaustion refuses allocation and the largest packed handle fits signed i32", () => {
+test("index exhaustion refuses allocation, the largest packed handle fits signed i32 and its release wraps to generation 0", () => {
     const allocator = new HandleAllocator();
     let last = 0;
     for (let index = 0; index < 2 ** 20; index++) last = allocator.allocate();
@@ -63,5 +63,6 @@ test("index exhaustion refuses allocation and the largest packed handle fits sig
     expect(new Int32Array([largest])[0]).toBe(largest);
     allocator.release(largest);
     expect(allocator.index(largest)).toBeUndefined();
+    expect(allocator.allocate()).toBe(last);
     expect(() => allocator.allocate()).toThrow("handle index space exhausted");
 });

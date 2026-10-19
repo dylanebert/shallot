@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { runInNewContext } from "node:vm";
 import { World } from "../../engine";
-import { type Mesh, Meshes } from "./index";
+import { type Mesh, Meshes, meshResourcesKey } from "./index";
 import { cube } from "./primitives";
 
 test("mesh removal clears every reader and index reuse appends the new mesh in insertion order", () => {
@@ -40,6 +40,28 @@ test("mesh removal clears every reader and index reuse appends the new mesh in i
         const afterClear = meshes.add(first);
         expect([handle, other, next]).not.toContain(afterClear);
         for (const stale of [handle, other, next]) expect(meshes.get(stale)).toBeUndefined();
+    } finally {
+        world.dispose();
+    }
+});
+
+test("steady add and remove turnover keeps reusing one dense row past a generation wrap", () => {
+    const world = new World();
+    const meshes = world.resource(Meshes);
+    const mesh = {
+        name: "turnover",
+        vertices: {},
+        indices: {},
+        indexBase: 0,
+        indexCount: 3,
+    } as Mesh;
+    try {
+        let handle = meshes.add(mesh);
+        for (let i = 0; i < 2049; i++) {
+            meshes.remove(handle);
+            handle = meshes.add(mesh);
+        }
+        expect(world.resource(meshResourcesKey).meshes.capacity).toBe(1);
     } finally {
         world.dispose();
     }
