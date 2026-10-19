@@ -172,3 +172,41 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
         false,
     );
 });
+
+test("a destroyed camera's depth and main-pass targets are destroyed by the next frame", () => {
+    const { world } = subjects()[0];
+    const device = world.gpu.device;
+    const createTexture = device.createTexture.bind(device);
+    const live = new Set<string>();
+    device.createTexture = (descriptor) => {
+        const texture = createTexture(descriptor);
+        const label = descriptor.label ?? "";
+        live.add(label);
+        const destroy = texture.destroy.bind(texture);
+        texture.destroy = () => {
+            live.delete(label);
+            destroy();
+        };
+        return texture;
+    };
+    try {
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+        world.add(camera, Camera, { antialias: 1 });
+        world.add(camera, StandardRenderer);
+        world.add(camera, DepthPrepass);
+        attachTexture(world, camera, { width: 32, height: 32 });
+        world.step(0);
+        const targets = [
+            `standard-depth-${camera}`,
+            `standard-color-msaa-${camera}`,
+            `standard-color-depth-${camera}`,
+        ];
+        expect(targets.filter((label) => live.has(label))).toEqual(targets);
+        world.destroy(camera);
+        world.step(0);
+        expect(targets.filter((label) => live.has(label))).toEqual([]);
+    } finally {
+        device.createTexture = createTexture;
+    }
+});
