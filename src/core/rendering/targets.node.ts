@@ -4,7 +4,7 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
-import { lookAtRotation } from "../../engine";
+import { lookAtRotation, type Plugin } from "../../engine";
 import { Fog, FogPlugin, NoFog } from "../../extras/fog";
 import { Outline, OutlinePlugin } from "../../extras/outline";
 import { DEFAULT_PLUGINS } from "../../standard";
@@ -27,7 +27,10 @@ import {
     captureTexture,
     DepthPrepass,
     DirectionalLight,
+    detachView,
+    MainPassSystem,
     PointLight,
+    PrepassSystem,
     SpotLight,
     Tonemapping,
     TonemappingMethod,
@@ -35,10 +38,28 @@ import {
 } from "./index";
 
 setDefaultTimeout(TIMEOUT.node);
+// The camera a draw system detaches between the prepass and the main pass, once.
+let detachInDraw = -1;
+const DetachInDrawPlugin: Plugin = {
+    name: "DetachInDraw",
+    systems: [
+        {
+            name: "detach-in-draw",
+            group: "draw",
+            after: [PrepassSystem],
+            before: [MainPassSystem],
+            update(world) {
+                if (detachInDraw < 0) return;
+                detachView(world, detachInDraw);
+                detachInDraw = -1;
+            },
+        },
+    ],
+};
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,
-        plugins: [...DEFAULT_PLUGINS, FogPlugin, OutlinePlugin],
+        plugins: [...DEFAULT_PLUGINS, FogPlugin, OutlinePlugin, DetachInDrawPlugin],
     },
 ]);
 
@@ -207,6 +228,49 @@ test("a destroyed camera's depth and main-pass targets are destroyed by the next
         world.step(0);
         expect(targets.filter((label) => live.has(label))).toEqual([]);
     } finally {
+        device.createTexture = createTexture;
+    }
+});
+
+test("a view detached between its prepass and main pass submits cleanly and frees its targets with that frame", async () => {
+    const { world } = subjects()[0];
+    const device = world.gpu.device;
+    const createTexture = device.createTexture.bind(device);
+    const live = new Set<string>();
+    device.createTexture = (descriptor) => {
+        const texture = createTexture(descriptor);
+        const label = descriptor.label ?? "";
+        live.add(label);
+        const destroy = texture.destroy.bind(texture);
+        texture.destroy = () => {
+            live.delete(label);
+            destroy();
+        };
+        return texture;
+    };
+    try {
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 5, 0] });
+        world.add(camera, Camera, { antialias: 1 });
+        world.add(camera, StandardRenderer);
+        world.add(camera, DepthPrepass);
+        attachTexture(world, camera, { width: 32, height: 32 });
+        world.step(0);
+        const targets = [
+            `standard-depth-${camera}`,
+            `standard-color-msaa-${camera}`,
+            `standard-color-depth-${camera}`,
+            `shallot-offscreen-${camera}`,
+        ];
+        expect(targets.filter((label) => live.has(label))).toEqual(targets);
+        detachInDraw = camera;
+        device.pushErrorScope("validation");
+        world.step(0);
+        expect(await device.popErrorScope()).toBeNull();
+        expect(targets.filter((label) => live.has(label))).toEqual([]);
+        world.destroy(camera);
+    } finally {
+        detachInDraw = -1;
         device.createTexture = createTexture;
     }
 });
