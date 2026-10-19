@@ -343,6 +343,9 @@ function createGridKernel(multisampled: boolean) {
                     // HDRP raises a light's radius to the froxel's size at the segment's entry, so a ray through
                     // the lamp cannot sample its singular core; it compares a squared radius with a length, so
                     // this takes the intent, the froxel's width, and keeps the glow's brightness (stage 10).
+                    // As in HDRP, the light's shadow and cone are read at its own sample while density, ambient
+                    // and the sun keep the uniform one; the light list is the uniform sample's cluster, and the
+                    // falloff is HDRP's 1 / (d² + r²) rather than standard's 1 / max(d², r²).
                     const froxelWidth = froxelArc * segmentStart;
                     const sample = equiangularInScatter(
                         light,

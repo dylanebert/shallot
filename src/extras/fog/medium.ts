@@ -171,10 +171,7 @@ export const equiangularInScatter = tgpu.fn(
     let t = d.f32(t0);
     // falloff / pdf = gamma / D, since d² + r² equals the pdf's D² + τ²; a short segment takes the falloff itself.
     let falloff = d.f32(0);
-    if (length <= 1e-4) {
-        const toLight = std.sub(light.posRange.xyz, origin);
-        falloff = 1 / (std.dot(toLight, toLight) + sqRadius);
-    } else if (lit.y > lit.x) {
+    if (length > 1e-4 && lit.y > lit.x) {
         const toLight = std.sub(light.posRange.xyz, origin);
         const along = std.dot(toLight, dir);
         const sqD = std.max(std.dot(toLight, toLight) - along * along + sqRadius, 1e-8);
@@ -188,6 +185,7 @@ export const equiangularInScatter = tgpu.fn(
     const toSample = std.sub(light.posRange.xyz, position);
     const distSq = std.dot(toSample, toSample);
     const L = std.mul(toSample, std.inverseSqrt(std.max(distSq, 1e-8)));
+    if (length <= 1e-4) falloff = 1 / (distSq + sqRadius);
     const factor = distSq * light.posRange.w;
     const window = std.saturate(1 - factor * factor);
     return LightSample({

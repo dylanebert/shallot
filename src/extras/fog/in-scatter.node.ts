@@ -9,6 +9,7 @@ import {
     Camera,
     DirectionalLight,
     Exposure,
+    PointLight,
     VolumetricLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -222,4 +223,47 @@ test("local light is dark behind a shadow despite bright haze on its ray, expose
     world.remove(camera, NoFog);
     world.remove(fog, Fog);
     expect((await sample())[0]).toBe(0);
+});
+
+// Stage 8 fills cells behind an opaque surface with the light just in front of it, for trilinear and filtered
+// reads; a surface-clamped cell's zero-length segment must take the light at that point, not at the camera.
+test("cells behind a wall beside a point light keep the light just in front of the wall", async () => {
+    const { world } = subjects()[0]!;
+    const camera = world.create();
+    world.add(camera, Transform);
+    world.add(camera, Camera, { antialias: 0, near: 0.1 });
+    world.add(camera, StandardRenderer);
+    world.add(camera, AmbientLight, { brightness: 0 });
+    world.add(camera, Exposure, { ev100: 0 });
+    attachTexture(world, camera, { width: 48, height: 48 });
+    const fog = world.create();
+    world.add(fog, Fog, { color: 0, density: 0.1, heightFalloff: 0, viewDistance: 20 });
+    const wall = world.create();
+    world.add(wall, Transform, { translation: [0, 0, -5.1], scale: [10, 10, 0.2] });
+    world.add(wall, MeshInstance);
+    const lamp = world.create();
+    world.add(lamp, Transform, { translation: [0, 0, -4.5] });
+    world.add(lamp, PointLight, { intensity: 10000, range: 3 });
+    world.add(lamp, VolumetricLight);
+    world.tick();
+    const sample = reader(
+        world,
+        camera,
+        `
+        @fragment fn sample(@builtin(position) p: vec4f) -> @location(0) vec4f {
+            if (p.x < 1) { return vec4f(readFogInScatter(vec3f(0,0,-4.9)), 1); }
+            return vec4f(readFogInScatter(vec3f(0,0,-6)), 1);
+        }
+        `,
+        2,
+    );
+    const values = await sample();
+    world.destroy(camera);
+    world.destroy(fog);
+    world.destroy(wall);
+    world.destroy(lamp);
+    expect(values[0]!).toBeGreaterThan(1);
+    // Behind over front: 0.33 with uniform depth samples (cde5cba3), 0.52 with equiangular ones, and 0.14 when a
+    // clamped cell took the light at the camera instead.
+    expect(values[4]! / values[0]!).toBeGreaterThan(0.25);
 });
