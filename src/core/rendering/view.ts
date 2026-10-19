@@ -7,6 +7,7 @@ import { rawDevice } from "../../engine/runtime";
 import { Camera, Resolution } from "./camera";
 import { CULL_VOLUME_FLOATS } from "./frustum";
 import { RenderContext } from "./render";
+import { releaseViewTargets } from "./targets";
 
 /**
  * Per-shading-slot uniform schema shared by GPU bindings and CPU staging offsets.
@@ -486,6 +487,7 @@ export function detachView(world: World, eid: number): void {
     _views.delete(eid);
     releaseOffscreen(world, eid);
     releaseScratch(world, eid);
+    releaseViewTargets(world, eid);
 }
 
 /** The eid's View while the entity it was attached to is live. A View left by a destroyed

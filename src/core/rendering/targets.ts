@@ -84,7 +84,18 @@ export function initializeViewTargets(world: World): void {
     world.resource(viewTargetsKey);
 }
 
-/** Release cached view targets at plugin disposal, not camera detachment. */
+/** Release one camera's prepass depth and main-pass targets; detachView calls it. Safe on unbound eids. */
+export function releaseViewTargets(world: World, eid: number): void {
+    const state = world.resource(viewTargetsKey);
+    const color = state.colorTargets.get(eid);
+    state.depth.get(eid)?.texture.destroy();
+    color?.color?.destroy();
+    color?.depth.destroy();
+    state.depth.delete(eid);
+    state.colorTargets.delete(eid);
+}
+
+/** Release every camera's cached view targets at plugin disposal. */
 export function disposeViewTargets(world: World): void {
     const state = world.resource(viewTargetsKey);
     for (const c of state.depth.values()) c.texture.destroy();
