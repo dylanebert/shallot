@@ -1,711 +1,154 @@
 # Migrating from 0.9.5 to 0.10
 
-These changes require updates to a 0.9.5 app.
+Start with the compiler errors in your app. Search this guide for the old symbol or command; each entry goes directly from the published 0.9.5 package to 0.10. For the engine's layers and extension rules, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## GPU resource ownership
+Code fragments assume an owning `world`, an existing entity `eid`, and the imports named in the surrounding text. `state` denotes the old `State`. Values such as URLs and geometry are app data, not engine exports.
 
-`WorldGpu.buffers`, `textures`, `samplers` and `typed` are removed. A custom material supplies its owned resources through `materialType`'s `bindings: (world) => Record<string, BindResource>` callback, keyed by its layout's binding names. Consumers of shared GPU state read it from its owning World resource instead of looking it up by name on `world.gpu`.
+## `shallot recipe`, `shallot run` and `shallot verify`
 
-## Sprite and text pivots
+`recipe` becomes `create`. Web development, builds and preview now use the project's Vite scripts. Preview does not build. Replace `verify` with your project's tests.
 
-`Sprite.anchor` and `Text.anchor` are replaced by `Anchor` from the root or `/rendering`. Add it to the same entity with `{ offset: [p[0] - 0.5, p[1] - 0.5] }` for an old 0..1 pivot `p`. `Anchor` provides `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT`, `CENTER_LEFT`, `CENTER`, `CENTER_RIGHT`, `TOP_LEFT`, `TOP_CENTER` and `TOP_RIGHT` offsets. For example, use `{ offset: Anchor.BOTTOM_CENTER }` for the old `[0.5, 0]`. Without `Anchor`, sprites remain centred and text remains bottom-left anchored; adding `Anchor` without values centres either.
-
-## Hiding sprites, labels and lines
-
-`Sprite.visible`, `Text.visible` and `Line.visible` are removed. Remove the drawing component to hide it; add it again with its authored values to show it. Its fields are valid only while the entity holds it, so read them with `world.get(eid, Sprite)` before removing and pass that record back: `world.add(eid, Sprite, values)`.
-
-## Retained gizmos and arrowheads
-
-`Line` and `Arrow` are replaced by `GizmoAsset` and `Gizmo`. Build local-space geometry with `drawLine(asset, a, b, color)`, `drawArrow(asset, a, b, color, undefined, tipLength, normal)` or `drawWireBox(asset, min, max, color)`. Register it with `registerGizmo(world, asset)`, then add `Gizmo` with that `handle` beside the entity's `Transform`. One asset can be shared by multiple entities; changing a transform does not rebuild it.
-
-Replace `Line.thickness` with `Gizmo.width` (default `2` pixels), the pixel width of every segment in the asset. Asset builders do not accept a width; set it on each `Gizmo` instead. For an asset arrow with explicit `tipLength` or `normal`, pass `undefined` in the width slot. `Gizmo.opacity` defaults to `1`. Replace `Line.offset` with a line from `[0, 0, 0]` to that offset; its old default is `[1, 0, 0]`, with colour `0xffffff`. Remove `Gizmo` to hide the drawing.
-
-Arrows now have one filled triangle rather than four fins. The final `drawArrow` argument chooses the plane normal, defaulting to `[0, 1, 0]`. It must be nonzero and perpendicular to the shaft in the coordinate space being authored; otherwise drawing throws. For a vertical shaft, pass a horizontal normal such as `[0, 0, 1]`.
-
-Replace `Arrow.size` and the relative size argument of `drawArrow` with a world-unit `tipLength`, the sixth argument. Omitting it chooses a tenth of the shaft length; negative values select that default and zero omits the head. For retained arrows, lengths and normals are authored in the asset's local space and follow its transform. To replace `Arrow.start`, draw an arrow with reversed endpoints; use `drawLine` instead when neither endpoint has a head. Immediate calls still take the World and default to width `1`. Their fifth argument is now an options record: replace a numeric width with `{ width }`, for example `drawLine(world, a, b, color, { width: 2 })`. Immediate options, retained `Gizmo` and `Text` accept `depthBias`, defaulting to `0` (normal depth testing); `-1` draws on top, negative intermediate values bias toward the camera, and `1` moves to the far plane.
-
-## Outline colour
-
-`Outline.color` is now a `0xRRGGBB` sRGB number instead of a linear RGBA array, whose alpha was unused. Convert linear RGB to sRGB bytes: the old default `[1, 0.85, 0.2, 1]` is `0xffed7c`.
-
-## Font and image identity
-
-Remove the name argument from font and image registration: repeated URLs return the same id, different URLs return different ids, and each Blob registration returns a new id distinct from every URL. `Text.font` 0 always selects the bundled default face, even when other fonts are registered.
-
-## Debanding
-
-Camera presentation now dithers by default to reduce 8-bit output banding. For undithered output, add `DebandDither` to the camera with `{ enabled: 0 }`. `TonemappingMethod.None` bypasses grading, exposure and dither, applying only display encoding. Use `TonemappingMethod.Linear` for an identity curve that keeps grading, exposure and dither.
-
-## Loading presets
-
-`shallotLight`, `minimalDark` and `minimalLight` are removed. For a custom loading screen, implement `Loading`, as [`examples/loading-screen`](examples/loading-screen) does. `shallotDark` remains the default preset.
-
-## GPU requirements belong to plugins
-
-Replace `Plugin.features` and `Plugin.preferredFeatures` with `Plugin.gpu`:
-
-```ts
-const RenderPlugin = {
-    name: "Render",
-    gpu: {
-        features: ["indirect-first-instance"],
-        preferredFeatures: ["timestamp-query"],
-        limits: { maxStorageBuffersPerShaderStage: 10 },
-    },
-};
+```sh
+# 0.9.5
+bunx shallot recipe first-person
+bunx shallot run
+bunx shallot verify
 ```
 
-Every plugin that touches `world.gpu` or the device declares `gpu`, even if it has no named capability beyond the device itself. Declaring `gpu` (even `{}`) opts the composition into a device. Put each feature and limit on the plugin whose GPU work needs it. A supplied `config.device` is still adopted when no plugin declares a GPU need, and it must satisfy any enabled declarations. Compositions with no `gpu` declarations and no supplied device now build and step without WebGPU; a headless app in that shape needs neither the optional `webgpu` peer nor `setupGlobals`.
+```sh
+# 0.10
+bun create shallot my-game --template first-person
+cd my-game
+bun run dev
+bun run build
+bun run preview
+bun test
+```
 
-`requestGPU` remains public, but its feature-array arguments are replaced by named requirements. Calls that only pass a device still work:
+Inside an installed project, `bunx shallot create my-game --template first-person` also works. Native commands require `--target mac`, `--target windows` or `--target linux`: use `shallot build --target <platform>` followed by `shallot preview --target <platform>`.
+
+## `virtual:project`, `shallot.json` and Vite configuration
+
+Import app plugins in the entry page, not through `shallot.json` or `virtual:project`. Remove `shallot.schema.json`, manifest-only default exports and the manifest's `scene` option. The native `identifier` override is removed; bundles use `com.shallot.<name>`.
 
 ```ts
 // 0.9.5
-requestGPU(device, ["timestamp-query"], ["subgroups"]);
+import project from "virtual:project";
+import { run } from "@dylanebert/shallot";
+await run(project);
+```
 
+```ts
 // 0.10
-requestGPU(device, [
-    {
-        plugin: "MyPlugin",
-        features: ["timestamp-query"],
-        preferredFeatures: ["subgroups"],
-    },
-]);
+import { OrbitPlugin, runApp } from "@dylanebert/shallot";
+await runApp({ plugins: [OrbitPlugin], pixelRatio: "auto" });
 ```
 
-## Audio clips belong to the World
+For a manifest-only 0.9.5 app with no entry page, run `bunx shallot create migration-template --template minimal`. Copy `migration-template/index.html` and `migration-template/vite.config.ts` to the app root, and copy `migration-template/public/startup.js` to `public/startup.js`. If the old `tsconfig.json` extends a repository-relative configuration, replace it with `migration-template/tsconfig.json`, which extends the installed engine's configuration. In `index.html`, replace the template's `Welcome` import and plugin with your app's named plugin imports. Keep the canvas and loading bootstrap. Scene files are no longer loaded: move their entities into plugin initialization as described below.
 
-Import `AudioPlugin`, `Sound`, `Listener`, `registerClip`, and `play` from `/audio` (or the root). `AudioPlugin` owns the stable data and clip registry; add the opt-in `StandardAudioPlugin` from `/standard/audio` to run playback. `loadClip(world, url)` in `/standard/audio` decodes a URL into the World's registry; repeated loads of that URL share one handle and fetch. The running implementation publishes its `AudioContext` and connection bus through the World's `AudioOutput` resource.
+Add these scripts to the app's `package.json` and install Vite as a dev dependency (`bun add -d vite`):
 
-- Replace `sample(pcm, name)` with `registerClip(world, pcm, sampleRate?, name?)`, or replace URL loading with `await loadClip(world, url)`. For a `Blob`, pass `URL.createObjectURL(blob)` and revoke it after loading. Each registration creates a new handle; the optional name is only a display label. Pass the returned handle to `play(world, handle, options)`, not a name. Clip handles and decoded PCM belong to each World.
-- `play(world, name, { pos })` becomes `play(world, clip, { position })`, where `clip` is the handle `registerClip` or `loadClip` returned. `play` no longer resolves named graph definitions; register a clip for stable playback.
-- The old graph-driven `Sound` field becomes `Sound.clip`; `Sound.pitch` and the runtime-owned `Sound.voice` are gone. `Sound.loop` remains, and `Sound.paused` is added.
-- `Sound.volume` is now linear gain rather than quadratic. For former sample playback, preserve an old value `v` in `[0, 1]` by setting the new volume to `v * v`.
-- Raw `Float32Array` PCM now defaults to 48 kHz; v0.9.5 used the audio context's rate. To keep that behavior, pass `world.resource(AudioOutput).context?.sampleRate ?? 48000` as `registerClip`'s third argument. URL decoding via `loadClip` retains the decoded sample rate.
-- `AudioPlugin`, `Sound`, and `Listener` move from `/standard` to `/audio`; `play` moves to `/audio` with `position` in place of `pos`.
-- The experimental `Instrument`, `InstrumentDef`, `Instruments`, `instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `byId`, `getParamPairs`, and `MAX_INSTRUMENTS` names formerly exported by `/audio/core` are removed from Shallot; the inventory now lives in [shallot-audio-lab](https://github.com/dylanebert/shallot-audio-lab). The stable `play` API accepts registered clips, not graph definitions.
-- `sfx` and `SfxPolicy` are deleted; per-name caps and cooldowns are not part of clip playback.
-
-### Released `/audio/core` helpers
-
-These names were also public in v0.9.5 through `/audio/core`; they are not stable clip APIs:
-
-| v0.9.5 names | Replacement |
-|---|---|
-| `Audio`, `started`, `running` | Use `AudioOutput.context` and `AudioOutput.bus` for the running implementation, and `Devices.audio.context` for `running`, `suspended`, or `closed`. There is no replacement for the internal `started` flag. |
-| `initAudio`, `disposeAudio`, `tickAudio` | Compose `StandardAudioPlugin`; it owns initialization, disposal, and per-frame reconciliation. Do not call lifecycle helpers directly. |
-| `MAX_VOICES`, `slotOf`, `valid`, `alloc`, `free`, `gate`, `setParam`, `oneShot`, `watchIdle`, `assign` | Voice slots and handles are runtime-owned. Use `play` and author `Sound` data; there is no public voice-handle API. |
-| `spatialize`, `polar`, `addSpatial`, `flushSpatial` | Position `Sound` with `Transform` and mark a `Listener`; `StandardAudioPlugin` derives and batches spatial data. |
-| `InstrumentDef`, `Instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `Instruments`, `instrument`, `byId`, `getParamPairs`, `MAX_INSTRUMENTS` | Experimental DAG authoring and its registry helpers are removed from Shallot and now live in [shallot-audio-lab](https://github.com/dylanebert/shallot-audio-lab). `noteFreq` has no stable replacement. |
-| `Samples`, `MAX_SAMPLES`, `sample`, `getSample`, `whenLoaded` | Use the per-World `Clips` registry and `registerClip`, or await `loadClip` for a URL; decoded PCM and clip IDs are world-owned. Sample upload and readiness helpers are runtime-owned. |
-
-## Fixed systems read tick time
-
-Inside `fixed`, `world.time.elapsed` is now `fixedTick * Time.FIXED_DT`, not the
-virtual frame elapsed time. Each catch-up tick reads its own time. Keep simulation
-trajectories on this clock; move frame-time effects to `simulation` or `draw`,
-where `elapsed` remains the virtual frame clock.
-
-## System errors end a stepped frame
-
-Outside `runApp`, `world.step()` now throws when a system's setup or update throws.
-The Error names the system and carries the thrown value as `cause`; later systems
-do not run, and the next step retries the failing system. Checks that provoke an
-error must expect it with `expect(() => world.step()).toThrow(...)`. Catch the error
-in a custom frame loop. `runApp` still logs, pauses the failing system until the page
-reloads or the system is removed and added again, and finishes the frame.
-
-## Camera rays belong to rendering
-
-Import `Ray` from the root instead of `/physics`. Replace `cursorRay(world, camera)`
-with `viewportToWorld(world, camera, pointer.x, pointer.y)` from `/rendering`, after
-checking the input pointer's hover state. Coordinates are CSS pixels relative to
-that camera's bound canvas, or pixels of its attached texture, not a focused input
-viewport chosen by the helper.
-
-Replace `forwardRay(world, camera)` with `viewportToWorld` at the bound viewport's
-centre (`cssWidth / 2`, `cssHeight / 2`). Unlike `forwardRay`, the perspective ray's
-origin lies on its view-space near plane, transformed by the camera's placement
-including scale; account for that offset when interpreting world-space hit distances. `viewportToWorld` reads fixed-tick `GlobalTransform`
-and returns null without camera placement or a non-empty target: a bound canvas or
-an attached texture.
-`generateRay` and `screenToRay` are removed; use `viewportToWorld`.
-
-## Camera depth, fog and perspective range
-
-Perspective cameras now use infinite reverse-Z. `Camera.far` remains the finite
-visibility-culling bound and clustered-light range; it no longer clips the perspective
-projection or limits its depth precision. Orthographic cameras still use `far` as a
-projection plane. The exported `perspective` helper likewise drops its `far` argument:
-call `perspective(fov, aspect, near)`.
-
-`DepthPrepass` remains an explicit request for stored camera depth, but it is no longer
-required to enable built-in depth consumers: fog and occluded outlines request the shared
-lane when needed. The lane matches the camera's antialiasing sample count; GPU consumers
-that read it use sample zero. Keep `DepthPrepass` when the game itself explicitly needs the
-lane, not as a switch for these plugins.
-
-When the world has a `Fog` component, `FogPlugin` now applies it to every `StandardRenderer`
-camera by default. Attach `NoFog` to an individual camera to opt that camera out; this does
-not suppress a separate `DepthPrepass` request:
-
-```ts
-import { NoFog } from "@dylanebert/shallot";
-world.add(camera, NoFog);
+```json
+{
+    "scripts": {
+        "dev": "vite --host 127.0.0.1",
+        "build": "vite build",
+        "preview": "vite preview --host 127.0.0.1"
+    }
+}
 ```
 
-`Fog.absorption` and `Fog.scattering` are now nonnegative medium coefficients, not an
-absorbed fraction and a brightness gain. Extinction is `density * (absorption + scattering)`;
-the in-scattered fraction is `scattering / (absorption + scattering)` (zero when both are zero).
-To preserve an old fog with absorption `a` in [0,1], scattering `s` and scatterIntensity `i`, keep its
-density and write `absorption: a`, `scattering: 1 - a`, `lightIntensity: s * i / Math.PI`.
-Old absorption values outside [0,1] need retuning because the new coefficients are nonnegative.
-Use the old defaults for omitted values: `a = 0`, `s = 1`, `i = 1`.
-Rename `anisotropy` to `scatteringAsymmetry` without changing its value.
-`scatterIntensity` is removed; `lightIntensity` is the one nonphysical light scale.
-The new default coefficients are absorption 0 and scattering 1, with lightIntensity `1 / Math.PI`
-as a tuned look value; lightIntensity 1 means no adjustment.
-Height falloff is unchanged. Fog now lights a frustum grid and applies its
-integrated radiance and transmittance at each opaque surface. Remove `steps`, `stepCount` and
-`jitter` from fog authoring; `Fog.stepCount` and `Fog.jitter` have no replacements. The grid's
-cell and slice counts are internal constants. `Fog.viewDistance` is new, defaulting to 64 world
-units: it sets the far view-space depth of the grid. Analytic height fog continues beyond it
-with unshadowed ambient and directional in-scatter.
+Default plugins remain enabled unless `defaults: false` is set. `build`, `run` and `Config` are now `createApp`, `runApp` and `AppConfig`; the app's `state` is now `world`. Replace the exported `pixelRatio` constant with `AppConfig.pixelRatio`. Remove `App.skipped`: incomplete compositions fail initialization. `swap`, `SwapResult` and `state.swap` are removed; use Vite's development reload.
 
-`Fog.color` is now the medium's own ambient light rather than an unexposed fade colour. Like
-Unreal's Fog Inscattering Color, Godot's `fog_light_color` with `fog_light_energy` and Bevy's
-`VolumetricFog.ambient_color` with `ambient_intensity`, it lights the medium without scene
-lights, so the scene still fades toward it. `Fog.brightness` gives its radiance in cd/m², scaled
-by camera exposure; the medium scatters it by its scattering albedo. The default,
-`1.2 * 2 ** 9.7` (about 998), reads as the old fade at the default exposure, EV100 9.7. To keep
-an old fade under another exposure, set `brightness: 1.2 * 2 ** ev100`. An absorption-only fog
-(`scattering: 0`) no longer shows its colour; it only darkens. `Fog.lightIntensity` scales the
-scene's lights in the medium, not this light. `readFogInScatter` includes it.
-
-`Fog.maxDistance` now places the fog endpoint that distance from the camera along each ray,
-in world units, defaulting to 5000. Fog begins at the near plane, like the grid; an endpoint
-at or before it gives no fog. Farther surfaces receive fog as if at the endpoint. Set it beyond the camera's far plane
-to blend distant geometry into the sky. Values at or below `viewDistance` end within the
-grid without an analytic tail; nonpositive values disable fog.
-
-For perspective cameras, infinite reverse-Z makes depth zero mean no opaque surface. Those
-background pixels receive grid haze followed by analytic height fog out to `maxDistance`,
-rather than unprojecting depth zero as a finite endpoint. Orthographic depth zero still names
-its far projection plane, bounded by `maxDistance` like a surface.
-
-`FogSystem` now runs before `MainPassSystem`; opaque fog composites through
-`PhaseRenderer.afterOpaque` inside the main pass, after opaque renderers and before transparent
-draws. A scene effect can no longer run between opaque surfaces and fog; move effects that
-must act on unfogged surface colour into surface shading. Standard's Blend, Premultiplied, Add and
-Multiply surfaces take fog at their own world-space depth rather than the opaque depth behind
-them. `registerFogSource` and `FogInput` / `FogSource` in `/standard/rendering` let a plugin
-supply that read before standard warms; its layout occupies reserved group 3.
-
-Custom fragment passes can use `readFog`, `fogReadLayout` and
-`fogReadBindGroup(world, camera)` from `/extras`, binding the returned group at 3.
-The read returns added RGB radiance and alpha transmittance; additive emission multiplies
-its colour by transmittance only. Without `FogPlugin` or a `Fog` singleton, the accessor supplies
-an identity read, including in a core-only composition using `CorePipelinePlugin` without
-standard rendering. Fill unused preceding pipeline-layout indices with explicit
-empty layouts when using raw WebGPU. Other transparent renderers, including lines and text,
-now draw unfogged unless they use this read. `readFogInScatter(point)` reads camera-exposed local
-light before the medium's albedo through the same group after fog draws; a particle adds its
-albedo × coverage × this light × `readFog(point).a`, without applying exposure again.
-
-## Presenting-camera capacity grows on demand
-
-Per-view rendering state grows lazily as additional cameras become presenting; it starts with
-one slot and does not compile more pipelines or layouts when it grows. The hard bound is
-now **533 presenting cameras**. A 585-slot cull-volume uniform reserves 52 slots for
-built-in shadow views, leaving 533 presentation slots. The 534th presenting camera is
-skipped with a warning; camera creation itself is not refused, and overflow does not
-overwrite the accepted cameras' slots.
-
-`MAX_VIEWS` remains exported from `/rendering`, but its value has changed: v0.9.5
-exported it from `/render/core` as 8; 0.10 exports it from `/rendering` as 533. Code
-that sizes per-view data from this constant should continue to use it rather than retain
-the old literal.
-
-## Physics geometry belongs to worlds and uses handles
-
-Replace `Hulls.register(definition)` with `world.resource(Hulls).add(definition)` and
-keep the returned handle for `Shape.geometry`. `Hulls`, `PhysicsMeshes`, `HeightFields`,
-`Compounds` and `ShapeMaterials` use `add`, `get(handle)`, `has(handle)` and `remove(handle)`.
-Names are display labels: adding two definitions with the same name keeps both. To replace
-geometry, add a new definition and assign its handle to the shapes that should change;
-do not mutate added definitions. Assign the handle returned by `ShapeMaterials.add` directly
-to `Shape.materialSet`; -1 means no material set.
-
-Handles belong to that world; add geometry in each world that uses it. Removal and `clear`
-invalidate handles: a stale reference resolves to nothing until its index has been reused
-2^11 times, after which later geometry may alias it. Handles include a dense index and an
-11-bit generation that wraps and fit nonnegative i32; with 2^20 handles live, addition is
-refused. Snapshots restore live handles and allocation generations. Every world's `Hulls`
-starts with the unit cube at `UNIT_CUBE_ID` (0), 1 m on a side. `Shape.scale` multiplies an added hull or
-mesh and defaults to `[1, 1, 1]`. URL-keyed images and fonts retain their registry API.
-
-## Hulls hold points
-
-A 0.9.5 `Hull` registered `verts`, `faces` and `edges`. A 0.10 `Hull` holds Box3D's hull input:
-`points`, flat xyz in shape-local meters as a `Float32Array`, and an optional `maxVertexCount`
-(default 128). Standard physics builds the faces and edges itself, and `HullFace` is removed.
-The hull is the convex hull of the points: interior points drop, coplanar faces merge, and the
-built hull keeps at most `maxVertexCount` vertices.
+Create a `vite.config.ts`. In an ejected config, replace the separate TypeGPU plugin and remove `CROSS_ORIGIN_ISOLATION`; `shallot()` supplies both TypeGPU compilation and the headers.
 
 ```ts
 // 0.9.5
-Hulls.register({ name: "wedge", verts, faces, edges });
+import { defineConfig } from "vite";
+import typegpu from "unplugin-typegpu/vite";
+export default defineConfig({ plugins: [typegpu()] });
+```
 
+```ts
 // 0.10
-world.resource(Hulls).add({ name: "wedge", points: new Float32Array(verts.flat()) });
+import { defineConfig } from "vite";
+import { shallot } from "@dylanebert/shallot/vite";
+export default defineConfig({ plugins: [shallot()] });
 ```
 
-## Meshes hold Box3D's mesh input
+Update the TypeGPU peer and scaffold types:
 
-In 0.9.5, `createMesh(def)` from `/tumble/core` built `MeshData` for a `TumbleBody` mesh shape.
-In 0.10, add the definition as a `PhysicsMesh` in `world.resource(PhysicsMeshes)` and use
-its handle in a `Shape` of kind `Mesh`; standard physics builds it once per World. `vertices` is flat
-xyz as a `Float32Array`, with an optional `stride` in floats, `indices` is a `Uint32Array`,
-`materialIndices` a `Uint8Array`, and the build options keep their names, plus `clockwiseWinding`.
-`createMesh`, `MeshDef`, `MeshData` and the `create*Mesh` helpers are removed.
+```sh
+# 0.10
+bun add typegpu@~0.12.8
+bun add -d @types/node@^26.0.0
+```
+
+```json
+{ "compilerOptions": { "types": ["@webgpu/types", "node", "vite/client"] } }
+```
+
+## `State`, `sparse`, `slab` and component traits
+
+`State` becomes `World`. Fields declare types; storage belongs to each World. Replace `Single`, `Pair`, `Quad` and field `Type` with `ScalarField`, `Vector2Field`, `Vector4Field` and `FieldType`.
+
+Declare components with an exact key using `component`, then list them in `Plugin.components`. `Plugin.traits` and `Traits` are removed. Move defaults and runtime `provides` to the declaration's `defaults` and add-only `requires`. Defaults use vector arrays, not dotted lanes.
 
 ```ts
 // 0.9.5
-const mesh = createMesh({ vertices, indices, identifyEdges: true })!;
-Tumble.body(eid)?.createMesh({}, mesh);
-
-// 0.10
-const geometry = world.resource(PhysicsMeshes).add({
-    name: "terrain",
-    vertices: new Float32Array(vertices.flatMap((v) => [v.x, v.y, v.z])),
-    indices: new Uint32Array(indices),
-    identifyEdges: true,
-});
-world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry });
-```
-
-## Height fields hold Box3D's height-field input
-
-In 0.9.5, `createHeightField(def)` from `/tumble/core` built `HeightFieldData` for a `TumbleBody`
-height-field shape. In 0.10, add the definition as a `HeightField` in
-`world.resource(HeightFields)` and use its handle in a `Shape` of kind `HeightField`; standard physics
-builds it once per World. `heights` is a `Float32Array`, `materialIndices` an optional `Uint8Array`,
-`scale` is `[x, y, z]`, and `clockwiseWinding` is optional. `createHeightField`, `createGrid`,
-`createWave`, `HeightFieldDef`, `HeightFieldData` and `HEIGHT_FIELD_HOLE` are removed; a
-material index of 255 still makes a cell a hole.
-
-```ts
-// 0.9.5
-const field = createHeightField({
-    heights,
-    materialIndices: null,
-    scale: { x: 1, y: 1, z: 1 },
-    countX: 8,
-    countZ: 8,
-    globalMinimumHeight: -10,
-    globalMaximumHeight: 10,
-    clockwiseWinding: false,
-});
-Tumble.body(eid)?.createHeightField({}, field);
-
-// 0.10
-const geometry = world.resource(HeightFields).add({
-    name: "terrain",
-    heights: new Float32Array(heights),
-    scale: [1, 1, 1],
-    countX: 8,
-    countZ: 8,
-    globalMinimumHeight: -10,
-    globalMaximumHeight: 10,
-});
-world.add(eid, Shape, { kind: ShapeKind.HeightField, geometry });
-```
-
-## Compounds hold Box3D's compound input
-
-In 0.9.5, `createCompound(def)` from `/tumble/core` built `CompoundData` for a `TumbleBody`
-compound shape from built hulls and meshes. In 0.10, add the definition as a `Compound` in
-`world.resource(Compounds)` and use its handle in a `Shape` of kind `Compound`; standard physics
-builds it once per World. Hull and mesh children use `Hulls` and `PhysicsMeshes` handles, with
-`transform: { position: [x, y, z], rotation: [x, y, z, w] }`; capsule and sphere children hold
-their `center1`, `center2` or `center` as `[x, y, z]` and `radius` directly. Each child's
-`material` is optional and defaults to Box3D's default surface material; a mesh child's
-`materials` replaces `materials` and `materialCount`. `createCompound`, `CompoundDef`,
-`CompoundCapsuleDef`, `CompoundHullDef`, `CompoundMeshDef`, `CompoundSphereDef` and
-`CompoundData` are removed.
-
-```ts
-// 0.9.5
-const slab = makeBoxHull(1.6, 0.2, 3);
-const compound = createCompound({
-    hulls: [{ hull: slab, transform: { p: { x: 1, y: 2, z: 0 }, q }, material }],
-})!;
-Tumble.body(eid)?.createCompound({}, compound);
-
-// 0.10
-const slab = world.resource(Hulls).add({ name: "slab", points: slabCorners });
-const geometry = world.resource(Compounds).add({
-    name: "stairs",
-    hulls: [{ hull: slab, transform: { position: [1, 2, 0], rotation: [0, 0, 0, 1] } }],
-});
-world.add(eid, Shape, { kind: ShapeKind.Compound, geometry });
-```
-
-## Surface materials come from `/physics`
-
-Import `SurfaceMaterial` from `/physics` instead of `/tumble/core`. Its `tangentVelocity` is
-`[x, y, z]` rather than `{ x, y, z }`. `ShapeMaterials` sets hold `SurfaceMaterial` lists.
-
-```ts
-// 0.9.5
-const material: SurfaceMaterial = { ...base, tangentVelocity: { x: 1, y: 0, z: 0 } };
-
-// 0.10
-const material: SurfaceMaterial = { ...base, tangentVelocity: [1, 0, 0] };
-```
-
-## Glaze becomes camera grading and effect passes
-
-Remove `Glaze`, `GlazePlugin`, `GlazeSystem`, `Tonemap`, `tonemapWgsl` and `/glaze` imports. `CorePipelinePlugin` presents views and registers `Tonemapping` and `ColorGrading`, exported from `/rendering` and the root. Default plugins already include it. Add `VignettePlugin` from `/vignette` (or the root) for cameras carrying `Vignette`.
-
-| Glaze field | Replacement |
-|---|---|
-| `tonemap` | `Tonemapping.method`, using `TonemappingMethod`: `Neutral` → `KhronosPbrNeutral`, `None` → `None`, `Aces` → `AcesFitted`, `Reinhard` → `Reinhard`, `ReinhardLuminance` → `ReinhardLuminance`, `Agx` → `AgX`, `SomewhatBoring` → `SomewhatBoringDisplayTransform`. Do not carry numeric indices forward. |
-| `exposure` | Positive multiplier `m` → `ColorGrading.exposure: Math.log2(m)` (stops). |
-| `saturation` | `ColorGrading.postSaturation`. |
-| `slope` | No per-channel CDL equivalent. Retune using sectional `gain` and global `temperature`/`tint`. |
-| `offset` | No per-channel CDL equivalent. Retune using sectional `lift`. |
-| `power` | No per-channel CDL equivalent. Retune using sectional `gamma` (inverse exponent). |
-| `vignette` | `Vignette.intensity`. Now applied to HDR before tonemapping; the look is not identical. |
-| `vignetteInner` | No exact equivalent; retune `Vignette.radius`. |
-| `vignetteOuter` | No exact equivalent; retune `Vignette.radius` and `smoothness`. |
-| `posterize` | Removed; no built-in replacement. Implement an after-tonemapping pass in an external postprocessing package. |
-| `dither` | Removed with posterize; no built-in replacement. |
-
-Cameras without settings now use `TonyMcMapface`, not Khronos PBR Neutral. Add `Tonemapping` with `method: TonemappingMethod.KhronosPbrNeutral` to keep the former operator. `None` skips the operator for display-ready **linear** images; grading and the screen encode still apply. `AgX` retains the former analytic Filament/three.js approximation, rather than Bevy's LUT.
-
-`ColorGrading` applies exposure, temperature, tint and hue (in degrees) globally; `postSaturation` applies after tonemapping. The `saturation`, `contrast`, `gamma`, `gain` and `lift` vectors hold shadows, midtones and highlights as `[x, y, z]`. Defaults are identity; `midtonesRange` defaults to `[0.2, 0.7]`.
-
-Register view-specific passes in `world.resource(EffectPasses)` under the camera eid, with `before` and `after` arrays. Each callback receives `(world, eid, view, input, output)` and records on the frame encoder. Before passes operate on linear HDR; after passes operate on encoded display-referred intermediates. With no after pass, tonemapping writes the presented target directly. Remove registrations when their camera or owner leaves.
-
-## Rendering extension exports
-
-These 0.9.5 exports are removed or renamed in 0.10. The headings identify their v0.9.5 package paths; the old package's `./src/*` wildcard also made the two direct-source paths below importable. Remove direct imports from internal files; they are not replacement public paths.
-
-### `/render/core` → `/rendering`
-
-All names below came from v0.9.5 `/render/core` except `backingSize` (`/src/standard/render/view`) and `COLOR_LANES` (`/src/standard/sear/codegen`).
-
-| Removed name | Replacement |
-|---|---|
-| `Render` | `RenderContext`, the world-owned shared GPU context. |
-| `backingSize` | Use `Resolution` to pin a view's render size; viewport sizing is internal. |
-| `COLOR_LANES` | Removed; there is no replacement color lane. |
-| `frameWgsl` | Resolve the `FrameGpu` TypeGPU schema. |
-| `FRUSTUM_FLOATS` | Read `CullVolumes` with `CULL_VOLUME_FLOATS`. |
-| `frustumPlanes` | No public replacement; consume the packed `CullVolumes`. |
-| `allocArray` | Use `imageArray` for image-array upload. |
-| `arrayFromBitmaps` | Use `imageArray` for image-array upload. |
-| `commonSize` | No public replacement; image-array sizing is internal. |
-| `mipLevels` | No public replacement; mip allocation is internal. |
-| `uploadLayer` | Use `imageArray` for image-array upload. |
-| `linearToSrgbWgsl` | Resolve `linearToSrgb3` through TypeGPU. |
-| `VIEW_BYTES` | Derive layout size from `ViewUniforms` with TypeGPU. |
-| `VIEW_STRIDE` | Read the view's own uniform buffer, not staging offsets. |
-| `viewWgsl` | Resolve the `ViewUniforms` TypeGPU schema. |
-
-### `/render/core` mesh exports → `/mesh`
-
-| Removed name | Replacement |
-|---|---|
-| `meshBounds` | Register mesh vertices; `MeshPlugin` computes culling bounds. |
-| `MeshStorage` | Infer storage from the registered `Mesh`. |
-| `QuantStreams` | No public replacement; mesh quantization is internal. |
-| `packMeshes` | Add with `world.resource(Meshes).add`; `MeshPlugin` packs at warm-up. |
-| `quantizeMeshes` | Add with `world.resource(Meshes).add`; quantization is internal. |
-| `VERTEX_FLOATS` | Author the vertex data accepted by `Meshes.add`; packing is internal. |
-| `VERTEX_STRIDE` | Read the registered mesh's GPU bindings; packing is internal. |
-
-### `/render/core`, `/sear/core` and root exports → `/standard/rendering`
-
-In this table, `PartPlugin` was exported at the root. `ClusterView` through `zSlice`, `Binding` through `SURFACE_GROUP`, `LIGHTING_UNIFORM_SIZE` through `spotParams`, and `DrawIndirectBuffer` came from `/render/core`. `/sear/core` also exported the Surface and Background contracts, `lightEvalWgsl`, `clusterOf` through `sunVisibility`, `getCompiledSurface`, and `casterWgsl` through `pointComboCount`.
-
-| Removed name | Replacement |
-|---|---|
-| `PartPlugin` | `MeshRenderPlugin`. |
-| `ClusterView` | No public replacement; standard owns light-cluster view packing. |
-| `CLUSTER_COUNT` | No public replacement; standard owns light-grid sizing. |
-| `CLUSTER_X` | No public replacement; standard owns light-grid sizing. |
-| `CLUSTER_Y` | No public replacement; standard owns light-grid sizing. |
-| `CLUSTER_Z` | No public replacement; standard owns light-grid sizing. |
-| `clusterAabb` | No public replacement; light-grid construction is internal. |
-| `clusterCoord` | Use `clusterCell` to address the shared light grid. |
-| `clusterIndex` | Use `clusterCell` to address the shared light grid. |
-| `clusterView` | No public replacement; standard owns light-cluster view packing. |
-| `LIGHT_POOL` | No public replacement; standard owns light-grid capacity. |
-| `lightClusters` | Read the `LightCull` resource and `LightClusters` schema. |
-| `sliceDepth` | No public replacement; light-grid construction is internal. |
-| `zSlice` | Use `clusterCell` to address the shared light grid. |
-| `Binding` | Removed; describe material resources with `MaterialBinding` and construct `materialLayout`. |
-| `FsFn` | `MaterialFragmentFn`, inferred from a `materialType` shader. |
-| `SurfaceLayout` | `MaterialLayout`, inferred from `materialLayout`. |
-| `VsFn` | `MaterialVertexFn`, inferred from a `materialType` shader. |
-| `assertOwnFn` | Removed; `materialType` refuses prebuilt TypeGPU vertex and fragment functions. Pass plain `"use gpu"` functions instead. |
-| `SURFACE_GROUP` | Removed; material and background group indices are renderer-owned. |
-| `clusterOf` | Use `clusterCell` for grid addressing or `lit` for surface lighting. |
-| `engineScaffoldWgsl` | Use `materialType` with plain `"use gpu"` shaders; declare owned bindings with `materialLayout`. |
-| `fragCoord` | Use the material fragment context or a core render-phase renderer. |
-| `fragWorld` | Read `.world` from the inferred fragment argument. |
-| `lightFactor` | Use `lit` for the standard lighting response. |
-| `litPbr` | Use `StandardMaterial`, or `applyPbrLighting` over `pbrInputFromMaterial`. |
-| `pointFactor` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
-| `pointScale` | Use `lit` for surface lighting; `distanceAttenuation` for attenuation. |
-| `sunVisibility` | Use `lit` or the shared `sampleSunShadow` function. |
-| `LIGHTING_UNIFORM_SIZE` | Derive layout size from `LightingGpu` with TypeGPU. |
-| `lightingWgsl` | Resolve the `LightingGpu` TypeGPU schema. |
-| `lightEvalWgsl` | Resolve `distanceAttenuation`, `spotFactor` and `clusterCell` through TypeGPU. |
-| `MAX_POINT_LIGHTS` | No public replacement; standard owns light capacity. |
-| `PointLights` | Use the shared `LightClusters` schema for light/grid input. |
-| `pointLightsWgsl` | Resolve the `LightClusters` schema through TypeGPU. |
-| `spotParams` | Use `spotFactor` with the packed light record. |
-| `getCompiledSurface` | No public replacement; compiled-pipeline diagnostics are internal. |
-| `DrawIndirectBuffer` | Infer from `Draw.args.indirect`; allocate with `DrawIndexedIndirect`. |
-| `casterWgsl` | No public replacement; shadow-caster code is internal. |
-| `Pbr` | Use `StandardMaterial`, or the `PbrInput` that `pbrInputFromMaterial` returns. |
-| `pointShadowWgsl` | Resolve `pointShadowRef()` through TypeGPU. |
-| `SHADOW_PARAMS_BYTES` | Derive layout size from `SunShadow` with TypeGPU. |
-| `sunShadowWgsl` | Resolve `sampleSunShadow` through TypeGPU. |
-| `sunStructWgsl` | Resolve the `SunShadow` TypeGPU schema. |
-| `cascadeCount` | Read the directional light's `DirectionalLight.numCascades`. |
-| `pointAtlasSize` | Read `world.resource(PointShadows).atlas`. |
-| `pointComboCount` | No public replacement; shadow-camera diagnostics are internal. |
-
-`lit` moves from `/sear/core` to `/standard/rendering` and now returns StandardMaterial's response at metallic 0. Within 0.01 world units of a point or spot light it no longer shortens the light direction, so a surface there is brighter and spot cones fade as StandardMaterial's do.
-
-### `/fog/core` → `/fog`
-
-| Removed name | Replacement |
-|---|---|
-| `FogSystem` | Depend on `FogPlugin`; order scene effects with core's phase and overlay anchors. |
-| `FogScatter` | No public replacement; fog integration is internal. |
-| `FogSun` | No public replacement; fog integration is internal. |
-| `FOG_BYTES` | No public replacement; fog uniforms are internal. |
-| `FOG_FLOATS` | No public replacement; fog uniforms are internal. |
-| `FOG_MAX_STEPS` | No public replacement; fog grid dimensions are internal. |
-| `FogGpu` | Author `Fog`; the pass owns its GPU layout. |
-| `fogComposite` | No public replacement; fog integration is internal. |
-| `fogDensity` | No public replacement; fog integration is internal. |
-| `fogInScatter` | No public replacement; fog integration is internal. |
-| `fogInScatterWgsl` | No public replacement; fog integration is internal. |
-| `fogMarchWgsl` | No public replacement; fog integration is internal. |
-| `fogStructWgsl` | No public replacement; fog uniforms are internal. |
-| `fogSunInScatter` | No public replacement; fog integration is internal. |
-| `fogTransmittance` | No public replacement; fog integration is internal. |
-| `heightOpticalDepth` | No public replacement; fog integration is internal. |
-| `henyeyGreenstein` | No public replacement; fog integration is internal. |
-| `inScatterContribution` | No public replacement; fog integration is internal. |
-| `reconstructWorld` | No public replacement; fog integration is internal. |
-| `sunInScatter` | No public replacement; fog integration is internal. |
-| `WORKGROUP` | No public replacement; fog dispatch sizing is internal. |
-| `packFog` | Set `Fog` fields; the pass owns packing. |
-
-## Renamed exports
-
-0.10 renames these 0.9.5 names, with no compatibility aliases:
-
-| 0.9.5 | 0.10 |
-|---|---|
-| `State`, and `state` in examples | `World`, `world` |
-| `Compute` | `world.gpu` |
-| `Single`, `Pair`, `Quad`, field `Type` | `ScalarField`, `Vector2Field`, `Vector4Field`, `FieldType` |
-| `Transform.pos`, `.rot` | `translation`, `rotation` |
-| `Body.pos`, `.quat` | `Transform.translation`, `.rotation` |
-| Moving `Body` with positive `mass` | Write `type: BodyType.Dynamic`; `mass` is the dynamic body's mass. |
-| `Body` with `mass: 0` | Omit `type` for static geometry, or write `type: BodyType.Kinematic` for caller-driven motion. |
-| Root `Part` | `MeshInstance` |
-| Root `RenderPlugin` | `RenderingPlugin` for the frame/view substrate; add `CorePipelinePlugin` for shared targets and phases (`StandardRenderingPlugin` includes it) |
-| Root `SearPlugin` | `StandardRenderingPlugin` |
-| Root `Sear`, `Depth`, `Backdrop` | `StandardRenderer`, `DepthPrepass`, `CameraBackground` |
-| Root `Tag`, `/sear/core` `TAG_FORMAT` and `TAG_NONE`, `/render/core` `TagFn` and `View.tag` | Removed; there is no replacement picking lane. |
-| `/render/core` `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |
-| `/render/core` GPU `View` schema and `linearToSrgb` | `/rendering` `ViewUniforms` and `linearToSrgb3` |
-| `/render/core` `View.cluster` | `ViewUniforms.projection` (near, far, perspective flag, slot; unchanged byte layout) |
-| Root `mesh`, `image`, `font`, `text` | `world.resource(Meshes).add`, `registerImage`, `registerFont`, `internText` |
-| Root `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
-| `build`, `run`, `Config` | `createApp`, `runApp`, `AppConfig` |
-| `swap`, `SwapResult` | Removed; use `bun run dev`, which reloads the page. |
-| `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
-| `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation`. These and `slerp` return tuples, `[x, y, z, w]` (or `[x, y, z]` from `quatToEuler`), not `{ x, y, z, w }`: pass a quaternion straight to `Transform.rotation` and read `q[0]` where 0.9.5 read `q.x`. The Euler angles are now radians, as in three.js and Bevy: multiply a 0.9.5 degree value by `Math.PI / 180`, and a `quatToEuler` result by `180 / Math.PI` to read degrees. |
-| `composeTransform` | `composeGlobalTransform` |
-| `state.stamp`, `state.timescale` | `world.ref` and `world.resolve`, `world.setTimeScale` |
-| `state.swap` | Removed; use `bun run dev`, which reloads the page. |
-| `/sear/core` `PrepassSystem`, `ColorSystem` | `/rendering` `PrepassSystem`, `MainPassSystem` |
-| `/src/standard/render/cluster.ts` `ClusterSystem`, `LightCullSystem` | Remove direct imports; these systems are now internal to `StandardRenderingPlugin`. |
-| `CharacterSweepSystem` | Order fixed velocity producers before `CharacterPlugin.systems` |
-| `PlayerControlSystem` | `UpdatePlayerControlSystem` (look and camera); `DrivePlayerSystem` consumes fixed-tick input |
-| Physics `StepSystem` | `StepPhysicsSystem` |
-| Physics `ConstraintSystem` | Removed: author the joint-kind components; standard physics syncs them. |
-
-The `pixelRatio` constant is removed (set `AppConfig.pixelRatio`). The `/ecs` wrappers `register`, `getExclusions`, `entries` and `clear` are removed; use `world.registry`.
-
-## Text font load failures stop initialization
-
-In v0.9.5, the root `TextPlugin` warned and continued when a registered font failed to load. It now rejects initialization with the load error as `cause`; a 0.9.5 game with an unreachable registered font therefore fails initialization. The default Inter font ships with the package and no longer needs network access.
-
-## Photometric lights follow transforms
-
-In v0.10, authored light values use photometric units and a directional light shines along its entity's transformed local `-Z`. This replaces the v0.9.5 linear multipliers and explicit `DirectionalLight.direction`. Each camera may carry `Exposure` in EV100; its default, 9.7, follows Bevy's Blender calibration. The old names below were checked in the `v0.9.5` source (`packages/shallot/src/standard/render/lighting.ts`); root `Spot` and `Shadow` fields were separate components.
-
-| v0.9.5 component or field | 0.10 replacement |
-|---|---|
-| Root `AmbientLight.color`, `.intensity` | `GlobalAmbientLight` resource with `color` and `brightness` in cd/m², plus optional per-camera `AmbientLight` override on the camera entity. Both use hex sRGB color. |
-| Root `DirectionalLight.color`, `.intensity`, `.direction` | `DirectionalLight.color`, `.illuminance` in lux, and a `Transform` rotation; `direction` is removed. Use a quaternion that rotates local `-Z` onto the old normalized travel direction. |
-| Root `PointLight.color`, `.intensity`, `.range`, `.radius` on a point light | `PointLight` with color, `intensity` in lumens, range and radius; the light now requires `Transform`. |
-| Root `PointLight.color`, `.intensity`, `.range`, `.radius` on an entity with root `Spot` | `SpotLight.color`, `intensity` in lumens, range and radius; remove `PointLight`. `SpotLight` requires `Transform`. |
-| Root `Spot.inner`, `.outer` | `SpotLight.innerAngle`, `.outerAngle`, half-angles now in radians: multiply a v0.9.5 degree value by `Math.PI / 180`. |
-| Root `Shadow` presence | Set each light's `shadowMapsEnabled` to `1`; `0` disables its shadow request. |
-| Root `Shadow.distance` on a directional light | `DirectionalLight.maximumDistance`, still world units. |
-| Root `Shadow.distance` on a point or spot light | Remove it; it was ignored. Shadow coverage still uses the light's `range`. |
-| Root `Shadow.depthBias`, `.normalBias` | `depthBias` and `shadowNormalBias`; normal bias remains measured in shadow texels, but `depthBias` is now a world-space receiver offset toward the light. Re-author it in world units. |
-| `/src/standard/sear/shadows` `SHADOW_DEFAULTS` | Removed. Per-light shadow requests default off; Bevy's directional defaults apply, including `shadowNormalBias: 1.8` and `maximumDistance: 150`. |
-| Root `Volumetric` | `VolumetricLight`, still a marker; every marked point, spot and directional light contributes fog in-scatter. |
-| `Sky` colors | `Sky.brightness` scales the complete sky, including `SunDisk` disks and glow, in cd/m² before the camera's `Exposure` is applied. To preserve an existing sky's appearance at EV100 `ev100`, set `brightness: 1.2 * 2 ** ev100`. The default preserves the look at the default EV100 of 9.7. |
-| `Sky.sunSize`, `Sky.sunGlow` | Add `SunDisk` to each directional light whose disk should be drawn. To preserve the old disk diameter, set `angularSize` to `2 * Math.acos(1 - 0.0005 * oldSunSize)` radians; copy `sunGlow` to `glow`, the Shallot extension to Bevy's `SunDisk`. The default `angularSize` is Bevy's `EARTH` solar size. |
-| `Sky.sunColor` | Removed: a disk takes its directional light's `color`. `SunDisk.intensity` controls only its visual brightness, not illumination or shadows. |
-| Root `SunShadows.cascades` | `DirectionalLight.numCascades`, default `4`, clamped to `MAX_CASCADES`. |
-| Root `SunShadows.overlap` | `DirectionalLight.overlapProportion`, default `0.2`. |
-| Root `SunShadows.lambda` | Removed. Set `DirectionalLight.firstCascadeFarBound`, default `10` world units: the first cascade ends there and the rest are spaced exponentially to `maximumDistance`. |
-| Root `SunShadows.resolution` | `world.resource(DirectionalLightShadowMap).size`, default `2048`. |
-| Root `PointShadows.atlas`, `.casters`, `.hysteresis` | The same fields on `world.resource(PointShadows)`. |
-
-`DirectionalLight`, `PointLight` and `SpotLight` use Bevy's defaults for their photometric values, range, radius, angles and per-kind shadow biases. Re-author scene values explicitly when preserving a previous look.
-
-At EV100 9.7, `exposure = 2 ** -9.7 / 1.2`. To preserve a former linear multiplier `m`, re-author ambient brightness as `m / exposure` cd/m², directional illuminance as `Math.PI * m / exposure` lux, and point/spot luminous flux as `4 * Math.PI ** 2 * m / exposure` lumens. Keep `Exposure` at its EV100 value (the default is 9.7) or re-evaluate those authored values for another exposure. Example directional aim:
-
-```ts
-world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
-world.add(sun, DirectionalLight, { color: 0xfff4e0, illuminance: 3449.1713 });
-world.add(sun, SunDisk, { angularSize: 0.0529, intensity: 1, glow: 0.5 });
-```
-
-The public v0.9.5 `LightingGpu` schema in `packages/shallot/src/standard/render/lighting.ts` also changes shape. Its packed fields are replaced as follows:
-
-| v0.9.5 `LightingGpu` field | 0.10 replacement |
-|---|---|
-| `ambientColor` | `ViewUniforms.ambientColor` carries the effective linear ambient radiance from the camera's `AmbientLight` or `GlobalAmbientLight`; camera exposure is `ViewUniforms.exposure`. The old packed alpha multiplier is gone. |
-| `sunDirection` | `LightingGpu.directionalLights[i].direction`, the normalized travel direction from the light's transformed local `-Z`. `directionalCount` gives the active prefix. |
-| `sunColor` | `LightingGpu.directionalLights[i].color` plus `.params.x` illuminance in lux; exposure is camera-local. The old intensity-baked sun color is gone. |
-
-Standard packs up to ten directional lights. At most one enabled directional casts shadows: Shallot selects the enabled light with greatest illuminance, then lower entity id on a tie. It warns once while multiple directional lights request shadows; other enabled requests remain unshadowed. `shadowMapsEnabled` remains per light, so a game may change which one wins without rewriting the other lights.
-
-A shadowed spot light is now authored as:
-
-```ts
-world.add(lamp, Transform, { translation: [0, 4, 0] });
-world.add(lamp, SpotLight, {
-    color: 0xffffff, intensity: 157612.96, range: 12,
-    innerAngle: (18 * Math.PI) / 180,
-    outerAngle: (28 * Math.PI) / 180,
-    shadowMapsEnabled: 1,
-    depthBias: 0.0005,
-    shadowNormalBias: 1.8,
-});
-world.add(lamp, VolumetricLight);
-```
-
-`NotShadowCaster` is new in 0.10. Add it to a mesh entity to keep it visible without casting shadows. Removing it restores casting. `PointShadows` and `DirectionalLightShadowMap` belong to each World: instead of assigning to an imported object, write `world.resource(PointShadows).atlas = 1024` in `AppConfig.setup` or a plugin's `initialize`.
-
-`Camera` remains one component: `mode`, `fov`, `near`, `far`, `size`, `clearColor` and `antialias` are unchanged, including `fov` in degrees and `antialias: 1` for 4× MSAA. `CameraMode` and `Resolution.width`/`.height` are unchanged.
-
-Standard shadows now use Gaussian filtering by default. Add `ShadowFilteringMethod` to a camera with `method: ShadowFilteringMethodMode.Hardware2x2` to use one hardware comparison sample, or `method: ShadowFilteringMethodMode.Gaussian` for filtered shadows. A camera without the component uses Gaussian.
-
-## Indirect light sources use one shared input
-
-The v0.9.5 package had no indirect-light source registration API, so there is no old call to replace. In 0.10, `IndirectLightInput`, `IndirectLightSource`, `indirectLight`, `indirectLightSlot`, `indirectLightSources` and `registerIndirectLightSource` are new `/standard/rendering` exports. Register a TGSL `IndirectLightSource` during plugin initialization with `registerIndirectLightSource(world, name, source)`, before `StandardRenderingPlugin` warms its pipelines. The source receives `IndirectLightInput` (`worldPosition`, `normal`, `view`, `materialOcclusion` and effective `ambientRadiance`) and returns indirect radiance. Standard composes it after ambient light, scales each source by material occlusion, then applies material albedo and camera exposure. The same input is used by standard materials and fog; registration closes at warm.
-
-## Component editor metadata and name lookups are removed
-
-Remove the component traits `requires`, `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs` and `annotations`. Component declarations keep `defaults` and add-only `requires`; `excludes` is removed and runtime `provides` becomes `requires`. `System.annotations` is removed too: nothing read it, so drop the field from your systems.
-
-The component metadata exports `camel`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `dependencies`, `provides`, `exclusions` and `kebab` are removed. The `getComponent` and `getTraits` wrappers and registry methods are removed too. Query imported component handles with `world.query([Component])`; a game resolves components and enum values by import, not by name.
-
-Remove `Alias`, `laneAlias`, `eulerAlias`, `formatHex` and the input metadata helpers (`Input`, `Unit`, `units`, `angle`, `degrees`, `radians`). Quaternion conversion helpers remain.
-
-## Declare components once under exact keys
-
-`Plugin.components` is now a list of declared field records, not a component map. `Plugin.traits` and the `Traits` type are removed. Declare the exact key, `defaults` and `requires` with the fields:
-
-```ts
-// 0.9.5
+const Health = { value: sparse(f32) };
 const GamePlugin = {
     name: "Game",
     components: { Health },
     traits: { Health: { defaults: () => ({ value: 100 }) } },
 };
+Health.value.set(eid, 80);
 ```
 
 ```ts
 // 0.10
 import { component, f32, type Plugin } from "@dylanebert/shallot";
 const Health = component("Health", { value: f32 }, { defaults: () => ({ value: 100 }) });
-const GamePlugin: Plugin = {
-    name: "Game",
-    components: [Health],
-};
+const GamePlugin: Plugin = { name: "Game", components: [Health] };
+const health = world.storage(Health);
+health.value.set(eid, 80);
 ```
 
-Defaults use declaration field names and vector arrays, as `world.add` does; replace dotted-lane defaults with complete vectors. Remove imports of `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits` and `ColorTraits`; options now live on component declarations.
+Resolve storage in setup or initialization and retain it only for that World. A component's values are valid only while the entity holds it. Declare the full schema before binding it; replace the record to change its schema. Preserve exact keys across hot updates; two different component records under one key are refused.
 
-Keep each key byte-for-byte: when Vite hot-updates a module in place, such as one only a Svelte component imports, its fresh records rebind to the live world's storage by key. A composition refuses two different records under one key, naming both plugins. `component` returns the field record unchanged, so storage and insertion calls stay the same. Undeclared records in `Plugin.components` are refused, naming the plugin and the record's fields.
+Remove `capacity` from app and World options and imports: storage grows on demand. Scalar fields now use their declared numeric type: `u8` wraps 300 to 44, `u32` wraps negative values, and `f32` rounds to 32-bit precision; scalar `sparse` previously retained JS numbers.
 
-`inspect`, `snapshot`, `readFields` and `dump`, and the `EntityData` and `FieldValues` types, are removed. For `readFields(Component, eid)`, use `world.get(eid, Component)`: it returns one component's values, or `undefined` when the entity does not hold it, with vectors as arrays (`pos: [x, y]`) instead of dotted lanes (`pos.x`). Per-frame reads stay on `world.storage(Component)`. `world.snapshot()` returns `WorldSnapshot`, opaque, world-local recovery state for `world.restore(snapshot)`, not a save format. To use recovery, plugins with fixed systems declare `recovery: "stateless"` if components hold all their simulation state, or `recovery(world)` returning `{ snapshot(), restore(state) }` for hidden state. Snapshot returns an independent, reusable image; restore runs against the restored ECS and tick clock.
+Remove editor traits `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs`, `annotations`, `excludes` and the old editor meaning of `requires`. Remove `System.annotations`. These metadata helpers have no replacement:
 
-## Import app plugins in the entry page
+- `camel`, `kebab`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `dependencies`, `provides`, `exclusions`, `getComponent`, `getTraits`.
+- `Alias`, `laneAlias`, `eulerAlias`, `formatHex`, `Input`, `Unit`, `units`, `angle`, `degrees`, `radians`.
+- `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits`, `ColorTraits`.
 
-`virtual:project` and `shallot.schema.json` are removed. `shallot.json` no longer supplies app plugins or `pixelRatio`. Import the plugins and pass them directly to `runApp`; set `pixelRatio` there if needed:
+Resolve components by import. Replace `/ecs/core` wrappers `register`, `getExclusions`, `entries` and `clear` with `world.registry` operations where needed.
 
-```ts
-import { OrbitPlugin, runApp } from "@dylanebert/shallot";
-import { GamePlugin } from "./src/game";
+## `readFields`, `inspect`, `snapshot` and entity identity
 
-await runApp({ plugins: [OrbitPlugin, GamePlugin], pixelRatio: "auto" });
-```
-
-Default plugins remain enabled unless `defaults: false` is set. Remove manifest-only default exports and import a plugin's named export instead.
-
-The manifest's `identifier` override is removed. Native bundles take `com.shallot.<name>`.
-
-## Request non-default GPU limits explicitly
-
-0.9.5 requested the adapter's maximum limits automatically. The engine now requests default device limits. If your application needs larger buffers or other non-default limits, acquire a device with those limits and pass it through the existing `config.device` option.
-
-## Resolve component storage from the owning World
-
-`slab()` and `sparse()` are removed. Declare bare field types and resolve their values from the World:
+`readFields(Component, eid)` becomes `world.get(eid, Component)`, returning vectors as arrays and `undefined` for absent components. `inspect`, `dump`, `EntityData` and `FieldValues` are removed. `world.snapshot()` is opaque, world-local recovery state, not the old inspection or scene-save format.
 
 ```ts
 // 0.9.5
-const Health = { value: sparse(f32) };
-Health.value.set(eid, 100);
+const values = readFields(Transform, eid);
 ```
 
 ```ts
 // 0.10
-const Health = { value: f32 };
-const health = world.storage(Health);
-health.value.set(eid, 100);
+const values = world.get(eid, Transform);
+const image = world.snapshot();
+world.restore(image);
 ```
 
-Resolve storage once in a system's setup or a lifecycle hook, then retain it for that world. Declare the complete schema before binding it; to change a schema, replace the component object. A component's values are unreadable after `world.remove`; writing to a component the entity does not hold is unsupported and may leave values for a reused eid.
+Plugins with fixed systems must declare `recovery: "stateless"` when components hold all simulation inputs, or `recovery(world)` returning `{ snapshot(), restore(state) }` for hidden state. The returned image must be independent and reusable.
 
-Remove `capacity` from `createApp()` configuration and `new World()` options. The exported global `capacity` is gone; columns and tables grow as needed.
+`state.stamp` becomes `world.ref`; resolve a reference with `world.resolve`. Replace `state.timescale` writes with `world.setTimeScale`. `Identity`, `world.identity`, `refs()` and the `derived` trait are removed. Keep returned eids instead of naming entities; the `entity` field still stores a plain eid, not a generation-aware reference.
 
+## `Slab`, field `.gpu` and `Compute`
 
-## Component fields no longer expose `.gpu`
-
-`state.membership` and the `"membership"` buffer shipped in v0.9.5 are removed. Gate GPU work on a table's active rows.
-
-`Slab`, `SlabPlugin` and `SlabSystem` are removed. Remove them from imports and plugin dependencies. Replace per-field GPU buffers with a record table:
+`Slab`, `SlabPlugin`, `SlabSystem`, `slab()` and per-field `.gpu` buffers are removed. Replace entity-indexed scalar buffers with typed record tables and dense row indices. `state.membership` and the named `"membership"` GPU buffer are removed; dispatch over active table rows.
 
 ```ts
 // 0.9.5
@@ -715,53 +158,205 @@ const gpuValues = Heat.value.gpu;
 
 ```ts
 // 0.10
-const Heat = { value: f32 };
+import * as d from "typegpu/data";
+const Heat = component("Heat", { value: f32 });
 const table = world.table("heat", d.struct({ value: d.f32 }));
 table.bindComponent(Heat, { value: "value" });
 const gpuRows = table.buffer;
 ```
 
-Change shaders from entity-indexed scalar arrays to struct records addressed by dense row slots. `table.rowIndex(eid)` gives the CPU slot; enable the table's eid lookup when a shader starts from an eid. Rebind when the table's buffer generation changes. Built-in Body, GlobalTransform and light fields no longer publish their old per-field `.gpu` buffers either.
+Use `table.rowIndex(eid)` on the CPU; enable its eid lookup if a shader starts from an eid. Rebind after buffer-generation changes. Built-in body, transform and light fields no longer expose per-field GPU buffers.
 
-`f16x4`, `srgb8x4` and `FieldType.gpu` are removed; no table packs a field. Declare `vec4` and bind it as a 16-byte `d.vec4f`. Declare data that holds only x, y and z as `vec3`: it has `vec4`'s 16-byte layout, binds as `d.vec3f` or `d.vec4f`, and is written `[x, y, z]` in `world.add` and defaults and `.set(eid, x, y, z)` on its storage, with the fourth lane 0. For a 4-byte color, store `packColor4(r, g, b, a)` from `/utils` in a `u32` field, bind it as `d.u32` and read it in the shader with `unpackLdrColor`:
+`f16x4`, `srgb8x4` and field `Type.gpu`/`Type.wgsl` metadata are removed. Use `vec4` bound as `d.vec4f`; for packed color, use a `u32` field with `packColor4` and shader `unpackLdrColor`. Custom field types declare `ctor`, `lanes`, `name` and an optional codec.
+
+`Compute` becomes `world.gpu`. Its named `buffers`, `textures`, `samplers` and `typed` registries are gone. Keep shared state in a World resource. Custom material and background resources come from `bindings(world)`, keyed by the layout's binding names.
+
+## `Plugin.features`, `preferredFeatures` and `requestGPU`
+
+Move GPU requirements onto `Plugin.gpu`. Every plugin using the GPU declares it, even if it needs only `gpu: {}`. Without declarations or a supplied device, an app can now build and step without WebGPU.
 
 ```ts
 // 0.9.5
-const Material = { params: slab(f16x4, "material"), color: slab(srgb8x4, "color") };
+const RenderPlugin = { name: "Render", features: ["indirect-first-instance"] };
+requestGPU(device, ["timestamp-query"], ["subgroups"]);
 ```
 
 ```ts
 // 0.10
-const Material = { params: vec4, color: u32 };
-const table = world.table("material", d.struct({ params: d.vec4f, color: d.u32 }));
-table.bindComponent(Material, { params: "params", color: "color" });
-world.storage(Material).color.set(eid, packColor4(1, 0.5, 0.25, 1));
+import { requestGPU, type Plugin } from "@dylanebert/shallot";
+const RenderPlugin: Plugin = {
+    name: "Render",
+    gpu: { features: ["indirect-first-instance"], limits: { maxStorageBuffersPerShaderStage: 10 } },
+};
+await requestGPU(device, [{
+    plugin: "MyPlugin", features: ["timestamp-query"], preferredFeatures: ["subgroups"],
+}]);
 ```
 
-## Removed app and field metadata
+0.9.5 requested adapter maxima; 0.10 requests default limits unless a plugin declares more. Declare required limits on their owning plugin. An externally acquired `config.device` still works, but must satisfy every enabled declaration. Headless GPU apps install the optional `webgpu` peer and call `setupGlobals` from `/webgpu` before building.
 
-- `App.skipped` is removed, since an incomplete composition fails in `createApp`.
-- `World.record(name, ms)` and `World.fenceWait(ms)` are removed; call `world.recordSink?.(name, ms)` or `world.fenceWaitSink?.(ms)`.
-- `FieldType.wgsl` is removed, since tables bind TypeGPU records and a custom field type declares `ctor`, `lanes`, `name` and an optional codec.
+## `State.step` errors and fixed `time.elapsed`
 
-## Authored Transform and world GlobalTransform are separate
+Inside `fixed`, `world.time.elapsed` is now `fixedTick * Time.FIXED_DT`, not frame elapsed time. Keep simulation on this clock; move frame effects to `simulation` or `draw`.
 
-`Transform` remains authored placement. Replace `TransformsPlugin` with `TransformPlugin` from `@dylanebert/shallot/transform` (also exported at the root). Physics and rendering include it as a dependency; add it explicitly to placement-only compositions. It derives `GlobalTransform` from `Transform`; for a body, physics publishes pose while Transform derivation still supplies scale. `Body` requires `Transform`, which requires `GlobalTransform`; removing a producer leaves placement attached. A body's `Transform` holds its spawn pose and receives physics' pose after each step. Writing its translation or rotation teleports the body at the next step (before character movement for a Character), without resetting interpolation. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is derived world placement, never authored, and has no hierarchy. A body's `Transform.scale` scales its shapes and rendered mesh alike; the default `Shape` and `MeshInstance` share unit cubes. Hull and mesh `Shape.scale` multiplies the body's scale. Sphere and capsule shapes require uniform body-scale magnitudes; height fields require positive components, and all shapes refuse zero or non-finite components. Refused shapes warn once and retry until valid. Joint anchors and local frames remain in unscaled body-frame meters. For sized mesh geometry, `cube([x, y, z])`, `sphere(radius)` and `capsule(radius, length)` remain available from `/mesh`, lengths in full (a capsule's is its mid-section's); these builders default to the built-in sizes. `Transform.translation` and `.scale` and `GlobalTransform.translation`, `.scale` and `.linearVelocity` are `vec3` fields, written `[x, y, z]`; `rotation` stays a four-value quaternion.
-
-The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
-
-Material vertex shaders receive `.xform` and `.world` on their inferred argument; fragment shaders read `.world` on theirs. The dense mesh-instance record carries eid, mesh, material type and type-local material row. Body, camera, light, text, sprite and other world-space consumers read GlobalTransform rather than Transform as world placement.
-
-## Mesh material types own shaders and typed rows
-
-`Surface`, `registerSurface` and `surfaceLayout` are removed. Define a material type with a parameter schema and shader functions; register it with `MaterialPlugin`. Only materials with owned bindings need `materialLayout(Params, bindings)`; pass that layout instead of `parameters`. The `vertex` and `fragment` shaders are plain `"use gpu"` functions with inferred arguments. Both arguments expose the selected row as typed `.parameters`; declare extra interpolated fields with `varyings`. Owned bindings remain available through the layout the shader closes over. Each registered type owns CPU-authored rows and a lazily created GPU parameter table for renderer consumption. `MeshMaterial` stores the World-local material-type id, that type's row, and a numeric `alphaMode`/`alphaCutoff` copy of the row's alpha, rewritten from the row after simulation. Preprocessing groups by `(material type, alpha pipeline key, mesh)`, so changing the type, the row, or the row's alpha mode moves the entity to the corresponding draw on the next frame. A missing `MeshMaterial` selects StandardMaterial type 0, row 0 in Opaque mode.
+Outside `runApp`, `world.step()` now throws on a system error, stops later systems and retries the failing system on the next step. Catch errors in custom loops. `runApp` still logs and pauses a failing system until reload or re-registration.
 
 ```ts
-import {
-    MaterialPlugin,
-    materialType,
-} from "@dylanebert/shallot/standard/rendering";
+// 0.9.5
+state.step(); // system errors were logged
+```
 
+```ts
+// 0.10
+try {
+    world.step();
+} catch (error) {
+    console.error(error);
+}
+```
+
+## `Transform.pos`, `Transform.rot` and quaternion helpers
+
+Rename `pos` to `translation`, `rot` to `rotation`, and `TransformsPlugin` to `TransformPlugin` (`/transform`). Placement readers use derived `GlobalTransform`, not authored `Transform`. Physics and rendering include the plugin; placement-only apps add it explicitly.
+
+```ts
+// 0.9.5
+Transform.pos.set(eid, 1, 2, 3, 0);
+Transform.rot.set(eid, ...Object.values(quat(0, 90, 0)));
+```
+
+```ts
+// 0.10
+world.storage(Transform).translation.set(eid, 1, 2, 3);
+world.storage(Transform).rotation.set(eid, ...eulerToQuat(0, Math.PI / 2, 0));
+const placement = world.storage(GlobalTransform);
+```
+
+`quat`, `euler`, `rotate` and `aim` become `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler` and `lookAtRotation`. Quaternion results (including `slerp`) are tuples, not `{ x, y, z, w }`; Euler values now use radians, not degrees. Multiply old angles by `Math.PI / 180`.
+
+`compose`, `decompose`, `multiply`, `invert` and `composeTransform` become `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` and `composeGlobalTransform`.
+
+Translation, scale and linear velocity use `vec3`: three-value arrays in `world.add`, three arguments in storage `.set`, and four-lane raw-column stride. Quaternion rotation remains four values. Rendering interpolates fixed-tick placement; write gameplay motion in fixed systems.
+
+## `Inputs` and `setInputEnabled`
+
+Replace process-level `Inputs` with `world.resource(Devices)`; `mouse` becomes `pointer`. `inputEnabled()` becomes `Devices.enabled`. Viewport dimensions live in `Viewports`, not input state.
+
+```ts
+// 0.9.5
+const held = Inputs.isKeyDown("KeyW");
+const pressed = Inputs.isKeyPressed("Space");
+const width = Inputs.mouse.canvasWidth;
+setInputEnabled(false);
+```
+
+```ts
+// 0.10
+const input = world.resource(Devices);
+const held = input.keys.held.has("KeyW");
+const pressed = input.keys.pressed.has("Space");
+const width = world.resource(Viewports).get(input.focused)?.cssWidth ?? 0;
+setInputEnabled(world, false);
+```
+
+Fixed systems do not read devices. Sample in the `setup` group into actor components, count press edges, and consume each new count once in `fixed`. Replace `isKeyPressedWithin` with a tick-counted window in actor state. `pointer.buttonEvents` preserves ordered presses and releases with their positions; use it when both can happen between frames.
+
+## `cursorRay`, `forwardRay`, `generateRay` and `screenToRay`
+
+Import `Ray` from the root, not physics. Replace camera-ray helpers with `/rendering` `viewportToWorld`, using CSS pixels relative to the camera's bound canvas (or pixels of its attached texture). For a forward ray, use the viewport centre.
+
+```ts
+// 0.9.5
+const ray = cursorRay(state, camera);
+```
+
+```ts
+// 0.10
+const pointer = world.resource(Devices).pointer;
+const ray = pointer.hover ? viewportToWorld(world, camera, pointer.x, pointer.y) : null;
+```
+
+The function reads `GlobalTransform` and returns null without placement or a non-empty target. A perspective ray starts on the transformed near plane, not at the eye; account for that offset in hit distances.
+
+## `RenderPlugin`, `SearPlugin` and `/core` imports
+
+`RenderPlugin` becomes `RenderingPlugin` for views, cameras, lights and frame anchors. `SearPlugin` becomes `StandardRenderingPlugin`, including `CorePipelinePlugin` for shared targets and phases and `MeshPlugin` for mesh storage. Custom renderers sharing the main pass depend on `CorePipelinePlugin`, not just `RenderingPlugin`.
+
+```ts
+// 0.9.5
+import { RenderPlugin, SearPlugin } from "@dylanebert/shallot";
+import { FrameGpu } from "@dylanebert/shallot/render/core";
+```
+
+```ts
+// 0.10
+import { RenderingPlugin, StandardRenderingPlugin } from "@dylanebert/shallot";
+import { FrameGpu } from "@dylanebert/shallot/rendering";
+```
+
+Use public subpaths, not `/src/*`; the wildcard is removed.
+
+| 0.9.5 import | 0.10 import |
+|---|---|
+| `/ecs/core` | `/ecs` |
+| `/utils/core` | `/utils` (except placement and mesh codecs below) |
+| `/render/core` view, frame, camera and lighting components | `/rendering` |
+| `/render/core` mesh data, `Meshes`, `MeshBinding`, `MeshIndex` | `/mesh` |
+| `/sear/core`, `/render/core` material, draw, background and light-cluster contracts | `/standard/rendering` |
+| `/physics/core` | `/physics` for data, `/standard/physics` for simulation |
+| `/tumble/core`, `/character/core` | `/standard/physics` functions; see physics entries |
+| `/fog/core` | `/extras` for fog authoring and shader reads |
+| `/utils/core` `Xform`, `xformQuat`, `xformPoint`, `xformNormal`, `xformMat`, `xformWgsl` | `/rendering` |
+| `/utils/core` `MeshQuant`, `meshIdOf`, `decodePos`, `decodeUv`, `encodePos`, `encodeUv`, `posQuantWgsl`, `posQuantPackWgsl` | `/mesh` |
+
+`Sear`, `Depth` and `Backdrop` become `StandardRenderer`, `DepthPrepass` and `CameraBackground`. `PrepassSystem` moves to `/rendering`; `ColorSystem` becomes `MainPassSystem`. Order effects before `OverlaySystem` and presentation after `PresentationSystem`.
+
+`computeViewProj`, `attachCanvas`, `attachView` and `detachView` now take World first (`detachCanvas` is renamed `detachView`). `sceneTransform` returns a reused per-camera result; copy its `read` and `write` before another call for that camera. `MAX_VIEWS` moves from `/render/core` to `/rendering` and changes from 8 to 533; use the constant rather than the old literal.
+
+## `Part`, `Color`, `Material` and mesh registration
+
+`Part` becomes `MeshInstance`; `PartPlugin` becomes `MeshRenderPlugin`. Mesh and material handles belong to a World. Names are labels, not lookup keys; keep the returned handles instead of calling `Meshes.id(name)`.
+
+```ts
+// 0.9.5
+const meshId = mesh({ name: "block", ...cube() });
+state.add(eid, Part);
+Part.mesh.set(eid, meshId);
+Color.rgba.set(eid, 1, 0, 1, 1);
+```
+
+```ts
+// 0.10
+const mesh = world.resource(Meshes).add({ name: "block", ...cube() });
+const material = world.resource(Materials).add(StandardMaterial({
+    baseColor: [1, 0, 1, 1], perceptualRoughness: 1,
+}));
+world.add(eid, MeshInstance, { mesh });
+world.add(eid, MeshMaterial, material);
+```
+
+Replace `Part.surface` and the `Material` component with a `MeshMaterial` handle. Convert `Material.params` as follows: `metallic` is unchanged, `roughness` becomes `perceptualRoughness`, `occlusion` is unchanged, and emissive strength `e` becomes RGB `baseColor.rgb * e`. `Color.rgba` becomes linear `baseColor`.
+
+`StandardMaterial` defaults to white, metallic 0, roughness 0.5, black emissive and occlusion 1. Use `unlit: true` for unlit color. Meshes without a `MeshMaterial` use the default material. Update rows with `world.resource(Materials).update(handle, values)`; omitted fields retain their values.
+
+`Meshes.register` becomes `world.resource(Meshes).add`. Removing or clearing meshes invalidates retained handles: instances draw nothing until assigned a new handle. `MeshPlugin` adds only the default cube; explicitly add other primitives such as `{ name: "sphere", ...sphere() }`. Remove unused `Mesh.dynamic`, `count` and `cast`; use `NotShadowCaster` on an entity to suppress casting.
+
+`sphere` and `capsule` now reject noninteger or too-small tessellation: segments must be >= 3 and rings >= 2. Capsule rounds odd ring counts down to even. Do not depend on the old degenerate pole-triangle index counts.
+
+## `Surface`, `surfaceLayout` and `registerSurface`
+
+Replace surfaces with material types registered by `MaterialPlugin` from `/standard/rendering`. Parameter rows replace per-entity color and material buffers. Shader functions are plain `"use gpu"` functions with inferred arguments, not prebuilt TypeGPU functions.
+
+```ts
+// 0.9.5
+const layout = surfaceLayout({});
+registerSurface(state, { name: "tint", layout, fs });
+```
+
+```ts
+// 0.10
+import * as d from "typegpu/data";
+import { MaterialPlugin, materialType } from "@dylanebert/shallot/standard/rendering";
 const Params = d.struct({ tint: d.vec4f });
 const Tint = materialType({
     name: "Tint",
@@ -773,343 +368,358 @@ const Tint = materialType({
     defaults: { tint: d.vec4f(1) },
 });
 const TintPlugin = MaterialPlugin(Tint);
+const tint = world.resource(Tint).add({ tint: d.vec4f(1, 0, 0, 1) });
+world.add(eid, MeshMaterial, tint);
 ```
 
-Add parameter values with `world.resource(Tint).add(...)`; the returned material handle goes directly into `MeshMaterial`. Partial updates use `world.resource(Tint).update(handle, values)`. Material rows and type ids belong to their World. The renderer supports typed mesh attributes declared by `materialLayout` and validates their element schemas against the registered mesh.
+Use `materialLayout(Params, bindings)` instead of `parameters` when the type owns bindings. Supply those resources through `bindings(world)`. Both shader arguments expose `.parameters`; vertex shaders also expose `.xform` and `.world`, fragments `.world`. Declare interpolated fields with `varyings`. `Surface.specialize`, `Specialize` and `Mesh.variant` are removed: register separate types for different shaders.
 
-`SpriteBillboard` is now `Billboard`, shared by `Sprite.billboard` and `Text.billboard`; import it from the root or `/rendering`, not `/extras`. Its `Screen`, `YLocked` and `World` values are unchanged. Text defaults to `Billboard.World`, preserving existing label placement.
+For standard shading, use `StandardMaterial` or `pbrInputFromMaterial` with `applyPbrLighting`. `extendedMaterial(Materials, { name, fragment })` shares standard's parameter schema and bindings but owns its rows; it cannot add parameters or bindings.
 
-Sprite owns a bound table for its image layer, tint, fill and billboard data, supplied to its mesh material type as a parameter source; material rows are dense, not entity ids. Replace `blend: SpriteBlend.Clip` with `alphaMode: SpriteAlphaMode.Mask(0.5)` (the default), and `blend: SpriteBlend.Alpha` with `alphaMode: SpriteAlphaMode.Blend`. Mask accepts a threshold in 0..1 and retains depth/shadow participation; Blend casts no shadows. `SpriteAlphaMode` is exported from the root and `/extras`; its values are two-lane tuples for `Sprite.alphaMode`. Rename `fill` to `fillAmount` and `fillMode` to `fillMethod`; values and directions are unchanged. The former separate `SpriteAlphaMaterialType` is removed. Sprite remains on the standard mesh path. Its origin-centred culling sphere derives from the selected row's size and anchor on the GPU and during CPU transparent queuing, including consumers sharing that row, so culling includes the expanded quad for every billboard mode and rotation does not move its sort point. The CPU `MeshInstance.cullBounds` is not a copy of that sphere. Text and lines own their renderer pipelines and use core's `RenderPhases.transparent` seam; their transparency is not selected by mesh-material `AlphaMode` and they do not enter the opaque depth prepass or cast shadows.
+## Surface `blend` and material transparency
 
-## Material alpha modes belong to each material row
-
-`AlphaMode` is exported from the root and `/standard/rendering`; alpha behavior is no longer declared on a material type with `blend: "alpha"` or `blend: "clip"`. StandardMaterial defaults to `Opaque`, but its fragment keeps `baseColor[3]` instead of forcing alpha to 1. Choose a non-opaque mode explicitly when that value should affect compositing. Add or update a row with the alpha option:
+Move surface `blend: "alpha"` or `blend: "clip"` to each material row's alpha option. Standard material alpha is no longer forced to 1; select a non-opaque mode to composite it.
 
 ```ts
+// 0.9.5
+const surface = { blend: "alpha" };
+```
+
+```ts
+// 0.10
 const glass = world.resource(Materials).add(
     StandardMaterial({ baseColor: [0.3, 0.7, 1, 0.35] }),
     { alphaMode: AlphaMode.Blend },
 );
-world.add(window, MeshMaterial, glass);
-world.resource(Materials).update(glass, { baseColor: [0.3, 0.7, 1, 0.6] }, {
-    alphaMode: AlphaMode.Blend,
+world.add(eid, MeshMaterial, glass);
+```
+
+Use `AlphaMode.Mask(cutoff)` for clipping. `Opaque` and `Mask` write depth; `Blend`, `Premultiplied`, `Add` and `Multiply` do not write depth or cast shadows. `AlphaToCoverage` requires MSAA or falls back to a 0.5 mask. Custom fragments return the intended alpha. Transparent draws sort back-to-front across renderers, not correctly through intersecting geometry.
+
+## `Backdrop.name` and background registration
+
+`Backdrop` becomes `CameraBackground`; `name` becomes a retained World-local background handle. `Backgrounds.id(name)` is removed. Import background contracts from `/standard/rendering`; `BgCtx` becomes `BackgroundContext`; infer `BackgroundFn` and `BackgroundLayout` from the definition instead of importing `BgFn` or `BgLayout`.
+
+```ts
+// 0.9.5
+Backdrop.name.set(camera, Backgrounds.id("sky"));
+```
+
+```ts
+// 0.10
+world.add(camera, CameraBackground, { background: skyBackgroundHandle(world) });
+```
+
+`registerBackground` now takes the owning World and returns a handle. Equal names create different backgrounds. Supply owned resources through `bindings(world)` instead of publishing them in `Compute`.
+
+## `Glaze`, `Tonemap` and `/glaze`
+
+`CorePipelinePlugin` replaces Glaze presentation. Use camera `Tonemapping`, `ColorGrading` and optional `VignettePlugin`/`Vignette`.
+
+```ts
+// 0.9.5
+state.add(camera, Glaze);
+Glaze.tonemap.set(camera, Tonemap.Neutral);
+Glaze.exposure.set(camera, 2);
+```
+
+```ts
+// 0.10
+world.add(camera, Tonemapping, { method: TonemappingMethod.KhronosPbrNeutral });
+world.add(camera, ColorGrading, { exposure: Math.log2(2) });
+```
+
+| Old Glaze setting | Replacement |
+|---|---|
+| `tonemap` | `Tonemapping.method`; map names, not numeric indices |
+| `Neutral`, `Aces`, `Agx`, `SomewhatBoring` | `KhronosPbrNeutral`, `AcesFitted`, `AgX`, `SomewhatBoringDisplayTransform` |
+| `Reinhard`, `ReinhardLuminance`, `None` | Same names on `TonemappingMethod` |
+| `exposure` multiplier | `ColorGrading.exposure` in stops: `Math.log2(multiplier)` |
+| `saturation` | `ColorGrading.postSaturation` |
+| `slope`, `offset`, `power` | No exact per-channel CDL equivalent; retune sectional `gain`, `lift`, `gamma` and global `temperature`/`tint` |
+| `vignette`, `vignetteInner`, `vignetteOuter` | `Vignette.intensity`, retuned `radius`/`smoothness`; now before tonemapping |
+| `posterize`, `dither` | No posterization replacement; presentation dithers by default |
+
+Cameras now default to `TonyMcMapface`. `TonemappingMethod.None` skips grading, exposure and dither, but still display-encodes linear color; `Linear` keeps grading, exposure and dither with an identity curve. Add camera `DebandDither` with `{ enabled: 0 }` for undithered output.
+
+For custom postprocessing, register per-camera passes in `EffectPasses`. Before passes operate on linear HDR; after passes on encoded display-referred intermediates. Remove registrations when their owner leaves. Remove `GlazePlugin`, `GlazeSystem` and `tonemapWgsl` imports.
+
+## `DirectionalLight.direction`, `Spot`, `Shadow` and light intensity
+
+Lights now use photometric units and transformed placement. Directional light travels along local `-Z`; replace explicit `direction` with rotation. Point and spot lights require `Transform`. Camera `Exposure` defaults to EV100 9.7.
+
+```ts
+// 0.9.5
+DirectionalLight.direction.set(sun, -0.4, -0.8, -0.5, 0);
+DirectionalLight.intensity.set(sun, 1);
+state.add(sun, Shadow);
+```
+
+```ts
+// 0.10
+const exposure = 2 ** -9.7 / 1.2;
+world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, -0.4, -0.8, -0.5) });
+world.add(sun, DirectionalLight, {
+    illuminance: Math.PI / exposure, shadowMapsEnabled: 1,
 });
 ```
 
-Custom material types use the same `{ alphaMode }` option on `add`, `update` and `setAt`; their fragment shader must return the intended alpha. `Opaque` writes depth. `Mask(cutoff)` discards fragments below its per-row cutoff and writes depth; `Blend`, `Premultiplied`, `Add` and `Multiply` use transparent color pipelines without depth writes or shadows. `Premultiplied` expects premultiplied shader RGB; `Add` premultiplies RGB and shares its pipeline key, with shader output distinguishing the additive behavior. `AlphaToCoverage` emits a fragment `sample_mask` from alpha for multisampled views; it falls back to a 0.5 mask on a single-sample view. Transparent draws join the shared per-view phase and sort by view-space depth across renderers; see the shared `RenderPhases` contract below. This is not OIT and does not promise correct ordering for intersecting geometry.
+To preserve an old multiplier `m`, at EV100 `ev` use exposure `e = 2 ** -ev / 1.2`: ambient brightness `m / e` cd/m², directional illuminance `Math.PI * m / e` lux, point/spot intensity `4 * Math.PI ** 2 * m / e` lumens. Re-author these explicitly; new defaults differ.
 
-Do not move Text or Lines onto `AlphaMode`: they own their renderer pipelines and stay in the shared transparent phase. Sprite selects Mask or Blend through `Sprite.alphaMode` as described above.
-
-## glTF and Skin are removed
-
-`GltfPlugin`, `SkinPlugin` and their import, animation and live-skin helpers are no longer exported. Remove these plugins from manifests and imports; there is no replacement in this release line.
-
-The importer scene hooks `Preloader`, `Preloads` and `preload` are removed. Load assets in your plugin's `initialize`.
-
-The importer-only shader specialization is also removed: `Surface.specialize`, `Specialize` and `Mesh.variant` are gone. Register separate material types when shaders differ.
-
-## GPU registries and plugin helpers use the owning World
-
-Replace the process-level `Compute` registries with the owning `world.gpu`. Helpers needing GPU state receive the owning World explicitly.
-
-These helpers use the owning World:
-
-- Profiler measurements are read with `world.resource(DiagnosticsStore)` (root export).
-- `cascadeComboEids()` and `pointComboEids()` take World first; `cascadeCount()` and `pointComboCount()` are removed.
-- The cameras `cascadeComboEids()` and `pointComboEids()` return carry `GlobalTransform` only, no longer `Transform`. Read their placement from `GlobalTransform`, and query them with `GlobalTransform`, not `Transform`.
-
-## Profiler measurements use diagnostics; the HUD is optional
-
-Replace `Profile` with the root `DiagnosticsStore` resource. `ProfilePlugin` records measurements without a HUD; add `DiagnosticsOverlayPlugin` from `/extras` for the same F3 overlay and `showProfiler(world)` control.
-
-Read a diagnostic with `world.resource(DiagnosticsStore).get(path)`: `value()` returns the latest sample, `smoothed()` the time-weighted exponential average, and `measurements()` the bounded history (oldest first, times in monotonic seconds). CPU and GPU spans use `render/<span>/elapsed_cpu` and `render/<span>/elapsed_gpu`, in milliseconds. Absent spans retain their history rather than expiring after a display hold. In label-derived components, `%` becomes `%25` and `/` becomes `%2F`; an empty label uses `%`. The HUD decodes these components for display.
-
-| Former `Profile` field | Diagnostic path / replacement |
+| 0.9.5 | 0.10 |
 |---|---|
-| `cpu`, `gpu` | `render/<name>/elapsed_cpu`, `render/<name>/elapsed_gpu` |
-| `compile`, `compileMs` | `compile/<label>/elapsed`, `compile/elapsed` (milliseconds) |
-| `fenceWaitMs` | `frame/fence_wait` (milliseconds) |
-| `bufferBytes`, `textureBytes` | `memory/bufferBytes`, `memory/textureBytes` (bytes; read `value()` for live totals) |
-| `gpuTime`, `gpuFires` | Removed; diagnostics retain bounded history, not lifetime benchmark counters. |
+| Singleton `AmbientLight` | `world.resource(GlobalAmbientLight)`; optional camera `AmbientLight` override; `intensity` becomes `brightness` |
+| `PointLight` + `Spot` | `SpotLight`; `inner`/`outer` become `innerAngle`/`outerAngle` in radians |
+| `Shadow` presence | Per-light `shadowMapsEnabled: 1` (default off) |
+| Directional `Shadow.distance` | `DirectionalLight.maximumDistance` |
+| Point/spot `Shadow.distance` | Remove; it was ignored; coverage uses range |
+| `Shadow.depthBias`, `normalBias` | Per-light `depthBias` in world units (retune), `shadowNormalBias` in texels |
+| `Volumetric` | `VolumetricLight` |
+| `SunShadows.cascades`, `overlap` | `DirectionalLight.numCascades`, `overlapProportion` |
+| `SunShadows.lambda` | Retune `firstCascadeFarBound`; later cascades are exponentially spaced |
+| `SunShadows.resolution` | `world.resource(DirectionalLightShadowMap).size` |
+| Global `PointShadows` fields | Same fields on `world.resource(PointShadows)` |
 
-Custom CPU timing sinks (`recordSink`) now receive a borrowed `Float64Array` containing `[monotonicSeconds, elapsedMilliseconds]`, not a scalar duration. To retain a measurement, copy its values before returning. Producers can reuse a two-cell buffer and stamp its time with the root `sampleDiagnosticTime(buffer)` helper.
+At most one directional casts shadows: highest illuminance wins, then lower eid. Shadows now default to Gaussian filtering; add camera `ShadowFilteringMethod` with `method: ShadowFilteringMethodMode.Hardware2x2` for one comparison sample. Remove `SHADOW_DEFAULTS` imports.
 
-The measurement-window global and benchmark-only counters are removed.
+Custom shaders: `LightingGpu.ambientColor` moves to `ViewUniforms.ambientColor`; exposure is camera-local. `sunDirection` and `sunColor` become `directionalLights[i].direction`, `.color` and `.params.x` illuminance, for `directionalCount` entries.
 
-| v0.9.5 export or field (path) | 0.10 replacement |
-|---|---|
-| `window.__benchmark` | Removed; read diagnostics through `world.resource(DiagnosticsStore)`. |
-| Root and `/extras` `BenchmarkAPI` | Removed; there is no measurement-window API. |
-| Root and `/extras` `BenchmarkCompileStats` | Removed; read `compile/<label>/elapsed` and `compile/elapsed` diagnostics. |
-| Root and `/extras` `BenchmarkCpuStats` | Removed; read `render/<span>/elapsed_cpu` diagnostics. |
-| Root and `/extras` `BenchmarkFrameStats` | Removed; frame-window summaries are no longer provided. |
-| Root and `/extras` `BenchmarkGpuStats` | Removed; read `render/<span>/elapsed_gpu` diagnostics. |
-| Root and `/extras` `BenchmarkMeasurement` | Removed; there is no measurement-window API. |
-| Root and `/extras` `BenchmarkMemoryStats` | Removed; read the latest `memory/bufferBytes` and `memory/textureBytes` diagnostics. |
-| `Profile.indirectCount` | Removed; indirect-draw windows are no longer tracked. |
-| `Profile.indirectFires` | Removed; indirect-draw windows are no longer tracked. |
-| `Profile.compiledPipelines` | Removed; pipeline-only counts are no longer tracked. |
-| `Profile.pipelineCalls` | Removed; pipeline-constructor counts are no longer tracked. |
-| `Profile.submitCount` | Removed; submit counts are no longer tracked. |
-| `Profile.allocBytes` | Removed; use the overlay's per-allocation memory details. |
-| `Profile.lazyBytes` | Removed; lazy allocations are included in the memory diagnostics. |
-| Root and `/runtime` `LazyAlloc` | Removed; remove `lazy` metadata used only for profiler accounting. |
+## `Sky.sunSize`, `sunGlow` and `sunColor`
 
-## Character movement and player feel
-
-`extras/player` is no longer shipped. Copy the controller (`player.ts`, `motion.ts` and `follow.ts`) from `examples/first-person/src` into your game and import its `PlayerPlugin`, components and systems locally instead of from Shallot. Movement feel and input policy belong to your game; `CharacterPlugin` remains in `@dylanebert/shallot` as the physics mechanism. The Player changes below apply to that copied controller when migrating from 0.9.5.
-
-Import `Character`, `CharacterPlugin` and `GroundState` from `@dylanebert/shallot/standard/physics` (also re-exported from the root). `/character` and `/character/core` are removed. `Character` requires a capsule `Body` with `type: BodyType.Kinematic`; its pogo spring floats the lower sphere centre three radii above ground. Retune spawn and camera heights for that float.
-
-- Replace `move` with a fixed-tick write to `world.storage(Character).velocity`, ordered before `CharacterPlugin.systems`. Standard physics resolves that velocity, without gravity or acceleration.
-- An external producer can add and write `PlayerInput` with held `move` axes, `sprint`, absolute `yaw`/`pitch`, and a cumulative `jumpPresses` count. If absent, `DrivePlayerSystem` adds it seeded from `Player.yaw` and `Player.pitch`; every fixed tick copies the record's look angles to `Player`. It does not sample devices.
-- The former keyboard-driven `Player` also needs `LocalPlayer`; its setup producer ensures `PlayerInput` and samples this World's devices before the fixed loop. Move mouse-look `sensitivity` from `Player` to `LocalPlayer.sensitivity`; local view angles start from `Player.yaw` and `Player.pitch`.
-- Replace `jump` with your input policy's velocity write. The local producer counts Space presses; `Player` buffers each new count once, and jump tuning belongs to `Player.jumpSpeed`.
-- Replace `globalTransform` with `world.storage(GlobalTransform).translation`; test membership with `world.has(eid, GlobalTransform)` when placement may not yet exist.
-- Replace `grounded` with `world.storage(Character).groundState.get(eid) === GroundState.OnGround`; steep ground is a separate state.
-- Replace the 0.9.5 character helper `teleport(eid, x, y, z)` with `setTransform(world, eid, position, rotation)` from `/standard/physics` for an immediate teleport with interpolation reset, or write `Transform.translation` and `.rotation` to teleport before the next character movement without resetting interpolation; clear `Character.velocity` and `Character.pogoVelocity` for a stationary respawn. To move an entity without a body, write its `Transform` in a fixed system and call `resetInterpolation(world, eid)` from `/transform`, so rendering does not blend from the old placement.
-- `PlayerPlugin` no longer installs `RenderingPlugin`: it authors the linked camera's pose without presentation. Keep rendering in the app's composition when presenting that camera.
-- Move gravity and jump tuning to `Player.gravity` (positive downward acceleration) and `Player.jumpSpeed`. Player owns acceleration, friction, sprint, coyote time (0.1 seconds), jump buffering (0.1 seconds) and platform carry. Its defaults follow Minecraft Java's speeds and jump: speed 4.317 m/s, sprint multiplier 1.3, acceleration 20/s, friction 16/s, jump speed 8.85 m/s and gravity 29.5 m/s². `Player.hover` (0.05 m) sets `Character.pogoRest`, whose default of 3 radii is Box3D's mover sample, and Player turns on `Character.steepWalls`, off by default as in that sample.
-
-## Replace Mirror with explicit snapshot requests
-
-`Mirror`, `mirror(source)`, `MirrorSystem` and `MirrorPlugin` are removed, with no continuous replacement. Remove Mirror from manifests and plugin dependencies. For a snapshot that an app actually needs, use a one-shot probe:
+Sky color is now exposed radiance. Set `Sky.brightness: 1.2 * 2 ** ev100` to preserve its former appearance at that camera exposure (the default preserves EV100 9.7).
 
 ```ts
 // 0.9.5
-const observation = mirror(counters);
-// MirrorPlugin eventually updates observation.snapshot.bytes.
+Sky.sunSize.set(sky, 1);
+Sky.sunGlow.set(sky, 0.5);
 ```
 
 ```ts
 // 0.10
-import { probeBuffer } from "@dylanebert/shallot/runtime";
-const observation = await probeBuffer(world, counters);
-const count = new Uint32Array(observation.bytes)[0];
+world.add(sky, Sky, { brightness: 1.2 * 2 ** 9.7 });
+world.add(sun, SunDisk, { angularSize: 2 * Math.acos(1 - 0.0005), glow: 0.5 });
 ```
 
-Existing `probeBuffer(device, source, options)` and `probeTexture(device, source, options)` calls now take the owning World instead of the GPUDevice. The returned bytes remain owned by that result.
+Add `SunDisk` to each directional light whose disk should appear. `angularSize` replaces `sunSize` using `2 * Math.acos(1 - 0.0005 * oldSunSize)`. `sunColor` is removed: disks use the light's color. `SunDisk.intensity` changes the disk, not illumination.
 
-Requests accept only buffers and textures owned by their World. Allocate through `world.gpu.device` or `world.gpu.root`; register an external allocation intended solely for this world with `world.own(resource)` before probing it. Do not request another world's resource, even on a shared device. Keep counts that only size GPU work on the GPU instead of replacing the old Mirror with per-frame requests.
+## `Camera.far`, `perspective` and `Fog`
 
-## `shallot recipe` is now `shallot create`
-
-```sh
-# 0.9.5
-bunx shallot recipe first-person
-
-# 0.10, from the outer folder without an engine install
-bun create shallot my-game --template first-person
-
-# 0.10, inside a project where Shallot is installed
-bunx shallot create my-game --template first-person
-```
-
-## `shallot run` and `shallot verify` are removed
-
-Replace `shallot run` with the project's `bun run build` followed by `bun run preview`; preview never rebuilds. For a desktop app, use `shallot build --target <platform>` followed by `shallot preview --target <platform>`. Replace `shallot verify` with the project's own tests.
-
-## Package imports no longer use `/core` suffixes
-
-Rendering split into `/rendering` for shared capabilities and `/standard/rendering` for the default mesh renderer:
+Perspective depth now uses infinite reverse-Z: `Camera.far` still bounds visibility culling and clustered lights but does not clip the projection. Orthographic `far` remains a projection plane. Drop `perspective`'s far argument.
 
 ```ts
 // 0.9.5
-import { FrameGpu } from "@dylanebert/shallot/render/core";
-import { engineLayout, Surface, surfaceLayout, registerSurface } from "@dylanebert/shallot/sear/core";
-import { Xform } from "@dylanebert/shallot/utils/core";
+const projection = perspective(fov, aspect, near, far);
 ```
 
 ```ts
 // 0.10
-import { FrameGpu } from "@dylanebert/shallot/rendering";
-import { engineLayout, materialLayout, materialType, MaterialPlugin } from "@dylanebert/shallot/standard/rendering";
-import { Xform } from "@dylanebert/shallot/rendering";
+const projection = perspective(fov, aspect, near);
 ```
 
-The placement record and its decode moved from `/utils/core` to `/rendering`: `Xform`, `xformQuat`, `xformPoint`, `xformNormal`, `xformMat` and `xformWgsl`. The quantized vertex codec moved from `/utils/core` to `/mesh`: `MeshQuant`, `meshIdOf`, `decodePos`, `decodeUv`, `encodePos`, `encodeUv`, `posQuantWgsl` and `posQuantPackWgsl`.
+A world `Fog` now affects every standard-renderer camera; attach `NoFog` to opt a camera out. Fog and occluded outlines request shared depth automatically: remove `Depth`/`DepthPrepass` if it was only enabling those effects. Keep `DepthPrepass` for your own depth consumers.
 
-The WGSL pack and bitcast functions are removed from `/utils/core`; import TypeGPU's from `typegpu/std`, which take the same arguments:
-
-| v0.9.5 `/utils/core` | `typegpu/std` |
-|---|---|
-| `packSnorm2x16`, `unpackSnorm2x16` | `pack2x16snorm`, `unpack2x16snorm` |
-| `packUnorm2x16`, `unpackUnorm2x16` | `pack2x16unorm`, `unpack2x16unorm` |
-| `packUnorm4x8` | `pack4x8unorm` |
-| `bitcastF32toU32` | `bitcastF32toU32` |
-
-The spliced chunks no longer define these functions: raw WGSL that called `packSnorm2x16`, `unpackSnorm2x16`, `packUnorm2x16`, `unpackUnorm2x16` or `packUnorm4x8` from `octEncodeWgsl`, `posQuantWgsl`, `posQuantPackWgsl` or `ldrColorPackWgsl` calls the WGSL builtin named in the table. `spliceNs` is removed; `octEncodeWgsl` and `quatSnorm16x4Wgsl` share no function and splice in either order.
-
-`MeshInstance` stores `mesh` and an optional local-space culling sphere; ordinary meshes need only set `mesh`, while Sprite derives its billboard sphere from its size and anchor. Add StandardMaterial values with `const handle = world.resource(Materials).add(StandardMaterial(values))`, then add `MeshMaterial` with that `{ type, material }` handle. Retain the handle to share or update a material; there is no material name or name lookup. Meshes without `MeshMaterial` draw with StandardMaterial type 0, row 0. `VertexMaterialType`, exported at the root and from `/standard/rendering`, is the built-in per-vertex-lit alternative and accepts the same `StandardMaterial` parameter schema.
-
-| v0.9.5 export or field (path) | 0.10 replacement |
-|---|---|
-| Root `Part` | Root or `/mesh` `MeshInstance` |
-| Root `Part.surface` | A `MeshMaterial` handle selecting a registered material type and its row |
-| `/render/core` `Draw.surface` | `Draw.materialType`, the World-local material-type id |
-| Root `Color.rgba` | Material's linear `baseColor` |
-| Root `Material.params` (lanes `metallic`, `roughness`, `emissive`, `occlusion`; `emissive` is a strength) | `StandardMaterial({ metallic, perceptualRoughness, emissive: [baseColor[0] * emissive, baseColor[1] * emissive, baseColor[2] * emissive], occlusion })` |
-| Root `Material` component | Root or `/standard/rendering` `MeshMaterial` referencing an added material handle |
-| Root `PartPlugin` | Root or `/standard/rendering` `MeshRenderPlugin` |
-| `/part/core` `Parts` | Removed; mesh-instance packing is internal to `MeshRenderPlugin`. |
-| `/render/core` `Draws` names `part:<surface>:<mesh>`, profiler span `part:pack` | `mesh:material:<type>:<alpha key>:<mesh>:<handle>`, `mesh:preprocess` |
-
-`StandardMaterial()` defaults to white base colour, metallic 0, perceptual roughness 0.5, black emissive, occlusion 1 and lit shading. Set `unlit: true` to use the base colour without lighting. Add the same parameter record to `world.resource(VertexMaterialType)` to evaluate the standard lighting model per vertex and interpolate its result. Set `baseColor: [1, 0, 1, 1]` and `perceptualRoughness: 1` to express the former bare mesh values. `diffuseWrap` is removed; Lambert is the only diffuse response. A game wanting half-Lambert writes a custom material with its own lighting. Publish changed fields with `world.resource(Materials).update(handle, values)`; omitted fields retain their values. Read a row's current values with `world.resource(Materials).get(handle)`, which returns a fresh record that `add` and `update` accept, or `undefined` once the handle is removed. Change both `MeshMaterial.type` and `.material` when switching to another type; changing either field takes effect on the next frame, with the new row's alpha mode. Material handles belong to the World that added them.
-
-To reuse standard PBR shading, import `PbrInput`, `pbrInputFromMaterial`, `pbrInputFromStandardMaterial`, `applyPbrLighting` and `extendedMaterial` from `/standard/rendering`. In any `materialType` fragment, `pbrInputFromMaterial(ctx)` initializes a lit white `PbrInput` with world position, world normal and view direction; set its surface fields from your own parameters, then return `applyPbrLighting(input)`. Lighting returns linear colour including emissive before fog. For a standard-derived material, use `extendedMaterial(Materials, { name, fragment })`; its fragment can edit `pbrInputFromStandardMaterial(ctx)` before lighting or edit the lit result. It shares standard's schema, bindings and depth passes but owns its rows; register it with `MaterialPlugin` and add rows through `world.resource(YourType)`. Extension-only parameters and bindings are not supported.
-
-Custom material shaders read linear `color` and their typed `parameters` row from their inferred argument. `MeshInstanceInput` is `{ mesh: u32, materialType: u32, material: u32, alphaMode: u32, alphaCutoff: f32, flags: u32, cullBounds: vec4f }`; `flags` bit 0 excludes the mesh from shadow views, and a negative `cullBounds.w` uses the registered mesh sphere instead of the per-instance `(center.xyz, radius)` override. Parameter values live in one typed table per material type.
-
-Mesh data has its own `/mesh` module. Add a mesh with `world.resource(Meshes).add`, as materials are added with `world.resource(Materials).add`; it returns a world-local `MeshHandle`. Retain the handle for `MeshInstance` and `Draw.mesh` instead of looking it up by name. Mesh names are display labels, not identities, so equal labels add distinct meshes:
-
-```ts
-const mesh = world.resource(Meshes).add({ name: "block", ...cube() });
-world.add(eid, MeshInstance, { mesh });
-```
-
-Replace `Meshes.id(name)` with the retained handle from `Meshes.add`; names no longer resolve mesh identity. Handles are opaque, generation-checked identities, not GPU row indices or packed vertex mesh IDs. Removing a mesh or clearing `Meshes` invalidates its handles: instances retaining them draw nothing, even after later additions or an ECS snapshot restore. To draw a replacement, write its newly returned handle to `MeshInstance.mesh` (or a producer's `MeshInstanceInput.mesh`). `Meshes.register(mesh)` becomes `Meshes.add(mesh)`: a GPU-resident `Mesh` record is added as-is, while typed arrays are staged and packed. `MeshPlugin` adds only the default cube. To use another built-in geometry constructor, add its mesh explicitly:
-
-```ts
-import { Meshes, sphere } from "@dylanebert/shallot/mesh";
-
-const sphereMesh = world.resource(Meshes).add({ name: "sphere", ...sphere() });
-```
-
-Update mesh imports as follows; these names are also exported from the root in 0.10:
-
-| 0.9.5 import | 0.10 import |
-|---|---|
-| Root `mesh` | Root or `/mesh` `Meshes`, then `.add` |
-| — | Root or `/mesh` `MeshHandle` (returned by `Meshes.add`) |
-| `/render/core` `Mesh`, `MeshBinding`, `MeshIndex` | `/mesh`, same names |
-| `/render/core` `Meshes` | `/mesh`, same name |
-
-Mesh packing and layout helpers not listed here are removed; see the rendering extension export table above.
-
-`/render/core` `Mesh.dynamic`, `Mesh.count` and `Mesh.cast` are removed; they had no effect. Delete them, and add `NotShadowCaster` to an entity that should cast no shadow.
-
-Material, background and draw contracts belong to `/standard/rendering`. Update imports as follows; backgrounds and draws remain on that path:
-
-| 0.9.5 import | 0.10 import |
-| --- | --- |
-| `/render/core` `surfaceLayout`, `Surface`, `Surfaces`, `registerSurface` | Removed; use `materialLayout`, `materialType` and `MaterialPlugin` from `/standard/rendering` |
-| `/render/core` `VsIn`, `vsPatchSchema`, `fsCtxSchema` | Removed; `materialType` infers shader arguments and vertex results from its schemas |
-| `/render/core` `TagFn` | Removed; there is no replacement picking lane. |
-| `/render/core` `BgCtx` | `/standard/rendering` `BackgroundContext` |
-| `/render/core` `BgLayout`, `BgFn` | Removed; infer from `backgroundLayout` and `Background`. |
-| `/render/core` `backgroundLayout`, `Background`, `Backgrounds`, `registerBackground` | `/standard/rendering`; `registerBackground` returns a World-local `BackgroundHandle`. Store it in `CameraBackground.background` (formerly `name`). Names are display labels; repeated names create distinct backgrounds. `Backgrounds` is a read-only handle map; `Backgrounds.id(name)` is removed. Supply a background's resources through its `bindings(world)` callback instead of publishing them in `world.gpu`. For the sky, select `skyBackgroundHandle(world)` from `/extras`; the sky no longer publishes GPU resources under `"sky"`. |
-| `/render/core` `Draw`, `DrawIndexedIndirect`, `Draws` | `/standard/rendering`, same names |
-| `/render/core` `computeViewProj`, `Frame`, `FrameGpu`, `BeginFrameSystem`, `OverlaySystem`, `CULL_FRUSTUM`, `CULL_VOLUME_FLOATS`, `Views`, `MAX_VIEWS`, `MAX_SLOTS`, `attachCanvas`, `attachView`, `detachCanvas`, `sceneTransform`, `imageArray` | `/rendering`, same names, except `detachCanvas` is `detachView`; `computeViewProj`, `attachCanvas`, `attachView` and `detachView` take World first |
-| `/render/core` `Clusters`, `clusterCell`, `LightCull` | `/standard/rendering`, same names |
-| `/render/core` `Lighting`, `LightingGpu`, `PointLightGpu`, `distanceAttenuation`, `spotFactor` | `/standard/rendering`, same names |
-
-`sceneTransform` returns one result object per camera, rewritten by the next call for that camera; destructure or copy `read` and `write` before calling it again.
-
-Other implementation helpers in these contracts are removed; see the rendering extension export table above. `MeshInstanceInput` from `/standard/rendering` is new in 0.10 and describes a dense mesh-component row. `StandardMaterial`, `Materials` and `MeshPlugin` are also new exports, replacing the former component-only material values and mesh registration owned by `RenderPlugin`/`PartPlugin`.
-
-Camera prepass markers and attachment constants are imported from `/rendering`:
-
-| 0.9.5 import | 0.10 import |
-| --- | --- |
-| Root or `/sear/core` `Depth` | `/rendering` `DepthPrepass` |
-| `/sear/core` `DEPTH_FORMAT` | `/rendering` `DEPTH_FORMAT` |
-| Root or `/sear/core` `Tag`, `/sear/core` `TAG_FORMAT`, `TAG_NONE` | Removed; there is no replacement picking lane. |
-
-`CorePipelinePlugin` from `/rendering` registers `DepthPrepass` and owns view targets, clear, resolve and prepass/opaque/transparent phases. `StandardRenderingPlugin` includes it as a dependency. Custom renderers using these phases depend on `CorePipelinePlugin` and register `PhaseRenderer` records in `RenderPhases`; callbacks record into the shared pass and do not end it. `RenderingPlugin` alone supplies views and frame/presentation anchors without the shared pipeline. `DepthPrepass` requests the camera's stored depth output.
-
-In 0.10, transparent producers contribute one item per independently sortable draw through `transparent(world, eid, view, phase)`, using `phase.add(draw, batch, centerX, centerY, centerZ, stableId, stablePart?)` with a world-space bounds center. Core sorts ascending by view-space Z for each view, then by renderer namespace, stable id and stable part; provide a unique identity per renderer-owned draw, separate from `draw`, which remains the renderer's lookup index. Standard meshes and text use their entity id; each retained line segment uses its line entity id plus its segment index. `batch` identifies compatible state. `prepareTransparent(world, eid, view, phase, renderer)` may stage view-specific data before the pass. `drawTransparent(world, eid, view, phase, start, end, pass, renderer)` issues only the consecutive compatible range supplied by core; it must not move or regroup those items. The `opaque` callback still records into the main pass. The 0.9.5 package did not ship this `RenderPhases` seam, so there is no 0.9.5 transparent callback signature to preserve.
-
-Custom mesh material types register with `MaterialPlugin` and use `MeshRenderPlugin` / `StandardRenderingPlugin` for standard draws. Backgrounds remain on `StandardRenderingPlugin`. Text and lines depend on `CorePipelinePlugin` and contribute to `RenderPhases.transparent`; `RenderingPlugin` alone does not provide that shared pass.
-
-`RenderingPlugin` still registers the light components (`AmbientLight`, `DirectionalLight`, `PointLight`, `SpotLight`, `VolumetricLight`), but no longer packs GPU lights or builds clusters. Compositions using those GPU resources need `StandardRenderingPlugin`.
-
-Custom mesh producers depend on `MeshPlugin` from `/mesh`; `RenderingPlugin` alone no longer initializes mesh storage. `StandardRenderingPlugin` and `MeshRenderPlugin` include this dependency. `MeshPlugin` registers the built-in cube, sphere and capsule.
-
-### Primitive tessellation counts
-
-`sphere(radius, segments, rings)` and `capsule(radius, length, segments, rings)` now throw a `RangeError` unless `segments` is an integer >= 3 and `rings` is an integer >= 2. Pass counts in those ranges instead of fractional or smaller values. Capsule still rounds odd integer ring counts down to an even count. Pole triangles with zero area are no longer emitted; do not rely on the previous index counts.
-
-### `/bvh/core`
-
-Removed. Shallot no longer provides a GPU BVH builder or traversal helpers; there is no replacement subpath. Keep or vendor the acceleration structure in the package that consumes it.
-
-Likewise `/ecs/core` is `/ecs`, `/physics/core` and `/tumble/core` are `/physics`, and `/character/core` is removed in favor of `/standard/physics`. `/scene/core` is removed with the scene format. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
-
-## `Inputs` is now `world.resource(Devices)`
-
-The owning App's keys, pointer and touch replace the process-level `Inputs` facade; `Inputs.mouse` is `pointer`. `setInputEnabled` takes World, and `inputEnabled()` is `world.resource(Devices).enabled`. Canvas CSS size and device-pixel ratio live in the engine's `world.resource(Viewports)`, keyed by canvas index, not in `Devices`. Import `Viewports`, `Viewport` and `resizeViewport` from the root or `/engine`; `resizeViewport(world, index, width, height, dpr)` writes a row.
+`Fog.absorption` and `scattering` are nonnegative medium coefficients, not an absorbed fraction and brightness gain. For old absorption `a` in [0,1], scattering `s` and scatter intensity `i`, keep density, use absorption `a`, scattering `1 - a`, and `lightIntensity: s * i / Math.PI`. Old defaults are `a = 0`, `s = 1`, `i = 1`. Values outside that range need retuning. Rename `anisotropy` to `scatteringAsymmetry`.
 
 ```ts
 // 0.9.5
-if (Inputs.isKeyDown("KeyW")) moveForward();
-if (Inputs.isKeyPressed("Space")) jump();
-const width = Inputs.mouse.canvasWidth;
-setInputEnabled(false);
+state.add(eid, Fog);
+Fog.absorption.set(eid, 0.2);
+Fog.scattering.set(eid, 1);
+Fog.scatterIntensity.set(eid, 2);
+Fog.anisotropy.set(eid, 0.3);
+Fog.steps.set(eid, 32);
+Fog.jitter.set(eid, 1);
 ```
 
 ```ts
 // 0.10
-const input = world.resource(Devices);
-if (input.keys.held.has("KeyW")) moveForward();
-if (input.keys.pressed.has("Space")) jump();
-const width = world.resource(Viewports).get(input.focused)?.cssWidth ?? 0;
-setInputEnabled(world, false);
+world.add(eid, Fog, {
+    absorption: 0.2, scattering: 0.8, lightIntensity: 2 / Math.PI,
+    scatteringAsymmetry: 0.3, brightness: 1.2 * 2 ** 9.7,
+});
 ```
 
-Fixed systems do not read `Devices`. Sample devices in a `setup`-group system into a component record on each controlled actor, counting press edges as `PlayerInput.jumpPresses` does. In `fixed`, consume a new count once and keep windows such as the former `isKeyPressedWithin` in actor component state advanced by fixed ticks, as Player's jump buffer does:
+Remove `steps`, `jitter` and `scatterIntensity`: fog uses a frustum grid. `viewDistance` sets its far depth (default 64 world units); analytic height fog continues beyond it. `maxDistance` is a world-unit ray endpoint (default 5000); nonpositive values disable fog. Backgrounds now receive fog to that endpoint.
+
+`Fog.color` is exposed ambient light in the medium, at `brightness` cd/m²; use `1.2 * 2 ** ev100` for the former fade color at another exposure. Absorption-only fog no longer shows color. Ambient scene in-scatter is now 4π brighter; retune scene lighting if necessary.
+
+Fog composites after opaque surfaces inside the main pass, before transparency. Effects cannot run between opaque shading and fog. Standard transparent materials take fog at their own depth; custom transparent renderers, text and gizmos are unfogged unless they explicitly read fog. Fog authoring and shader reads are exported from `/extras`, not a `/fog` subpath:
 
 ```ts
-const presses = input.jumpPresses.get(eid);
-if (presses !== state.lastPresses.get(eid)) {
-    state.lastPresses.set(eid, presses);
-    state.bufferTicks.set(eid, 12);
-}
+// 0.10
+import { Fog, FogPlugin, readFog, fogReadLayout, fogReadBindGroup } from "@dylanebert/shallot/extras";
 ```
 
-Advance `bufferTicks` once each fixed tick.
+## `Sprite.anchor`, `Text.anchor`, visibility and sprite blending
 
-## Physics is authored and read through the ECS world
-
-Replace the 0.9.5 `TumblePlugin`/`AvbdPlugin` backend setup with `StandardPhysicsPlugin` from
-`@dylanebert/shallot/standard/physics`. It depends on core's `PhysicsPlugin`, which registers the
-shared physics components and installs no solver. `Physics.backend`, `PhysicsBackend`,
-`installBackend` and `uninstallBackend` are removed; `StepSystem` is now `StepPhysicsSystem`,
-and `ConstraintSystem` and `ComposeSystem` are internal to the plugin.
-
-In 0.9.5, `Tumble.world` exposed a `TumbleWorld` and `Tumble.body(eid)` returned a `TumbleBody`
-handle after the body was marshaled. Those handles, `Shape` and `Joint` handles, and `BodyState`
-are removed. The ECS `World` is the only physics world: author components and call
-functions that take the `World` first. Import `Body`, `Shape`, `ShapeKind`, `BodyType`, `Hulls`, `Hull` and
-`UNIT_CUBE_ID` from `/physics`; import `StandardPhysicsPlugin`, `StepPhysicsSystem`, `hashPhysics`,
-`PhysicsWorldDefinition`, `PhysicsEvents`, the state-write and query functions, and `drawPhysics`
-from `/standard/physics`. Import `GlobalTransform` from the root or `/transform`.
-
-### Bodies and shapes
-
-The 0.9.5 `Body.pos` and `Body.quat` become `Transform.translation` and `Transform.rotation`;
-scene-authored Euler degrees in `quat` must become an `(x, y, z, w)` quaternion. `Body` requires
-`Transform`; physics reads its spawn pose and writes it back after each step. Writing Transform's
-translation or rotation teleports the body at the next step, before movement for a Character,
-without resetting interpolation. Use `setTransform` for an immediate teleport with interpolation reset;
-`setTargetTransform` and velocity setters remain calls. The new `type` field
-replaces the old mass-based motion choice. 0.9.5's default `mass` was 1,
-while 0.10 `Body` defaults to static, so author `type` explicitly. The other new Box3D body
-fields are `linearVelocity`, `angularVelocity`, `linearDamping`, `angularDamping`, `gravityScale`,
-`sleepThreshold`, `motionLocks`, `enableSleep`, `isAwake`, `isBullet`, `isEnabled`,
-`allowFastRotation` and `enableContactRecycling`. Initial velocities and `isAwake` are spawn-only;
-fields with Box3D setters apply at the next fixed sync.
-
-Move the 0.9.5 `Body.shape`, `halfExtents`, `mass` and `friction` fields to `Shape`: `shape` becomes
-`Shape.kind`, `halfExtents.xyz` doubled becomes `Shape.scale` for hulls, `mass` becomes per-shape density,
-and `friction` becomes `Shape.friction`. The old `.w` radius becomes `Shape.radius`, shared by spheres and
-capsules; a sphere's center is `Shape.sphereCenter` and a capsule's hemisphere centers are
-`Shape.capsuleCenter1` and `Shape.capsuleCenter2`; a hull id moves to `Shape.geometry`. `ShapeKind.Box` becomes a scaled
-`ShapeKind.Hull`. Box3D computes mass from shape density and geometry, so do not copy total mass
-straight into density.
+Move pivots to `Anchor` from `/rendering`. For old pivot `p` in 0..1, use `offset: [p[0] - 0.5, p[1] - 0.5]`. Without `Anchor`, sprites remain centred and text bottom-left anchored; adding it without values centres either.
 
 ```ts
 // 0.9.5
-const eid = state.create();
+Sprite.anchor.set(eid, 0.5, 0);
+Sprite.visible.set(eid, 0);
+```
+
+```ts
+// 0.10
+world.add(eid, Anchor, { offset: Anchor.BOTTOM_CENTER });
+const values = world.get(eid, Sprite);
+world.remove(eid, Sprite);
+// To show it again, restore its authored values:
+if (values) world.add(eid, Sprite, values);
+```
+
+`Sprite.visible`, `Text.visible` and `Line.visible` are removed. Remove the drawing component to hide it; save values before removal. For retained lines remove `Gizmo` instead.
+
+`SpriteBillboard` becomes shared `Billboard` from `/rendering`; enum values are unchanged. Text defaults to `Billboard.World`. Rename sprite `fill` to `fillAmount` and `fillMode` to `fillMethod`. Replace `blend: SpriteBlend.Clip` with `alphaMode: SpriteAlphaMode.Mask(0.5)`, and `SpriteBlend.Alpha` with `SpriteAlphaMode.Blend`. Mask keeps depth and shadows; Blend casts no shadow.
+
+## `font`, `image` and `text` registration
+
+Replace `font(url, name)`, `image(source, name)` and `text(content)` with World-local `registerFont`, `registerImage` and `internText`. Remove registration aliases; keep returned ids. Repeated URLs share an id, while Blob registrations get distinct ids. `Text.font` 0 always selects the bundled default font.
+
+```ts
+// 0.9.5
+const face = font("/font.ttf", "labels");
+const picture = image("/image.png", "icon");
+const label = text("Hello");
+```
+
+```ts
+// 0.10
+const face = registerFont(world, "/font.ttf");
+const picture = registerImage(world, "/image.png", {
+    sampler: { mipmapFilter: ImageFilterMode.Nearest },
+});
+const label = internText(world, "Hello");
+```
+
+Image sampling defaults to clamp-to-edge and linear texel and mip filtering. Mesh image samplers formerly used nearest-mip filtering; use `mipmapFilter: ImageFilterMode.Nearest` to keep that behavior. Sprites already used linear mip filtering. Sampler settings participate in URL identity: different effective samplers return distinct ids.
+
+`TextPlugin` now fails initialization if a registered font cannot load, instead of warning and continuing. The bundled default no longer requires a network fetch.
+
+## `Line`, `Arrow`, `segment`, `box` and `arrow`
+
+Replace retained `Line` and `Arrow` with `GizmoAsset` and `Gizmo`. Build local-space geometry, register once, and share the handle among transformed entities. `Line.thickness` becomes pixel `Gizmo.width` (default 2); `Line.offset` becomes the line's local endpoint.
+
+```ts
+// 0.9.5
+state.add(eid, Line);
+Line.offset.set(eid, 2, 0, 0, 0);
+Line.thickness.set(eid, 3);
+state.add(eid, Arrow);
+```
+
+```ts
+// 0.10
+const asset = new GizmoAsset();
+drawArrow(asset, [0, 0, 0], [2, 0, 0], 0xffffff, undefined, 0.4, [0, 1, 0]);
+const handle = registerGizmo(world, asset);
+world.add(eid, Gizmo, { handle, width: 3 });
+```
+
+`Arrow.size` and the old relative arrow size become world-unit `tipLength` (sixth argument). To preserve head length, use `0.2 * shaftLength * oldSize`. Omission or negative values choose a tenth of shaft length; zero omits the head. Reverse endpoints for `Arrow.start`; use a plain line for no heads. Heads are now one filled triangle. The final normal defaults to world up and must be nonzero and perpendicular to the shaft; a vertical arrow needs e.g. `[0, 0, 1]`.
+
+Immediate `segment`, `box` and `arrow` become `drawLine`, `drawWireBox` and `drawArrow`, taking World first. Replace numeric width with an options record, e.g. `{ width: 2 }`. For retained builders pass `undefined` in that slot. Immediate options, `Gizmo` and `Text` accept `depthBias`: 0 is normal testing, -1 draws on top.
+
+## `Outline.color`
+
+Convert the linear RGBA array to an sRGB `0xRRGGBB` number. Alpha was unused.
+
+```ts
+// 0.9.5
+Outline.color.set(eid, 1, 0.85, 0.2, 1);
+```
+
+```ts
+// 0.10
+world.storage(Outline).color.set(eid, 0xffed7c);
+```
+
+## `Hulls.register` and physics geometry
+
+Geometry registries belong to each World. Replace name lookup with retained handles from `add`. Names are labels; duplicate names keep distinct definitions. To change geometry, add a new definition and assign its handle rather than mutating a registered definition.
+
+`Hull` now holds flat `Float32Array` points, not prebuilt `verts`, `faces` and `edges`. The solver builds the convex hull; `HullFace` is removed. `maxVertexCount` defaults to 128.
+
+```ts
+// 0.9.5
+const hull = Hulls.register({ name: "wedge", verts, faces, edges });
+```
+
+```ts
+// 0.10
+const hull = world.resource(Hulls).add({ name: "wedge", points: new Float32Array(verts.flat()) });
+world.add(eid, Shape, { kind: ShapeKind.Hull, geometry: hull });
+```
+
+`Hulls`, `PhysicsMeshes`, `HeightFields`, `Compounds` and `ShapeMaterials` use `add`, `get`, `has` and `remove`. Handles belong to that World and are invalidated by removal or clear. `Shape.materialSet` takes a `ShapeMaterials` handle (-1 for none). Each World starts with the unit cube at `UNIT_CUBE_ID` (0). `Shape.scale` defaults to `[1, 1, 1]`.
+
+## `createMesh`, `createHeightField` and `createCompound`
+
+Replace `/tumble/core` built geometry with definitions in the World's registries. Assign their handles to ECS shapes; standard physics builds the geometry.
+
+```ts
+// 0.9.5
+const mesh = createMesh({ vertices, indices, identifyEdges: true })!;
+Tumble.body(eid)?.createMesh({}, mesh);
+```
+
+```ts
+// 0.10
+const geometry = world.resource(PhysicsMeshes).add({
+    name: "terrain", vertices: new Float32Array(vertices.flatMap((v) => [v.x, v.y, v.z])),
+    indices: new Uint32Array(indices), identifyEdges: true,
+});
+world.add(eid, Shape, { kind: ShapeKind.Mesh, geometry });
+```
+
+Mesh definitions retain build-option names, with optional `clockwiseWinding`. Use `Uint8Array` material indices and a float stride. `MeshDef`, `MeshData` and `create*Mesh` helpers are removed.
+
+```ts
+// 0.9.5
+const field = createHeightField({ heights, scale: { x: 1, y: 1, z: 1 }, countX: 8, countZ: 8,
+    globalMinimumHeight: -10, globalMaximumHeight: 10, materialIndices: null, clockwiseWinding: false });
+Tumble.body(eid)?.createHeightField({}, field);
+```
+
+```ts
+// 0.10
+const geometry = world.resource(HeightFields).add({
+    name: "terrain", heights: new Float32Array(heights), scale: [1, 1, 1], countX: 8, countZ: 8,
+    globalMinimumHeight: -10, globalMaximumHeight: 10,
+});
+world.add(eid, Shape, { kind: ShapeKind.HeightField, geometry });
+```
+
+`createGrid`, `createWave`, `HeightFieldDef`, `HeightFieldData` and `HEIGHT_FIELD_HOLE` are removed; material index 255 still marks a hole.
+
+```ts
+// 0.9.5
+const compound = createCompound({ hulls: [{ hull: slab, transform: { p: { x: 1, y: 2, z: 0 }, q } }] })!;
+Tumble.body(eid)?.createCompound({}, compound);
+```
+
+```ts
+// 0.10
+const geometry = world.resource(Compounds).add({
+    name: "stairs",
+    hulls: [{ hull: slab, transform: { position: [1, 2, 0], rotation: [0, 0, 0, 1] } }],
+});
+world.add(eid, Shape, { kind: ShapeKind.Compound, geometry });
+```
+
+Compound hull and mesh children use registry handles. Sphere and capsule centers are tuples; radius is separate. Child `material` is optional; mesh `materials` replaces the old list/count pair. `CompoundDef`, the `Compound*Def` types and `CompoundData` are removed.
+
+`SurfaceMaterial` moves from `/tumble/core` to `/physics`; change `tangentVelocity: { x, y, z }` to `[x, y, z]`. `ShapeMaterials` holds lists of these records.
+
+## `TumblePlugin`, `AvbdPlugin`, `Body` and `ShapeKind.Box`
+
+Use `StandardPhysicsPlugin` from `/standard/physics`. Core `PhysicsPlugin` owns data but installs no solver. Remove `Physics.backend`, `PhysicsBackend`, `installBackend` and `uninstallBackend`. The ECS World replaces `Tumble.world`, `TumbleBody`, body/shape/joint handles and `BodyState`.
+
+Move `Body.pos`/`quat` to `Transform.translation`/`rotation`. `Body` now defaults to static, not mass 1: set `type: BodyType.Dynamic` explicitly for moving bodies. Use `BodyType.Kinematic` for caller-driven motion.
+
+```ts
+// 0.9.5
 state.add(eid, Body);
 Body.shape.set(eid, ShapeKind.Box);
 Body.pos.set(eid, 0, 5, 0, 0);
@@ -1120,36 +730,33 @@ Body.friction.set(eid, 0.5);
 
 ```ts
 // 0.10
-const eid = world.create();
 world.add(eid, Transform, { translation: [0, 5, 0] });
 world.add(eid, Body, { type: BodyType.Dynamic });
 world.add(eid, Shape, {
-    kind: ShapeKind.Hull, geometry: UNIT_CUBE_ID, scale: [1, 1, 1],
-    density: 1, friction: 0.5,
+    kind: ShapeKind.Hull, geometry: UNIT_CUBE_ID, scale: [1, 1, 1], density: 1, friction: 0.5,
 });
 ```
 
-`Transform.translation`, `Body.linearVelocity` and `.angularVelocity`, `Shape.sphereCenter`, `.capsuleCenter1`, `.capsuleCenter2`, `.scale` and `.tangentVelocity`, the joints' `localAnchorA`/`localAnchorB` and velocities, and `Character`'s `velocity`, `groundNormal`, `groundVelocity` and `up` are `vec3` fields, written `[x, y, z]`. Rotations stay four-value quaternions.
+Move `shape`, `halfExtents`, `friction` and hull id into `Shape.kind`, `scale` (double half extents), `friction` and `geometry`. Box becomes a scaled unit-cube Hull. The old half-extents `.w` radius becomes `radius`; sphere and capsule centers are `sphereCenter`, `capsuleCenter1` and `capsuleCenter2`. Density replaces total mass authoring: compute density from the desired mass and geometry, do not copy arbitrary mass values.
 
-0.9.5 `TumbleBody` could create several shapes directly; author each as a `Shape` entity instead:
+For multiple shapes, add separate shape entities referencing the body eid:
 
 ```ts
 // 0.9.5
-const body = Tumble.body(eid);
-body?.createSphere({}, { center: { x: 1, y: 0, z: 0 }, radius: 0.25 });
+Tumble.body(eid)?.createSphere({}, { center: { x: 1, y: 0, z: 0 }, radius: 0.25 });
 ```
 
 ```ts
 // 0.10
 const collider = world.create();
-world.add(collider, Shape, { body: eid, kind: ShapeKind.Sphere, sphere: [1, 0, 0, 0.25] });
+world.add(collider, Shape, { body: eid, kind: ShapeKind.Sphere, sphereCenter: [1, 0, 0], radius: 0.25 });
 ```
 
-The 0.9.5 `Spring` and `Joint` components become `DistanceJoint`, `FilterJoint`, `MotorJoint`,
-`ParallelJoint`, `PrismaticJoint`, `RevoluteJoint`, `SphericalJoint`, `WeldJoint` and `WheelJoint`
-components. Their body references are `a` and `b`; rename `rA`/`rB` to `localAnchorA`/`localAnchorB`
-and author normalized `localRotationA`/`localRotationB` quaternions. For joints created through
-`Tumble.world`, add the corresponding component to a joint entity instead of retaining its handle:
+Physics publishes pose and linear velocity to `GlobalTransform`. Writing a body's Transform teleports at the next fixed sync without resetting interpolation. Body scale scales both shapes and meshes: spheres/capsules require uniform magnitudes, height fields positive components, all shapes nonzero finite components. Invalid shapes warn and retry when valid. Joint anchors stay unscaled body-frame metres.
+
+## `Spring`, `Joint` and `ConstraintSystem`
+
+Use joint-kind components with body eids `a`, `b`. Rename `rA`/`rB` to `localAnchorA`/`localAnchorB`; local rotations are normalized quaternions. `ConstraintSystem` is removed; standard physics syncs the components.
 
 ```ts
 // 0.9.5
@@ -1161,25 +768,25 @@ Tumble.world?.createRevoluteJoint(Tumble.body(a)!, Tumble.body(b)!, config);
 world.add(jointEid, RevoluteJoint, { a, b });
 ```
 
-| 0.9.5 authoring | 0.10 component |
-| --- | --- |
-| `Joint` with `stiffnessAng: 0` | `SphericalJoint` |
-| `Joint` with `stiffnessAng: Infinity` | `WeldJoint`; set `localRotationB` explicitly to preserve the old relative orientation (`inverse(bodyRotationB) * bodyRotationA` when frame A's rotation is identity). |
-| `Joint` with intermediate `stiffnessAng` | `WeldJoint` with `angularHertz` and `angularDampingRatio`; stiffness is no longer converted. |
-| `Spring` with `rest` and `stiffness` | `DistanceJoint` with `enableSpring: 1`, `length`, `hertz` and `dampingRatio`; stiffness is no longer converted. |
+| 0.9.5 | 0.10 |
+|---|---|
+| `Joint`, `stiffnessAng: 0` | `SphericalJoint` |
+| `Joint`, `stiffnessAng: Infinity` | `WeldJoint`; preserve relative orientation with `localRotationB = inverse(bodyRotationB) * bodyRotationA` when frame A is identity |
+| Intermediate angular stiffness | `WeldJoint.angularHertz` and `angularDampingRatio`; retune |
+| `Spring.rest`, `stiffness` | `DistanceJoint.length`, `enableSpring: 1`, `hertz`, `dampingRatio`; retune |
 
-### State writes and reads
+Other Tumble joint kinds map to `FilterJoint`, `MotorJoint`, `ParallelJoint`, `PrismaticJoint`, `RevoluteJoint` and `WheelJoint` components.
 
-The 0.9.5 backend's `setKinematic` becomes `setTargetTransform` for motion and `setTransform` for
-teleporting. Box3D derives target velocities, so the old optional velocity override is removed.
-`setVelocity` becomes `setLinearVelocity`; the other body state writes are functions
-over the `World`, each mapped to one Box3D call (`setAngularVelocity`, `setAwake`, force, torque and impulse functions):
+## `setKinematic`, `setVelocity` and `readBody`
+
+Use `/standard/physics` functions taking World first. `setKinematic` becomes `setTargetTransform` for motion, or `setTransform` for immediate teleport with interpolation reset. The optional velocity override is removed. `setVelocity` becomes `setLinearVelocity`; angular velocity, awake, force, torque and impulse writes also become World-first functions.
 
 ```ts
 // 0.9.5
 Physics.backend?.setKinematic(eid, position, rotation);
 Physics.backend?.setKinematic(eid, respawnPosition, rotation, true);
 Physics.backend?.setVelocity(eid, vx, vy, vz);
+const x = Physics.backend?.readBody(eid)?.pos[0];
 ```
 
 ```ts
@@ -1187,34 +794,19 @@ Physics.backend?.setVelocity(eid, vx, vy, vz);
 setTargetTransform(world, eid, position, rotation);
 setTransform(world, eid, respawnPosition, rotation);
 setLinearVelocity(world, eid, { x: vx, y: vy, z: vz });
+const x = world.storage(GlobalTransform).translation.column[eid * 4];
 ```
 
-The 0.9.5 backend's `readBody(eid)` returned `pos`, `quat` and `vel`; read them from
-`GlobalTransform.translation`, `rotation` and `linearVelocity` columns. `Tumble.world.getBodyEvents()`
-is consumed internally to publish pose:
+Initial `Body.linearVelocity`, `angularVelocity` and `isAwake` are spawn-only fields; use the setters afterward. Other supported body definition writes apply at the next fixed sync. `StepSystem` becomes `StepPhysicsSystem`.
 
-```ts
-// 0.9.5
-const pose = Physics.backend?.readBody(eid);
-const x = pose?.pos[0];
-```
+## `Tumble.world` settings, events and queries
 
-```ts
-// 0.10
-const global = world.storage(GlobalTransform);
-const x = global.translation.column[eid * 4];
-```
-
-### World settings, events and callbacks
-
-The 0.9.5 `TumblePlugin` used gravity `(0, -10, 0)` and four substeps. `Tumble.world.setGravity`
-becomes a write to `PhysicsWorldDefinition`; substeps are now authored there too. Changes apply
-at the next fixed sync:
+Move gravity, substeps and material-mix callbacks to `PhysicsWorldDefinition` from `/standard/physics`. Changes apply at the next fixed sync. Mix callbacks retain `(a, idA, b, idB)` with World added first.
 
 ```ts
 // 0.9.5
 Tumble.world?.setGravity({ x: 0, y: -9.8, z: 0 });
-const gravity = Tumble.world?.getGravity();
+const begins = Tumble.world?.getContactEvents().beginEvents;
 ```
 
 ```ts
@@ -1222,34 +814,11 @@ const gravity = Tumble.world?.getGravity();
 const definition = world.resource(PhysicsWorldDefinition);
 definition.gravity = { x: 0, y: -9.8, z: 0 };
 definition.subStepCount = 6;
-const gravity = definition.gravity;
-```
-
-Replace `Tumble.world.getSensorEvents()`, `getContactEvents()` and `getJointEvents()` with
-`world.resource(PhysicsEvents)`. Its `sensorBegin`, `sensorEnd`, `contactBegin`, `contactEnd`,
-`contactHit` and `joints` entries hold records and a count for the last fixed step. Where 0.9.5 events carried shape or joint handles,
-these records carry generation-aware `EntityRef`s; resolve them with `world.resolve(ref)`:
-
-```ts
-// 0.9.5
-const begins = Tumble.world?.getContactEvents().beginEvents;
-```
-
-```ts
-// 0.10
 const begins = world.resource(PhysicsEvents).contactBegin;
 for (let i = 0; i < begins.count; i++) world.resolve(begins.records[i]!.shapeA);
 ```
 
-Custom-filter and pre-solve callbacks are new in 0.10; they receive the owning `World` and
-shape `EntityRef`s, with no 0.9.5 callback to replace. Move friction and restitution mix callbacks
-to `PhysicsWorldDefinition`; their old `(a, idA, b, idB)` arguments stay, with `World` added first.
-
-### Queries and debug drawing
-
-Replace `Tumble.world` methods with functions that take the `World` first. `castRay`, `castRayClosest`, `castShape`,
-`castShapeClosest`, `overlapAABB` and `overlapShape` report ECS shape/body ids; closest-hit functions
-write to caller-owned output. `draw` becomes `drawPhysics`:
+Replace sensor/contact/joint event methods with `PhysicsEvents.sensorBegin`, `sensorEnd`, `contactBegin`, `contactEnd`, `contactHit` and `joints`. Records carry `EntityRef`s, not kernel handles; resolve them because entities may have been removed.
 
 ```ts
 // 0.9.5
@@ -1263,97 +832,220 @@ castRay(world, origin, translation, (hit) => hit.fraction);
 drawPhysics(world, draw);
 ```
 
-The 0.9.5 backend-neutral `raycast`, `RayBody`, `RayHit`, `bodyCandidates`, `grabHit` and
-`worldToLocal` helpers are removed. For camera picking, use `viewportToWorld` from `/rendering`, then pass its ray to `castRay` or
-`castRayClosest` (with caller-owned output from `emptyQueryHit`); coordinates are CSS pixels relative to the camera's
-bound canvas, and ray length is in world units.
+`castRayClosest`, `castShape`, `overlapAABB` and `overlapShape` also become World-first functions and report ECS shape/body ids. Closest-hit calls write caller-owned output from `emptyQueryHit`. Remove backend-neutral `raycast`, `RayBody`, `RayHit`, `bodyCandidates`, `grabHit` and `worldToLocal`; camera picking uses `viewportToWorld` followed by a physics query.
 
-## `/avbd` is gone
+## `Character`, `move`, `jump` and `PlayerPlugin`
 
-The engine no longer ships its AVBD solver or `AvbdPlugin`. Select the built-in `StandardPhysicsPlugin` instead.
-
-## `Tween`, `Sequence` and `/tween/core` are gone
-
-There is no animation plugin in this release line. Implement animation in app code.
-
-## `/document` and edit mode are gone
-
-`Document`, `History`, `Session` and `ReadbackSystem` are removed, with no replacement for undo, redo or editor sessions. Remove `State.mode`, the app's `mode` option and `annotations.mode`: every system always runs.
-
-## Scene format and scene save/restore are removed
-
-The `.scene` format is removed with no replacement: the root's `load`, `serialize`, `diagnose`, `parse` and `stringify` and the `Node`, `Attr`, `ParseError` and `Diagnostic` types, and `/scene/core`'s `normalizeAttr`, `parseFields`, `formatFields`, `readComponent`, `setFieldValue`, `findNodeById` and `findParent`. Remove the app's and manifest's `scene` option. A game saves the component values it needs through `world.storage(Component)` and restores them itself. The world snapshot is local recovery state, not a save format.
-
-`Identity`, `world.identity`, `refs()` and the `derived` component trait are removed. Keep the eids returned by `world.create()` instead of naming entities. The `entity` field type still stores a plain eid; save and restore references yourself. `GlobalTransform` remains attached through its producers' `requires`, without the trait.
-
-Author worlds in code:
+Import `Character`, `CharacterPlugin` and `GroundState` from `/standard/physics`. The `/character/core` subpath is removed. Character needs a kinematic capsule body. Its default pogo float places the lower sphere centre three radii above ground; retune spawn/camera height.
 
 ```ts
-import { Transform } from "@dylanebert/shallot";
-const eid = world.create();
-world.add(eid, Transform, { translation: [0, 1, 0] });
-```
-
-## `/harness` helpers are removed
-
-Remove imports of `installHarness`, `HarnessTarget` and `REAL_GPU_LAUNCH`. Drive `createApp()` and `world.step()` in the project's tests and observe through public ECS and physics reads. Configure the project's browser tests with Playwright Test, its own Vite `webServer` and its own Chromium launch flags.
-
-## `./brand` is removed
-
-Remove imports from `@dylanebert/shallot/brand`. The mark and palette are repository assets, not a package subpath; the default loading screen continues to render the mark internally. There is no public brand-assets replacement.
-
-## Orthographic `Orbit` fly-button drags orbit
-
-With an orthographic `Camera`, holding `Orbit.flyButton` now rotates around the target using orbit sensitivity and smoothing; WASD/QE no longer translate the camera, and scroll changes `Camera.size` rather than fly speed. `OrbitMode.Locked` still disables look. Perspective flythrough is unchanged.
-
-## `OrbitPick` is removed
-
-Remove `OrbitPick.claim` assignments. Orbit rotation runs on every drag; decide selection in the game from `pointer.buttonEvents` press/release positions and a game-owned travel threshold.
-
-## `OrbitOverlayPlugin` is removed
-
-Remove `OrbitOverlayPlugin` from plugin imports and registrations. `OrbitPlugin` remains; there is no replacement overlay plugin.
-
-## Vite configuration and project scripts are now the project's
-
-0.9.5's CLI generated a Vite configuration for manifest projects. Create a `vite.config.ts` with Shallot's plugin. For an ejected 0.9.5 config, replace its separate TypeGPU plugin (or `typegpuPlugin()`) with this one. Remove the old `CROSS_ORIGIN_ISOLATION` import; the plugin sets those headers:
-
-```ts
-// 0.9.5 ejected config
-import { defineConfig } from "vite";
-import typegpu from "unplugin-typegpu/vite";
-export default defineConfig({ plugins: [typegpu()] });
+// 0.9.5
+move(eid, vx, vz);
+const onGround = grounded(eid);
 ```
 
 ```ts
 // 0.10
-import { defineConfig } from "vite";
-import { shallot } from "@dylanebert/shallot/vite";
-export default defineConfig({ plugins: [shallot()] });
+world.storage(Character).velocity.set(eid, vx, vy, vz);
+const onGround = world.storage(Character).groundState.get(eid) === GroundState.OnGround;
 ```
 
-`shallot dev`, `shallot build` and `shallot preview` no longer run web projects. For web, add `dev`, `build` and `preview` scripts that run `vite`, `vite build` and `vite preview`, then invoke them with `bun run dev`, `bun run build` and `bun run preview`. For desktop, pass `--target mac`, `--target windows` or `--target linux`; native dev and build add the desktop shell, and native preview launches the existing build.
+Write velocity in `fixed` before `CharacterPlugin.systems`; acceleration, gravity and jumping belong to the game. Replace the character `pose` read with `GlobalTransform.translation`. Replace character `teleport` with `setTransform`; clear `Character.velocity` and `pogoVelocity` for a stationary respawn.
 
-The peer TypeGPU version has also changed:
+`PlayerPlugin` is no longer shipped. Copy `player.ts`, `motion.ts` and `follow.ts` from `examples/first-person/src` into your game. The copied controller uses `PlayerInput` for tick-addressed movement/look/jump counts, `LocalPlayer` for device sampling and sensitivity, and `Player.gravity`/`jumpSpeed` for tuning. It does not install rendering; retain rendering in the app composition. Replace `CharacterSweepSystem` ordering with `CharacterPlugin.systems`; replace `PlayerControlSystem` references with the local controller's `UpdatePlayerControlSystem` and `DrivePlayerSystem` as appropriate.
 
-```sh
-bun add typegpu@~0.12.8
+## `sample`, `play`, `Sound` and `/audio/core`
+
+Clips now belong to a World. Core `/audio` exports `AudioPlugin`, `Sound`, `Listener`, `registerClip` and `play`; add `StandardAudioPlugin` from `/standard/audio` to run playback. `loadClip` there decodes URLs and shares repeated loads per World.
+
+```ts
+// 0.9.5
+sample(pcm, "click");
+play(state, "click", { pos: [1, 2, 3], volume: 0.5 });
 ```
 
-## Scalar sparse values now use their declared numeric type
-
-0.9.5's scalar `sparse(u8)` stored a JS number: writing 300 read back 300. A `u8` field stores 44. Likewise, scalar `u32` now wraps negatives as unsigned and `f32` rounds to 32-bit precision. Choose an integer type wide enough for the values and account for f32 rounding.
-
-## Update the 0.9.5 scaffold's TypeScript types
-
-Its `tsconfig.json` listed only WebGPU types. Add Node and Vite's types:
-
-```sh
-bun add -d @types/node@^26.0.0
+```ts
+// 0.10
+const clip = registerClip(world, pcm, 48000, "click");
+play(world, clip, { position: [1, 2, 3], volume: 0.25 });
+world.add(eid, Sound, { clip, volume: 0.25, loop: 0 });
 ```
 
-```json
-{ "compilerOptions": { "types": ["@webgpu/types", "node", "vite/client"] } }
+`play` takes a clip handle, not a graph name; `pos` becomes `position`. `Sound.instrument` becomes `clip`; remove `pitch` and runtime `voice`. `loop` remains; `paused` is new. Volume is linear gain, formerly quadratic: replace an old sample volume `v` with `v * v`.
+
+Raw PCM defaults to 48 kHz, not the audio context's rate. For the former behavior pass `world.resource(AudioOutput).context?.sampleRate ?? 48000` as `registerClip`'s third argument. URL decoding retains the decoded rate; for a Blob, create an object URL and revoke it after `loadClip`.
+
+Remove `sfx` and `SfxPolicy`; caps and cooldowns are game policy. The experimental graph APIs (`Instrument`, `InstrumentDef`, `Instruments`, `instrument`, `ModulationDef`, `NodeDef`, `NodeType`, `byId`, `getParamPairs`, `MAX_INSTRUMENTS`) left Shallot; see [shallot-audio-lab](https://github.com/dylanebert/shallot-audio-lab).
+
+Other `/audio/core` removals:
+
+| Old names | Replacement |
+|---|---|
+| `Audio`, `started`, `running` | `AudioOutput.context`/`bus`, `Devices.audio.context`; no started flag |
+| `initAudio`, `disposeAudio`, `tickAudio` | Compose `StandardAudioPlugin`; do not call lifecycle helpers |
+| `MAX_VOICES`, `slotOf`, `valid`, `alloc`, `free`, `gate`, `setParam`, `oneShot`, `watchIdle`, `assign` | Author `Sound` or call `play`; no public voice slots |
+| `spatialize`, `polar`, `addSpatial`, `flushSpatial` | Position Sound with Transform and mark a Listener |
+| `Samples`, `MAX_SAMPLES`, `getSample`, `whenLoaded` | `registerClip` or awaited `loadClip` |
+| `noteFreq` | No stable replacement |
+
+## `Mirror`, `probeBuffer` and `probeTexture`
+
+Remove `Mirror`, `mirror`, `MirrorSystem` and `MirrorPlugin`. Request one-shot observations through `/runtime` probes; keep GPU work counts on the GPU rather than polling each frame.
+
+```ts
+// 0.9.5
+const observation = mirror(typedArgs);
+// MirrorPlugin updates observation.snapshot.bytes.
 ```
 
-These are types only; no Node code reaches the browser bundle.
+```ts
+// 0.10
+import type { World } from "@dylanebert/shallot";
+import { probeBuffer } from "@dylanebert/shallot/runtime";
+import { DrawIndexedIndirect } from "@dylanebert/shallot/standard/rendering";
+import type { StorageFlag, TgpuBuffer } from "typegpu";
+
+async function observe(world: World, typedArgs: TgpuBuffer<typeof DrawIndexedIndirect> & StorageFlag) {
+    const observation = await probeBuffer(world, world.gpu.root.unwrap(typedArgs));
+    return new Uint32Array(observation.bytes)[0];
+}
+```
+
+`probeBuffer` takes a raw `GPUBuffer`, not a TypeGPU buffer. Pass raw buffers directly; unwrap a TypeGPU buffer with the owning `world.gpu.root.unwrap`, as above. Existing probe calls also change their first argument from GPUDevice to World. Buffers/textures must belong to that World; allocate through `world.gpu.device` or `world.gpu.root`, or register an external allocation with `world.own`. Returned bytes remain owned by the observation.
+
+## `Profile`, `window.__benchmark` and timing sinks
+
+Replace global `Profile` with `world.resource(DiagnosticsStore)`. `ProfilePlugin` records without a HUD; add `DiagnosticsOverlayPlugin` from `/extras` for F3 and `showProfiler(world)`.
+
+```ts
+// 0.9.5
+const bytes = Profile.bufferBytes;
+```
+
+```ts
+// 0.10
+const bytes = world.resource(DiagnosticsStore).get("memory/bufferBytes")?.value();
+```
+
+| Old Profile field | Diagnostic path |
+|---|---|
+| `cpu`, `gpu` | `render/<name>/elapsed_cpu`, `render/<name>/elapsed_gpu` (ms) |
+| `compile`, `compileMs` | `compile/<label>/elapsed`, `compile/elapsed` (ms) |
+| `fenceWaitMs` | `frame/fence_wait` (ms) |
+| `bufferBytes`, `textureBytes` | `memory/bufferBytes`, `memory/textureBytes` (bytes) |
+
+Diagnostic `value()` is latest, `smoothed()` is the time-weighted exponential average, `measurements()` is bounded history in monotonic seconds. Paths escape label `%` as `%25`, `/` as `%2F`, empty as `%`. Absent spans retain history.
+
+Remove `window.__benchmark`, `BenchmarkAPI`, `BenchmarkCompileStats`, `BenchmarkCpuStats`, `BenchmarkFrameStats`, `BenchmarkGpuStats`, `BenchmarkMeasurement`, `BenchmarkMemoryStats` and Profile's window/lifetime counters (`gpuTime`, `gpuFires`, `indirectCount`, `indirectFires`, `compiledPipelines`, `pipelineCalls`, `submitCount`). `allocBytes`/`lazyBytes` have no direct counter replacement; use the overlay's allocation details. Remove `LazyAlloc` profiler metadata.
+
+`recordSink` now receives a borrowed `[monotonicSeconds, elapsedMilliseconds]` Float64Array, not scalar ms; copy values before retaining them. Use `sampleDiagnosticTime` to stamp a reusable two-cell buffer. `state.record`/`fenceWait` are removed; call the corresponding sinks if needed.
+
+## `OrbitPick`, `OrbitOverlayPlugin` and orthographic fly drags
+
+Remove `OrbitPick.claim`: orbit now runs on every drag. Decide click selection from `pointer.buttonEvents` and a game-owned travel threshold.
+
+```ts
+// 0.9.5
+OrbitPick.claim = (x, y) => bodyUnderCursor(x, y) !== null;
+```
+
+```ts
+// 0.10
+const events = world.resource(Devices).pointer.buttonEvents;
+for (const event of events) {
+    // Apply the game's click/drag policy using event.x and event.y.
+    console.log(event.x, event.y);
+}
+```
+
+Remove `OrbitOverlayPlugin` imports/registrations; there is no replacement overlay. Orthographic `Orbit.flyButton` now rotates around the target instead of translating with WASD/QE; scroll changes `Camera.size`, not fly speed. Perspective flythrough is unchanged.
+
+## `shallotLight`, `minimalDark` and `minimalLight`
+
+`shallotLight`, `minimalDark` and `minimalLight` are removed. Use the default `shallotDark` or implement `Loading`, as `examples/loading-screen` does.
+
+```ts
+// 0.9.5
+await run({ plugins: [], loading: minimalDark });
+```
+
+```ts
+// 0.10
+await runApp({ plugins: [] });
+```
+
+## `.scene`, `/document`, glTF, skinning, tween and harness removal
+
+The `.scene` format and editor sessions have no replacement. Author worlds in code and save the component values your game needs. Remove app `scene` and `mode` options, `State.mode` and `annotations.mode`: every system runs.
+
+```ts
+// 0.9.5
+await load(scene, state);
+```
+
+```ts
+// 0.10
+const eid = world.create();
+world.add(eid, Transform, { translation: [0, 1, 0] });
+```
+
+Remove these plugins, subpaths and their calls:
+
+| Old API | Porting action |
+|---|---|
+| `/scene/core`: `load`, `serialize`, `diagnose`, `parse`, `stringify`, `Node`, `Attr`, `ParseError`, `Diagnostic`, `normalizeAttr`, `parseFields`, `formatFields`, `readComponent`, `setFieldValue`, `findNodeById`, `findParent` | Replace with game-owned loading/saving |
+| `/document`: `Document`, `History`, `Session`, `ReadbackSystem` | Remove editor sessions, undo/redo integration |
+| `GltfPlugin`, `SkinPlugin`, `/gltf/core`, `/skin/core` | No importer, animation or live skinning replacement in this release |
+| `Preloader`, `Preloads`, `preload` | Load assets in plugin `initialize` |
+| `Tween`, `Sequence`, `/tween/core` | Implement animation in game code |
+| `/bvh/core` | Keep acceleration structures in the consuming package |
+| `/avbd`, `/avbd/core`, `AvbdPlugin` | Use `StandardPhysicsPlugin` |
+| `/harness`, `/harness/pixels`, `/harness/browser`: `installHarness`, `HarnessTarget`, `REAL_GPU_LAUNCH` | Drive `createApp`/`world.step` in tests; own the Playwright configuration |
+
+## Removed rendering shader and packing exports
+
+These public 0.9.5 helpers no longer expose the renderer's packing or generated WGSL. Replace raw WGSL assembly with TypeGPU schemas/functions and material definitions. Do not substitute direct `/src/*` imports.
+
+```ts
+// 0.9.5
+import { viewWgsl, VIEW_BYTES } from "@dylanebert/shallot/render/core";
+```
+
+```ts
+// 0.10
+import * as d from "typegpu/data";
+import { ViewUniforms } from "@dylanebert/shallot/rendering";
+const viewBytes = d.sizeOf(ViewUniforms);
+```
+
+| Old names | Replacement or action |
+|---|---|
+| `Render` | `RenderContext` |
+| `View`, `viewWgsl`, `VIEW_BYTES`, `VIEW_STRIDE` | `ViewUniforms`; use each view's uniform buffer, not staging offsets |
+| `View.cluster` | `ViewUniforms.projection` |
+| `frameWgsl` | `FrameGpu` |
+| `linearToSrgb`, `linearToSrgbWgsl` | `linearToSrgb3` |
+| `FRUSTUM_FLOATS`, `frustumPlanes` | `CullVolumes`, `CULL_VOLUME_FLOATS` |
+| `allocArray`, `arrayFromBitmaps`, `uploadLayer` | `imageArray` |
+| `commonSize`, `mipLevels`, `backingSize` | Sizing is internal; use camera `Resolution` for explicit size |
+| `MeshStorage`, `QuantStreams`, `meshBounds`, `packMeshes`, `quantizeMeshes`, `VERTEX_FLOATS`, `VERTEX_STRIDE` | Add mesh data through `Meshes.add`; packing/bounds are owned by MeshPlugin |
+| `Binding`, `SurfaceLayout`, `VsFn`, `FsFn`, `VsIn`, `vsPatchSchema`, `fsCtxSchema`, `assertOwnFn`, `SURFACE_GROUP`, `engineScaffoldWgsl` | `materialLayout`, `MaterialBinding`, inferred material shader arguments |
+| `fragCoord`, `fragWorld` | Inferred material fragment context (including `.world`) |
+| `litPbr`, `Pbr` | `StandardMaterial` or `PbrInput`/`applyPbrLighting` |
+| `lightFactor`, `pointFactor`, `pointScale` | `lit`, `distanceAttenuation` |
+| `clusterCoord`, `clusterIndex`, `zSlice`, `clusterOf` | `clusterCell` |
+| `lightClusters`, `PointLights`, `pointLightsWgsl` | `LightCull`, `LightClusters` |
+| `lightingWgsl`, `LIGHTING_UNIFORM_SIZE` | `LightingGpu` and its TypeGPU size |
+| `lightEvalWgsl`, `spotParams` | `distanceAttenuation`, `spotFactor`, `clusterCell` |
+| `sunVisibility`, `sunShadowWgsl`, `sunStructWgsl`, `SHADOW_PARAMS_BYTES` | `sampleSunShadow`, `SunShadow` |
+| `pointShadowWgsl` | `pointShadowRef()` |
+| `cascadeCount`, `pointAtlasSize` | `DirectionalLight.numCascades`, `world.resource(PointShadows).atlas` |
+| `DrawIndirectBuffer` | Infer from `Draw.args.indirect`; allocate with `DrawIndexedIndirect` |
+| `Tag`, `TagFn`, `View.tag`, `TAG_FORMAT`, `TAG_NONE` | Picking lane removed |
+| `Parts`, `getCompiledSurface`, `casterWgsl`, `pointComboCount`, `COLOR_LANES` | Remove; no public replacement |
+| `ClusterView`, `CLUSTER_COUNT`, `CLUSTER_X`, `CLUSTER_Y`, `CLUSTER_Z`, `clusterAabb`, `clusterView`, `LIGHT_POOL`, `sliceDepth`, `MAX_POINT_LIGHTS` | Grid construction/capacity are internal |
+| `FogSystem`, `FogScatter`, `FogSun`, `FOG_BYTES`, `FOG_FLOATS`, `FOG_MAX_STEPS`, `FogGpu`, `fogComposite`, `fogDensity`, `fogInScatter`, `fogInScatterWgsl`, `fogMarchWgsl`, `fogStructWgsl`, `fogSunInScatter`, `fogTransmittance`, `heightOpticalDepth`, `henyeyGreenstein`, `inScatterContribution`, `reconstructWorld`, `sunInScatter`, `WORKGROUP`, `packFog` | Author Fog and depend on FogPlugin; integration/packing are private |
+
+`lit` moves from `/sear/core` to `/standard/rendering` and now uses standard metallic-0 lighting. Recheck surfaces very close to point/spot lights. Register custom draws with `world.resource(Draws).register`: replace `Draw.surface` with `materialType: materialTypeId(world, YourMaterialType)`, retain the handle from `Meshes.add` for `mesh`, and add `alphaPipelineKey: AlphaPipelineKey.Opaque` for an opaque draw. These names are exported from `/standard/rendering`. Shadow-camera helpers `cascadeComboEids` and `pointComboEids` take World first; their cameras hold `GlobalTransform`, not `Transform`. Remove direct `ClusterSystem`/`LightCullSystem` imports.
+
+For `/utils/core` WGSL helpers, import `pack2x16snorm`, `unpack2x16snorm`, `pack2x16unorm`, `unpack2x16unorm`, `pack4x8unorm` from `typegpu/std` instead of `packSnorm2x16`, `unpackSnorm2x16`, `packUnorm2x16`, `unpackUnorm2x16`, `packUnorm4x8`. `bitcastF32toU32` has the same name there. Raw WGSL chunks call the corresponding WGSL builtins. `spliceNs` is removed; the octahedral and quaternion chunks no longer need namespace splicing.
