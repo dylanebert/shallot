@@ -12,8 +12,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Each app owns its world storage and allocations; disposing one releases its resources, not the device or a sibling's data.
 - Builds serialize registration and warm-up; completed apps coexist.
 - Components declare fields, not storage or GPU residency.
-- Component identity, membership and field-access contracts live beside [component](src/engine/ecs/component.ts).
-- Each world owns eid-indexed typed columns that double to cover a component's holders and never shrink during play. Eid indexing spans its highest holder's eid: even a one-holder component on a high eid costs its row bytes per eid, as the public raw-column contract requires.
+- Component columns are eid-indexed: even a one-holder component on a high eid costs its row bytes per eid.
 - A live page re-evaluates only a module Vite hot-updates in place, such as one only a Svelte component imports; an edit reaching the entry reloads the page.
 - Field changes are frame-scoped: every consuming table reads them at upload before they clear, and later writes reach the next frame.
 - Plugin state lives in `world.resource`, never module globals.
@@ -24,24 +23,20 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - GPU consumers bind tables, not authoring fields.
 - A table has one TypeGPU struct per row, shaped by access, update frequency and lifetime; a pass needing fewer fields reads a narrower table, not a second engine-wide layout.
-- Each mesh material type owns one typed GPU table whose row matches its parameter schema; `MeshMaterial` selects that World-local type and row.
 - Draws and dispatches read compact active-row or instance lists, never the sparse eid range; eid-based lookups opt into the uploaded map.
 - Fill is bulk: bound columns, byte ranges or compute, never a per-row JavaScript callback.
 - Uploads preserve command order across buffer growth. Outside draw, queue writes and immediate growth submissions follow program order; during draw, distinct staging ranges preserve encoded observations on the World's lazy frame encoder.
-- All draw work shares the World's lazy frame encoder and one submission, whose fence `runApp` waits on. Upload staging recycles at completion without another fence; its byte bound is per encoded frame, not accumulated ticks. Encoder and submission contracts live beside [World.frameEncoder and World.onFrameSubmit](src/engine/ecs/world.ts).
+- All draw work shares the World's lazy frame encoder and one submission, whose fence `runApp` waits on.
 - On a propagated draw error, system draw commands are discarded; only engine copies replay in their own fenced submission.
 - GPU table shader arrays are runtime-sized.
 - Fixed writes precede head-of-draw upload and GPU passes, including writes from exact ticks before a frame.
 - TypeGPU is the engine and extension GPU language; raw WGSL uses its escape hatch.
-- Buffer generations, row addressing and upload APIs are documented beside [GpuTable](src/engine/ecs/table.ts).
 
 ### GPU floor
 
 - Shallot's engine and packages stay within WebGPU's default limits, including eight storage-buffer bindings per shader stage.
-- Storage bindings count across all bound groups by stage visibility, unused declarations included. Pipeline creation refuses a pipeline over the granted per-stage limit, naming its plugin, pipeline, stage and count, and refuses a layout it cannot account for.
 - Device acquisition uses the enabled plugins' declared requirements, never adapter maxima.
 - A floor-device proof requests only the composition's required features, with no `requiredLimits`, builds and draws the covered pipeline families and examples, and records the adapter identity, granted features and limits.
-- A built-in pipeline lacking a required feature refuses, naming its owner and the feature.
 - A layout repair preserves precision and capacity, and reports uploads, passes and dispatches on named hardware.
 
 ### Readback
@@ -49,8 +44,7 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - Steady play reads nothing back automatically. An asynchronous GPU result enters simulation only as an accepted record with an assigned tick, never by completion timing alone.
 - GPU work sizes later GPU work through indirect arguments; diagnostics clamp safely without CPU observation and are read only on request.
 - Shipped shaders never use TypeGPU's shader `console.log`.
-- [Probes](src/engine/runtime/probe.ts) use [world-owned staging](src/engine/runtime/readback.ts) only on request; those APIs own result and staging contracts.
-- A fixed consumer of readback declares `deterministic: false`; replay proves the declaration.
+- A fixed consumer of readback declares `deterministic: false`.
 
 ### Frame schedule
 
@@ -63,9 +57,8 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 ### GlobalTransform
 
 - `TransformPlugin` (`core/transform`) owns authored `Transform`, derived `GlobalTransform`, fixed-tick derivation and boundaries, discontinuities and placement recovery.
-- A composition without a placement reader registers no placement unless it adds `TransformPlugin`.
 - `GlobalTransform` is derived world placement, never authored.
-- Gameplay and physics read its fixed-tick columns; rendering owns `globalTransformTable(world)` in `core/rendering`, its GPU history and interpolation. Placement without rendering allocates no placement GPU buffers or pipelines.
+- Gameplay and physics read its fixed-tick columns; rendering owns `globalTransformTable(world)` in `core/rendering`, its GPU history and interpolation.
 - A placement producer (`Transform`, or a domain's body, skeleton or attachment) adds `GlobalTransform` when missing and never removes it on detachment.
 - Physics publishes a body's pose to both `Transform` and `GlobalTransform`, and its linear velocity to `GlobalTransform`; scale still derives from `Transform` and scales the body's shapes and rendered mesh alike.
 - Producers write world storage, never the interpolated output; readers never treat `Transform` as the shared world-space result.
@@ -77,15 +70,11 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 - An extra is a mechanism that carries no game's choices, that the field's engines ship in-engine or as official add-ons, and that a game cannot write well over public seams.
 - A game's choices, what the player may do and how it feels, live in the game: an example writes its own gameplay over published mechanisms.
 - Each module owns one useful responsibility completely; split, fix or remove one that doesn't.
-- Game modules never import tooling (`project`, `cli`, `native`, `types`).
-- A core, standard or extras module imports a sibling in its layer only along an edge the import gate declares, and the declared edges form no cycle. Core physics and rendering depend on core transform. Physics never imports rendering or input.
 - Engine owns domain-free storage and scheduling; it neither imports nor names placement code.
 - A helper named for one domain lives with that domain, not in engine/utils.
-- A game module's `index.ts` is public and its other files are internal.
 - A module registering systems or resources defines a plugin; others export data and functions.
 - A module's extra plugins are its optional parts; a part with its own responsibility is its own module.
 - Layer indexes re-export their modules, the root barrel re-exports every game layer, `standard/index.ts` sets the default plugins, and `package.json` declares public subpaths.
-- A `transitional` module declares its destination and migration owner.
 - Provider-specific observation belongs in optional application integrations, outside Shallot.
 
 ### Core and standard
@@ -97,14 +86,9 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
 
 - `RenderingPlugin` (`core/rendering`) owns cameras, shared views, canvas binding, projection, view and frame uniforms, capture, light components and the frame-ordering anchors; it knows no meshes or materials.
 - Rendering captures derived placement after each fixed tick's placement boundary and every ordinary fixed system. History copies and interpolation record through `world.frameEncoder()`, after pre-frame table growth submissions.
-- Each scheduler group end holds an ordered boundary set outside ordinary systems. Boundary edges obey the same refusal of contradictory and cyclic order as ordinary systems.
 - Scene effects run before `OverlaySystem`, overlays between it and `PresentationSystem`, and presentation after that anchor.
 - `CorePipelinePlugin` owns each view's clear, depth and multisampled color targets, resolve, the opt-in `DepthPrepass` lane, `RenderPhases` and the tonemapping pass.
-- Depth consumers share core's prepass lane; [DepthPrepassRequests](src/core/rendering/targets.ts) owns its request contract.
-- Each presenting view has one main render pass; renderers record opaque, then transparent, work into it with core's formats and sample count.
-- A renderer reaches an effect's depth input only by recording into that prepass lane.
-- Transparent items are sorted back-to-front by view-space depth across renderers for each view, with deterministic identity ties; renderers may batch only consecutive compatible items in that order.
-- [AlphaMode](src/standard/rendering/material-type.ts) is per material row; renderers share its pipeline behavior.
+- Depth consumers share core's prepass lane, and renderers supply their depth there; [DepthPrepassRequests](src/core/rendering/targets.ts) owns the request contract.
 - At most one enabled directional casts shadows: greatest illuminance wins, then lower eid. Light units and direction live beside the [lighting components](src/core/rendering/lighting.ts).
 - Presenting view state grows without recompiling pipelines or layouts, up to [MAX_VIEWS](src/core/rendering/view.ts).
 - Presentation owns tonemapping, grading, dithering and display encoding; [Tonemapping](src/core/rendering/tonemapping-state.ts) owns the per-camera contract.
@@ -146,19 +130,13 @@ For modifying the engine; for using it, see the [README](README.md). API contrac
   - `typecheck`, only for `svelte-check`.
 - Every command runs by its native verb: `bun test` for cheap and GPU files, `bun test ./<file>` for Node and oracle files, `bunx playwright test` for browser subjects (after `bunx playwright install chromium` once), `bun check`, `bun <file>`, `bunx shallot`.
 - A project that adopts the engine's timeouts, as the engine does, defines one `test` running `bun test` with a preload that calls `setDefaultTimeout(TIMEOUT.cheap)`, run as `bun run test`.
-- No package defines `check` or a renamed tier such as `test:node` or `test:browser`.
 
 ```bash
 bun run build
 bun check                       # or bun check <changed source paths>
-bun run lint
-bun run test --path-ignore-patterns '**/*.gpu.test.ts' # cheap, no-device tier
 bun test src/core/input/devices.test.ts # selected cheap subject
 bun test src/core/mesh/attributes.gpu.test.ts # selected GPU subject
-bun test --todo ./scripts/check-*.node.ts # every repository policy
 cargo fmt --check
-cargo clippy -p shallot-physics --all-targets -- -D warnings
-cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings
 cargo test -p shallot-physics
 bunx playwright test -c examples/minimal # selected browser subject
 sh scripts/browser.sh           # every browser subject
@@ -170,13 +148,13 @@ bun run format                  # biome
 - After a test child exits, remove directories it used with [removeTestDirectory](scripts/test-directory.ts); Windows can release its file locks after the exit is observed.
 - Iterate on selected files or subjects.
 - [AGENTS.md](AGENTS.md) owns the pre-land check.
-- The import gate (`bun test --todo ./scripts/check-imports.node.ts`) admits only the debts its todos name, each leaving with its migration; every other finding fails, a passing todo fails until its scope is retired, and no new exception becomes a todo.
+- Existing import debts leave with their migrations; no new exception becomes a todo.
 
 ## Verification
 
 - Module promises are tested beside their owners and through public examples; test names state claims.
 - A change to an example also runs the engine tests that read it, `rg -l 'examples/<name>' src scripts diagnostics`, apart from manual oracles.
-- The engine publishes `CEILING`, `BUDGET`, `TIMEOUT` and shared browser configuration in [the `./testing` subpath](src/project/testing.js). Ceilings are hang and runaway backstops, not performance targets. Local runs enforce iteration budgets; CI uses ceilings and [reports slow tests](scripts/report-slow-tests.ts). Work warned on more than one run is made cheaper, split or moved to a heavier tier; a single slow run needs nothing.
+- Shared timeouts and browser configuration live in [the `./testing` subpath](src/project/testing.js). Ceilings catch hangs and runaway work, not performance regressions; [slow-test warnings](scripts/report-slow-tests.ts) name the remedy.
 
 | Tier | Files | Timeout |
 |---|---|---|
@@ -187,10 +165,10 @@ bun run format                  # biome
 | Build/startup | | `TIMEOUT.startup` |
 | Manual oracle | `*.oracle.ts`; run by path | unbounded |
 
-- GPU and Node files call `setDefaultTimeout` once with `TIMEOUT.gpu` or `TIMEOUT.node` from `@dylanebert/shallot/testing`. A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the ceiling catches a hang.
+- A GPU wait has no wall clock of its own: validation errors and device loss fail it, and the tier ceiling catches a hang.
 - A missing tier premise fails, never skips.
 - Quarantine uses `test.todo`, runnable with `--todo`; a known failure stays failing until fixed.
-- Every browser subject keeps its Playwright and Vite configs together and spreads `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. `scripts/browser.sh` applies `TIMEOUT.browser` and one worker; a copy runs under Playwright's defaults. Browser tests hold the browser tier's page-only claims; Playwright's per-test default stays unchanged. CI retries a browser test once; a fail-then-pass result is flaky, emits a warning and has its trace uploaded. A test that fails both attempts stays red.
+- Browser subjects keep Playwright and Vite configs together and spread `BROWSER_CONFIG` from `@dylanebert/shallot/testing`; a configured `webServer` spreads `WEB_SERVER_CONFIG`. The engine-wide [browser command](scripts/browser.sh) owns the subject timeout and worker cap; copied projects use Playwright's defaults.
 - A test requests the fewest solver threads its claim needs. The solver spins at its stage barriers, so oversubscribing the host makes it slower.
 - GPU files run serially on one device with small compositions; each file acquires and warms its independent worlds once in `beforeAll`, and tests time only their work.
 - Compiled pipelines are never shared across worlds; a device a loss claim destroys is prepared during that compile step.
@@ -201,10 +179,9 @@ bun run format                  # biome
 - Browser observations accept software adapters and request no adapter themselves.
 - A display run is a manual oracle on the monitor `SHALLOT_DISPLAY_SEAT` declares, and holds only claims whose evidence is presentation on a physical monitor: refresh-paced play, and a real adapter in a browser where headless reaches none. It runs only when the person starts it, and takes that monitor's keyboard and cursor while it runs.
 - A virtual compositor is not desktop isolation: X11 pathname sockets and the session bus can remain shared despite a private `XDG_RUNTIME_DIR`. Native-host boundary spikes run in a disposable VM or verified private mount/PID/network namespaces with private `/tmp`, `/run`, HOME/XDG directories and no shared session bus. Wayland-only fixtures disable Xwayland. Verify that boundary before starting a display server or client; virtual testing must not replace a live desktop's socket.
-- Gameplay assertions drive the composed world: `tick()` advances one fixed tick; `step(deltaTime)` paces fixed work and runs simulation and draw. Exact ticks preserve changes for the next frame upload and advance no GPU frame or readback.
+- Gameplay assertions drive the composed world through [World.tick and World.step](src/engine/ecs/world.ts).
 - Fixed systems read tick time; simulation and draw read the virtual frame clock. Pause and scale pace `step`, never explicit ticks.
-- Simulation lives in components and declared recovery participants; derived presentation reconciles after restore. Capture state a plugin owns that any fixed system reads, not only state it writes. [Plugin.recovery](src/engine/app/index.ts) and [World.snapshot/restore](src/engine/ecs/world.ts) hold the capture and ordering contracts.
-- Every fixed system has a recovery owner. Registration guards cannot prove that a participant captures every simulation input.
+- Simulation lives in components and declared recovery participants; derived presentation reconciles after restore. [Plugin.recovery](src/engine/app/index.ts) and [World.snapshot/restore](src/engine/ecs/world.ts) own capture and ordering contracts.
 - Core physics recovers its geometry registries, read by fixed body synchronization. Standard physics recovers its solver image and ECS bindings; a physics hash does not prove ECS or gameplay recovery.
 - Determinism holds within one runtime and engine version; hashes detect divergence across versions.
 - Frame evidence uses the cheapest observable: CPU state, then GPU readback, then browser pixels, then a person.
@@ -235,7 +212,7 @@ bun run format                  # biome
 bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name '*.test.ts' -o -name '*.node.ts' \) -print | sort) ./diagnostics/readback-allocation/render.oracle.ts
 ```
 
-- A final candidate that changes what `src` draws also runs that set and every browser subject that reads pixels in the Linux software-rendering container, through `scripts/lavapipe.sh`. It uses Mesa llvmpipe for GPU/Node subjects and the shared Linux browser configuration's SwiftShader for Chromium; neither is hardware qualification. The script needs Docker, builds from `scripts/lavapipe.Dockerfile` with the tree's Bun and Node pins, and runs a command in a `git archive` of the given revision. Commit the candidate before running it; uncommitted edits are not copied. Dependency and Playwright volumes persist between runs.
+- A final candidate that changes what `src` draws also runs that set and every browser subject that reads pixels through `scripts/lavapipe.sh`. This requires Docker and tests software adapters, not hardware qualification. Commit the candidate first: the script runs a `git archive` of the given revision, excluding uncommitted edits.
 
 ```sh
 sh scripts/lavapipe.sh HEAD sh -c 'bun test $(find ./src/core/rendering ./src/standard/rendering ./src/extras \( -name "*.test.ts" -o -name "*.node.ts" \) -print | sort)'
@@ -266,7 +243,7 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 - A red push run on main does not close landing; a release waits until every red on main is answered.
 - A dependency or infrastructure failure is named as such, not quarantined as a test.
 - For a red only one hosted OS shows, run that OS and tier before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`.
-- Windows GPU and Node tiers use WARP. On Windows, Dawn loads only in a host named `node.exe` ([dawn-host.ts](src/engine/runtime/dawn-host.ts)), so CI runs Bun from a copy with that name.
+- Windows GPU and Node tiers use software WARP; [dawn-host.ts](src/engine/runtime/dawn-host.ts) owns Dawn's Windows host-name requirement.
 - `linux-native` checks packed Linux launch, process-group behavior and WebGPU canvas images on composited X11 with software graphics. Canvas readback is not physical-monitor presentation or hardware qualification.
 - Release-time qualification stays outside the push sweep: hardware oracles, display runs, the packed release candidate, newest-in-range resolution and the published-pin spike. Mac/Windows native launch and software WebGPU capability also remain outside it.
 
@@ -283,7 +260,6 @@ A choice the pillars leave open is taste, and goes to the person.
 - A name means one thing across the tree, one act takes one verb and one shape, and a noun beats a participle ([TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), Naming Things).
 - One fact has one name, one representation, one producer and one path, and one algorithm has one implementation; a second spelling, a second copy or a forwarding wrapper goes.
 - JSDoc states the contract the signature cannot: units, ownership, lifetime, frame timing and what is refused. It carries no `@example`; examples live in `examples/`.
-- A `//` comment says why the code is as it is, where the code cannot.
 - A comment states its fact plainly, all of it and no more. It does not restate the code, walk through it, or tell how it came to be: no history, how it was found, or alternatives rejected ([Google TypeScript Style](https://google.github.io/styleguide/tsguide.html#comments-documentation), Comments and documentation).
 - A comment names a precedent only where its reader acts on it: the source the code is read against, or a divergence and its reason. Following the referent goes unsaid; a precedent is not a reason, so the reason itself is written.
 
@@ -302,15 +278,13 @@ A choice the pillars leave open is taste, and goes to the person.
 - Every public promise is owed an example whose answer depends on it.
 - There are no duplicate demonstrations; the one showing the engine at its best stays.
 - Each example has a check that fails when its answer breaks, or the example is removed.
-- Examples and their checks use only published names and public seams.
 - An example's UI shows only what its player needs; a control that explains itself carries no label.
 - What is tied to a place in the world is drawn there, in world space; the overlay holds the rest.
-- An example that shows a lone subject copies `minimal`'s cube, platform, orbit and light, and is listed in `scripts/check-cube-scenes.node.ts`.
+- A lone-subject example follows `minimal` and is added to `scripts/check-cube-scenes.node.ts`.
 - In every example the subject accent is the brightest, most saturated thing in frame, lit and shaded faces separate, and a cast shadow reads as shade, not as the clear.
-- Examples share the `aperture-carbon` content palette: carbon room and ground neutrals, amber, cyan and brand-orange subject accents, and warm pale text and UI ink. Example suns cast shadows; keep warm sun and cool ambient lighting, with `#191816` clear.
-- UI keeps CSS pixels, scaled only by device pixel ratio; nothing zooms it to the viewport.
-- UI takes only the `ui` tokens' compact control set: its row height, spacing, control width and one style per state. A panel's label column fits every label it holds, a toggle's dependents sit beneath it, a toggle moves neither the panel's width nor its top-left, and changing text moves no control.
-- `diagnostics/default-look/palette.ts`, with `PALETTES["aperture-carbon"]`, is the source of these values and the `ui` tokens: system monospace, 14px text and 24px titles, weight 400, radius 2px, and 50% for a round mark such as a reticle. Copied user projects carry literal values copied from that source, never imports from `diagnostics/`.
+- Examples use `PALETTES["aperture-carbon"]` from `diagnostics/default-look/palette.ts`, with shadow-casting warm suns and cool ambient lighting.
+- A panel's label column fits every label it holds, a toggle's dependents sit beneath it, a toggle moves neither the panel's width nor its top-left, and changing text moves no control.
+- Copy UI values from the `ui` tokens in `diagnostics/default-look/palette.ts`; copied user projects never import from `diagnostics/`.
 
 ## Heavy work
 
@@ -330,7 +304,7 @@ A choice the pillars leave open is taste, and goes to the person.
 - Released: `bun add @dylanebert/shallot`.
 - Staged: `bun pm pack` here, then `bun add --no-save <tarball>` in the project; add `--dev` for dev dependencies, or the overlay silently targets the wrong section.
 - Live: run `bun run prepare`, then `bun link` here. In the consumer, use a published Shallot dependency range, run `bun install`, then `bun link @dylanebert/shallot`. A created scaffold may pin an unpublished version; replace it before installing.
-- `./testing` and `./vite` source edits are live under a link. Refresh their declarations with `bun run prepare`; `bun test ./scripts/check-tooling.node.ts` checks them.
+- `./testing` and `./vite` source edits are live under a link; refresh their declarations with `bun run prepare`.
 - `bun install` restores the manifest pin only if its range resolves on npm: an unpublished `^0.10.0` neither restores nor matches `0.10.0-next.1`, so staged overlays and restores use a published range.
 
 ### Plugin packages
@@ -340,11 +314,11 @@ A choice the pillars leave open is taste, and goes to the person.
 
 ### Changing and publishing
 
-- A pin is the last verified version; every occurrence updates in one commit, and until the release-candidate bump it moves only for a named defect.
+- A pin is the last verified version; until the release-candidate bump, it moves only for a named defect.
 - Source and examples self-reference the package name without a dependency entry.
 - `@types/node` and `@webgpu/types` stay runtime dependencies because public types point at source.
 - A link cannot prove what ships: CLI, manifest, dependency, runtime or native-shell changes require a packed tarball installed in a scratch project.
-- Package-test fixtures declare the tarball as a `file:` dependency and use [the frozen, offline installer](scripts/packed-install-spawn.ts) in independent scratch roots; this fixture setup does not restrict consumer staging with `bun add --no-save`.
+- Package-test fixtures use [the frozen, offline installer](scripts/packed-install-spawn.ts) in independent scratch roots.
 - A breaking change updates every affected dependent in the same landing.
 - Removals and reshapes strip unusable code; rebuilding and additive or hardening work follow the settled engine, not each intermediate state.
 - `main` carries the next unpublished version; the commit after publishing advances it, and a commit is not a release.
