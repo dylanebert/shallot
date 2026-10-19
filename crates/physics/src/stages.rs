@@ -188,10 +188,10 @@ pub trait StageWork: Sync {
     fn solve_mesh(&self, block: Block, use_bias: bool);
     fn integrate_positions(&self, block: Block);
     fn restitution_mesh(&self, block: Block);
+    fn warm_start_wide(&self, block: Block);
+    fn solve_wide(&self, block: Block, use_bias: bool);
+    fn restitution_wide(&self, block: Block);
     // Worker indices select task-owned event bits; publication happens after the parallel phase.
-    fn warm_start_wide(&self, block: Block, worker_index: usize);
-    fn solve_wide(&self, block: Block, use_bias: bool, worker_index: usize);
-    fn restitution_wide(&self, block: Block, worker_index: usize);
     fn store_wide(&self, block: Block, worker_index: usize);
     fn store_mesh(&self, block: Block, worker_index: usize);
 
@@ -631,22 +631,22 @@ fn execute_block<W: StageWork>(work: &W, ty: StageType, block: Block, worker_ind
         StageType::IntegrateVelocities => work.integrate_velocities(block),
         StageType::WarmStart => match block.block_type {
             BlockType::GraphJoint => work.warm_start_joints(block),
-            BlockType::GraphWideContact => work.warm_start_wide(block, worker_index),
+            BlockType::GraphWideContact => work.warm_start_wide(block),
             _ => work.warm_start_mesh(block),
         },
         StageType::Solve => match block.block_type {
             BlockType::GraphJoint => work.solve_joints(block, true, worker_index),
-            BlockType::GraphWideContact => work.solve_wide(block, true, worker_index),
+            BlockType::GraphWideContact => work.solve_wide(block, true),
             _ => work.solve_mesh(block, true),
         },
         StageType::IntegratePositions => work.integrate_positions(block),
         StageType::Relax => match block.block_type {
             BlockType::GraphJoint => work.solve_joints(block, false, worker_index),
-            BlockType::GraphWideContact => work.solve_wide(block, false, worker_index),
+            BlockType::GraphWideContact => work.solve_wide(block, false),
             _ => work.solve_mesh(block, false),
         },
         StageType::Restitution => match block.block_type {
-            BlockType::GraphWideContact => work.restitution_wide(block, worker_index),
+            BlockType::GraphWideContact => work.restitution_wide(block),
             BlockType::GraphContact => work.restitution_mesh(block),
             // Joints have no restitution pass.
             _ => {}

@@ -17,7 +17,7 @@ use crate::stages::{
 };
 
 /// Threads the solve can ever run on: the shadow stack affords main + 7 workers (`src/pool.ts`
-/// `maxWorkers`), and each needs its own null-lane identity record.
+/// `maxWorkers`).
 pub(crate) const MAX_THREADS: usize = 8;
 
 struct Step {
@@ -139,7 +139,7 @@ impl StageWork for Work {
         );
     }
 
-    fn warm_start_wide(&self, b: Block, worker: usize) {
+    fn warm_start_wide(&self, b: Block) {
         contact_wide::warm_start(
             self.wide,
             self.wide_idx,
@@ -147,7 +147,6 @@ impl StageWork for Work {
             self.cols.flags,
             b.start,
             b.count,
-            worker,
         );
     }
 
@@ -155,7 +154,7 @@ impl StageWork for Work {
         contact::warm_start(&self.cols, b.start, b.count);
     }
 
-    fn solve_wide(&self, b: Block, use_bias: bool, worker: usize) {
+    fn solve_wide(&self, b: Block, use_bias: bool) {
         contact_wide::solve(
             self.wide,
             self.wide_idx,
@@ -166,7 +165,6 @@ impl StageWork for Work {
             use_bias,
             self.inv_h,
             self.contact_speed,
-            worker,
         );
     }
 
@@ -181,7 +179,7 @@ impl StageWork for Work {
         );
     }
 
-    fn restitution_wide(&self, b: Block, worker: usize) {
+    fn restitution_wide(&self, b: Block) {
         contact_wide::restitution(
             self.wide,
             self.wide_idx,
@@ -190,7 +188,6 @@ impl StageWork for Work {
             b.start,
             b.count,
             self.restitution_threshold,
-            worker,
         );
     }
 
@@ -204,7 +201,6 @@ impl StageWork for Work {
             self.wide,
             self.wide_spans,
             self.cols.dir,
-            self.cols.pool,
             b.start,
             b.count,
             self.hit_threshold,

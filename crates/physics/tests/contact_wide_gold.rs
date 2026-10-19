@@ -240,7 +240,6 @@ fn wide_convex_phases_match_c() {
         col(&mut flags),
         0,
         1,
-        0,
     );
     solve(
         col(&mut wide),
@@ -252,7 +251,6 @@ fn wide_convex_phases_match_c() {
         true,
         inv_h,
         contact_speed,
-        0,
     );
     solve(
         col(&mut wide),
@@ -264,7 +262,6 @@ fn wide_convex_phases_match_c() {
         false,
         inv_h,
         contact_speed,
-        0,
     );
     restitution(
         col(&mut wide),
@@ -274,7 +271,6 @@ fn wide_convex_phases_match_c() {
         0,
         1,
         restitution_threshold,
-        0,
     );
 
     // store (writes impulses back into the pool manifolds + the directory hit flags)
@@ -282,7 +278,6 @@ fn wide_convex_phases_match_c() {
         col(&mut wide),
         col(&mut spans),
         col(&mut dir),
-        col(&mut pool),
         0,
         1,
         hit_threshold,

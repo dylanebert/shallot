@@ -218,20 +218,9 @@ const ALL_LOCKS: u32 = body_flags::LOCK_LINEAR_X
     | body_flags::LOCK_ANGULAR_Y
     | body_flags::LOCK_ANGULAR_Z;
 
-#[inline]
-fn ident_rec(_worker: usize) -> usize {
-    0
-}
-
-// Explicit lane blocks keep null and non-dynamic bodies out of the write set.
-fn scatter_scalar(
-    state: Col<f32>,
-    flags: Col<u32>,
-    idx: Col<u32>,
-    io: usize,
-    v: &Vec3W,
-    w: &Vec3W,
-) {
+// Box3D contact_solver.c's SIMD scatter writes only velocities; explicit lane blocks keep null and
+// non-dynamic bodies out of the write set.
+fn scatter(state: Col<f32>, flags: Col<u32>, idx: Col<u32>, io: usize, v: &Vec3W, w: &Vec3W) {
     let vx = v.x.to_array();
     let vy = v.y.to_array();
     let vz = v.z.to_array();
@@ -293,7 +282,7 @@ fn fw(a: [f32; 4]) -> FloatW {
 /// Gather four bodies' full solver state into lanes (b3GatherBodies). Index 0 is the null/static body,
 /// contributing an identity state (zero velocity/delta, identity rotation).
 #[cfg(not(target_arch = "wasm32"))]
-fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyStateW {
+fn gather(state: Col<f32>, idx: Col<u32>, io: usize) -> BodyStateW {
     let mut vx = [0.0f32; 4];
     let mut vy = [0.0f32; 4];
     let mut vz = [0.0f32; 4];
@@ -355,7 +344,7 @@ fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyState
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3W, Vec3W) {
+fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize) -> (Vec3W, Vec3W) {
     let mut vx = [0.0f32; 4];
     let mut vy = [0.0f32; 4];
     let mut vz = [0.0f32; 4];
@@ -389,20 +378,6 @@ fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3
     )
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[inline]
-fn scatter(
-    state: Col<f32>,
-    flags: Col<u32>,
-    idx: Col<u32>,
-    io: usize,
-    v: &Vec3W,
-    w: &Vec3W,
-    _ident: usize,
-) {
-    scatter_scalar(state, flags, idx, io, v, w);
-}
-
 /// 4×4 f32 transpose (unpcklps/unpckhps + movlhps/movhlps decomposition).
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
@@ -430,7 +405,7 @@ fn gather_body(state: Col<f32>, index: u32, dummy: *const f32) -> *const f32 {
 
 /// Gathers full solver state; null lanes contribute the identity state.
 #[cfg(target_arch = "wasm32")]
-fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyStateW {
+fn gather(state: Col<f32>, idx: Col<u32>, io: usize) -> BodyStateW {
     let mut dummy = [0.0f32; STATE_STRIDE];
     dummy[12] = 1.0;
     unsafe {
@@ -493,7 +468,7 @@ fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyState
 
 /// Warm start reads velocities only; delta fields are not loaded.
 #[cfg(target_arch = "wasm32")]
-fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3W, Vec3W) {
+fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize) -> (Vec3W, Vec3W) {
     let mut dummy = [0.0f32; STATE_STRIDE];
     dummy[12] = 1.0;
     unsafe {
@@ -526,21 +501,6 @@ fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3
             },
         )
     }
-}
-
-// Box3D contact_solver.c's SIMD scatter writes only velocities, skipping null lanes.
-#[cfg(target_arch = "wasm32")]
-fn scatter(
-    state: Col<f32>,
-    flags: Col<u32>,
-    idx: Col<u32>,
-    io: usize,
-    v: &Vec3W,
-    w: &Vec3W,
-    ident: usize,
-) {
-    let _ = ident;
-    scatter_scalar(state, flags, idx, io, v, w);
 }
 
 /// Build the wide constraints for the records in `[start, start+count)` (b3PrepareContacts_Convex).
@@ -734,9 +694,7 @@ pub fn warm_start(
     flags: Col<u32>,
     start: usize,
     count: usize,
-    worker: usize,
 ) {
-    let ident = ident_rec(worker);
     for r in start..start + count {
         let wo = r * WIDE_STRIDE;
         let io = r * WIDE_STRIDE;
@@ -752,8 +710,8 @@ pub fn warm_start(
         let inv_ma = ld(wide, wo + INV_MASS_A);
         let inv_mb = ld(wide, wo + INV_MASS_B);
         let normal = ld_v3(wide, wo + NORMAL);
-        let (mut ba_v, mut ba_w) = gather_vel(state, idx, io, ident);
-        let (mut bb_v, mut bb_w) = gather_vel(state, idx, io + LANES, ident);
+        let (mut ba_v, mut ba_w) = gather_vel(state, idx, io);
+        let (mut bb_v, mut bb_w) = gather_vel(state, idx, io + LANES);
 
         for pi in 0..point_count {
             let pb = wo + POINTS + pi * POINT_STRIDE;
@@ -796,8 +754,8 @@ pub fn warm_start(
             bb_w = mul_add_mvw(bb_w, ib, impulse);
         }
 
-        scatter(state, flags, idx, io, &ba_v, &ba_w, ident);
-        scatter(state, flags, idx, io + LANES, &bb_v, &bb_w, ident);
+        scatter(state, flags, idx, io, &ba_v, &ba_w);
+        scatter(state, flags, idx, io + LANES, &bb_v, &bb_w);
     }
 }
 
@@ -815,14 +773,12 @@ pub fn solve(
     use_bias: bool,
     inv_h: f32,
     contact_speed: f32,
-    worker: usize,
 ) {
     let inv_h_w = FloatW::splat(inv_h);
     let contact_speed_w = FloatW::splat(-contact_speed);
     let one = FloatW::splat(1.0);
     let zero = FloatW::zero();
     let eps = FloatW::splat(FLT_EPSILON);
-    let ident = ident_rec(worker);
 
     for r in start..start + count {
         let wo = r * WIDE_STRIDE;
@@ -834,8 +790,8 @@ pub fn solve(
                 idx.get(io + POINT_COUNTS + 2)
                     .max(idx.get(io + POINT_COUNTS + 3)),
             ) as usize;
-        let mut ba = gather(state, idx, io, ident);
-        let mut bb = gather(state, idx, io + LANES, ident);
+        let mut ba = gather(state, idx, io);
+        let mut bb = gather(state, idx, io + LANES);
 
         let ia = ld_sym3(wide, wo + INV_IA);
         let ib = ld_sym3(wide, wo + INV_IB);
@@ -978,8 +934,8 @@ pub fn solve(
             }
         }
 
-        scatter(state, flags, idx, io, &ba.v, &ba.w, ident);
-        scatter(state, flags, idx, io + LANES, &bb.v, &bb.w, ident);
+        scatter(state, flags, idx, io, &ba.v, &ba.w);
+        scatter(state, flags, idx, io + LANES, &bb.v, &bb.w);
     }
 }
 
@@ -993,11 +949,9 @@ pub fn restitution(
     start: usize,
     count: usize,
     threshold: f32,
-    worker: usize,
 ) {
     let threshold_w = FloatW::splat(threshold);
     let zero = FloatW::zero();
-    let ident = ident_rec(worker);
 
     for r in start..start + count {
         let wo = r * WIDE_STRIDE;
@@ -1013,8 +967,8 @@ pub fn restitution(
         if rest.all_zero() {
             continue;
         }
-        let mut ba = gather(state, idx, io, ident);
-        let mut bb = gather(state, idx, io + LANES, ident);
+        let mut ba = gather(state, idx, io);
+        let mut bb = gather(state, idx, io + LANES);
         let ia = ld_sym3(wide, wo + INV_IA);
         let ib = ld_sym3(wide, wo + INV_IB);
         let inv_ma = ld(wide, wo + INV_MASS_A);
@@ -1055,19 +1009,18 @@ pub fn restitution(
             bb.v = mul_add_svw(bb.v, inv_mb, p);
         }
 
-        scatter(state, flags, idx, io, &ba.v, &ba.w, ident);
-        scatter(state, flags, idx, io + LANES, &bb.v, &bb.w, ident);
+        scatter(state, flags, idx, io, &ba.v, &ba.w);
+        scatter(state, flags, idx, io + LANES, &bb.v, &bb.w);
     }
 }
 
 /// Write solved impulses back into the pool manifolds and flag hit events (b3StoreImpulses_Convex)
-/// for records `[start, start+count)`. Each lane's contactId (from `meta`) resolves to its manifold
+/// for records `[start, start+count)`. Each lane's contactId (from `spans`) resolves to its manifold
 /// through the directory; `hit_event_threshold` is the (positive) hit-speed threshold.
 pub fn store(
     wide: Col<f32>,
     spans: Col<crate::contact_spans::WidePrepareSpan>,
     dir: Col<u32>,
-    _pool: Col<f32>,
     start: usize,
     count: usize,
     hit_event_threshold: f32,

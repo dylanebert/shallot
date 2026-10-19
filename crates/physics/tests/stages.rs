@@ -513,7 +513,7 @@ impl StageWork for Work<'_> {
         );
     }
 
-    fn warm_start_wide(&self, b: Block, worker: usize) {
+    fn warm_start_wide(&self, b: Block) {
         self.tick();
         contact_wide::warm_start(
             self.wide,
@@ -522,7 +522,6 @@ impl StageWork for Work<'_> {
             self.flags,
             b.start,
             b.count,
-            worker,
         );
     }
 
@@ -531,7 +530,7 @@ impl StageWork for Work<'_> {
         contact::warm_start(&self.columns(), b.start, b.count);
     }
 
-    fn solve_wide(&self, b: Block, use_bias: bool, worker: usize) {
+    fn solve_wide(&self, b: Block, use_bias: bool) {
         self.tick();
         contact_wide::solve(
             self.wide,
@@ -543,7 +542,6 @@ impl StageWork for Work<'_> {
             use_bias,
             self.inv_h,
             self.contact_speed,
-            worker,
         );
     }
 
@@ -559,7 +557,7 @@ impl StageWork for Work<'_> {
         );
     }
 
-    fn restitution_wide(&self, b: Block, worker: usize) {
+    fn restitution_wide(&self, b: Block) {
         self.tick();
         contact_wide::restitution(
             self.wide,
@@ -569,7 +567,6 @@ impl StageWork for Work<'_> {
             b.start,
             b.count,
             self.restitution_threshold,
-            worker,
         );
     }
 
@@ -589,7 +586,6 @@ impl StageWork for Work<'_> {
             self.wide,
             self.wide_meta,
             self.dir,
-            self.pool,
             b.start,
             b.count,
             self.hit_threshold,
@@ -697,13 +693,13 @@ fn solve_serial(
 
         work.warm_start_overflow();
         for s in spans {
-            work.warm_start_wide(color_wide(s), 0);
+            work.warm_start_wide(color_wide(s));
             work.warm_start_mesh(color_mesh(s));
         }
 
         work.solve_overflow(true);
         for s in spans {
-            work.solve_wide(color_wide(s), true, 0);
+            work.solve_wide(color_wide(s), true);
             work.solve_mesh(color_mesh(s), true);
         }
 
@@ -711,14 +707,14 @@ fn solve_serial(
 
         work.solve_overflow(false);
         for s in spans {
-            work.solve_wide(color_wide(s), false, 0);
+            work.solve_wide(color_wide(s), false);
             work.solve_mesh(color_mesh(s), false);
         }
     }
 
     work.restitution_overflow();
     for s in spans {
-        work.restitution_wide(color_wide(s), 0);
+        work.restitution_wide(color_wide(s));
         work.restitution_mesh(color_mesh(s));
     }
 
