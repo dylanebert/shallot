@@ -55,7 +55,7 @@ export const fogGridLayout = tgpu
     })
     .$idx(0);
 
-/** Godot's separable fog filter: one 7-tap pass along x into the spent history texture. */
+/** Godot's separable fog filter, with Gaussian weights: one 7-tap pass along x into the spent history texture. */
 export const fogFilterLayout = tgpu
     .bindGroupLayout({
         output: {
@@ -189,6 +189,9 @@ const loadGridDepthMultisampled = tgpu.fn(
     return std.textureLoad(fogGridDepthLayoutMultisampled.$.depthTex, d.vec2i(px), 0);
 });
 
+/** Stratified equiangular samples per volumetric point or spot light and cell. */
+const LIGHT_STRATA = 2;
+
 /** Light and reproject one frustum column per invocation. */
 function createGridKernel(multisampled: boolean) {
     const layout = fogGridLayout;
@@ -302,13 +305,18 @@ function createGridKernel(multisampled: boolean) {
                 const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
                 // Unlike HDRP's skipped far cells, near-side light fills them for trilinear and filtered reads.
                 const limit = surface * 0.999;
-                const segmentStart = std.min(start, limit) * sampleScale;
-                const segmentEnd = std.min(end, limit) * sampleScale;
                 const p = std.add(
                     sampleNear,
-                    std.mul(sampleDir, std.mix(segmentStart, segmentEnd, jitter.z)),
+                    std.mul(
+                        sampleDir,
+                        std.mix(std.min(start, limit), std.min(end, limit), jitter.z) * sampleScale,
+                    ),
                 );
                 let dens = fogDensity(p, density, base, falloff);
+                // Local lights sample the centre ray, bounded where the jittered sample is. The centre's own depth
+                // repeated near-side light past a silhouette: a band above a pillar rose 14% (stage 10).
+                const lightStart = std.min(start, limit) * rayScale;
+                const lightEnd = std.min(end, limit) * rayScale;
 
                 const viewZ = std.max(std.dot(std.sub(p, camView.eye.xyz), forward), near);
                 const entry =
@@ -343,42 +351,45 @@ function createGridKernel(multisampled: boolean) {
                     // HDRP raises a light's radius to the froxel's size at the segment's entry, so a ray through
                     // the lamp cannot sample its singular core; it compares a squared radius with a length, so
                     // this takes the intent, the froxel's width, and keeps the glow's brightness (stage 10).
-                    // As in HDRP, the light's shadow and cone are read at its own sample while density, ambient
-                    // and the sun keep the uniform one; the light list is the uniform sample's cluster, and the
-                    // falloff is HDRP's 1 / (d² + r²) rather than standard's 1 / max(d², r²).
-                    const froxelWidth = froxelArc * segmentStart;
-                    const sample = equiangularInScatter(
-                        light,
-                        sampleNear,
-                        sampleDir,
-                        segmentStart,
-                        segmentEnd,
-                        jitter.z,
-                        froxelWidth * froxelWidth,
-                    );
-                    const shadow = pointShadowOf(
-                        light,
-                        d.vec3f(0),
-                        sample.position,
-                        d.u32(ShadowFilteringMethodMode.Hardware2x2),
-                    );
-                    lstep = d.vec3f(
-                        std.add(
-                            lstep,
-                            std.mul(
-                                sample.radiance,
-                                shadow *
-                                    camView.exposure *
-                                    henyeyGreenstein(
-                                        g,
-                                        std.dot(
-                                            dir,
-                                            std.normalize(std.sub(light.posRange.xyz, center)),
-                                        ),
-                                    ),
+                    // Local lights take the column's centre ray, as HDRP takes the voxel centre for anisotropy to
+                    // keep it out of the jitter: a ray jittered above or below a spot's apex inside one column
+                    // flips the lamp's cell between dark and lit. Two depth strata settle the cone's penumbra
+                    // along the segment. A lamp swings 0.0160 with neither, 0.0098 or 0.0088 with one, 0.0011 with both.
+                    // As in HDRP, the light's shadow and cone are read at its own samples while density, ambient
+                    // and the sun keep the jittered one; the light list is the jittered sample's cluster, and
+                    // the falloff is HDRP's 1 / (d² + r²) rather than standard's 1 / max(d², r²).
+                    const lightPhase =
+                        camView.exposure *
+                        henyeyGreenstein(
+                            g,
+                            std.dot(dir, std.normalize(std.sub(light.posRange.xyz, center))),
+                        );
+                    const froxelWidth = froxelArc * lightStart;
+                    let stratum = d.u32(0);
+                    while (stratum < LIGHT_STRATA) {
+                        const sample = equiangularInScatter(
+                            light,
+                            nearWorld,
+                            dir,
+                            lightStart,
+                            lightEnd,
+                            (d.f32(stratum) + jitter.z) / LIGHT_STRATA,
+                            froxelWidth * froxelWidth,
+                        );
+                        const shadow = pointShadowOf(
+                            light,
+                            d.vec3f(0),
+                            sample.position,
+                            d.u32(ShadowFilteringMethodMode.Hardware2x2),
+                        );
+                        lstep = d.vec3f(
+                            std.add(
+                                lstep,
+                                std.mul(sample.radiance, (shadow * lightPhase) / LIGHT_STRATA),
                             ),
-                        ),
-                    );
+                        );
+                        stratum = stratum + 1;
+                    }
                     j = j + 1;
                 }
                 // Only the selected directional caster samples the atlas; every volumetric sun scatters.
@@ -458,10 +469,13 @@ function createGridKernel(multisampled: boolean) {
 export const fogGridKernel = createGridKernel(false);
 export const fogGridKernelMultisampled = createGridKernel(true);
 
-// Godot's volumetric fog filter weights: a Gaussian of σ ≈ 2.0 cells cut at ±3, about 1.5σ, so nearly a box.
+// A sampled Gaussian of σ = 1.6 cells, its ±3 tails at 17% of the centre. Godot's weights
+// (0.071303 … 0.214607) fit σ ≈ 2.0 cut at ±3, about 1.5σ: nearly a box, whose separable product draws a hot
+// cell as a square (stage 10). σ = 1.6 is the narrowest that keeps stage 6's shaft-edge claims with margin
+// on every host: 1.5 reached 0.00499 of their 0.005 on lavapipe.
 const GAUSSIAN = tgpu.const(
     d.arrayOf(d.f32, 7),
-    [0.071303, 0.131514, 0.189879, 0.214607, 0.189879, 0.131514, 0.071303],
+    [0.044147, 0.117223, 0.210611, 0.256038, 0.210611, 0.117223, 0.044147],
 );
 
 /**

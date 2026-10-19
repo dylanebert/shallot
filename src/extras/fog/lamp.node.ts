@@ -53,7 +53,8 @@ type Patch = keyof typeof PATCHES;
 
 // A warm shadowed downward spot in dense forward-scattering fog at 360p, where one froxel covers 4×4 pixels and
 // the 0.75 m slice holding the lamp sees its inverse-square core. Uniform jitter along that slice made the lamp's
-// cell swing with the sample's depth; equiangular sampling toward the light (HDRP) holds it still.
+// cell swing with the sample's depth; equiangular sampling toward the light (HDRP), on the column's centre ray in
+// two depth strata, holds it to the haze's limit.
 let measured: Promise<{ swing: Record<Patch, number>; error: Record<Patch, number> }> | undefined;
 function measure() {
     measured ??= lampTemporalError();
@@ -152,11 +153,11 @@ async function lampTemporalError() {
 }
 
 test("a still patch at a shadowed spot lamp at 360p stays calm across 16 consecutive phases", async () => {
-    expect((await measure()).swing.lamp).toBeLessThan(0.02);
+    expect((await measure()).swing.lamp).toBeLessThan(0.005);
 });
 
 test("every converged frame at the lamp agrees with the equal 16-phase linear average", async () => {
-    expect((await measure()).error.lamp).toBeLessThan(0.01);
+    expect((await measure()).error.lamp).toBeLessThan(0.005);
 });
 
 test("still patches in the cone's core and penumbra stay calm", async () => {
