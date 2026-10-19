@@ -261,6 +261,9 @@ test("a view detached between its prepass and main pass submits cleanly and free
             `standard-color-msaa-${camera}`,
             `standard-color-depth-${camera}`,
             `shallot-offscreen-${camera}`,
+            `outline-seedA-${camera}`,
+            `outline-seedB-${camera}`,
+            `outline-attr-${camera}`,
         ];
         expect(targets.filter((label) => live.has(label))).toEqual(targets);
         detachInDraw = camera;
