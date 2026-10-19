@@ -267,7 +267,10 @@ impl<'a> Emitter<'a> {
         if a[4] != u32::MAX || b[4] != u32::MAX {
             return true;
         }
-        if !shapes_collide(a, b) {
+        if !crate::shapes::should_shapes_collide(
+            crate::shapes::Filter::read(a),
+            crate::shapes::Filter::read(b),
+        ) {
             return true;
         }
         if !unsafe { crate::bodies::should_collide(a[1], b[1]) } {
@@ -329,13 +332,6 @@ unsafe fn emit(child: u32, a: u32, b: u32, next: u32) -> u32 {
     *entry.add(2) = b;
     *entry.add(3) = next;
     index as u32
-}
-
-fn shapes_collide(a: &[u32], b: &[u32]) -> bool {
-    if a[42] == b[42] && a[42] != 0 {
-        return a[42] as i32 > 0;
-    }
-    ((a[41] & b[39]) | (a[40] & b[38])) != 0 && ((a[39] & b[41]) | (a[38] & b[40])) != 0
 }
 
 /// b3UpdateBroadPhasePairs. Each task exclusively owns its moved-proxy heads

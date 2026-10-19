@@ -137,6 +137,9 @@ pub(crate) unsafe fn sensor_task(
     {
         let r = crate::shapes::col(world_index);
         let n = sensor_id * SHAPE_STRIDE;
+        let records = crate::shapes::col_slice(world_index);
+        let filter = |id: usize| Filter::read(&records[id * SHAPE_STRIDE..][..SHAPE_STRIDE]);
+        let sensor_filter = filter(sensor_id);
         let lo = Vec3::new(
             f32::from_bits(r.get(n + crate::shapes::S_AABB)),
             f32::from_bits(r.get(n + crate::shapes::S_AABB + 1)),
@@ -192,19 +195,7 @@ pub(crate) unsafe fn sensor_task(
                     {
                         return true;
                     }
-                    let group = r.get(n + S_QUERY_GROUP) as i32;
-                    let same_group = group != 0 && group == r.get(o + S_QUERY_GROUP) as i32;
-                    if same_group {
-                        if group < 0 {
-                            return true;
-                        }
-                    } else if ((r.get(n + S_QUERY_CATEGORY) & r.get(o + S_QUERY_MASK))
-                        | (r.get(n + S_QUERY_CATEGORY - 1) & r.get(o + S_QUERY_MASK - 1)))
-                        == 0
-                        || ((r.get(o + S_QUERY_CATEGORY) & r.get(n + S_QUERY_MASK))
-                            | (r.get(o + S_QUERY_CATEGORY - 1) & r.get(n + S_QUERY_MASK - 1)))
-                            == 0
-                    {
+                    if !should_shapes_collide(sensor_filter, filter(id)) {
                         return true;
                     }
                     let deferred = crate::callbacks::filter_enabled(world_index)

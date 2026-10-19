@@ -210,17 +210,6 @@ unsafe fn target_sweep(world_index: usize, id: usize, base: Vec3) -> Sweep {
         q2: q,
     }
 }
-fn filtered(world_index: usize, a: usize, b: usize) -> bool {
-    let r = shapes::col(world_index);
-    let a = a * shapes::SHAPE_STRIDE;
-    let b = b * shapes::SHAPE_STRIDE;
-    let g = r.get(a + 42) as i32;
-    if g != 0 && g == r.get(b + 42) as i32 {
-        return g < 0;
-    }
-    ((r.get(a + 41) & r.get(b + 39)) | (r.get(a + 40) & r.get(b + 38))) == 0
-        || ((r.get(b + 41) & r.get(a + 39)) | (r.get(b + 40) & r.get(a + 38))) == 0
-}
 /// # Safety
 /// The body columns must be reserved for the active world, no other thread may write the bodies in
 /// `[start, end)`, and no thread may grow memory while this runs.
@@ -277,6 +266,10 @@ pub(crate) unsafe fn solve(world_index: usize, worker: usize, i: usize) {
 unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -> bool {
     let u = shapes::col(world_index);
     let f = shapes::col_f(world_index);
+    let records = shapes::col_slice(world_index);
+    let filter = |id: usize| {
+        shapes::Filter::read(&records[id * shapes::SHAPE_STRIDE..][..shapes::SHAPE_STRIDE])
+    };
     let su = sim_u(world_index);
     let sf = sim(world_index);
     let base = v(sf, i * body::SIM_STRIDE + body::CENTER0);
@@ -351,7 +344,7 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                     if sensor
                         && (u.get(a + shapes::S_FLAGS) & shapes::SENSOR_FLAG == 0
                             || u.get(o + shapes::S_FLAGS) & shapes::SENSOR_FLAG == 0)
-                        || filtered(world_index, fast, target)
+                        || !shapes::should_shapes_collide(filter(fast), filter(target))
                     {
                         return true;
                     }

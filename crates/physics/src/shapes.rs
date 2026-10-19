@@ -134,6 +134,34 @@ pub fn col_f(world_index: usize) -> Col<'static, f32> {
         )
     }
 }
+/// A shape's b3Filter, as its record's `S_QUERY_*` lanes hold it: each 64-bit field as its low then
+/// high word.
+#[derive(Clone, Copy)]
+pub struct Filter {
+    pub category_bits: u64,
+    pub mask_bits: u64,
+    pub group_index: i32,
+}
+impl Filter {
+    /// The filter of `record`, one shape's `SHAPE_STRIDE` words.
+    #[inline]
+    pub fn read(record: &[u32]) -> Filter {
+        let wide = |high: usize| (record[high] as u64) << 32 | record[high - 1] as u64;
+        Filter {
+            category_bits: wide(S_QUERY_CATEGORY),
+            mask_bits: wide(S_QUERY_MASK),
+            group_index: record[S_QUERY_GROUP] as i32,
+        }
+    }
+}
+/// b3ShouldShapesCollide.
+#[inline]
+pub fn should_shapes_collide(a: Filter, b: Filter) -> bool {
+    if a.group_index == b.group_index && a.group_index != 0 {
+        return a.group_index > 0;
+    }
+    a.mask_bits & b.category_bits != 0 && a.category_bits & b.mask_bits != 0
+}
 pub fn col_slice(world_index: usize) -> &'static [u32] {
     unsafe {
         core::slice::from_raw_parts(
