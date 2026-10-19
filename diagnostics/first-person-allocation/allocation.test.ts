@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { dirname, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { attribute, originalPosition, prepareSamplingSession, subjectSite, type ProfileNode } from "./allocation-sampler.mjs";
+import { attribute, originalPosition, prepareSamplingSession, subjectSite, warmCollects, type ProfileNode } from "./allocation-sampler.mjs";
 import { isAdmittedAllocationSite } from "./allocation-admissions";
 import { gpuAllocationExpressions } from "../../src/engine/runtime/allocation-site";
 import {
@@ -39,6 +39,14 @@ test("a session that runs no subject step collects without rewarming the subject
         false,
     );
     expect(order).toEqual(["collect"]);
+});
+
+test("warm-up collects before every chunk of the window-length stretch before a window, and every tenth chunk before it", () => {
+    const collected = (n: number, frames: number) =>
+        Array.from({ length: n / 60 }, (_, chunk) => chunk * 60).filter((i) => warmCollects(i, n, frames, 60));
+    expect(collected(2400, 600)).toEqual([0, 600, 1200, 1800, 1860, 1920, 1980, 2040, 2100, 2160, 2220, 2280, 2340]);
+    expect(collected(1200, 60)).toEqual([0, 600, 1140]);
+    expect(collected(60, 600)).toEqual([0]);
 });
 
 test("the sampler keeps lazy feedback but disables allocation-site pretenuring for every window", () => {

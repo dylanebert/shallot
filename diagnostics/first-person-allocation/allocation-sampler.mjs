@@ -207,6 +207,17 @@ export function traceMarks() {
     };
 }
 
+/**
+ * Whether warm-up collects before the chunk starting at frame `i` of an `n`-frame stretch. A full collection
+ * can clear weak code dependencies and cause a recompile on the next subject call, so the last `frames` frames
+ * before a window collect before every chunk, as the window does, and code settles under the window's own
+ * collections. Earlier, one collection every ten chunks reaches the same dependencies at a tenth of the cost.
+ * @param {number} i @param {number} n @param {number} frames @param {number} chunk
+ */
+export function warmCollects(i, n, frames, chunk) {
+    return n - i <= frames || i % (10 * chunk) === 0;
+}
+
 /** The result file the sampler writes in its working directory. */
 export const SAMPLE_RESULT = "allocation-result.json";
 
@@ -320,9 +331,7 @@ async function main() {
         neverOptimize(controlChunk);
         const steps = async (n) => {
             for (let i = 0; i < n; i += CHUNK) {
-                // Match the sampled chunks' collections during warm-up too: a full collection can
-                // clear weak code dependencies and cause a recompile on the next subject call.
-                collect();
+                if (warmCollects(i, n, frames, CHUNK)) collect();
                 stepChunk();
                 await subject.wait?.();
             }
