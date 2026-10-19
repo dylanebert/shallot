@@ -262,30 +262,77 @@ function spacingViolations(css: Css): string[] {
         )
             continue;
         for (const match of value.matchAll(/(-?\d*\.?\d+)(px|rem|em|vw|vh)\b/gi)) {
-            if (match[2] !== "px" || Number(match[1]) % carbon.ui.spacing.base !== 0)
+            const placement = /^(top|right|bottom|left|inset|--(?:top|right|bottom|left))$/.test(
+                property,
+            );
+            const size = Math.abs(Number(match[1]));
+            if (
+                match[2] !== "px" ||
+                (placement
+                    ? size % carbon.ui.spacing.base !== 0
+                    : ![0, carbon.ui.spacing.base, carbon.ui.spacing.group].includes(size))
+            )
                 failures.push(`${property}: ${value}`);
         }
     }
     return failures;
 }
 
-test("UI spacing uses the 4px grid in sheets and inline declarations", async () => {
+test("UI spacing uses only the compact set in sheets and inline declarations", async () => {
     expect(carbon.ui.spacing.base).toBe(4);
     expect(
         spacingViolations(
             await cssOf(
                 "a.css",
-                ".a { gap: 8px; padding: 12px 16px; margin: -4px auto; left: 50%; }",
+                ".a { gap: 8px; padding: 4px 8px; margin: -4px auto; left: 50%; top: 24px; }",
             ),
         ),
     ).toEqual([]);
     for (const [path, source] of [
-        ["a.css", ".a { gap: 6px; }"],
-        ["a.html", '<b style="padding: 10px 12px">'],
+        ["a.css", ".a { gap: 12px; }"],
+        ["a.html", '<b style="padding: 10px 8px">'],
         ["a.svelte", '<b style="margin-inline: 1rem"></b>'],
         ["a.ts", 'el.style.cssText = "row-gap: 5px";'],
     ])
         expect(spacingViolations(await cssOf(path!, source!))).toHaveLength(1);
+});
+
+function rowViolations(css: Css): string[] {
+    const failures: string[] = [];
+    for (const sheet of css.sheets) {
+        function visit(value: unknown, row = false): void {
+            if (!value || typeof value !== "object") return;
+            const node = value as Record<string, any>;
+            if (node.type === "Rule") {
+                const selector = sheet.slice(node.prelude.start, node.prelude.end);
+                row =
+                    /(?:\bbutton\b|\.row\b|\.toggle\b|input\[type=["']?range)/.test(selector) &&
+                    !/::|checkbox|\bnav\b/.test(selector);
+            }
+            if (
+                row &&
+                node.type === "Declaration" &&
+                /^(?:min-)?height$/.test(node.property) &&
+                /^\d+px$/.test(node.value.trim()) &&
+                node.value.trim() !== `${carbon.ui.controls.row}px`
+            )
+                failures.push(`${node.property}: ${node.value}`);
+            for (const child of Object.values(node)) {
+                if (Array.isArray(child)) for (const item of child) visit(item, row);
+                else visit(child, row);
+            }
+        }
+        visit(parseCss(sheet));
+    }
+    return failures;
+}
+
+test("controls and list rows have one height", async () => {
+    expect(
+        rowViolations(await cssOf("a.css", ".row { height: 28px; } button { min-height: 28px; }")),
+    ).toEqual([]);
+    for (const css of ["button { height: 24px; }", ".row { min-height: 32px; }"])
+        expect(rowViolations(await cssOf("a.css", css))).toHaveLength(1);
 });
 
 async function colors(path: string, source: string, scope?: Scope): Promise<string[]> {
@@ -490,6 +537,7 @@ for (const example of await readdir("examples")) {
                     ...styleSources(path, source).flatMap((style) => violations(style)),
                     ...(await colors(path, source, { example, stepped: steppedPage(path) })),
                     ...spacingViolations(await cssOf(path, source)),
+                    ...rowViolations(await cssOf(path, source)),
                 ].map((failure) => `${path}: ${failure}`),
             );
         }

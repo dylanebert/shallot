@@ -47,7 +47,7 @@
                 style:background={srgb(swatch.color)} onclick={() => recolor(index)}></button>
         {/each}
     </div>
-    <input id="speed" aria-label="Turn speed" type="range" min="0" max="3" step="0.1" bind:value={speed} />
+    <input id="speed" aria-label="Turn speed" type="range" style:--fill={`${100 * speed / 3}%`} min="0" max="3" step="0.1" bind:value={speed} />
     <span class="angle" data-hud="angle">{degrees}<small>°</small></span>
 </section>
 
@@ -60,15 +60,20 @@
         transform: translateX(-50%);
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 12px;
+        gap: 8px;
+        padding: 4px;
         border-radius: 2px;
         background: #282622;
     }
     .swatches { display: flex; gap: 8px; }
     button { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 2px; cursor: pointer; }
-    button[aria-pressed="true"] { border-color: #eee9df; }
+    button[aria-pressed="true"] { border-color: #797369; }
     .angle { min-width: 4ch; color: #eee9df; font: 400 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: right; }
     small { font-size: 14px; vertical-align: top; }
-    input { width: 140px; margin: 0; accent-color: #eee9df; }
+    input { appearance: none; width: 192px; height: 28px; margin: 0; border-radius: 2px; background: linear-gradient(to right, #797369 var(--fill), #191816 var(--fill)); cursor: ew-resize; }
+    input:hover { background: linear-gradient(to right, #797369 var(--fill), #454440 var(--fill)); }
+    input::-webkit-slider-thumb { appearance: none; width: 2px; height: 28px; background: #eee9df; }
+    input::-moz-range-thumb { width: 2px; height: 28px; border: 0; background: #eee9df; }
+    button:hover { box-shadow: inset 0 0 0 2px #454440; }
+    button:focus-visible, input:focus-visible { outline: 1px solid #eee9df; outline-offset: 0; }
 </style>

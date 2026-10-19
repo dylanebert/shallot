@@ -25,7 +25,18 @@ export interface LookPalette {
         fontFamily: string;
         fontSizes: readonly string[];
         fontWeight: string;
-        spacing: { base: number };
+        spacing: { base: number; group: number };
+        controls: {
+            row: number;
+            label: number;
+            width: number;
+            checkbox: number;
+            indent: number;
+            rest: string;
+            hover: string;
+            selected: string;
+            focus: string;
+        };
         radius: string;
         /** A round mark, such as a reticle. */
         circle: string;
@@ -36,8 +47,20 @@ const uiType = {
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
     fontSizes: ["14px", "24px"],
     fontWeight: "400",
-    // Carbon spacing-02 and Material's 4dp sub-grid, in CSS pixels.
-    spacing: { base: 4 },
+    // lil-gui's 20px widgets at 14/11 text scale, rounded up to the 4px grid.
+    spacing: { base: 4, group: 8 },
+    controls: {
+        row: 28,
+        // A 45% name column wide enough for the longest monospace label and its indent.
+        label: 160,
+        width: 192,
+        checkbox: 20,
+        indent: 8,
+        rest: "#191816",
+        hover: "#454440",
+        selected: "#797369",
+        focus: "#eee9df",
+    },
     radius: "2px",
     circle: "50%",
 };

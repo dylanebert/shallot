@@ -1026,11 +1026,11 @@ test("first and later frames match the projected unit cube and remain stable, co
             expect(
                 layout.leftPadding,
                 `the frame keeps mobile left padding at ${viewport.width}x${viewport.height}`,
-            ).toBeGreaterThanOrEqual(16);
+            ).toBeGreaterThanOrEqual(8);
             expect(
                 layout.rightPadding,
                 `the frame keeps mobile right padding at ${viewport.width}x${viewport.height}`,
-            ).toBeGreaterThanOrEqual(16);
+            ).toBeGreaterThanOrEqual(8);
         }
         expect(
             layout.frameWidth,

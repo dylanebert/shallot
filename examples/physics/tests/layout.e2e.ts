@@ -31,7 +31,7 @@ for (const viewport of [
             if (await dependents.locator(":scope > .group").count()) {
                 const toggle = await toggles.nth(index).locator("..").boundingBox();
                 const child = await dependents.locator(":scope > .group").first().boundingBox();
-                expect.soft(child!.x - toggle!.x).toBe(24);
+                expect.soft(child!.x - toggle!.x).toBe(8);
                 expect.soft(child!.y).toBeGreaterThanOrEqual(toggle!.y + toggle!.height + 4);
             }
         }

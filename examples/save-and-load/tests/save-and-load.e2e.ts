@@ -57,28 +57,20 @@ test("every control holds still across feedback, disabled, hover and focus", asy
     expect(await boxes()).toEqual(initial);
     for (const control of await controls.all()) {
         await control.hover();
-        await expect(control).toHaveCSS("outline-style", "none");
-        await expect(control.locator("kbd")).toHaveCSS(
-            "transform",
-            "matrix(1.12, 0, 0, 1.12, 0, 0)",
-        );
+        await expect(control).toHaveCSS("background-color", "rgb(69, 68, 64)");
+        await expect(control.locator("kbd")).toHaveCSS("transform", "none");
         expect(await boxes()).toEqual(initial);
         await page.mouse.move(0, 0);
         await page.keyboard.press("Tab");
         await control.focus();
         await expect(control).toBeFocused();
-        await expect(control).toHaveCSS("outline-style", "none");
-        await expect(control.locator("kbd")).toHaveCSS(
-            "transform",
-            "matrix(1.12, 0, 0, 1.12, 0, 0)",
-        );
+        await expect(control).toHaveCSS("outline-color", "rgb(238, 233, 223)");
+        await expect(control).toHaveCSS("outline-style", "solid");
+        await expect(control.locator("kbd")).toHaveCSS("transform", "none");
         expect(await boxes()).toEqual(initial);
     }
     await controls.nth(2).evaluate((element) => (element as HTMLElement).blur());
     await controls.nth(1).hover();
-    await expect(controls.nth(1).locator("kbd")).toHaveCSS(
-        "transform",
-        "matrix(1.12, 0, 0, 1.12, 0, 0)",
-    );
+    await expect(controls.nth(1)).toHaveCSS("background-color", "rgb(69, 68, 64)");
     await capture(page, "03-save-hovered");
 });

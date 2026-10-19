@@ -56,10 +56,10 @@
                 {#if control.button}
                     <button class="action" onclick={() => update(name, 1)}>{control.label}</button>
                 {:else if control.min === undefined}
-                    <label class="toggle"><input type="checkbox" checked={!!values[name]} onchange={(event) => update(name, Number(event.currentTarget.checked))} />{control.label}</label>
+                    <label class="toggle"><span>{control.label}</span><input type="checkbox" checked={!!values[name]} onchange={(event) => update(name, Number(event.currentTarget.checked))} /></label>
                 {:else}
                     <label for={`${sizing ? "sizing" : "control"}-${name}`}>{control.label}</label>
-                    <input id={`${sizing ? "sizing" : "control"}-${name}`} type="range" min={control.min} max={control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
+                    <input id={`${sizing ? "sizing" : "control"}-${name}`} type="range" style:--fill={`${100 * (values[name] - control.min) / (control.max! - control.min)}%`} min={control.min} max={control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
                 {/if}
                 {#if Object.values(scenes[scene].controls ?? {}).some(child => child.when?.at(-1) === name)}
                     <div class="dependents">{@render fields(sizing, name)}</div>
@@ -79,35 +79,36 @@
     .picker, .controls, .input-help { --top: calc(24px + env(safe-area-inset-top)); --right: calc(24px + env(safe-area-inset-right)); --bottom: calc(24px + env(safe-area-inset-bottom)); --left: calc(24px + env(safe-area-inset-left)); }
     .picker { z-index: 1; bottom: var(--bottom); left: var(--left); right: var(--right); }
     nav { display: flex; justify-content: center; align-items: center; gap: 4px; }
-    button { min-height: 24px; padding: 0 8px; color: inherit; background: transparent; border: 0; border-radius: 2px; font: 400 14px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer; }
+    button { min-height: 28px; padding: 0 8px; color: inherit; background: transparent; border: 0; border-radius: 2px; font: 400 14px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer; }
+    nav button { min-height: 24px; }
     .name { flex: none; white-space: nowrap; }
-    button:hover, button[aria-current="true"] { text-decoration: underline; text-underline-offset: 2px; }
+    nav button:hover { text-decoration: underline; text-underline-offset: 2px; }
     button:focus-visible, input:focus-visible { outline: 1px solid #eee9df; outline-offset: 2px; }
-    .scenes { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: min(100%, calc(var(--categories) * 192px + 8px), 1000px); max-height: calc(100dvh - var(--top) - var(--bottom) - 32px); overflow-y: auto; padding: 8px; box-sizing: border-box; background: #282622; border-radius: 2px; }
-    .categories { column-width: 176px; column-gap: 16px; }
-    .scenes section { break-inside: avoid; margin-bottom: 16px; }
-    h2 { font: 400 14px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0 8px 4px; color: #797369; }
+    .scenes { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 100%; max-height: calc(100dvh - var(--top) - var(--bottom) - 32px); overflow-y: auto; padding: 4px; box-sizing: border-box; background: #282622; border-radius: 2px; }
+    .categories { display: grid; grid-template-columns: repeat(var(--categories), max-content); gap: 8px; }
+    h2 { font: 400 14px/28px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0 4px 4px; color: #797369; }
     .scenes button { display: block; width: 100%; text-align: left; }
-    .controls { top: var(--top); right: var(--right); display: grid; padding: 12px; background: #282622; border: 1px solid #797369; border-radius: 2px; max-height: calc(100dvh - var(--top) - var(--bottom) - 48px); overflow-y: auto; box-sizing: border-box; }
-    .fields { grid-area: 1 / 1; display: grid; width: 288px; align-content: start; align-self: start; }
-    .group { display: grid; grid-template-columns: minmax(0, 1fr) 96px; align-items: center; gap: 8px; }
-    .group + .group { margin-top: 12px; padding-top: 12px; border-top: 1px solid #797369; }
-    .dependents { grid-column: 1 / -1; display: grid; gap: 8px; padding-left: 24px; }
-    .dependents .group + .group { margin-top: 0; padding-top: 0; border-top: 0; }
+    .controls { top: var(--top); right: var(--right); display: grid; padding: 4px; background: #282622; border-radius: 2px; max-height: calc(100dvh - var(--top) - var(--bottom) - 48px); overflow-y: auto; box-sizing: border-box; }
+    .fields { grid-area: 1 / 1; display: grid; width: 356px; align-content: start; align-self: start; gap: 8px; }
+    .group { display: grid; grid-template-columns: minmax(0, 1fr) 192px; align-items: center; gap: 4px; }
+    .group > label:not(.toggle) { line-height: 28px; }
+    .dependents { grid-column: 1 / -1; display: grid; gap: 4px; padding-left: 8px; }
     .sizing { visibility: hidden; }
-    .action { grid-column: 1 / -1; border: 1px solid #797369; }
+    .action { grid-column: 1 / -1; }
+    .controls button, .scenes button { height: 28px; background: #191816; }
+    .controls button:hover, .scenes button:hover, input:hover { background-color: #454440; }
+    .scenes button[aria-current="true"], input[type="checkbox"]:checked { background-color: #797369; }
+    .controls button:focus-visible, .scenes button:focus-visible, input:focus-visible { outline: 1px solid #eee9df; outline-offset: 0; }
+    .scenes button + button { margin-top: 4px; }
     .input-help { top: var(--top); left: var(--left); pointer-events: none; }
-    .toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 24px; cursor: pointer; }
-    input[type="checkbox"] { appearance: none; display: grid; place-content: center; width: 16px; height: 16px; margin: 0; border: 1px solid #797369; border-radius: 2px; background: #282622; cursor: pointer; }
+    .toggle { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 192px; align-items: center; gap: 4px; height: 28px; cursor: pointer; }
+    input[type="checkbox"] { appearance: none; display: grid; place-content: center; width: 20px; height: 20px; margin: 0; border: 0; border-radius: 2px; background: #191816; cursor: pointer; }
+    input[type="checkbox"]:hover:not(:checked) { background: #454440; }
     input[type="checkbox"]:checked::after { content: ""; width: 8px; height: 4px; border: solid #eee9df; border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
-    input[type="range"] { appearance: none; width: 100%; height: 24px; margin: 0; background: transparent; cursor: pointer; }
-    input::-webkit-slider-runnable-track { height: 4px; background: #797369; }
-    input::-moz-range-track { height: 4px; background: #797369; }
-    input::-webkit-slider-thumb { appearance: none; width: 12px; height: 20px; margin-top: -8px; border: 0; border-radius: 2px; background: #eee9df; }
-    input::-moz-range-thumb { width: 12px; height: 20px; border: 0; border-radius: 2px; background: #eee9df; }
-    @media (max-width: 480px) { .categories { column-count: 1; } }
-    @media (pointer: coarse) {
-        button, input[type="range"], .toggle { min-height: 44px; }
-        .scenes { max-height: calc(100dvh - var(--top) - var(--bottom) - 52px); }
-    }
+    input[type="range"] { appearance: none; width: 192px; height: 28px; margin: 0; border-radius: 2px; background: linear-gradient(to right, #797369 var(--fill), #191816 var(--fill)); cursor: ew-resize; }
+    input[type="range"]:hover { background: linear-gradient(to right, #797369 var(--fill), #454440 var(--fill)); }
+    input::-webkit-slider-thumb { appearance: none; width: 2px; height: 28px; border: 0; background: #eee9df; }
+    input::-moz-range-thumb { width: 2px; height: 28px; border: 0; background: #eee9df; }
+    @media (max-width: 600px) { .categories { grid-template-columns: 1fr; } }
+    @media (pointer: coarse) { nav button { min-height: 44px; } }
 </style>

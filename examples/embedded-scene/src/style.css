@@ -26,8 +26,8 @@ body {
 }
 
 .page {
-    --page-pad-y: min(40px, 5svh);
-    --page-gap: 16px;
+    --page-pad-y: 8px;
+    --page-gap: 8px;
 
     display: flex;
     flex-direction: column;
@@ -36,16 +36,12 @@ body {
     width: min(
         100%,
         880px,
-        calc((100svh - var(--page-pad-y) - var(--page-pad-y) - 190px) * 16 / 9 + 48px)
+        calc((100svh - var(--page-pad-y) - var(--page-pad-y) - 190px) * 16 / 9 + 16px)
     );
     min-height: 100svh;
     margin: 0 auto;
     padding-block: var(--page-pad-y);
-    padding-inline: 24px;
-}
-
-@media (max-height: 480px) {
-    .page { --page-gap: 8px; }
+    padding-inline: 8px;
 }
 
 h1 {
@@ -86,8 +82,8 @@ h1 {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 16px;
-    padding: 32px 24px;
+    gap: 8px;
+    padding: 8px;
 }
 
 [data-bootstrap-label] { position: absolute; transform: translateY(-28px); }
@@ -124,7 +120,7 @@ canvas.visible {
     display: grid;
     place-items: center;
     overflow-wrap: anywhere;
-    padding: 24px;
+    padding: 8px;
     background: var(--bg2);
     color: var(--frame-error);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
