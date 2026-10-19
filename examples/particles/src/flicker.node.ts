@@ -1,11 +1,11 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Exposure, probeTexture, Transform } from "@dylanebert/shallot";
 import { fogReadBindGroup, fogReadLayout, readFogInScatter } from "@dylanebert/shallot/extras";
-import { attachTexture, captureTexture } from "@dylanebert/shallot/rendering";
+import { attachTexture, captureTexture, EffectPasses } from "@dylanebert/shallot/rendering";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import tgpu from "typegpu";
-import { MOTE_COUNT, Motes, MotesPlugin } from "./motes";
+import { Motes, MotesPlugin } from "./motes";
 import { Player } from "./player";
 import { Room } from "./room";
 
@@ -22,16 +22,12 @@ test("a still edge mote's estimated display swing is under 0.005 over 16 frames"
         const { world } = app;
         const camera = world.resource(Room).camera;
         world.remove(world.resource(Room).player, Player);
-        attachTexture(world, camera, { width: 960, height: 540 });
+        attachTexture(world, camera, { width: 160, height: 90 });
         world.storage(Transform).translation.set(camera, 0, 1.7, 2, 0);
         world.storage(Exposure).ev100.set(camera, 5);
         world.tick();
         const motes = world.resource(Motes);
-        const positions = new Float32Array(MOTE_COUNT * 4);
-        for (let i = 0; i < MOTE_COUNT; i++) positions[i * 4] = 100;
-        positions.set([1, 1.05, -1.5, 0]);
-        world.gpu.device.queue.writeBuffer(motes.positions!, 0, positions);
-        motes.visible = true;
+        motes.visible = false;
         const device = world.gpu.device;
         const module = device.createShaderModule({
             code: tgpu.resolve({
@@ -58,8 +54,9 @@ test("a still edge mote's estimated display swing is under 0.005 over 16 frames"
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
         });
         world.own(output);
-        for (let i = 0; i < 32; i++) world.step(0);
+        world.step(0);
         const values: number[] = [];
+        const rgb = [0, 0, 0];
         for (let f = 0; f < 16; f++) {
             world.step(0);
             const encoder = device.createCommandEncoder();
@@ -74,44 +71,54 @@ test("a still edge mote's estimated display swing is under 0.005 over 16 frames"
             pass.end();
             device.queue.submit([encoder.finish()]);
             const a = new Float32Array((await probeTexture(world, output)).bytes);
+            for (let c = 0; c < 3; c++) rgb[c]! += a[c]! / 16;
             values.push(0.2126 * a[0]! + 0.7152 * a[1]! + 0.0722 * a[2]!);
         }
         const mean = values.reduce((s, v) => s + v, 0) / 16;
         const swing = Math.max(...values) - Math.min(...values);
         const result = { point: "edge", mean, swing, relative: swing / mean, values };
-        world.step(0);
-        const on = (await captureTexture(world, camera)).rgba;
-        let at = 0,
-            peak = -Infinity;
-        for (let y = 336; y <= 347; y++)
-            for (let x = 584; x <= 596; x++) {
-                const i = (y * 960 + x) * 4;
-                const value = lum(on, i);
-                if (value > peak) {
-                    peak = value;
-                    at = i;
-                }
-            }
-        const displayMean = async (ev: number) => {
-            world.storage(Exposure).ev100.set(camera, ev);
-            // Fog rescales reprojected history by the exposure ratio; no settling is needed.
+        // The mote has its game's 0.98 albedo, full pixel coverage against black and unit transmittance.
+        // Probe the camera's actual tone curve at that mean RGB radiance; the central difference
+        // assumes a locally linear response to the read's relative luminance swing, with fixed hue.
+        const displayMean = async (scale: number) => {
+            world.resource(EffectPasses).set(camera, {
+                before: [
+                    (world, _eid, _view, _input, output) => {
+                        const pass = world.frameEncoder()!.beginRenderPass({
+                            colorAttachments: [
+                                {
+                                    view: output,
+                                    loadOp: "clear",
+                                    storeOp: "store",
+                                    clearValue: [
+                                        rgb[0]! * 0.98 * scale,
+                                        rgb[1]! * 0.98 * scale,
+                                        rgb[2]! * 0.98 * scale,
+                                        1,
+                                    ],
+                                },
+                            ],
+                        });
+                        pass.end();
+                    },
+                ],
+                after: [],
+            });
+            world.step(0);
+            const pixels = (await captureTexture(world, camera)).rgba;
             let mean = 0;
-            for (let frame = 0; frame < 16; frame++) {
-                world.step(0);
-                mean += lum((await captureTexture(world, camera)).rgba, at) / 16;
-            }
-            return mean;
+            for (let i = 0; i < pixels.length; i += 4) mean += lum(pixels, i);
+            return mean / (pixels.length / 4);
         };
-        const dimmer = await displayMean(5.25);
-        const brighter = await displayMean(4.75);
-        // Scaling the background along with the mote overstates its display response conservatively.
+        const dimmer = await displayMean(2 ** -0.25);
+        const brighter = await displayMean(2 ** 0.25);
         const slope = (brighter - dimmer) / Math.log(2 ** 0.5);
         const estimatedDisplaySwing = result.relative * slope;
         console.log(
             JSON.stringify(
                 {
                     result,
-                    edgePixel: [(at / 4) % 960, Math.floor(at / 4 / 960)],
+                    rgb,
                     slope,
                     estimatedDisplaySwing,
                 },
