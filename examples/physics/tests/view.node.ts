@@ -8,7 +8,7 @@ import {
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
-import { categories, controlValues, createScene, visibleControls } from "../src/scenes";
+import { categories, controlValues, createScene, scenes, visibleControls } from "../src/scenes";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -141,10 +141,26 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 parallel: 20,
             }[id];
             const grid = presentation.grid;
+            const spacing = grid.lines[2]!.a[2] - grid.lines[0]!.a[2];
+            expect(spacing).toBe(id === "hit" ? 5 : 1);
+            // At the 720 CSS-pixel review camera, adjacent cells at the ground focus
+            // reserve at least 4 pixels in both screen directions (at most 1 line / 4 px).
+            const camera = scenes[id].camera;
+            const pitch = (camera.pitch * Math.PI) / 180;
+            const depth = camera.distance + camera.target[1]! * Math.sin(pitch);
+            const focal = 720 / (2 * Math.tan(Math.PI / 6));
+            const across = (focal * spacing) / depth;
+            const along =
+                (focal * spacing * (camera.distance * Math.sin(pitch) + camera.target[1]!)) /
+                (depth * depth - ((Math.cos(pitch) * spacing) / 2) ** 2);
+            expect(
+                Math.min(across, along),
+                `${name} grid cell pixels at the ground focus`,
+            ).toBeGreaterThanOrEqual(4);
             expect(grid).toBeDefined();
             expect(grid.width).toBe(1);
             expect(grid.opacity).toBeLessThan(0.45);
-            for (let offset = -extent; offset <= extent; offset++) {
+            for (let offset = -extent; offset <= extent; offset += spacing) {
                 const color = offset === 0 ? 0x797369 : 0x49453f;
                 expect(grid.lines).toContainEqual({
                     a: [-extent, 0.005, offset],
@@ -157,7 +173,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                     color,
                 });
             }
-            expect(grid.lines).toHaveLength((2 * extent + 1) * 2);
+            expect(grid.lines).toHaveLength(((2 * extent) / spacing + 1) * 2);
             expect(presentation.controls).toEqual(visibleControls(id, controlValues(id)));
         } finally {
             app.dispose();

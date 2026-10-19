@@ -66,9 +66,9 @@ export function shapePresentation(world: World, scene: Scene, eid: number) {
 
 export function scenePresentation(world: World, scene: Scene) {
     const shapes = Array.from(world.query([Shape]), (eid) => shapePresentation(world, scene, eid));
-    const extent = scenes[scene].gridExtent;
+    const { gridExtent: extent, gridSpacing: spacing } = scenes[scene];
     const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
-    for (let offset = -extent; offset <= extent; offset++) {
+    for (let offset = -extent; offset <= extent; offset += spacing) {
         const color = offset === 0 ? 0x797369 : 0x49453f;
         lines.push(
             { a: [-extent, 0.005, offset], b: [extent, 0.005, offset], color },

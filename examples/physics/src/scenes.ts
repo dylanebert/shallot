@@ -112,12 +112,14 @@ export const scenes = {
     boxStack: {
         construct: boxStack,
         gridExtent: 40,
+        gridSpacing: 1,
         camera: { yaw: 40, pitch: 10, distance: 46, target: [0, 23, 0] },
         controls: undefined,
     },
     bridge: {
         construct: bridge,
         gridExtent: 25,
+        gridSpacing: 1,
         camera: { yaw: 40, pitch: 30, distance: 29, target: [-1.25, 17, 0] },
         controls: {
             "Gravity scale": control(
@@ -133,6 +135,7 @@ export const scenes = {
     revolute: {
         construct: revolute,
         gridExtent: 10,
+        gridSpacing: 1,
         camera: { yaw: 45, pitch: 30, distance: 15, target: [0, 2, 0] },
         controls: {
             Limit: control("Limit", 0, (world, bodies, value, _values) => {
@@ -277,6 +280,7 @@ export const scenes = {
     prismatic: {
         construct: prismatic,
         gridExtent: 10,
+        gridSpacing: 1,
         camera: { yaw: 45, pitch: 30, distance: 15, target: [0, 2, 0] },
         controls: {
             Limit: control("Limit", 0, (world, bodies, value, _values) => {
@@ -418,6 +422,7 @@ export const scenes = {
     wheel: {
         construct: wheel,
         gridExtent: 10,
+        gridSpacing: 1,
         camera: { yaw: 25, pitch: 20, distance: 7, target: [0, 2, 0] },
         controls: {
             "Suspension Limit": control("Suspension Limit", 0, (world, bodies, value, _values) => {
@@ -648,6 +653,7 @@ export const scenes = {
     parallel: {
         construct: parallel,
         gridExtent: 20,
+        gridSpacing: 1,
         camera: { yaw: 45, pitch: 30, distance: 15, target: [0, 2, 0] },
         controls: {
             Hertz: control(
@@ -683,6 +689,7 @@ export const scenes = {
     filter: {
         construct: filter,
         gridExtent: 10,
+        gridSpacing: 1,
         camera: { yaw: 45, pitch: 30, distance: 15, target: [0, 2, 0] },
         controls: undefined,
     },
