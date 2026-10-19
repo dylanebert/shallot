@@ -79,6 +79,20 @@ test("version flags print the installed package version", async () => {
     }
 });
 
+test("version and skill flags refuse extra arguments without calling the flags unknown", async () => {
+    for (const flag of ["--version", "-V", "--skill"]) {
+        const message = `${flag} takes no arguments`;
+        expectError(new RegExp(`^${message}$`));
+        expectError(/^See `shallot --help`/);
+        expect(await cli(flag, "extra")).toEqual({
+            code: 1,
+            stdout: "",
+            stderr: `${message}\nSee \`shallot --help\` for available options.`,
+        });
+        expect(await cli(flag, "extra", "--help")).toEqual(await cli("--help"));
+    }
+});
+
 test("shallot --skill prints the project skill and bare usage names it", async () => {
     const result = await cli("--skill");
     expect(result.code).toBe(0);
@@ -111,14 +125,21 @@ test("shallot migrate prints the bundled migration guide and refuses arguments",
     expect(refused.stdout).toBe("");
 });
 
-test("leading flags show usage instead of becoming a project command", async () => {
+test("leading flags never become a project command and unknown top-level input fails", async () => {
     expect(parseCliArgs(["--help"])).toEqual({ kind: "usage", exitCode: 0 });
     expect(parseCliArgs(["-h"])).toEqual({ kind: "usage", exitCode: 0 });
     expect(parseCliArgs([])).toEqual({ kind: "usage", exitCode: 0 });
     expect(parseCliArgs(["dev", "--help"])).toEqual({ kind: "command-help", command: "dev" });
-    expect(parseCliArgs(["--target", "web"])).toEqual({ kind: "usage", exitCode: 0 });
+    for (const args of [["--foo"], ["--target", "web"], ["--release"], ["--portable", "dev"]]) {
+        expect(() => parseCliArgs(args)).toThrow(`unknown option: ${args[0]}`);
+        expectError(/^unknown option:/);
+        expectError(/^See `shallot --help`/);
+        const result = await cli(...args);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toBe("");
+    }
 
-    for (const args of [["--help"], ["-h"], ["--target", "web"]]) {
+    for (const args of [["--help"], ["-h"], ["--target", "--help"], ["--skill", "--help"], ["--foo", "-h"], ["typo", "--help"]]) {
         const result = await cli(...args);
         expect(result.code).toBe(0);
         expect(result.stdout).toContain("shallot — tools for a Shallot project");

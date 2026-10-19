@@ -133,8 +133,11 @@ function isNativeTarget(target: string): target is NativeTarget {
 /** Separate Shallot's target flags; preserve every Vite argument and its order. */
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
-    if (raw.length === 1 && (verb === "--version" || verb === "-V")) return { kind: "version" };
-    if (raw.length === 1 && verb === "--skill") return { kind: "skill" };
+    if (verb === "--version" || verb === "-V" || verb === "--skill") {
+        if (raw.includes("--help") || raw.includes("-h")) return { kind: "usage", exitCode: 0 };
+        if (raw.length > 1) throw new Error(`${verb} takes no arguments`);
+        return { kind: verb === "--skill" ? "skill" : "version" };
+    }
     if (verb === "create") return { kind: "create", rest: raw.slice(1) };
     if (verb === "migrate") {
         if (raw.length === 1) return { kind: "migrate" };
@@ -142,10 +145,13 @@ export function parseCliArgs(raw: string[]): CliArgs {
             return { kind: "command-help", command: "migrate" };
         throw new Error("migrate takes no arguments");
     }
-    if (verb && !verb.startsWith("-") && !PROJECT_VERBS.some((command) => command === verb))
-        return { kind: "unknown", verb };
-
     const subcmd = PROJECT_VERBS.find((command) => command === verb);
+    if (!subcmd) {
+        if (!verb || raw.includes("--help") || raw.includes("-h"))
+            return { kind: "usage", exitCode: 0 };
+        if (verb.startsWith("-")) throw new Error(`unknown option: ${verb}`);
+        return { kind: "unknown", verb };
+    }
     let target: string | undefined;
     let release = false;
     let portable = false;
