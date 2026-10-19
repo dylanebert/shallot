@@ -8,7 +8,7 @@ use crate::manifold_abi::{
     POOL_POINT_STRIDE, P_ANCHOR_A, P_ANCHOR_B, P_NORMAL_IMPULSE, P_NORMAL_VELOCITY, P_SEPARATION,
     P_TOTAL_NORMAL_IMPULSE,
 };
-use crate::math::{blend2, clampf, maxf, Mat2, Mat3, Quat, Vec2, Vec3, FLT_EPSILON};
+use crate::math::{blend2, clampf, maxf, Mat2, Mat3, Quat, Vec2, Vec3, FLT_EPSILON, PI};
 
 /// B3_NULL_INDEX: a static body has no solver state.
 pub const NULL_INDEX: u32 = u32::MAX;
@@ -22,6 +22,26 @@ pub struct Softness {
     pub bias_rate: f32,
     pub mass_scale: f32,
     pub impulse_scale: f32,
+}
+
+/// b3MakeSoft. h is the substep duration; zero hertz gives zero coefficients.
+pub fn make_soft(hertz: f32, zeta: f32, h: f32) -> Softness {
+    if hertz == 0.0 {
+        return Softness {
+            bias_rate: 0.0,
+            mass_scale: 0.0,
+            impulse_scale: 0.0,
+        };
+    }
+    let omega = 2.0 * PI * hertz;
+    let a1 = 2.0 * zeta + h * omega;
+    let a2 = h * omega * a1;
+    let a3 = 1.0 / (1.0 + a2);
+    Softness {
+        bias_rate: omega / a1,
+        mass_scale: a2 * a3,
+        impulse_scale: a3,
+    }
 }
 
 #[repr(C)]

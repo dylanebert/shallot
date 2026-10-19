@@ -4,7 +4,7 @@
 
 use crate::body::{flags::DYNAMIC, read_state, State, STATE_STRIDE};
 use crate::col::Col;
-use crate::contact::Softness;
+use crate::contact::{make_soft, Softness};
 use crate::joint_abi::{
     get, get_mat3, get_quat, get_transform, get_vec3, joint_type, read_base, set, set_mat3,
     set_quat, set_transform, set_vec3, JointBase, JointPose, DJ_ANCHOR_A, DJ_ANCHOR_B,
@@ -52,28 +52,8 @@ use crate::joint_abi::{
     WJ_LINEAR_IMPULSE, WJ_LINEAR_SPRING,
 };
 use crate::math::{
-    atan2, blend2, blend3, clampf, maxf, minf, Mat2, Mat3, Quat, Transform, Vec2, Vec3, FLT_MIN, PI,
+    atan2, blend2, blend3, clampf, maxf, minf, Mat2, Mat3, Quat, Transform, Vec2, Vec3, FLT_MIN,
 };
-
-/// b3MakeSoft. h is the substep duration; zero hertz gives zero coefficients.
-fn make_soft(hertz: f32, zeta: f32, h: f32) -> Softness {
-    if hertz == 0.0 {
-        return Softness {
-            bias_rate: 0.0,
-            mass_scale: 0.0,
-            impulse_scale: 0.0,
-        };
-    }
-    let omega = 2.0 * PI * hertz;
-    let a1 = 2.0 * zeta + h * omega;
-    let a2 = h * omega * a1;
-    let a3 = 1.0 / (1.0 + a2);
-    Softness {
-        bias_rate: omega / a1,
-        mass_scale: a2 * a3,
-        impulse_scale: a3,
-    }
-}
 
 /// The velocity/delta state one joint end reads. A null (static / sleeping) index reads the identity
 /// body state (box3d's `b3_identityBodyState`): zero velocity/delta, identity delta-rotation, no

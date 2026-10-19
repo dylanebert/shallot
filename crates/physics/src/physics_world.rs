@@ -827,8 +827,8 @@ pub unsafe extern "C" fn context(dt: f32, substeps: usize, hertz: f32, damping: 
     };
     let inv_h = substeps.max(1) as f32 * inv_dt;
     let hz = hertz.min(0.125 * inv_h);
-    let cs = softness(hz, damping, h);
-    let ss = softness(2.0 * hz, 0.5 * damping, h);
+    let cs = crate::contact::make_soft(hz, damping, h);
+    let ss = crate::contact::make_soft(2.0 * hz, 0.5 * damping, h);
     CONTEXT = [
         dt,
         inv_dt,
@@ -842,22 +842,4 @@ pub unsafe extern "C" fn context(dt: f32, substeps: usize, hertz: f32, damping: 
         ss.impulse_scale,
     ];
     (&raw const CONTEXT).cast()
-}
-fn softness(hertz: f32, damping: f32, h: f32) -> crate::contact::Softness {
-    if hertz == 0.0 {
-        return crate::contact::Softness {
-            bias_rate: 0.0,
-            mass_scale: 0.0,
-            impulse_scale: 0.0,
-        };
-    }
-    let omega = (2.0 * core::f32::consts::PI) * hertz;
-    let a1 = 2.0 * damping + h * omega;
-    let a2 = (h * omega) * a1;
-    let a3 = 1.0 / (1.0 + a2);
-    crate::contact::Softness {
-        bias_rate: omega / a1,
-        mass_scale: a2 * a3,
-        impulse_scale: a3,
-    }
 }
