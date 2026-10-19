@@ -300,20 +300,20 @@ for (const [version, range] of [
     });
 }
 
-test("offline install refuses hud's TypeScript peer against the root pin", () => {
+test("offline install refuses an engine TypeScript peer range that excludes the project's pin", () => {
     offlineFixture(({ project, pack }) => {
         pack({ ...engine, peerDependencies: { typescript: "^5.0.0 || ^6.0.0" } });
         writeFileSync(
             join(project, "package.json"),
             JSON.stringify({
-                name: "hud-range-consumer",
+                name: "peer-range-consumer",
                 dependencies: {
                     "@dylanebert/shallot": "file:../packed.tgz",
                     typescript: "^7.0.2",
                 },
             }),
         );
-        expect(() => packedInstall(["install"], project, "hud peer fixture")).toThrow(
+        expect(() => packedInstall(["install"], project, "peer range fixture")).toThrow(
             "@dylanebert/shallot peer typescript range ^5.0.0 || ^6.0.0 installed 7.0.2",
         );
     });
