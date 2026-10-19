@@ -80,7 +80,7 @@
     .joint-controls { grid-template-columns: max-content 144px; align-items: center; column-gap: 8px; }
     .action, .input-help { grid-column: 1 / -1; }
     .action { border: 1px solid #797369; }
-    .input-help { color: #a69d8f; }
+    .input-help { color: #797369; }
     .toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 24px; cursor: pointer; }
     input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: #eee9df; cursor: pointer; }
     input[type="range"] { appearance: none; width: 144px; height: 24px; margin: 0; background: transparent; cursor: pointer; }
