@@ -309,7 +309,7 @@ A choice the pillars leave open is taste, and goes to the person.
 - In every example the subject accent is the brightest, most saturated thing in frame, lit and shaded faces separate, and a cast shadow reads as shade, not as the clear.
 - Examples share the `aperture-carbon` content palette: carbon room and ground neutrals, amber, cyan and brand-orange subject accents, and warm pale text and UI ink. Example suns cast shadows; keep warm sun and cool ambient lighting, with `#191816` clear.
 - UI keeps CSS pixels, scaled only by device pixel ratio; nothing zooms it to the viewport.
-- UI spacing follows the tokens' 4px base grid, grounded in [Carbon's spacing scale](https://carbondesignsystem.com/elements/spacing/overview/) and [Material's 4dp sub-grid](https://m2.material.io/design/layout/understanding-layout.html). Group a toggle's dependents beneath it and separate control groups. Changing text never moves a control.
+- UI spacing is a multiple of the `ui` tokens' 4px base. A toggle's dependents sit beneath it, control groups are set apart, and changing text never moves a control.
 - `diagnostics/default-look/palette.ts`, with `PALETTES["aperture-carbon"]`, is the source of these values and the `ui` tokens: system monospace, 14px text and 24px titles, weight 400, radius 2px, and 50% for a round mark such as a reticle. Copied user projects carry literal values copied from that source, never imports from `diagnostics/`.
 
 ## Heavy work
