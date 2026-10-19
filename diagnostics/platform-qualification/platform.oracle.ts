@@ -83,7 +83,7 @@ try {
                         ? "<div style='position:absolute;inset:0;color:white;font:48px sans-serif'>Loading scene…</div>"
                         : "";
                 await page.goto(
-                    `data:text/html,<body style='margin:0;background:black'><canvas width='1280' height='720'></canvas>${overlay}`,
+                    `data:text/html,${encodeURIComponent(`<!doctype html><html><head><meta charset="utf-8"></head><body style='margin:0;background:black'><canvas width='1280' height='720'></canvas>${overlay}</body></html>`)}`,
                 );
             } else {
                 const cwd = resolve(root, "examples", example);
@@ -155,14 +155,15 @@ try {
                 return true;
             });
             // Element screenshots include overlapping DOM. Hide that paint, including
-            // CSS decoration, without replacing or reading back the presenting canvas.
+            // CSS decoration, and composite transparent pixels onto uniform black
+            // without replacing or reading back the presenting canvas.
             const screenshot = await page.locator("canvas").screenshot({
                 path: report.frame,
-                omitBackground: true,
                 style: `* { visibility: hidden !important; background: none !important;
                     border-color: transparent !important; box-shadow: none !important;
                     outline: none !important; }
                     *::before, *::after { visibility: hidden !important; }
+                    html, canvas { background: black !important; }
                     canvas { visibility: visible !important; }`,
             });
             captured = true;
