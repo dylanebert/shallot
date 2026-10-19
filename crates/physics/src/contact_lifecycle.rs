@@ -31,7 +31,7 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     d.set(o + DIR_SET_INDEX, set as u32);
     d.set(
         o + DIR_LOCAL_INDEX,
-        solver_set::array_count_in_world(world, set, 0) as u32,
+        solver_set::array_count_in_world(world, set, solver_set::CONTACT_IDS) as u32,
     );
     d.set(o + DIR_SHAPE_A, shape_a as u32);
     d.set(o + DIR_SHAPE_B, shape_b as u32);
@@ -93,7 +93,7 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
         );
     }
     crate::table::add_pair_in_world(world, shape_a as u32, shape_b as u32, child as u32);
-    solver_set::array_push_in_world(world, set, 0, id as i32);
+    solver_set::array_push_in_world(world, set, solver_set::CONTACT_IDS, id as i32);
     let radius = |shape: usize| match shapes.get(shape * stride + crate::shapes::S_TYPE) {
         TY_SPHERE => f32::from_bits(shapes.get(shape * stride + crate::shapes::S_GEOM + 3)),
         TY_CAPSULE => f32::from_bits(shapes.get(shape * stride + crate::shapes::S_GEOM + 6)),
@@ -168,8 +168,9 @@ pub unsafe fn destroy(world: usize, id: usize, wake: bool) {
         );
     } else {
         let set = d.get(o + DIR_SET_INDEX) as usize;
-        if solver_set::array_remove_in_world(world, set, 0, index) != -1 {
-            let moved = solver_set::array_get_in_world(world, set, 0, index) as usize;
+        if solver_set::array_remove_in_world(world, set, solver_set::CONTACT_IDS, index) != -1 {
+            let moved =
+                solver_set::array_get_in_world(world, set, solver_set::CONTACT_IDS, index) as usize;
             d.set(moved * DIR_STRIDE + DIR_LOCAL_INDEX, index as u32);
         }
     }

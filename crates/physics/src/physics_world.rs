@@ -118,12 +118,19 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
             bodies::record(world, a).local_index as u32,
             bodies::record(world, b).local_index as u32,
         );
-        if solver_set::array_remove_in_world(world_index, solver_set::AWAKE_SET as usize, 0, old)
-            != -1
+        if solver_set::array_remove_in_world(
+            world_index,
+            solver_set::AWAKE_SET as usize,
+            solver_set::CONTACT_IDS,
+            old,
+        ) != -1
         {
-            let moved =
-                solver_set::array_get_in_world(world_index, solver_set::AWAKE_SET as usize, 0, old)
-                    as usize;
+            let moved = solver_set::array_get_in_world(
+                world_index,
+                solver_set::AWAKE_SET as usize,
+                solver_set::CONTACT_IDS,
+                old,
+            ) as usize;
             d.set(moved * DIR_STRIDE + DIR_LOCAL_INDEX, old as u32);
         }
     } else {
@@ -140,7 +147,7 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
             solver_set::array_push_in_world(
                 world_index,
                 solver_set::AWAKE_SET as usize,
-                0,
+                solver_set::CONTACT_IDS,
                 id as i32,
             ) as u32,
         );
@@ -501,12 +508,19 @@ unsafe fn create_pairs(world_index: usize) {
     crate::broad::clear_moves_in_world(world_index);
 }
 unsafe fn sleep_islands(world_index: usize) {
-    for index in
-        (0..solver_set::array_count_in_world(world_index, solver_set::AWAKE_SET as usize, 1)).rev()
+    for index in (0..solver_set::array_count_in_world(
+        world_index,
+        solver_set::AWAKE_SET as usize,
+        solver_set::ISLAND_IDS,
+    ))
+        .rev()
     {
-        let id =
-            solver_set::array_get_in_world(world_index, solver_set::AWAKE_SET as usize, 1, index)
-                as usize;
+        let id = solver_set::array_get_in_world(
+            world_index,
+            solver_set::AWAKE_SET as usize,
+            solver_set::ISLAND_IDS,
+            index,
+        ) as usize;
         if !crate::arena::awake_islands(world_index).get(index) {
             try_sleep_island_in_world(world_index, id);
         }

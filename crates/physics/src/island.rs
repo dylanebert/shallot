@@ -104,7 +104,8 @@ pub unsafe extern "C" fn create_in_world(world_index: usize, set: usize) -> usiz
         w.records.push(Island::default());
         w.records.len() - 1
     };
-    let index = solver_set::array_push_in_world(world_index, set, 1, id as i32);
+    let index =
+        solver_set::array_push_in_world(world_index, set, solver_set::ISLAND_IDS, id as i32);
     w.records[id] = Island {
         set_index: set as i32,
         local_index: index as i32,
@@ -121,11 +122,11 @@ pub unsafe extern "C" fn destroy_in_world(world_index: usize, id: usize) {
     let s = record(world_index, id);
     let set = s.set_index as usize;
     let index = s.local_index as usize;
-    let last = solver_set::array_count_in_world(world_index, set, 1) - 1;
-    let moved = solver_set::array_get_in_world(world_index, set, 1, last);
-    solver_set::array_write_in_world(world_index, set, 1, index, moved);
+    let last = solver_set::array_count_in_world(world_index, set, solver_set::ISLAND_IDS) - 1;
+    let moved = solver_set::array_get_in_world(world_index, set, solver_set::ISLAND_IDS, last);
+    solver_set::array_write_in_world(world_index, set, solver_set::ISLAND_IDS, index, moved);
     record(world_index, moved as usize).local_index = index as i32;
-    solver_set::array_pop_in_world(world_index, set, 1);
+    solver_set::array_pop_in_world(world_index, set, solver_set::ISLAND_IDS);
     world(world_index).records[id] = Island::default();
     world(world_index).free.push(id);
 }

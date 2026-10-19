@@ -8,6 +8,9 @@ pub const STATIC_SET: i32 = 0;
 pub const DISABLED_SET: i32 = 1;
 pub const AWAKE_SET: i32 = 2;
 pub const FIRST_SLEEPING_SET: i32 = 3;
+/// A solver set's `indices`: the ids behind b3SolverSet's contactSims and islandSims.
+pub const CONTACT_IDS: usize = 0;
+pub const ISLAND_IDS: usize = 1;
 
 #[repr(C)]
 struct BodyArray<T> {
@@ -362,7 +365,7 @@ pub unsafe fn awake_base(world_index: usize, column: usize) -> usize {
 pub unsafe fn reserve_sleeping(world_index: usize, id: usize, bodies: usize, contacts: usize) {
     let s = set(world_index, id);
     s.body_sims.reserve(bodies);
-    s.indices[0].reserve(contacts);
+    s.indices[CONTACT_IDS].reserve(contacts);
 }
 pub unsafe fn reserve_awake(world_index: usize, cap: usize) {
     let s = set(world_index, AWAKE_SET as usize);
@@ -525,13 +528,13 @@ pub unsafe extern "C" fn move_contact_in_world(
     target: usize,
 ) -> usize {
     use crate::manifold_abi::*;
-    let id = array_get_in_world(world_index, source, 0, index);
-    let destination = array_push_in_world(world_index, target, 0, id);
-    let moved = array_remove_in_world(world_index, source, 0, index);
+    let id = array_get_in_world(world_index, source, CONTACT_IDS, index);
+    let destination = array_push_in_world(world_index, target, CONTACT_IDS, id);
+    let moved = array_remove_in_world(world_index, source, CONTACT_IDS, index);
     let d = crate::manifolds::dir_col(world_index);
     if moved != -1 {
         d.set(
-            array_get_in_world(world_index, source, 0, index) as usize * DIR_STRIDE
+            array_get_in_world(world_index, source, CONTACT_IDS, index) as usize * DIR_STRIDE
                 + DIR_LOCAL_INDEX,
             index as u32,
         );
@@ -548,7 +551,7 @@ pub unsafe extern "C" fn sleep_contact_in_world(world_index: usize, id: usize, t
     use crate::manifold_abi::*;
     let d = crate::manifolds::dir_col(world_index);
     let o = id * DIR_STRIDE;
-    let destination = array_push_in_world(world_index, target, 0, id as i32);
+    let destination = array_push_in_world(world_index, target, CONTACT_IDS, id as i32);
     crate::constraint_graph::remove_contact_in_world(
         world_index,
         d.get(o + DIR_EDGE_A) as usize,
@@ -569,13 +572,13 @@ pub unsafe extern "C" fn move_island_in_world(
     index: usize,
     target: usize,
 ) -> usize {
-    let id = array_get_in_world(world_index, source, 1, index);
-    let destination = array_push_in_world(world_index, target, 1, id);
-    let old = array_remove_in_world(world_index, source, 1, index);
+    let id = array_get_in_world(world_index, source, ISLAND_IDS, index);
+    let destination = array_push_in_world(world_index, target, ISLAND_IDS, id);
+    let old = array_remove_in_world(world_index, source, ISLAND_IDS, index);
     let moved = if old == -1 {
         u32::MAX
     } else {
-        array_get_in_world(world_index, source, 1, index) as u32
+        array_get_in_world(world_index, source, ISLAND_IDS, index) as u32
     };
     ISLAND_RESULT = [destination as u32, moved];
     core::ptr::addr_of!(ISLAND_RESULT) as usize
@@ -597,9 +600,9 @@ pub unsafe fn merge(world_index: usize, mut target: usize, mut source: usize) {
         crate::bodies::set_location(world_index, id as usize, target, destination);
     }
     let d = crate::manifolds::dir_col(world_index);
-    for i in 0..array_count_in_world(world_index, source, 0) {
-        let id = array_get_in_world(world_index, source, 0, i);
-        let destination = array_push_in_world(world_index, target, 0, id);
+    for i in 0..array_count_in_world(world_index, source, CONTACT_IDS) {
+        let id = array_get_in_world(world_index, source, CONTACT_IDS, i);
+        let destination = array_push_in_world(world_index, target, CONTACT_IDS, id);
         d.set(id as usize * DIR_STRIDE + DIR_SET_INDEX, target as u32);
         d.set(
             id as usize * DIR_STRIDE + DIR_LOCAL_INDEX,
@@ -611,9 +614,9 @@ pub unsafe fn merge(world_index: usize, mut target: usize, mut source: usize) {
     for i in 0..crate::joints::count_in_world(world_index, source_key) {
         crate::joints::copy_record_in_world(world_index, source_key, i, target_key);
     }
-    for i in 0..array_count_in_world(world_index, source, 1) {
-        let id = array_get_in_world(world_index, source, 1, i);
-        let destination = array_push_in_world(world_index, target, 1, id);
+    for i in 0..array_count_in_world(world_index, source, ISLAND_IDS) {
+        let id = array_get_in_world(world_index, source, ISLAND_IDS, i);
+        let destination = array_push_in_world(world_index, target, ISLAND_IDS, id);
         crate::island::record(world_index, id as usize).set_index = target as i32;
         crate::island::record(world_index, id as usize).local_index = destination as i32;
     }
@@ -680,8 +683,8 @@ pub unsafe fn wake(world_index: usize, set: usize) {
             }
         }
     }
-    for i in 0..array_count_in_world(world_index, set, 0) {
-        let id = array_get_in_world(world_index, set, 0, i) as usize;
+    for i in 0..array_count_in_world(world_index, set, CONTACT_IDS) {
+        let id = array_get_in_world(world_index, set, CONTACT_IDS, i) as usize;
         let d = manifolds::dir_col(world_index);
         let o = id * DIR_STRIDE;
         let a = d.get(o + DIR_EDGE_A) as usize;
@@ -708,9 +711,9 @@ pub unsafe fn wake(world_index: usize, set: usize) {
             r.edges[1].body_id as usize,
         );
     }
-    for i in 0..array_count_in_world(world_index, set, 1) {
-        let id = array_get_in_world(world_index, set, 1, i);
-        let index = array_push_in_world(world_index, AWAKE_SET as usize, 1, id);
+    for i in 0..array_count_in_world(world_index, set, ISLAND_IDS) {
+        let id = array_get_in_world(world_index, set, ISLAND_IDS, i);
+        let index = array_push_in_world(world_index, AWAKE_SET as usize, ISLAND_IDS, id);
         island::record(world_index, id as usize).set_index = AWAKE_SET;
         island::record(world_index, id as usize).local_index = index as i32;
     }

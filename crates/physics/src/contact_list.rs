@@ -10,7 +10,11 @@ pub unsafe fn count_in_world(world: usize) -> usize {
             graph::count_in_world(world, color, false) + graph::count_in_world(world, color, true)
         })
         .sum::<usize>()
-        + solver_set::array_count_in_world(world, solver_set::AWAKE_SET as usize, 0)
+        + solver_set::array_count_in_world(
+            world,
+            solver_set::AWAKE_SET as usize,
+            solver_set::CONTACT_IDS,
+        )
 }
 #[export_name = "awakeContactGet"]
 pub unsafe extern "C" fn get(index: usize) -> u32 {
@@ -32,7 +36,12 @@ pub unsafe fn get_in_world(world: usize, mut index: usize) -> u32 {
             index -= count;
         }
     }
-    solver_set::array_get_in_world(world, solver_set::AWAKE_SET as usize, 0, index) as u32
+    solver_set::array_get_in_world(
+        world,
+        solver_set::AWAKE_SET as usize,
+        solver_set::CONTACT_IDS,
+        index,
+    ) as u32
 }
 pub unsafe fn copy_in_world(world: usize, mut ptr: *mut u32) {
     for color in 0..graph::COLORS {
@@ -51,9 +60,17 @@ pub unsafe fn copy_in_world(world: usize, mut ptr: *mut u32) {
             ptr = ptr.add(1);
         }
     }
-    for index in 0..solver_set::array_count_in_world(world, solver_set::AWAKE_SET as usize, 0) {
-        *ptr =
-            solver_set::array_get_in_world(world, solver_set::AWAKE_SET as usize, 0, index) as u32;
+    for index in 0..solver_set::array_count_in_world(
+        world,
+        solver_set::AWAKE_SET as usize,
+        solver_set::CONTACT_IDS,
+    ) {
+        *ptr = solver_set::array_get_in_world(
+            world,
+            solver_set::AWAKE_SET as usize,
+            solver_set::CONTACT_IDS,
+            index,
+        ) as u32;
         ptr = ptr.add(1);
     }
 }
