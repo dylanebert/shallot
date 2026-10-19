@@ -363,7 +363,7 @@ export function orthoFootprintFit(
 
 /** the atlas-UV tile rect `[u0, v0, du, dv]` for cascade `k` of `n` in the fixed cascade grid, written into
  * `out` at `at`. Cascades are equal-resolution, so a deterministic `ceil(√n)`-per-side grid packs them (n=1 →
- * the whole atlas; n=2 → side-by-side; n∈{3,4} → 2×2): no importance allocator. Otherwise pure. */
+ * the whole atlas; n=2 → side-by-side; n∈{3,4} → 2×2). Otherwise pure. */
 export function cascadeTileRect(k: number, n: number, out: Float32Array, at: number): void {
     const cols = Math.ceil(Math.sqrt(n));
     const d = 1 / cols;
@@ -1312,7 +1312,6 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         }
         f.light = c.light;
         f.slot = slot;
-        f.tilePx = MIN_TILE;
         readRenderGlobalTransform(world, c.light, _lightPlacement);
         f.pos[0] = _lightPlacement[0];
         f.pos[1] = _lightPlacement[1];
