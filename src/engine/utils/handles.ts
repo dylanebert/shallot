@@ -1,5 +1,5 @@
 const INDEX_COUNT = 2 ** 20;
-const MAX_GENERATION = 2 ** 11 - 1;
+const GENERATION_COUNT = 2 ** 11;
 const MAX_HANDLE = 2 ** 31 - 1;
 
 /** Masks a {@link HandleAllocator} handle to its dense index, as GPU code reads it; a stale
@@ -38,10 +38,8 @@ export class HandleAllocator {
         const index = this.index(handle);
         if (index === undefined) return false;
         this._live[index] = false;
-        if (this._generations[index] < MAX_GENERATION) {
-            this._generations[index]++;
-            this._free.push(index);
-        }
+        this._generations[index] = (this._generations[index] + 1) % GENERATION_COUNT;
+        this._free.push(index);
         return true;
     }
 
