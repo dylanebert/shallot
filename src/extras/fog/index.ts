@@ -45,6 +45,10 @@ import {
 import { FOG_FLOATS, FOG_HEIGHT, FOG_SLICES, FOG_WIDTH, FogGpu, WORKGROUP } from "./medium";
 import { packFog } from "./pack";
 import {
+    fogDepthKernel,
+    fogDepthKernelMultisampled,
+    fogDepthLayout,
+    fogDepthLayoutMultisampled,
     fogFilterKernel,
     fogFilterLayout,
     fogGridDepthLayout,
@@ -203,6 +207,8 @@ const fogSource = tgpu.fn(
 
 interface FogState {
     fog: {
+        depthPipeline: TgpuComputePipeline | null;
+        depthPipelineMultisampled: TgpuComputePipeline | null;
         gridPipeline: TgpuComputePipeline | null;
         gridPipelineMultisampled: TgpuComputePipeline | null;
         filterPipeline: TgpuComputePipeline | null;
@@ -221,12 +227,14 @@ interface FogState {
             feedback: GPUTexture[];
             filtered: GPUTexture;
             surface: GPUTexture[];
+            deepest: GPUTexture;
             temporal: GPUBuffer;
             staging: Float32Array<ArrayBuffer>;
             valid: boolean;
             config: Float32Array;
             parity: number;
             camera: number;
+            depthGroup: GPUBindGroup;
             gridGroups: GPUBindGroup[];
             filterGroups: GPUBindGroup[];
             integrateGroups: GPUBindGroup[];
@@ -248,6 +256,8 @@ interface FogState {
 const fogStateKey = { create: () => createFogState() };
 const createFogState = (): FogState => ({
     fog: {
+        depthPipeline: null,
+        depthPipelineMultisampled: null,
         gridPipeline: null,
         gridPipelineMultisampled: null,
         filterPipeline: null,
@@ -271,6 +281,7 @@ function destroyView(cam: FogState["views"] extends Map<number, infer V> ? V : n
     for (const texture of cam.feedback) texture.destroy();
     cam.filtered.destroy();
     for (const texture of cam.surface) texture.destroy();
+    cam.deepest.destroy();
     cam.temporal.destroy();
 }
 
@@ -393,6 +404,8 @@ const FogSystem: System = {
         const _fogState = world.resource(fogStateKey);
 
         if (
+            !_fogState.fog.depthPipeline ||
+            !_fogState.fog.depthPipelineMultisampled ||
             !_fogState.fog.gridPipeline ||
             !_fogState.fog.gridPipelineMultisampled ||
             !_fogState.fog.filterPipeline ||
@@ -473,6 +486,13 @@ const FogSystem: System = {
                     }),
                 );
                 const surfaceViews = surface.map((texture) => texture.createView());
+                const deepest = world.gpu.device.createTexture({
+                    label: `fog-deepest/${eid}`,
+                    size: [grid.width, grid.height],
+                    format: "r32float",
+                    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+                });
+                const deepestView = deepest.createView();
                 const feedback = [0, 1].map(() =>
                     world.gpu.device.createTexture({
                         label: `fog-lighting/${eid}`,
@@ -508,6 +528,7 @@ const FogSystem: System = {
                             surface: surfaceViews[parity],
                             history: feedbackViews[1 - parity],
                             historySurface: surfaceViews[1 - parity],
+                            deepest: deepestView,
                             historySampler,
                             surfaceSampler,
                             temporal,
@@ -569,12 +590,26 @@ const FogSystem: System = {
                     feedback,
                     filtered,
                     surface,
+                    deepest,
                     temporal,
                     staging: new Float32Array(32),
                     valid: false,
                     config: new Float32Array(FOG_FLOATS),
                     parity: 0,
                     camera: world.ref(eid),
+                    depthGroup: world.gpu.root.unwrap(
+                        multisampled
+                            ? world.gpu.root.createBindGroup(fogDepthLayoutMultisampled, {
+                                  deepest: deepestView,
+                                  view: _render.viewBuffers[view.slot],
+                                  depthTex: view.depth,
+                              })
+                            : world.gpu.root.createBindGroup(fogDepthLayout, {
+                                  deepest: deepestView,
+                                  view: _render.viewBuffers[view.slot],
+                                  depthTex: view.depth,
+                              }),
+                    ),
                     gridGroups,
                     filterGroups,
                     integrateGroups,
@@ -625,6 +660,19 @@ const FogSystem: System = {
             cam.staging[26] = current[start + 56];
             cam.gridPass.timestampWrites = world.gpu.span?.("fog:grid");
             const gridPass = beginComputePass(world.frameEncoder()!, cam.gridPass);
+            const groupsX = Math.ceil(cam.grid.width / WORKGROUP);
+            const groupsY = Math.ceil(cam.grid.height / WORKGROUP);
+            setComputePipeline(
+                gridPass,
+                world.gpu.root.unwrap(
+                    cam.multisampled
+                        ? _fogState.fog.depthPipelineMultisampled
+                        : _fogState.fog.depthPipeline,
+                ),
+            );
+            setComputeBindGroup(gridPass, 0, cam.depthGroup);
+            // One workgroup per column.
+            dispatchWorkgroups2(gridPass, cam.grid.width, cam.grid.height);
             setComputePipeline(
                 gridPass,
                 world.gpu.root.unwrap(
@@ -636,8 +684,6 @@ const FogSystem: System = {
             setComputeBindGroup(gridPass, 0, cam.gridGroups[cam.parity]);
             setComputeBindGroup(gridPass, 1, lights);
             setComputeBindGroup(gridPass, 2, cam.gridDepthGroup);
-            const groupsX = Math.ceil(cam.grid.width / WORKGROUP);
-            const groupsY = Math.ceil(cam.grid.height / WORKGROUP);
             dispatchWorkgroups2(gridPass, groupsX, groupsY);
             setComputePipeline(gridPass, world.gpu.root.unwrap(_fogState.fog.filterPipeline));
             setComputeBindGroup(gridPass, 0, cam.filterGroups[cam.parity]);
@@ -706,6 +752,12 @@ export const FogPlugin: Plugin = {
             .createBuffer(FogGpu)
             .$usage("uniform")
             .$name("fog-config");
+        _fogState.fog.depthPipeline = world.gpu.root
+            .createComputePipeline({ compute: fogDepthKernel })
+            .$name("fog-depth");
+        _fogState.fog.depthPipelineMultisampled = world.gpu.root
+            .createComputePipeline({ compute: fogDepthKernelMultisampled })
+            .$name("fog-depth-msaa");
         const root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
         _fogState.fog.gridPipelineMultisampled = root
             .createComputePipeline({ compute: fogGridKernelMultisampled })
@@ -731,6 +783,10 @@ export const FogPlugin: Plugin = {
             _fogState.fog.gridPipeline!,
             _fogState.fog.gridPipelineMultisampled!,
         ]);
+        precompile(world, "fog-depth", () => [
+            _fogState.fog.depthPipeline!,
+            _fogState.fog.depthPipelineMultisampled!,
+        ]);
         precompile(world, "fog-filter", () => _fogState.fog.filterPipeline!);
         precompile(world, "fog-integrate", () => _fogState.fog.integratePipeline!);
         precompile(world, "fog", () => [pipeline]);
@@ -742,6 +798,8 @@ export const FogPlugin: Plugin = {
 
         _fogState.fog.buffer?.destroy();
         _fogState.fog.buffer = null;
+        _fogState.fog.depthPipeline = null;
+        _fogState.fog.depthPipelineMultisampled = null;
         _fogState.fog.gridPipeline = null;
         _fogState.fog.gridPipelineMultisampled = null;
         _fogState.fog.filterPipeline = null;

@@ -70,6 +70,8 @@ const SEAMS: readonly Vec3[] = [
     [-3.3, 1.5, -1],
     [3.3, 1.5, -1],
 ];
+// The back-right corner, where one column holds the back wall's surface beside the side wall's.
+const CORNER: readonly Vec3[] = [1, 1.4, 1.8, 2.2, 2.6].map((y) => [3.3, y, -3.3] as const);
 const FRAMES = 32;
 const SAMPLED = [16, 32];
 
@@ -78,7 +80,10 @@ const SAMPLED = [16, 32];
  * sampled frames' seam patches with the converged still reference at each pose: the equal average of all 16
  * phases, each from fresh history.
  */
-async function seamError(path: (speed: number, frame: number) => Pose) {
+async function seamError(
+    path: (speed: number, frame: number) => Pose,
+    points: readonly Vec3[] = SEAMS,
+) {
     const app = await openGpuApp({ plugins: [MotesPlugin] });
     try {
         const { world } = app;
@@ -107,8 +112,8 @@ async function seamError(path: (speed: number, frame: number) => Pose) {
         let error = 0;
         let seen = 0;
         for (const [frame, rgba] of moving) {
-            const pixels = SEAMS.map((point) => project(path(speed, frame), point));
-            const reference = SEAMS.map(() => 0);
+            const pixels = points.map((point) => project(path(speed, frame), point));
+            const reference = points.map(() => 0);
             for (let i = 0; i < 16; i++) {
                 // Opt-out discards history. A three-frame stride visits all 16 Halton phases.
                 world.add(camera, NoFog);
@@ -152,5 +157,18 @@ test("seams hold the still reference while strafing and turning", async () => {
         pitch: 0.25,
     }));
     expect(seen).toBeGreaterThan(SEAMS.length);
+    expect(error).toBeLessThan(0.005);
+});
+
+test("the corner seam holds the still reference while dollying toward it and back", async () => {
+    const { error, seen } = await seamError(
+        (speed, frame) => ({
+            eye: [3, 1.7, 3 - (speed / 60) * Math.min(frame, FRAMES - frame)],
+            yaw: -0.02,
+            pitch: -0.1,
+        }),
+        CORNER,
+    );
+    expect(seen).toBe(2 * CORNER.length);
     expect(error).toBeLessThan(0.005);
 });
