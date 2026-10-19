@@ -48,7 +48,14 @@ export const fogGridLayout = tgpu
             visibility: ["compute"],
         },
         history: { texture: d.texture3d(d.f32), visibility: ["compute"] },
+        /** The previous frame's `surface`. */
+        historySurface: {
+            texture: d.texture2d(d.f32),
+            sampleType: "unfilterable-float",
+            visibility: ["compute"],
+        },
         historySampler: { sampler: "filtering", visibility: ["compute"] },
+        surfaceSampler: { sampler: "non-filtering", visibility: ["compute"] },
         temporal: { uniform: FogHistory, visibility: ["compute"] },
         view: { uniform: ViewUniforms, visibility: ["compute"] },
         fog: { uniform: FogGpu, visibility: ["compute"] },
@@ -189,8 +196,33 @@ const loadGridDepthMultisampled = tgpu.fn(
     return std.textureLoad(fogGridDepthLayoutMultisampled.$.depthTex, d.vec2i(px), 0);
 });
 
+/** Whether slice i lies past the first cell beyond a column's surface, both measured from the near plane. */
+const pastSurface = tgpu.fn(
+    [d.u32, d.f32, d.f32],
+    d.bool,
+)((i, extent, surface) => {
+    "use gpu";
+    const previous = std.max(d.f32(i) - 1, 0) / FOG_SLICES;
+    return i > 0 && extent * previous * previous >= surface * 0.999;
+});
+
+/** Bits 0 and 4 mark slices low and high of one history column as on the side `beyond` names. */
+const sameSide = tgpu.fn(
+    [d.u32, d.u32, d.f32, d.f32, d.bool],
+    d.u32,
+)((low, high, extent, surface, beyond) => {
+    "use gpu";
+    let bits = d.u32(0);
+    if (pastSurface(low, extent, surface) === beyond) bits = 1;
+    if (pastSurface(high, extent, surface) === beyond) bits = bits | 16;
+    return bits;
+});
+
 /** Stratified equiangular samples per volumetric point or spot light and cell. */
 const LIGHT_STRATA = 2;
+
+/** The history footprint's corners on each face, bit x + 2y + 4z: x low, x high, y low, y high, z low, z high. */
+const FACES = tgpu.const(d.arrayOf(d.u32, 6), [0x55, 0xaa, 0x33, 0xcc, 0x0f, 0xf0]);
 
 /** Light and reproject one frustum column per invocation. */
 function createGridKernel(multisampled: boolean) {
@@ -303,12 +335,12 @@ function createGridKernel(multisampled: boolean) {
                 const end = extent * b * b;
                 const center = std.add(nearWorld, std.mul(dir, (start + end) * 0.5 * rayScale));
                 const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
-                // Unlike HDRP's skipped far cells, near-side light fills the first cell wholly past the surface,
-                // the one a trilinear read at the surface reaches. Cells beyond it are lit where they are, as in
-                // HDRP and Godot: repeating near-side light through them lit the far haze beside a silhouette.
-                const previous = std.max(d.f32(i) - 1, 0) / FOG_SLICES;
+                // Near-side light fills the first cell wholly past the surface, the one a trilinear read at the
+                // surface reaches; HDRP lights that cell where it is. Cells beyond it are lit where they are, as
+                // HDRP lights cells up to its widened maximum depth (the MaxZ mask), zeroing only cells past it:
+                // repeating near-side light through them lit the far haze beside a silhouette.
                 let limit = surface * 0.999;
-                if (i > 0 && extent * previous * previous >= limit) limit = extent;
+                if (pastSurface(i, extent, surface)) limit = extent;
                 const p = std.add(
                     sampleNear,
                     std.mul(
@@ -438,6 +470,7 @@ function createGridKernel(multisampled: boolean) {
                 // when jitter changes the balance of ambient and shadowed direct light.
                 // Angular scattering in history remains approximate when the camera turns.
                 const prev = layout.$.temporal;
+                const beyond = pastSurface(i, extent, centerSurface);
                 const clip = std.mul(prev.viewProj, d.vec4f(center, 1));
                 const prevUv = std.add(std.mul(std.div(clip.xy, clip.w), d.vec2f(0.5, -0.5)), 0.5);
                 const depth = std.dot(std.sub(center, prev.eye.xyz), prev.forward.xyz);
@@ -454,18 +487,109 @@ function createGridKernel(multisampled: boolean) {
                     depth > prev.range.x &&
                     sliceDepth < 1
                 ) {
-                    const old = std.textureSampleLevel(
-                        layout.$.history,
-                        layout.$.historySampler,
-                        d.vec3f(prevUv, z),
+                    // Trilinear history from only the cells on the same side of their column's surface as this
+                    // one, by the jitter-free centre depth, so a still camera's history is its own cell's.
+                    // Wronski (2014) finds a frustum grid's history valid behind geometry only without
+                    // depth-based culling, and HDRP, which clips cells at the surface, reprojects every cell and
+                    // accepts the leak. Here a cell past a surface is lit where it is, beyond the wall: blended
+                    // into air in front of a surface, it lit a room's seams and edges from outside while the
+                    // camera walked or turned (stage 11). Where all eight cells agree, the sampler filters them.
+                    const coord = std.sub(
+                        std.mul(d.vec3f(prevUv, z), d.vec3f(d.vec2f(dim.xy), FOG_SLICES)),
+                        0.5,
+                    );
+                    const first = std.floor(coord);
+                    const fraction = std.sub(coord, first);
+                    const last = d.vec3i(d.i32(dim.x) - 1, d.i32(dim.y) - 1, FOG_SLICES - 1);
+                    const low = std.clamp(d.vec3i(first), d.vec3i(0), last);
+                    const high = std.clamp(std.add(d.vec3i(first), 1), d.vec3i(0), last);
+                    // The four columns of the bilinear footprint, gathered as (x0 y1, x1 y1, x1 y0, x0 y0).
+                    const columns = std.textureGather(
                         0,
+                        layout.$.historySurface,
+                        layout.$.surfaceSampler,
+                        prevUv,
                     );
-                    lstep = std.mix(
-                        lstep,
-                        std.mul(old.rgb, camView.exposure / std.max(prev.range.z, 1e-8)),
-                        HISTORY_WEIGHT,
-                    );
-                    dens = std.mix(dens, old.a, HISTORY_WEIGHT);
+                    const zLow = d.u32(low.z);
+                    const zHigh = d.u32(high.z);
+                    const range = prev.range.y;
+                    // Bit x + 2y + 4z marks corner (x, y, z) as on this cell's side.
+                    const same =
+                        sameSide(zLow, zHigh, range, columns.w, beyond) |
+                        (sameSide(zLow, zHigh, range, columns.z, beyond) << 1) |
+                        (sameSide(zLow, zHigh, range, columns.x, beyond) << 2) |
+                        (sameSide(zLow, zHigh, range, columns.y, beyond) << 3);
+                    // Where some disagree, sample the face of the footprint on this side that the trilinear
+                    // weights favour, else its heaviest corner: the sampler then weights only those cells.
+                    let target = d.vec3f(fraction);
+                    let best = d.f32(-1);
+                    if (same !== 255) {
+                        let face = d.u32(0);
+                        while (face < 6) {
+                            const axis = face >>> 1;
+                            const upper = (face & 1) === 1;
+                            if ((same & FACES.$[face]) === FACES.$[face]) {
+                                const along = std.select(
+                                    std.select(fraction.z, fraction.y, axis === 1),
+                                    fraction.x,
+                                    axis === 0,
+                                );
+                                const weight = std.select(1 - along, along, upper);
+                                if (weight > best) {
+                                    best = weight;
+                                    const side = std.select(d.f32(0), 1, upper);
+                                    target = std.select(
+                                        fraction,
+                                        d.vec3f(side),
+                                        d.vec3b(axis === 0, axis === 1, axis === 2),
+                                    );
+                                }
+                            }
+                            face = face + 1;
+                        }
+                        // With no face on this side, its heaviest corner.
+                        if (best < 0) {
+                            let corner = d.u32(0);
+                            while (corner < 8) {
+                                if (((same >>> corner) & 1) === 1) {
+                                    const offset = d.vec3f(
+                                        d.f32(corner & 1),
+                                        d.f32((corner >>> 1) & 1),
+                                        d.f32((corner >>> 2) & 1),
+                                    );
+                                    const axes = std.mix(
+                                        std.sub(d.vec3f(1), fraction),
+                                        fraction,
+                                        offset,
+                                    );
+                                    const weight = axes.x * axes.y * axes.z;
+                                    if (weight > best) {
+                                        best = weight;
+                                        target = d.vec3f(offset);
+                                    }
+                                }
+                                corner = corner + 1;
+                            }
+                        }
+                    }
+                    // A cell with no such neighbour takes the current sample alone, as out of the frustum.
+                    if (same === 255 || best >= 0) {
+                        const old = std.textureSampleLevel(
+                            layout.$.history,
+                            layout.$.historySampler,
+                            std.div(
+                                std.add(std.add(first, target), 0.5),
+                                d.vec3f(d.vec2f(dim.xy), FOG_SLICES),
+                            ),
+                            0,
+                        );
+                        lstep = std.mix(
+                            lstep,
+                            std.mul(old.rgb, camView.exposure / std.max(prev.range.z, 1e-8)),
+                            HISTORY_WEIGHT,
+                        );
+                        dens = std.mix(dens, old.a, HISTORY_WEIGHT);
+                    }
                 }
                 std.textureStore(
                     layout.$.feedback,

@@ -220,7 +220,7 @@ interface FogState {
             height: number;
             feedback: GPUTexture[];
             filtered: GPUTexture;
-            surface: GPUTexture;
+            surface: GPUTexture[];
             temporal: GPUBuffer;
             staging: Float32Array<ArrayBuffer>;
             valid: boolean;
@@ -270,7 +270,7 @@ function destroyView(cam: FogState["views"] extends Map<number, infer V> ? V : n
     cam.grid.destroy();
     for (const texture of cam.feedback) texture.destroy();
     cam.filtered.destroy();
-    cam.surface.destroy();
+    for (const texture of cam.surface) texture.destroy();
     cam.temporal.destroy();
 }
 
@@ -463,13 +463,16 @@ const FogSystem: System = {
                     usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
                 });
                 const gridView = grid.createView();
-                const surface = world.gpu.device.createTexture({
-                    label: `fog-surface/${eid}`,
-                    size: [grid.width, grid.height],
-                    format: "r32float",
-                    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-                });
-                const surfaceView = surface.createView();
+                // Kept a frame: reprojection reads which side of its column's surface each history cell lies on.
+                const surface = [0, 1].map(() =>
+                    world.gpu.device.createTexture({
+                        label: `fog-surface/${eid}`,
+                        size: [grid.width, grid.height],
+                        format: "r32float",
+                        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+                    }),
+                );
+                const surfaceViews = surface.map((texture) => texture.createView());
                 const feedback = [0, 1].map(() =>
                     world.gpu.device.createTexture({
                         label: `fog-lighting/${eid}`,
@@ -496,14 +499,17 @@ const FogSystem: System = {
                     minFilter: "linear",
                     magFilter: "linear",
                 });
+                const surfaceSampler = world.gpu.device.createSampler();
                 const feedbackViews = feedback.map((texture) => texture.createView());
                 const gridGroups = [0, 1].map((parity) =>
                     world.gpu.root.unwrap(
                         world.gpu.root.createBindGroup(fogGridLayout, {
                             feedback: feedbackViews[parity],
-                            surface: surfaceView,
+                            surface: surfaceViews[parity],
                             history: feedbackViews[1 - parity],
+                            historySurface: surfaceViews[1 - parity],
                             historySampler,
+                            surfaceSampler,
                             temporal,
                             view: _render.viewBuffers[view.slot],
                             fog: _fogState.fog.buffer!,
@@ -516,7 +522,7 @@ const FogSystem: System = {
                         world.gpu.root.createBindGroup(fogFilterLayout, {
                             output: feedbackViews[1 - parity],
                             lighting: feedbackViews[parity],
-                            surface: surfaceView,
+                            surface: surfaceViews[parity],
                             view: _render.viewBuffers[view.slot],
                             fog: _fogState.fog.buffer!,
                         }),
@@ -528,7 +534,7 @@ const FogSystem: System = {
                             output: gridView,
                             filtered: filteredView,
                             lighting: feedbackViews[1 - parity],
-                            surface: surfaceView,
+                            surface: surfaceViews[parity],
                             view: _render.viewBuffers[view.slot],
                             fog: _fogState.fog.buffer!,
                         }),
