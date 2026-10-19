@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expectError } from "../../scripts/test-console";
 import { main, parseCliArgs } from "./index";
 
@@ -346,9 +348,11 @@ test("dev refuses release and preview refuses arguments it cannot forward", asyn
 });
 
 test("native commands name a missing project directory before looking for a build", async () => {
-    const path = `/shallot-missing-project-${process.pid}`;
+    // An absolute path on every host, so the message names it unchanged.
+    const path = join(tmpdir(), `shallot-missing-project-${process.pid}`);
+    const escaped = path.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
     for (const command of ["preview", "dev", "build"]) {
-        expectError(new RegExp(`^no project directory at ${path}$`));
+        expectError(new RegExp(`^no project directory at ${escaped}$`));
         const result = await cli(command, "--target", "mac", path);
         expect(result.code).toBe(1);
         expect(result.stderr).toBe(`no project directory at ${path}`);
