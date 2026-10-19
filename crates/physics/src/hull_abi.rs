@@ -54,8 +54,10 @@ pub unsafe extern "C" fn build(operation: u32, count: usize, budget: i32) -> *co
         8 => {
             let bytes = core::slice::from_raw_parts(r.as_ptr().add(16).cast::<u8>(), count);
             let words = bytes
-                .chunks_exact(8)
-                .map(|b| u64::from_ne_bytes(b.try_into().unwrap()))
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|b| u64::from_ne_bytes(*b))
                 .collect();
             hull_build::clone_and_transform(
                 &HullImage(words),

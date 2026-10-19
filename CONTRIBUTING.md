@@ -254,7 +254,7 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 
 ### Physics iteration
 
-- A change runs, in the loop, the sets of every row it touches. The common set is `bun check`, `bun run lint` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`; the kernel set adds `bun crates/physics/scripts/build-kernel.ts`, `cargo test -p shallot-physics`, `src/standard/physics/solver/step.gold.node.ts` and `diagnostics/box3d-parity/phases.oracle.ts`.
+- A change runs, in the loop, the sets of every row it touches. The common set is `bun check`, `bun run lint` and every `*.test.ts` under `src/core/physics` and `src/standard/physics`; the kernel set adds `bun crates/physics/scripts/build-kernel.ts`, `cargo clippy -p shallot-physics --all-targets -- -D warnings`, `cargo clippy -p shallot-physics --lib --target wasm32-unknown-unknown -- -D warnings`, `cargo test -p shallot-physics`, `src/standard/physics/solver/step.gold.node.ts` and `diagnostics/box3d-parity/phases.oracle.ts`.
 
 | Change | Loop set |
 |---|---|
