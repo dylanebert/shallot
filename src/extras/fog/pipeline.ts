@@ -472,7 +472,7 @@ export const fogGridKernelMultisampled = createGridKernel(true);
 // A sampled Gaussian of σ = 1.6 cells, its ±3 tails at 17% of the centre. Godot's weights
 // (0.071303 … 0.214607) fit σ ≈ 2.0 cut at ±3, about 1.5σ: nearly a box, whose separable product draws a hot
 // cell as a square (stage 10). σ = 1.6 is the narrowest that keeps stage 6's shaft-edge claims with margin
-// on every host: 1.5 reached 0.00499 of their 0.005 on lavapipe.
+// natively and on lavapipe, where 1.5 reached 0.00499 of their 0.005.
 const GAUSSIAN = tgpu.const(
     d.arrayOf(d.f32, 7),
     [0.044147, 0.117223, 0.210611, 0.256038, 0.210611, 0.117223, 0.044147],
