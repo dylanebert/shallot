@@ -3,7 +3,13 @@ import { component } from "../../engine";
 
 import type { TgpuBuffer, TgpuComputePipeline, TgpuRenderPipeline, UniformFlag } from "typegpu";
 import * as d from "typegpu/data";
-import { type Mesh, Meshes, type MeshHandle, MeshInstance } from "../../core/mesh";
+import {
+    type Mesh,
+    Meshes,
+    type MeshHandle,
+    MeshInstance,
+    meshResourcesKey,
+} from "../../core/mesh";
 import {
     Camera,
     DepthPrepassRequests,
@@ -188,7 +194,8 @@ type CompositeEntry = {
 
 type MaskVariant = "plain" | "occlude" | "occlude-multisampled";
 
-// per-camera, per-mesh mask bind group, rebuilt only when a buffer or view it binds changes
+// per-camera, per-mesh-row mask bind group, rebuilt only when a buffer or view it binds changes. Keyed by
+// dense row, not handle: a removed mesh's successor reuses its row, so turnover rebuilds in place.
 type MaskEntry = {
     variant: MaskVariant;
     view: GPUBuffer;
@@ -306,7 +313,8 @@ function maskBind(
     const eids = _outlineState.gpu.eids!;
     const attrs = _outlineState.gpu.attrs!;
     const depth = variant === "plain" ? null : view.depth;
-    const cached = byMesh.get(meshId);
+    const row = world.resource(meshResourcesKey).meshes.index(meshId)!;
+    const cached = byMesh.get(row);
     if (
         cached &&
         cached.variant === variant &&
@@ -342,7 +350,7 @@ function maskBind(
                     sceneDepth: depth!,
                 }),
     );
-    byMesh.set(meshId, {
+    byMesh.set(row, {
         variant,
         view: viewBuffer,
         position: mesh.position,
