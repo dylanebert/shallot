@@ -129,7 +129,7 @@
     },
     "devDependencies": {
         "@arethetypeswrong/cli": "0.18.5",
-        "@babel/parser": "^8.0.6",
+        "@babel/parser": "^8.0.7",
         "@biomejs/biome": "^2.5.14",
         "@sveltejs/vite-plugin-svelte": "^7.3.1",
         "@types/bun": "^1.4.3",
