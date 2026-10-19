@@ -59,7 +59,7 @@ test("bare shallot presents the project map, loop, commands, targets and help co
 
   Commands
     create <name>                create a project from minimal or an example
-    migrate                      print the 0.9.5 to 0.10 migration guide
+    migrate                      print the 0.10 to 0.11 migration guide
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
     preview --target <platform>  launch a desktop build

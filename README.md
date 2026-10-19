@@ -39,7 +39,7 @@ bun create shallot first-person --template first-person
 ## more
 
 - questions: [discord](https://discord.gg/eEY75Nqk3C). bugs: [issues](https://github.com/dylanebert/shallot/issues). releases: [npm](https://www.npmjs.com/package/@dylanebert/shallot)
-- upgrading from 0.9.5: [`MIGRATION.md`](MIGRATION.md)
+- upgrading from 0.10: [`MIGRATION.md`](MIGRATION.md)
 - changing the engine: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 mit, see [`LICENSE`](LICENSE).

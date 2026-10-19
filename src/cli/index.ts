@@ -17,7 +17,7 @@ const usage = `
 
   Commands
     create <name>                create a project from minimal or an example
-    migrate                      print the 0.9.5 to 0.10 migration guide
+    migrate                      print the 0.10 to 0.11 migration guide
     dev --target <platform>      develop a desktop app
     build --target <platform>    build a desktop app
     preview --target <platform>  launch a desktop build
@@ -101,7 +101,7 @@ const commandUsage = {
     migrate: `
   shallot migrate
 
-  Print the guide to migrating a 0.9.5 app to 0.10. It changes no files.
+  Print the guide to migrating a 0.10 app to 0.11. It changes no files.
 
   Shallot options
     -h, --help   Show this help
