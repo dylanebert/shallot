@@ -544,7 +544,7 @@ function syncBuffers(world: World): void {
         world.own(_meshDraws.transparentArgs);
     }
 
-    // Bounds follow membership even when a freed handle is reused without growth.
+    // Bounds follow membership even when a freed index is reused without growth.
     let staleBounds: MeshBoundsBuffer | null = null;
     if (growMesh || !_meshPreprocess.meshBounds) {
         staleBounds = _meshPreprocess.meshBounds;
@@ -703,20 +703,20 @@ export function publishMeshInstanceDraws(
         let known = state.pairingMeshes[materialType];
         if (!known) state.pairingMeshes[materialType] = known = [];
         let rejected = invalidPairs.get(materialType);
-        for (let handle = 0; handle < state.meshCount; handle++) {
-            const live = meshes.handleAt(handle);
-            const mesh = live === undefined ? undefined : meshes.get(live);
-            if (known[handle] === mesh) continue;
-            known[handle] = mesh;
+        for (let index = 0; index < state.meshCount; index++) {
+            const handle = meshes.handleAt(index);
+            const mesh = handle === undefined ? undefined : meshes.get(handle);
+            if (known[index] === mesh) continue;
+            known[index] = mesh;
             const cause = mesh ? materialAttributeError(mesh, definition) : null;
             if (cause) {
                 if (!rejected) invalidPairs.set(materialType, (rejected = new Map()));
-                rejected.set(handle, {
-                    name: `mesh:material:${definition.name}:${mesh!.name}:${handle}`,
+                rejected.set(index, {
+                    name: `mesh:material:${definition.name}:${mesh!.name}:${index}`,
                     cause,
                 });
                 state.recheckInstances = true;
-            } else rejected?.delete(handle);
+            } else rejected?.delete(index);
         }
         const alphaKeys = sources[materialType]?.alphaKeys ?? 0;
         for (
@@ -726,16 +726,16 @@ export function publishMeshInstanceDraws(
         ) {
             // a key no row has held has no instance; its records stay unwritten and undrawn
             if (!(alphaKeys & (1 << alphaPipelineKey))) continue;
-            for (let handle = 0; handle < world.resource(meshPreprocessKey).meshCount; handle++) {
-                const live = meshes.handleAt(handle);
-                const m = live === undefined ? undefined : meshes.get(live);
+            for (let index = 0; index < world.resource(meshPreprocessKey).meshCount; index++) {
+                const handle = meshes.handleAt(index);
+                const m = handle === undefined ? undefined : meshes.get(handle);
                 if (!m) continue;
-                if (rejected?.has(handle)) continue;
+                if (rejected?.has(index)) continue;
                 const pair =
                     (materialType * ALPHA_PIPELINE_KEY_COUNT + alphaPipelineKey) *
                         (pairCount / (materialTypes.length * ALPHA_PIPELINE_KEY_COUNT)) +
-                    handle;
-                publishDraw(world, 0, materialType, alphaPipelineKey, live!, pair, drawArgs);
+                    index;
+                publishDraw(world, 0, materialType, alphaPipelineKey, handle!, pair, drawArgs);
             }
         }
     }

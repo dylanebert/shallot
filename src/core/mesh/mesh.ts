@@ -105,10 +105,10 @@ interface MeshRegistry extends Iterable<Mesh> {
 
 class MeshRegistryImpl implements MeshRegistry {
     private readonly _world: World;
-    private _nextHandle = 0;
+    private _indexHighWater = 0;
     private readonly _handles = new HandleAllocator();
     version = 0;
-    private readonly _entriesByHandle: (Mesh | undefined)[] = [];
+    private readonly _meshesByIndex: (Mesh | undefined)[] = [];
     private readonly _order: MeshHandle[] = [];
     private readonly _handlesByIndex: (MeshHandle | undefined)[] = [];
 
@@ -135,8 +135,8 @@ class MeshRegistryImpl implements MeshRegistry {
         }
         const handle = this._handles.allocate() as MeshHandle;
         const index = this._handles.index(handle)!;
-        this._nextHandle = Math.max(this._nextHandle, index + 1);
-        this._entriesByHandle[index] = mesh as Mesh;
+        this._indexHighWater = Math.max(this._indexHighWater, index + 1);
+        this._meshesByIndex[index] = mesh as Mesh;
         this._handlesByIndex[index] = handle;
         this._order.push(handle);
         this.version++;
@@ -145,16 +145,16 @@ class MeshRegistryImpl implements MeshRegistry {
 
     replace(handle: MeshHandle, mesh: Mesh): void {
         if (!this.has(handle)) throw new Error(`unknown mesh handle ${handle}`);
-        this._entriesByHandle[this.index(handle)!] = mesh;
+        this._meshesByIndex[this.index(handle)!] = mesh;
         this.version++;
     }
 
     remove(handle: MeshHandle): Mesh | undefined {
         const index = this.index(handle);
         if (index === undefined) return undefined;
-        const mesh = this._entriesByHandle[index]!;
+        const mesh = this._meshesByIndex[index]!;
         this._handles.release(handle);
-        this._entriesByHandle[index] = undefined;
+        this._meshesByIndex[index] = undefined;
         this._handlesByIndex[index] = undefined;
         const orderIndex = this._order.indexOf(handle);
         for (let i = orderIndex + 1; i < this._order.length; i++)
@@ -169,7 +169,7 @@ class MeshRegistryImpl implements MeshRegistry {
 
     get(handle: MeshHandle): Mesh | undefined {
         const index = this.index(handle);
-        return index === undefined ? undefined : this._entriesByHandle[index];
+        return index === undefined ? undefined : this._meshesByIndex[index];
     }
 
     has(handle: MeshHandle): boolean {
@@ -187,12 +187,11 @@ class MeshRegistryImpl implements MeshRegistry {
     }
 
     *entries(): IterableIterator<[MeshHandle, Mesh]> {
-        for (const handle of this._order)
-            yield [handle, this._entriesByHandle[this.index(handle)!]!];
+        for (const handle of this._order) yield [handle, this._meshesByIndex[this.index(handle)!]!];
     }
 
     *values(): IterableIterator<Mesh> {
-        for (const handle of this._order) yield this._entriesByHandle[this.index(handle)!]!;
+        for (const handle of this._order) yield this._meshesByIndex[this.index(handle)!]!;
     }
 
     [Symbol.iterator](): IterableIterator<Mesh> {
@@ -204,14 +203,14 @@ class MeshRegistryImpl implements MeshRegistry {
     }
 
     get capacity(): number {
-        return this._nextHandle;
+        return this._indexHighWater;
     }
 
     clear(): void {
-        this._entriesByHandle.fill(undefined);
+        this._meshesByIndex.fill(undefined);
         this._handlesByIndex.fill(undefined);
         this._order.length = 0;
-        // Handle-indexed consumers retain their allocation and addressing stride across clear.
+        // Index-addressed consumers retain their allocation and addressing stride across clear.
         this._handles.clear();
         this._world.resource(meshResourcesKey).pending.length = 0;
         this.version++;
@@ -244,7 +243,7 @@ interface MeshResources {
     families: { destroy(): void }[];
 }
 
-/** World-owned packing and handle-indexed consumer state. @internal */
+/** World-owned packing and index-addressed consumer state. @internal */
 export const meshResourcesKey = { create: createMeshResources };
 
 function createMeshResources(world: World): MeshResources {

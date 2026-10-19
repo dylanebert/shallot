@@ -68,9 +68,9 @@ export function rebuildMeshCounts(
     const meshes = world.resource(meshResourcesKey).meshes;
     for (let i = 0; i < state.sources.length; i++) state.sources[i]!.cursor = 0;
     state.activeCount = 0;
-    for (let handle = 0; handle < meshCount; handle++) {
-        const live = meshes.handleAt(handle);
-        const mesh = live === undefined ? undefined : meshes.get(live);
+    for (let index = 0; index < meshCount; index++) {
+        const handle = meshes.handleAt(index);
+        const mesh = handle === undefined ? undefined : meshes.get(handle);
         const source = mesh?.indirectIndexCount;
         if (!mesh || !source) continue;
         let entry = state.cache.get(source.buffer);
@@ -128,7 +128,7 @@ export function rebuildMeshCounts(
             setCountLane(entry, 1, pairs);
             setCountLane(entry, 2, slots);
         }
-        setCountLane(entry, entry.cursor, handle);
+        setCountLane(entry, entry.cursor, index);
         setCountLane(entry, entry.cursor + 1, (source.offset ?? 0) / 4);
         setCountLane(entry, entry.cursor + 2, mesh.indexCount);
         entry.cursor += 4;
