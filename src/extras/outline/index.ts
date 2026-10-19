@@ -476,6 +476,7 @@ const OutlineSystem: System = {
         const _meshes = world.resource(Meshes);
 
         if (!_outlineState.gpu.maskPlain) return;
+        _outlineState.targets.forEach(releaseStaleTargets, world);
         const instances = world.storage(MeshInstance);
         const eids = _outlineState.eids;
         const meshes = _outlineState.meshes;
@@ -559,6 +560,16 @@ const OutlineSystem: System = {
         }
     },
 };
+
+// A camera that lost its framebuffer view, destroyed or recycled, releases its targets, composite and masks.
+function releaseStaleTargets(this: World, t: Targets, eid: number): void {
+    if (this.resource(Views).get(eid)?.framebuffer) return;
+    const _outlineState = outlineState(this);
+    destroyTargets(t);
+    _outlineState.targets.delete(eid);
+    _outlineState.composites.delete(eid);
+    _outlineState.masks.delete(eid);
+}
 
 function releaseTargets(world: World): void {
     const _outlineState = outlineState(world);
