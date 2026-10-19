@@ -74,6 +74,12 @@ function roundMesh(radius: number, a: Point, b: Point) {
     return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices) };
 }
 
+function placedHull(world: World, shape: Parameters<typeof shapeMesh>[1]) {
+    const definition = world.resource(Hulls).get(shape.geometry);
+    if (!definition) throw new Error(`shapeMesh: missing hull ${shape.geometry}`);
+    return buildPlacedHull(world, definition, shape.scale, shape.hullPosition, shape.hullRotation);
+}
+
 /**
  * Fresh CPU triangle geometry in body-local meters, suitable for Meshes.add. Bakes Shape.scale
  * for hulls and meshes, plus hullPosition/hullRotation for hulls (identity when omitted),
@@ -126,15 +132,7 @@ export function shapeMesh(
         indices.push(start, start + 1, start + 2);
     };
     if (kind === ShapeKind.Hull) {
-        const definition = world.resource(Hulls).get(geometry);
-        if (!definition) throw new Error(`shapeMesh: missing hull ${geometry}`);
-        const hull = buildPlacedHull(
-            world,
-            definition,
-            scale,
-            shape.hullPosition,
-            shape.hullRotation,
-        );
+        const hull = placedHull(world, shape);
         for (const face of hull.faces) {
             const points: Vec3[] = [];
             let edge = face.edge;
@@ -168,8 +166,9 @@ export function shapeMesh(
 
 /**
  * Fresh pairs of endpoints in body-local meters, with the same placement and refusal
- * rules as shapeMesh. Hulls and meshes omit coplanar triangle diagonals and retain
- * open boundaries. Spheres have three great circles; capsules have two perpendicular
+ * rules as shapeMesh. Hulls have their faces' boundaries, one per half-edge pair as in
+ * Box3D's hull drawing; meshes omit coplanar triangle diagonals and retain open
+ * boundaries. Spheres have three great circles; capsules have two perpendicular
  * longitudinal rings (semicircular caps joined by straight sides), sampled at 32
  * segments per circle. This is an authoring-time conversion, not a live binding.
  */
@@ -210,6 +209,17 @@ export function shapeEdges(world: World, shape: Parameters<typeof shapeMesh>[1])
         ring(x, y, length > 0);
         ring(z, y, length > 0);
         if (!length) ring(x, z, false);
+        return edges;
+    }
+    if (shape.kind === ShapeKind.Hull) {
+        const hull = placedHull(world, shape);
+        const point = ({ x, y, z }: Vec3): Point => [x, y, z];
+        for (const [i, edge] of hull.edges.entries())
+            if (i < edge.twin)
+                edges.push([
+                    point(hull.points[edge.origin]!),
+                    point(hull.points[hull.edges[edge.twin]!.origin]!),
+                ]);
         return edges;
     }
     const { vertices, indices } = shapeMesh(world, shape);
