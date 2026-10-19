@@ -157,7 +157,7 @@ export function pointCastersSchema() {
 /**
  * the per-(caster, face) allocated atlas-UV rects (`[u0, v0, du, dv]`, square), indexed `slot·6 + face`:
  * a point caster's six face tiles, a spot's lone tile at face 0. The receiver samples its matched
- * caster's rect; the importance allocator (`standard/shadows.ts`) sizes + packs them each frame.
+ * caster's rect; the shared-tile grid (`standard/shadows.ts`) fits the selected faces each frame.
  */
 export function tileRectsSchema(slots: number) {
     return d.struct({ rects: d.arrayOf(d.vec4f, slots) }).$name("TileRects");

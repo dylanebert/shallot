@@ -15,6 +15,7 @@ import {
     captureTexture,
     DepthPrepass,
     PointLight,
+    SpotLight,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
 import type { World } from "../../engine";
@@ -78,6 +79,50 @@ function scene(world: World, prepass: boolean): number {
     world.storage(PointLight).shadowMapsEnabled.set(light, 1);
     return camera;
 }
+
+test("a fixed local-shadow set keeps every tile size while the camera walks past lights of differing importance", async () => {
+    const app = await build(2048);
+    try {
+        const world = app.world;
+        const camera = world.create();
+        world.add(camera, Transform);
+        world.add(camera, Camera);
+        world.add(camera, StandardRenderer);
+        attachTexture(world, camera, { width: 16, height: 16 });
+        const lights = [0, 10, 20].map((x, i) => {
+            const light = world.create();
+            world.add(light, Transform, { translation: [x, 2, 0, 0] });
+            world.add(light, i === 0 ? PointLight : SpotLight, {
+                intensity: 100 * (i + 1),
+                range: 30,
+                shadowMapsEnabled: 1,
+            });
+            return light;
+        });
+        const frames: Parameters<typeof updatePointShadows>[2] = [];
+        const initial = new Map<number, number>();
+        for (const x of [-10, -5, 0, 5, 10, 15, 20, 25]) {
+            world.storage(Transform).translation.set(camera, x, 0, 5, 0);
+            world.step(1 / 60);
+            const count = updatePointShadows(world, camera, frames);
+            expect(
+                frames
+                    .slice(0, count)
+                    .map((f) => f.light)
+                    .sort(),
+            ).toEqual([...lights].sort());
+            for (const frame of frames.slice(0, count)) {
+                if (!initial.has(frame.light)) initial.set(frame.light, frame.tilePx);
+                expect({ light: frame.light, tilePx: frame.tilePx }).toEqual({
+                    light: frame.light,
+                    tilePx: initial.get(frame.light)!,
+                });
+            }
+        }
+    } finally {
+        await disposeGpuApps([app]);
+    }
+});
 
 for (const [atlas0, atlas1] of [
     [2048, 1024],

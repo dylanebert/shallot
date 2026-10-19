@@ -405,8 +405,6 @@ interface ShadowRuntime {
     tileRects: Float32Array;
     casterProj: Float32Array[];
     casterProjKey: Float64Array;
-    packer: Packer | undefined;
-    packSizes: Int32Array;
     packRects: Float64Array;
     lastCasters: Set<number>;
     pendingCasters: Set<number>;
@@ -441,8 +439,6 @@ const createShadowRuntime = (): ShadowRuntime => {
         tileRects: new Float32Array(0),
         casterProj: Array.from({ length: MAX_POINT_CASTERS }, () => new Float32Array(16)),
         casterProjKey: new Float64Array(MAX_POINT_CASTERS * 2).fill(Number.NaN),
-        packer: undefined,
-        packSizes: new Int32Array(MAX_POINT_CASTERS),
         packRects: new Float64Array(MAX_POINT_CASTERS * 6 * 4),
         lastCasters: new Set(),
         pendingCasters: new Set(),
@@ -758,7 +754,7 @@ export function updateCascades(world: World, main: number): void {
     shadow.cascadeCount = n;
 }
 
-// A 2D depth atlas avoids requiring cube-array support. Tile area tracks apparent light contribution.
+// A 2D depth atlas avoids requiring cube-array support. Equal tiles keep texel size stable as the camera moves.
 // Per-face culling limits rasterization; gathering faces per mesh limits indirect draws.
 // Widened frusta and tile-clamped PCF taps prevent seams and sampling neighbouring tiles.
 
@@ -783,7 +779,8 @@ function comboSlots(frames: PointShadowFrame[], count: number): number {
  * Changing atlas reallocates the texture; changing casters re-ranks the lights. Settings can be written
  * during setup or plugin initialization. casters is clamped to [1, MAX_POINT_CASTERS].
  * Excess or unpackable casters warn and cast no shadow, but their illumination remains.
- * Tile area follows `intensity·range²/dist²`; a point light uses six tiles, a spot one.
+ * Every face shares the largest power-of-two tile (at least 64 pixels) that fits the selected set.
+ * A point light uses six tiles, a spot one; importance `intensity·range²/dist²` ranks selection only.
  * `hysteresis` is the fractional importance advantage required to displace an incumbent when over cap;
  * zero disables the incumbent margin.
  */
@@ -806,7 +803,7 @@ export function pointCasters(world: World): number {
 }
 
 /** the world's resolved atlas side in pixels: {@link PointShadows} `atlas` clamped to [256, 4096] and snapped
- * to a power of two (the buddy packer needs a power-of-two square) */
+ * to a power of two */
 export function pointAtlasSize(world: World): number {
     const s = Math.min(Math.max(Math.round(world.resource(PointShadows).atlas), 256), 4096);
     return Math.min(4096, 1 << Math.round(Math.log2(s)));
@@ -830,56 +827,6 @@ export function pointTanHalf(tilePx: number): number {
  * tile of `tilePx` pixels */
 export function pointFov(tilePx: number): number {
     return (Math.atan(pointTanHalf(tilePx)) * 360) / Math.PI;
-}
-
-/** a buddy quadtree packer over a square atlas; {@link createPacker} builds it */
-export interface Packer {
-    /** the atlas side in pixels */
-    readonly side: number;
-    /** reclaim the whole atlas: the per-frame reuse path, so a dropped caster's space is free again next frame */
-    reset(): void;
-    /** the origin code `y·side + x` of a free `size × size` tile, or -1 when the atlas can't fit it */
-    alloc(size: number): number;
-}
-
-/**
- * a buddy quadtree packer over a square atlas of side `side` pixels (a power of two), for tiles from `min` to
- * `side` pixels (powers of two). Power-of-two square tiles pack with no fragmentation when allocated
- * largest-first. Each size's free list is preallocated to every tile of that size, so `alloc` and `reset`
- * allocate nothing. Pure; the allocator the importance sizing builds on.
- */
-export function createPacker(side: number, min: number): Packer {
-    const levels = 32 - Math.clz32(side / min);
-    // free tile origins per size level (level 0 is the whole atlas), a stack each; a tile splits into four
-    // children on demand
-    const free: Int32Array[] = [];
-    for (let level = 0; level < levels; level++) free.push(new Int32Array(4 ** level));
-    const top = new Int32Array(levels);
-    const reset = (): void => {
-        top.fill(0);
-        free[0][0] = 0;
-        top[0] = 1;
-    };
-    const alloc = (size: number): number => {
-        const level = Math.clz32(size) - Math.clz32(side);
-        if (level < 0 || level >= levels) return -1;
-        if (top[level] > 0) return free[level][--top[level]];
-        if (level === 0) return -1;
-        const parent = alloc(size * 2);
-        if (parent < 0) return -1;
-        const px = parent % side;
-        const py = (parent - px) / side;
-        // keep the parent's own corner; free the other three quadrants for later (same-size) allocs
-        const list = free[level];
-        const t = top[level];
-        list[t] = py * side + px + size;
-        list[t + 1] = (py + size) * side + px;
-        list[t + 2] = (py + size) * side + px + size;
-        top[level] = t + 3;
-        return parent;
-    };
-    reset();
-    return { side, reset, alloc };
 }
 
 /**
@@ -994,7 +941,7 @@ export function tileTransform(
 
 /**
  * Reused caster placement in a caller-owned pool. pos is world placement; near/far are range-derived
- * clip/cull distances, score sizes tile area, and tilePx is the resolved tile side in pixels.
+ * clip/cull distances, and tilePx is the resolved tile side in pixels.
  * Cone basis vectors match lookAt. A point uses six combos and coneTanHalf zero; a spot uses one combo
  * with the widened cone tangent. updatePointShadows writes combo viewProjs into pointFaceVP and
  * (caster slot, face) into pointComboMeta.
@@ -1002,7 +949,6 @@ export function tileTransform(
 export interface PointShadowFrame {
     light: number;
     slot: number;
-    score: number;
     tilePx: number;
     pos: [number, number, number];
     near: number;
@@ -1022,13 +968,12 @@ export interface PointShadowFrame {
 const POINT_CASTER_TERMS = [PointLight, GlobalTransform];
 const SPOT_CASTER_TERMS = [SpotLight, GlobalTransform];
 const LIGHT_CASTER_TERMS = [POINT_CASTER_TERMS, SPOT_CASTER_TERMS];
-const _cands: { light: number; range: number; score: number; rank: number }[] = [];
+const _cands: { light: number; range: number; rank: number }[] = [];
 
 function newPointFrame(): PointShadowFrame {
     return {
         light: 0,
         slot: 0,
-        score: 0,
         tilePx: MIN_TILE,
         pos: [0, 0, 0],
         near: 0,
@@ -1249,55 +1194,36 @@ export function commitPointCastersOnSubmit(world: World): void {
 }
 
 /**
- * Packs the first `count` casters into a `side`-pixel atlas, with tile area proportional to score.
- * Writes pixel sides to `sizes` and square atlas-UV rects to `rects` at `(caster·6+face)·4`.
- * Mutates packer, sizes and rects only; packer must cover a side-pixel atlas. Points use six equal-size
- * tiles, spots one. Chooses the largest common base tile size that lets the whole set fit.
+ * Packs the first `count` casters into a power-of-two `side`-pixel atlas with one shared tile size.
+ * Writes square atlas-UV rects to `rects` at `(caster·6+face)·4`, in row-major grid order.
+ * Points use six tiles, spots one. Chooses the largest power-of-two tile that fits the whole set.
+ * Mutates rects only; allocates nothing.
  * Returns false if even MIN_TILE faces cannot fit; callers drop the lowest-ranked caster and retry.
  */
 export function packCasters(
     frames: PointShadowFrame[],
     count: number,
     side: number,
-    packer: Packer,
-    sizes: Int32Array,
     rects: Float64Array,
 ): boolean {
-    let maxScore = 1e-9;
-    for (let i = 0; i < count; i++) maxScore = Math.max(maxScore, frames[i].score);
-    // A fourfold score decrease halves tile side, preserving area proportionality.
-    for (let base = side; base >= MIN_TILE; base >>= 1) {
-        packer.reset();
-        for (let i = 0; i < count; i++) {
-            const drop = Math.max(
-                0,
-                Math.round(0.5 * Math.log2(maxScore / Math.max(frames[i].score, 1e-9))),
-            );
-            sizes[i] = Math.max(MIN_TILE, base / 2 ** Math.min(drop, 20));
+    const faces = comboSlots(frames, count);
+    let size = side;
+    while (size >= MIN_TILE && (side / size) ** 2 < faces) size /= 2;
+    if (size < MIN_TILE) return false;
+    const columns = side / size;
+    const uvSize = size / side;
+    let cell = 0;
+    for (let i = 0; i < count; i++) {
+        const n = frames[i].spot ? 1 : 6;
+        for (let face = 0; face < n; face++, cell++) {
+            const at = (i * 6 + face) * 4;
+            rects[at] = (cell % columns) * uvSize;
+            rects[at + 1] = Math.floor(cell / columns) * uvSize;
+            rects[at + 2] = uvSize;
+            rects[at + 3] = uvSize;
         }
-        // largest first, then caster and face order — buddy packs with no fragmentation
-        let ok = true;
-        for (let size = base; ok && size >= MIN_TILE; size >>= 1)
-            for (let i = 0; ok && i < count; i++) {
-                if (sizes[i] !== size) continue;
-                const faces = frames[i].spot ? 1 : 6;
-                for (let face = 0; face < faces; face++) {
-                    const code = packer.alloc(size);
-                    if (code < 0) {
-                        ok = false;
-                        break;
-                    }
-                    const x = code % side;
-                    const at = (i * 6 + face) * 4;
-                    rects[at] = x / side;
-                    rects[at + 1] = (code - x) / side / side;
-                    rects[at + 2] = size / side;
-                    rects[at + 3] = size / side;
-                }
-            }
-        if (ok) return true;
     }
-    return false;
+    return true;
 }
 
 /**
@@ -1342,12 +1268,11 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
             const rank = shadow.lastCasters.has(light) ? score * (1 + hysteresis) : score;
             let cand = _cands[candCount];
             if (!cand) {
-                cand = { light: 0, range: 0, score: 0, rank: 0 };
+                cand = { light: 0, range: 0, rank: 0 };
                 _cands[candCount] = cand;
             }
             cand.light = light;
             cand.range = range;
-            cand.score = score;
             cand.rank = rank;
             candCount++;
         }
@@ -1387,7 +1312,6 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         }
         f.light = c.light;
         f.slot = slot;
-        f.score = c.score;
         f.tilePx = MIN_TILE;
         readRenderGlobalTransform(world, c.light, _lightPlacement);
         f.pos[0] = _lightPlacement[0];
@@ -1415,10 +1339,9 @@ export function updatePointShadows(world: World, main: number, frames: PointShad
         f.coneFov = 0;
     }
 
-    if (shadow.packer?.side !== atlas) shadow.packer = createPacker(atlas, MIN_TILE);
-    const { packer, packSizes, packRects: rects } = shadow;
+    const { packRects: rects } = shadow;
     let dropped = 0;
-    while (count > 0 && !packCasters(frames, count, atlas, packer, packSizes, rects)) {
+    while (count > 0 && !packCasters(frames, count, atlas, rects)) {
         count--;
         dropped++;
     }
