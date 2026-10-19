@@ -75,10 +75,6 @@ export const fogFilterLayout = tgpu
 
 export const fogIntegrateLayout = tgpu
     .bindGroupLayout({
-        filtered: {
-            storageTexture: d.textureStorage3d("rgba16float", "write-only"),
-            visibility: ["compute"],
-        },
         output: {
             storageTexture: d.textureStorage3d("rgba16float", "write-only"),
             visibility: ["compute"],
@@ -98,7 +94,6 @@ export const fogReadLayout = tgpu
     .bindGroupLayout({
         grid: { texture: d.texture3d(d.f32), visibility: ["fragment"] },
         feedback: { texture: d.texture3d(d.f32), visibility: ["fragment"] },
-        filtered: { texture: d.texture3d(d.f32), visibility: ["fragment"] },
         gridSampler: { sampler: "filtering", visibility: ["fragment"] },
         view: { uniform: ViewUniforms, visibility: ["fragment"] },
         fog: { uniform: FogGpu, visibility: ["fragment"] },
@@ -537,7 +532,6 @@ export const fogIntegrateKernel = tgpu
             }
             const own = std.textureLoad(fogIntegrateLayout.$.lighting, d.vec3i(px, slice), 0);
             cell = std.mix(own, cell, weight);
-            std.textureStore(fogIntegrateLayout.$.filtered, d.vec3i(px, slice), cell);
             const opticalDepth = cell.w * ds;
             const sampleTrans = std.exp(-opticalDepth);
             // Hillaire's closed-form cell integral S*(1-exp(-sigma*ds))/sigma, with S = albedo*(sigma*lstep)
@@ -626,8 +620,7 @@ const fogTailLight = tgpu
  * A particle adds albedo × coverage × readFogInScatter(p) × readFog(p).a; apply no exposure.
  * Returns zero without FogPlugin/Fog, with NoFog, at/before near, or beyond maxDistance. Bind
  * fogReadBindGroup at group 3 with fogReadLayout after this frame's fog draw system. Light is trilinear
- * at cell resolution, filtered across columns like the haze, with phase toward the camera along the cell ray;
- * history lags moving lights and cameras.
+ * at cell resolution, with phase toward the camera along the cell ray; history lags moving lights and cameras.
  */
 export const readFogInScatter = tgpu
     .fn(
@@ -655,21 +648,18 @@ export const readFogInScatter = tgpu
             view.projection.x,
             std.max(cfg.medium.w - view.projection.x, 0.001),
         );
-        const cell = std.textureSampleLevel(
-            fogReadLayout.$.filtered,
-            fogReadLayout.$.gridSampler,
-            d.vec3f(uv, z),
-            0,
+        return std.add(
+            own,
+            std.mul(
+                std.textureSampleLevel(
+                    fogReadLayout.$.feedback,
+                    fogReadLayout.$.gridSampler,
+                    d.vec3f(uv, z),
+                    0,
+                ).rgb,
+                cfg.extra.w,
+            ),
         );
-        let light = std.textureSampleLevel(
-            fogReadLayout.$.feedback,
-            fogReadLayout.$.gridSampler,
-            d.vec3f(uv, z),
-            0,
-        ).rgb;
-        // Clear air retains its local light even though it scatters none into the haze.
-        if (cell.w > 0) light = std.div(cell.rgb, cell.w);
-        return std.add(own, std.mul(light, cfg.extra.w));
     })
     .$name("readFogInScatter");
 

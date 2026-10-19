@@ -177,7 +177,6 @@ export function fogReadBindGroup(world: World, eid: number): GPUBindGroup {
                 root.createBindGroup(fogReadLayout, {
                     grid: state.texture.createView(),
                     feedback: state.texture.createView(),
-                    filtered: state.texture.createView(),
                     gridSampler: world.gpu.device.createSampler({
                         minFilter: "linear",
                         magFilter: "linear",
@@ -219,7 +218,6 @@ interface FogState {
             width: number;
             height: number;
             feedback: GPUTexture[];
-            filtered: GPUTexture;
             surface: GPUTexture;
             temporal: GPUBuffer;
             staging: Float32Array<ArrayBuffer>;
@@ -269,7 +267,6 @@ function clearViews(state: FogState): void {
 function destroyView(cam: FogState["views"] extends Map<number, infer V> ? V : never): void {
     cam.grid.destroy();
     for (const texture of cam.feedback) texture.destroy();
-    cam.filtered.destroy();
     cam.surface.destroy();
     cam.temporal.destroy();
 }
@@ -479,14 +476,6 @@ const FogSystem: System = {
                         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
                     }),
                 );
-                const filtered = world.gpu.device.createTexture({
-                    label: `fog-filtered/${eid}`,
-                    dimension: "3d",
-                    size: [grid.width, grid.height, FOG_SLICES],
-                    format: "rgba16float",
-                    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-                });
-                const filteredView = filtered.createView();
                 const temporal = world.gpu.device.createBuffer({
                     label: `fog-history/${eid}`,
                     size: 128,
@@ -526,7 +515,6 @@ const FogSystem: System = {
                     world.gpu.root.unwrap(
                         world.gpu.root.createBindGroup(fogIntegrateLayout, {
                             output: gridView,
-                            filtered: filteredView,
                             lighting: feedbackViews[1 - parity],
                             surface: surfaceView,
                             view: _render.viewBuffers[view.slot],
@@ -547,7 +535,6 @@ const FogSystem: System = {
                     world.gpu.root.unwrap(
                         world.gpu.root.createBindGroup(fogReadLayout, {
                             grid: gridView,
-                            filtered: filteredView,
                             feedback,
                             gridSampler,
                             view: _render.viewBuffers[view.slot],
@@ -561,7 +548,6 @@ const FogSystem: System = {
                     width: view.width,
                     height: view.height,
                     feedback,
-                    filtered,
                     surface,
                     temporal,
                     staging: new Float32Array(32),
