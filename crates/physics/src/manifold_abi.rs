@@ -92,6 +92,41 @@ pub const DIR_RESTITUTION: usize = offset_of!(ContactRecord, restitution) / 4;
 pub const DIR_ROLLING_RESISTANCE: usize = offset_of!(ContactRecord, rolling_resistance) / 4;
 pub const DIR_TANGENT_VELOCITY: usize = offset_of!(ContactRecord, tangent_velocity) / 4;
 pub const DIR_FLAGS: usize = offset_of!(ContactRecord, flags) / 4;
+
+/// The `DIR_FLAGS` word: Box3D's b3ContactFlags (contact.h), whose contact and sim halves share one
+/// word here, then Shallot's own bits above them.
+pub mod contact_flags {
+    /// b3_contactTouchingFlag.
+    pub const TOUCHING: u32 = 0x0000_0001;
+    /// b3_contactEnableContactEvents.
+    pub const ENABLE_CONTACT_EVENTS: u32 = 0x0000_0004;
+    /// b3_contactStaticFlag.
+    pub const STATIC: u32 = 0x0000_0008;
+    /// b3_contactRecycleFlag.
+    pub const RECYCLE: u32 = 0x0000_0010;
+    /// b3_simTouchingFlag.
+    pub const SIM_TOUCHING: u32 = 0x0001_0000;
+    /// b3_simDisjoint.
+    pub const SIM_DISJOINT: u32 = 0x0002_0000;
+    /// b3_simStartedTouching.
+    pub const SIM_STARTED_TOUCHING: u32 = 0x0004_0000;
+    /// b3_simStoppedTouching.
+    pub const SIM_STOPPED_TOUCHING: u32 = 0x0008_0000;
+    /// b3_simEnableHitEvent.
+    pub const SIM_ENABLE_HIT_EVENT: u32 = 0x0010_0000;
+    /// b3_simEnablePreSolveEvents.
+    pub const SIM_ENABLE_PRE_SOLVE_EVENTS: u32 = 0x0020_0000;
+    /// b3_simMeshContact.
+    pub const SIM_MESH_CONTACT: u32 = 0x0040_0000;
+    /// b3_relativeTransformValid.
+    pub const RELATIVE_TRANSFORM_VALID: u32 = 0x0080_0000;
+    /// b3_enableSpeculativePoints.
+    pub const ENABLE_SPECULATIVE_POINTS: u32 = 0x0100_0000;
+    /// Shallot: the contact's materials mix after collide (`arena::mix_contacts`).
+    pub const MIX_MATERIALS: u32 = 0x0200_0000;
+    /// Shallot: the contact's update waits for the serial pre-solve pass.
+    pub const DEFER_PRE_SOLVE: u32 = 0x0400_0000;
+}
 pub const DIR_MANIFOLD_COUNT: usize = offset_of!(ContactRecord, manifold_count) / 4;
 pub const DIR_MANIFOLD_BASE: usize = offset_of!(ContactRecord, manifolds) / 4;
 pub const DIR_INDEX_A: usize = offset_of!(ContactRecord, body_sim_index_a) / 4;

@@ -1,4 +1,5 @@
 //! Contact creation and destruction, including body topology and owner-array membership.
+use crate::manifold_abi::contact_flags;
 use crate::{bodies, events, island, manifold_abi::*, manifolds, shapes, solver_set};
 
 pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child: i32) -> usize {
@@ -37,30 +38,30 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     if body_a.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0
         && body_b.flags & crate::body::flags::ENABLE_CONTACT_RECYCLING != 0
     {
-        flags |= 0x10;
+        flags |= contact_flags::RECYCLE;
     }
     if kind == 2
         || kind == 4
         || (kind == 1 && crate::geo::shape_compound_child_type(world, shape_a, child as usize) == 4)
     {
-        flags |= 0x0040_0000;
+        flags |= contact_flags::SIM_MESH_CONTACT;
     }
     if body_a.body_type == 0 || body_b.body_type == 0 {
-        flags |= 8;
+        flags |= contact_flags::STATIC;
     }
     let flags_a = shapes.get(shape_a * stride + crate::shapes::S_FLAGS) >> 16;
     let flags_b = shapes.get(shape_b * stride + crate::shapes::S_FLAGS) >> 16;
     if (flags_a | flags_b) & 16 != 0 {
-        flags |= 0x0020_0000;
+        flags |= contact_flags::SIM_ENABLE_PRE_SOLVE_EVENTS;
     }
     if (flags_a | flags_b) & 2 != 0 {
-        flags |= 4;
+        flags |= contact_flags::ENABLE_CONTACT_EVENTS;
     }
     if shapes.get(shape_a * stride + crate::shapes::S_FLAGS) & crate::shapes::SPECULATIVE_FLAG != 0
         && shapes.get(shape_b * stride + crate::shapes::S_FLAGS) & crate::shapes::SPECULATIVE_FLAG
             != 0
     {
-        flags |= 0x0100_0000;
+        flags |= contact_flags::ENABLE_SPECULATIVE_POINTS;
     }
     for (side, body_id) in [a, b].into_iter().enumerate() {
         let body = bodies::record_mut(world, body_id);
@@ -118,7 +119,9 @@ pub unsafe fn destroy(world: usize, id: usize, wake: bool) {
     let flags = d.get(o + DIR_FLAGS);
     let a = d.get(o + DIR_EDGE_A) as usize;
     let b = d.get(o + DIR_EDGE_B) as usize;
-    if flags & 5 == 5 {
+    if flags & (contact_flags::TOUCHING | contact_flags::ENABLE_CONTACT_EVENTS)
+        == contact_flags::TOUCHING | contact_flags::ENABLE_CONTACT_EVENTS
+    {
         events::contact_touch_in_world(world, id, false);
     }
     for side in 0..2 {
@@ -156,7 +159,7 @@ pub unsafe fn destroy(world: usize, id: usize, wake: bool) {
             b,
             color as usize,
             index,
-            flags & 0x0040_0000 != 0,
+            flags & contact_flags::SIM_MESH_CONTACT != 0,
         );
     } else {
         let set = d.get(o + DIR_SET_INDEX) as usize;
@@ -166,7 +169,7 @@ pub unsafe fn destroy(world: usize, id: usize, wake: bool) {
         }
     }
     manifolds::free_contact_in_world(world, id);
-    if wake && flags & 1 != 0 {
+    if wake && flags & contact_flags::TOUCHING != 0 {
         solver_set::wake(world, bodies::record(world, a).set_index as usize);
         solver_set::wake(world, bodies::record(world, b).set_index as usize);
     }

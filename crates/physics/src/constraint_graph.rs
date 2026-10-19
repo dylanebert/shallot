@@ -1,4 +1,5 @@
 //! Box3D constraint_graph.c: persistent color occupancy and contact lists.
+use crate::manifold_abi::contact_flags;
 use crate::regions::MAX_WORLDS;
 use crate::{bodies, joints, manifold_abi::*, manifolds, regions};
 pub(crate) const COLORS: usize = 24;
@@ -207,7 +208,8 @@ pub extern "C" fn add_contact_in_world(world_index: usize, id: usize, index_a: u
         let ta = bodies::get_type(world_index, a);
         let tb = bodies::get_type(world_index, b);
         let color = assign_in_world(world_index, a, b, ta, tb);
-        let scalar = d.get(o + DIR_FLAGS) & 0x00400000 != 0 || color == OVERFLOW;
+        let scalar =
+            d.get(o + DIR_FLAGS) & contact_flags::SIM_MESH_CONTACT != 0 || color == OVERFLOW;
         d.set(o + DIR_COLOR_INDEX, color as u32);
         d.set(
             o + DIR_LOCAL_INDEX,

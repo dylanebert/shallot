@@ -1019,7 +1019,6 @@ pub fn store(
     hit_event_threshold: f32,
     mut mark_hit: impl FnMut(usize),
 ) {
-    const ENABLE_HIT_EVENT: u32 = 0x0010_0000; // b3_simEnableHitEvent (contact.h)
     let neg_hit = -hit_event_threshold;
 
     for (r, span) in crate::contact_spans::wide_records(spans, start, count) {
@@ -1089,8 +1088,8 @@ pub fn store(
             }
 
             let contact_id = unsafe { *span.contacts.add(local + lane) as usize };
-            let contact_flags = dir.get(contact_id * mabi::DIR_STRIDE + mabi::DIR_FLAGS);
-            if contact_flags & ENABLE_HIT_EVENT != 0 {
+            let flags = dir.get(contact_id * mabi::DIR_STRIDE + mabi::DIR_FLAGS);
+            if flags & mabi::contact_flags::SIM_ENABLE_HIT_EVENT != 0 {
                 for pi in 0..point_count {
                     let pp = mpo + mabi::M_POINTS + pi * mabi::POOL_POINT_STRIDE;
                     let normal_velocity = pool.get(pp + mabi::P_NORMAL_VELOCITY);

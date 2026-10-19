@@ -3,6 +3,7 @@
 use crate::body::flags as body_flags;
 use crate::body::{read_sim, read_state, STATE_STRIDE};
 use crate::col::Col;
+use crate::manifold_abi::contact_flags;
 use crate::manifold_abi::{
     read_dir, MANIFOLD_STRIDE, M_FRICTION, M_NORMAL, M_POINTS, M_POINT_COUNT, M_ROLLING, M_TWIST,
     POOL_POINT_STRIDE, P_ANCHOR_A, P_ANCHOR_B, P_NORMAL_IMPULSE, P_NORMAL_VELOCITY, P_SEPARATION,
@@ -132,8 +133,6 @@ pub fn prepare(
     warm_start_scale: f32,
 ) {
     unsafe {
-        const CONTACT_STATIC_FLAG: u32 = 0x0000_0008;
-
         for (c, spec) in crate::contact_spans::contact_specs(cols.spans, start, count) {
             let contact_id = spec.contact_id as usize;
             let cc = cols.cc.ptr().add(c);
@@ -157,13 +156,12 @@ pub fn prepare(
             let restitution = d.restitution;
             let rolling_resistance = d.rolling_resistance;
             let tangent_velocity = d.tangent_velocity;
-            let contact_flags = d.flags;
 
             // Body A / B data (mass, inverse world inertia, velocities) — zeroed for a static body.
             let (m_a, i_a, v_a, w_a) = body_terms(cols.sim, cols.state, index_a);
             let (m_b, i_b, v_b, w_b) = body_terms(cols.sim, cols.state, index_b);
 
-            let is_static = (contact_flags & CONTACT_STATIC_FLAG) != 0;
+            let is_static = (d.flags & contact_flags::STATIC) != 0;
             let softness = if is_static {
                 static_softness
             } else {
@@ -612,7 +610,6 @@ pub fn store(
     mut mark_hit: impl FnMut(usize),
 ) {
     unsafe {
-        const SIM_ENABLE_HIT_EVENT: u32 = 0x0010_0000;
         let neg_hit_threshold = -hit_event_threshold;
 
         for c in start..start + count {
@@ -627,7 +624,7 @@ pub fn store(
 
             let manifold_count = (*cc).manifold_count as usize;
 
-            let check_hit_events = (d.flags & SIM_ENABLE_HIT_EVENT) != 0;
+            let check_hit_events = (d.flags & contact_flags::SIM_ENABLE_HIT_EVENT) != 0;
             let mut flagged = false;
 
             for mi in 0..manifold_count {

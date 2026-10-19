@@ -13,6 +13,7 @@ use crate::contact_wide::WIDE_STRIDE;
 use crate::distance::SimplexCache;
 use crate::finalize::{self, TY_CAPSULE, TY_HULL, TY_SPHERE};
 use crate::manifold::{Capsule, SatCache, Sphere};
+use crate::manifold_abi::contact_flags;
 use crate::manifold_abi::{
     read_dir, DIR_CACHE, DIR_CACHED_REL_POSE, DIR_CACHED_ROT_A, DIR_CACHED_ROT_B, DIR_FLAGS,
     DIR_STRIDE, MANIFOLD_STRIDE, M_POINT_COUNT,
@@ -539,24 +540,24 @@ unsafe fn finish_contact(
     let dir = manifolds::dir_col(world_index);
     let o = contact * DIR_STRIDE + DIR_FLAGS;
     let old = dir.get(o);
-    let was_touching = old & 0x0001_0000 != 0;
-    let mut flags = old & !(0x0001_0000 | 0x0010_0000);
+    let was_touching = old & contact_flags::SIM_TOUCHING != 0;
+    let mut flags = old & !(contact_flags::SIM_TOUCHING | contact_flags::SIM_ENABLE_HIT_EVENT);
     if count > 0 {
-        flags |= 0x0001_0000;
+        flags |= contact_flags::SIM_TOUCHING;
         if hit {
-            flags |= 0x0010_0000;
+            flags |= contact_flags::SIM_ENABLE_HIT_EVENT;
         }
         if !was_touching {
-            flags |= 0x0004_0000;
+            flags |= contact_flags::SIM_STARTED_TOUCHING;
             mark_contact_state(world_index, thread, contact);
         }
     } else {
         manifolds::free_manifolds_in_world(world_index, contact);
-        if old & 0x0040_0000 == 0 {
-            flags |= old & 0x0010_0000;
+        if old & contact_flags::SIM_MESH_CONTACT == 0 {
+            flags |= old & contact_flags::SIM_ENABLE_HIT_EVENT;
         }
         if was_touching {
-            flags |= 0x0008_0000;
+            flags |= contact_flags::SIM_STOPPED_TOUCHING;
             mark_contact_state(world_index, thread, contact);
         }
     }
@@ -985,13 +986,13 @@ unsafe fn mix_surface(
     );
 }
 
-const DEFER_PRE_SOLVE: u32 = 0x0400_0000;
-
 unsafe fn reaches_pre_solve(world: usize, contact: usize) -> bool {
     use crate::manifold_abi::*;
     let dir = manifolds::dir_col(world);
     let o = contact * DIR_STRIDE;
-    if !crate::callbacks::pre_solve_enabled(world) || dir.get(o + DIR_FLAGS) & 0x0020_0000 == 0 {
+    if !crate::callbacks::pre_solve_enabled(world)
+        || dir.get(o + DIR_FLAGS) & contact_flags::SIM_ENABLE_PRE_SOLVE_EVENTS == 0
+    {
         return false;
     }
     let shapes = crate::shapes::col_slice(world);
@@ -1033,7 +1034,10 @@ unsafe fn update_contact(
         let pre_solve = reaches_pre_solve(world_index, contact_id);
         let custom = DEFAULT_MIX == 0 && pre_solve;
         if !custom {
-            dir.set(o + DIR_FLAGS, dir.get(o + DIR_FLAGS) | 0x0200_0000);
+            dir.set(
+                o + DIR_FLAGS,
+                dir.get(o + DIR_FLAGS) | contact_flags::MIX_MATERIALS,
+            );
         }
         let old_count = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
         let shape_id_a = dir.get(o + DIR_SHAPE_A) as usize;
@@ -1215,7 +1219,7 @@ pub unsafe extern "C" fn mix_contacts(world_index: usize) {
         let id = crate::contact_list::get_in_world(world_index, i) as usize;
         let o = id * DIR_STRIDE;
         let count = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
-        if dir.get(o + DIR_FLAGS) & 0x0200_0000 == 0 || count == 0 {
+        if dir.get(o + DIR_FLAGS) & contact_flags::MIX_MATERIALS == 0 || count == 0 {
             continue;
         }
         let sa = dir.get(o + DIR_SHAPE_A) as usize;
@@ -1403,17 +1407,20 @@ unsafe fn contact_block_impl(
             let o = contact_id * DIR_STRIDE;
             if serial {
                 let flags = dir.get(o + DIR_FLAGS);
-                if flags & DEFER_PRE_SOLVE == 0 {
+                if flags & contact_flags::DEFER_PRE_SOLVE == 0 {
                     continue;
                 }
-                dir.set(o + DIR_FLAGS, flags & !DEFER_PRE_SOLVE);
+                dir.set(o + DIR_FLAGS, flags & !contact_flags::DEFER_PRE_SOLVE);
             }
-            let flags = dir.get(o + DIR_FLAGS) & !0x0200_0000;
+            let flags = dir.get(o + DIR_FLAGS) & !contact_flags::MIX_MATERIALS;
             dir.set(o + DIR_FLAGS, flags);
             let sa = dir.get(o + DIR_SHAPE_A) as usize;
             let sb = dir.get(o + DIR_SHAPE_B) as usize;
             if !fat_overlap(fat, sa, sb) {
-                dir.set(o + DIR_FLAGS, (flags | 0x0002_0000) & !0x0001_0000);
+                dir.set(
+                    o + DIR_FLAGS,
+                    (flags | contact_flags::SIM_DISJOINT) & !contact_flags::SIM_TOUCHING,
+                );
                 mark_contact_state(world_index, thread, contact_id);
                 continue;
             }
@@ -1457,14 +1464,18 @@ unsafe fn contact_block_impl(
                 fin_b.max_extent
             };
             let fast = (flags_a | flags_b) & crate::body::flags::IS_FAST != 0;
-            let fast_mesh = flags & 0x0040_0000 != 0 && fast;
-            let tol = if flags & 0x0001_0000 != 0 {
+            let fast_mesh = flags & contact_flags::SIM_MESH_CONTACT != 0 && fast;
+            let tol = if flags & contact_flags::SIM_TOUCHING != 0 {
                 recycle_dist
             } else {
                 recycle_dist_non_touching
             };
 
-            if !fast_mesh && recycle_dist > 0.0 && flags & 0x0080_0000 != 0 && flags & 0x10 != 0 {
+            if !fast_mesh
+                && recycle_dist > 0.0
+                && flags & contact_flags::RELATIVE_TRANSFORM_VALID != 0
+                && flags & contact_flags::RECYCLE != 0
+            {
                 let (rot_a, rot_b, rel) = read_pose_cache(dir, contact_id);
                 let mc = dir.get(o + DIR_MANIFOLD_COUNT) as usize;
                 let angle_a = xf_a.q.dot(rot_a);
@@ -1530,7 +1541,10 @@ unsafe fn contact_block_impl(
             }
 
             if !serial && reaches_pre_solve(world_index, contact_id) {
-                dir.set(o + DIR_FLAGS, dir.get(o + DIR_FLAGS) | DEFER_PRE_SOLVE);
+                dir.set(
+                    o + DIR_FLAGS,
+                    dir.get(o + DIR_FLAGS) | contact_flags::DEFER_PRE_SOLVE,
+                );
                 continue;
             }
             crate::callback_work::note(
@@ -1542,7 +1556,10 @@ unsafe fn contact_block_impl(
                 },
             );
             write_pose_cache(dir, contact_id, xf_a, xf_b);
-            dir.set(o + DIR_FLAGS, flags | 0x0080_0000);
+            dir.set(
+                o + DIR_FLAGS,
+                flags | contact_flags::RELATIVE_TRANSFORM_VALID,
+            );
             update_contact(
                 world_index,
                 thread,
@@ -1556,7 +1573,9 @@ unsafe fn contact_block_impl(
                 fast,
             );
             let updated = dir.get(o + DIR_FLAGS);
-            if flags & 0x0001_0000 != 0 && updated & 0x0001_0000 != 0 && updated & 0x0040_0000 != 0
+            if flags & contact_flags::SIM_TOUCHING != 0
+                && updated & contact_flags::SIM_TOUCHING != 0
+                && updated & contact_flags::SIM_MESH_CONTACT != 0
             {
                 crate::constraint_graph::update_manifold_count(
                     world_index,

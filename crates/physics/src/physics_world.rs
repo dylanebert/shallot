@@ -1,4 +1,5 @@
 //! Box3D physics_world.c: serial contact transitions and step context.
+use crate::manifold_abi::contact_flags;
 use crate::{
     bodies, constraint_graph, contact_list, events, island, manifold_abi::*, manifolds, regions,
     solver_set,
@@ -78,22 +79,25 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
     let o = id * DIR_STRIDE;
     let flags = d.get(o + DIR_FLAGS);
     let world = world_index;
-    if flags & 0x0002_0000 != 0 {
+    if flags & contact_flags::SIM_DISJOINT != 0 {
         crate::contact_lifecycle::destroy(world_index, id, false);
         return;
     }
-    let started = flags & 0x0004_0000 != 0;
-    let stopped = flags & 0x0008_0000 != 0;
+    let started = flags & contact_flags::SIM_STARTED_TOUCHING != 0;
+    let stopped = flags & contact_flags::SIM_STOPPED_TOUCHING != 0;
     if !started && !stopped {
         return;
     }
-    if flags & 4 != 0 {
+    if flags & contact_flags::ENABLE_CONTACT_EVENTS != 0 {
         events::contact_touch_in_world(world, id, started);
     }
     let a = d.get(o + DIR_EDGE_A) as usize;
     let b = d.get(o + DIR_EDGE_B) as usize;
     if started {
-        d.set(o + DIR_FLAGS, (flags & !0x0004_0000) | 1);
+        d.set(
+            o + DIR_FLAGS,
+            (flags & !contact_flags::SIM_STARTED_TOUCHING) | contact_flags::TOUCHING,
+        );
         let sa = bodies::record(world, a).set_index;
         let sb = bodies::record(world, b).set_index;
         if sa == 2 && sb >= 3 {
@@ -119,7 +123,10 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
             d.set(moved * DIR_STRIDE + DIR_LOCAL_INDEX, old as u32);
         }
     } else {
-        d.set(o + DIR_FLAGS, flags & !(0x0008_0000 | 1));
+        d.set(
+            o + DIR_FLAGS,
+            flags & !(contact_flags::SIM_STOPPED_TOUCHING | contact_flags::TOUCHING),
+        );
         let color = d.get(o + DIR_COLOR_INDEX) as usize;
         let local = d.get(o + DIR_LOCAL_INDEX) as usize;
         island::unlink_contact_in_world(world_index, id as i32);
@@ -134,7 +141,7 @@ unsafe fn apply_touch(world_index: usize, id: usize) {
             b,
             color,
             local,
-            flags & 0x0040_0000 != 0,
+            flags & contact_flags::SIM_MESH_CONTACT != 0,
         );
     }
 }
