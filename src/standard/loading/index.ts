@@ -496,7 +496,7 @@ function loading(theme: Theme, options: SplashOptions): Loading {
         },
 
         notice(verdict: AdapterVerdict) {
-            if (!content || verdict.class === "real") return;
+            if (!content || verdict.class !== "fallback") return;
             noticeLine?.remove();
             noticeLine = document.createElement("div");
             noticeLine.style.cssText =

@@ -120,7 +120,12 @@ test("dark loading preserves progress colors, readable notices and errors, and c
             expect(track.children[0]!.style.cssText).toContain(`background: ${theme.bar}`);
             expect(track.children[0]!.style.width).toBe("40%");
 
+            const progressChildren = content.children.length;
+            theme.screen.notice?.({ class: "unidentified", identity: "unidentified" });
+            expect(content.children).toHaveLength(progressChildren);
+
             theme.screen.notice?.({ class: "fallback", identity: "test adapter" });
+            expect(content.children).toHaveLength(progressChildren + 1);
             const notice = content.children.at(-1)!;
             expect(notice.textContent).toBe("fallback adapter: test adapter");
             expect(notice.style.cssText).toContain(
