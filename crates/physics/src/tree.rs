@@ -666,15 +666,6 @@ fn union_into(pool: &mut [u32], i: i32, j: i32, k: i32) {
     }
 }
 
-/// dst.category |= (a.category | b.category) — the OR propagation (both u32 halves).
-fn or_category(pool: &mut [u32], dst: i32, a: i32, b: i32) {
-    let d = dst as usize * STRIDE;
-    let na = a as usize * STRIDE;
-    let nb = b as usize * STRIDE;
-    pool[d + 6] = pool[na + 6] | pool[nb + 6];
-    pool[d + 7] = pool[na + 7] | pool[nb + 7];
-}
-
 /// Broad-phase overlap query (b3DynamicTree_Query with an ALL_BITS mask). Visits every leaf whose fat
 /// AABB overlaps `box` in LIFO discovery order, calling `cb(leafNodeId, userData)`; a `false` return
 /// stops the walk. Returns `(node_visits, leaf_visits)`. `stack` is caller scratch (`STACK_SIZE` ints).
@@ -962,7 +953,7 @@ fn build_tree(pool: &mut [u32], rb: &mut Rebuild, leaf_count: usize) -> i32 {
                 node_index,
                 1 + maxi(height_of(pool, child1), height_of(pool, child2)),
             );
-            or_category(pool, node_index, child1, child2);
+            category_union(pool, node_index, child1, child2);
 
             top -= 1;
         } else {
@@ -1011,7 +1002,7 @@ fn build_tree(pool: &mut [u32], rb: &mut Rebuild, leaf_count: usize) -> i32 {
         root_index,
         1 + maxi(height_of(pool, child1), height_of(pool, child2)),
     );
-    or_category(pool, root_index, child1, child2);
+    category_union(pool, root_index, child1, child2);
 
     root_index
 }
