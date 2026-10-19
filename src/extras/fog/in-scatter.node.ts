@@ -252,7 +252,7 @@ test("cells behind a wall beside a point light keep the light just in front of t
         `
         @fragment fn sample(@builtin(position) p: vec4f) -> @location(0) vec4f {
             if (p.x < 1) { return vec4f(readFogInScatter(vec3f(0,0,-4.9)), 1); }
-            return vec4f(readFogInScatter(vec3f(0,0,-6)), 1);
+            return vec4f(readFogInScatter(vec3f(0,0,-5.2)), 1);
         }
         `,
         2,
@@ -263,7 +263,7 @@ test("cells behind a wall beside a point light keep the light just in front of t
     world.destroy(wall);
     world.destroy(lamp);
     expect(values[0]!).toBeGreaterThan(1);
-    // Behind over front: 0.33 with uniform depth samples (cde5cba3), 0.52 with equiangular ones, and 0.14 when a
+    // Behind over front: 0.56 with uniform depth samples (44b83550), 0.64 with equiangular ones, and 0.10 when a
     // clamped cell took the light at the camera instead.
     expect(values[4]! / values[0]!).toBeGreaterThan(0.25);
 });

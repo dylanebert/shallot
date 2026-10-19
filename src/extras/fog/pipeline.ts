@@ -303,8 +303,12 @@ function createGridKernel(multisampled: boolean) {
                 const end = extent * b * b;
                 const center = std.add(nearWorld, std.mul(dir, (start + end) * 0.5 * rayScale));
                 const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
-                // Unlike HDRP's skipped far cells, near-side light fills them for trilinear and filtered reads.
-                const limit = surface * 0.999;
+                // Unlike HDRP's skipped far cells, near-side light fills the first cell wholly past the surface,
+                // the one a trilinear read at the surface reaches. Cells beyond it are lit where they are, as in
+                // HDRP and Godot: repeating near-side light through them lit the far haze beside a silhouette.
+                const previous = std.max(d.f32(i) - 1, 0) / FOG_SLICES;
+                let limit = surface * 0.999;
+                if (i > 0 && extent * previous * previous >= limit) limit = extent;
                 const p = std.add(
                     sampleNear,
                     std.mul(
