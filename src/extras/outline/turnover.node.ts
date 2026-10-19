@@ -102,3 +102,39 @@ test("an outlined mesh reusing a removed mesh's row from another buffer family d
         difference = Math.max(difference, Math.abs(expected[i]! - actual[i]!));
     expect(difference).toBeLessThanOrEqual(1);
 });
+
+test("a destroyed camera's outline targets are destroyed by the next frame, highlighted or not", () => {
+    const { world } = subjects()[0]!;
+    const device = world.gpu.device;
+    const createTexture = device.createTexture.bind(device);
+    const live = new Set<string>();
+    device.createTexture = (descriptor) => {
+        const texture = createTexture(descriptor);
+        const label = descriptor.label ?? "";
+        live.add(label);
+        const destroy = texture.destroy.bind(texture);
+        texture.destroy = () => {
+            live.delete(label);
+            destroy();
+        };
+        return texture;
+    };
+    const targets = (camera: number) =>
+        [`outline-seedA-${camera}`, `outline-seedB-${camera}`, `outline-attr-${camera}`].filter(
+            (label) => live.has(label),
+        );
+    try {
+        for (const highlighted of [true, false]) {
+            const { camera, outlined } = scene(world);
+            world.step(0);
+            expect(targets(camera)).toHaveLength(3);
+            if (!highlighted) for (const eid of world.query([Outline])) world.remove(eid, Outline);
+            world.destroy(camera);
+            world.destroy(outlined);
+            world.step(0);
+            expect(targets(camera)).toEqual([]);
+        }
+    } finally {
+        device.createTexture = createTexture;
+    }
+});
