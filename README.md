@@ -6,22 +6,39 @@ webgpu game engine. fast by default, instant iteration, runs where webgpu does.
 
 ## quick start
 
-Install [Bun](https://bun.sh/docs/installation). Create a project and start its development server:
-
 ```bash
+# install bun
+curl -fsSL https://bun.sh/install | bash
+
+# new project
 bun create shallot my-game
 cd my-game
 bun install
+
+# run it
 bun run dev
 ```
 
-Open the URL printed in the terminal in a WebGPU-capable browser, such as Chrome or Edge. Edit the scene in `src/welcome/index.ts`; changes reload the page.
+open the url in a [supported browser](https://caniuse.com/webgpu).
 
-## next steps
+## examples
 
-[Demos](https://dylanebert.com/shallot/). Copy the first-person example with `bun create shallot first-person --template first-person`, then install and run it as above.
+get started by exploring [examples](https://dylanebert.com/shallot/). start from one:
 
-`bun create shallot --help` lists templates. In the project, `bunx shallot --help` lists commands; `bunx shallot --skill` prints the agent skill.
+```bash
+# list them
+bun create shallot --help
+
+# copy one
+bun create shallot first-person --template first-person
+```
+
+## cli
+
+```bash
+bunx shallot --help    # commands
+bunx shallot --skill   # agent skill
+```
 
 ## more
 
