@@ -9,6 +9,9 @@ use crate::{broad, query_abi, tree};
 
 // roots/counts, category hi/lo, mask hi/lo, origin xyz, box lower/upper xyz, excluded body + 1.
 pub(crate) static mut HEADER: [u32; 20] = [0; 20];
+/// The query filter's category and mask in `HEADER`, each as its high then low word.
+const H_CATEGORY: usize = 6;
+const H_MASK: usize = 8;
 // shape id (-1 for no hit), node/leaf visits, final fraction, followed by cast output.
 // Callback-free collide mover: count at 0, then eight shape/normal/offset/point records at 16.
 pub(crate) static mut RESULT: [u32; 80] = [0; 80];
@@ -56,11 +59,17 @@ pub(crate) unsafe fn pose(world_index: usize, id: usize, origin: Vec3) -> Transf
         },
     }
 }
+/// The query filter `header` holds.
+fn query_filter(header: &[u32; 20]) -> QueryFilter {
+    let wide = |high: usize| (header[high] as u64) << 32 | header[high + 1] as u64;
+    QueryFilter {
+        category_bits: wide(H_CATEGORY),
+        mask_bits: wide(H_MASK),
+    }
+}
 pub(crate) fn accepts(world_index: usize, id: usize, header: &[u32; 20]) -> bool {
-    let r = crate::shapes::col_slice(world_index);
-    let n = id * SHAPE_STRIDE;
-    ((r[n + S_QUERY_CATEGORY] & header[8]) | (r[n + S_QUERY_CATEGORY - 1] & header[9])) != 0
-        && ((r[n + S_QUERY_MASK] & header[6]) | (r[n + S_QUERY_MASK - 1] & header[7])) != 0
+    let record = &crate::shapes::col_slice(world_index)[id * SHAPE_STRIDE..][..SHAPE_STRIDE];
+    should_query_collide(Filter::read(record), query_filter(header))
 }
 pub(crate) unsafe fn write_cast(out: &CastOutput, target: *mut u32, material: i32) {
     for (index, value) in [
@@ -405,8 +414,8 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                     count,
                     [lo.x, lo.y, lo.z],
                     [hi.x, hi.y, hi.z],
-                    header[8],
-                    header[9],
+                    header[H_MASK],
+                    header[H_MASK + 1],
                     false,
                     &mut stack,
                     |id, data| visit(1.0, id, data) != 0.0,
@@ -419,8 +428,8 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                     origin,
                     translation,
                     tree_fraction,
-                    header[8],
-                    header[9],
+                    header[H_MASK],
+                    header[H_MASK + 1],
                     false,
                     visit,
                 )
@@ -433,8 +442,8 @@ pub extern "C" fn run_in_world(world: usize, operation: u32, user_callback: u32)
                     hi,
                     translation,
                     tree_fraction,
-                    header[8],
-                    header[9],
+                    header[H_MASK],
+                    header[H_MASK + 1],
                     false,
                     visit,
                 )

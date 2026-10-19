@@ -293,15 +293,33 @@ pub unsafe extern "C" fn set_filter64_in_world(
     mask: u64,
     group: i32,
 ) {
-    set_filter_in_world(
-        world,
-        id,
-        (category >> 32) as u32,
-        category as u32,
-        (mask >> 32) as u32,
-        mask as u32,
-        group,
-    );
+    let o = id * shapes::SHAPE_STRIDE;
+    let filter = shapes::Filter {
+        category_bits: category,
+        mask_bits: mask,
+        group_index: group,
+    };
+    if shapes::Filter::read(&shapes::col_slice(world)[o..][..shapes::SHAPE_STRIDE]) == filter {
+        return;
+    }
+    filter_write64_in_world(world, id, category, mask, group);
+    destroy_contacts(world, id, true);
+    // shape.c compares category bits after assigning the filter, so invokeContacts recreates the proxy.
+    let u = shapes::col(world);
+    let proxy = u.get(o + shapes::S_PROXY_KEY);
+    let body = u.get(o + shapes::S_QUERY_BODY) as usize;
+    if proxy != u32::MAX {
+        destroy_proxy_in_world(world, id);
+        create_proxy_in_world(world, id, true);
+    } else {
+        let tight = crate::continuous::bounds(world, id, bodies::geometry(world, body).0);
+        write_bounds(
+            world,
+            id,
+            bodies::record(world, body).body_type as usize,
+            tight,
+        );
+    }
 }
 #[export_name = "shapeFilterWrite64"]
 pub unsafe extern "C" fn filter_write64(
@@ -321,70 +339,12 @@ pub unsafe extern "C" fn filter_write64_in_world(
     mask: u64,
     group: i32,
 ) {
-    filter_write_in_world(
-        world,
-        id,
-        (category >> 32) as u32,
-        category as u32,
-        (mask >> 32) as u32,
-        mask as u32,
-        group,
-    );
-}
-
-pub unsafe extern "C" fn set_filter_in_world(
-    world: usize,
-    id: usize,
-    category_hi: u32,
-    category_lo: u32,
-    mask_hi: u32,
-    mask_lo: u32,
-    group: i32,
-) {
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
-    if u.get(o + shapes::S_QUERY_CATEGORY) == category_hi
-        && u.get(o + shapes::S_QUERY_CATEGORY - 1) == category_lo
-        && u.get(o + shapes::S_QUERY_MASK) == mask_hi
-        && u.get(o + shapes::S_QUERY_MASK - 1) == mask_lo
-        && u.get(o + shapes::S_QUERY_GROUP) as i32 == group
-    {
-        return;
-    }
-    filter_write_in_world(world, id, category_hi, category_lo, mask_hi, mask_lo, group);
-    destroy_contacts(world, id, true);
-    // shape.c compares category bits after assigning the filter, so invokeContacts recreates the proxy.
-    let proxy = u.get(o + shapes::S_PROXY_KEY);
-    let body = u.get(o + shapes::S_QUERY_BODY) as usize;
-    if proxy != u32::MAX {
-        destroy_proxy_in_world(world, id);
-        create_proxy_in_world(world, id, true);
-    } else {
-        let tight = crate::continuous::bounds(world, id, bodies::geometry(world, body).0);
-        write_bounds(
-            world,
-            id,
-            bodies::record(world, body).body_type as usize,
-            tight,
-        );
-    }
-}
-
-pub unsafe extern "C" fn filter_write_in_world(
-    world: usize,
-    id: usize,
-    category_hi: u32,
-    category_lo: u32,
-    mask_hi: u32,
-    mask_lo: u32,
-    group: i32,
-) {
-    let u = shapes::col(world);
-    let o = id * shapes::SHAPE_STRIDE;
-    u.set(o + shapes::S_QUERY_CATEGORY, category_hi);
-    u.set(o + shapes::S_QUERY_CATEGORY - 1, category_lo);
-    u.set(o + shapes::S_QUERY_MASK, mask_hi);
-    u.set(o + shapes::S_QUERY_MASK - 1, mask_lo);
+    u.set(o + shapes::S_QUERY_CATEGORY, (category >> 32) as u32);
+    u.set(o + shapes::S_QUERY_CATEGORY - 1, category as u32);
+    u.set(o + shapes::S_QUERY_MASK, (mask >> 32) as u32);
+    u.set(o + shapes::S_QUERY_MASK - 1, mask as u32);
     u.set(o + shapes::S_QUERY_GROUP, group as u32);
 }
 #[export_name = "shapeSetDensity"]

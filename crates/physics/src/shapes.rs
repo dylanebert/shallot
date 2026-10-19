@@ -136,7 +136,7 @@ pub fn col_f(world_index: usize) -> Col<'static, f32> {
 }
 /// A shape's b3Filter, as its record's `S_QUERY_*` lanes hold it: each 64-bit field as its low then
 /// high word.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Filter {
     pub category_bits: u64,
     pub mask_bits: u64,
@@ -161,6 +161,17 @@ pub fn should_shapes_collide(a: Filter, b: Filter) -> bool {
         return a.group_index > 0;
     }
     a.mask_bits & b.category_bits != 0 && a.category_bits & b.mask_bits != 0
+}
+/// b3QueryFilter.
+#[derive(Clone, Copy)]
+pub struct QueryFilter {
+    pub category_bits: u64,
+    pub mask_bits: u64,
+}
+/// b3ShouldQueryCollide.
+#[inline]
+pub fn should_query_collide(shape: Filter, query: QueryFilter) -> bool {
+    shape.category_bits & query.mask_bits != 0 && shape.mask_bits & query.category_bits != 0
 }
 pub fn col_slice(world_index: usize) -> &'static [u32] {
     unsafe {
