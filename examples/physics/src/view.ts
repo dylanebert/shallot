@@ -155,6 +155,15 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         world.add(ground, MeshInstance, { mesh: groundMesh });
         world.add(ground, MeshMaterial, roles.ground);
     }
+    const grid = new GizmoAsset();
+    for (const { a, b, color } of presentation.grid.lines) drawLine(grid, a, b, color);
+    const gridEntity = world.create();
+    world.add(gridEntity, Transform);
+    world.add(gridEntity, Gizmo, {
+        handle: registerGizmo(world, grid),
+        width: presentation.grid.width,
+        opacity: presentation.grid.opacity,
+    });
     const views = new Map<EntityRef, MeshHandle>();
     const labels: number[] = [];
     function updateShapes(world: World): void {

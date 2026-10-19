@@ -6,6 +6,7 @@ import {
     StandardMaterial,
     shapeEdges,
     shapeMesh,
+    Transform,
     type World,
 } from "@dylanebert/shallot";
 import { EventSample } from "./events";
@@ -42,8 +43,42 @@ export function shapePresentation(world: World, scene: Scene, eid: number) {
 }
 
 export function scenePresentation(world: World, scene: Scene) {
+    const shapes = Array.from(world.query([Shape]), (eid) => shapePresentation(world, scene, eid));
+    let extent = scene === "sensor" ? 10 : 0;
+    for (const shape of shapes) {
+        if (shape.role !== "ground") continue;
+        const pose = world.get(shape.body, Transform);
+        const vertices = shape.mesh.vertices;
+        let top = -Infinity;
+        for (let i = 1; i < vertices.length; i += 8) {
+            top = Math.max(top, vertices[i]! * (pose?.scale[1] ?? 1) + (pose?.translation[1] ?? 0));
+        }
+        if (Math.abs(top) > 0.0001) continue;
+        for (let i = 0; i < vertices.length; i += 8) {
+            const y = vertices[i + 1]! * (pose?.scale[1] ?? 1) + (pose?.translation[1] ?? 0);
+            if (Math.abs(y) > 0.0001) continue;
+            for (const axis of [0, 2]) {
+                extent = Math.max(
+                    extent,
+                    Math.abs(
+                        vertices[i + axis]! * (pose?.scale[axis] ?? 1) +
+                            (pose?.translation[axis] ?? 0),
+                    ),
+                );
+            }
+        }
+    }
+    const lines: { a: [number, number, number]; b: [number, number, number]; color: number }[] = [];
+    for (let offset = -Math.floor(extent); offset <= extent; offset++) {
+        const color = offset === 0 ? 0x797369 : 0x49453f;
+        lines.push(
+            { a: [-extent, 0.005, offset], b: [extent, 0.005, offset], color },
+            { a: [offset, 0.005, -extent], b: [offset, 0.005, extent], color },
+        );
+    }
     return {
-        shapes: Array.from(world.query([Shape]), (eid) => shapePresentation(world, scene, eid)),
+        shapes,
+        grid: { lines, width: 1, opacity: 0.3 },
         ground:
             scene === "sensor"
                 ? {
