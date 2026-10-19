@@ -329,9 +329,9 @@ function rowViolations(css: Css): string[] {
 
 test("controls and list rows have one height", async () => {
     expect(
-        rowViolations(await cssOf("a.css", ".row { height: 28px; } button { min-height: 28px; }")),
+        rowViolations(await cssOf("a.css", ".row { height: 24px; } button { min-height: 24px; }")),
     ).toEqual([]);
-    for (const css of ["button { height: 24px; }", ".row { min-height: 32px; }"])
+    for (const css of ["button { height: 28px; }", ".row { min-height: 32px; }"])
         expect(rowViolations(await cssOf("a.css", css))).toHaveLength(1);
 });
 

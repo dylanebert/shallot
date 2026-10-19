@@ -28,8 +28,9 @@ export interface LookPalette {
         spacing: { base: number; group: number };
         controls: {
             row: number;
-            label: number;
             width: number;
+            track: string;
+            fill: string;
             checkbox: number;
             indent: number;
             rest: string;
@@ -47,13 +48,13 @@ const uiType = {
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
     fontSizes: ["14px", "24px"],
     fontWeight: "400",
-    // lil-gui's 20px widgets at 14/11 text scale, rounded up to the 4px grid.
+    // lil-gui's 20px widget plus 4px spacing fits the UI's 20px text line.
     spacing: { base: 4, group: 8 },
     controls: {
-        row: 28,
-        // A 45% name column wide enough for the longest monospace label and its indent.
-        label: 160,
-        width: 192,
+        row: 24,
+        width: 112,
+        track: "#3a3835",
+        fill: "#454440",
         checkbox: 20,
         indent: 8,
         rest: "#191816",

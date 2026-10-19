@@ -5,7 +5,7 @@ for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
 ]) {
-    test(`instructions stay top left and toggles preserve the controls bounds at ${viewport.width}×${viewport.height}`, async ({
+    test(`instructions stay top left and toggles preserve the controls width and top-left at ${viewport.width}×${viewport.height}`, async ({
         browser,
     }) => {
         const context = await browser.newContext({ viewport, hasTouch: viewport.width === 390 });
@@ -36,11 +36,21 @@ for (const viewport of [
             }
         }
         const before = await panel.boundingBox();
+        expect(before!.height).toBe(128);
+        expect(before!.width).toBeLessThanOrEqual(300);
         expect(before!.x + before!.width).toBe(viewport.width - 24);
         expect(before!.y).toBe(24);
+        let height = before!.height;
         for (const name of ["Steering", "Steering Limit", "Steering Limit", "Steering"]) {
-            await panel.getByRole("checkbox", { name, exact: true }).click();
-            expect.soft(await panel.boundingBox()).toEqual(before);
+            const toggle = panel.getByRole("checkbox", { name, exact: true });
+            await toggle.click();
+            const after = (await panel.boundingBox())!;
+            expect
+                .soft({ x: after.x, y: after.y, width: after.width })
+                .toEqual({ x: before!.x, y: before!.y, width: before!.width });
+            if (await toggle.isChecked()) expect.soft(after.height).toBeGreaterThan(height);
+            else expect.soft(after.height).toBeLessThan(height);
+            height = after.height;
         }
         await context.close();
     });
