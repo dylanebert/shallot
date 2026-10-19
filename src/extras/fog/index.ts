@@ -76,9 +76,8 @@ import { TEMPORAL_FRAMES } from "./temporal";
  * The scene's volumetric atmosphere: one per scene (a singleton). A frustum grid accumulates extinction
  * and in-scattered light up to `viewDistance`; beyond it, analytic height fog continues with unshadowed
  * ambient and directional in-scatter. `maxDistance` bounds fog along each ray, including a perspective
- * camera's clear background. `density` is the
- * base haze thickness; `heightFalloff` makes it an exponential height fog (denser low, thinning with
- * altitude above `heightBase`). Extinction is
+ * camera's clear background. `density` is the base haze thickness; `heightFalloff` makes it an exponential
+ * height fog (denser low, thinning with altitude above `heightBase`). Extinction is
  * density × (absorption + scattering); the scattered fraction is scattering / (absorption + scattering).
  */
 export const Fog = component(
@@ -205,6 +204,38 @@ const fogSource = tgpu.fn(
     return readFog(input.worldPosition);
 });
 
+// One camera's grid, history and bind groups, rebuilt when its view, lighting or format changes.
+interface FogView {
+    grid: GPUTexture;
+    width: number;
+    height: number;
+    feedback: GPUTexture[];
+    filtered: GPUTexture;
+    surface: GPUTexture[];
+    deepest: GPUTexture;
+    temporal: GPUBuffer;
+    staging: Float32Array<ArrayBuffer>;
+    valid: boolean;
+    config: Float32Array;
+    parity: number;
+    camera: number;
+    depthGroup: GPUBindGroup;
+    gridGroups: GPUBindGroup[];
+    filterGroups: GPUBindGroup[];
+    integrateGroups: GPUBindGroup[];
+    gridPass: GPUComputePassDescriptor;
+    lighting: GPUBuffer;
+    format: GPUTextureFormat;
+    pipeline: GPURenderPipeline;
+    interiorPipeline: GPURenderPipeline | null;
+    readGroups: GPUBindGroup[];
+    depth: GPUTextureView;
+    slot: number;
+    multisampled: boolean;
+    bindGroup: GPUBindGroup;
+    gridDepthGroup: GPUBindGroup;
+}
+
 interface FogState {
     fog: {
         depthPipeline: TgpuComputePipeline | null;
@@ -218,39 +249,7 @@ interface FogState {
     };
     staging: Float32Array;
     lights: { keys: (GPUBuffer | GPUTextureView | GPUSampler)[]; group: GPUBindGroup } | null;
-    views: Map<
-        number,
-        {
-            grid: GPUTexture;
-            width: number;
-            height: number;
-            feedback: GPUTexture[];
-            filtered: GPUTexture;
-            surface: GPUTexture[];
-            deepest: GPUTexture;
-            temporal: GPUBuffer;
-            staging: Float32Array<ArrayBuffer>;
-            valid: boolean;
-            config: Float32Array;
-            parity: number;
-            camera: number;
-            depthGroup: GPUBindGroup;
-            gridGroups: GPUBindGroup[];
-            filterGroups: GPUBindGroup[];
-            integrateGroups: GPUBindGroup[];
-            gridPass: GPUComputePassDescriptor;
-            lighting: GPUBuffer;
-            format: GPUTextureFormat;
-            pipeline: GPURenderPipeline;
-            interiorPipeline: GPURenderPipeline | null;
-            readGroups: GPUBindGroup[];
-            depth: GPUTextureView;
-            slot: number;
-            multisampled: boolean;
-            bindGroup: GPUBindGroup;
-            gridDepthGroup: GPUBindGroup;
-        }
-    >;
+    views: Map<number, FogView>;
 }
 
 const fogStateKey = { create: () => createFogState() };
@@ -276,7 +275,7 @@ function clearViews(state: FogState): void {
     state.views.clear();
 }
 
-function destroyView(cam: FogState["views"] extends Map<number, infer V> ? V : never): void {
+function destroyView(cam: FogView): void {
     cam.grid.destroy();
     for (const texture of cam.feedback) texture.destroy();
     cam.filtered.destroy();
@@ -429,8 +428,8 @@ const FogSystem: System = {
                 _fogState.views.delete(eid);
             }
         }
-        packFog(world, fogEid, fogState(world).staging);
-        _fogState.fog.buffer.write(fogState(world).staging.buffer as ArrayBuffer);
+        packFog(world, fogEid, _fogState.staging);
+        _fogState.fog.buffer.write(_fogState.staging.buffer as ArrayBuffer);
         const lights = fogLights(world);
         for (const eid of world.query(FOG_CAMERA_QUERY)) {
             if (world.has(eid, NoFog)) continue;
@@ -439,7 +438,7 @@ const FogSystem: System = {
             const multisampled = world.storage(Camera).antialias.get(eid) !== 0;
             const format = view.framebufferFormat ?? _render.format;
             const lighting = world.resource(Lighting).buffer;
-            let cam = fogState(world).views.get(eid);
+            let cam = _fogState.views.get(eid);
             if (
                 !cam ||
                 cam.camera !== world.ref(eid) ||
@@ -633,7 +632,7 @@ const FogSystem: System = {
                               }),
                     ),
                 };
-                fogState(world).views.set(eid, cam);
+                _fogState.views.set(eid, cam);
             }
             for (let i = 0; i < FOG_FLOATS; i++) {
                 if (cam.config[i] !== _fogState.staging[i]) cam.valid = false;
@@ -776,7 +775,7 @@ export const FogPlugin: Plugin = {
         const pipeline = applyPipeline(world, format, false);
         const multisampledPipeline = applyPipeline(world, format, true);
         const interiorPipeline = applyPipeline(world, format, true, true);
-        fogState(world).lights = null;
+        _fogState.lights = null;
         clearViews(_fogState);
 
         precompile(world, "fog-grid", () => [
@@ -805,7 +804,7 @@ export const FogPlugin: Plugin = {
         _fogState.fog.filterPipeline = null;
         _fogState.fog.integratePipeline = null;
         _fogState.fog.pipelines.clear();
-        fogState(world).lights = null;
+        _fogState.lights = null;
         clearViews(_fogState);
     },
 };
