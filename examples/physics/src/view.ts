@@ -16,6 +16,7 @@ import {
     Shape,
     StandardMaterial,
     StandardRenderer,
+    type System,
     sphere,
     Transform,
     type World,
@@ -32,7 +33,7 @@ export const GrabFeedback = {
     create: () => ({ marker: 0, attachment: [0, 0, 0] as [number, number, number] }),
 };
 
-export function createView(world: World, scene: Scene): void {
+export function createViewer(world: World): (world: World, scene: Scene) => () => void {
     const ambient = world.resource(GlobalAmbientLight);
     ambient.color = 0xd8e4ff;
     ambient.brightness = 380;
@@ -40,16 +41,25 @@ export function createView(world: World, scene: Scene): void {
     world.add(sun, Transform, { rotation: lookAtRotation(0, 0, 0, 1, -2, -0.35) });
     world.add(sun, DirectionalLight, { color: 0xffe8cc, illuminance: 6000, shadowMapsEnabled: 1 });
     const camera = world.create();
-    const view = scenes[scene].camera;
     world.add(camera, Camera, { clearColor: 0x191816 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Orbit, {
-        yaw: (view.yaw * Math.PI) / 180,
-        pitch: (view.pitch * Math.PI) / 180,
-        distance: view.distance,
-        pan: view.target,
-    });
+    world.add(camera, Orbit);
     world.add(camera, Transform);
+    return (world, scene) => createView(world, scene, camera);
+}
+
+function createView(world: World, scene: Scene, camera: number): () => void {
+    const systems: System[] = [];
+    function addSystem(system: System): void {
+        systems.push(system);
+        world.addSystem(system);
+    }
+    const view = scenes[scene].camera;
+    const orbit = world.storage(Orbit);
+    orbit.yaw.set(camera, (view.yaw * Math.PI) / 180);
+    orbit.pitch.set(camera, (view.pitch * Math.PI) / 180);
+    orbit.distance.set(camera, view.distance);
+    orbit.pan.set(camera, view.target[0]!, view.target[1]!, view.target[2]!);
     const materials = world.resource(Materials);
     const presentation = scenePresentation(world, scene);
     const initial = new Map(presentation.shapes.map((shape) => [world.ref(shape.eid), shape]));
@@ -64,7 +74,7 @@ export function createView(world: World, scene: Scene): void {
         StandardMaterial({ baseColor: [0.855, 0.815, 0.738, 1], unlit: true }),
     );
     const feedback = world.resource(GrabFeedback);
-    world.addSystem({
+    addSystem({
         name: "grab-feedback",
         group: "simulation",
         update(world) {
@@ -205,12 +215,12 @@ export function createView(world: World, scene: Scene): void {
     }
     updateShapes(world);
     if (scene === "contact" || scene === "sensor" || scene === "hit")
-        world.addSystem({ name: "shape-views", group: "simulation", update: updateShapes });
+        addSystem({ name: "shape-views", group: "simulation", update: updateShapes });
     if (scene === "joint" || scene === "motor") {
         const draw = defaultDebugDraw();
         draw.drawJoints = true;
         draw.drawSegment = (a, b) => drawLine(world, [a.x, a.y, a.z], [b.x, b.y, b.z], 0x38a4b5, 1);
-        world.addSystem({
+        addSystem({
             name: "joint-views",
             group: "simulation",
             update(world) {
@@ -218,4 +228,12 @@ export function createView(world: World, scene: Scene): void {
             },
         });
     }
+    return () => {
+        for (const system of systems) world.removeSystem(system);
+        for (const mesh of views.values()) meshes.remove(mesh);
+        meshes.remove(markerMesh);
+        for (const material of Object.values(roles)) materials.remove(material);
+        materials.remove(markerMaterial);
+        Object.assign(feedback, GrabFeedback.create());
+    };
 }

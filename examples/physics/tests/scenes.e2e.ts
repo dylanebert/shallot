@@ -6,6 +6,7 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     await page.goto("/");
     const scene = page.getByRole("button", { name: "Scene", exact: true });
     await expect(scene).toBeEnabled();
+    const canvas = await page.locator("canvas").elementHandle();
     await expect(page.getByRole("slider")).toBeHidden();
     await scene.click();
     await page.mouse.click(20, 20);
@@ -56,5 +57,8 @@ test("switching scenes resets the Bridge control and keeps the canvas", async ({
     await expect(scene).toBeEnabled();
     await expect(gravity).toHaveValue("1");
     await expect(page.locator("canvas")).toBeVisible();
+    expect(
+        await page.locator("canvas").evaluate((current, original) => current === original, canvas),
+    ).toBe(true);
     expect(errors).toEqual([]);
 });
