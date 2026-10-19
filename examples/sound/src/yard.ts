@@ -53,7 +53,10 @@ export const YardPlugin: Plugin = {
     name: "Yard",
     dependencies: [StandardPhysicsPlugin, StandardAudioPlugin, PlayerPlugin, SoundGamePlugin],
     async initialize(world) {
-        const music = await loadClip(world, "Project_Utopia.ogg");
+        const music = await loadClip(
+            world,
+            new URL("../public/Project_Utopia.ogg", import.meta.url).href,
+        );
         const sampleRate = world.resource(AudioOutput).context?.sampleRate ?? 48000;
         const tone = registerClip(world, chime(sampleRate), sampleRate);
         const ambient = world.resource(GlobalAmbientLight);
