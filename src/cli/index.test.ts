@@ -70,7 +70,8 @@ test("bare shallot presents the project map, loop, commands, targets and help co
   Help
     -V, --version                print the installed version
     --skill                      print the Shallot project skill
-    shallot <command> --help`.trim(),
+    shallot <command> --help
+    shallot help [command]`.trim(),
     );
 });
 
@@ -256,6 +257,18 @@ test("shallot create --help presents the outer-folder project command and templa
     expect(result.stdout).toContain("\n  Templates\n    city —");
     expect(result.stdout).toContain("loading-screen — A game's own title card");
     expect(result.stderr).toBe("");
+});
+
+test("help aliases top-level and every command help", async () => {
+    expect(await cli("help")).toEqual(await cli("--help"));
+    for (const command of ["dev", "build", "preview", "create", "migrate"]) {
+        expect(await cli("help", command)).toEqual(await cli(command, "--help"));
+    }
+    expectError(/^unknown command: missing$/);
+    expectError(/^See `shallot --help`/);
+    const result = await cli("help", "missing");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("unknown command: missing");
 });
 
 test("shallot run is no longer accepted and points users to the command list", async () => {

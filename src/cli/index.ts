@@ -31,6 +31,7 @@ const usage = `
     -V, --version                print the installed version
     --skill                      print the Shallot project skill
     shallot <command> --help
+    shallot help [command]
 `;
 
 const commandUsage = {
@@ -134,6 +135,15 @@ function isNativeTarget(target: string): target is NativeTarget {
 
 /** Separate Shallot's target flags; preserve every Vite argument and its order. */
 export function parseCliArgs(raw: string[]): CliArgs {
+    if (raw[0] === "help") {
+        if (raw.length > 2) throw new Error(`unexpected argument: ${raw[2]}`);
+        const command = raw[1];
+        if (!command) return { kind: "usage", exitCode: 0 };
+        if (command === "create") return { kind: "create", rest: ["--help"] };
+        if (Object.hasOwn(commandUsage, command))
+            return { kind: "command-help", command: command as keyof typeof commandUsage };
+        return { kind: "unknown", verb: command };
+    }
     const verb = raw[0];
     if (verb === "--version" || verb === "-V" || verb === "--skill") {
         if (raw.includes("--help") || raw.includes("-h")) return { kind: "usage", exitCode: 0 };
