@@ -120,9 +120,9 @@ Remove `capacity` from app and World options and imports: storage grows on deman
 
 Remove editor traits `singleton`, `aliases`, `parse`, `format`, `enums`, `inputs`, `annotations`, `excludes` and the old editor meaning of `requires`. Remove `System.annotations`. These metadata helpers have no replacement:
 
-- `camel`, `kebab`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `dependencies`, `provides`, `exclusions`, `getComponent`, `getTraits`.
-- `Alias`, `laneAlias`, `eulerAlias`, `formatHex`, `Input`, `Unit`, `units`, `angle`, `degrees`, `radians`.
-- `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits`, `ColorTraits`.
+- `camel`, `kebab`, `find`, `schema`, `schemas`, `FieldInfo`, `FieldKind`, `Schema`, `isSingleton`, `dependencies`, `provides`, `exclusions`, `getComponent`, `getTraits`
+- `Alias`, `laneAlias`, `eulerAlias`, `formatHex`, `Input`, `Unit`, `units`, `angle`, `degrees`, `radians`
+- `bodyTraits`, `springTraits`, `jointTraits`, `PartTraits`, `ColorTraits`
 
 Resolve components by import. Replace `/ecs/core` wrappers `register`, `getExclusions`, `entries` and `clear` with `world.registry` operations where needed.
 
