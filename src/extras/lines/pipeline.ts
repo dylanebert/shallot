@@ -112,6 +112,17 @@ export function createLinePipeline(root: TgpuRoot, format: GPUTextureFormat, sam
     });
 }
 
+/** Fraction from `outside` toward `inside` where clip depth z / w equals `depth`. */
+const farCrossing = tgpu.fn(
+    [d.vec4f, d.vec4f, d.f32],
+    d.f32,
+)((outside, inside, depth) => {
+    "use gpu";
+    return (
+        (depth * outside.w - outside.z) / (inside.z - outside.z - depth * (inside.w - outside.w))
+    );
+});
+
 export const lineQuad = tgpu.fn(
     [d.vec4f, d.vec4f, d.vec2f, d.f32, d.f32, d.f32],
     d.struct({ clip: d.vec4f, edge: d.vec2f, tint: d.vec4f }),
@@ -127,6 +138,16 @@ export const lineQuad = tgpu.fn(
         start = d.vec4f(std.mix(start, end, (nearW - start.w) / (end.w - start.w)));
     } else if (end.w < nearW) {
         end = d.vec4f(std.mix(end, start, (nearW - end.w) / (start.w - end.w)));
+    }
+    // Reverse-Z puts a finite far plane at z = 0; clipping just inside it keeps depth bias defined.
+    const farDepth = d.f32(1e-6);
+    if (start.z < 0 && end.z < 0) {
+        return { clip: d.vec4f(0, 0, -1, 1), edge: d.vec2f(0), tint: d.vec4f(0) };
+    }
+    if (start.z < 0) {
+        start = d.vec4f(std.mix(start, end, farCrossing(start, end, farDepth)));
+    } else if (end.z < 0) {
+        end = d.vec4f(std.mix(end, start, farCrossing(end, start, farDepth)));
     }
     const startNdc = std.div(start.xy, start.w);
     const endNdc = std.div(end.xy, end.w);

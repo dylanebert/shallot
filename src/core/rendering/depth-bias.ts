@@ -2,7 +2,8 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
-/** Biases reverse-Z clip depth toward the near plane exponentially or the far plane linearly; clamps bias to [-1, 1]. */
+/** Biases reverse-Z clip depth toward the near plane exponentially or the far plane linearly; clamps bias to [-1, 1].
+ * A vertex at or past the far plane, or behind the camera, keeps its depth under negative bias. */
 export const biasClipDepth = tgpu.fn(
     [d.vec4f, d.f32],
     d.vec4f,
@@ -10,7 +11,7 @@ export const biasClipDepth = tgpu.fn(
     "use gpu";
     const amount = std.clamp(bias, -1, 1);
     let depth = clip.z * (1 - amount);
-    if (amount < 0) {
+    if (amount < 0 && clip.z > 0 && clip.w > 0) {
         // Bevy's epsilon keeps the -1 endpoint from rounding beyond the near plane.
         depth = clip.z * std.exp2(-amount * std.log2(clip.w / clip.z - 4.88e-4));
     }
