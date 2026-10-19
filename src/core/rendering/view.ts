@@ -467,13 +467,14 @@ export function attachView(world: World, eid: number): void {
     });
 }
 
-/** Release a camera's view and owned targets (canvas, texture or depth-only). Safe on unbound eids. */
+/** Release a camera's view and owned targets (canvas, texture or depth-only). Safe on unbound eids; targets
+ * the open frame encoder may reference are destroyed once that frame submits. */
 export function detachView(world: World, eid: number): void {
     const _views = world.resource(Views);
     const view = _views.get(eid);
 
     if (view) {
-        view.texture?.destroy();
+        if (view.texture) world.retireGpuResource(view.texture);
         view.canvasTexture = undefined;
         view.surfaceTexture = undefined;
         view.surfaceView = undefined;
@@ -545,7 +546,8 @@ export function offscreenTexture(world: World, eid: number): GPUTexture | undefi
 function releaseOffscreen(world: World, eid: number): void {
     const _viewResources = world.resource(viewResourcesKey);
 
-    _viewResources.offscreen.get(eid)?.texture.destroy();
+    const offscreen = _viewResources.offscreen.get(eid);
+    if (offscreen) world.retireGpuResource(offscreen.texture);
     _viewResources.offscreen.delete(eid);
 }
 
@@ -611,8 +613,8 @@ function releaseScratch(world: World, eid: number): void {
     const _viewResources = world.resource(viewResourcesKey);
 
     const pair = _viewResources.scratch.get(eid);
-    pair?.a?.texture.destroy();
-    pair?.b?.texture.destroy();
+    if (pair?.a) world.retireGpuResource(pair.a.texture);
+    if (pair?.b) world.retireGpuResource(pair.b.texture);
     _viewResources.scratch.delete(eid);
 }
 

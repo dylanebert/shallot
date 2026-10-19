@@ -84,13 +84,14 @@ export function initializeViewTargets(world: World): void {
     world.resource(viewTargetsKey);
 }
 
-/** Release one camera's prepass depth and main-pass targets; detachView calls it. Safe on unbound eids. */
+/** Retire one camera's prepass depth and main-pass targets; detachView calls it. Safe on unbound eids. */
 export function releaseViewTargets(world: World, eid: number): void {
     const state = world.resource(viewTargetsKey);
+    const depth = state.depth.get(eid);
     const color = state.colorTargets.get(eid);
-    state.depth.get(eid)?.texture.destroy();
-    color?.color?.destroy();
-    color?.depth.destroy();
+    if (depth) world.retireGpuResource(depth.texture);
+    if (color?.color) world.retireGpuResource(color.color);
+    if (color) world.retireGpuResource(color.depth);
     state.depth.delete(eid);
     state.colorTargets.delete(eid);
 }
