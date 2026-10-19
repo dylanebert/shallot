@@ -263,7 +263,7 @@ sh scripts/lavapipe.sh HEAD sh scripts/browser.sh
 ### CI coverage
 
 - [CI](.github/workflows/test.yml) owns host and tier commands and judges compatibility on those hosts; a local run does not.
-- A red push run on main closes landing until a revert or fix naming that run lands with the `Fixes-red: <run id>` trailer.
+- A red push run on main does not close landing; a release waits until every red on main is answered.
 - A dependency or infrastructure failure is named as such, not quarantined as a test.
 - For a red only one hosted OS shows, run that OS and tier before landing: `gh workflow run test.yml --ref <branch> -f os=<os> -f tier=<tier>`.
 - Windows GPU and Node tiers use WARP. On Windows, Dawn loads only in a host named `node.exe` ([dawn-host.ts](src/engine/runtime/dawn-host.ts)), so CI runs Bun from a copy with that name.
