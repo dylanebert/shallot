@@ -614,8 +614,8 @@ pub unsafe fn merge(world_index: usize, mut target: usize, mut source: usize) {
     for i in 0..array_count_in_world(world_index, source, 1) {
         let id = array_get_in_world(world_index, source, 1, i);
         let destination = array_push_in_world(world_index, target, 1, id);
-        crate::island::set_field_in_world(world_index, id as usize, 0, target as i32);
-        crate::island::set_field_in_world(world_index, id as usize, 1, destination as i32);
+        crate::island::record(world_index, id as usize).set_index = target as i32;
+        crate::island::record(world_index, id as usize).local_index = destination as i32;
     }
     destroy_in_world(world_index, source);
 }
@@ -711,8 +711,8 @@ pub unsafe fn wake(world_index: usize, set: usize) {
     for i in 0..array_count_in_world(world_index, set, 1) {
         let id = array_get_in_world(world_index, set, 1, i);
         let index = array_push_in_world(world_index, AWAKE_SET as usize, 1, id);
-        island::set_field_in_world(world_index, id as usize, 0, AWAKE_SET);
-        island::set_field_in_world(world_index, id as usize, 1, index as i32);
+        island::record(world_index, id as usize).set_index = AWAKE_SET;
+        island::record(world_index, id as usize).local_index = index as i32;
     }
     destroy_in_world(world_index, set);
 }

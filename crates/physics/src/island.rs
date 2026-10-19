@@ -46,7 +46,7 @@ static mut WORLDS: [Islands; regions::MAX_WORLDS] = [const {
 unsafe fn world(world_index: usize) -> &'static mut Islands {
     &mut WORLDS[world_index]
 }
-unsafe fn record(world_index: usize, id: usize) -> &'static mut Island {
+pub(crate) unsafe fn record(world_index: usize, id: usize) -> &'static mut Island {
     &mut world(world_index).records[id]
 }
 #[export_name = "islandSplitCandidate"]

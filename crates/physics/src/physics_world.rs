@@ -579,10 +579,10 @@ pub unsafe extern "C" fn try_sleep_island_in_world(world_index: usize, id: usize
         target,
     ) as *const u32;
     if *result.add(1) != u32::MAX {
-        island::set_field_in_world(world_index, *result.add(1) as usize, 1, index as i32);
+        island::record(world_index, *result.add(1) as usize).local_index = index as i32;
     }
-    island::set_field_in_world(world_index, id, 0, target as i32);
-    island::set_field_in_world(world_index, id, 1, *result as i32);
+    island::record(world_index, id).set_index = target as i32;
+    island::record(world_index, id).local_index = *result as i32;
     if island::split_candidate_in_world(world_index) == id as i32 {
         island::set_split_candidate_in_world(world_index, -1);
     }
