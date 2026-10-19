@@ -78,7 +78,11 @@ pub fn read(operation: u32, input: &[u32]) -> [u32; 16] {
     let mut out = [0; 16];
     match operation {
         0 | 1 => {
-            let kind = if operation == 0 { 5 } else { 0 };
+            let kind = if operation == 0 {
+                crate::finalize::TY_SPHERE
+            } else {
+                crate::finalize::TY_CAPSULE
+            };
             let geom: [f32; 7] = core::array::from_fn(|i| f(i + 8));
             let bounds = crate::finalize::convex_bounds(kind, &geom, pose());
             for (o, x) in out.iter_mut().zip(bounds) {

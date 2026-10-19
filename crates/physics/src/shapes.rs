@@ -79,7 +79,12 @@ pub unsafe fn relocate_geometry(id: usize, relocations: &[(u32, u32)]) {
         if *r.add(S_ID) != i as u32 {
             continue;
         }
-        if matches!(*r.add(S_TYPE), 1 | 2 | 4) {
+        if matches!(
+            *r.add(S_TYPE),
+            crate::finalize::TY_COMPOUND
+                | crate::finalize::TY_HEIGHT_FIELD
+                | crate::finalize::TY_MESH
+        ) {
             let pointer = r.add(S_GEO_REFERENCE);
             if let Ok(index) = relocations.binary_search_by_key(&*pointer, |r| r.0) {
                 *pointer = relocations[index].1;
@@ -96,7 +101,7 @@ pub unsafe fn relocate_hulls(id: usize, relocations: &[(u32, u32)]) {
         if *r.add(S_ID) != i as u32 {
             continue;
         }
-        if *r.add(S_TYPE) == 3 {
+        if *r.add(S_TYPE) == crate::finalize::TY_HULL {
             let pointer = r.add(S_GEO_REFERENCE);
             if let Ok(index) = relocations.binary_search_by_key(&*pointer, |r| r.0) {
                 *pointer = relocations[index].1;

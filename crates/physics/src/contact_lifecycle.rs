@@ -1,4 +1,5 @@
 //! Contact creation and destruction, including body topology and owner-array membership.
+use crate::finalize::{TY_CAPSULE, TY_COMPOUND, TY_HEIGHT_FIELD, TY_MESH, TY_SPHERE};
 use crate::manifold_abi::contact_flags;
 use crate::{bodies, events, island, manifold_abi::*, manifolds, shapes, solver_set};
 
@@ -40,9 +41,10 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     {
         flags |= contact_flags::RECYCLE;
     }
-    if kind == 2
-        || kind == 4
-        || (kind == 1 && crate::geo::shape_compound_child_type(world, shape_a, child as usize) == 4)
+    if kind == TY_HEIGHT_FIELD
+        || kind == TY_MESH
+        || (kind == TY_COMPOUND
+            && crate::geo::shape_compound_child_type(world, shape_a, child as usize) == TY_MESH)
     {
         flags |= contact_flags::SIM_MESH_CONTACT;
     }
@@ -92,8 +94,8 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     crate::table::add_pair_in_world(world, shape_a as u32, shape_b as u32, child as u32);
     solver_set::array_push_in_world(world, set, 0, id as i32);
     let radius = |shape: usize| match shapes.get(shape * stride + crate::shapes::S_TYPE) {
-        5 => f32::from_bits(shapes.get(shape * stride + crate::shapes::S_GEOM + 3)),
-        0 => f32::from_bits(shapes.get(shape * stride + crate::shapes::S_GEOM + 6)),
+        TY_SPHERE => f32::from_bits(shapes.get(shape * stride + crate::shapes::S_GEOM + 3)),
+        TY_CAPSULE => f32::from_bits(shapes.get(shape * stride + crate::shapes::S_GEOM + 6)),
         _ => 0.0,
     };
     let rolling_a = f32::from_bits(crate::shapes::material(world, shape_a, 0)[2]);

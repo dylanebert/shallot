@@ -1,6 +1,7 @@
 //! Narrowphase borrows each retained b3HullData directly, including its relative-offset arrays.
 //! Meshes, height fields and compounds are retained as identity-keyed native images.
 
+use crate::finalize::{TY_COMPOUND, TY_HEIGHT_FIELD, TY_MESH};
 use crate::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
 use crate::manifold::{collide_hulls, make_feature_id, LocalManifold, SatCache};
 use crate::math::{Plane, Quat, Transform, Vec3};
@@ -151,9 +152,11 @@ pub extern "C" fn shape_material_index(
     unsafe {
         let (record, pointer) = crate::shapes::geometry_record(world, shape);
         match *record.add(crate::shapes::S_TYPE) {
-            1 => crate::compound_query::child_material_index(pointer, child, triangle) as usize,
-            2 => height_view(pointer).materials[triangle >> 1] as usize,
-            4 => {
+            TY_COMPOUND => {
+                crate::compound_query::child_material_index(pointer, child, triangle) as usize
+            }
+            TY_HEIGHT_FIELD => height_view(pointer).materials[triangle >> 1] as usize,
+            TY_MESH => {
                 let scale = Vec3::new(
                     f32::from_bits(*record.add(crate::shapes::S_GEOM + 1)),
                     f32::from_bits(*record.add(crate::shapes::S_GEOM + 2)),
@@ -168,7 +171,7 @@ pub extern "C" fn shape_material_index(
 pub extern "C" fn shape_compound_child_type(world: usize, shape: usize, child: usize) -> u32 {
     unsafe {
         let (record, pointer) = crate::shapes::geometry_record(world, shape);
-        assert_eq!(*record.add(crate::shapes::S_TYPE), 1);
+        assert_eq!(*record.add(crate::shapes::S_TYPE), TY_COMPOUND);
         crate::compound_query::child_words(pointer, child)[0]
     }
 }

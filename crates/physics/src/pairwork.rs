@@ -10,9 +10,6 @@ use crate::shapes::{col_slice as shape_col, SHAPE_STRIDE, S_TYPE};
 use crate::table;
 use crate::tree;
 
-/// `ShapeType.Compound`, as stored in the shape column.
-const SHAPE_COMPOUND: u32 = 1;
-
 /// Body types, packed into a proxy key's low 2 bits.
 const KINEMATIC: u32 = crate::body::body_type::KINEMATIC as u32;
 const DYNAMIC: u32 = crate::body::body_type::DYNAMIC as u32;
@@ -226,7 +223,7 @@ impl<'a> Emitter<'a> {
             return true;
         }
         let sty = self.shape[found_shape as usize * SHAPE_STRIDE + S_TYPE];
-        if sty == SHAPE_COMPOUND {
+        if sty == crate::finalize::TY_COMPOUND {
             unsafe {
                 let (geometry, _) =
                     crate::query_abi::active_shape(self.world, found_shape as usize);

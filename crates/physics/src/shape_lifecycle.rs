@@ -1,4 +1,5 @@
 //! Nongeometry shape lifecycle in body/shape list and proxy order.
+use crate::finalize::{TY_CAPSULE, TY_COMPOUND, TY_HEIGHT_FIELD, TY_HULL, TY_MESH, TY_SPHERE};
 use crate::{bodies, shapes};
 
 pub unsafe extern "C" fn link_in_world(world: usize, id: usize, body_id: usize) {
@@ -46,7 +47,7 @@ pub unsafe extern "C" fn body_allows_type_in_world(world: usize, body: usize, ki
         let o = shape as usize * shapes::SHAPE_STRIDE;
         let u = shapes::col(world);
         let kind = u.get(o + shapes::S_TYPE);
-        if kind == 1 || kind == 2 {
+        if kind == TY_COMPOUND || kind == TY_HEIGHT_FIELD {
             return false;
         }
         shape = u.get(o + shapes::S_NEXT) as i32;
@@ -184,9 +185,9 @@ pub unsafe fn release_geometry(world: usize, id: usize) {
     let o = id * shapes::SHAPE_STRIDE;
     let kind = u.get(o + shapes::S_TYPE);
     let pointer = u.get(o + shapes::S_GEO_REFERENCE) as usize;
-    if kind == 3 {
+    if kind == TY_HULL {
         crate::hull_database::remove(world, pointer);
-    } else if matches!(kind, 1 | 2 | 4) {
+    } else if matches!(kind, TY_COMPOUND | TY_HEIGHT_FIELD | TY_MESH) {
         crate::geometry_database::remove(world, kind, pointer);
     }
 }
@@ -237,7 +238,7 @@ pub unsafe extern "C" fn finish_create_in_world(
     let o = id * shapes::SHAPE_STRIDE;
     let body = u.get(o + 1) as usize;
     if bodies::record(world, body).set_index != 1 {
-        create_proxy_in_world(world, id, force && u.get(o + shapes::S_TYPE) != 1);
+        create_proxy_in_world(world, id, force && u.get(o + shapes::S_TYPE) != TY_COMPOUND);
     }
     link_in_world(world, id, body);
     if sensor {
@@ -429,7 +430,7 @@ pub unsafe extern "C" fn set_sphere(world: usize, id: usize, x: f32, y: f32, z: 
         release_geometry(world, id);
         let u = shapes::col(world);
         let o = id * shapes::SHAPE_STRIDE;
-        u.set(o + shapes::S_TYPE, 5);
+        u.set(o + shapes::S_TYPE, TY_SPHERE);
         u.set(o + shapes::S_GEO_REFERENCE, 0);
         let f = shapes::col_f(world);
         for (lane, value) in [x, y, z, radius].into_iter().enumerate() {
@@ -457,7 +458,7 @@ pub unsafe extern "C" fn set_capsule(
         release_geometry(world, id);
         let u = shapes::col(world);
         let o = id * shapes::SHAPE_STRIDE;
-        u.set(o + shapes::S_TYPE, 0);
+        u.set(o + shapes::S_TYPE, TY_CAPSULE);
         u.set(o + shapes::S_GEO_REFERENCE, 0);
         let f = shapes::col_f(world);
         for (lane, value) in [ax, ay, az, bx, by, bz, radius].into_iter().enumerate() {
@@ -475,7 +476,7 @@ pub unsafe extern "C" fn set_hull(world: usize, id: usize, handle: usize) {
         release_geometry(world, id);
         let u = shapes::col(world);
         let o = id * shapes::SHAPE_STRIDE;
-        u.set(o + shapes::S_TYPE, 3);
+        u.set(o + shapes::S_TYPE, TY_HULL);
         u.set(o + shapes::S_GEO_REFERENCE, handle as u32);
         crate::shape_geometry::finish_geometry_in_world(world, id);
         reset_after_geometry_change(world, id);
@@ -489,7 +490,7 @@ pub unsafe extern "C" fn set_mesh(world: usize, id: usize, handle: usize, x: f32
         release_geometry(world, id);
         let u = shapes::col(world);
         let o = id * shapes::SHAPE_STRIDE;
-        u.set(o + shapes::S_TYPE, 4);
+        u.set(o + shapes::S_TYPE, TY_MESH);
         u.set(o + shapes::S_GEO_REFERENCE, handle as u32);
         let f = shapes::col_f(world);
         let scale = crate::math::Vec3::new(x, y, z).safe_scale();

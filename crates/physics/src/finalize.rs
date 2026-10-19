@@ -21,10 +21,13 @@ const SAFETY_FACTOR: f32 = 0.5;
 
 // The arena commits bounds and enlarge flags to the owning shape columns.
 
-/// Shape type codes (`ShapeType`).
+/// Shape type codes (b3ShapeType, types.h:434-453), as stored at `shapes::S_TYPE` and in a compound
+/// child's first word.
 pub const TY_CAPSULE: u32 = 0;
 pub const TY_COMPOUND: u32 = 1;
+pub const TY_HEIGHT_FIELD: u32 = 2;
 pub const TY_HULL: u32 = 3;
+pub const TY_MESH: u32 = 4;
 pub const TY_SPHERE: u32 = 5;
 
 /// Speculative AABB margin (B3_SPECULATIVE_DISTANCE).

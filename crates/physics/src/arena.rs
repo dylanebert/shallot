@@ -11,7 +11,9 @@ use crate::col::Col;
 use crate::contact::{Columns, ContactConstraint, ManifoldConstraint};
 use crate::contact_wide::WIDE_STRIDE;
 use crate::distance::SimplexCache;
-use crate::finalize::{self, TY_CAPSULE, TY_HULL, TY_SPHERE};
+use crate::finalize::{
+    self, TY_CAPSULE, TY_COMPOUND, TY_HEIGHT_FIELD, TY_HULL, TY_MESH, TY_SPHERE,
+};
 use crate::manifold::{Capsule, SatCache, Sphere};
 use crate::manifold_abi::contact_flags;
 use crate::manifold_abi::{
@@ -611,7 +613,7 @@ unsafe fn dispatch_mesh(
     use crate::mesh_contact::{compute_mesh_manifolds_into, TriangleSource, MAX_TRIANGLES};
     let cache = &mut *manifolds::mesh_cache_ptr(world_index, contact_id);
     let record = geom[0] as *const u32;
-    let source = if ty == 4 {
+    let source = if ty == TY_MESH {
         let mesh = crate::geo::mesh_view(
             record,
             Vec3::new(
@@ -977,7 +979,7 @@ unsafe fn reaches_pre_solve(world: usize, contact: usize) -> bool {
     }
     let shapes = crate::shapes::col_slice(world);
     let a = dir.get(o + DIR_SHAPE_A) as usize * crate::shapes::SHAPE_STRIDE;
-    let kind = if shapes[a + crate::shapes::S_TYPE] == 1 {
+    let kind = if shapes[a + crate::shapes::S_TYPE] == TY_COMPOUND {
         crate::compound_query::child_words(
             shapes[a + crate::shapes::S_GEOM] as *const u32,
             dir.get(o + DIR_CHILD_INDEX) as usize,
@@ -987,7 +989,7 @@ unsafe fn reaches_pre_solve(world: usize, contact: usize) -> bool {
     };
     // contact.c dispatches mesh/height (including compound mesh children) to mesh_contact.c,
     // which never invokes pre-solve.
-    matches!(kind, 0 | 3 | 5)
+    matches!(kind, TY_CAPSULE | TY_HULL | TY_SPHERE)
 }
 
 /// Box3D's b3UpdateContact over the shapes and body poses resolved by the collide task.
@@ -1033,7 +1035,7 @@ unsafe fn update_contact(
         let mut child_offset = Vec3::ZERO;
         let mut material_map = None;
         let mut child_radius = 0.0;
-        let compound_geometry = if type_a == 1 {
+        let compound_geometry = if type_a == TY_COMPOUND {
             let compound = geom_a[0] as *const u32;
             Some(crate::compound_query::child_words(
                 compound,
@@ -1052,7 +1054,7 @@ unsafe fn update_contact(
             ]);
             let local = read_xf(compound_geometry, 1);
             child_offset = parent_xf.q.rotate(local.p);
-            if type_a == TY_HULL || type_a == 4 {
+            if type_a == TY_HULL || type_a == TY_MESH {
                 xf_a = parent_xf.mul(local);
             }
             geom_a = &compound_geometry[12..19];
@@ -1063,7 +1065,7 @@ unsafe fn update_contact(
                 _ => 0.0,
             };
         }
-        if type_a == 2 || type_a == 4 {
+        if type_a == TY_HEIGHT_FIELD || type_a == TY_MESH {
             let count = dispatch_mesh(
                 world_index,
                 shape_b,
@@ -1213,14 +1215,14 @@ pub unsafe extern "C" fn mix_contacts(world_index: usize) {
         let mut kind = a[crate::shapes::S_TYPE];
         let mut map = None;
         let mut radius = 0.0;
-        if kind == 1 {
+        if kind == TY_COMPOUND {
             let child = crate::compound_query::child_words(
                 a[48] as *const u32,
                 dir.get(o + DIR_CHILD_INDEX) as usize,
             );
             kind = child[0];
             map = Some([child[8], child[9], child[10], child[11]]);
-            if kind == TY_HULL || kind == 4 {
+            if kind == TY_HULL || kind == TY_MESH {
                 xf_a = xf_a.mul(read_xf(&child, 1));
             }
             radius = match kind {
@@ -1243,7 +1245,7 @@ pub unsafe extern "C" fn mix_contacts(world_index: usize) {
             map,
             flip,
             count,
-            kind == 2 || kind == 4,
+            kind == TY_HEIGHT_FIELD || kind == TY_MESH,
             radius,
             true,
         );

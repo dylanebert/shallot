@@ -130,7 +130,7 @@ pub(crate) fn bounds(world_index: usize, id: usize, xf: Transform) -> [f32; 6] {
     let r = shapes::col_f(world_index);
     let o = id * shapes::SHAPE_STRIDE;
     let kind = shapes::col(world_index).get(o + shapes::S_TYPE);
-    if kind == 3 {
+    if kind == crate::finalize::TY_HULL {
         return unsafe { crate::shape_geometry::bounds(world_index, id, xf) };
     }
     let geom = [
@@ -307,7 +307,10 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                 f.set(o + shapes::S_AABB + n, box2[n]);
             }
         }
-        if matches!(u.get(o + shapes::S_TYPE), 2 | 4) {
+        if matches!(
+            u.get(o + shapes::S_TYPE),
+            crate::finalize::TY_HEIGHT_FIELD | crate::finalize::TY_MESH
+        ) {
             continue;
         }
         if u.get(o + 4) != u32::MAX {

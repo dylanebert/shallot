@@ -1,4 +1,5 @@
 //! Read-only debug draw, buffered before JavaScript callback dispatch.
+use crate::finalize::{TY_CAPSULE, TY_COMPOUND, TY_HULL, TY_MESH, TY_SPHERE};
 use crate::{
     bodies, body, broad,
     joint_abi::*,
@@ -53,7 +54,12 @@ pub(crate) unsafe fn pose(world_index: usize, id: usize) -> Transform {
     }
 }
 unsafe fn image(out: &mut Vec<u32>, kind: u32, p: *const u32) {
-    let words = if kind == 3 { *p.add(35) } else { *p.add(4) } as usize / 4;
+    let words = if kind == TY_HULL {
+        *p.add(35)
+    } else {
+        *p.add(4)
+    } as usize
+        / 4;
     out.extend_from_slice(core::slice::from_raw_parts(p, words));
 }
 unsafe fn solid(
@@ -66,9 +72,9 @@ unsafe fn solid(
 ) {
     let n = begin(out, kind, color);
     transform(out, t);
-    if kind == 0 {
+    if kind == TY_CAPSULE {
         out.extend_from_slice(core::slice::from_raw_parts(geo, 7));
-    } else if kind == 5 {
+    } else if kind == TY_SPHERE {
         out.extend_from_slice(core::slice::from_raw_parts(geo, 4));
     } else {
         vector(out, scale);
@@ -97,8 +103,8 @@ unsafe fn shape(world_index: usize, out: &mut Vec<u32>, id: usize, t: Transform,
     let n = id * shapes::SHAPE_STRIDE;
     let kind = r[n + shapes::S_TYPE];
     let geo = r.as_ptr().add(n + shapes::S_GEOM);
-    if kind != 1 {
-        let p = if kind == 0 || kind == 5 {
+    if kind != TY_COMPOUND {
+        let p = if kind == TY_CAPSULE || kind == TY_SPHERE {
             geo
         } else {
             *geo as *const u32
@@ -107,7 +113,11 @@ unsafe fn shape(world_index: usize, out: &mut Vec<u32>, id: usize, t: Transform,
             out,
             kind,
             p,
-            if kind == 4 { vf(geo, 1) } else { Vec3::ZERO },
+            if kind == TY_MESH {
+                vf(geo, 1)
+            } else {
+                Vec3::ZERO
+            },
             t,
             color,
         );
@@ -115,17 +125,17 @@ unsafe fn shape(world_index: usize, out: &mut Vec<u32>, id: usize, t: Transform,
     }
     let p = *geo as *const u32;
     for (kind, offset_lane, count_lane, stride) in [
-        (0, 19, 20, 8),
-        (3, 21, 22, 9),
-        (4, 24, 25, 15),
-        (5, 27, 28, 5),
+        (TY_CAPSULE, 19, 20, 8),
+        (TY_HULL, 21, 22, 9),
+        (TY_MESH, 24, 25, 15),
+        (TY_SPHERE, 27, 28, 5),
     ] {
         let start = *p.add(offset_lane) as usize / 4;
         for i in 0..*p.add(count_lane) as usize {
             let c = p.add(start + i * stride);
-            let (geometry, child, scale) = if kind == 0 || kind == 5 {
+            let (geometry, child, scale) = if kind == TY_CAPSULE || kind == TY_SPHERE {
                 (c, Transform::IDENTITY, Vec3::ZERO)
-            } else if kind == 3 {
+            } else if kind == TY_HULL {
                 (p.add(*c.add(7) as usize / 4), tf(c, 0), Vec3::ZERO)
             } else {
                 (p.add(*c.add(10) as usize / 4), tf(c, 0), vf(c, 7))

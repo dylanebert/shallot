@@ -59,6 +59,7 @@ fn capsule_mass(a: Vec3, b: Vec3, r: f32, density: f32) -> MassData {
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::*;
+    use crate::finalize::{TY_CAPSULE, TY_COMPOUND, TY_HEIGHT_FIELD, TY_HULL, TY_MESH, TY_SPHERE};
     use crate::{
         geo,
         math::{maxf, minf, Quat, Transform},
@@ -80,14 +81,14 @@ mod wasm {
         let o = id * shapes::SHAPE_STRIDE;
         let density = f.get(o + shapes::S_DENSITY);
         match kind(world_index, id) {
-            0 => capsule_mass(
+            TY_CAPSULE => capsule_mass(
                 vector(world_index, id, 48),
                 vector(world_index, id, 51),
                 f.get(o + 54),
                 density,
             ),
-            5 => sphere_mass(vector(world_index, id, 48), f.get(o + 51), density),
-            3 => {
+            TY_SPHERE => sphere_mass(vector(world_index, id, 48), f.get(o + 51), density),
+            TY_HULL => {
                 let h = geo::hull_record(reference(world_index, id));
                 MassData {
                     mass: density * h.volume,
@@ -112,9 +113,9 @@ mod wasm {
     }
     pub(crate) unsafe fn centroid(world_index: usize, id: usize) -> Vec3 {
         match kind(world_index, id) {
-            0 => vector(world_index, id, 48).lerp(vector(world_index, id, 51), 0.5),
-            5 => vector(world_index, id, 48),
-            3 => geo::hull_record(reference(world_index, id)).center,
+            TY_CAPSULE => vector(world_index, id, 48).lerp(vector(world_index, id, 51), 0.5),
+            TY_SPHERE => vector(world_index, id, 48),
+            TY_HULL => geo::hull_record(reference(world_index, id)).center,
             _ => {
                 let b = bounds(world_index, id, Transform::IDENTITY);
                 Vec3::new(b[0] + b[3], b[1] + b[4], b[2] + b[5]).scale(0.5)
@@ -125,7 +126,7 @@ mod wasm {
         let o = id * shapes::SHAPE_STRIDE;
         let f = shapes::col_f(world_index);
         match kind(world_index, id) {
-            0 => {
+            TY_CAPSULE => {
                 let r = f.get(o + 54);
                 let a = vector(world_index, id, 48).sub(center).abs();
                 let b = vector(world_index, id, 51).sub(center).abs();
@@ -134,12 +135,12 @@ mod wasm {
                     Vec3::new(maxf(a.x, b.x) + r, maxf(a.y, b.y) + r, maxf(a.z, b.z) + r),
                 )
             }
-            5 => {
+            TY_SPHERE => {
                 let r = f.get(o + 51);
                 let h = vector(world_index, id, 48).sub(center).abs();
                 (r, h.add(Vec3::new(r, r, r)))
             }
-            3 => {
+            TY_HULL => {
                 let h = geo::hull_record(reference(world_index, id));
                 let view = geo::hull_view(reference(world_index, id));
                 let mut maximum = Vec3::ZERO;
@@ -153,7 +154,7 @@ mod wasm {
                 }
                 (h.inner_radius, maximum)
             }
-            1 | 4 => {
+            TY_COMPOUND | TY_MESH => {
                 let b = bounds(world_index, id, Transform::IDENTITY);
                 let lo = Vec3::new(b[0], b[1], b[2]);
                 let hi = Vec3::new(b[3], b[4], b[5]);
@@ -186,12 +187,12 @@ mod wasm {
         let o = id * shapes::SHAPE_STRIDE;
         let f = shapes::col_f(world_index);
         let radius = match kind(world_index, id) {
-            0 => {
+            TY_CAPSULE => {
                 0.5 * vector(world_index, id, 51).distance(vector(world_index, id, 48))
                     + f.get(o + 54)
             }
-            5 => f.get(o + 51),
-            3 => {
+            TY_SPHERE => f.get(o + 51),
+            TY_HULL => {
                 let h = geo::hull_view(reference(world_index, id));
                 let mut r = 0.0;
                 for p in h.points {
@@ -359,7 +360,7 @@ mod wasm {
     pub unsafe extern "C" fn can_create(world: usize, body: usize, kind: u32) -> bool {
         regions::select(world as u32);
         crate::bodies::record(world, body).body_type == crate::body::body_type::STATIC
-            || (kind != 1 && kind != 2)
+            || (kind != TY_COMPOUND && kind != TY_HEIGHT_FIELD)
     }
     #[export_name = "shapeSetGeometry"]
     pub unsafe extern "C" fn set_geometry(
@@ -391,14 +392,14 @@ mod wasm {
         let o = id * shapes::SHAPE_STRIDE;
         let floats = shapes::col_f(world);
         let mut t = kind(world, id);
-        if t == 0 && Vec3::new(d - a, e - b, f - c).length_sq() <= 0.005f32 * 0.005f32 {
-            t = 5;
+        if t == TY_CAPSULE && Vec3::new(d - a, e - b, f - c).length_sq() <= 0.005f32 * 0.005f32 {
+            t = TY_SPHERE;
             shapes::col(world).set(o + shapes::S_TYPE, t);
             let center = Vec3::new(a, b, c).lerp(Vec3::new(d, e, f), 0.5);
             for (lane, value) in [center.x, center.y, center.z, g].into_iter().enumerate() {
                 floats.set(o + 48 + lane, value);
             }
-        } else if t == 4 {
+        } else if t == TY_MESH {
             let scale = Vec3::new(a, b, c).safe_scale();
             for (lane, value) in [scale.x, scale.y, scale.z].into_iter().enumerate() {
                 floats.set(o + 49 + lane, value);

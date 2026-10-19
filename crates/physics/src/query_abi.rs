@@ -1,6 +1,7 @@
 //! Per-shape query ABI. Inputs live in a fixed scratch record; mover outputs use caller-owned memory.
 use crate::compound_query::Compound;
 use crate::distance::{CastOutput, ShapeProxy};
+use crate::finalize::{TY_CAPSULE, TY_COMPOUND, TY_HEIGHT_FIELD, TY_HULL, TY_MESH, TY_SPHERE};
 use crate::manifold::{Capsule, Sphere};
 use crate::math::{Quat, Transform, Vec3};
 use crate::query::*;
@@ -26,12 +27,12 @@ fn vec(r: &[u32], i: usize) -> Vec3 {
 pub(crate) unsafe fn geometry(kind: u32, r: &[u32]) -> Shape<'static> {
     match kind {
         // Resident records use the repr(C) primitive layouts and u32/f32 alignment.
-        0 => Shape::Capsule(&*r.as_ptr().cast::<Capsule>()),
-        5 => Shape::Sphere(&*r.as_ptr().cast::<Sphere>()),
-        3 => Shape::Hull(crate::geo::hull_view(r[0] as usize)),
-        4 => Shape::Mesh(crate::geo::mesh_view(r[0] as *const u32, vec(r, 1))),
-        2 => Shape::Height(crate::geo::height_view(r[0] as *const u32)),
-        1 => Shape::Compound(Compound::from_pointer(r[0] as *const u32)),
+        TY_CAPSULE => Shape::Capsule(&*r.as_ptr().cast::<Capsule>()),
+        TY_SPHERE => Shape::Sphere(&*r.as_ptr().cast::<Sphere>()),
+        TY_HULL => Shape::Hull(crate::geo::hull_view(r[0] as usize)),
+        TY_MESH => Shape::Mesh(crate::geo::mesh_view(r[0] as *const u32, vec(r, 1))),
+        TY_HEIGHT_FIELD => Shape::Height(crate::geo::height_view(r[0] as *const u32)),
+        TY_COMPOUND => Shape::Compound(Compound::from_pointer(r[0] as *const u32)),
         _ => unreachable!(),
     }
 }
