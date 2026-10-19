@@ -20,9 +20,13 @@ import { drawLine, Gizmo, GizmoAsset, LinesPlugin, registerGizmo } from "./lines
 import { internText, Text, TextPlugin } from "./text";
 
 setDefaultTimeout(TIMEOUT.gpu);
-const immediate = { create: () => ({ enabled: false, depthBias: 0, width: 6 }) };
 const a = [-1.5, 0, -3];
 const b = [1.5, 0, -3];
+// Past the far plane at z = -6, which the line from a crosses a third of the way along.
+const beyondFar = [1.5, 0, -12];
+// Just inside the far plane: a depth exactly on it rounds to either side.
+const insideFar = [-0.5 - 0.0001 / 3, 0, -5.9999];
+const immediate = { create: () => ({ enabled: false, depthBias: 0, width: 6, end: b }) };
 const Surface: Plugin = {
     name: "OpaqueDepthSurface",
     dependencies: [LinesPlugin, TextPlugin],
@@ -34,7 +38,7 @@ const Surface: Plugin = {
             before: LinesPlugin.systems,
             update(world) {
                 const options = world.resource(immediate);
-                if (options.enabled) drawLine(world, a, b, 0xffffff, options);
+                if (options.enabled) drawLine(world, a, options.end, 0xffffff, options);
             },
         },
     ],
@@ -121,6 +125,63 @@ for (const kind of ["immediate line", "retained line", "text"] as const) {
         expect(await frame()).toEqual(baseline);
         world.resource(immediate).enabled = false;
         world.resource(immediate).depthBias = 0;
+        world.destroy(entity);
+        world.destroy(camera);
+    });
+}
+
+function largestDifference(a: ArrayLike<number>, b: ArrayLike<number>): number {
+    let largest = 0;
+    for (let i = 0; i < a.length; i++) largest = Math.max(largest, Math.abs(a[i]! - b[i]!));
+    return largest;
+}
+
+for (const kind of ["immediate line", "retained line"] as const) {
+    test(`${kind} crossing an orthographic far plane keeps its in-range part under negative depthBias`, async () => {
+        const { world } = subjects()[0];
+        const camera = world.create();
+        world.add(camera, Transform, { translation: [0, 0, 5] });
+        world.add(camera, Camera, {
+            mode: CameraMode.Orthographic,
+            size: 2,
+            near: 1,
+            far: 11,
+            antialias: 0,
+        });
+        attachTexture(world, camera, { width: 64, height: 64 });
+        const frame = async () => {
+            world.step(1 / 60);
+            return (await captureTexture(world, camera)).rgba;
+        };
+        const baseline = await frame();
+        const options = world.resource(immediate);
+        const entity = world.create();
+        world.add(entity, Transform, { translation: [a[0]!, a[1]!, a[2]!] });
+        const draw = (end: number[], depthBias: number) => {
+            if (kind === "immediate line") {
+                options.enabled = true;
+                options.end = end;
+                options.depthBias = depthBias;
+                return;
+            }
+            const asset = new GizmoAsset();
+            drawLine(asset, [0, 0, 0], [end[0]! - a[0]!, 0, end[2]! - a[2]!], 0xffffff);
+            world.remove(entity, Gizmo);
+            world.add(entity, Gizmo, { handle: registerGizmo(world, asset), width: 6, depthBias });
+        };
+        for (const depthBias of [-0.5, -1]) {
+            draw(insideFar, depthBias);
+            const inRange = await frame();
+            expect(inRange).not.toEqual(baseline);
+            draw(beyondFar, depthBias);
+            // The clipped end may move a covered edge pixel by a unit of coverage.
+            expect(largestDifference(await frame(), inRange)).toBeLessThanOrEqual(2);
+        }
+        draw(beyondFar, 0);
+        expect(await frame()).toEqual(baseline);
+        options.enabled = false;
+        options.end = b;
+        options.depthBias = 0;
         world.destroy(entity);
         world.destroy(camera);
     });
