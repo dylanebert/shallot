@@ -2,6 +2,10 @@ const INDEX_COUNT = 2 ** 20;
 const MAX_GENERATION = 2 ** 11 - 1;
 const MAX_HANDLE = 2 ** 31 - 1;
 
+/** Masks a {@link HandleAllocator} handle to its dense index, as GPU code reads it; a stale
+ * handle still needs its generation compared. @internal */
+export const HANDLE_INDEX_MASK = INDEX_COUNT - 1;
+
 /** Numeric handles with a 20-bit dense index and an 11-bit generation, fitting nonnegative i32.
  * Released indices recycle with a new generation; exhausted generations retire, never wrap.
  * At most 2^20 indices can be issued. Snapshots restore the captured allocation timeline. */

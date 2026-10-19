@@ -4,6 +4,7 @@ import * as std from "typegpu/std";
 import type { MeshHandle } from "../../core/mesh";
 import { CullVolumes, Xform } from "../../core/rendering";
 import type { World } from "../../engine";
+import { HANDLE_INDEX_MASK } from "../../engine/utils";
 import type { MaterialHandle } from "./material";
 import { MeshInstanceInput } from "./material-data";
 import { ALPHA_PIPELINE_KEY_COUNT, AlphaModeCode, AlphaPipelineKey } from "./material-type";
@@ -143,7 +144,7 @@ const producerPair = tgpu.fn(
 )((row, slot) => {
     "use gpu";
     const instance = producerCullLayout.$.instances[row];
-    const mid = instance.mesh & 0xfffff;
+    const mid = instance.mesh & HANDLE_INDEX_MASK;
     const params = producerCullLayout.$.params;
     const basePairs = producerCullLayout.$.producer.basePairs;
     if (

@@ -31,7 +31,7 @@ export {
     unpackQuatSmallest3,
     unpackQuatSnorm16x4,
 } from "./encode";
-export { HandleAllocator } from "./handles";
+export { HANDLE_INDEX_MASK, HandleAllocator } from "./handles";
 export {
     clamp,
     composeMat4,

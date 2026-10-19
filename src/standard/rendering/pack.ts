@@ -8,6 +8,7 @@ import {
     Xform,
     xformPoint,
 } from "../../core/rendering";
+import { HANDLE_INDEX_MASK } from "../../engine/utils";
 import { MeshInstanceInput } from "./material-data";
 import { DrawIndexedIndirect } from "./registry";
 
@@ -131,7 +132,7 @@ function pairFactory(materialTypeCount: number) {
             const instance = cullLayout.$.instances[row];
             const encodedGlobalTransform = cullLayout.$.globalTransformRows[eid];
             const invalidPair = cullLayout.$.params.pairCount;
-            const mid = instance.mesh & 0xfffff;
+            const mid = instance.mesh & HANDLE_INDEX_MASK;
             const materialType = instance.materialType;
             const alphaMode = instance.alphaMode;
             if (
