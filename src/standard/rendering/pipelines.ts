@@ -82,6 +82,9 @@ const alphaColorOutput = tgpu
         if (alphaMode === AlphaModeCode.Multiply) {
             return d.vec4f(std.mul(color.rgb, color.a), color.a);
         }
+        // Scene alpha is coverage for a camera stacked over others, so opaque ignores material alpha,
+        // as Bevy's alpha_discard does.
+        if (alphaMode === AlphaModeCode.Opaque) return d.vec4f(color.rgb, 1);
         return d.vec4f(color);
     })
     .$name("materialAlphaOutput");

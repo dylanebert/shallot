@@ -22,7 +22,9 @@ import {
     setRenderPipeline,
 } from "../../engine/runtime";
 
-/** HDR vignette. Color is 0xRRGGBB sRGB, mixed unconverted; center is UV. Only carrying cameras run the pass. */
+/** HDR vignette. Color is 0xRRGGBB sRGB, mixed unconverted; center is UV. Only carrying cameras run the pass.
+ * It mixes the camera's premultiplied scene toward `color` by the scene's alpha, so on a camera stacked over
+ * others it shades only what that camera drew and leaves the cameras below untouched. */
 export const Vignette = component(
     "Vignette",
     {
@@ -65,9 +67,9 @@ const layout = tgpu
     .$idx(0);
 const vignette = tgpu
     .fn(
-        [d.vec2f, d.vec3f, d.vec2f, Settings],
+        [d.vec2f, d.vec3f, d.f32, d.vec2f, Settings],
         d.vec3f,
-    )(`(uv: vec2f, color: vec3f, resolution: vec2f, g: Settings) -> vec3f {
+    )(`(uv: vec2f, color: vec3f, alpha: f32, resolution: vec2f, g: Settings) -> vec3f {
     if (g.intensity < 1.19209290e-07) { return color; }
     let intensity = saturate(g.intensity);
     let radius = max(g.radius, 0.0);
@@ -85,17 +87,23 @@ const vignette = tgpu
     let final_uv = uv_from_center * scale_vec;
     let dist = length(final_uv) * (1.0 / radius);
     let factor = pow(clamp(1.0 - dist * dist, 0.0, 1.0), smoothness);
-    return mix(color, g.color.rgb, (1.0 - factor) * intensity);
+    return mix(color, g.color.rgb * alpha, (1.0 - factor) * intensity);
 }`)
     .$uses({ Settings });
 const fragment = tgpu.fragmentFn({ in: { position: d.builtin.position }, out: d.vec4f })(
     (input) => {
         "use gpu";
         const resolution = d.vec2f(std.textureDimensions(layout.$.input));
-        const color = std.textureLoad(layout.$.input, d.vec2u(input.position.xy), 0).xyz;
+        const color = std.textureLoad(layout.$.input, d.vec2u(input.position.xy), 0);
         return d.vec4f(
-            vignette(std.div(input.position.xy, resolution), color, resolution, layout.$.settings),
-            1,
+            vignette(
+                std.div(input.position.xy, resolution),
+                color.xyz,
+                color.w,
+                resolution,
+                layout.$.settings,
+            ),
+            color.w,
         );
     },
 );

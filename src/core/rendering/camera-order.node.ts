@@ -237,7 +237,7 @@ test("a camera without a target joins the first canvas's stack, and the stack fo
     }
 });
 
-test("a disposed stack releases every texture its world created", async () => {
+test("a despawned stacked camera releases its textures with its frame, and a disposed stack releases the rest", async () => {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("Dawn adapter unavailable");
     const device = await adapter.requestDevice();
@@ -267,8 +267,15 @@ test("a disposed stack releases every texture its world created", async () => {
         const target = attachTexture(world, lower, { width: 16, height: 16 });
         attachTexture(world, upper, target);
         await frame(world, lower);
-        const labels = [...live].map((texture) => texture.label);
-        expect(labels).toContain(`shallot-stacked-${upper}`);
+        const own = new RegExp(`-${upper}$`);
+        const held = () =>
+            [...live].map((texture) => texture.label).filter((label) => own.test(label));
+        expect(held()).toContain(`shallot-stacked-${upper}`);
+        world.destroy(upper);
+        await frame(world, lower);
+        expect(held()).toEqual([]);
+        attachTexture(world, upperCamera(world, 0), target);
+        await frame(world, lower);
     } finally {
         await disposeGpuApps([app]);
     }

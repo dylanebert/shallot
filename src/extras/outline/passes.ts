@@ -204,7 +204,8 @@ export const jfaFs = tgpu.fragmentFn({
 });
 
 /**
- * Blends in linear HDR scene space with straight (non-premultiplied) alpha.
+ * Blends the band over the premultiplied linear HDR scene by its coverage, keeping the scene's alpha
+ * elsewhere, so a camera stacked over others covers the cameras below only with what it drew and its band.
  * Write every pixel, passing the scene through where there is no band: the ping-pong target is a separate
  * texture, so discarding would leave pixels unwritten for tonemapping.
  * @internal
@@ -217,7 +218,7 @@ export const compositeKernel = tgpu.computeFn({
     const dim = std.textureDimensions(compositeLayout.$.output);
     if (input.gid.x >= dim.x || input.gid.y >= dim.y) return;
     const p = d.vec2i(input.gid.xy);
-    const base = std.textureLoad(compositeLayout.$.scene, p, 0).xyz;
+    const scene = std.textureLoad(compositeLayout.$.scene, p, 0);
     const s = std.textureLoad(compositeLayout.$.seed, p, 0).xy;
     const dist = std.distance(d.vec2f(p), d.vec2f(s));
     // out-of-bounds (sentinel seed) reads 0 → width 0 → no band
@@ -225,5 +226,9 @@ export const compositeKernel = tgpu.computeFn({
     const width = a.w;
     const alpha = std.smoothstep(0, 1, dist) * (1 - std.smoothstep(width - 1, width, dist));
     const band = std.select(0, alpha, width > 0);
-    std.textureStore(compositeLayout.$.output, p, d.vec4f(std.mix(base, a.xyz, band), 1));
+    std.textureStore(
+        compositeLayout.$.output,
+        p,
+        d.vec4f(std.mix(scene.xyz, a.xyz, band), scene.w + band * (1 - scene.w)),
+    );
 });

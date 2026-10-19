@@ -49,7 +49,9 @@ export const CustomPresentation = component("CustomPresentation", {});
 /** An effect records commands on the frame encoder. Input and output never alias.
  * A camera's effects read and write only its own image: on a shared target, a lower camera's effects
  * never reach a higher camera's pixels, and a higher camera's reach the pixels below only through
- * the premultiplied alpha its last pass writes, which blends its image over them.
+ * the premultiplied alpha its last pass writes, which blends its image over them. Input color is
+ * premultiplied by that alpha; a pass that keeps its input's alpha outside what it draws, as the shipped
+ * effects do, leaves the cameras below untouched there.
  * Before-tonemapping passes receive linear HDR; after-tonemapping passes receive
  * encoded display-referred values in an rgba8unorm intermediate. The last pass
  * writes the presented target in the preferred canvas format. Before outputs are

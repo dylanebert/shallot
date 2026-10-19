@@ -79,6 +79,7 @@ import { TEMPORAL_FRAMES } from "./temporal";
  * camera's clear background. `density` is the base haze thickness; `heightFalloff` makes it an exponential
  * height fog (denser low, thinning with altitude above `heightBase`). Extinction is
  * density × (absorption + scattering); the scattered fraction is scattering / (absorption + scattering).
+ * On a camera stacked over others, fog reaches only the pixels that camera drew, by their coverage.
  */
 export const Fog = component(
     "Fog",
@@ -374,7 +375,13 @@ function applyPipeline(
                     {
                         format,
                         blend: {
-                            color: { srcFactor: "one", dstFactor: "src-alpha", operation: "add" },
+                            // In-scatter scales by the scene's coverage, so on a camera stacked over
+                            // others fog reaches only what that camera drew.
+                            color: {
+                                srcFactor: "dst-alpha",
+                                dstFactor: "src-alpha",
+                                operation: "add",
+                            },
                             alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" },
                         },
                     },

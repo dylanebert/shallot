@@ -63,7 +63,8 @@ import {
  * outline highlight: a colored band hugs the object's silhouette for hover, selection, or grab feedback.
  *
  * Add it to a MeshInstance entity to highlight it; remove it to clear. Fields are per-entity, so different
- * highlights coexist in one pass.
+ * highlights coexist in one pass. On a camera stacked over others, the band covers the cameras below only
+ * where it draws.
  */
 export const Outline = component(
     "Outline",
