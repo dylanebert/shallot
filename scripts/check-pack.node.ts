@@ -99,6 +99,22 @@ test("the npm package contains only declared files and required consumers", asyn
                 );
         }
     }
+    for (const file of files.filter((file) => /^examples\/[^/]+\/index\.html$/.test(file))) {
+        const exampleRoot = file.slice(0, -"index.html".length);
+        const html = readFileSync(resolve(pkgDir, file), "utf8");
+        for (const match of html.matchAll(
+            /\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+        )) {
+            const url = match[1] ?? match[2] ?? match[3]!;
+            if (!url.startsWith("/") || url.startsWith("//")) continue;
+            const path = url.split(/[?#]/, 1)[0]!.slice(1);
+            if (
+                !packedFiles.has(`${exampleRoot}public/${path}`) &&
+                !packedFiles.has(`${exampleRoot}${path}`)
+            )
+                violations.push(`${file} -> ${url} (missing example file)`);
+        }
+    }
     const examplesDir = resolve(pkgDir, "examples");
     const recipes = readdirSync(examplesDir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
