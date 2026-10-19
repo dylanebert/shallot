@@ -60,20 +60,12 @@ function measure() {
     measured ??= lampTemporalError();
     return measured;
 }
-async function lampTemporalError() {
+let built = false;
+function scene() {
     const { world } = subjects()[0]!;
+    if (built) return;
+    built = true;
     world.resource(GlobalAmbientLight).brightness = 0;
-    const camera = world.create();
-    world.add(camera, Transform, {
-        translation: [0, 1.65, 9, 0],
-        rotation: lookAtRotation(0, 1.65, 9, 0, 1.65, 8),
-    });
-    world.add(camera, Camera, { fov: 55, clearColor: 0, antialias: 0 });
-    world.add(camera, StandardRenderer);
-    world.add(camera, Exposure, { ev100: 8 });
-    world.add(camera, AmbientLight, { brightness: 0 });
-    world.add(camera, DebandDither, { enabled: 0 });
-    attachTexture(world, camera, { width: WIDTH, height: HEIGHT });
     const grey = world.resource(Materials).add(StandardMaterial({ baseColor: [0.4, 0.4, 0.4, 1] }));
     for (const [translation, scale] of [
         [
@@ -114,6 +106,27 @@ async function lampTemporalError() {
         lightIntensity: 2 / Math.PI,
         heightFalloff: 0,
     });
+}
+/** A camera at eye height looking down −z. */
+function cameraAt(z: number) {
+    const { world } = subjects()[0]!;
+    scene();
+    const eid = world.create();
+    world.add(eid, Transform, {
+        translation: [0, 1.65, z, 0],
+        rotation: lookAtRotation(0, 1.65, z, 0, 1.65, z - 1),
+    });
+    world.add(eid, Camera, { fov: 55, clearColor: 0, antialias: 0 });
+    world.add(eid, StandardRenderer);
+    world.add(eid, Exposure, { ev100: 8 });
+    world.add(eid, AmbientLight, { brightness: 0 });
+    world.add(eid, DebandDither, { enabled: 0 });
+    attachTexture(world, eid, { width: WIDTH, height: HEIGHT });
+    return eid;
+}
+async function lampTemporalError() {
+    const { world } = subjects()[0]!;
+    const camera = cameraAt(9);
     world.tick();
     world.step(1 / 60);
     for (let i = 0; i < 64; i++) {
@@ -149,8 +162,70 @@ async function lampTemporalError() {
         error[name] = Math.max(...values.map((value) => Math.abs(value - reference[name])));
     }
     console.log("spot lamp temporal error", { swing, error, reference });
+    world.destroy(camera);
     return { swing, error };
 }
+
+/** Pixel centre of a world point for {@link cameraAt}'s camera at depth z. */
+function project(z: number, [x, y, pz]: readonly [number, number, number]) {
+    const tangent = Math.tan((55 * Math.PI) / 360);
+    const distance = z - pz;
+    return [
+        Math.round(((x / distance / (tangent * (WIDTH / HEIGHT)) + 1) * WIDTH) / 2),
+        Math.round(((1 - (y - 1.65) / distance / tangent) * HEIGHT) / 2),
+    ] as const;
+}
+
+// A walk at 1.5 m/s toward the lamp from 10 m, where one slice is 0.79 m deep. Each sampled frame's patch just
+// below the lamp, a world-fixed point, is compared with the converged still reference at the same pose.
+const WALK = { speed: 1.5, start: 10, frames: 48, every: 6 } as const;
+let walked: Promise<number> | undefined;
+async function walkError() {
+    const { world } = subjects()[0]!;
+    const camera = cameraAt(WALK.start);
+    const at = (frame: number) => WALK.start - (WALK.speed / 60) * frame;
+    const place = (frame: number) => {
+        world.storage(Transform).translation.set(camera, 0, 1.65, at(frame), 0);
+        world.tick();
+        world.step(0);
+    };
+    for (let i = 0; i < 64; i++) {
+        place(0);
+        await world.gpu.sync();
+    }
+    const point = [0, 3.2, 0] as const;
+    const moving = new Map<number, number>();
+    for (let frame = 1; frame <= WALK.frames; frame++) {
+        place(frame);
+        if (frame % WALK.every !== 0) continue;
+        const { rgba } = await captureTexture(world, camera);
+        moving.set(frame, patch(rgba, project(at(frame), point)));
+    }
+    let error = 0;
+    const errors: number[] = [];
+    for (const [frame, value] of moving) {
+        let reference = 0;
+        for (let i = 0; i < 16; i++) {
+            world.add(camera, NoFog);
+            place(frame);
+            place(frame);
+            world.remove(camera, NoFog);
+            place(frame);
+            const { rgba } = await captureTexture(world, camera);
+            reference += patch(rgba, project(at(frame), point)) / 16;
+        }
+        errors.push(value - reference);
+        error = Math.max(error, Math.abs(value - reference));
+    }
+    console.log("spot lamp walk error", { error, errors });
+    world.destroy(camera);
+    return error;
+}
+
+test("a world-fixed patch below the lamp holds the still reference while walking toward it", async () => {
+    walked ??= walkError();
+    expect(await walked).toBeLessThan(0.005);
+});
 
 test("a still patch at a shadowed spot lamp at 360p stays calm across 16 consecutive phases", async () => {
     expect((await measure()).swing.lamp).toBeLessThan(0.005);

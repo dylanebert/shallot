@@ -362,12 +362,11 @@ function createGridKernel(multisampled: boolean) {
                     // As in HDRP, the light's shadow and cone are read at its own samples while density, ambient
                     // and the sun keep the jittered one; the light list is the jittered sample's cluster, and
                     // the falloff is HDRP's 1 / (d² + r²) rather than standard's 1 / max(d², r²).
-                    const lightPhase =
-                        camView.exposure *
-                        henyeyGreenstein(
-                            g,
-                            std.dot(dir, std.normalize(std.sub(light.posRange.xyz, center))),
-                        );
+                    // Unlike HDRP, the phase is read at each sample too. HDRP takes anisotropy at the voxel centre
+                    // because it reprojects phase-free radiance; here history holds complete lighting, so the
+                    // cell's estimate must weight each sample by its own phase. Taken at the centre, a lamp
+                    // inside the cell scatters wholly forward or backward as the centre passes it: walking at
+                    // 1.5 m/s toward a lamp swung a patch just below it between 0.015 and 0.095 each slice (stage 11).
                     const froxelWidth = froxelArc * lightStart;
                     let stratum = d.u32(0);
                     while (stratum < LIGHT_STRATA) {
@@ -386,10 +385,19 @@ function createGridKernel(multisampled: boolean) {
                             sample.position,
                             d.u32(ShadowFilteringMethodMode.Hardware2x2),
                         );
+                        const phase =
+                            camView.exposure *
+                            henyeyGreenstein(
+                                g,
+                                std.dot(
+                                    dir,
+                                    std.normalize(std.sub(light.posRange.xyz, sample.position)),
+                                ),
+                            );
                         lstep = d.vec3f(
                             std.add(
                                 lstep,
-                                std.mul(sample.radiance, (shadow * lightPhase) / LIGHT_STRATA),
+                                std.mul(sample.radiance, (shadow * phase) / LIGHT_STRATA),
                             ),
                         );
                         stratum = stratum + 1;
