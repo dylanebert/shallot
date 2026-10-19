@@ -19,6 +19,7 @@ export type {
     PhysicsSensorEvent,
 } from "./events";
 export { PhysicsEvents } from "./events";
+export { rotationFromAxisAngle } from "./rotation";
 export {
     applyAngularImpulse,
     applyForce,
@@ -30,6 +31,7 @@ export {
     castRayClosest,
     castShape,
     castShapeClosest,
+    computeBodyAABB,
     drawPhysics,
     emptyQueryHit,
     getLocalPoint,
@@ -42,6 +44,7 @@ export {
     type PhysicsQueryHit,
     StandardPhysicsPlugin,
     StepPhysicsSystem,
+    SyncPhysicsConstraintsSystem,
     setAngularVelocity,
     setAwake,
     setLinearVelocity,

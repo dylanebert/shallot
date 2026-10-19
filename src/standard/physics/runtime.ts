@@ -66,6 +66,7 @@ import {
     restoreConstraints,
     syncJoints,
 } from "./joints";
+import { BodyField, bodyField } from "./kernel/bodyrecords";
 import { EventKind, eventCount } from "./kernel/eventbuffers";
 import { readJointEventUserData } from "./kernel/jointcolumns";
 import {
@@ -76,6 +77,8 @@ import {
     writeQueryReturn,
 } from "./kernel/kernel";
 import { queryColumns } from "./kernel/querycolumns";
+import { readShapeAabb } from "./kernel/shapecolumns";
+import { ShapeField, shapeField } from "./kernel/shaperecords";
 import {
     setBodyCount,
     solverSetCount,
@@ -155,6 +158,7 @@ interface PhysicsRuntime {
     queryOverlapCallback: QueryCallback;
     shapeStamps: Map<number, EntityRef>;
     shapeRecreationState: Map<number, Float64Array>;
+    shapeRemovalMass: Map<number, boolean>;
     warnedShapes: Set<number>;
     physicsWorld: WorldState | null;
     bodies: Map<number, BoundBodyId>;
@@ -236,6 +240,7 @@ function newRuntime(): PhysicsRuntime {
         queryOverlapCallback: null!,
         shapeStamps: new Map(),
         shapeRecreationState: new Map(),
+        shapeRemovalMass: new Map(),
         warnedShapes: new Set(),
         physicsWorld: null,
         bodies: new Map(),
@@ -561,6 +566,7 @@ function forget(world: World, runtime: PhysicsRuntime, eid: number): void {
             runtime.shapeBodies.delete(shapeEid);
             runtime.shapeStamps.delete(shapeEid);
             runtime.shapeRecreationState.delete(shapeEid);
+            runtime.shapeRemovalMass.delete(shapeEid);
             runtime.warnedShapes.delete(shapeEid);
             markFieldCandidate(runtime.shapeCandidates, shapeEid);
         }
@@ -580,6 +586,7 @@ function clearBodies(world: World, runtime: PhysicsRuntime): void {
     clearShapeEntities(runtime);
     runtime.shapeStamps.clear();
     runtime.shapeRecreationState.clear();
+    runtime.shapeRemovalMass.clear();
     clearFieldCandidates(runtime.poseCandidates);
     runtime.warnedShapes.clear();
     clearFieldCandidates(runtime.shapeCandidates);
@@ -1046,6 +1053,38 @@ export function getMassData(world: World, eid: number) {
         : null;
 }
 
+/** Union of the body's current shape bounds in world meters, including Box3D's speculative margin.
+ * A shape-less body returns its position.
+ * Returns null before the body is synchronized. The returned bounds belong to the caller. */
+export function computeBodyAABB(world: World, eid: number) {
+    const runtime = runtimeFor(world);
+    const state = runtime.physicsWorld;
+    const body = runtime.bodies.get(eid);
+    if (!state || !body) return null;
+    let shape = bodyField(state, body.index1 - 1, BodyField.headShapeId);
+    const bounds = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } };
+    if (shape === -1) {
+        const p = bodyGetTransform(state, body.index1 - 1, spawnTransform).p;
+        Object.assign(bounds.lowerBound, p);
+        Object.assign(bounds.upperBound, p);
+        return bounds;
+    }
+    readShapeAabb(state, shape, bounds);
+    const next = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } };
+    for (
+        shape = shapeField(state, shape, ShapeField.nextShapeId);
+        shape !== -1;
+        shape = shapeField(state, shape, ShapeField.nextShapeId)
+    ) {
+        readShapeAabb(state, shape, next);
+        for (const axis of ["x", "y", "z"] as const) {
+            bounds.lowerBound[axis] = Math.min(bounds.lowerBound[axis], next.lowerBound[axis]);
+            bounds.upperBound[axis] = Math.max(bounds.upperBound[axis], next.upperBound[axis]);
+        }
+    }
+    return bounds;
+}
+
 /** Wakes a body and its island, or asks Box3D to put the whole island to sleep. A body added since the last fixed sync ignores it and spawns with `Body.isAwake`. */
 export function setAwake(world: World, eid: number, awake: boolean): void {
     const runtime = runtimeFor(world);
@@ -1068,6 +1107,7 @@ interface Bindings {
     shapes: number[];
     /** the last applied authored Shape definition, copied for reusable recovery images */
     shapeRecreationState: [number, Float64Array][];
+    shapeRemovalMass: [number, boolean][];
     /** pending shape field candidates as [eid, field mask] pairs */
     shapeCandidates: [number, number][];
     constraints: ConstraintIds;
@@ -1114,6 +1154,7 @@ function captureBindings(world: World, runtime: PhysicsRuntime): Bindings {
         bodies,
         shapes,
         shapeCandidates: captureBodyCandidates(runtime.shapeCandidates),
+        shapeRemovalMass: Array.from(runtime.shapeRemovalMass),
         shapeRecreationState: Array.from(runtime.shapeRecreationState, ([eid, values]) => [
             eid,
             values.slice(),
@@ -1167,6 +1208,9 @@ function restoreBindings(
         runtime.shapeStamps.set(eid, b.shapes[i + 4] as EntityRef);
         rememberShapeEntity(world, runtime, shape, eid, b.shapes[i + 3]);
     }
+    runtime.shapeRemovalMass.clear();
+    for (const [eid, updateMass] of b.shapeRemovalMass)
+        runtime.shapeRemovalMass.set(eid, updateMass);
     for (const [eid, values] of b.shapeRecreationState)
         runtime.shapeRecreationState.set(eid, values.slice());
     restoreConstraints(runtime.constraints, b.constraints, physicsWorld);
@@ -1714,7 +1758,12 @@ function visitBody(
     return true;
 }
 
-function removeShape(runtime: PhysicsRuntime, eid: number, updateBodyMass = true): void {
+function removeShape(
+    runtime: PhysicsRuntime,
+    eid: number,
+    updateBodyMass = runtime.shapeRemovalMass.get(eid) ?? true,
+): void {
+    runtime.shapeRemovalMass.delete(eid);
     const shape = runtime.shapes.get(eid);
     const state = runtime.physicsWorld;
     retireShapeEntity(runtime, shape);
@@ -1769,10 +1818,10 @@ function syncShapes(world: World, runtime: PhysicsRuntime): void {
             candidates.fieldMarks[eid] = 0;
             continue;
         }
+        if (runtime.shapeRemovalMass.has(eid)) removeShape(runtime, eid);
         const updateBodyMass = binding.storage.updateBodyMass.column[eid] !== 0;
         const previousStamp = runtime.shapeStamps.get(eid);
-        if (previousStamp !== undefined && !world.resolve(previousStamp))
-            removeShape(runtime, eid, updateBodyMass);
+        if (previousStamp !== undefined && !world.resolve(previousStamp)) removeShape(runtime, eid);
 
         const rawBody = (binding.storage.body.column as Float64Array)[eid] as EntityRef;
         const bodyEid = rawBody === 0 ? eid : world.resolve(rawBody);
@@ -1974,9 +2023,14 @@ export const StandardPhysicsPlugin: Plugin = {
                 }),
             );
             world.onDispose(
-                world.observeMembership(ShapeComponent, (eid) =>
-                    markFieldCandidate(runtime.shapeCandidates, eid),
-                ),
+                world.observeMembership(ShapeComponent, (eid, present) => {
+                    if (!present && runtime.shapes.has(eid))
+                        runtime.shapeRemovalMass.set(
+                            eid,
+                            world.storage(ShapeComponent).updateBodyMass.get(eid) !== 0,
+                        );
+                    markFieldCandidate(runtime.shapeCandidates, eid);
+                }),
             );
             const bindings = jointBindings(world);
             for (const binding of bindings) {

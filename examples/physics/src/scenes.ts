@@ -15,6 +15,8 @@ import {
 
 import { PhysicsWorldDefinition, setAwake } from "@dylanebert/shallot/standard/physics";
 
+import { eventScenes } from "./events";
+
 export type Scene =
     | "boxStack"
     | "bridge"
@@ -22,13 +24,24 @@ export type Scene =
     | "prismatic"
     | "wheel"
     | "filter"
-    | "parallel";
+    | "parallel"
+    | keyof typeof eventScenes;
 export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
+    {
+        name: "Events",
+        scenes: [
+            { id: "contact", name: "Contact" },
+            { id: "hit", name: "Hit" },
+            { id: "joint", name: "Joint" },
+            { id: "sensor", name: "Sensor Visit" },
+        ],
+    },
     {
         name: "Joints",
         scenes: [
             { id: "bridge", name: "Bridge" },
             { id: "filter", name: "Filter" },
+            { id: "motor", name: "Motor Joint" },
             { id: "parallel", name: "Parallel Spring" },
             { id: "prismatic", name: "Prismatic" },
             { id: "revolute", name: "Revolute" },
@@ -43,6 +56,7 @@ export interface Control {
     min?: number;
     max?: number;
     step?: number;
+    button?: boolean;
     when?: readonly string[];
     set(
         world: World,
@@ -72,8 +86,9 @@ export function controlValues(scene: Scene): Record<string, number> {
     );
 }
 export function visibleControls(scene: Scene, values: Record<string, number>): Controls {
+    const controls: Controls | undefined = scenes[scene].controls;
     return Object.fromEntries(
-        Object.entries(scenes[scene].controls ?? {}).filter(
+        Object.entries(controls ?? {}).filter(
             ([, control]) => !control.when || control.when.every((name) => values[name]),
         ),
     );
@@ -93,6 +108,7 @@ export function changeControl(
     selected.set(world, bodies, value, values);
 }
 export const scenes = {
+    ...eventScenes,
     boxStack: {
         construct: boxStack,
         camera: { yaw: 40, pitch: 10, distance: 46, target: [0, 23, 0] },

@@ -37,14 +37,14 @@ export function markFieldCandidate(
     eid: number,
     fieldIndex?: number,
 ): void {
-    if (fieldIndex !== undefined && fieldIndex >= 32)
-        throw new Error(`physics: field index ${fieldIndex} exceeds its candidate mask`);
     ensureCandidateCapacity(candidates, eid);
     if (candidates.seen[eid] === 0) {
         candidates.seen[eid] = 1;
         candidates.eids[candidates.count++] = eid;
     }
-    if (fieldIndex !== undefined) candidates.fieldMarks[eid] |= 1 << fieldIndex;
+    // Components wider than one mask word fall back to comparing every field, never alias a low bit.
+    if (fieldIndex !== undefined)
+        candidates.fieldMarks[eid] |= fieldIndex < 32 ? 1 << fieldIndex : 0xffffffff;
 }
 
 export function captureFieldCandidate(

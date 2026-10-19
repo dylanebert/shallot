@@ -1,0 +1,12 @@
+1	grabBody	3
+2	grabY	-40
+31	release	1
+40	grabBody	4
+41	grabY	-40
+71	release	1
+80	grabBody	5
+81	grabY	-40
+111	release	1
+120	grabBody	6
+121	grabY	-40
+151	release	1

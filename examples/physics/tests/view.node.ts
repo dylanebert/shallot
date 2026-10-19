@@ -1,6 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Body, BodyType, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { EventSample } from "../src/events";
 import { scenePresentation } from "../src/presentation";
 import { categories, controlValues, createScene, visibleControls } from "../src/scenes";
 
@@ -22,14 +23,16 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 [...world.query([Shape])].sort(),
             );
             expect(presentation.shapes.length).toBeGreaterThan(0);
-            for (const { body, role, mesh } of presentation.shapes) {
+            for (const { eid, body, role, mesh } of presentation.shapes) {
                 expect(mesh.vertices.length).toBeGreaterThan(0);
-                const expected =
-                    world.get(body, Body)!.type === BodyType.Static
-                        ? "ground"
-                        : ["revolute", "prismatic", "wheel"].includes(id)
-                          ? "motorized"
-                          : "subject";
+                const expected = world.get(eid, Shape)!.isSensor
+                    ? "sensor"
+                    : world.get(body, Body)!.type === BodyType.Static
+                      ? "ground"
+                      : ["revolute", "prismatic", "wheel"].includes(id) ||
+                          body === world.resource(EventSample).player
+                        ? "motorized"
+                        : "subject";
                 expect(role).toBe(expected);
                 expect(presentation.materials[role]).toBeDefined();
             }

@@ -939,6 +939,108 @@ impl HullImage {
         self.0[1] = hash(self.bytes());
     }
 }
+/// b3CloneAndTransformHull: preserve topology, then rebuild planes, bounds and bulk properties.
+pub fn clone_and_transform(
+    original: &HullImage,
+    transform: Transform,
+    scale: Vec3,
+) -> Option<HullImage> {
+    let mut hull = HullImage(original.0.clone());
+    let scale = scale.safe_scale();
+    let vertex_count = hull.u()[25] as usize;
+    let face_count = hull.u()[30] as usize;
+    let edge_offset = hull.u()[29] as usize;
+    let face_offset = hull.u()[32] as usize;
+    if scale.x * scale.y * scale.z < 0.0 {
+        for i in 0..face_count {
+            let start = hull.bytes()[face_offset + i] as usize;
+            let mut current = start;
+            let previous = loop {
+                let next = hull.edge(current)[0];
+                if next == start {
+                    break current;
+                }
+                current = next;
+            };
+            let mut previous = previous;
+            current = start;
+            loop {
+                let [next, twin, origin, _] = hull.edge(current);
+                hull.bytes_mut()[edge_offset + 4 * current] = previous as u8;
+                if current < twin {
+                    let twin_origin = hull.edge(twin)[2];
+                    hull.bytes_mut()[edge_offset + 4 * current + 2] = twin_origin as u8;
+                    hull.bytes_mut()[edge_offset + 4 * twin + 2] = origin as u8;
+                }
+                previous = current;
+                current = next;
+                if current == start {
+                    break;
+                }
+            }
+        }
+        let vertex_offset = hull.u()[26] as usize;
+        for i in 0..vertex_count {
+            let edge = hull.bytes()[vertex_offset + i] as usize;
+            let twin = hull.edge(edge)[1];
+            hull.bytes_mut()[vertex_offset + i] = twin as u8;
+        }
+    }
+    let matrix = Mat3::from_quat(transform.q);
+    let point_offset = hull.u()[27] as usize / 4;
+    for i in 0..vertex_count {
+        let p = hull.point(i);
+        let p = matrix
+            .mul_v(Vec3::new(scale.x * p.x, scale.y * p.y, scale.z * p.z))
+            .add(transform.p);
+        hull.vector(point_offset + 3 * i, p);
+    }
+    let plane_offset = hull.u()[31] as usize / 4;
+    for i in 0..face_count {
+        let start = hull.bytes()[face_offset + i] as usize;
+        let origin = hull.point(hull.edge(start)[2]);
+        let mut current = start;
+        let mut count = 0;
+        let mut centroid = Vec3::ZERO;
+        let mut normal = Vec3::ZERO;
+        loop {
+            let [next, twin, vertex, _] = hull.edge(current);
+            let v1 = hull.point(vertex).sub(origin);
+            let v2 = hull.point(hull.edge(twin)[2]).sub(origin);
+            count += 1;
+            centroid = centroid.add(v1);
+            normal.x += (v1.y - v2.y) * (v1.z + v2.z);
+            normal.y += (v1.z - v2.z) * (v1.x + v2.x);
+            normal.z += (v1.x - v2.x) * (v1.y + v2.y);
+            current = next;
+            if current == start {
+                break;
+            }
+        }
+        centroid = centroid.scale(1.0 / count as f32).add(origin);
+        normal = normal.scale(1.0 / normal.length());
+        hull.vector(plane_offset + 4 * i, normal);
+        hull.f_mut()[plane_offset + 4 * i + 3] = normal.dot(centroid);
+    }
+    let points: Vec<_> = (0..vertex_count).map(|i| hull.point(i)).collect();
+    let [lower, upper] = bounds(&points);
+    hull.vector(4, lower);
+    hull.vector(7, upper);
+    if !hull.bulk() {
+        return None;
+    }
+    // Box hull images have nonzero padding normals; the clone clears them before hashing.
+    let normal_offset = hull.u()[34] as usize / 4;
+    let normal_count = (face_count + 3) & !3;
+    for i in face_count..normal_count {
+        for axis in 0..3 {
+            hull.f_mut()[normal_offset + axis * normal_count + i] = 0.0;
+        }
+    }
+    hull.finish();
+    Some(hull)
+}
+
 fn steiner(m: f32, p: Vec3) -> Mat3 {
     let xx = m * (p.y * p.y + p.z * p.z);
     let yy = m * (p.x * p.x + p.z * p.z);

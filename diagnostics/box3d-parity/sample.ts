@@ -8,6 +8,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const stacking = readFileSync(join(samples, "sample_stacking.cpp"), "utf8");
     const joints = readFileSync(join(samples, "sample_joint.cpp"), "utf8");
     const sample = readFileSync(join(samples, "sample.cpp"), "utf8");
+    const events = readFileSync(join(samples, "sample_events.cpp"), "utf8");
     function section(source: string, start: string, end: string): string {
         const first = source.indexOf(start);
         const last = source.indexOf(end, first);
@@ -18,8 +19,12 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
         section(sample, "b3BodyId Sample::AddGroundBox(", "struct RowDef"),
         section(stacking, "class BoxStack :", "static int sampleBoxStack"),
         section(joints, "class Bridge :", "static int sampleBridgeIndex"),
-        ...["Filter", "Prismatic", "Parallel", "Revolute", "Wheel"].map((name) =>
+        ...["Filter", "Prismatic", "Parallel", "Revolute", "Wheel", "Motor"].map((name) =>
             section(joints, `class ${name}Joint :`, `static int sample${name}Joint`)),
+        section(events, "class SensorVisit :", "static int sampleSensorVisit"),
+        section(events, "class HitEvent :", "static int sampleHitEvent"),
+        section(events, "class JointEvent :", "static int sampleJointEvent"),
+        section(events, "struct BodyUserData", "static int sampleContactEvent"),
     ].join("\n");
     const grab = section(sample, "\t\t// Ctrl click grabs", "\n\telse if ( modifiers & MOD_SHIFT )")
         .replace(/\t\tPickRay pickRay = m_camera->BuildPickRay\( p.x, p.y \);/, "")
@@ -28,6 +33,7 @@ export function sampleBinary(samples = join(process.env.BOX3D ?? "", "samples"))
     const source = readFileSync(join(import.meta.dir, "sample.cpp"), "utf8")
         .replace("// SAMPLE_GRAB", grab)
         .replace("// SAMPLE_UP", up.slice(up.indexOf("{")))
+        .replace("// SAMPLE_EVENTS", readFileSync(join(import.meta.dir, "sample-events.h"), "utf8"))
         .replace("// SAMPLE_SOURCES", sources);
     const path = join(tmpdir(), `box3d-sample-${Bun.hash(source).toString(16)}.cpp`);
     writeFileSync(path, source);

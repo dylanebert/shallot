@@ -1,9 +1,10 @@
 import { MeshPlugin, runApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
-import { LinesPlugin, OrbitPlugin } from "@dylanebert/shallot/extras";
+import { LinesPlugin, OrbitPlugin, TextPlugin } from "@dylanebert/shallot/extras";
 import { mount, unmount } from "svelte";
+import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GrabPlugin } from "./grab";
 import Hud from "./Hud.svelte";
-import { changeControl, createScene, type Scene } from "./scenes";
+import { changeControl, createScene, type Scene, scenes } from "./scenes";
 import { createView } from "./view";
 
 async function switchScene(scene: Scene): Promise<void> {
@@ -11,6 +12,9 @@ async function switchScene(scene: Scene): Promise<void> {
     const app = await runApp({
         plugins: [
             StandardPhysicsPlugin,
+            EventSamplePlugin,
+            SampleInputPlugin,
+            ...(scene === "hit" ? [TextPlugin] : []),
             OrbitPlugin,
             LinesPlugin,
             GrabPlugin,
@@ -40,4 +44,7 @@ async function switchScene(scene: Scene): Promise<void> {
         },
     });
 }
-await switchScene("boxStack");
+const requested = new URL(location.href).searchParams.get("scene");
+await switchScene(
+    requested && Object.hasOwn(scenes, requested) ? (requested as Scene) : "boxStack",
+);

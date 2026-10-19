@@ -83,7 +83,9 @@ function fieldBinding(world: World, component: Component, index: number): FieldB
 /** Whether `mask`, a candidate's field marks, includes the named field. */
 export function fieldMarked(binding: FieldBinding, mask: number, name: string): boolean {
     const index = binding.fieldIndices.get(name);
-    return index !== undefined && (mask & (1 << index)) !== 0;
+    return (
+        index !== undefined && (mask === 0xffffffff || (index < 32 && (mask & (1 << index)) !== 0))
+    );
 }
 const bindingsKey = {
     create: (world: World): JointBinding[] =>

@@ -73,7 +73,7 @@ export function captureShapeRecreationState(
     world: World,
     binding: FieldBinding,
     eid: number,
-    values: Float64Array<ArrayBufferLike> = new Float64Array(RECREATION_FIELDS.length + 3),
+    values: Float64Array<ArrayBufferLike> = new Float64Array(RECREATION_FIELDS.length + 10),
 ): Float64Array<ArrayBufferLike> {
     for (let i = 0; i < RECREATION_FIELDS.length; i++)
         values[i] = scalar(binding, eid, RECREATION_FIELDS[i]);
@@ -81,6 +81,10 @@ export function captureShapeRecreationState(
     values[RECREATION_FIELDS.length] = s.x;
     values[RECREATION_FIELDS.length + 1] = s.y;
     values[RECREATION_FIELDS.length + 2] = s.z;
+    const position = vector(binding, eid, "hullPosition"),
+        rotation = vector(binding, eid, "hullRotation");
+    values.set(position.slice(0, 3), RECREATION_FIELDS.length + 3);
+    values.set(rotation, RECREATION_FIELDS.length + 6);
     return values;
 }
 
@@ -192,6 +196,19 @@ export function shapeNeedsRecreation(
     const record = shape.index1 - 1;
     const kind = scalar(binding, eid, "kind");
     if (kind !== getShapeType(state, record)) return true;
+    if (kind === ShapeKind.Hull && anyChanged(binding, mask, ["hullPosition", "hullRotation"])) {
+        const placement = [
+            ...vector(binding, eid, "hullPosition").slice(0, 3),
+            ...vector(binding, eid, "hullRotation"),
+        ];
+        if (
+            !previous ||
+            placement.some(
+                (value, i) => !Object.is(value, previous[RECREATION_FIELDS.length + 3 + i]),
+            )
+        )
+            return true;
+    }
     if (bodyScaleChanged && (kind === ShapeKind.HeightField || kind === ShapeKind.Compound))
         return true;
     if (

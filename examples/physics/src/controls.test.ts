@@ -13,7 +13,9 @@ for (const scene of Object.keys(scenes) as Scene[]) {
                 expect(controls[dependency]!.min).toBeUndefined();
             }
         }
-        const toggles = Object.keys(controls).filter((name) => controls[name]!.min === undefined);
+        const toggles = Object.keys(controls).filter(
+            (name) => controls[name]!.min === undefined && !controls[name]!.button,
+        );
         for (let mask = 0; mask < 2 ** toggles.length; mask++) {
             toggles.forEach((name, index) => {
                 values[name] = (mask >> index) & 1;

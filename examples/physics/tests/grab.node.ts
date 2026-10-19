@@ -7,17 +7,31 @@ import {
 } from "@dylanebert/shallot";
 import { setTargetTransform } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import { EventSamplePlugin } from "../src/events";
 import { Grab, pick, release } from "../src/grab";
 import { createScene, type Scene, scenes } from "../src/scenes";
 
+import { sampleGold } from "./gold";
+
 setDefaultTimeout(TIMEOUT.node);
 
-for (const scene of ["revolute", "prismatic", "wheel", "parallel", "filter"] as Scene[]) {
+for (const scene of [
+    "revolute",
+    "prismatic",
+    "wheel",
+    "parallel",
+    "filter",
+    "motor",
+    "joint",
+    "sensor",
+    "contact",
+    "hit",
+] as Scene[]) {
     test(`${scene} can be picked from its camera and released without a GPU`, async () => {
         let bodies: number[] = [];
         const app = await createApp({
             defaults: false,
-            plugins: [StandardPhysicsPlugin],
+            plugins: [StandardPhysicsPlugin, EventSamplePlugin],
             setup(world) {
                 bodies = createScene(world, scene);
             },
@@ -57,10 +71,7 @@ for (const scene of ["revolute", "prismatic", "wheel", "parallel", "filter"] as 
 }
 
 test("grab, moving kinematic target and release equal native Sample::MouseDown on every step", async () => {
-    const gold = (await Bun.file(new URL("./grab.gold.txt", import.meta.url)).text())
-        .trim()
-        .split("\n")
-        .map((line) => BigInt(line.split(" ")[1]!));
+    const gold = sampleGold(await Bun.file(new URL("./grab.gold.txt", import.meta.url)).text());
     const app = await createApp({
         defaults: false,
         plugins: [StandardPhysicsPlugin],
@@ -82,7 +93,7 @@ test("grab, moving kinematic target and release equal native Sample::MouseDown o
             if (i === 31) release(world);
             if (grab.mouse) setTargetTransform(world, grab.mouse, grab.point, [0, 0, 0, 1]);
             world.tick();
-            expect(hashPhysics(world), `tick ${i}`).toBe(gold[i]!);
+            expect(hashPhysics(world), `step ${i} hash`).toBe(gold[i]!.hash);
         }
     } finally {
         app.dispose();

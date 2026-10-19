@@ -1,4 +1,4 @@
-import { component, entity, f32, i32, u32, vec3 } from "../../engine";
+import { component, entity, f32, i32, u32, vec3, vec4 } from "../../engine";
 
 /** Box3D collision-shape kinds. A box is a scaled hull. */
 export const ShapeKind = {
@@ -29,9 +29,18 @@ export const Shape = component(
         capsuleCenter2: vec3,
         /** Sphere or capsule radius in meters. */
         radius: f32,
-        /** Hull or mesh scale, multiplied per axis by the body's Transform.scale; default `[1, 1, 1]`.
-         * A box is the unit cube at its full lengths. */
+        /** Shape-local hull or mesh scale; default `[1, 1, 1]`. The body's Transform.scale also applies;
+         * placed hulls follow the order documented on hullPosition. A box is the unit cube at its full lengths. */
         scale: vec3,
+        /** Hull-only placement in body-local meters. Hull geometry builds at Shape.scale first,
+         * then hullRotation and hullPosition apply, then the body's Transform.scale
+         * (Box3D clamps that scale's magnitudes to at least 0.01 for a placed hull).
+         * Nonidentity placement clones Box3D hull topology and rebuilds its planes and mass;
+         * identity preserves the existing hull builder. Changes recreate at the next fixed sync. */
+        hullPosition: vec3,
+        /** Hull-only normalized xyzw rotation, applied after Shape.scale and before hullPosition.
+         * Changes recreate at the next fixed sync. */
+        hullRotation: vec4,
         /** Shape density in kg/m³; changes apply at the next fixed sync. */
         density: f32,
         /** Non-dimensional scale used by world explosions; Box3D has no setter, so a change recreates the shape at the next fixed sync. */
@@ -73,7 +82,7 @@ export const Shape = component(
         enableSpeculativeContact: u32,
         /** Whether creating this shape requests contact creation; a change recreates the shape at the next fixed sync. */
         invokeContactCreation: u32,
-        /** Whether creation, replacement, and density writes recompute body mass. */
+        /** Whether creation, removal, replacement, and density writes recompute body mass. */
         updateBodyMass: u32,
         /** ShapeMaterials handle; -1 means no per-triangle materials. */
         materialSet: i32,
@@ -88,6 +97,8 @@ export const Shape = component(
             capsuleCenter2: [0, 0.5, 0],
             radius: 0.5,
             scale: [1, 1, 1],
+            hullPosition: [0, 0, 0],
+            hullRotation: [0, 0, 0, 1],
             density: 1000,
             explosionScale: 1,
             friction: 0.6,

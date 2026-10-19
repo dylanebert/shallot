@@ -1,25 +1,31 @@
 import {
+    AlphaMode,
     Camera,
     DirectionalLight,
+    type EntityRef,
     GlobalAmbientLight,
     GlobalTransform,
     lookAtRotation,
     Materials,
     Meshes,
+    type MeshHandle,
     MeshInstance,
     MeshMaterial,
     MotorJoint,
     NotShadowCaster,
+    Shape,
     StandardMaterial,
     StandardRenderer,
     sphere,
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { drawLine, Orbit } from "@dylanebert/shallot/extras";
-import { worldToViewport } from "@dylanebert/shallot/rendering";
+import { drawLine, internText, Orbit, Text } from "@dylanebert/shallot/extras";
+import { Anchor, Billboard, worldToViewport } from "@dylanebert/shallot/rendering";
+import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/physics";
+import { EventSample } from "./events";
 import { Grab } from "./grab";
-import { scenePresentation } from "./presentation";
+import { scenePresentation, shapePresentation } from "./presentation";
 import { type Scene, scenes } from "./scenes";
 
 export const GrabFeedback = {
@@ -46,10 +52,12 @@ export function createView(world: World, scene: Scene): void {
     world.add(camera, Transform);
     const materials = world.resource(Materials);
     const presentation = scenePresentation(world, scene);
+    const initial = new Map(presentation.shapes.map((shape) => [world.ref(shape.eid), shape]));
     const roles = {
         ground: materials.add(presentation.materials.ground),
         subject: materials.add(presentation.materials.subject),
         motorized: materials.add(presentation.materials.motorized),
+        sensor: materials.add(presentation.materials.sensor, { alphaMode: AlphaMode.Blend }),
     };
     const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.5, 16, 12) });
     const markerMaterial = materials.add(
@@ -111,9 +119,103 @@ export function createView(world: World, scene: Scene): void {
         },
     });
     const meshes = world.resource(Meshes);
-    for (const { eid, body, role, mesh } of presentation.shapes) {
-        if (body !== eid) world.add(eid, Transform, world.get(body, Transform)!);
-        world.add(eid, MeshInstance, { mesh: meshes.add(mesh) });
-        world.add(eid, MeshMaterial, roles[role]);
+    const views = new Map<EntityRef, MeshHandle>();
+    const labels: number[] = [];
+    function updateShapes(world: World): void {
+        for (const [ref, mesh] of views) {
+            const eid = world.resolve(ref);
+            if (!eid || !world.has(eid, Shape)) {
+                meshes.remove(mesh);
+                views.delete(ref);
+            }
+        }
+        const sample = world.resource(EventSample);
+        for (const eid of world.query([Shape])) {
+            const body = world.storage(Shape).body.get(eid) || eid;
+            if (body !== eid) {
+                const pose = world.get(body, Transform);
+                if (pose) {
+                    if (!world.has(eid, Transform)) world.add(eid, Transform, pose);
+                    else {
+                        const transform = world.storage(Transform);
+                        transform.translation.set(eid, ...pose.translation);
+                        transform.rotation.set(eid, ...pose.rotation);
+                        transform.scale.set(eid, ...pose.scale);
+                    }
+                }
+            }
+            const ref = world.ref(eid);
+            if (views.has(ref) && meshes.has(views.get(ref)!)) continue;
+            const shape = initial.get(ref) ?? shapePresentation(world, scene, eid);
+            initial.delete(ref);
+            const mesh = meshes.add(shape.mesh);
+            views.set(ref, mesh);
+            world.add(eid, MeshInstance, { mesh });
+            world.add(eid, MeshMaterial, roles[shape.role]);
+        }
+        for (let i = 0; i < sample.hits.length; i++) {
+            const hit = sample.hits[i]!;
+            const point: [number, number, number] = [
+                hit.point.x + 0.05 * hit.normal.x,
+                hit.point.y + 0.05 * hit.normal.y,
+                hit.point.z + 0.05 * hit.normal.z,
+            ];
+            if (!labels[i]) {
+                const label = world.create();
+                labels[i] = label;
+                world.add(label, Transform, {
+                    translation: [
+                        point[0] + hit.normal.x,
+                        point[1] + hit.normal.y,
+                        point[2] + hit.normal.z,
+                    ],
+                });
+                world.add(label, Text, {
+                    content: internText(
+                        world,
+                        `${hit.approachSpeed.toFixed(1)}, ${hit.userMaterialIdA}`,
+                    ),
+                    fontSize: 1,
+                    billboard: Billboard.Screen,
+                    color: 0xeee9df,
+                });
+                world.add(label, Anchor, { offset: [...Anchor.BOTTOM_LEFT] });
+            }
+            // Incoming direction and speed from the hit record, placed above the opaque ground
+            // rather than below it: Shallot's lines/text are depth-tested, not debug overlays.
+            drawLine(
+                world,
+                [
+                    point[0] + hit.approachSpeed * hit.normal.x,
+                    point[1] + hit.approachSpeed * hit.normal.y,
+                    point[2] + hit.approachSpeed * hit.normal.z,
+                ],
+                point,
+                0xffb62e,
+                2,
+            );
+            drawLine(
+                world,
+                [point[0] - 0.2, point[1], point[2]],
+                [point[0] + 0.2, point[1], point[2]],
+                0xffb62e,
+                3,
+            );
+        }
+    }
+    updateShapes(world);
+    if (scene === "contact" || scene === "sensor" || scene === "hit")
+        world.addSystem({ name: "shape-views", group: "simulation", update: updateShapes });
+    if (scene === "joint" || scene === "motor") {
+        const draw = defaultDebugDraw();
+        draw.drawJoints = true;
+        draw.drawSegment = (a, b) => drawLine(world, [a.x, a.y, a.z], [b.x, b.y, b.z], 0x38a4b5, 1);
+        world.addSystem({
+            name: "joint-views",
+            group: "simulation",
+            update(world) {
+                drawPhysics(world, draw);
+            },
+        });
     }
 }

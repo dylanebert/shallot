@@ -20,6 +20,7 @@ import { MAX_HULL_VERTICES } from "./common/constants";
 import type { Transform } from "./common/records";
 import { defaultSurfaceMaterial } from "./common/types";
 import {
+    cloneAndTransformHull,
     createCylinder,
     createHull,
     makeBoxHull,
@@ -257,6 +258,52 @@ export function buildHull(world: World, def: Hull, sx = 1, sy = 1, sz = 1): Hull
     const built = createHull(points, def.maxVertexCount ?? MAX_HULL_VERTICES, world);
     if (!built) throw new Error(`physics: hull "${def.name}" could not be built`);
     return built;
+}
+
+/** Shape-local scale builds the asset first; placement follows, then body-local scale. */
+export function buildPlacedHull(
+    world: World,
+    def: Hull,
+    scale: readonly [number, number, number],
+    position: readonly [number, number, number] = [0, 0, 0],
+    rotation: readonly [number, number, number, number] = [0, 0, 0, 1],
+    bodyScale: readonly [number, number, number] = [1, 1, 1],
+): HullData {
+    if (
+        !position.every(Number.isFinite) ||
+        !rotation.every(Number.isFinite) ||
+        Math.abs(Math.hypot(...rotation) - 1) > 1e-5
+    )
+        throw new Error(
+            "physics: hull placement requires a finite position and normalized rotation",
+        );
+    if (position.every((n) => n === 0) && rotation.every((n, i) => n === (i === 3 ? 1 : 0)))
+        return buildHull(
+            world,
+            def,
+            scale[0] * bodyScale[0],
+            scale[1] * bodyScale[1],
+            scale[2] * bodyScale[2],
+        );
+    const source = buildHull(world, def, ...scale);
+    let hull = cloneAndTransformHull(
+        source,
+        {
+            p: { x: position[0], y: position[1], z: position[2] },
+            q: { v: { x: rotation[0], y: rotation[1], z: rotation[2] }, s: rotation[3] },
+        },
+        { x: 1, y: 1, z: 1 },
+        world,
+    );
+    if (hull && bodyScale.some((n) => n !== 1))
+        hull = cloneAndTransformHull(
+            hull,
+            { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
+            { x: bodyScale[0], y: bodyScale[1], z: bodyScale[2] },
+            world,
+        );
+    if (!hull) throw new Error("physics: hull placement could not produce a valid hull");
+    return hull;
 }
 
 // Nonuniform scale can turn a rotated box into a parallelepiped or a cylinder into an elliptical prism.

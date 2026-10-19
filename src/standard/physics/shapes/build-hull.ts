@@ -2,6 +2,7 @@ import type { World } from "../../../engine";
 import type { Transform, Vec3 } from "../common/records";
 import { type Kernel, kernel } from "../kernel/kernel";
 import type { HullData } from "./hull";
+import { hullImage } from "./hullbytes";
 import { drawHull } from "./readgeometry";
 
 type Scratch = { input: Float32Array; view: DataView };
@@ -29,6 +30,31 @@ function result(k: Kernel, operation: number, count = 0, budget = 0): HullData |
     const views = scratch.get(k)!;
     if (views.view.buffer !== k.memory.buffer) views.view = new DataView(k.memory.buffer);
     return drawHull(views.view, ptr);
+}
+
+/** Clones a hull's topology and rebuilds its planes and bulk properties after scale, then placement. */
+export function cloneAndTransformHull(
+    hull: HullData,
+    transform: Transform,
+    scale: Vec3,
+    world?: World,
+): HullData | null {
+    const image = hullImage(hull);
+    const [k, input] = prepare(world, Math.ceil((image.length / 4 + 6) / 3));
+    input.set([
+        transform.p.x,
+        transform.p.y,
+        transform.p.z,
+        transform.q.v.x,
+        transform.q.v.y,
+        transform.q.v.z,
+        transform.q.s,
+        scale.x,
+        scale.y,
+        scale.z,
+    ]);
+    new Uint8Array(k.memory.buffer, input.byteOffset + 64, image.length).set(image);
+    return result(k, 8, image.length);
 }
 
 /** Builds a hull using Box3D's [4, 128] vertex budget; degenerate or oversized hulls return null. */

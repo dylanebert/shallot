@@ -1,0 +1,6 @@
+30	Speed	1
+60	Max Force	200000
+90	Max Torque	300000
+120	Apply Impulse	1
+240	Speed	-1
+360	Speed	0

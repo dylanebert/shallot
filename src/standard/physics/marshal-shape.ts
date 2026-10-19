@@ -4,7 +4,7 @@ import type { World } from "../../engine";
 import { makeShapeId } from "./api/config";
 import type { EntityId } from "./common/ids";
 import { defaultShapeDef, type Filter, type ShapeDef, type SurfaceMaterial } from "./common/types";
-import { buildHull, compoundBuild, heightFieldBuild, meshBuild } from "./geometry-builds";
+import { buildPlacedHull, compoundBuild, heightFieldBuild, meshBuild } from "./geometry-builds";
 import type { HullData } from "./shapes/hull";
 import {
     createCapsuleShape,
@@ -109,12 +109,22 @@ export function shapeHullGeometry(world: World, eid: number): HullData {
     const hull = hulls.get(id);
     if (!hull) throw new Error(`physics: Shape ${eid} names missing hull ${id}`);
     const s = shapeBodyScale(world, eid);
-    return buildHull(
+    return buildPlacedHull(
         world,
         hull,
-        shape.scale.x.get(eid) * s.x,
-        shape.scale.y.get(eid) * s.y,
-        shape.scale.z.get(eid) * s.z,
+        [shape.scale.x.get(eid), shape.scale.y.get(eid), shape.scale.z.get(eid)],
+        [
+            shape.hullPosition.x.get(eid),
+            shape.hullPosition.y.get(eid),
+            shape.hullPosition.z.get(eid),
+        ],
+        [
+            shape.hullRotation.x.get(eid),
+            shape.hullRotation.y.get(eid),
+            shape.hullRotation.z.get(eid),
+            shape.hullRotation.w.get(eid),
+        ],
+        [s.x, s.y, s.z],
     );
 }
 

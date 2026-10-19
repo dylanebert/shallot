@@ -4,6 +4,7 @@ import { makeJointId } from "./api/config";
 import type { JointBinding, JointDef } from "./authoring";
 import { fieldMarked, JOINT_KIND_COUNT, jointDef } from "./authoring";
 import { froundConfig } from "./common/config";
+import { HUGE, LINEAR_SLOP } from "./common/constants";
 import type { EntityId } from "./common/ids";
 import {
     clearFieldCandidates,
@@ -759,11 +760,15 @@ function applyJointFields(
             }
             const minLength = jointValue(binding, eid, "minLength");
             const maxLength = jointValue(binding, eid, "maxLength");
+            // Box3D clamps/sorts the range. Re-observing default minLength=0 is not a new
+            // limit edit: its live value is linear slop, and the setter clears warm-start impulses.
+            const lower = Math.min(HUGE, Math.max(LINEAR_SLOP, minLength));
+            const upper = Math.min(HUGE, Math.max(LINEAR_SLOP, maxLength));
             if (
                 (fieldMarked(binding, mask, "minLength") ||
                     fieldMarked(binding, mask, "maxLength")) &&
-                (differs(minLength, readJointFloat(state, id, C.DJ_MIN_LENGTH)) ||
-                    differs(maxLength, readJointFloat(state, id, C.DJ_MAX_LENGTH)))
+                (differs(Math.min(lower, upper), readJointFloat(state, id, C.DJ_MIN_LENGTH)) ||
+                    differs(Math.max(lower, upper), readJointFloat(state, id, C.DJ_MAX_LENGTH)))
             )
                 kernel(state.ecsState).jointSetLimits(state.worldId, id, minLength, maxLength);
             break;

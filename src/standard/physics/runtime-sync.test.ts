@@ -5,6 +5,7 @@ import {
     BodyMotionLock,
     BodyType,
     Compounds,
+    DistanceJoint,
     HeightFields,
     Hulls,
     PhysicsMeshes,
@@ -17,7 +18,11 @@ import {
     WheelJoint,
 } from "@dylanebert/shallot/physics";
 import {
+    computeBodyAABB,
+    rotationFromAxisAngle,
     StandardPhysicsPlugin,
+    StepPhysicsSystem,
+    SyncPhysicsConstraintsSystem,
     setAwake,
     setLinearVelocity,
     setTransform,
@@ -26,7 +31,7 @@ import { GlobalTransform, Transform, TransformPlugin } from "@dylanebert/shallot
 import { expectWarning } from "../../../scripts/test-console";
 import { makeShapeId } from "./api/config";
 import { BodyField, bodyField } from "./kernel/bodyrecords";
-import { RJ_MOTOR_SPEED } from "./kernel/columns";
+import { DJ_IMPULSE, RJ_MOTOR_SPEED } from "./kernel/columns";
 import { readJointFloat, writeJointFloat } from "./kernel/jointcolumns";
 import { JointField, jointField } from "./kernel/jointrecords";
 import { kernel } from "./kernel/kernel";
@@ -518,6 +523,179 @@ test("changing updateBodyMass does not recreate a Shape and later density writes
         world.tick();
         expect(getShapeDensity(stateFor(world), shape.index1 - 1)).toBe(4);
         expect(bodyField(stateFor(world), body, BodyField.mass)).toBe(mass);
+    });
+});
+
+for (const destroyEntity of [false, true]) {
+    for (const updateMass of [false, true]) {
+        test(`removing a shape ${destroyEntity ? "entity" : "component"} ${updateMass ? "updates" : "preserves"} body mass`, async () => {
+            await withPhysics((world) => {
+                const bodyEid = world.create();
+                world.add(bodyEid, Body, { type: BodyType.Dynamic });
+                world.add(bodyEid, Shape, { kind: ShapeKind.Sphere, density: 2 });
+                const shapeEid = world.create();
+                world.add(shapeEid, Shape, {
+                    body: bodyEid,
+                    kind: ShapeKind.Sphere,
+                    sphereCenter: [2, 0, 0],
+                    density: 4,
+                });
+                world.tick();
+                const body = bodyIndex(world, bodyEid);
+                const mass = bodyField(stateFor(world), body, BodyField.mass);
+                // Removal must capture a write made since the last sync, before ECS clears the fields.
+                world.storage(Shape).updateBodyMass.set(shapeEid, Number(updateMass));
+                if (destroyEntity) world.destroy(shapeEid);
+                else world.remove(shapeEid, Shape);
+                const saved = world.snapshot();
+                world.tick();
+                const next = bodyField(stateFor(world), body, BodyField.mass);
+                if (updateMass) expect(next).toBeLessThan(mass);
+                else expect(next).toBe(mass);
+                world.restore(saved);
+                world.tick();
+                expect(bodyField(stateFor(world), bodyIndex(world, bodyEid), BodyField.mass)).toBe(
+                    next,
+                );
+            });
+        });
+    }
+}
+
+test("re-observing default distance limits preserves the warm-start impulse", async () => {
+    await withPhysics((world) => {
+        const ground = world.create();
+        world.add(ground, Body);
+        const body = world.create();
+        world.add(body, Transform, { translation: [0, 10, 0] });
+        world.add(body, Body, { type: BodyType.Dynamic, enableSleep: 0 });
+        world.add(body, Shape);
+        const joint = world.create();
+        world.add(joint, DistanceJoint, {
+            a: ground,
+            b: body,
+            localAnchorA: [0, 13, 0],
+            localAnchorB: [0, 1, 0],
+            length: 2,
+        });
+        world.tick();
+        const state = stateFor(world),
+            id = jointIds(state)[0]!;
+        const impulse = readJointFloat(state, id, DJ_IMPULSE);
+        expect(impulse).not.toBe(0);
+        world.storage(DistanceJoint).minLength.set(joint, 0);
+        const mouse = world.create();
+        world.add(mouse, Body, { type: BodyType.Kinematic });
+        let observed = false;
+        world.addSystem({
+            name: "observe-distance-impulse",
+            group: "fixed",
+            after: [SyncPhysicsConstraintsSystem],
+            before: [StepPhysicsSystem],
+            update() {
+                observed = true;
+                expect(readJointFloat(state, id, DJ_IMPULSE)).toBe(impulse);
+            },
+        });
+        world.tick();
+        expect(observed).toBe(true);
+    });
+});
+
+test("remove and re-add in one sync preserves the removed shape's mass policy", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic, gravityScale: 0 });
+        world.add(eid, Shape, { kind: ShapeKind.Sphere });
+        world.tick();
+        const shape = shapeId(world),
+            body = bodyIndex(world, eid);
+        const mass = bodyField(stateFor(world), body, BodyField.mass);
+        world.storage(Shape).updateBodyMass.set(eid, 0);
+        world.remove(eid, Shape);
+        world.add(eid, Shape, { kind: ShapeKind.Sphere, radius: 2, updateBodyMass: 0 });
+        world.tick();
+        expect(shapeIsValid(stateFor(world), shape)).toBe(false);
+        expect(bodyField(stateFor(world), body, BodyField.mass)).toBe(mass);
+    });
+});
+
+test("hull placement recreates only on a different value and recovers pending writes", async () => {
+    await withPhysics((world) => {
+        const eid = world.create();
+        world.add(eid, Body, { type: BodyType.Dynamic, gravityScale: 0 });
+        world.add(eid, Shape);
+        world.tick();
+        const original = shapeId(world);
+        world.storage(Shape).hullPosition.set(eid, 0, 0, 0);
+        world.tick();
+        expect(shapeIsValid(stateFor(world), original)).toBe(true);
+        world.storage(Shape).hullPosition.set(eid, 1, 2, 3);
+        const saved = world.snapshot();
+        world.tick();
+        expect(shapeIsValid(stateFor(world), original)).toBe(false);
+        const placed = shapeId(world);
+        const bounds = computeBodyAABB(world, eid)!;
+        expect(bounds.lowerBound.x).toBeCloseTo(0.48, 5);
+        expect(bounds.upperBound.z).toBeCloseTo(3.52, 5);
+        world.restore(saved);
+        world.tick();
+        expect(computeBodyAABB(world, eid)).toEqual(bounds);
+        const q = rotationFromAxisAngle(world, { x: 0, y: 0, z: 1 }, 0.5);
+        world.storage(Shape).hullRotation.set(eid, q.v.x, q.v.y, q.v.z, q.s);
+        world.tick();
+        expect(shapeIsValid(stateFor(world), placed)).toBe(false);
+    });
+});
+
+test("a placed hull applies body scale after its shape scale and local rotation", async () => {
+    await withPhysics((world) => {
+        const geometry = world.resource(Hulls).add({ name: "placed", halfExtents: [1, 1, 1] });
+        const body = world.create();
+        world.add(body, Transform, { scale: [3, 0.5, -2] });
+        world.add(body, Body);
+        world.add(body, Shape, {
+            geometry,
+            scale: [1, 2, 3],
+            hullPosition: [1, 2, 3],
+            hullRotation: [0, 0, Math.SQRT1_2, Math.SQRT1_2],
+        });
+        world.tick();
+        const bounds = computeBodyAABB(world, body)!;
+        expect(bounds.lowerBound.x).toBeCloseTo(-3.02, 4);
+        expect(bounds.upperBound.x).toBeCloseTo(9.02, 4);
+        expect(bounds.lowerBound.y).toBeCloseTo(0.48, 4);
+        expect(bounds.upperBound.y).toBeCloseTo(1.52, 4);
+        expect(bounds.lowerBound.z).toBeCloseTo(-12.02, 4);
+        expect(bounds.upperBound.z).toBeCloseTo(0.02, 4);
+    });
+});
+
+test("body bounds include every shape, return caller-owned records and handle a shape-less body", async () => {
+    await withPhysics((world) => {
+        const body = world.create();
+        world.add(body, Transform, { translation: [4, 5, 6] });
+        world.add(body, Body);
+        expect(computeBodyAABB(world, body)).toBeNull();
+        world.tick();
+        expect(computeBodyAABB(world, body)).toEqual({
+            lowerBound: { x: 4, y: 5, z: 6 },
+            upperBound: { x: 4, y: 5, z: 6 },
+        });
+        world.add(body, Shape, { kind: ShapeKind.Sphere, radius: 1 });
+        const child = world.create();
+        world.add(child, Shape, {
+            body,
+            kind: ShapeKind.Sphere,
+            sphereCenter: [3, 0, 0],
+            radius: 1,
+        });
+        world.tick();
+        const bounds = computeBodyAABB(world, body)!;
+        expect(bounds.lowerBound.x).toBeCloseTo(2.98, 5);
+        expect(bounds.upperBound.x).toBeCloseTo(8.02, 5);
+        bounds.lowerBound.x = -100;
+        expect(computeBodyAABB(world, body)!.lowerBound.x).toBeCloseTo(2.98, 5);
     });
 });
 

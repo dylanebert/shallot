@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "box3d/box3d.h"
+#include "utils.h"
+#include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -16,11 +19,28 @@ b3World* b3GetWorldFromId( b3WorldId );
 uint64_t b3HashWorldState( b3World* );
 }
 
-// Only presentation is inert; the selected classes and AddGroundBox are compiled verbatim.
+// The selected sample classes and AddGroundBox compile verbatim; drawing callbacks below are inert.
 struct Camera
 {
+	// Contact's recording keeps its initial yaw-zero view and reads only the flattened basis.
 	void SetView( float, float, float, b3Vec3 ) {}
+	b3Vec3 GetForward() const { return { 0, 0, 1 }; }
+	b3Vec3 GetRight() const { return { 1, 0, 0 }; }
 };
+constexpr int KEY_W = 1, KEY_S = 2, KEY_A = 3, KEY_D = 4;
+bool IsKeyDown( int key ) {
+	float value = 0;
+	const char* names[] = { "", "W", "S", "A", "D" };
+	for ( const Change& change : changes )
+		if ( change.step <= currentStep && change.name == names[key] ) value = change.value;
+	return value != 0;
+}
+void DrawGroundGrid( int ) {}
+template<class T> void DrawAxes( T, float ) {}
+int MakeColor( int color ) { return color; }
+void DrawPoint( b3Pos, float, int ) {}
+void DrawLine( b3Pos, b3Pos, int ) {}
+void DrawString3D( b3Pos, int, const char*, ... ) {}
 namespace ImGui
 {
 void PushItemWidth( float ) {}
@@ -36,6 +56,10 @@ bool Checkbox( const char* name, bool* value ) {
     if ( changed ) *value = result != 0;
     return changed;
 }
+bool Button( const char* name ) {
+    float value = 0;
+    return SliderFloat( name, &value, 0, 1, "" ) && value != 0;
+}
 void Separator() {}
 void PopItemWidth() {}
 }
@@ -45,6 +69,8 @@ struct SampleContext
 {
 	Camera camera;
 	bool restart = false;
+	bool pause = false;
+	int singleStep = 0;
 	float hertz = 60.0f;
 	int subStepCount = 4;
 	int workerCount = 1;
@@ -53,6 +79,8 @@ struct SampleContext
 	bool enableContinuous = true;
 	float recycleDistance = 0.05f;
 };
+
+// SAMPLE_EVENTS
 
 class Sample
 {
@@ -90,12 +118,22 @@ public:
 		b3World_EnableWarmStarting( m_worldId, m_context->enableWarmStarting );
 		b3World_EnableContinuous( m_worldId, m_context->enableContinuous );
 		b3World_Step( m_worldId, 1.0f / m_context->hertz, m_context->subStepCount );
+		m_stepHash = b3HashWorldState( b3GetWorldFromId( m_worldId ) );
+		printf( "%016llx", (unsigned long long)m_stepHash );
+		if ( recordEvents ) PrintEvents( m_worldId );
+		printf( "\n" );
 	}
+	uint64_t m_stepHash = 0;
 	b3BodyId AddGroundBox( float extent );
 	SampleContext* m_context;
 	Camera* m_camera;
 	b3WorldId m_worldId;
 };
+
+// The sample translation unit uses JavaScript's gameplay math environment: double libm,
+// rounded to float. Box3D's separately compiled library and its kernel math are untouched.
+#define sinf(value) static_cast<float>(std::sin(static_cast<double>(value)))
+#define cosf(value) static_cast<float>(std::cos(static_cast<double>(value)))
 
 // SAMPLE_SOURCES
 
@@ -106,12 +144,15 @@ int main( int argc, char** argv )
 		fprintf( stderr, "usage: sample <scene> <steps> [grab|control-sequence-file]\n" );
 		return 2;
 	}
+	recordEvents = !strcmp( argv[1], "joint" ) || !strcmp( argv[1], "sensor" ) || !strcmp( argv[1], "contact" ) || !strcmp( argv[1], "hit" ) || !strcmp( argv[1], "motor" );
 	SampleContext context;
 	struct Entry { const char* name; Sample* (*create)(SampleContext*); };
 	const Entry entries[] = {
 		{ "box_stack", BoxStack::Create }, { "bridge", Bridge::Create },
 		{ "revolute", RevoluteJoint::Create }, { "prismatic", PrismaticJoint::Create },
 		{ "wheel", WheelJoint::Create }, { "filter", FilterJoint::Create }, { "parallel", ParallelJoint::Create },
+		{ "motor", MotorJoint::Create }, { "joint", JointEvent::Create },
+		{ "sensor", SensorVisit::Create }, { "contact", ContactEvent::Create }, { "hit", HitEvent::Create },
 	};
 	Sample* sample = nullptr;
 	for ( const Entry& entry : entries ) if ( strcmp( argv[1], entry.name ) == 0 ) sample = entry.create( &context );
@@ -135,10 +176,18 @@ int main( int argc, char** argv )
 			if ( i > 1 && i < 31 ) sample->m_mousePoint.x = 0.05f * ( i - 1 );
 			if ( i == 31 ) sample->Release();
 		}
+		for ( const Change& change : changes ) if ( change.step == i ) {
+			if ( change.name == "grabBody" ) {
+				const int tag = (int)change.value;
+				assert( tag > 0 && tag <= (int)recordedBodies.size() );
+				b3Pos p = b3Body_GetPosition( recordedBodies[tag - 1] );
+				sample->Grab( { { p.x, p.y, p.z + 10 }, { 0, 0, -20 } } );
+			} else if ( change.name == "grabY" ) sample->m_mousePoint.y = change.value;
+			else if ( change.name == "release" ) sample->Release();
+		}
 		currentStep = i;
 		sample->DrawControls();
 		sample->Step();
-		printf( "%d 0x%016llx\n", i, (unsigned long long)b3HashWorldState( b3GetWorldFromId( sample->m_worldId ) ) );
 	}
 	delete sample;
 }

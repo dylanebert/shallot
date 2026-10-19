@@ -2,7 +2,7 @@ import { sphere } from "../../core/mesh";
 import { Hulls, type Shape, ShapeKind } from "../../core/physics";
 import type { ComponentRecord, World } from "../../engine";
 import type { Vec3 } from "./common/records";
-import { buildHull, meshBuild } from "./geometry-builds";
+import { buildPlacedHull, meshBuild } from "./geometry-builds";
 
 type Point = [number, number, number];
 
@@ -76,7 +76,8 @@ function roundMesh(radius: number, a: Point, b: Point) {
 
 /**
  * Fresh CPU triangle geometry in body-local meters, suitable for Meshes.add. Bakes Shape.scale
- * for hulls and meshes, and the centers and radius for spheres and capsules; the body's
+ * for hulls and meshes, plus hullPosition/hullRotation for hulls (identity when omitted),
+ * and the centers and radius for spheres and capsules; the body's
  * Transform is not baked. Requires an initialized StandardPhysicsPlugin for geometry builds.
  * Throws for missing geometry, or an unsupported compound or height field.
  * This is an authoring-time conversion, not a live binding to subsequent Shape edits.
@@ -92,7 +93,8 @@ export function shapeMesh(
         | "sphereCenter"
         | "capsuleCenter1"
         | "capsuleCenter2"
-    >,
+    > &
+        Partial<Pick<ComponentRecord<typeof Shape>, "hullPosition" | "hullRotation">>,
 ): {
     vertices: Float32Array;
     indices: Uint32Array;
@@ -126,7 +128,13 @@ export function shapeMesh(
     if (kind === ShapeKind.Hull) {
         const definition = world.resource(Hulls).get(geometry);
         if (!definition) throw new Error(`shapeMesh: missing hull ${geometry}`);
-        const hull = buildHull(world, definition, ...scale);
+        const hull = buildPlacedHull(
+            world,
+            definition,
+            scale,
+            shape.hullPosition,
+            shape.hullRotation,
+        );
         for (const face of hull.faces) {
             const points: Vec3[] = [];
             let edge = face.edge;

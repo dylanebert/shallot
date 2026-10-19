@@ -10,22 +10,22 @@ import {
     scenes,
 } from "../src/scenes";
 
+import { sampleGold } from "./gold";
+
 setDefaultTimeout(TIMEOUT.node);
 
 for (const scene of ["revolute", "prismatic", "wheel", "filter", "parallel"] satisfies Scene[]) {
     for (const controlled of [false, true]) {
         test(`${scene} equals every native step ${controlled ? "through all controls" : "by default"}`, async () => {
             const start = performance.now();
-            const gold = (
+            const gold = sampleGold(
                 await Bun.file(
                     new URL(
                         `./${scene}${controlled && scene !== "filter" ? ".controls" : ""}.gold.txt`,
                         import.meta.url,
                     ),
-                ).text()
-            )
-                .trim()
-                .split("\n");
+                ).text(),
+            );
             const sequence =
                 controlled && scene !== "filter"
                     ? (await Bun.file(new URL(`./${scene}.controls.txt`, import.meta.url)).text())
@@ -65,9 +65,7 @@ for (const scene of ["revolute", "prismatic", "wheel", "filter", "parallel"] sat
                             used.add(change.name);
                         }
                     app.world.tick();
-                    expect(hashPhysics(app.world), `step ${step}`).toBe(
-                        BigInt(gold[step]!.split(" ")[1]!),
-                    );
+                    expect(hashPhysics(app.world), `step ${step} hash`).toBe(gold[step]!.hash);
                 }
                 if (controlled)
                     expect([...used].sort()).toEqual(

@@ -51,6 +51,21 @@ pub unsafe extern "C" fn build(operation: u32, count: usize, budget: i32) -> *co
                 q: Quat { v: v(6), s: r[9] },
             },
         )),
+        8 => {
+            let bytes = core::slice::from_raw_parts(r.as_ptr().add(16).cast::<u8>(), count);
+            let words = bytes
+                .chunks_exact(8)
+                .map(|b| u64::from_ne_bytes(b.try_into().unwrap()))
+                .collect();
+            hull_build::clone_and_transform(
+                &HullImage(words),
+                Transform {
+                    p: v(0),
+                    q: Quat { v: v(3), s: r[6] },
+                },
+                v(7),
+            )
+        }
         _ => unreachable!(),
     };
     OUTPUT = result;

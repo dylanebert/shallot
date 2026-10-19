@@ -25,6 +25,8 @@ function definition(values: Partial<Definition>): Definition {
         sphereCenter: [0, 0, 0],
         capsuleCenter1: [0, -0.5, 0],
         capsuleCenter2: [0, 0.5, 0],
+        hullPosition: [0, 0, 0],
+        hullRotation: [0, 0, 0, 1],
         ...values,
     };
 }
@@ -176,6 +178,37 @@ for (const scale of [
     });
 }
 
+test("hull placement follows Shape.scale and has analytic bounds, outward normals and area", () => {
+    const geometry = world.resource(Hulls).add({ name: "placed box", halfExtents: [1, 2, 3] });
+    const center = [1, 2, 3] as Point,
+        extent = [6, 2, 1.5] as Point;
+    verify(
+        shapeMesh(
+            world,
+            definition({
+                geometry,
+                scale: [2, 3, 0.5],
+                hullPosition: center,
+                hullRotation: [0, 0, Math.SQRT1_2, Math.SQRT1_2],
+            }),
+        ),
+        {
+            lower: center.map((v, i) => v - extent[i]!) as Point,
+            upper: center.map((v, i) => v + extent[i]!) as Point,
+            area: 8 * (6 * 2 + 6 * 1.5 + 2 * 1.5),
+            areaTolerance: 1e-4,
+            distance: (p) =>
+                Math.abs(Math.max(...p.map((v, i) => Math.abs(v - center[i]!) / extent[i]!)) - 1),
+            normal: (p) => {
+                const delta = p.map((v, i) => v - center[i]!);
+                const ratios = delta.map((v, i) => Math.abs(v) / extent[i]!);
+                const axis = ratios.indexOf(Math.max(...ratios));
+                return delta.map((v, i) => (i === axis ? Math.sign(v) : 0)) as Point;
+            },
+        },
+    );
+});
+
 test("reversed winding is rejected even when its normals are recomputed to match", () => {
     const mesh = boxMesh();
     for (let i = 0; i < mesh.indices.length; i += 3) {
@@ -236,6 +269,11 @@ function roundSurface(a: Point, b: Point, radius: number): Surface {
         areaTolerance: area * 0.02,
     };
 }
+
+test("plain pre-placement shape records keep identity placement", () => {
+    const { hullPosition: _position, hullRotation: _rotation, ...legacy } = definition({});
+    expect(shapeMesh(world, legacy)).toEqual(shapeMesh(world, definition({})));
+});
 
 test("offset sphere has radial normals, outward winding and the analytic surface area", () => {
     const center: Point = [1, -2, 3];
