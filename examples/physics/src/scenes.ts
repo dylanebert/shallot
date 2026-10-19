@@ -23,6 +23,20 @@ export type Scene =
     | "wheel"
     | "filter"
     | "parallel";
+export const categories: { name: string; scenes: { id: Scene; name: string }[] }[] = [
+    {
+        name: "Joints",
+        scenes: [
+            { id: "bridge", name: "Bridge" },
+            { id: "filter", name: "Filter" },
+            { id: "parallel", name: "Parallel Spring" },
+            { id: "prismatic", name: "Prismatic" },
+            { id: "revolute", name: "Revolute" },
+            { id: "wheel", name: "Wheel" },
+        ],
+    },
+    { name: "Stacking", scenes: [{ id: "boxStack", name: "Box Stack" }] },
+];
 export interface Control {
     label: string;
     value: number;
@@ -55,6 +69,13 @@ export function controlValues(scene: Scene): Record<string, number> {
             name,
             control.value,
         ]),
+    );
+}
+export function visibleControls(scene: Scene, values: Record<string, number>): Controls {
+    return Object.fromEntries(
+        Object.entries(scenes[scene].controls ?? {}).filter(
+            ([, control]) => !control.when || control.when.every((name) => values[name]),
+        ),
     );
 }
 export function changeControl(

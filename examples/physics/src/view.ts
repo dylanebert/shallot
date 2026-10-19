@@ -1,6 +1,4 @@
 import {
-    Body,
-    BodyType,
     Camera,
     DirectionalLight,
     GlobalAmbientLight,
@@ -12,10 +10,8 @@ import {
     MeshMaterial,
     MotorJoint,
     NotShadowCaster,
-    Shape,
     StandardMaterial,
     StandardRenderer,
-    shapeMesh,
     sphere,
     Transform,
     type World,
@@ -23,6 +19,7 @@ import {
 import { drawLine, Orbit } from "@dylanebert/shallot/extras";
 import { worldToViewport } from "@dylanebert/shallot/rendering";
 import { Grab } from "./grab";
+import { scenePresentation } from "./presentation";
 import { type Scene, scenes } from "./scenes";
 
 export const GrabFeedback = {
@@ -48,15 +45,12 @@ export function createView(world: World, scene: Scene): void {
     });
     world.add(camera, Transform);
     const materials = world.resource(Materials);
-    const ground = materials.add(
-        StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1], perceptualRoughness: 0.82 }),
-    );
-    const subject = materials.add(
-        StandardMaterial({ baseColor: [0.72, 0.4, 0.05, 1], perceptualRoughness: 0.38 }),
-    );
-    const motorized = materials.add(
-        StandardMaterial({ baseColor: [0.04, 0.43, 0.53, 1], perceptualRoughness: 0.38 }),
-    );
+    const presentation = scenePresentation(world, scene);
+    const roles = {
+        ground: materials.add(presentation.materials.ground),
+        subject: materials.add(presentation.materials.subject),
+        motorized: materials.add(presentation.materials.motorized),
+    };
     const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.5, 16, 12) });
     const markerMaterial = materials.add(
         StandardMaterial({ baseColor: [0.855, 0.815, 0.738, 1], unlit: true }),
@@ -116,26 +110,10 @@ export function createView(world: World, scene: Scene): void {
             drawLine(world, p, grab.point, 0xeee9df, 1);
         },
     });
-    const types = world.storage(Body).type;
     const meshes = world.resource(Meshes);
-    for (const eid of world.query([Shape])) {
-        const body = world.storage(Shape).body.get(eid) || eid;
+    for (const { eid, body, role, mesh } of presentation.shapes) {
         if (body !== eid) world.add(eid, Transform, world.get(body, Transform)!);
-        const mesh = meshes.add({
-            name: `Shape ${eid}`,
-            ...shapeMesh(world, world.get(eid, Shape)!),
-        });
-        world.add(eid, MeshInstance, { mesh });
-        // Colour encodes affordance and emphasis: static bodies are carbon, grabbable dynamics amber;
-        // cyan and brand-orange are reserved for distinct scene roles, never creation order.
-        world.add(
-            eid,
-            MeshMaterial,
-            types.get(body) === BodyType.Static
-                ? ground
-                : scene === "revolute" || scene === "prismatic" || scene === "wheel"
-                  ? motorized
-                  : subject,
-        );
+        world.add(eid, MeshInstance, { mesh: meshes.add(mesh) });
+        world.add(eid, MeshMaterial, roles[role]);
     }
 }

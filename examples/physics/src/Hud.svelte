@@ -1,24 +1,13 @@
 <script lang="ts">
     import { tick } from "svelte";
-    import { controlValues, scenes, type Controls, type Scene } from "./scenes";
+    import { categories, controlValues, visibleControls, type Scene } from "./scenes";
     let { scene, select, change }: { scene: Scene; select: (scene: Scene) => void; change: (name: string, value: number, values: Record<string, number>) => void } = $props();
     let values = $state(controlValues(scene));
-    const controls: Controls | undefined = scenes[scene].controls;
+    const controls = $derived(visibleControls(scene, values));
     function update(name: string, value: number) { change(name, value, values); }
     let open = $state(false);
     let picker: HTMLElement;
     let trigger: HTMLButtonElement;
-    const categories = [
-        { name: "Joints", scenes: [
-            { id: "bridge" as Scene, name: "Bridge" },
-            { id: "filter" as Scene, name: "Filter" },
-            { id: "parallel" as Scene, name: "Parallel Spring" },
-            { id: "prismatic" as Scene, name: "Prismatic" },
-            { id: "revolute" as Scene, name: "Revolute" },
-            { id: "wheel" as Scene, name: "Wheel" },
-        ] },
-        { name: "Stacking", scenes: [{ id: "boxStack" as Scene, name: "Box Stack" }] },
-    ];
     const samples = categories.flatMap(category => category.scenes);
     function step(direction: number) {
         open = false;
@@ -57,17 +46,15 @@
         <button aria-label="Next scene" onclick={() => step(1)}>→</button>
     </nav>
 </section>
-{#if controls}
+{#if Object.keys(controls).length}
     <section class="controls" class:joint-controls={scene !== "bridge"} aria-label={`${samples.find(sample => sample.id === scene)!.name} controls`}>
         {#each Object.entries(controls) as [name, control]}
-            {#if !control.when || control.when.every(name => values[name])}
                 {#if control.min === undefined}
                     <label class="toggle"><input type="checkbox" checked={!!values[name]} onchange={(event) => update(name, Number(event.currentTarget.checked))} />{control.label}</label>
                 {:else}
                     <label for={`control-${name}`}>{control.label}</label>
                     <input id={`control-${name}`} type="range" min={control.min} max={control.max} step={control.step} value={values[name]} oninput={(event) => update(name, Number(event.currentTarget.value))} />
                 {/if}
-            {/if}
         {/each}
     </section>
 {/if}
