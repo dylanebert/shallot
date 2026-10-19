@@ -387,6 +387,22 @@ for (const { name, indices, count } of [
     });
 }
 
+test("coplanar faces folded onto the same side retain their shared edge", () => {
+    const geometry = world.resource(PhysicsMeshes).add({
+        name: "flat fold",
+        vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.5, 0]),
+        indices: new Uint32Array([0, 1, 2, 1, 0, 3]),
+    });
+    const edges = shapeEdges(world, definition({ kind: ShapeKind.Mesh, geometry }));
+    expect(edges).toHaveLength(5);
+    expect(
+        edges.some(
+            ([a, b]) =>
+                a[1] === 0 && a[2] === 0 && b[1] === 0 && b[2] === 0 && Math.abs(a[0] - b[0]) === 1,
+        ),
+    ).toBe(true);
+});
+
 function closedUniqueLoops(edges: [Point, Point][], stride: number): void {
     const key = (p: Point) => p.map((v) => v.toFixed(6)).join(",");
     const keys = edges.map((edge) => edge.map(key).sort().join(";"));

@@ -215,7 +215,7 @@ export function shapeEdges(world: World, shape: Parameters<typeof shapeMesh>[1])
     const { vertices, indices } = shapeMesh(world, shape);
     const candidates = new Map<
         string,
-        { edge: [Point, Point]; normal: Point; crease: boolean; count: number }
+        { edge: [Point, Point]; third: Point; normal: Point; crease: boolean; count: number }
     >();
     const faces = new Set<string>();
     for (let i = 0; i < indices.length; i += 3) {
@@ -237,12 +237,19 @@ export function shapeEdges(world: World, shape: Parameters<typeof shapeMesh>[1])
             const keys = [a.join(","), b.join(",")].sort();
             const key = keys.join(";");
             const previous = candidates.get(key);
+            const third = points[(j + 2) % 3]!;
             if (previous) {
                 previous.count++;
-                previous.crease ||=
-                    Math.abs(normal.reduce((sum, v, k) => sum + v * previous.normal[k]!, 0)) <
-                    1 - 1e-6;
-            } else candidates.set(key, { edge: [a, b], normal, crease: false, count: 1 });
+                const [origin, end] = previous.edge;
+                const axis = end.map((v, k) => v - origin[k]!);
+                const u = previous.third.map((v, k) => v - origin[k]!);
+                const v = third.map((value, k) => value - origin[k]!);
+                const dot = (a: number[], b: number[]) =>
+                    a.reduce((sum, value, k) => sum + value * b[k]!, 0);
+                // Coplanar faces only hide an edge when they occupy opposite sides of it.
+                const sameSide = dot(u, v) * dot(axis, axis) - dot(u, axis) * dot(v, axis) > 0;
+                previous.crease ||= sameSide || Math.abs(dot(normal, previous.normal)) < 1 - 1e-6;
+            } else candidates.set(key, { edge: [a, b], third, normal, crease: false, count: 1 });
         }
     }
     for (const candidate of candidates.values())
