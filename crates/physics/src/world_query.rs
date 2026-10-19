@@ -209,7 +209,7 @@ pub(crate) unsafe fn sensor_task(
                     }
                     let deferred = crate::callbacks::filter_enabled(world_index)
                         && (r.get(n + crate::shapes::S_FLAGS) | r.get(o + crate::shapes::S_FLAGS))
-                            & (4 << 16)
+                            & crate::shapes::CUSTOM_FILTERING_FLAG
                             != 0;
                     if deferred {
                         emit(id, true);

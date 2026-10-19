@@ -48,7 +48,7 @@ pub unsafe fn filter(world: usize, a: usize, b: usize) -> bool {
     let shapes = crate::shapes::col_slice(world);
     if (shapes[a * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS]
         | shapes[b * crate::shapes::SHAPE_STRIDE + crate::shapes::S_FLAGS])
-        & (4 << 16)
+        & crate::shapes::CUSTOM_FILTERING_FLAG
         == 0
     {
         return true;

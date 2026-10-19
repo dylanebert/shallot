@@ -7,8 +7,12 @@ pub const S_PREV: usize = 2;
 pub const S_DENSITY: usize = 7;
 pub const S_GENERATION: usize = 47;
 pub const S_FLAGS: usize = S_GENERATION;
+/// Box3D's b3ShapeFlags, stored in the third byte of the `S_FLAGS` word.
 pub const SENSOR_FLAG: u32 = 1 << 16;
+pub const CONTACT_EVENTS_FLAG: u32 = 2 << 16;
+pub const CUSTOM_FILTERING_FLAG: u32 = 4 << 16;
 pub const HIT_FLAG: u32 = 8 << 16;
+pub const PRE_SOLVE_FLAG: u32 = 16 << 16;
 pub const ENLARGED_FLAG: u32 = 32 << 16;
 pub const SPECULATIVE_FLAG: u32 = 64 << 16;
 pub const S_MATERIAL: usize = 26;

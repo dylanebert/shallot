@@ -49,12 +49,12 @@ pub unsafe fn create(world: usize, mut shape_a: usize, mut shape_b: usize, child
     if body_a.body_type == 0 || body_b.body_type == 0 {
         flags |= contact_flags::STATIC;
     }
-    let flags_a = shapes.get(shape_a * stride + crate::shapes::S_FLAGS) >> 16;
-    let flags_b = shapes.get(shape_b * stride + crate::shapes::S_FLAGS) >> 16;
-    if (flags_a | flags_b) & 16 != 0 {
+    let shape_flags = shapes.get(shape_a * stride + crate::shapes::S_FLAGS)
+        | shapes.get(shape_b * stride + crate::shapes::S_FLAGS);
+    if shape_flags & crate::shapes::PRE_SOLVE_FLAG != 0 {
         flags |= contact_flags::SIM_ENABLE_PRE_SOLVE_EVENTS;
     }
-    if (flags_a | flags_b) & 2 != 0 {
+    if shape_flags & crate::shapes::CONTACT_EVENTS_FLAG != 0 {
         flags |= contact_flags::ENABLE_CONTACT_EVENTS;
     }
     if shapes.get(shape_a * stride + crate::shapes::S_FLAGS) & crate::shapes::SPECULATIVE_FLAG != 0

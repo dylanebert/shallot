@@ -370,10 +370,10 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                     if probe {
                         let flags = u.get(a + shapes::S_FLAGS) | u.get(o + shapes::S_FLAGS);
                         needed = crate::callbacks::filter_enabled(world_index)
-                            && flags & (4 << 16) != 0
+                            && flags & shapes::CUSTOM_FILTERING_FLAG != 0
                             || !sensor
                                 && crate::callbacks::pre_solve_enabled(world_index)
-                                && flags & (16 << 16) != 0;
+                                && flags & shapes::PRE_SOLVE_FLAG != 0;
                         return !needed;
                     }
                     if !crate::callbacks::filter(world_index, target, fast) {
@@ -395,7 +395,7 @@ unsafe fn solve_impl(world_index: usize, worker: usize, i: usize, probe: bool) -
                         }
                     } else if output.fraction > 0.0 && output.fraction < fraction {
                         let flags = u.get(a + shapes::S_FLAGS) | u.get(o + shapes::S_FLAGS);
-                        if flags & (16 << 16) == 0
+                        if flags & shapes::PRE_SOLVE_FLAG == 0
                             || crate::callbacks::pre_solve(
                                 world_index,
                                 target,

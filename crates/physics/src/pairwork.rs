@@ -94,7 +94,7 @@ unsafe fn accept(world: usize, a: u32, b: u32) -> bool {
     if crate::callbacks::filter_enabled(world)
         && (shapes[a as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS]
             | shapes[b as usize * SHAPE_STRIDE + crate::shapes::S_FLAGS])
-            & (4 << 16)
+            & crate::shapes::CUSTOM_FILTERING_FLAG
             != 0
     {
         crate::callback_work::note(world, crate::callback_work::Work::PairSerial);
