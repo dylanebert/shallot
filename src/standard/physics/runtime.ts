@@ -1085,6 +1085,15 @@ export function computeBodyAABB(world: World, eid: number) {
     return bounds;
 }
 
+/** Returns the solver's current awake state, or undefined before fixed sync or for an unbound entity. */
+export function isAwake(world: World, eid: number): boolean | undefined {
+    const runtime = runtimeFor(world);
+    const body = runtime.bodies.get(eid);
+    return runtime.physicsWorld && body
+        ? bodyIsAwake(runtime.physicsWorld, body.index1 - 1)
+        : undefined;
+}
+
 /** Wakes a body and its island, or asks Box3D to put the whole island to sleep. A body added since the last fixed sync ignores it and spawns with `Body.isAwake`. */
 export function setAwake(world: World, eid: number, awake: boolean): void {
     const runtime = runtimeFor(world);

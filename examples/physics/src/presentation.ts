@@ -9,6 +9,7 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
+import { isAwake } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
 import { controlValues, type Scene, visibleControls } from "./scenes";
 
@@ -18,6 +19,28 @@ const materials = {
     motorized: StandardMaterial({ baseColor: [0.04, 0.43, 0.53, 1], perceptualRoughness: 0.38 }),
     sensor: StandardMaterial({ baseColor: [0.04, 0.43, 0.53, 1], perceptualRoughness: 0.38 }),
 };
+
+const sleeping = {
+    ground: materials.ground,
+    subject: StandardMaterial({ baseColor: [0.48, 0.42, 0.3, 1], perceptualRoughness: 0.9 }),
+    motorized: StandardMaterial({ baseColor: [0.29, 0.43, 0.46, 1], perceptualRoughness: 0.9 }),
+    sensor: StandardMaterial({ baseColor: [0.29, 0.43, 0.46, 1], perceptualRoughness: 0.9 }),
+};
+const reaction = StandardMaterial({ baseColor: [1, 0.22, 0.035, 1], perceptualRoughness: 0.3 });
+const restingReaction = StandardMaterial({
+    baseColor: [0.53, 0.34, 0.26, 1],
+    perceptualRoughness: 0.9,
+});
+
+export function shapeMaterial(world: World, role: keyof typeof materials, eid: number) {
+    if (role === "ground") return materials.ground;
+    const body = world.storage(Shape).body.get(eid) || eid;
+    // Hue marks a reaction; resting bodies keep their role's tint but lose saturation and gloss.
+    const asleep = isAwake(world, body) === false;
+    if (world.resource(EventSample).reactions.has(world.ref(body)))
+        return asleep ? restingReaction : reaction;
+    return asleep ? sleeping[role] : materials[role];
+}
 
 export function shapePresentation(world: World, scene: Scene, eid: number) {
     const shape = world.get(eid, Shape)!;

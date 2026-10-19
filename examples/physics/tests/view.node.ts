@@ -1,11 +1,52 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { Body, BodyType, createApp, Shape, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { applyLinearImpulseToCenter, isAwake } from "@dylanebert/shallot/standard/physics";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { EventSample } from "../src/events";
-import { scenePresentation } from "../src/presentation";
+import { EventSample, EventSamplePlugin } from "../src/events";
+import { scenePresentation, shapeMaterial } from "../src/presentation";
 import { categories, controlValues, createScene, visibleControls } from "../src/scenes";
 
 setDefaultTimeout(TIMEOUT.node);
+
+test("sleep changes a body's colour without changing its role", async () => {
+    const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
+    try {
+        const [body] = createScene(app.world, "boxStack");
+        app.world.tick();
+        expect(isAwake(app.world, body!)).toBe(true);
+        const before = Array.from(shapeMaterial(app.world, "subject", body!).baseColor);
+        for (let i = 0; i < 1800 && isAwake(app.world, body!); i++) app.world.tick();
+        expect(isAwake(app.world, body!)).toBe(false);
+        expect(Array.from(shapeMaterial(app.world, "subject", body!).baseColor)).not.toEqual(
+            before,
+        );
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a broken joint recolours its body", async () => {
+    const app = await createApp({ defaults: false, plugins: [EventSamplePlugin] });
+    try {
+        const bodies = createScene(app.world, "joint");
+        const before = bodies.map((body) =>
+            Array.from(shapeMaterial(app.world, "subject", body).baseColor),
+        );
+        app.world.tick();
+        applyLinearImpulseToCenter(app.world, bodies[0]!, { x: 0, y: -1000, z: 0 });
+        for (let i = 0; i < 120; i++) app.world.tick();
+        expect(
+            bodies.some(
+                (body, i) =>
+                    JSON.stringify(
+                        Array.from(shapeMaterial(app.world, "subject", body).baseColor),
+                    ) !== JSON.stringify(before[i]),
+            ),
+        ).toBe(true);
+    } finally {
+        app.dispose();
+    }
+});
 
 for (const { id, name } of categories.flatMap((category) => category.scenes)) {
     test(`${name} builds every shape mesh, role material and controls panel without a GPU`, async () => {

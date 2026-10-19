@@ -56,6 +56,7 @@ test("standard physics exports consumed world operations and profiling without s
         "getLocalPoint",
         "getMassData",
         "hashPhysics",
+        "isAwake",
         "overlapAABB",
         "overlapShape",
         "rotationFromAxisAngle",

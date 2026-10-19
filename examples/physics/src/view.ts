@@ -34,7 +34,7 @@ import { Anchor, Billboard, worldToViewport } from "@dylanebert/shallot/renderin
 import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
 import { Grab } from "./grab";
-import { scenePresentation, shapePresentation } from "./presentation";
+import { scenePresentation, shapeMaterial, shapePresentation } from "./presentation";
 import { type Scene, scenes } from "./scenes";
 
 const HIT_SEGMENT = { width: 2, depthBias: -1 };
@@ -80,6 +80,22 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         motorized: materials.add(presentation.materials.motorized),
         sensor: materials.add(presentation.materials.sensor),
     };
+    const stateMaterials = new Map(
+        Object.entries(roles).map(([role, handle]) => [
+            presentation.materials[role as keyof typeof roles],
+            handle,
+        ]),
+    );
+    function materialFor(role: keyof typeof roles, eid: number) {
+        const material = shapeMaterial(world, role, eid);
+        let handle = stateMaterials.get(material);
+        if (!handle) {
+            handle = materials.add(material);
+            stateMaterials.set(material, handle);
+        }
+        return handle;
+    }
+    const shapeRoles = new Map<EntityRef, keyof typeof roles>();
     const markerMesh = world.resource(Meshes).add({ name: "Grab point", ...sphere(0.5, 16, 12) });
     const markerMaterial = materials.add(
         StandardMaterial({ baseColor: [0.855, 0.815, 0.738, 1], unlit: true }),
@@ -172,6 +188,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             if (!eid || !world.has(eid, Shape)) {
                 meshes.remove(mesh);
                 views.delete(ref);
+                shapeRoles.delete(ref);
             }
         }
         const sample = world.resource(EventSample);
@@ -190,9 +207,22 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 }
             }
             const ref = world.ref(eid);
+            const role = shapeRoles.get(ref);
+            if (role) {
+                const handle = materialFor(role, eid);
+                const storage = world.storage(MeshMaterial);
+                if (
+                    storage.material.get(eid) !== handle.material ||
+                    storage.type.get(eid) !== handle.type
+                ) {
+                    storage.type.set(eid, handle.type);
+                    storage.material.set(eid, handle.material);
+                }
+            }
             if (views.has(ref) && meshes.has(views.get(ref)!)) continue;
             const shape = initial.get(ref) ?? shapePresentation(world, scene, eid);
             initial.delete(ref);
+            shapeRoles.set(ref, shape.role);
             const mesh = meshes.add(shape.mesh);
             views.set(ref, mesh);
             const edges = new GizmoAsset();
@@ -204,7 +234,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 depthBias: -0.0001,
             });
             world.add(eid, MeshInstance, { mesh });
-            world.add(eid, MeshMaterial, roles[shape.role]);
+            world.add(eid, MeshMaterial, materialFor(shape.role, eid));
         }
         for (let i = 0; i < sample.hits.length; i++) {
             const hit = sample.hits[i]!;
@@ -248,8 +278,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         }
     }
     updateShapes(world);
-    if (scene === "contact" || scene === "sensor" || scene === "hit")
-        addSystem({ name: "shape-views", group: "simulation", update: updateShapes });
+    addSystem({ name: "shape-views", group: "simulation", update: updateShapes });
     if (scene === "joint" || scene === "motor") {
         const draw = defaultDebugDraw();
         draw.drawJoints = true;
@@ -267,7 +296,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         for (const mesh of views.values()) meshes.remove(mesh);
         meshes.remove(markerMesh);
         if (groundMesh !== undefined) meshes.remove(groundMesh);
-        for (const material of Object.values(roles)) materials.remove(material);
+        for (const material of stateMaterials.values()) materials.remove(material);
         materials.remove(markerMaterial);
         Object.assign(feedback, GrabFeedback.create());
     };

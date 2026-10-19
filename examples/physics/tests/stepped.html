@@ -12,7 +12,7 @@ const params=new URLSearchParams(location.search);
 const scene=params.get('scene') || 'boxStack';
 const bodyIndex=scene==='bridge'?10:scene==='boxStack'?20:0;
 let bodies;
-const app = await createApp({ plugins: [StandardPhysicsPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin], initialize(world){createViewer(world)(world,scene)}}], setup(world) {
+const app = await createApp({ plugins: [StandardPhysicsPlugin, LinesPlugin, OrbitPlugin, GrabPlugin, {name:'SampleView', dependencies:[MeshPlugin,StandardPhysicsPlugin], initialize(world){createViewer(world)(world,scene)}}], setup(world) {
  bodies=createScene(world,scene);
 } });
 const world=app.world;

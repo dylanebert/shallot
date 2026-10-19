@@ -64,6 +64,7 @@ export const EventSample = {
         speed: 0,
         time: 0,
         hits: [] as PhysicsHitEvent[],
+        reactions: new Set<EntityRef>(),
         bodyRefs: [] as EntityRef[],
         shapeRefs: [] as EntityRef[],
         jointRefs: [] as EntityRef[],
@@ -113,7 +114,10 @@ const AfterSample: System = {
                 const event = records.sensorBegin.records[i]!;
                 if (world.resolve(event.sensorShape) === sample.sensor) {
                     const visitor = world.resolve(event.visitorBody);
-                    if (visitor) world.destroy(visitor);
+                    if (visitor) {
+                        sample.reactions.add(world.ref(sample.sensor));
+                        world.destroy(visitor);
+                    }
                     break;
                 }
             }
@@ -121,7 +125,15 @@ const AfterSample: System = {
         if (sample.scene === "joint") {
             for (let i = 0; i < records.joints.count; i++) {
                 const joint = world.resolve(records.joints.records[i]!.joint);
-                if (joint) world.destroy(joint);
+                if (joint) {
+                    for (const kind of [DistanceJoint, PrismaticJoint, RevoluteJoint, WeldJoint]) {
+                        if (world.has(joint, kind)) {
+                            const body = world.storage(kind).b.get(joint);
+                            sample.reactions.add(world.ref(body));
+                        }
+                    }
+                    world.destroy(joint);
+                }
             }
         }
         if (sample.scene === "contact") {
@@ -130,8 +142,15 @@ const AfterSample: System = {
         }
         if (sample.scene !== "hit") return;
         const events = records.contactHit;
-        for (let i = 0; i < events.count && sample.hits.length < 32; i++)
-            sample.hits.push(structuredClone(events.records[i]!));
+        for (let i = 0; i < events.count; i++) {
+            const event = events.records[i]!;
+            for (const ref of [event.bodyA, event.bodyB]) {
+                const body = world.resolve(ref);
+                if (body && world.storage(Body).type.get(body) === BodyType.Dynamic)
+                    sample.reactions.add(ref);
+            }
+            if (sample.hits.length < 32) sample.hits.push(structuredClone(event));
+        }
     },
 };
 export const EventSamplePlugin: Plugin = {
@@ -586,6 +605,7 @@ function attachDebris(world: World, index: number): void {
         });
     }
     sample.shapeRefs.push(world.ref(eid));
+    sample.reactions.add(world.ref(sample.player));
     world.destroy(debris);
     sample.debris[index] = 0;
 }

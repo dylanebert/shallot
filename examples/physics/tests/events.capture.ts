@@ -15,6 +15,10 @@ for (const [id, name] of [
         await page.goto(`/?scene=${id}`);
         await page.getByRole("button", { name: "Scene", exact: true }).waitFor();
         await capture(page, `${id}-default`);
+        if (id === "sensor") {
+            await page.waitForTimeout(2000);
+            await capture(page, "sensor-reaction");
+        }
         if (id === "hit" || id === "contact") {
             await page.waitForTimeout(id === "hit" ? 5500 : 1800);
             await capture(page, `${id}-events`);

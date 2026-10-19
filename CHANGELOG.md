@@ -2,6 +2,8 @@
 
 ## 0.10.0
 
+`isAwake(world, eid)` in `/standard/physics` (also at the root) reads a body's live solver sleep state, returning `undefined` until fixed sync binds it or after it is unbound. `Body.isAwake` remains a spawn definition.
+
 `shapeEdges(world, shape)` in `/standard/physics` (also at the root) returns fresh body-local endpoint pairs for shape outlines: hull and mesh boundaries without coplanar diagonals, three great circles for spheres, and two longitudinal rings for capsules. Like `shapeMesh`, it bakes shape placement, not the body's Transform, and is an authoring-time conversion.
 
 Point and spot shadow faces now share the largest power-of-two tile size that fits the selected caster set in `PointShadows.atlas`. Camera motion no longer changes a light's shadow resolution or texel-scaled normal bias while that set stays fixed. Importance and hysteresis still select the casters; lights that cannot fit at the minimum tile size still warn and cast no shadow.

@@ -37,6 +37,7 @@ export {
     getLocalPoint,
     getMassData,
     hashPhysics,
+    isAwake,
     overlapAABB,
     overlapShape,
     type PhysicsCastCallback,

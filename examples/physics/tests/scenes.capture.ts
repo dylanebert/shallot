@@ -7,6 +7,8 @@ test("stack, hover, picker and Bridge look review", async ({ page }) => {
     await expect(picker).toBeEnabled();
     await page.waitForTimeout(1000);
     await capture(page, "box-stack");
+    await page.waitForTimeout(15000);
+    await capture(page, "box-stack-asleep");
     await page.mouse.move(640, 300);
     await capture(page, "hover");
     await page.mouse.move(20, 20);
