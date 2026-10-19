@@ -139,7 +139,7 @@
         "publint": "0.3.25",
         "semver": "7.8.5",
         "svelte": "^5.57.2",
-        "svelte-check": "^4.7.6",
+        "svelte-check": "^4.7.7",
         "typegpu": "~0.12.8",
         "typescript": "^7.0.2",
         "vite": "^8.3.4",
