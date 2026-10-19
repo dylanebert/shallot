@@ -162,8 +162,11 @@ class MeshRegistryImpl implements MeshRegistry {
             this._order[i - 1] = this._order[i];
         this._order.pop();
         const pending = this._world.resource(meshResourcesKey).pending;
-        const pendingIndex = pending.findIndex((mesh) => mesh.handle === handle);
-        if (pendingIndex !== -1) pending.splice(pendingIndex, 1);
+        for (let i = 0; i < pending.length; i++) {
+            if (pending[i]!.handle !== handle) continue;
+            pending.splice(i, 1);
+            break;
+        }
         this.version++;
         return mesh;
     }
