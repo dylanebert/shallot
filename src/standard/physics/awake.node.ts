@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Body, BodyType } from "../../core/physics";
 import { createApp } from "../../engine";
-import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { isAwake, StandardPhysicsPlugin, setAwake } from ".";
 
 setDefaultTimeout(TIMEOUT.node);
