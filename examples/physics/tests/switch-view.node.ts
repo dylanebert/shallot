@@ -1,8 +1,8 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { createApp, Meshes, MeshInstance, StandardPhysicsPlugin } from "@dylanebert/shallot";
+import { Meshes, MeshInstance, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { LinesPlugin, OrbitPlugin, TextPlugin } from "@dylanebert/shallot/extras";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { setupGlobals } from "@dylanebert/shallot/webgpu";
+import { openGpuApp } from "@dylanebert/shallot/testing/gpu";
 import { EventSamplePlugin, SampleInputPlugin } from "../src/events";
 import { Grab, GrabPlugin } from "../src/grab";
 import { sceneSwitcher } from "../src/sample";
@@ -10,10 +10,9 @@ import { type Scene, scenes } from "../src/scenes";
 import { createViewer, GrabFeedback } from "../src/view";
 
 setDefaultTimeout(TIMEOUT.node);
-await setupGlobals();
 
 test("scene presentation releases old meshes, systems and grab feedback in the running app", async () => {
-    const app = await createApp({
+    const app = await openGpuApp({
         plugins: [
             StandardPhysicsPlugin,
             EventSamplePlugin,

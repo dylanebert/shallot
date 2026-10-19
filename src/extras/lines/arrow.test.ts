@@ -8,7 +8,7 @@ import { drawArrow, drawLine, head, lineStaging, segmentState } from "./segments
 test("an arrow stages one filled triangle in its shaft's colour and width, facing world up by default", () => {
     const world = new World();
     try {
-        drawArrow(world, [0, 0, 0], [5, 0, 0], 0xeee9df, 3);
+        drawArrow(world, [0, 0, 0], [5, 0, 0], 0xeee9df, { width: 3 });
         const values = lineStaging(world);
         const words = new Uint32Array(values.buffer);
         const o = SEGMENT_FLOATS;
@@ -27,8 +27,8 @@ test("an arrow stages one filled triangle in its shaft's colour and width, facin
 test("two different shaft lengths given the same tip length stage the same head", () => {
     const world = new World();
     try {
-        drawArrow(world, [0, 0, 0], [5, 0, 0], 0xeee9df, 3, 0.6);
-        drawArrow(world, [-5, 0, 0], [5, 0, 0], 0xeee9df, 3, 0.6);
+        drawArrow(world, [0, 0, 0], [5, 0, 0], 0xeee9df, { width: 3 }, 0.6);
+        drawArrow(world, [-5, 0, 0], [5, 0, 0], 0xeee9df, { width: 3 }, 0.6);
         const words = new Uint32Array(lineStaging(world).buffer);
         expect(Array.from(words.slice(SEGMENT_FLOATS, SEGMENT_FLOATS * 2))).toEqual(
             Array.from(words.slice(SEGMENT_FLOATS * 3, SEGMENT_FLOATS * 4)),
@@ -42,7 +42,7 @@ test("two different shaft lengths given the same tip length stage the same head"
 test("the head is one nondegenerate triangle perpendicular to its supplied normal, independent of a view", () => {
     const world = new World();
     try {
-        drawLine(world, [0, 2, 3], [5, 2, 3], 0xffffff, 3);
+        drawLine(world, [0, 2, 3], [5, 2, 3], 0xffffff, { width: 3 });
         expect(head(segmentState(world), 1, [0, 0, 2])).toBe(1);
         const row = lineStaging(world).subarray(SEGMENT_FLOATS);
         const a = d.vec3f(row[0], row[1], row[2]);
@@ -66,9 +66,9 @@ test("a plane normal must be nonzero and perpendicular to the shaft; an empty he
             [0, 0, 0],
             [1, 1, 0],
         ]) {
-            expect(() => drawArrow(world, [0, 0, 0], [1, 0, 0], 0xffffff, 1, 1, normal)).toThrow(
-                "perpendicular",
-            );
+            expect(() =>
+                drawArrow(world, [0, 0, 0], [1, 0, 0], 0xffffff, { width: 1 }, 1, normal),
+            ).toThrow("perpendicular");
         }
         drawLine(world, [0, 0, 0], [0, 0, 0], 0xffffff);
         expect(head(segmentState(world), 1, [0, 1, 0])).toBe(0);

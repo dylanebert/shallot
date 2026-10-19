@@ -29,6 +29,9 @@ import { Grab } from "./grab";
 import { scenePresentation, shapePresentation } from "./presentation";
 import { type Scene, scenes } from "./scenes";
 
+const HIT_SEGMENT = { width: 2, depthBias: -1 };
+const HIT_POINT = { width: 3, depthBias: -1 };
+
 export const GrabFeedback = {
     create: () => ({ marker: 0, attachment: [0, 0, 0] as [number, number, number] }),
 };
@@ -125,7 +128,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                 const scale = 8 / Math.hypot(up[0] - center[0], up[1] - center[1]);
                 transform.scale.set(feedback.marker, scale, scale, scale);
             }
-            drawLine(world, p, grab.point, 0xeee9df, 1);
+            drawLine(world, p, grab.point, 0xeee9df);
         },
     });
     const meshes = world.resource(Meshes);
@@ -165,20 +168,12 @@ function createView(world: World, scene: Scene, camera: number): () => void {
         }
         for (let i = 0; i < sample.hits.length; i++) {
             const hit = sample.hits[i]!;
-            const point: [number, number, number] = [
-                hit.point.x + 0.05 * hit.normal.x,
-                hit.point.y + 0.05 * hit.normal.y,
-                hit.point.z + 0.05 * hit.normal.z,
-            ];
+            const point: [number, number, number] = [hit.point.x, hit.point.y, hit.point.z];
             if (!labels[i]) {
                 const label = world.create();
                 labels[i] = label;
                 world.add(label, Transform, {
-                    translation: [
-                        point[0] + hit.normal.x,
-                        point[1] + hit.normal.y,
-                        point[2] + hit.normal.z,
-                    ],
+                    translation: point,
                 });
                 world.add(label, Text, {
                     content: internText(
@@ -186,30 +181,29 @@ function createView(world: World, scene: Scene, camera: number): () => void {
                         `${hit.approachSpeed.toFixed(1)}, ${hit.userMaterialIdA}`,
                     ),
                     fontSize: 1,
+                    depthBias: -1,
                     billboard: Billboard.Screen,
                     color: 0xeee9df,
                 });
                 world.add(label, Anchor, { offset: [...Anchor.BOTTOM_LEFT] });
             }
-            // Incoming direction and speed from the hit record, placed above the opaque ground
-            // rather than below it: Shallot's lines/text are depth-tested, not debug overlays.
             drawLine(
                 world,
                 [
-                    point[0] + hit.approachSpeed * hit.normal.x,
-                    point[1] + hit.approachSpeed * hit.normal.y,
-                    point[2] + hit.approachSpeed * hit.normal.z,
+                    point[0] - hit.approachSpeed * hit.normal.x,
+                    point[1] - hit.approachSpeed * hit.normal.y,
+                    point[2] - hit.approachSpeed * hit.normal.z,
                 ],
                 point,
                 0xffb62e,
-                2,
+                HIT_SEGMENT,
             );
             drawLine(
                 world,
                 [point[0] - 0.2, point[1], point[2]],
                 [point[0] + 0.2, point[1], point[2]],
                 0xffb62e,
-                3,
+                HIT_POINT,
             );
         }
     }
@@ -219,7 +213,7 @@ function createView(world: World, scene: Scene, camera: number): () => void {
     if (scene === "joint" || scene === "motor") {
         const draw = defaultDebugDraw();
         draw.drawJoints = true;
-        draw.drawSegment = (a, b) => drawLine(world, [a.x, a.y, a.z], [b.x, b.y, b.z], 0x38a4b5, 1);
+        draw.drawSegment = (a, b) => drawLine(world, [a.x, a.y, a.z], [b.x, b.y, b.z], 0x38a4b5);
         addSystem({
             name: "joint-views",
             group: "simulation",

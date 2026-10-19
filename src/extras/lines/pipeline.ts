@@ -1,12 +1,20 @@
 import tgpu, { type TgpuRoot } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { DEPTH_FORMAT, ViewUniforms } from "../../core/rendering";
+import { biasClipDepth, DEPTH_FORMAT, ViewUniforms } from "../../core/rendering";
 import { unpackLdrColor } from "../../engine/utils";
 
 /** A pixel-width shaft, or one world-space triangle with vertices a, b and c. */
 export const Segment = d
-    .struct({ a: d.vec3f, width: d.f32, b: d.vec3f, color: d.u32, c: d.vec3f, triangle: d.u32 })
+    .struct({
+        a: d.vec3f,
+        width: d.f32,
+        b: d.vec3f,
+        color: d.u32,
+        c: d.vec3f,
+        triangle: d.u32,
+        depthBias: d.f32,
+    })
     .$name("Segment");
 
 export const SEGMENT_BYTES = d.sizeOf(Segment);
@@ -53,7 +61,7 @@ const LineVertex = tgpu.vertexFn({
     if (seg.triangle !== 0) {
         const point = triangleVertex(seg.a, seg.b, seg.c, index);
         return {
-            position: std.mul(view.viewProj, d.vec4f(point, 1)),
+            position: biasClipDepth(std.mul(view.viewProj, d.vec4f(point, 1)), seg.depthBias),
             rgba: unpackLdrColor(seg.color),
             edge: d.vec2f(0, 1),
         };
@@ -67,7 +75,7 @@ const LineVertex = tgpu.vertexFn({
         seg.width,
     );
     return {
-        position: quad.clip,
+        position: biasClipDepth(quad.clip, seg.depthBias),
         rgba: std.mul(unpackLdrColor(seg.color), quad.tint),
         edge: quad.edge,
     };

@@ -103,6 +103,8 @@ export const Text = component(
         justify: u32,
         /** 0..1 opacity multiplier */
         opacity: f32,
+        /** Clip-depth bias, clamped to [-1, 1]: 0 (default) depth-tests normally, -1 draws on top, 1 moves to the far plane. Negative intermediate values bias exponentially toward the camera. */
+        depthBias: f32,
         /** hex sRGB glyph color */
         color: f32,
     },
@@ -115,6 +117,7 @@ export const Text = component(
             maxWidth: Infinity,
             justify: Justify.Left,
             opacity: 1,
+            depthBias: 0,
             color: 0xffffff,
         }),
     },
@@ -273,6 +276,7 @@ function layoutLabel(world: World, label: TextLabelDraw): void {
         state.f32[o + GLYPH_AT.size + 1] = g.height;
         state.u32[o + GLYPH_AT.color] = color;
         state.u32[o + GLYPH_AT.billboard] = text.billboard.get(eid);
+        state.f32[o + GLYPH_AT.depthBias] = text.depthBias.get(eid);
     }
 }
 
@@ -288,6 +292,7 @@ function updateLabels(world: World): void {
     const opacityDirty = world.fieldStorage(Text, "opacity").dirty;
     const anchorDirty = world.fieldStorage(Anchor, "offset").dirty;
     const billboardDirty = world.fieldStorage(Text, "billboard").dirty;
+    const depthBiasDirty = world.fieldStorage(Text, "depthBias").dirty;
     let dirtyStart = Infinity;
     let dirtyEnd = 0;
     for (const label of state.labelDraws) label.seen = false;
@@ -343,9 +348,11 @@ function updateLabels(world: World): void {
                 dirtyEnd,
                 oldCount === label.count ? label.start + label.count : state.count,
             );
-        } else if (billboardDirty[word] & bit) {
-            for (let n = label.start; n < label.start + label.count; n++)
+        } else if ((billboardDirty[word] | depthBiasDirty[word]) & bit) {
+            for (let n = label.start; n < label.start + label.count; n++) {
                 state.u32[n * GLYPH_FLOATS + GLYPH_AT.billboard] = text.billboard.get(eid);
+                state.f32[n * GLYPH_FLOATS + GLYPH_AT.depthBias] = text.depthBias.get(eid);
+            }
             dirtyStart = Math.min(dirtyStart, label.start);
             dirtyEnd = Math.max(dirtyEnd, label.start + label.count);
         }

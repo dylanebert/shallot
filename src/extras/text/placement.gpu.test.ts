@@ -13,6 +13,7 @@ import { VIEW_BYTES } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
 import { probeTexture } from "../../engine/runtime";
 import { maskLayoutPlain, maskVertex } from "../outline/passes";
+import { GLYPH_AT, GLYPH_BYTES } from "./glyph";
 import { TextVertex } from "./pipeline";
 
 setDefaultTimeout(TIMEOUT.gpu);
@@ -61,10 +62,10 @@ const subject = compileGpuFile(import.meta.path, async () => {
         device.queue.writeBuffer(b, 0, data.buffer, data.byteOffset, data.byteLength);
         buffers[name] = b;
     }
-    const glyph = new ArrayBuffer(48);
-    new Uint32Array(glyph)[3] = eid;
-    new Uint32Array(glyph)[11] = Billboard.World;
-    new Float32Array(glyph).set([0.5, 0.5], 8);
+    const glyph = new ArrayBuffer(GLYPH_BYTES);
+    new Uint32Array(glyph)[GLYPH_AT.eid] = eid;
+    new Uint32Array(glyph)[GLYPH_AT.billboard] = Billboard.World;
+    new Float32Array(glyph).set([0.5, 0.5], GLYPH_AT.size);
     buffer("glyphs", new Uint8Array(glyph));
     buffer("maskEids", new Uint32Array([eid]));
     const quant = { posOffset: d.vec4f(0), posScale: d.vec4f(0.5, 0.5, 1, 0), uvScale: d.vec4f(0) };

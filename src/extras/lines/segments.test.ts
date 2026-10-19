@@ -44,8 +44,28 @@ test("an asset appends each drawn segment with no authored width", () => {
     for (let i = 0; i < 13; i++) expect(asset.segments.f32[i * SEGMENT_FLOATS + 3]).toBe(0);
 });
 
+test("immediate line, box and arrow options stage depth bias on every primitive", () => {
+    const world = new World();
+    try {
+        const options = { width: 3, depthBias: -0.25 };
+        drawLine(world, [0, 0, 0], [1, 0, 0], 0xffffff, options);
+        drawWireBox(world, [0, 0, 0], [1, 1, 1], 0xffffff, options);
+        drawArrow(world, [0, 0, 0], [1, 0, 0], 0xffffff, options);
+        const state = segmentState(world);
+        expect(state.count).toBe(15);
+        for (let i = 0; i < state.count; i++) {
+            expect(state.f32[i * SEGMENT_FLOATS + 3]).toBe(3);
+            expect(state.f32[i * SEGMENT_FLOATS + 12]).toBe(-0.25);
+        }
+        drawLine(world, [0, 0, 0], [1, 0, 0], 0xffffff);
+        expect(state.f32[15 * SEGMENT_FLOATS + 12]).toBe(0);
+    } finally {
+        world.dispose();
+    }
+});
+
 function assetWidthTypeControls(world: World, asset: GizmoAsset): void {
-    drawLine(world, [0, 0, 0], [1, 0, 0], 0xffffff, 3);
+    drawLine(world, [0, 0, 0], [1, 0, 0], 0xffffff, { width: 3 });
     // @ts-expect-error Retained width belongs to Gizmo, not its asset.
     drawLine(asset, [0, 0, 0], [1, 0, 0], 0xffffff, 3);
     // @ts-expect-error Retained width belongs to Gizmo, not its asset.

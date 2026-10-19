@@ -2,7 +2,14 @@ import tgpu, { type TgpuRoot } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { decodePos, MeshQuant, meshIdOf } from "../../core/mesh";
-import { billboardCorner, DEPTH_FORMAT, ViewUniforms, Xform, xformMat } from "../../core/rendering";
+import {
+    biasClipDepth,
+    billboardCorner,
+    DEPTH_FORMAT,
+    ViewUniforms,
+    Xform,
+    xformMat,
+} from "../../core/rendering";
 import { unpackLdrColor } from "../../engine/utils";
 import { Glyph, sdfToSignedDistance } from "./glyph";
 
@@ -67,7 +74,10 @@ export const TextVertex = tgpu.vertexFn({
         local.y,
     );
     return {
-        position: std.mul(viewLayout.$.view.viewProj, d.vec4f(world, 1)),
+        position: biasClipDepth(
+            std.mul(viewLayout.$.view.viewProj, d.vec4f(world, 1)),
+            glyph.depthBias,
+        ),
         uvSize: d.vec4f(uv, glyph.size),
         color: unpackLdrColor(glyph.color),
         local: corner,

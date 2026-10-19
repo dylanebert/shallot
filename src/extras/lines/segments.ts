@@ -87,6 +87,7 @@ export function push(
     color: number,
     stableId = 0,
     stablePart?: number,
+    depthBias = 0,
 ): void {
     if (state.count >= state.capacity) grow(state, state.count + 1);
     const index = state.count;
@@ -100,6 +101,7 @@ export function push(
     state.f32[o + 6] = bz;
     state.u32[o + 7] = color;
     state.u32[o + 11] = 0;
+    state.f32[o + 12] = depthBias;
     state.stableIds[index] = stableId;
     state.stableParts[index] = stablePart ?? index;
     state.count++;
@@ -155,8 +157,18 @@ export function head(state: SegmentState, tipLength: number, normal: ArrayLike<n
     state.f32[o + 9] = ty - dy * back - sy;
     state.f32[o + 10] = tz - dz * back - sz;
     state.u32[o + 11] = 1;
+    state.f32[o + 12] = state.f32[shaft + 12];
     return 1;
 }
+
+export interface LineOptions {
+    /** Constant screen width in pixels; defaults to 1. */
+    width?: number;
+    /** Clip-depth bias, clamped to [-1, 1]: 0 (default) depth-tests normally, -1 draws on top, 1 moves to the far plane. Negative intermediate values bias exponentially toward the camera. */
+    depthBias?: number;
+}
+
+const DEFAULT_OPTIONS: LineOptions = {};
 
 /** Draws one segment this frame on a World, or appends local-space geometry to an asset. Width is in pixels; color is hex sRGB. */
 export function drawLine(
@@ -164,7 +176,7 @@ export function drawLine(
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
-    width?: number,
+    options?: LineOptions,
 ): void;
 export function drawLine(
     asset: GizmoAsset,
@@ -177,7 +189,7 @@ export function drawLine(
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
-    width = 1,
+    options: LineOptions = DEFAULT_OPTIONS,
 ): void {
     push(
         segmentState(world),
@@ -187,8 +199,11 @@ export function drawLine(
         b[0],
         b[1],
         b[2],
-        world instanceof GizmoAsset ? 0 : width,
+        world instanceof GizmoAsset ? 0 : (options.width ?? 1),
         packColor(color, 1),
+        0,
+        undefined,
+        world instanceof GizmoAsset ? 0 : (options.depthBias ?? 0),
     );
 }
 
@@ -198,7 +213,7 @@ export function drawWireBox(
     min: ArrayLike<number>,
     max: ArrayLike<number>,
     color: number,
-    width?: number,
+    options?: LineOptions,
 ): void;
 export function drawWireBox(
     asset: GizmoAsset,
@@ -211,8 +226,9 @@ export function drawWireBox(
     min: ArrayLike<number>,
     max: ArrayLike<number>,
     color: number,
-    width = 1,
+    options: LineOptions = DEFAULT_OPTIONS,
 ): void {
+    let width = options.width ?? 1;
     const c = packColor(color, 1);
     const x0 = min[0];
     const y0 = min[1];
@@ -235,6 +251,9 @@ export function drawWireBox(
             b & 4 ? z1 : z0,
             width,
             c,
+            0,
+            undefined,
+            world instanceof GizmoAsset ? 0 : (options.depthBias ?? 0),
         );
     }
 }
@@ -242,13 +261,13 @@ export function drawWireBox(
 const BOX_EDGES = [0, 1, 1, 5, 5, 4, 4, 0, 2, 3, 3, 7, 7, 6, 6, 2, 0, 2, 1, 3, 5, 7, 4, 6];
 const WORLD_UP = [0, 1, 0] as const;
 
-/** Draws a shaft and filled triangle at `b`, normal to `normal` (up by default). Coordinates, tipLength and normal are world-space on a World, local-space on an asset. The normal must be nonzero and perpendicular to the shaft. Width is in pixels on a World; asset calls must leave it undefined and use Gizmo.width. A negative tipLength chooses a tenth of the shaft length; zero omits the head. */
+/** Draws a shaft and filled triangle at `b`, normal to `normal` (up by default). Coordinates, tipLength and normal are world-space on a World, local-space on an asset. The normal must be nonzero and perpendicular to the shaft. Options set pixel width and depth bias on a World; asset calls must leave them undefined and use Gizmo's appearance. A negative tipLength chooses a tenth of the shaft length; zero omits the head. */
 export function drawArrow(
     world: World,
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
-    width?: number,
+    options?: LineOptions,
     tipLength?: number,
     normal?: ArrayLike<number>,
 ): void;
@@ -257,7 +276,7 @@ export function drawArrow(
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
-    width?: never,
+    options?: never,
     tipLength?: number,
     normal?: ArrayLike<number>,
 ): void;
@@ -266,13 +285,26 @@ export function drawArrow(
     a: ArrayLike<number>,
     b: ArrayLike<number>,
     color: number,
-    width = 1,
+    options: LineOptions = DEFAULT_OPTIONS,
     tipLength = -1,
     normal: ArrayLike<number> = WORLD_UP,
 ): void {
     const c = packColor(color, 1);
     const state = segmentState(world);
-    push(state, a[0], a[1], a[2], b[0], b[1], b[2], world instanceof GizmoAsset ? 0 : width, c);
+    push(
+        state,
+        a[0],
+        a[1],
+        a[2],
+        b[0],
+        b[1],
+        b[2],
+        world instanceof GizmoAsset ? 0 : (options.width ?? 1),
+        c,
+        0,
+        undefined,
+        world instanceof GizmoAsset ? 0 : (options.depthBias ?? 0),
+    );
     head(state, tipLength, normal);
 }
 

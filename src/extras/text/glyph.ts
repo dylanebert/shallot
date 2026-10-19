@@ -12,6 +12,7 @@ export const Glyph = d.struct({
     size: d.vec2f,
     color: d.u32,
     billboard: d.u32,
+    depthBias: d.f32,
 });
 
 /** one glyph instance's byte size, from {@link Glyph} — the staging + GPU buffer stride. @internal */
@@ -33,6 +34,7 @@ export const GLYPH_AT = {
     size: at(Glyph, (g) => g.size),
     color: at(Glyph, (g) => g.color),
     billboard: at(Glyph, (g) => g.billboard),
+    depthBias: at(Glyph, (g) => g.depthBias),
 } as const;
 
 /**

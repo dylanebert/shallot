@@ -41,7 +41,14 @@ const subjects = gpuApps(import.meta.path, [
                         before: LinesPlugin.systems,
                         update(world) {
                             if (world.resource(Show).value)
-                                drawArrow(world, [-5, -1.5, 0], [1, -1.5, 0], 0xffffff, 3, 1.8);
+                                drawArrow(
+                                    world,
+                                    [-5, -1.5, 0],
+                                    [1, -1.5, 0],
+                                    0xffffff,
+                                    { width: 3 },
+                                    1.8,
+                                );
                         },
                     },
                 ],

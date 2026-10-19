@@ -1,6 +1,3 @@
-import { component } from "../../engine";
-// Lines are depth-tested transparent geometry, not an overlay.
-
 import {
     BeginFrameSystem,
     Camera,
@@ -13,7 +10,7 @@ import {
 } from "../../core/rendering";
 import { composeGlobalTransform, GlobalTransform } from "../../core/transform";
 import type { Plugin, System, World } from "../../engine";
-import { f32 } from "../../engine";
+import { component, f32 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { createLinePipeline, lineLayout, SEGMENT_FLOATS, viewLayout } from "./pipeline";
 import {
@@ -33,7 +30,7 @@ import {
     warmSegments,
 } from "./segments";
 
-export { drawArrow, drawLine, drawWireBox, GizmoAsset } from "./segments";
+export { drawArrow, drawLine, drawWireBox, GizmoAsset, type LineOptions } from "./segments";
 
 /** Draws a registered asset at the entity's GlobalTransform. Remove Gizmo to hide it. */
 export const Gizmo = component(
@@ -45,8 +42,10 @@ export const Gizmo = component(
         width: f32,
         /** 0..1 opacity multiplier. */
         opacity: f32,
+        /** Clip-depth bias, clamped to [-1, 1]: 0 (default) depth-tests normally, -1 draws on top, 1 moves to the far plane. Negative intermediate values bias exponentially toward the camera. */
+        depthBias: f32,
     },
-    { defaults: () => ({ handle: 0, width: 2, opacity: 1 }) },
+    { defaults: () => ({ handle: 0, width: 2, opacity: 1, depthBias: 0 }) },
 );
 
 const gizmoAssets = { create: () => [] as GizmoAsset[] };
@@ -92,6 +91,7 @@ function expandRetained(world: World): void {
             target.f32[out + 3] = width;
             target.u32[out + 7] = (source.u32[at + 7] & 0xffffff) | alpha;
             target.u32[out + 11] = triangle;
+            target.f32[out + 12] = gizmos.depthBias.get(eid);
             target.stableIds[index] = eid;
             target.stableParts[index] = i;
         }

@@ -100,9 +100,17 @@ for (const subject of [
             world.add(camera, Camera);
             world.add(camera, StandardRenderer);
             linesFrame = () => {
-                drawLine(world, [-1.3, 0.8, 0], [1.2, 0.8, 0], 0xffaa55, 2);
-                drawArrow(world, [-1.3, -0.8, 0], [1.2, -0.8, 0], 0x55aaff, 3, 0.4, [0, 0, 1]);
-                drawWireBox(world, [-0.6, -0.5, -0.3], [0.6, 0.5, 0.3], 0xffffff, 1);
+                drawLine(world, [-1.3, 0.8, 0], [1.2, 0.8, 0], 0xffaa55, { width: 2 });
+                drawArrow(
+                    world,
+                    [-1.3, -0.8, 0],
+                    [1.2, -0.8, 0],
+                    0x55aaff,
+                    { width: 3 },
+                    0.4,
+                    [0, 0, 1],
+                );
+                drawWireBox(world, [-0.6, -0.5, -0.3], [0.6, 0.5, 0.3], 0xffffff);
             };
         } else if (subject === "particles") {
             camera = world.resource(Room).camera;
