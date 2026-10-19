@@ -23,7 +23,9 @@ export type Hull = { name: string } & (
           halfExtents: readonly [number, number, number];
           points?: never;
           maxVertexCount?: never;
-          /** Box-local placement in body-local meters, before Shape.scale. Rotation is a normalized xyzw quaternion. */
+          /** The box's placement in hull-local meters, baked into this hull as b3MakeTransformedBoxHull
+           * and shared by every Shape naming it; Shape.scale applies after it. Rotation is a normalized
+           * xyzw quaternion. To place one Shape's hull instead, use Shape.hullPosition and hullRotation. */
           transform?: {
               position: readonly [number, number, number];
               rotation: readonly [number, number, number, number];

@@ -37,7 +37,8 @@ export const Shape = component(
          * hullRotation and hullPosition, then cloned again with the body's Transform.scale.
          * Box3D clamps each scale's magnitudes to at least 0.01, keeps the hull's topology and
          * rebuilds its planes and mass. Identity placement builds the hull at both scales with its
-         * own builder. Changes recreate at the next fixed sync. */
+         * own builder. Hull.transform instead bakes a box's placement into the hull itself, before
+         * Shape.scale. Changes recreate at the next fixed sync. */
         hullPosition: vec3,
         /** Hull-only normalized xyzw rotation, applied after Shape.scale and before hullPosition.
          * Changes recreate at the next fixed sync. */
