@@ -40,11 +40,16 @@ export const DebandDither = component(
 /** Camera marker: core skips this view's tonemapping and EffectPasses.
  * The replacement owns grading and encoding and must write every presented pixel
  * through `world.frameEncoder()` after PresentationSystem and before engine submission.
+ * Above the bottom camera of a shared target, `view.present` is the camera's own image, blended
+ * over the cameras below by the premultiplied alpha the replacement writes.
  * Removing the marker resumes core presentation on the next draw.
  */
 export const CustomPresentation = component("CustomPresentation", {});
 
 /** An effect records commands on the frame encoder. Input and output never alias.
+ * A camera's effects read and write only its own image: on a shared target, a lower camera's effects
+ * never reach a higher camera's pixels, and a higher camera's reach the pixels below only through
+ * the premultiplied alpha its last pass writes, which blends its image over them.
  * Before-tonemapping passes receive linear HDR; after-tonemapping passes receive
  * encoded display-referred values in an rgba8unorm intermediate. The last pass
  * writes the presented target in the preferred canvas format. Before outputs are
@@ -74,7 +79,7 @@ interface Targets {
     display: Target[];
 }
 const tonemappingState = () => {
-    const bytes = new Float32Array(29);
+    const bytes = new Float32Array(30);
     return {
         configs: [] as ReturnType<typeof configBuffer>[],
         built: null as ReturnType<typeof composite> | null,
@@ -193,6 +198,7 @@ export const TonemappingSystem: System = {
             }
             state.words[5] = world.has(eid, Tonemapping) ? methods.method.get(eid) : 0;
             state.words[28] = world.has(eid, DebandDither) ? dither.enabled.get(eid) : 1;
+            state.words[29] = view.sortedIndexForTarget === 0 ? 0 : 1;
             device.queue.writeBuffer(state.buffers[view.slot], 0, b);
             let cached = state.groups.get(view);
             if (!cached || cached.input !== input || cached.slot !== view.slot) {

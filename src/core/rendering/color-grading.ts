@@ -58,6 +58,8 @@ export const GradingConfig = d.struct({
     gain: d.vec4f,
     lift: d.vec4f,
     debandDither: d.u32,
+    /** 1 when the camera presents over cameras below it: input and output carry premultiplied alpha. */
+    premultipliedAlpha: d.u32,
 });
 
 /** Shadow, midtone and highlight weights with continuous crossfades. */

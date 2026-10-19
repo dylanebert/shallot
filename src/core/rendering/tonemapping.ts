@@ -31,9 +31,15 @@ export function tonemappingKernel(layout: ReturnType<typeof tonemappingLayout>) 
     return tgpu
         .fragmentFn({ in: { position: d.builtin.position }, out: d.vec4f })((input) => {
             "use gpu";
-            const source = std.textureLoad(layout.$.input, d.vec2u(input.position.xy), 0).xyz;
+            const texel = std.textureLoad(layout.$.input, d.vec2u(input.position.xy), 0);
+            let source = texel.xyz;
+            let alpha = d.f32(1);
+            if (layout.$.grading.premultipliedAlpha !== 0) {
+                alpha = std.saturate(texel.w);
+                if (alpha > 0) source = std.div(source, alpha);
+            }
             if (layout.$.grading.tonemapMode === 1)
-                return d.vec4f(linearToSrgb3(std.max(source, d.vec3f(0))), 1);
+                return d.vec4f(std.mul(linearToSrgb3(std.max(source, d.vec3f(0))), alpha), alpha);
             let color = grade(source, layout.$.grading);
             if (layout.$.grading.tonemapMode === 0) {
                 const encoded = std.div(color, std.add(color, 1));
@@ -56,7 +62,7 @@ export function tonemappingKernel(layout: ReturnType<typeof tonemappingLayout>) 
                 color = std.add(color, noise);
                 color = std.mul(std.pow(std.abs(color), d.vec3f(2.2)), std.sign(color));
             }
-            return d.vec4f(linearToSrgb3(std.max(color, d.vec3f(0))), 1);
+            return d.vec4f(std.mul(linearToSrgb3(std.max(color, d.vec3f(0))), alpha), alpha);
         })
         .$name("tonemapping");
 }

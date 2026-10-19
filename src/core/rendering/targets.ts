@@ -79,6 +79,8 @@ function createTargets() {
     };
 }
 export const viewTargetsKey = { create: createTargets };
+// Outside the u32 clearColor range: the cached clear is transparent black.
+const TRANSPARENT = -2;
 
 export function initializeViewTargets(world: World): void {
     world.resource(viewTargetsKey);
@@ -188,20 +190,30 @@ export function colorTargets(
     return entry;
 }
 
-/** Borrow the main-pass descriptor until the next call; core owns clear and resolve. */
+/** Borrow the main-pass descriptor until the next call; core owns clear and resolve. The bottom camera
+ * of a target clears to its clearColor; a camera above it clears to transparent black. */
 export function colorPassDescriptor(
     world: World,
     eid: number,
     targets: ColorTargets,
     framebuffer: GPUTextureView,
+    bottom: boolean,
 ): GPURenderPassDescriptor {
     const state = world.resource(viewTargetsKey);
-    const packed = world.storage(Camera).clearColor.get(eid);
+    const packed = bottom ? world.storage(Camera).clearColor.get(eid) : TRANSPARENT;
     if (packed !== state.clearPacked) {
-        const clear = unpackColor(packed);
-        state.clearValue.r = clear.r;
-        state.clearValue.g = clear.g;
-        state.clearValue.b = clear.b;
+        if (bottom) {
+            const clear = unpackColor(packed);
+            state.clearValue.r = clear.r;
+            state.clearValue.g = clear.g;
+            state.clearValue.b = clear.b;
+            state.clearValue.a = 1;
+        } else {
+            state.clearValue.r = 0;
+            state.clearValue.g = 0;
+            state.clearValue.b = 0;
+            state.clearValue.a = 0;
+        }
         state.clearPacked = packed;
     }
     if (targets.colorView) {

@@ -67,7 +67,9 @@ import {
     presentingViewRefusal,
     presentingViewSlot,
     pruneViews,
+    releaseStacked,
     sizeView,
+    stacked,
     VIEW_BYTES,
     VIEW_STRIDE,
     type View as ViewSlot,
@@ -276,6 +278,53 @@ function ensureRenderSlotCapacity(world: World, requiredSlots: number, shadeCoun
     }
 }
 
+function targetBelow(
+    world: World,
+    a: number,
+    viewA: ViewSlot,
+    b: number,
+    viewB: ViewSlot,
+): boolean {
+    if (viewA.target !== viewB.target) return viewA.target < viewB.target;
+    const order = world.storage(Camera).order;
+    const orderA = order.get(a);
+    const orderB = order.get(b);
+    return orderA !== orderB ? orderA < orderB : a < b;
+}
+
+// Sorts canvas and texture views by (target, order, eid) and indexes each target's cameras bottom to
+// top, as Bevy's sort_cameras does by (order, target). Insertion sort: the order is stable across frames.
+function sortTargets(world: World, eids: number[], views: ViewSlot[]): void {
+    for (let i = 1; i < eids.length; i++) {
+        const eid = eids[i]!;
+        const view = views[i]!;
+        let j = i - 1;
+        while (j >= 0 && targetBelow(world, eid, view, eids[j]!, views[j]!)) {
+            eids[j + 1] = eids[j]!;
+            views[j + 1] = views[j]!;
+            j--;
+        }
+        eids[j + 1] = eid;
+        views[j + 1] = view;
+    }
+    const order = world.storage(Camera).order;
+    for (let i = 0; i < eids.length; i++) {
+        const view = views[i]!;
+        const below = i > 0 ? views[i - 1]! : undefined;
+        if (below?.target !== view.target) {
+            view.sortedIndexForTarget = 0;
+            continue;
+        }
+        view.sortedIndexForTarget = below.sortedIndexForTarget + 1;
+        if (!view.orderTieWarned && order.get(eids[i - 1]!) === order.get(eids[i]!)) {
+            view.orderTieWarned = true;
+            console.warn(
+                `shallot: cameras ${eids[i - 1]} and ${eids[i]} share Camera.order ${order.get(eids[i]!)} on one target; ${eids[i]} draws on top. Give each camera on a target its own order.`,
+            );
+        }
+    }
+}
+
 /**
  * prepares per-frame render state: writes the Frame UBO, records history work
  * on the World's lazy frame encoder, acquires each view's swapchain backbuffer
@@ -303,8 +352,11 @@ export const BeginFrameSystem: System = {
 
         let shadeCount = 0;
         let depthOnly = 0;
+        let targetCount = 0;
         const presentingEids = _renderFrame.presentingEids;
         const presentingViews = _renderFrame.presentingViews;
+        const targetEids = _renderFrame.targetEids;
+        const targetViews = _renderFrame.targetViews;
         // Presenting views own the low uniform slots; depth-only views stack above them in the
         // fixed cull-table tail. These scratch arrays are retained by renderFrameKey across frames.
         for (const eid of world.query(CAMERAS)) {
@@ -314,16 +366,27 @@ export const BeginFrameSystem: System = {
             view.framebufferFormat = undefined;
             view.present = null;
             view.canvasTexture = undefined;
-            sizeView(world, eid, view);
-            if (view.width === 0 || view.height === 0) continue;
-            if (!view.context && !view.texture) {
-                view.framebuffer = null;
-                view.present = null;
-                _renderFrame.depthOnlyEids[depthOnly] = eid;
-                _renderFrame.depthOnlyViews[depthOnly] = view;
-                depthOnly++;
+            if (view.context || view.texture) {
+                targetEids[targetCount] = eid;
+                targetViews[targetCount] = view;
+                targetCount++;
                 continue;
             }
+            sizeView(world, eid, view);
+            if (view.width === 0 || view.height === 0) continue;
+            _renderFrame.depthOnlyEids[depthOnly] = eid;
+            _renderFrame.depthOnlyViews[depthOnly] = view;
+            depthOnly++;
+        }
+        targetEids.length = targetCount;
+        targetViews.length = targetCount;
+        sortTargets(world, targetEids, targetViews);
+        // Bottom to top, so a camera above the bottom of a canvas sizes after the canvas does.
+        for (let i = 0; i < targetCount; i++) {
+            const eid = targetEids[i]!;
+            const view = targetViews[i]!;
+            sizeView(world, eid, view);
+            if (view.width === 0 || view.height === 0) continue;
             const slot = presentingViewSlot(shadeCount);
             if (slot === undefined) {
                 console.warn(presentingViewRefusal(eid));
@@ -339,7 +402,10 @@ export const BeginFrameSystem: System = {
                 view.surfaceTexture = texture;
                 view.surfaceView = texture.createView();
             }
-            view.present = view.surfaceView!;
+            if (view.sortedIndexForTarget === 0) {
+                releaseStacked(world, eid);
+                view.present = view.surfaceView!;
+            } else view.present = stacked(world, eid, view.width, view.height);
             view.framebuffer = offscreen(world, eid, view.width, view.height);
             view.framebufferFormat = _render.format;
             presentingEids[slot] = eid;

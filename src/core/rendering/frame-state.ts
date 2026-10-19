@@ -1,5 +1,6 @@
 import type { System, World } from "../../engine";
 import { encodeFrameCapture } from "./capture";
+import { encodeUpscaling } from "./upscaling";
 import { INITIAL_VIEW_CAPACITY, type View, Views } from "./view";
 
 export const VIEW_KEY_FLOATS = 29;
@@ -11,6 +12,9 @@ export const renderFrameKey = {
         depthOnlyViews: [] as import("./view").View[],
         presentingEids: [] as number[],
         presentingViews: [] as import("./view").View[],
+        // canvas and texture views sorted by target, Camera.order and eid
+        targetEids: [] as number[],
+        targetViews: [] as import("./view").View[],
         viewProjs: [] as Float32Array[],
         invViewProjs: [] as Float32Array[],
         // the View each slot was last packed for: a new View starts with an unfilled viewFromWorld
@@ -30,12 +34,14 @@ function clearTargets(view: View): void {
     view.present = null;
 }
 
-/** Completes per-frame view state after every draw system; engine submission follows the group. */
+/** Completes per-frame view state after every draw system: blends each camera above the bottom of a
+ * shared target over it, then copies captures. Engine submission follows the group. */
 export const EndFrameSystem: System = {
     group: "draw",
     boundary: "after",
     update(world) {
         const views = world.resource(Views);
+        encodeUpscaling(world, world.resource(renderFrameKey).presentingViews);
         for (const view of views.values()) {
             encodeFrameCapture(world, view);
             if (view.texture && view.present) view.presented = true;

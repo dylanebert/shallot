@@ -81,6 +81,8 @@ export const linearToSrgb3 = tgpu.fn(
  * RenderContext.format: resolve MSAA into it, or draw into it single-sample. Effects may replace it.
  * present is the final attachment in the non-sRGB base canvas format; presentation encodes linear→sRGB
  * exactly once. Scene color stays offscreen so effects can read it instead of writing the swapchain in place.
+ * On a target shared with cameras below it, present is instead this camera's own image in the same format,
+ * blended over the target after every draw system by its premultiplied alpha.
  * depth matches the main pass sample count and is null unless DepthPrepass or a plugin requests it.
  * A depth-only attachView registration takes a frustum-cull slot but has no canvas, context or color targets;
  * its owner renders to its own target.
@@ -125,6 +127,12 @@ export interface View {
     viewFromWorld?: Float32Array;
     slot: number;
     camera: EntityRef;
+    /** @internal World-local identity of the canvas or texture this view shares; 0 for depth-only views. */
+    target: number;
+    /** @internal Index among this frame's cameras on `target`, bottom to top by Camera.order then eid. */
+    sortedIndexForTarget: number;
+    /** @internal Whether this view's order tie on its target has been warned. */
+    orderTieWarned?: boolean;
 }
 
 export interface CanvasFrameCaptureRequest {
@@ -149,10 +157,20 @@ interface ScratchPair {
     result: SceneTransformResult;
 }
 
+interface SizedTarget {
+    texture: GPUTexture;
+    view: GPUTextureView;
+    w: number;
+    h: number;
+}
+
 interface ViewResources {
     views: Map<number, View>;
-    offscreen: Map<number, { texture: GPUTexture; view: GPUTextureView; w: number; h: number }>;
+    offscreen: Map<number, SizedTarget>;
+    /** Presented images of cameras above the bottom of their target, keyed by camera eid. */
+    stacked: Map<number, SizedTarget>;
     scratch: Map<number, ScratchPair>;
+    lastTarget: number;
 }
 
 export const viewResourcesKey = { create: createViewResources };
@@ -161,7 +179,9 @@ function createViewResources(world: World): ViewResources {
     const resources: ViewResources = {
         views: new Map(),
         offscreen: new Map(),
+        stacked: new Map(),
         scratch: new Map(),
+        lastTarget: 0,
     };
     world.onDispose(() => {
         for (const view of resources.views.values()) {
@@ -179,6 +199,8 @@ function createViewResources(world: World): ViewResources {
         resources.views.clear();
         for (const target of resources.offscreen.values()) target.texture.destroy();
         resources.offscreen.clear();
+        for (const target of resources.stacked.values()) target.texture.destroy();
+        resources.stacked.clear();
         for (const pair of resources.scratch.values()) {
             pair.a?.texture.destroy();
             pair.b?.texture.destroy();
@@ -251,9 +273,25 @@ export function trackCanvasOwner(canvas: HTMLCanvasElement, world: World): void 
     _canvasOwners.set(canvas, world);
 }
 
+/** A live view of this World on `canvas` or `texture`, the target a joining camera shares. */
+function sharedView(
+    world: World,
+    canvas: HTMLCanvasElement | null,
+    texture: GPUTexture | null,
+    except?: View,
+): View | undefined {
+    for (const view of world.resource(Views).values()) {
+        if (view === except) continue;
+        if ((canvas && view.canvas === canvas) || (texture && view.texture === texture))
+            return view;
+    }
+    return undefined;
+}
+
 /**
- * bind a canvas to a camera entity, 1:1: each camera owns one canvas. In dev builds it arms the
- * rebuild guard ({@link trackCanvasOwner}), which catches a rebuild that skipped `dispose`.
+ * bind a canvas to a camera entity. A canvas another camera of this World holds is shared: the cameras
+ * draw bottom to top by {@link Camera} `order`. In dev builds it arms the rebuild guard
+ * ({@link trackCanvasOwner}), which catches a rebuild that skipped `dispose`.
  */
 export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElement): void {
     const _views = world.resource(Views);
@@ -262,6 +300,31 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
     if (!world.resource(RenderContext).format)
         throw new Error("attachCanvas: RenderContext.format not set");
     if (cameraView(world, eid)) throw new Error(`attachCanvas: eid ${eid} already bound`);
+
+    const shared = sharedView(world, canvas, null);
+    if (shared) {
+        _views.set(eid, {
+            canvas,
+            context: shared.context,
+            width: 0,
+            height: 0,
+            clientWidth: shared.clientWidth,
+            clientHeight: shared.clientHeight,
+            sampledClientWidth: shared.sampledClientWidth,
+            sampledClientHeight: shared.sampledClientHeight,
+            sampledDpr: shared.sampledDpr,
+            viewportIndex: shared.viewportIndex,
+            framebuffer: null,
+            present: null,
+            depth: null,
+            viewFromWorld: new Float32Array(16),
+            slot: 0,
+            camera: world.ref(eid),
+            target: shared.target,
+            sortedIndexForTarget: 0,
+        });
+        return;
+    }
 
     const context = canvas.getContext("webgpu") as unknown as GPUCanvasContext | null;
     if (!context) throw new Error("attachCanvas: WebGPU canvas context unavailable");
@@ -302,6 +365,8 @@ export function attachCanvas(world: World, eid: number, canvas: HTMLCanvasElemen
         viewFromWorld: new Float32Array(16),
         slot: 0,
         camera: world.ref(eid),
+        target: ++world.resource(viewResourcesKey).lastTarget,
+        sortedIndexForTarget: 0,
     };
     _views.set(eid, view);
     _canvasViews.set(canvas, { world, view });
@@ -344,7 +409,9 @@ const _sizeInputs = new WeakMap<View, Float64Array>();
  * Refreshes canvas display geometry and resolves backing size from Resolution or world pixelRatio.
  * Called after binding each frame; sets nearest-neighbour upscaling when undersized. Resolution edits
  * apply without waiting for a resize event. Reads Resolution only when the entity carries it, so stale
- * storage from a recycled eid cannot act as a pin. No-op without a canvas; offscreen owners size their targets.
+ * storage from a recycled eid cannot act as a pin. Only the bottom camera on a canvas sizes the canvas;
+ * one above it takes its own Resolution or the canvas size. No-op without a canvas; offscreen owners size
+ * their targets.
  */
 export function sizeView(world: World, eid: number, view: View): void {
     const canvas = view.canvas;
@@ -371,6 +438,13 @@ export function sizeView(world: World, eid: number, view: View): void {
     const ratio =
         world.pixelRatio === "auto" ? Math.min(Math.max(viewport.dpr, 1), 2) : world.pixelRatio;
     const pinned = world.has(eid, Resolution);
+    const bottom = view.sortedIndexForTarget === 0;
+    if (!bottom && !pinned) {
+        view.width = canvas.width;
+        view.height = canvas.height;
+        _sizeInputs.delete(view);
+        return;
+    }
     const resW = pinned ? world.storage(Resolution).width.get(eid) | 0 : 0;
     const resH = pinned ? world.storage(Resolution).height.get(eid) | 0 : 0;
     let inputs = _sizeInputs.get(view);
@@ -380,11 +454,12 @@ export function sizeView(world: World, eid: number, view: View): void {
         inputs[1] === resH &&
         inputs[2] === view.clientWidth &&
         inputs[3] === view.clientHeight &&
-        inputs[4] === ratio
+        inputs[4] === ratio &&
+        inputs[5] === (bottom ? 1 : 0)
     )
         return;
     if (!inputs) {
-        inputs = new Float64Array(5);
+        inputs = new Float64Array(6);
         _sizeInputs.set(view, inputs);
     }
     inputs[0] = resW;
@@ -392,30 +467,46 @@ export function sizeView(world: World, eid: number, view: View): void {
     inputs[2] = view.clientWidth;
     inputs[3] = view.clientHeight;
     inputs[4] = ratio;
+    inputs[5] = bottom ? 1 : 0;
     const { w, h, pixelated } = backingSize(resW, resH, view.clientWidth, view.clientHeight, ratio);
+    view.width = w;
+    view.height = h;
+    if (!bottom) return;
     const ir = pixelated ? "pixelated" : "auto";
     if (canvas.style.imageRendering !== ir) canvas.style.imageRendering = ir;
     if (canvas.width !== w) canvas.width = w;
     if (canvas.height !== h) canvas.height = h;
-    view.width = w;
-    view.height = h;
 }
 
 /**
- * Bind a camera to a world-owned final texture in device pixels. Dimensions stay fixed even with
- * Resolution. Detachment, camera pruning or world disposal destroys it. Refuses non-cameras,
- * duplicate bindings, uninitialized rendering and dimensions outside the device's texture limit.
- * BeginFrameSystem acquires it on the next draw; the final pass writes the same base format as a canvas.
+ * Bind a camera to a world-owned final texture in device pixels and return it. Dimensions stay fixed
+ * even with Resolution. Pass a texture another camera of this World holds to share it: the cameras
+ * draw bottom to top by {@link Camera} `order`. Detaching, pruning or disposing the last camera on it
+ * destroys it. Refuses non-cameras, duplicate bindings, uninitialized rendering, dimensions outside the
+ * device's texture limit and a texture no camera of this World holds. BeginFrameSystem acquires it on
+ * the next draw; the final pass writes the same base format as a canvas.
  */
 export function attachTexture(
     world: World,
     eid: number,
-    size: { width: number; height: number },
-): void {
+    target: { width: number; height: number } | GPUTexture,
+): GPUTexture {
     const device = world.gpu.device;
     if (!device || !world.resource(RenderContext).format)
         throw new Error("attachTexture: RenderingPlugin not initialized");
     if (!world.has(eid, Camera)) throw new Error("attachTexture: eid is not a camera");
+    if ("createView" in target) {
+        const shared = sharedView(world, null, target);
+        if (!shared) throw new Error("attachTexture: no camera of this World holds the texture");
+        attachView(world, eid);
+        const view = world.resource(Views).get(eid)!;
+        view.texture = target;
+        view.target = shared.target;
+        view.width = target.width;
+        view.height = target.height;
+        return target;
+    }
+    const size = target;
     for (const value of [size.width, size.height]) {
         if (!Number.isInteger(value) || value <= 0 || value > device.limits.maxTextureDimension2D)
             throw new RangeError(
@@ -432,8 +523,10 @@ export function attachTexture(
     });
     world.own(texture);
     view.texture = texture;
+    view.target = ++world.resource(viewResourcesKey).lastTarget;
     view.width = size.width;
     view.height = size.height;
+    return texture;
 }
 
 /**
@@ -464,29 +557,39 @@ export function attachView(world: World, eid: number): void {
         viewFromWorld: new Float32Array(16),
         slot: 0,
         camera: world.ref(eid),
+        target: 0,
+        sortedIndexForTarget: 0,
     });
 }
 
-/** Release a camera's view and owned targets (canvas, texture or depth-only). Safe on unbound eids; targets
- * the open frame encoder may reference are destroyed once that frame submits. */
+/** Release a camera's view and owned targets (canvas, texture or depth-only). A canvas or texture
+ * another camera still shares stays with it. Safe on unbound eids; targets the open frame encoder may
+ * reference are destroyed once that frame submits. */
 export function detachView(world: World, eid: number): void {
     const _views = world.resource(Views);
     const view = _views.get(eid);
 
     if (view) {
-        if (view.texture) world.retireGpuResource(view.texture);
+        const shared = sharedView(world, view.canvas, view.texture ?? null, view);
+        if (view.texture && !shared) world.retireGpuResource(view.texture);
         view.canvasTexture = undefined;
         view.surfaceTexture = undefined;
         view.surfaceView = undefined;
+        if (view.canvas && _canvasViews.get(view.canvas)?.view === view) {
+            if (shared) {
+                shared.frameCaptures = view.frameCaptures;
+                view.frameCaptures = undefined;
+                _canvasViews.set(view.canvas, { world, view: shared });
+            } else _canvasViews.delete(view.canvas);
+        }
         rejectFrameCaptures(
             view,
             new Error("captureFrame refused: canvas detached before presentation"),
         );
-        if (view.canvas && _canvasViews.get(view.canvas)?.view === view)
-            _canvasViews.delete(view.canvas);
     }
     _views.delete(eid);
     releaseOffscreen(world, eid);
+    releaseStacked(world, eid);
     releaseScratch(world, eid);
     releaseViewTargets(world, eid);
 }
@@ -541,6 +644,37 @@ export function offscreen(world: World, eid: number, w: number, h: number): GPUT
 /** @internal the World-owned texture behind a camera's rendered offscreen view. */
 export function offscreenTexture(world: World, eid: number): GPUTexture | undefined {
     return world.resource(viewResourcesKey).offscreen.get(eid)?.texture;
+}
+
+/** The presented image of a camera above the bottom of its target, (re)allocated to the view size in the
+ * target's format. Its presentation writes it; EndFrameSystem blends it over the target. */
+export function stacked(world: World, eid: number, w: number, h: number): GPUTextureView {
+    const _viewResources = world.resource(viewResourcesKey);
+
+    const cached = _viewResources.stacked.get(eid);
+    if (cached && cached.w === w && cached.h === h) return cached.view;
+    cached?.texture.destroy();
+    const texture = world.gpu.device.createTexture({
+        label: `shallot-stacked-${eid}`,
+        size: { width: w, height: h },
+        format: navigator.gpu.getPreferredCanvasFormat(),
+        usage:
+            GPUTextureUsage.RENDER_ATTACHMENT |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_SRC,
+    });
+    const view = texture.createView();
+    _viewResources.stacked.set(eid, { texture, view, w, h });
+    return view;
+}
+
+/** Release a camera's stacked image once it is the bottom of its target or has no view. */
+export function releaseStacked(world: World, eid: number): void {
+    const _viewResources = world.resource(viewResourcesKey);
+
+    const target = _viewResources.stacked.get(eid);
+    if (target) world.retireGpuResource(target.texture);
+    _viewResources.stacked.delete(eid);
 }
 
 function releaseOffscreen(world: World, eid: number): void {
@@ -623,6 +757,8 @@ export function clearOffscreens(world: World): void {
 
     for (const o of _viewResources.offscreen.values()) o.texture.destroy();
     _viewResources.offscreen.clear();
+    for (const o of _viewResources.stacked.values()) o.texture.destroy();
+    _viewResources.stacked.clear();
 }
 
 export function clearScratch(world: World): void {
@@ -636,8 +772,8 @@ export function clearScratch(world: World): void {
 }
 
 /**
- * auto-bind a camera to the first `<canvas>` in the document, idempotently. The zero-config
- * single-view path. A no-op (returns undefined) headless or until a canvas mounts;
+ * auto-bind a camera to the first `<canvas>` in the document, idempotently, sharing it with any
+ * camera already there. A no-op (returns undefined) headless or until a canvas mounts;
  * `BeginFrameSystem` retries each frame, so a late-mounted canvas binds when it appears.
  * Multi-view binds each camera explicitly via {@link attachCanvas} before its first frame.
  */
@@ -649,8 +785,6 @@ export function bindCamera(eid: number, world: World): View | undefined {
     if (typeof document === "undefined") return undefined;
     const canvas = document.querySelector("canvas");
     if (!(canvas instanceof HTMLCanvasElement)) return undefined;
-    // Two cameras acquiring one canvas would invalidate the first camera's swapchain texture.
-    for (const view of _views.values()) if (view.canvas === canvas) return undefined;
     attachCanvas(world, eid, canvas);
     return _views.get(eid);
 }

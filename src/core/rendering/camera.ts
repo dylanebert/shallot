@@ -2,6 +2,7 @@ import type { World } from "../../engine";
 import {
     component,
     f32,
+    i32,
     invertMat4,
     multiplyMat4,
     orthographic,
@@ -27,9 +28,16 @@ export const Exposure = component(
 );
 
 /**
- * Camera looking down TransformPlugin's fixed-tick GlobalTransform local -Z. A lone camera auto-binds
- * the first canvas. Bind multi-view cameras explicitly with attachCanvas; a late-mounted canvas is
- * retried each frame. `clearColor` is sRGB hex, decoded to linear when recording the render pass.
+ * Camera looking down TransformPlugin's fixed-tick GlobalTransform local -Z. A camera with no target
+ * auto-binds the document's first canvas, a late-mounted canvas retried each frame; bind other targets
+ * explicitly with attachCanvas or attachTexture before the camera's first frame.
+ *
+ * Cameras sharing a canvas or texture draw bottom to top by `order`, a tie warned once and broken by
+ * eid, the lower eid below. Each camera renders its own image with its own depth, antialiasing, effects and
+ * presentation. The bottom camera clears the target with its `clearColor`; every camera above it
+ * starts from transparent black, its `clearColor` unused, and its presented image is blended over the
+ * target by its premultiplied alpha, so pixels it draws nothing on keep what the cameras below left.
+ * `clearColor` is sRGB hex, decoded to linear when recording the render pass.
  */
 export const Camera = component(
     "Camera",
@@ -48,6 +56,8 @@ export const Camera = component(
         clearColor: u32,
         /** antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp, for a pixel-art look) */
         antialias: u32,
+        /** draw order among cameras sharing a target: higher draws later, on top (default 0) */
+        order: i32,
     },
     {
         defaults: () => ({
@@ -58,6 +68,7 @@ export const Camera = component(
             size: 5,
             clearColor: 0x2e2b28,
             antialias: 1,
+            order: 0,
         }),
     },
 );
@@ -67,7 +78,10 @@ export const Camera = component(
  * Without it the view renders at the canvas backing size (the world's pixelRatio policy). `0` on an axis
  * derives it from the other to keep the canvas aspect, so `height: 360` alone renders 360 lines tall and
  * as wide as the canvas shape needs; set both for an exact (possibly aspect-distorting) target. Per camera,
- * so each canvas in a multi-view scene pins its own. Pairs with {@link Camera} `antialias` off.
+ * so each canvas in a multi-view scene pins its own. On a shared canvas the bottom camera's Resolution
+ * sizes the canvas; a camera above it renders at its own Resolution, or at the canvas size without one,
+ * and is scaled nearest-neighbour onto the canvas. A texture target keeps its size for every camera.
+ * Pairs with {@link Camera} `antialias` off.
  */
 export const Resolution = component(
     "Resolution",
