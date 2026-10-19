@@ -12,7 +12,7 @@ test("isAwake reads live solver state, not the spawn definition", async () => {
         const world = app.world;
         const body = world.create();
         world.add(body, Body, { type: BodyType.Dynamic });
-        expect(isAwake(world, body)).toBeUndefined();
+        expect(isAwake(world, body)).toBeNull();
         world.tick();
         expect(isAwake(world, body)).toBe(true);
         setAwake(world, body, false);
@@ -22,7 +22,7 @@ test("isAwake reads live solver state, not the spawn definition", async () => {
         expect(isAwake(world, body)).toBe(true);
         world.destroy(body);
         world.tick();
-        expect(isAwake(world, body)).toBeUndefined();
+        expect(isAwake(world, body)).toBeNull();
     } finally {
         app.dispose();
     }
