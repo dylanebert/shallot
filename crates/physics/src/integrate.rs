@@ -191,9 +191,6 @@ pub fn integrate_positions(
     }
 }
 
-// S3 — c_parity: MAX_ROTATION parity assertion.
-// Canonical table: see `manifold.rs` `c_parity` header comment.
-
 #[cfg(test)]
 mod c_parity {
     // Append-only at EOF: Rust bakes panic `file:line` into the data section, so moving this

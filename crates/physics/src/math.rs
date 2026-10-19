@@ -997,9 +997,6 @@ pub fn is_within_segments(result: &SegmentDistanceResult) -> bool {
         && result.fraction2 <= 1.0
 }
 
-// S3 — c_parity: ATAN_P0–ATAN_P3 constant parity assertions.
-// Canonical table: see `manifold.rs` `c_parity` header comment.
-
 #[cfg(test)]
 mod c_parity {
     // Append-only at EOF: Rust bakes panic `file:line` into the data section, so moving this

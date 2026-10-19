@@ -377,9 +377,6 @@ mod refit_tests {
     }
 }
 
-// S3 — c_parity: SPECULATIVE_DISTANCE, POSITION_SLEEP_FACTOR, SAFETY_FACTOR parity assertions.
-// Canonical table: see `manifold.rs` `c_parity` header comment.
-
 #[cfg(test)]
 mod c_parity {
     // Append-only at EOF: Rust bakes panic `file:line` into the data section, so moving this
