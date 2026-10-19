@@ -338,6 +338,26 @@ test("create detects conditional imports in inline module scripts", () => {
     assertProject(destination, ["index.html"], "html-import");
 });
 
+test("create help lists the same installed templates and descriptions as an unknown template", () => {
+    const log = console.log;
+    const error = console.error;
+    const help: string[] = [];
+    const refusal: string[] = [];
+    console.log = (...values: unknown[]) => help.push(values.join(" "));
+    console.error = (...values: unknown[]) => refusal.push(values.join(" "));
+    try {
+        expect(runCreate(["--help"])).toBe(0);
+        expect(runCreate([join(SCRATCH, "help-list"), "--template", "missing"])).toBe(1);
+    } finally {
+        console.log = log;
+        console.error = error;
+    }
+    expect(help.join("\n").split("\n  Templates\n")[1]).toBe(
+        refusal.join("\n").split("Installed templates:\n")[1]?.replace(/^  /gm, "    "),
+    );
+    expect(help.join("\n")).toContain("minimal —");
+});
+
 test("an unknown template names installed examples and their descriptions", () => {
     const destination = join(SCRATCH, "unknown-template");
     expect(existsSync(destination)).toBe(false);

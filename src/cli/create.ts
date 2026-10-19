@@ -307,6 +307,9 @@ function projectAgents(): string {
 export function runCreate(args: string[], e: Env = env()): number {
     if (args.some((arg) => arg === "--help" || arg === "-h")) {
         console.log(CREATE_USAGE);
+        console.log("  Templates");
+        for (const entry of templateEntries(e.examplesDir))
+            console.log(`    ${entry.name}${entry.description ? ` — ${entry.description}` : ""}`);
         return 0;
     }
 

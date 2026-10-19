@@ -234,10 +234,10 @@ test("web commands refuse to shadow project scripts and name the desktop target 
     expect(webTarget.stderr).toBe(commands[0][1]);
 });
 
-test("shallot create --help presents the outer-folder project command", async () => {
+test("shallot create --help presents the outer-folder project command and templates", async () => {
     const result = await cli("create", "--help");
     expect(result.code).toBe(0);
-    expect(result.stdout.trim()).toBe(
+    expect(result.stdout.trim()).toStartWith(
         `
   shallot create <name> [--template <example>]
 
@@ -253,6 +253,8 @@ test("shallot create --help presents the outer-folder project command", async ()
     --template <example>  Copy an installed example
     -h, --help            Show this help`.trim(),
     );
+    expect(result.stdout).toContain("\n  Templates\n    city —");
+    expect(result.stdout).toContain("loading-screen — A game's own title card");
     expect(result.stderr).toBe("");
 });
 
