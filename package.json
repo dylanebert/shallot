@@ -123,7 +123,7 @@
         }
     },
     "dependencies": {
-        "@types/node": "^26.6.3",
+        "@types/node": "^26.6.5",
         "@webgpu/types": "^0.1.74",
         "unplugin-typegpu": "~0.12.6"
     },
