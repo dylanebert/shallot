@@ -6,7 +6,9 @@ setDefaultTimeout(TIMEOUT.node);
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { parse } from "@babel/parser";
 import { Glob } from "bun";
+import { parse as parseComponent } from "svelte/compiler";
 import { PROJECT_OUTPUT } from "../src/cli/create";
 import { normalizePath } from "../src/project/paths";
 import { importsIn, resolveRelative } from "./example-imports";
@@ -114,6 +116,38 @@ test("the npm package contains only declared files and required consumers", asyn
             )
                 violations.push(`${file} -> ${url} (missing example file)`);
         }
+    }
+    for (const file of files.filter(
+        (file) =>
+            /^examples\/[^/]+\/.*\.(?:[cm]?[jt]s|[jt]sx|svelte)$/.test(file) &&
+            !file.includes("/tests/") &&
+            !/\.(?:test|node|e2e|oracle)\.[^.]+$/.test(file),
+    )) {
+        const exampleRoot = file.split("/").slice(0, 2).join("/");
+        const source = readFileSync(resolve(pkgDir, file), "utf8");
+        const ast = file.endsWith(".svelte")
+            ? parseComponent(source, { modern: true })
+            : parse(source, { sourceType: "unambiguous", plugins: ["typescript", "jsx"] });
+        function visit(node: any): void {
+            if (!node || typeof node !== "object") return;
+            const url =
+                node.type === "StringLiteral" || node.type === "Literal"
+                    ? node.value
+                    : node.type === "TemplateLiteral" && node.expressions.length === 0
+                      ? node.quasis[0].value.cooked
+                      : undefined;
+            if (typeof url === "string" && url.startsWith("/") && !url.startsWith("//")) {
+                const path = url.split(/[?#]/, 1)[0]!.slice(1);
+                if (packedFiles.has(`${exampleRoot}/public/${path}`))
+                    violations.push(`${file} -> ${url} (root-absolute public asset)`);
+            }
+            for (const [key, child] of Object.entries(node)) {
+                if (["loc", "start", "end", "comments"].includes(key)) continue;
+                if (Array.isArray(child)) child.forEach(visit);
+                else visit(child);
+            }
+        }
+        visit(ast);
     }
     const examplesDir = resolve(pkgDir, "examples");
     const recipes = readdirSync(examplesDir, { withFileTypes: true })
