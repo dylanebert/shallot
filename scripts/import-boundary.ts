@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { builtinModules } from "node:module";
-import { dirname, relative, resolve, sep } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
 import { normalizePath } from "../src/project/paths";
@@ -44,7 +44,7 @@ interface Module {
     readonly tier: string;
     readonly name: string;
     readonly directory: string;
-    readonly kind: "game" | "tooling" | "transitional";
+    readonly kind: "game" | "tooling";
 }
 
 function walk(node: unknown, visit: (node: any) => void): void {
@@ -110,13 +110,6 @@ function moduleAt(src: string, file: string): Module | undefined {
     const top = parts[0];
     if (TOOLING.has(top))
         return { tier: top, name: top, directory: resolve(src, top), kind: "tooling" };
-    if (top === "transitional" && parts.length > 1)
-        return {
-            tier: top,
-            name: parts[1],
-            directory: resolve(src, top, parts[1]),
-            kind: "transitional",
-        };
     if ((GAME_TIERS as readonly string[]).includes(top) && parts.length > 1) {
         if (parts.length === 2 && /^index\.tsx?$/.test(parts[1])) return undefined;
         return {
@@ -195,15 +188,6 @@ function isModuleEntry(module: Module, target: string): boolean {
     );
 }
 
-function transitionalRed(src: string, module: Module): string {
-    const index = resolve(module.directory, "index.ts");
-    const source = existsSync(index) ? readFileSync(index, "utf8") : "";
-    const lines = source.split("\n");
-    const line = lines.findIndex((entry) => entry.startsWith("// Destination:"));
-    const destination = line < 0 ? "// Destination: not recorded." : lines[line];
-    return `${normalizePath(relative(dirname(src), index))}:${line < 0 ? 1 : line + 1}: pending roadmap migration (still red): ${destination}`;
-}
-
 function siblingCycles(edges: readonly SiblingEdge[]): string[] {
     const graph = new Map<string, string[]>();
     for (const [from, to] of edges) {
@@ -244,14 +228,11 @@ export function checkImports(
         .sort();
     const resolutions = moduleResolutions(root);
     const violations = siblingCycles(siblingEdges);
-    const transitional = new Map<string, Module>();
 
     for (const file of files) {
         const sourceModule = moduleAt(src, file);
         const sourcePath = normalizePath(relative(src, file));
         const fixtureSource = isPrivateFixture(sourcePath);
-        const transition = sourceModule?.kind === "transitional" && !fixtureSource;
-        if (transition && sourceModule) transitional.set(sourceModule.directory, sourceModule);
         const sourceTier = gameTierAt(src, file);
         const path = normalizePath(relative(root, file));
         const source = readFileSync(file, "utf8");
@@ -290,7 +271,6 @@ export function checkImports(
                 );
                 continue;
             }
-            if (transition) continue;
             if (sourceTier && targetModule?.kind === "tooling") {
                 violations.push(
                     `${location}: game module ${sourceModule ? modulePath(sourceModule) : sourceTier} imports tooling module ${targetModule.name}`,
@@ -351,7 +331,5 @@ export function checkImports(
         }
     }
 
-    for (const module of [...transitional.values()].sort((a, b) => a.name.localeCompare(b.name)))
-        violations.push(transitionalRed(src, module));
     return violations;
 }

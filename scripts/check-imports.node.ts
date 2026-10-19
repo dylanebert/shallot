@@ -193,16 +193,6 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
         );
         put(root, "engine/runtime/index.ts", "export {};\n");
         put(root, "engine/runtime/internal.ts", "export interface Internal {}\n");
-        put(
-            root,
-            "transitional/legacy/index.ts",
-            "// Destination: engine; owner: legacy.md.\nexport {};\n",
-        );
-        put(
-            root,
-            "transitional/legacy/product.ts",
-            'import "../../core/input/fixtures/page";\nimport "../../core/input/check.fixture";\n',
-        );
 
         expect(checkImports(root)).toEqual([
             "src/core/input/fixtures/page.ts:1: sibling import core/input → core/rendering",
@@ -220,9 +210,6 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
             "src/core/rendering/view.tsx:1: sibling import core/rendering → core/input",
             "src/extras/physics/index.ts:1: physics module extras/physics imports rendering module core/rendering",
             "src/standard/loading/index.ts:1: standard imports outward to extras/index",
-            "src/transitional/legacy/product.ts:1: product module imports private fixture core/input/fixtures/page.ts",
-            "src/transitional/legacy/product.ts:2: product module imports private fixture core/input/check.fixture.ts",
-            "src/transitional/legacy/index.ts:1: pending roadmap migration (still red): // Destination: engine; owner: legacy.md.",
         ]);
     });
     withFixture((root) => {

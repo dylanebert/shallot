@@ -72,7 +72,7 @@ test("Node project tooling stays outside the browser and Bun engine graph", asyn
     expect(inputs.some((path) => path.endsWith("src/project/vite.js"))).toBe(true);
     expect(inputs.some((path) => path.endsWith("src/project/assets.js"))).toBe(true);
     expect(inputs.some((path) => path.endsWith("src/project/testing.js"))).toBe(true);
-    expect(
-        inputs.filter((path) => /src\/(?:engine|core|standard|extras|transitional)\//.test(path)),
-    ).toEqual([]);
+    expect(inputs.filter((path) => /src\/(?:engine|core|standard|extras)\//.test(path))).toEqual(
+        [],
+    );
 });
