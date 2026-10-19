@@ -25,6 +25,7 @@ export interface LookPalette {
         fontFamily: string;
         fontSizes: readonly string[];
         fontWeight: string;
+        spacing: { base: number };
         radius: string;
         /** A round mark, such as a reticle. */
         circle: string;
@@ -35,6 +36,8 @@ const uiType = {
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
     fontSizes: ["14px", "24px"],
     fontWeight: "400",
+    // Carbon spacing-02 and Material's 4dp sub-grid, in CSS pixels.
+    spacing: { base: 4 },
     radius: "2px",
     circle: "50%",
 };

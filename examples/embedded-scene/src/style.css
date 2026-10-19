@@ -41,7 +41,7 @@ body {
     min-height: 100svh;
     margin: 0 auto;
     padding-block: var(--page-pad-y);
-    padding-inline: min(24px, 5vw);
+    padding-inline: 24px;
 }
 
 @media (max-height: 480px) {

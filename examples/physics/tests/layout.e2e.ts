@@ -1,4 +1,5 @@
 import { expect, test } from "playwright/test";
+import { categories } from "../src/scenes";
 
 for (const viewport of [
     { width: 1280, height: 720 },
@@ -24,13 +25,15 @@ for (const viewport of [
         const panel = page.getByRole("region", { name: "Wheel controls", exact: true });
         await expect(panel).toBeVisible();
         const toggles = panel.getByRole("checkbox");
-        for (let index = 1; index < (await toggles.count()); index++) {
-            const previous = await toggles
-                .nth(index - 1)
-                .locator("..")
-                .boundingBox();
-            const current = await toggles.nth(index).locator("..").boundingBox();
-            expect.soft(current!.y - previous!.y - previous!.height).toBe(4);
+        for (let index = 0; index < (await toggles.count()); index++) {
+            const group = toggles.nth(index).locator("../..");
+            const dependents = group.locator(":scope > .dependents");
+            if (await dependents.locator(":scope > .group").count()) {
+                const toggle = await toggles.nth(index).locator("..").boundingBox();
+                const child = await dependents.locator(":scope > .group").first().boundingBox();
+                expect.soft(child!.x - toggle!.x).toBe(24);
+                expect.soft(child!.y).toBeGreaterThanOrEqual(toggle!.y + toggle!.height + 4);
+            }
         }
         const before = await panel.boundingBox();
         expect(before!.x + before!.width).toBe(viewport.width - 24);
@@ -38,6 +41,27 @@ for (const viewport of [
         for (const name of ["Steering", "Steering Limit", "Steering Limit", "Steering"]) {
             await panel.getByRole("checkbox", { name, exact: true }).click();
             expect.soft(await panel.boundingBox()).toEqual(before);
+        }
+        await context.close();
+    });
+
+    test(`picker arrows stay fixed across every scene name at ${viewport.width}×${viewport.height}`, async ({
+        browser,
+    }) => {
+        const context = await browser.newContext({ viewport });
+        const page = await context.newPage();
+        await page.goto("/");
+        const arrows = [
+            page.getByRole("button", { name: "Previous scene" }),
+            page.getByRole("button", { name: "Next scene" }),
+        ];
+        const before = await Promise.all(arrows.map((arrow) => arrow.boundingBox()));
+        for (const sample of categories.flatMap((category) => category.scenes)) {
+            await page.getByRole("button", { name: "Scene", exact: true }).click();
+            await page.getByRole("button", { name: sample.name, exact: true }).click();
+            expect
+                .soft(await Promise.all(arrows.map((arrow) => arrow.boundingBox())), sample.name)
+                .toEqual(before);
         }
         await context.close();
     });

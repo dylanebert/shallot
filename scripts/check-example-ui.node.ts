@@ -251,6 +251,43 @@ function colorViolations(css: Css, { example = "", stepped = false }: Scope = {}
     return failures;
 }
 
+function spacingViolations(css: Css): string[] {
+    const parsed = declarations(css);
+    const failures = parsed.failures;
+    for (const { property, value } of parsed.declarations) {
+        if (
+            !/^(?:(?:margin|padding|inset)(?:-.+)?|(?:row-|column-)?gap|top|right|bottom|left|--.*(?:gap|pad|top|right|bottom|left).*)$/i.test(
+                property,
+            )
+        )
+            continue;
+        for (const match of value.matchAll(/(-?\d*\.?\d+)(px|rem|em|vw|vh)\b/gi)) {
+            if (match[2] !== "px" || Number(match[1]) % carbon.ui.spacing.base !== 0)
+                failures.push(`${property}: ${value}`);
+        }
+    }
+    return failures;
+}
+
+test("UI spacing uses the 4px grid in sheets and inline declarations", async () => {
+    expect(carbon.ui.spacing.base).toBe(4);
+    expect(
+        spacingViolations(
+            await cssOf(
+                "a.css",
+                ".a { gap: 8px; padding: 12px 16px; margin: -4px auto; left: 50%; }",
+            ),
+        ),
+    ).toEqual([]);
+    for (const [path, source] of [
+        ["a.css", ".a { gap: 6px; }"],
+        ["a.html", '<b style="padding: 10px 12px">'],
+        ["a.svelte", '<b style="margin-inline: 1rem"></b>'],
+        ["a.ts", 'el.style.cssText = "row-gap: 5px";'],
+    ])
+        expect(spacingViolations(await cssOf(path!, source!))).toHaveLength(1);
+});
+
 async function colors(path: string, source: string, scope?: Scope): Promise<string[]> {
     return colorViolations(await cssOf(path, source), scope);
 }
@@ -452,6 +489,7 @@ for (const example of await readdir("examples")) {
                 ...[
                     ...styleSources(path, source).flatMap((style) => violations(style)),
                     ...(await colors(path, source, { example, stepped: steppedPage(path) })),
+                    ...spacingViolations(await cssOf(path, source)),
                 ].map((failure) => `${path}: ${failure}`),
             );
         }
