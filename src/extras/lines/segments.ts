@@ -228,7 +228,9 @@ export function drawWireBox(
     color: number,
     options: LineOptions = DEFAULT_OPTIONS,
 ): void {
-    let width = options.width ?? 1;
+    const asset = world instanceof GizmoAsset;
+    const width = asset ? 0 : (options.width ?? 1);
+    const depthBias = asset ? 0 : (options.depthBias ?? 0);
     const c = packColor(color, 1);
     const x0 = min[0];
     const y0 = min[1];
@@ -237,7 +239,6 @@ export function drawWireBox(
     const y1 = max[1];
     const z1 = max[2];
     const state = segmentState(world);
-    if (world instanceof GizmoAsset) width = 0;
     for (let i = 0; i < BOX_EDGES.length; i += 2) {
         const a = BOX_EDGES[i];
         const b = BOX_EDGES[i + 1];
@@ -253,7 +254,7 @@ export function drawWireBox(
             c,
             0,
             undefined,
-            world instanceof GizmoAsset ? 0 : (options.depthBias ?? 0),
+            depthBias,
         );
     }
 }
