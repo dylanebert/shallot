@@ -165,3 +165,79 @@ export function shapeMesh(
     }
     return { vertices: new Float32Array(positions), indices: new Uint32Array(indices) };
 }
+
+/**
+ * Fresh pairs of endpoints in body-local meters, with the same placement and refusal
+ * rules as shapeMesh. Hulls and meshes omit coplanar triangle diagonals and retain
+ * open boundaries. Spheres have three great circles; capsules have two perpendicular
+ * longitudinal rings (semicircular caps joined by straight sides), sampled at 32
+ * segments per circle. This is an authoring-time conversion, not a live binding.
+ */
+export function shapeEdges(world: World, shape: Parameters<typeof shapeMesh>[1]): [Point, Point][] {
+    const edges: [Point, Point][] = [];
+    if (shape.kind === ShapeKind.Sphere || shape.kind === ShapeKind.Capsule) {
+        const a = shape.kind === ShapeKind.Sphere ? shape.sphereCenter : shape.capsuleCenter1;
+        const b = shape.kind === ShapeKind.Sphere ? a : shape.capsuleCenter2;
+        const axis = b.map((v, i) => v - a[i]!) as Point;
+        const length = Math.hypot(...axis);
+        const y = length ? (axis.map((v) => v / length) as Point) : ([0, 1, 0] as Point);
+        const seed: Point = Math.abs(y[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+        const projection = seed.reduce((sum, v, i) => sum + v * y[i]!, 0);
+        const x = seed.map((v, i) => v - projection * y[i]!) as Point;
+        const magnitude = Math.hypot(...x);
+        for (let i = 0; i < 3; i++) x[i] /= magnitude;
+        const z: Point = [
+            y[1] * x[2] - y[2] * x[1],
+            y[2] * x[0] - y[0] * x[2],
+            y[0] * x[1] - y[1] * x[0],
+        ];
+        const ring = (u: Point, v: Point, capsule: boolean) => {
+            const points: Point[] = [];
+            for (let i = 0; i < 32; i++) {
+                const theta = (i * Math.PI) / 16;
+                const point = (center: Point): Point =>
+                    center.map(
+                        (c, j) =>
+                            c + shape.radius * (u[j]! * Math.cos(theta) + v[j]! * Math.sin(theta)),
+                    ) as Point;
+                if (capsule && (i === 0 || i === 16)) {
+                    points.push(point(i === 0 ? a : b), point(i === 0 ? b : a));
+                } else points.push(point(capsule && i < 16 ? b : a));
+            }
+            for (let i = 0; i < points.length; i++)
+                edges.push([points[i]!, points[(i + 1) % points.length]!]);
+        };
+        ring(x, y, length > 0);
+        ring(z, y, length > 0);
+        if (!length) ring(x, z, false);
+        return edges;
+    }
+    const { vertices, indices } = shapeMesh(world, shape);
+    const candidates = new Map<
+        string,
+        { edge: [Point, Point]; normal: Point; crease: boolean; count: number }
+    >();
+    for (let i = 0; i < indices.length; i += 3) {
+        const points = Array.from(
+            indices.subarray(i, i + 3),
+            (index) => Array.from(vertices.subarray(index * 8, index * 8 + 3)) as Point,
+        );
+        const index = indices[i]! * 8;
+        const normal = Array.from(vertices.subarray(index + 4, index + 7)) as Point;
+        for (let j = 0; j < 3; j++) {
+            const a = points[j]!,
+                b = points[(j + 1) % 3]!;
+            const keys = [a.join(","), b.join(",")].sort();
+            const key = keys.join(";");
+            const previous = candidates.get(key);
+            if (previous) {
+                previous.count++;
+                previous.crease ||=
+                    normal.reduce((sum, v, k) => sum + v * previous.normal[k]!, 0) < 1 - 1e-6;
+            } else candidates.set(key, { edge: [a, b], normal, crease: false, count: 1 });
+        }
+    }
+    for (const candidate of candidates.values())
+        if (candidate.count === 1 || candidate.crease) edges.push(candidate.edge);
+    return edges;
+}

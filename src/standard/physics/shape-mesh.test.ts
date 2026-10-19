@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { Hulls, PhysicsMeshes, ShapeKind } from "../../core/physics";
 import { World } from "../../engine";
-import { StandardPhysicsPlugin, shapeMesh } from "./index";
+import { StandardPhysicsPlugin, shapeEdges, shapeMesh } from "./index";
 
 type Point = [number, number, number];
 type Geometry = ReturnType<typeof shapeMesh>;
@@ -332,3 +332,89 @@ test("unsupported kinds and stale geometry are refused without creating an entit
     hulls.add({ name: "replacement", halfExtents: [2, 2, 2] });
     expect(() => shapeMesh(world, definition({ geometry }))).toThrow("missing hull");
 });
+
+test("box edges are its twelve face boundaries, not triangulation diagonals", () => {
+    const geometry = world.resource(Hulls).add({ name: "edge box", halfExtents: [1, 2, 3] });
+    const edges = shapeEdges(
+        world,
+        definition({ geometry, scale: [2, 0.5, 3], hullPosition: [1, 2, 3] }),
+    );
+    expect(edges).toHaveLength(12);
+    for (const [a, b] of edges) {
+        expect(a.filter((v, i) => v !== b[i])).toHaveLength(1);
+        for (const p of [a, b])
+            expect(p.map((v, i) => Math.abs(v - [1, 2, 3][i]!))).toEqual([2, 1, 9]);
+    }
+});
+
+test("hull built from triangle vertices drops coplanar face diagonals", () => {
+    const mesh = boxMesh();
+    const points = new Float32Array(
+        Array.from(mesh.indices).flatMap((i) =>
+            Array.from(mesh.vertices.subarray(i * 8, i * 8 + 3)),
+        ),
+    );
+    const geometry = world.resource(Hulls).add({ name: "triangulated hull", points });
+    expect(shapeEdges(world, definition({ geometry }))).toHaveLength(12);
+});
+
+test("mesh retains open boundaries and creases but not coplanar diagonals", () => {
+    const geometry = world.resource(PhysicsMeshes).add({
+        name: "fold",
+        vertices: new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1]),
+        indices: new Uint32Array([0, 1, 2, 0, 2, 3, 0, 3, 4]),
+    });
+    const edges = shapeEdges(world, definition({ kind: ShapeKind.Mesh, geometry }));
+    expect(edges).toHaveLength(6);
+    expect(
+        edges.some(([a, b]) => [a, b].every((p) => p[2] === 0) && a[0] !== b[0] && a[1] !== b[1]),
+    ).toBe(false);
+});
+
+test("sphere has three great circles, not latitude or triangulation edges", () => {
+    const center: Point = [1, 2, 3];
+    const edges = shapeEdges(
+        world,
+        definition({ kind: ShapeKind.Sphere, sphereCenter: center, radius: 2 }),
+    );
+    expect(edges).toHaveLength(96);
+    for (let ring = 0; ring < 3; ring++) {
+        const circle = edges.slice(ring * 32, (ring + 1) * 32);
+        for (const [a, b] of circle) {
+            expect(Math.hypot(...a.map((v, i) => v - center[i]!))).toBeCloseTo(2, 6);
+            expect(Math.hypot(...a.map((v, i) => v - b[i]!))).toBeCloseTo(
+                4 * Math.sin(Math.PI / 32),
+                6,
+            );
+        }
+        expect(
+            [0, 1, 2].some((axis) =>
+                circle.every((edge) => edge.every((p) => p[axis] === center[axis])),
+            ),
+        ).toBe(true);
+    }
+});
+
+for (const b of [
+    [0, 2, 0],
+    [2, 0, 0],
+    [1, 2, 3],
+] satisfies Point[]) {
+    test(`capsule ${b} has two longitudinal rings with four straight sides`, () => {
+        const a: Point = [0, 0, 0];
+        const edges = shapeEdges(
+            world,
+            definition({ kind: ShapeKind.Capsule, capsuleCenter1: a, capsuleCenter2: b }),
+        );
+        expect(edges).toHaveLength(68);
+        const surface = roundSurface(a, b, 0.5);
+        for (const edge of edges)
+            for (const p of edge) expect(surface.distance(p)).toBeLessThan(1e-6);
+        expect(
+            edges.filter(
+                ([p, q]) =>
+                    Math.abs(Math.hypot(...p.map((v, i) => v - q[i]!)) - Math.hypot(...b)) < 1e-6,
+            ),
+        ).toHaveLength(4);
+    });
+}

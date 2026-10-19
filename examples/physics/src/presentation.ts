@@ -4,6 +4,7 @@ import {
     cube,
     Shape,
     StandardMaterial,
+    shapeEdges,
     shapeMesh,
     type World,
 } from "@dylanebert/shallot";
@@ -31,7 +32,13 @@ export function shapePresentation(world: World, scene: Scene, eid: number) {
               body === world.resource(EventSample).player
             ? "motorized"
             : "subject";
-    return { eid, body, role, mesh: { name: `Shape ${eid}`, ...shapeMesh(world, shape) } };
+    return {
+        eid,
+        body,
+        role,
+        mesh: { name: `Shape ${eid}`, ...shapeMesh(world, shape) },
+        edges: shapeEdges(world, shape),
+    };
 }
 
 export function scenePresentation(world: World, scene: Scene) {

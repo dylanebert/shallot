@@ -39,6 +39,7 @@ export {
     setLinearVelocity,
     setTargetTransform,
     setTransform,
+    shapeEdges,
     shapeMesh,
 } from "./physics";
 export {

@@ -21,7 +21,15 @@ import {
     Transform,
     type World,
 } from "@dylanebert/shallot";
-import { drawLine, internText, Orbit, Text } from "@dylanebert/shallot/extras";
+import {
+    drawLine,
+    Gizmo,
+    GizmoAsset,
+    internText,
+    Orbit,
+    registerGizmo,
+    Text,
+} from "@dylanebert/shallot/extras";
 import { Anchor, Billboard, worldToViewport } from "@dylanebert/shallot/rendering";
 import { defaultDebugDraw, drawPhysics } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
@@ -178,6 +186,14 @@ function createView(world: World, scene: Scene, camera: number): () => void {
             initial.delete(ref);
             const mesh = meshes.add(shape.mesh);
             views.set(ref, mesh);
+            const edges = new GizmoAsset();
+            for (const [a, b] of shape.edges) drawLine(edges, a, b, 0x000000);
+            world.add(eid, Gizmo, {
+                handle: registerGizmo(world, edges),
+                width: 1,
+                opacity: 0.45,
+                depthBias: -0.0001,
+            });
             world.add(eid, MeshInstance, { mesh });
             world.add(eid, MeshMaterial, roles[shape.role]);
         }
