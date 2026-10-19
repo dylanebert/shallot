@@ -21,11 +21,12 @@ Open the URL printed in the terminal in a WebGPU-capable browser, such as Chrome
 
 [Demos](https://dylanebert.com/shallot/). Copy the first-person example with `bun create shallot first-person --template first-person`, then install and run it as above.
 
-In the project, `bunx shallot --help` lists commands.
+`bun create shallot --help` lists templates. In the project, `bunx shallot --help` lists commands; `bunx shallot --skill` prints the agent skill.
 
 ## more
 
 - questions: [discord](https://discord.gg/eEY75Nqk3C). bugs: [issues](https://github.com/dylanebert/shallot/issues). releases: [npm](https://www.npmjs.com/package/@dylanebert/shallot)
+- upgrading from 0.9.5: [`MIGRATION.md`](MIGRATION.md)
 - changing the engine: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 mit, see [`LICENSE`](LICENSE).
