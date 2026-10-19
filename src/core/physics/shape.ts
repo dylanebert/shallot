@@ -32,11 +32,12 @@ export const Shape = component(
         /** Shape-local hull or mesh scale; default `[1, 1, 1]`. The body's Transform.scale also applies;
          * placed hulls follow the order documented on hullPosition. A box is the unit cube at its full lengths. */
         scale: vec3,
-        /** Hull-only placement in body-local meters. Hull geometry builds at Shape.scale first,
-         * then hullRotation and hullPosition apply, then the body's Transform.scale
-         * (Box3D clamps that scale's magnitudes to at least 0.01 for a placed hull).
-         * Nonidentity placement clones Box3D hull topology and rebuilds its planes and mass;
-         * identity preserves the existing hull builder. Changes recreate at the next fixed sync. */
+        /** Hull-only placement in body-local meters. A nonidentity placement is Box3D's
+         * b3CreateTransformedHullShape: the hull is cloned with Shape.scale applied first, then
+         * hullRotation and hullPosition, then cloned again with the body's Transform.scale.
+         * Box3D clamps each scale's magnitudes to at least 0.01, keeps the hull's topology and
+         * rebuilds its planes and mass. Identity placement builds the hull at both scales with its
+         * own builder. Changes recreate at the next fixed sync. */
         hullPosition: vec3,
         /** Hull-only normalized xyzw rotation, applied after Shape.scale and before hullPosition.
          * Changes recreate at the next fixed sync. */

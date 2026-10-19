@@ -260,7 +260,9 @@ export function buildHull(world: World, def: Hull, sx = 1, sy = 1, sz = 1): Hull
     return built;
 }
 
-/** Shape-local scale builds the asset first; placement follows, then body-local scale. */
+/** At identity placement, the asset builds at shape and body scale together. Otherwise the asset
+ * builds at unit scale and clones once with Shape.scale and the placement, as
+ * b3CreateTransformedHullShape does, then again with the body scale. */
 export function buildPlacedHull(
     world: World,
     def: Hull,
@@ -285,14 +287,13 @@ export function buildPlacedHull(
             scale[1] * bodyScale[1],
             scale[2] * bodyScale[2],
         );
-    const source = buildHull(world, def, ...scale);
     let hull = cloneAndTransformHull(
-        source,
+        buildHull(world, def),
         {
             p: { x: position[0], y: position[1], z: position[2] },
             q: { v: { x: rotation[0], y: rotation[1], z: rotation[2] }, s: rotation[3] },
         },
-        { x: 1, y: 1, z: 1 },
+        { x: scale[0], y: scale[1], z: scale[2] },
         world,
     );
     if (hull && bodyScale.some((n) => n !== 1))
