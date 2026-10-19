@@ -6,7 +6,7 @@ pub unsafe extern "C" fn link_in_world(world: usize, id: usize, body_id: usize) 
     let body = bodies::record_mut(world, body_id);
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
-    u.set(o + 1, body_id as u32);
+    u.set(o + shapes::S_QUERY_BODY, body_id as u32);
     u.set(o + shapes::S_PREV, u32::MAX);
     u.set(o + shapes::S_NEXT, body.head_shape_id as u32);
     if body.head_shape_id != -1 {
@@ -22,7 +22,7 @@ pub unsafe extern "C" fn link_in_world(world: usize, id: usize, body_id: usize) 
 pub unsafe extern "C" fn unlink_in_world(world: usize, id: usize) {
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
-    let body_id = u.get(o + 1) as usize;
+    let body_id = u.get(o + shapes::S_QUERY_BODY) as usize;
     let prev = u.get(o + shapes::S_PREV);
     let next = u.get(o + shapes::S_NEXT);
     if prev != u32::MAX {
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn destroy_proxy_in_world(world: usize, id: usize) {
 pub unsafe extern "C" fn create_proxy_in_world(world: usize, id: usize, force: bool) {
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
-    let body_id = u.get(o + 1) as usize;
+    let body_id = u.get(o + shapes::S_QUERY_BODY) as usize;
     let tight = crate::continuous::bounds(world, id, bodies::geometry(world, body_id).0);
     create_proxy_bounds(
         world, id, force, tight[0], tight[1], tight[2], tight[3], tight[4], tight[5],
@@ -135,7 +135,7 @@ unsafe fn create_proxy_bounds(
 ) {
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
-    let body_id = u.get(o + 1) as usize;
+    let body_id = u.get(o + shapes::S_QUERY_BODY) as usize;
     let body_type = bodies::record(world, body_id).body_type as usize;
     let enlarged = write_bounds(world, id, body_type, [lx, ly, lz, hx, hy, hz]);
     let key = crate::broad::create_proxy_in_world(
@@ -147,8 +147,8 @@ unsafe fn create_proxy_bounds(
         enlarged[3],
         enlarged[4],
         enlarged[5],
-        u.get(o + 39),
-        u.get(o + 38),
+        u.get(o + shapes::S_QUERY_CATEGORY),
+        u.get(o + shapes::S_QUERY_CATEGORY - 1),
         id as u32,
         force as u32,
     );
@@ -196,7 +196,7 @@ pub unsafe fn destroy_internal(world: usize, id: usize, wake: bool) {
     unlink_in_world(world, id);
     destroy_proxy_in_world(world, id);
     destroy_contacts(world, id, wake);
-    if u.get(id * shapes::SHAPE_STRIDE + 4) != u32::MAX {
+    if u.get(id * shapes::SHAPE_STRIDE + shapes::S_SENSOR_INDEX) != u32::MAX {
         crate::sensor::destroy_in_world(world, id);
     }
     release_geometry(world, id);
@@ -209,7 +209,7 @@ pub unsafe extern "C" fn destroy(world: usize, id: usize, update_mass: bool) {
 }
 
 pub unsafe extern "C" fn destroy_in_world(world: usize, id: usize, update_mass: bool) {
-    let body = shapes::col(world).get(id * shapes::SHAPE_STRIDE + 1) as usize;
+    let body = shapes::col(world).get(id * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY) as usize;
     destroy_internal(world, id, true);
     if update_mass {
         crate::body_record::runtime::update_mass_in_world(world, body);
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn finish_create_in_world(
 ) {
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
-    let body = u.get(o + 1) as usize;
+    let body = u.get(o + shapes::S_QUERY_BODY) as usize;
     if bodies::record(world, body).set_index != crate::solver_set::DISABLED_SET {
         create_proxy_in_world(world, id, force && u.get(o + shapes::S_TYPE) != TY_COMPOUND);
     }
@@ -343,11 +343,11 @@ pub unsafe extern "C" fn set_filter_in_world(
 ) {
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
-    if u.get(o + 39) == category_hi
-        && u.get(o + 38) == category_lo
-        && u.get(o + 41) == mask_hi
-        && u.get(o + 40) == mask_lo
-        && u.get(o + 42) as i32 == group
+    if u.get(o + shapes::S_QUERY_CATEGORY) == category_hi
+        && u.get(o + shapes::S_QUERY_CATEGORY - 1) == category_lo
+        && u.get(o + shapes::S_QUERY_MASK) == mask_hi
+        && u.get(o + shapes::S_QUERY_MASK - 1) == mask_lo
+        && u.get(o + shapes::S_QUERY_GROUP) as i32 == group
     {
         return;
     }
@@ -355,7 +355,7 @@ pub unsafe extern "C" fn set_filter_in_world(
     destroy_contacts(world, id, true);
     // shape.c compares category bits after assigning the filter, so invokeContacts recreates the proxy.
     let proxy = u.get(o + shapes::S_PROXY_KEY);
-    let body = u.get(o + 1) as usize;
+    let body = u.get(o + shapes::S_QUERY_BODY) as usize;
     if proxy != u32::MAX {
         destroy_proxy_in_world(world, id);
         create_proxy_in_world(world, id, true);
@@ -381,11 +381,11 @@ pub unsafe extern "C" fn filter_write_in_world(
 ) {
     let u = shapes::col(world);
     let o = id * shapes::SHAPE_STRIDE;
-    u.set(o + 39, category_hi);
-    u.set(o + 38, category_lo);
-    u.set(o + 41, mask_hi);
-    u.set(o + 40, mask_lo);
-    u.set(o + 42, group as u32);
+    u.set(o + shapes::S_QUERY_CATEGORY, category_hi);
+    u.set(o + shapes::S_QUERY_CATEGORY - 1, category_lo);
+    u.set(o + shapes::S_QUERY_MASK, mask_hi);
+    u.set(o + shapes::S_QUERY_MASK - 1, mask_lo);
+    u.set(o + shapes::S_QUERY_GROUP, group as u32);
 }
 #[export_name = "shapeSetDensity"]
 pub unsafe extern "C" fn set_density(world: usize, id: usize, value: f32, update_mass: bool) {
@@ -412,7 +412,7 @@ unsafe fn reset_after_geometry_change(world: usize, id: usize) {
             create_proxy_in_world(world, id, true);
         }
     } else {
-        let body = u.get(o + 1) as usize;
+        let body = u.get(o + shapes::S_QUERY_BODY) as usize;
         let tight = crate::continuous::bounds(world, id, bodies::geometry(world, body).0);
         write_bounds(
             world,
@@ -431,10 +431,9 @@ pub unsafe extern "C" fn set_sphere(world: usize, id: usize, x: f32, y: f32, z: 
         let u = shapes::col(world);
         let o = id * shapes::SHAPE_STRIDE;
         u.set(o + shapes::S_TYPE, TY_SPHERE);
-        u.set(o + shapes::S_GEO_REFERENCE, 0);
         let f = shapes::col_f(world);
         for (lane, value) in [x, y, z, radius].into_iter().enumerate() {
-            f.set(o + 48 + lane, value);
+            f.set(o + shapes::S_GEOM + lane, value);
         }
         crate::shape_geometry::finish_geometry_in_world(world, id);
         reset_after_geometry_change(world, id);
@@ -459,10 +458,9 @@ pub unsafe extern "C" fn set_capsule(
         let u = shapes::col(world);
         let o = id * shapes::SHAPE_STRIDE;
         u.set(o + shapes::S_TYPE, TY_CAPSULE);
-        u.set(o + shapes::S_GEO_REFERENCE, 0);
         let f = shapes::col_f(world);
         for (lane, value) in [ax, ay, az, bx, by, bz, radius].into_iter().enumerate() {
-            f.set(o + 48 + lane, value);
+            f.set(o + shapes::S_GEOM + lane, value);
         }
         crate::shape_geometry::finish_geometry_in_world(world, id);
         reset_after_geometry_change(world, id);
@@ -495,7 +493,7 @@ pub unsafe extern "C" fn set_mesh(world: usize, id: usize, handle: usize, x: f32
         let f = shapes::col_f(world);
         let scale = crate::math::Vec3::new(x, y, z).safe_scale();
         for (lane, value) in [scale.x, scale.y, scale.z].into_iter().enumerate() {
-            f.set(o + 49 + lane, value);
+            f.set(o + shapes::S_GEOM + 1 + lane, value);
         }
         crate::shape_geometry::finish_geometry_in_world(world, id);
         reset_after_geometry_change(world, id);
@@ -596,7 +594,7 @@ pub unsafe extern "C" fn contact_next_in_world(world: usize, id: usize, mut key:
     if key == -2 {
         key = bodies::record(
             world,
-            shapes::col(world).get(id * shapes::SHAPE_STRIDE + 1) as usize,
+            shapes::col(world).get(id * shapes::SHAPE_STRIDE + shapes::S_QUERY_BODY) as usize,
         )
         .head_contact_key;
     }
@@ -613,7 +611,10 @@ pub unsafe extern "C" fn contact_next_in_world(world: usize, id: usize, mut key:
 }
 
 pub unsafe extern "C" fn attach_sensor_in_world(world: usize, id: usize, index: i32) {
-    shapes::col(world).set(id * shapes::SHAPE_STRIDE + 4, index as u32);
+    shapes::col(world).set(
+        id * shapes::SHAPE_STRIDE + shapes::S_SENSOR_INDEX,
+        index as u32,
+    );
 }
 
 pub unsafe extern "C" fn body_proxies_in_world(world: usize, id: usize, mode: u32) {
