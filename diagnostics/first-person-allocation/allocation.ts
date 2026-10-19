@@ -76,6 +76,9 @@ const TEXT_FONT = resolve(import.meta.dir, "../../src/extras/text/Inter-Regular.
  * Keep production's lazy feedback: eager feedback changes steady allocation, not just compile timing.
  * No WebAssembly inlining: the feedback it collects allocates on the JavaScript heap outside the optimization
  * trace, and the sampler charges those bytes to the subject frame that called into the module.
+ * Wrappers tier up on their first call: a JS-to-Wasm or Wasm-to-JS wrapper tiers up after a call budget,
+ * allocating on the JavaScript heap outside the optimization trace, so a rarely called import, such as the
+ * solver's spin pause, would otherwise tier up inside a window.
  * Chromium receives these same timing flags, without the Node trace refusal. The Node sampler also
  * starts with DEFERRED_TURBOFAN_FLAGS and enables Turbofan once the subject is created.
  */
@@ -85,6 +88,7 @@ export const TIER_FLAGS = [
     "--invocation-count-for-maglev=10",
     "--invocation-count-for-turbofan=10",
     "--no-wasm-inlining",
+    "--wasm-wrapper-tiering-budget=1",
 ];
 
 export const windowBytes = (window: { sites: readonly AllocationSite[] }) =>

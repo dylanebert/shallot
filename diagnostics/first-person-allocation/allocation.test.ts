@@ -39,6 +39,7 @@ test("the sampler keeps lazy feedback but disables allocation-site pretenuring f
         "--invocation-count-for-maglev=10",
         "--invocation-count-for-turbofan=10",
         "--no-wasm-inlining",
+        "--wasm-wrapper-tiering-budget=1",
     ]);
 });
 
