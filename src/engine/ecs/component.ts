@@ -227,6 +227,8 @@ export const vec4: FieldType<Float32Array> & { readonly lanes: 4 } = {
 
 /**
  * World-owned scalar accessors remain valid across storage growth; raw column arrays do not.
+ * Values read through accessors or raw columns are guaranteed only while the entity holds the
+ * component; neither access path checks membership.
  * Setters, bulk writes and `world.add` defaults publish frame-scoped change marks.
  * GPU consumers declare record tables separately.
  */
@@ -244,6 +246,8 @@ export interface ScalarField {
 
 /**
  * World-owned two-lane accessors. Lane writes mark the whole entity slot changed.
+ * Values read through accessors or raw columns are guaranteed only while the entity holds the
+ * component; neither access path checks membership.
  * `read` copies into the caller's output without allocation.
  */
 export interface Vector2Field {
@@ -268,6 +272,8 @@ export interface Vector3Field extends Omit<Vector4Field, "set"> {
 }
 
 /** World-owned four-lane accessors. Lane writes mark the whole entity slot changed.
+ * Values read through accessors or raw columns are guaranteed only while the entity holds the
+ * component; neither access path checks membership.
  * `read` copies into the caller's output without allocation. */
 export interface Vector4Field {
     /** Copy encoded four-lane typed rows in eid order and mark each entity changed. */
