@@ -358,6 +358,25 @@ test("hull built from triangle vertices drops coplanar face diagonals", () => {
     expect(shapeEdges(world, definition({ geometry }))).toHaveLength(12);
 });
 
+test("hull keeps the crease between two faces Box3D builds 5e-4 radians apart", () => {
+    const ridge = 1 + 5e-4;
+    const geometry = world.resource(Hulls).add({
+        name: "shallow roof",
+        points: new Float32Array([
+            ...[-1, 0, -1, 1, 0, -1, -1, 0, 1, 1, 0, 1],
+            ...[-1, 1, -1, 1, 1, -1, -1, 1, 1, 1, 1, 1],
+            ...[0, ridge, -1, 0, ridge, 1],
+        ]),
+    });
+    const edges = shapeEdges(world, definition({ geometry }));
+    expect(edges).toHaveLength(15);
+    expect(
+        edges.some(([a, b]) =>
+            [a, b].every((p) => p[0] === 0 && p[1] === Math.fround(ridge) && Math.abs(p[2]) === 1),
+        ),
+    ).toBe(true);
+});
+
 test("mesh retains open boundaries and creases but not coplanar diagonals", () => {
     const geometry = world.resource(PhysicsMeshes).add({
         name: "fold",
