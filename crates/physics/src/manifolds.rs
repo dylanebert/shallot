@@ -268,10 +268,8 @@ pub extern "C" fn allocate_manifolds_in_world(
     lock(id);
     let address = unsafe { allocate(id, contact, count) };
     unlock(id);
-    if count > 0 {
-        unsafe {
-            (address as *mut u8).write_bytes(0, count * MANIFOLD_STRIDE * 4);
-        }
+    unsafe {
+        (address as *mut u8).write_bytes(0, count * MANIFOLD_STRIDE * 4);
     }
     address
 }
