@@ -28,7 +28,7 @@ function reads(world: World, eid: number) {
     ];
 }
 
-test.todo("a body destroyed or recycled since the last fixed sync reads null and publishes no predecessor state", async () => {
+test("a body destroyed or recycled since the last fixed sync reads null and publishes no predecessor state", async () => {
     const app = await createApp({ defaults: false, plugins: [StandardPhysicsPlugin] });
     try {
         const world = app.world;

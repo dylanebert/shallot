@@ -522,6 +522,12 @@ function runtimeFor(world: World): PhysicsRuntime {
     return runtime;
 }
 
+/** The solver body bound to eid's live entity; none for one added or destroyed since the last fixed sync. */
+function boundBody(world: World, runtime: PhysicsRuntime, eid: number): BoundBodyId | undefined {
+    const body = runtime.bodies.get(eid);
+    return body && world.resolve(body.stamp) === eid ? body : undefined;
+}
+
 function writeGlobalTransform(
     world: World,
     eid: number,
@@ -867,7 +873,7 @@ export function setTargetTransform(
 ): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     const record = body.index1 - 1;
     if (bodyGetType(state, record) === BodyType.Static) return;
@@ -893,7 +899,7 @@ export function setTransform(
 ): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (state && body) {
         const record = body.index1 - 1;
         bodySetTransform(state, record, stateTransform(position, rotation).p, stateQuat);
@@ -918,7 +924,7 @@ export function setTransform(
 export function setLinearVelocity(world: World, eid: number, velocity: Vec3): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     const record = body.index1 - 1;
     stateVector.x = velocity.x;
@@ -933,7 +939,7 @@ export function setLinearVelocity(world: World, eid: number, velocity: Vec3): vo
 export function setAngularVelocity(world: World, eid: number, velocity: Vec3): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     stateVector.x = velocity.x;
     stateVector.y = velocity.y;
@@ -945,7 +951,7 @@ export function setAngularVelocity(world: World, eid: number, velocity: Vec3): v
 export function applyForce(world: World, eid: number, force: Vec3, point: Pos, wake = true): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     stateVector.x = force.x;
     stateVector.y = force.y;
@@ -960,7 +966,7 @@ export function applyForce(world: World, eid: number, force: Vec3, point: Pos, w
 export function applyForceToCenter(world: World, eid: number, force: Vec3, wake = true): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     stateVector.x = force.x;
     stateVector.y = force.y;
@@ -972,7 +978,7 @@ export function applyForceToCenter(world: World, eid: number, force: Vec3, wake 
 export function applyTorque(world: World, eid: number, torque: Vec3, wake = true): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     stateVector.x = torque.x;
     stateVector.y = torque.y;
@@ -990,7 +996,7 @@ export function applyLinearImpulse(
 ): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     stateVector.x = impulse.x;
     stateVector.y = impulse.y;
@@ -1010,7 +1016,7 @@ export function applyLinearImpulseToCenter(
 ): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     stateVector.x = impulse.x;
     stateVector.y = impulse.y;
@@ -1022,7 +1028,7 @@ export function applyLinearImpulseToCenter(
 export function applyAngularImpulse(world: World, eid: number, impulse: Vec3, wake = true): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return;
     stateVector.x = impulse.x;
     stateVector.y = impulse.y;
@@ -1031,11 +1037,12 @@ export function applyAngularImpulse(world: World, eid: number, impulse: Vec3, wa
 }
 
 /** Converts a world point in meters to the body's unscaled local frame.
- * Returns null for a body not yet synchronized. The returned record belongs to the caller. */
+ * Returns null for a body the solver does not hold: one added or destroyed since the last fixed sync.
+ * The returned record belongs to the caller. */
 export function getLocalPoint(world: World, eid: number, point: Pos): Vec3 | null {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return null;
     const k = kernel(state.ecsState);
     const ptr = k.bodyLocalPoint(state.worldId, body.index1 - 1, point.x, point.y, point.z);
@@ -1044,10 +1051,11 @@ export function getLocalPoint(world: World, eid: number, point: Pos): Vec3 | nul
 }
 
 /** Current solver mass in kg, center in local meters and inertia in kg·m² about that center.
- * Returns null for a body not yet synchronized. The returned record belongs to the caller. */
+ * Returns null for a body the solver does not hold: one added or destroyed since the last fixed sync.
+ * The returned record belongs to the caller. */
 export function getMassData(world: World, eid: number) {
     const runtime = runtimeFor(world);
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     return runtime.physicsWorld && body
         ? bodyGetMassData(runtime.physicsWorld, body.index1 - 1)
         : null;
@@ -1055,11 +1063,12 @@ export function getMassData(world: World, eid: number) {
 
 /** Union of the body's current shape bounds in world meters, including Box3D's speculative margin.
  * A shape-less body returns its position.
- * Returns null before the body is synchronized. The returned bounds belong to the caller. */
+ * Returns null for a body the solver does not hold: one added or destroyed since the last fixed sync.
+ * The returned bounds belong to the caller. */
 export function computeBodyAABB(world: World, eid: number) {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (!state || !body) return null;
     let shape = bodyField(state, body.index1 - 1, BodyField.headShapeId);
     const bounds = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } };
@@ -1085,10 +1094,10 @@ export function computeBodyAABB(world: World, eid: number) {
     return bounds;
 }
 
-/** Returns the solver's current awake state, or null for a body not yet synchronized. */
+/** Returns the solver's current awake state, or null for a body the solver does not hold: one added or destroyed since the last fixed sync. */
 export function isAwake(world: World, eid: number): boolean | null {
     const runtime = runtimeFor(world);
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     return runtime.physicsWorld && body ? bodyIsAwake(runtime.physicsWorld, body.index1 - 1) : null;
 }
 
@@ -1096,7 +1105,7 @@ export function isAwake(world: World, eid: number): boolean | null {
 export function setAwake(world: World, eid: number, awake: boolean): void {
     const runtime = runtimeFor(world);
     const state = runtime.physicsWorld;
-    const body = runtime.bodies.get(eid);
+    const body = boundBody(world, runtime, eid);
     if (state && body) bodySetAwake(state, body.index1 - 1, awake);
 }
 export function physicsCounters(world: World): PhysicsCounters {
