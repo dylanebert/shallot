@@ -404,6 +404,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
       - run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
