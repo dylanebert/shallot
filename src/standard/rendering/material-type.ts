@@ -290,11 +290,12 @@ export type AlphaMode =
     | { readonly kind: "alpha-to-coverage" };
 
 /**
- * Per-material transparency behavior; Mask defaults to the 0.5 cutoff. Scene alpha is coverage, which
- * a camera stacked over others (Camera `order`) is blended by: Opaque and Mask cover fully,
- * AlphaToCoverage covers round(alpha × 4) of the 4× MSAA samples, each at full alpha, and Blend and
- * Premultiplied cover by alpha. On such a camera, Add's light over pixels the camera left empty is
- * dropped, and Multiply darkens the cameras below toward black by its alpha instead of multiplying them.
+ * Per-material transparency behavior; Mask defaults to the 0.5 cutoff. A camera stacked over others
+ * (Camera `order`) is blended over them by its scene alpha as coverage: Opaque and Mask cover fully,
+ * Blend and Premultiplied by alpha, and AlphaToCoverage there covers round(alpha × 4) of the 4× MSAA
+ * samples, each at full alpha, where a lone or bottom camera uses the GPU's alpha-to-coverage. On a
+ * stacked camera, Add's light over pixels it left empty is dropped, and Multiply darkens the cameras
+ * below toward black by its alpha instead of multiplying them.
  */
 export const AlphaMode = {
     Opaque: { kind: "opaque" } as const,
