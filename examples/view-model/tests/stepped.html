@@ -1,21 +1,27 @@
 <!doctype html><html lang="en"><head><meta charset="UTF-8"><title>View model stepped</title><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="640" height="360"></canvas><script type="module">
-import { createApp, Camera, MeshInstance, DirectionalLight, pressKey, releaseKey, probeBuffer } from '@dylanebert/shallot';
+import { createApp, Camera, DirectionalLight, probeBuffer, pointerMove, pointerLockChanged, Materials, MeshMaterial, StandardMaterial, setTransform } from '@dylanebert/shallot';
 import { attachTexture, captureTexture, Views, RenderLayers } from '@dylanebert/shallot/rendering';
 import { Draws } from '@dylanebert/shallot/standard/rendering';
-import { Scene, ScenePlugin, pose } from '../src/scene';
-const app=await createApp({plugins:[ScenePlugin]});
+import { PhysicsWorldDefinition } from '@dylanebert/shallot/standard/physics';
+import { Scene, ScenePlugin } from '../src/scene';
+import { LocalPlayer, Player } from '../src/player';
+const app=await createApp({plugins:[ScenePlugin, {name:'CheckPhysics',initialize(world){world.resource(PhysicsWorldDefinition).workerCount=1;}}]});
 const w=app.world,s=w.resource(Scene),canvas=document.querySelector('canvas');
+w.storage(Player).gravity.set(s.player,0);
 const target=attachTexture(w,s.camera,{width:640,height:360});attachTexture(w,s.modelCamera,target);
 for(const eid of [s.camera,s.modelCamera])w.storage(Camera).antialias.set(eid,0);
 async function image(){ w.step(0); return (await captureTexture(w,s.camera)).rgba; }
-function key(){pressKey(w,'KeyE');w.step(1/60);releaseKey(w,'KeyE');w.step(1/60);}
+function position(z){
+ setTransform(w,s.player,[0,0.9,z],[0,0,0,1]);
+ w.storage(LocalPlayer).viewYaw.set(s.player,0);w.storage(LocalPlayer).viewPitch.set(s.player,0);
+ w.step(1/60);w.step(1/60);
+}
 function mask(value){for(const eid of s.parts)w.storage(RenderLayers).mask.set(eid,value);}
 function changed(a,b){let n=0;for(let i=0;i<a.length;i+=4)if(Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2])>15)n++;return n;}
 window.evidence=async(name)=>{
- if(!s.held)key(); s.z=2;s.yaw=0;s.pitch=0;pose(w);mask(2);
- w.storage(Camera).fov.set(s.camera,90);w.storage(DirectionalLight).illuminance.set(s.light,6000);
+ position(2);
  if(name==='contact'){
-  s.z=-0.65;pose(w);const on=await image();mask(0);const off=await image();mask(2);return changed(on,off);
+  position(-0.6);const on=await image();mask(0);const off=await image();mask(2);return changed(on,off);
  }
  if(name==='depth'){
   w.add(s.camera,RenderLayers,{mask:0});const on=await image();
@@ -32,19 +38,31 @@ window.evidence=async(name)=>{
   }return total;};
   const on=await count();mask(0);const off=await count();mask(2);return on-off;
  }
- if(name==='dropped'){
-  s.z=-0.65;pose(w);key();s.z=2;pose(w);const on=await image();mask(0);const off=await image();mask(1);return changed(on,off);
- }
  w.add(s.camera,RenderLayers,{mask:0});const before=await image();
  if(name==='fov')w.storage(Camera).fov.set(s.camera,45);
  if(name==='light')w.storage(DirectionalLight).illuminance.set(s.light,0);
  const after=await image();w.remove(s.camera,RenderLayers);return changed(before,after);
 };
 window.frame=async(name)=>{
- if(!s.held)key();s.z=name==='held'?2:-0.65;s.yaw=0;s.pitch=0;pose(w);mask(2);
- w.storage(Camera).fov.set(s.camera,90);w.storage(DirectionalLight).illuminance.set(s.light,6000);
- if(name==='dropped'){key();s.z=2;pose(w);}
+ position(name==='held'?2:-0.6);
  const rgba=await image();canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba),640,360),0,0);
+};
+window.jitter=async()=>{
+ position(2);w.add(s.camera,RenderLayers,{mask:0});
+ // Unlit white makes silhouette, rather than changing world-space lighting, the placement observable.
+ const white=w.resource(Materials).add(StandardMaterial({baseColor:[1,1,1,1],unlit:true}));
+ for(const eid of s.parts){w.remove(eid,MeshMaterial);w.add(eid,MeshMaterial,white);}
+ let first,maxChanged=0,occupied=0;
+ const yawBefore=w.storage(LocalPlayer).viewYaw.get(s.player);
+ for(let frame=0;frame<48;frame++){
+  pointerLockChanged(w,true);pointerMove(w,{x:0,y:0,deltaX:4});w.step(1/144);
+  const rgba=(await captureTexture(w,s.camera)).rgba;
+  const silhouette=new Uint8Array(640*360);
+  for(let i=0;i<silhouette.length;i++)silhouette[i]=Number(rgba[i*4]>100);
+  if(!first){first=silhouette;occupied=silhouette.reduce((a,b)=>a+b,0);}
+  else {let changed=0;for(let i=0;i<first.length;i++)changed+=Number(first[i]!==silhouette[i]);maxChanged=Math.max(maxChanged,changed);}
+ }
+ return {maxChanged,occupied,turn:w.storage(LocalPlayer).viewYaw.get(s.player)-yawBefore};
 };
 window.adapter=w.gpu.adapter;window.ready=true;
 </script></body></html>

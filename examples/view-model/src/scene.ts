@@ -1,9 +1,11 @@
 import {
+    Body,
+    BodyType,
     Camera,
-    Devices,
+    Character,
+    composeMat4,
     DirectionalLight,
     GlobalAmbientLight,
-    InputPlugin,
     lookAtRotation,
     Materials,
     MeshInstance,
@@ -11,41 +13,32 @@ import {
     NotShadowCaster,
     type Plugin,
     type Resource,
-    requirePointerLock,
+    Shape,
+    ShapeKind,
     StandardMaterial,
+    StandardPhysicsPlugin,
     StandardRenderer,
-    Time,
     Transform,
     type World,
 } from "@dylanebert/shallot";
-
 import { RenderLayers } from "@dylanebert/shallot/rendering";
+import { LocalPlayer, Player, PlayerPlugin, UpdatePlayerControlSystem } from "./player";
 
 export const Scene: Resource<{
     camera: number;
     modelCamera: number;
+    player: number;
     light: number;
-    wall: number;
     parts: number[];
-    held: boolean;
-    z: number;
-    yaw: number;
-    pitch: number;
-    drop: boolean;
-    move: number;
+    matrix: Float32Array;
 }> = {
     create: () => ({
         camera: 0,
         modelCamera: 0,
+        player: 0,
         light: 0,
-        wall: 0,
         parts: [],
-        held: true,
-        z: 2,
-        yaw: 0,
-        pitch: 0,
-        drop: false,
-        move: 0,
+        matrix: new Float32Array(16),
     }),
 };
 const PARTS = [
@@ -69,49 +62,44 @@ function block(
     );
     return eid;
 }
-export function toggleItem(world: World) {
-    const scene = world.resource(Scene);
-    scene.held = !scene.held;
-    for (const eid of scene.parts) {
-        world.storage(RenderLayers).mask.set(eid, scene.held ? 2 : 1);
-        if (!scene.held) world.remove(eid, NotShadowCaster);
-        else world.add(eid, NotShadowCaster);
-    }
-}
-export function pose(world: World) {
-    const s = world.resource(Scene);
-    const sy = Math.sin(s.yaw / 2),
-        cy = Math.cos(s.yaw / 2);
-    const sp = Math.sin(s.pitch / 2),
-        cp = Math.cos(s.pitch / 2);
-    const rotation = [cy * sp, sy * cp, -sy * sp, cy * cp];
-    for (const eid of [s.camera, s.modelCamera]) {
-        world.storage(Transform).translation.set(eid, 0, 1.6, s.z);
-        world
-            .storage(Transform)
-            .rotation.set(eid, ...(rotation as [number, number, number, number]));
-    }
-    if (!s.held) return;
-    for (const [i, eid] of s.parts.entries()) {
-        const [x, y, z] = PARTS[i]!.position;
-        const py = y * Math.cos(s.pitch) - z * Math.sin(s.pitch);
-        const pz = y * Math.sin(s.pitch) + z * Math.cos(s.pitch);
-        world
-            .storage(Transform)
-            .translation.set(
+// Frame-authored attachments follow the camera after its interpolated position and look are settled.
+// Writing them on fixed ticks would give meshes tick history that the camera does not use.
+export const ViewModelSystem = {
+    name: "view-model",
+    group: "simulation" as const,
+    after: [UpdatePlayerControlSystem],
+    update(world: World) {
+        const s = world.resource(Scene),
+            t = world.storage(Transform);
+        const p = t.translation.column,
+            q = t.rotation.column,
+            offset = s.camera * 4;
+        const x = p[offset]!,
+            y = p[offset + 1]!,
+            z = p[offset + 2]!;
+        const qx = q[offset]!,
+            qy = q[offset + 1]!,
+            qz = q[offset + 2]!,
+            qw = q[offset + 3]!;
+        t.translation.set(s.modelCamera, x, y, z);
+        t.rotation.set(s.modelCamera, qx, qy, qz, qw);
+        const m = composeMat4(x, y, z, qx, qy, qz, qw, 1, 1, 1, s.matrix);
+        for (const [index, eid] of s.parts.entries()) {
+            const [px, py, pz] = PARTS[index]!.position;
+            t.translation.set(
                 eid,
-                x * Math.cos(s.yaw) + pz * Math.sin(s.yaw),
-                1.6 + py,
-                s.z - x * Math.sin(s.yaw) + pz * Math.cos(s.yaw),
+                m[0]! * px + m[4]! * py + m[8]! * pz + x,
+                m[1]! * px + m[5]! * py + m[9]! * pz + y,
+                m[2]! * px + m[6]! * py + m[10]! * pz + z,
             );
-        world
-            .storage(Transform)
-            .rotation.set(eid, ...(rotation as [number, number, number, number]));
-    }
-}
+            t.rotation.set(eid, qx, qy, qz, qw);
+        }
+    },
+};
 export const ScenePlugin: Plugin = {
     name: "ViewModel",
-    dependencies: [InputPlugin],
+    dependencies: [StandardPhysicsPlugin, PlayerPlugin],
+    systems: [ViewModelSystem],
     initialize(world) {
         const s = world.resource(Scene);
         world.resource(GlobalAmbientLight).color = 0xd8e4ff;
@@ -127,58 +115,40 @@ export const ScenePlugin: Plugin = {
         s.camera = world.create();
         world.add(s.camera, Camera, { fov: 90, clearColor: 0x191816 });
         world.add(s.camera, StandardRenderer);
-        world.add(s.camera, Transform);
+        world.add(s.camera, Transform, { translation: [0, 1.6, 2] });
         s.modelCamera = world.create();
         world.add(s.modelCamera, Camera, { fov: 70, order: 1 });
         world.add(s.modelCamera, StandardRenderer);
         world.add(s.modelCamera, Transform);
         world.add(s.modelCamera, RenderLayers, { mask: 2 });
-        block(world, [0, -0.1, 0], [10, 0.2, 12], [0.085, 0.08, 0.072, 1]);
-        s.wall = block(world, [0, 1.5, -1], [3, 3, 0.2], [0.11, 0.105, 0.095, 1]);
-        block(world, [-2.1, 0.5, -2], [0.7, 1, 0.7], [0.06, 0.057, 0.052, 1]);
+        s.player = world.create();
+        world.add(s.player, Transform, { translation: [0, 0.9, 2] });
+        world.add(s.player, Body, { type: BodyType.Kinematic });
+        world.add(s.player, Shape, {
+            kind: ShapeKind.Capsule,
+            capsuleCenter1: [0, -0.55, 0],
+            capsuleCenter2: [0, 0.55, 0],
+            radius: 0.3,
+        });
+        world.add(s.player, Character);
+        world.add(s.player, Player, { camera: s.camera });
+        world.add(s.player, LocalPlayer);
+        const surfaces = [
+            { position: [0, -0.1, 0], size: [10, 0.2, 12], color: [0.085, 0.08, 0.072, 1] },
+            { position: [0, 1.5, -1], size: [3, 3, 0.2], color: [0.11, 0.105, 0.095, 1] },
+            { position: [-2.1, 0.5, -2], size: [0.7, 1, 0.7], color: [0.06, 0.057, 0.052, 1] },
+        ] as const;
+        for (const surface of surfaces) {
+            const eid = block(world, surface.position, surface.size, surface.color);
+            world.add(eid, Body, { type: BodyType.Static });
+            world.add(eid, Shape);
+        }
         s.parts = PARTS.map((p) => {
             const eid = block(world, p.position, p.size, p.color);
             world.add(eid, RenderLayers, { mask: 2 });
             world.add(eid, NotShadowCaster);
             return eid;
         });
-        pose(world);
+        ViewModelSystem.update(world);
     },
-    systems: [
-        {
-            name: "sample",
-            group: "setup",
-            update(world) {
-                const s = world.resource(Scene),
-                    d = world.resource(Devices);
-                s.move = Number(d.keys.held.has("KeyS")) - Number(d.keys.held.has("KeyW"));
-                if (d.keys.pressed.has("KeyE")) s.drop = true;
-                if (d.pointer.lock.status === "locked") {
-                    s.yaw -= d.pointer.deltaX * 0.002;
-                    s.pitch = Math.max(-1.4, Math.min(1.4, s.pitch - d.pointer.deltaY * 0.002));
-                }
-            },
-        },
-        {
-            name: "move",
-            group: "fixed",
-            update(world) {
-                const s = world.resource(Scene);
-                s.z = Math.max(-0.65, Math.min(4, s.z + s.move * 2 * Time.FIXED_DT));
-                if (s.drop) {
-                    toggleItem(world);
-                    s.drop = false;
-                }
-                pose(world);
-            },
-        },
-        {
-            name: "look",
-            group: "simulation",
-            setup(world) {
-                requirePointerLock(world, true);
-            },
-            update: pose,
-        },
-    ],
 };

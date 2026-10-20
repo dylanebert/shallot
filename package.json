@@ -70,6 +70,7 @@
         "dist",
         "examples/minimal",
         "examples/first-person",
+        "examples/view-model",
         "examples/loading-screen",
         "examples/embedded-scene",
         "examples/day-night-cycle",
