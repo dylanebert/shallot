@@ -1,5 +1,14 @@
 import { test } from "bun:test";
-import { coverage, masks, render, size, squaredDistance, widths } from "./reference.fixture";
+import {
+    coverage,
+    masks,
+    outlineReference,
+    size,
+    squaredDistance,
+    widths,
+} from "./reference.fixture";
+
+const { render } = outlineReference(import.meta.path);
 
 // Characterization, not an exact-distance gate. The width-bounded flood need not
 // find nearest seeds outside band range; count distance errors only inside it.

@@ -17,7 +17,7 @@ import {
 } from "./passes";
 
 export const size = 32;
-export const widths = [2.5, 4, 5.5, 9.5];
+export const widths = [2.5, 3, 3.5, 4, 5.5, 7, 7.5, 8, 9.5];
 export type Pixel = readonly [number, number];
 export const masks: { name: string; pixels: Pixel[] }[] = [
     { name: "thin line", pixels: Array.from({ length: 18 }, (_, i) => [15, i + 7]) },
@@ -44,140 +44,143 @@ export const masks: { name: string; pixels: Pixel[] }[] = [
         ],
     },
 ];
-export const subjects = gpuApps(import.meta.path, [
-    { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },
-]);
-export let render: (
-    pixels: Pixel[],
-    width: number,
-) => Promise<{
-    coverage: Uint16Array;
-    nearest: Uint16Array;
-}>;
-beforeAll(() => {
-    const { world } = subjects()[0];
-    const { device, root } = world.gpu;
-    const info = device.adapterInfo;
-    console.info(
-        JSON.stringify({
-            adapter: {
-                vendor: info.vendor,
-                architecture: info.architecture,
-                device: info.device,
-                description: info.description,
-                isFallbackAdapter: info.isFallbackAdapter,
-            },
-        }),
-    );
-    const texture = () => {
-        const t = device.createTexture({
-            size: [size, size],
-            format: "rgba16float",
-            usage:
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.STORAGE_BINDING |
-                GPUTextureUsage.COPY_DST |
-                GPUTextureUsage.COPY_SRC,
-        });
-        world.own(t);
-        return t;
-    };
-    const seed = [0, 1].map(() => {
-        const t = device.createTexture({
-            size: [size, size],
-            format: "rg16uint",
-            usage:
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.RENDER_ATTACHMENT |
-                GPUTextureUsage.COPY_DST |
-                GPUTextureUsage.COPY_SRC,
-        });
-        world.own(t);
-        return t;
-    });
-    const attr = texture(),
-        scene = texture(),
-        output = texture();
-    device.queue.writeTexture(
-        { texture: scene },
-        new Uint16Array(size * size * 4),
-        { bytesPerRow: size * 8 },
-        [size, size],
-    );
-    const jfa = root.unwrap(
-        root.createRenderPipeline({
-            vertex: fullscreenVs,
-            fragment: jfaFs,
-            targets: { format: "rg16uint" },
-            primitive: { topology: "triangle-list", cullMode: "none" },
-        }),
-    );
-    const composite = root.unwrap(root.createComputePipeline({ compute: compositeKernel }));
-    const groups = Array.from({ length: MAX_JFA_PASSES }, (_, k) =>
-        root.unwrap(
-            root.createBindGroup(jfaLayout, {
-                seed: seed[k % 2]!.createView(),
-                step: root.createBuffer(d.f32, jfaStep(k)).$usage("uniform"),
+export function outlineReference(path: string) {
+    const subjects = gpuApps(path, [
+        { defaults: false, plugins: [...DEFAULT_PLUGINS, OutlinePlugin] },
+    ]);
+    let render: (
+        pixels: Pixel[],
+        width: number,
+    ) => Promise<{
+        coverage: Uint16Array;
+        nearest: Uint16Array;
+    }>;
+    beforeAll(() => {
+        const { world } = subjects()[0];
+        const { device, root } = world.gpu;
+        const info = device.adapterInfo;
+        console.info(
+            JSON.stringify({
+                adapter: {
+                    vendor: info.vendor,
+                    architecture: info.architecture,
+                    device: info.device,
+                    description: info.description,
+                    isFallbackAdapter: info.isFallbackAdapter,
+                },
             }),
-        ),
-    );
-    const compositeGroup = root.unwrap(
-        root.createBindGroup(compositeLayout, {
-            scene: scene.createView(),
-            seed: seed[MAX_JFA_PASSES % 2]!.createView(),
-            attr: attr.createView(),
-            output: output.createView(),
-        }),
-    );
-    render = async (pixels, width) => {
-        const attrs = new Uint16Array(size * size * 4);
-        for (const [x, y] of pixels) {
-            const at = y * size + x;
-            attrs[at * 4] = 0x3c00;
-            attrs[at * 4 + 3] = new Uint16Array(new Float16Array([width]).buffer)[0]!;
-        }
-        const offset = MAX_JFA_PASSES - jfaPassCount(width);
+        );
+        const texture = () => {
+            const t = device.createTexture({
+                size: [size, size],
+                format: "rgba16float",
+                usage:
+                    GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.STORAGE_BINDING |
+                    GPUTextureUsage.COPY_DST |
+                    GPUTextureUsage.COPY_SRC,
+            });
+            world.own(t);
+            return t;
+        };
+        const seed = [0, 1].map(() => {
+            const t = device.createTexture({
+                size: [size, size],
+                format: "rg16uint",
+                usage:
+                    GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.RENDER_ATTACHMENT |
+                    GPUTextureUsage.COPY_DST |
+                    GPUTextureUsage.COPY_SRC,
+            });
+            world.own(t);
+            return t;
+        });
+        const attr = texture(),
+            scene = texture(),
+            output = texture();
         device.queue.writeTexture(
-            { texture: seed[offset % 2]! },
-            initialSeeds(pixels),
-            { bytesPerRow: size * 4 },
+            { texture: scene },
+            new Uint16Array(size * size * 4),
+            { bytesPerRow: size * 8 },
             [size, size],
         );
-        device.queue.writeTexture({ texture: attr }, attrs, { bytesPerRow: size * 8 }, [
-            size,
-            size,
-        ]);
-        const encoder = device.createCommandEncoder();
-        for (let k = offset; k < MAX_JFA_PASSES; k++) {
-            const pass = encoder.beginRenderPass({
-                colorAttachments: [
-                    {
-                        view: seed[1 - (k % 2)]!.createView(),
-                        loadOp: "clear",
-                        storeOp: "store",
-                        clearValue: { r: 30000, g: 30000, b: 0, a: 0 },
-                    },
-                ],
-            });
-            pass.setPipeline(jfa);
-            pass.setBindGroup(0, groups[k]!);
-            pass.draw(3);
-            pass.end();
-        }
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(composite);
-        pass.setBindGroup(0, compositeGroup);
-        pass.dispatchWorkgroups(Math.ceil(size / WORKGROUP), Math.ceil(size / WORKGROUP));
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-        return {
-            coverage: new Uint16Array((await probeTexture(world, output)).bytes as ArrayBuffer),
-            nearest: new Uint16Array(
-                (await probeTexture(world, seed[MAX_JFA_PASSES % 2]!)).bytes as ArrayBuffer,
+        const jfa = root.unwrap(
+            root.createRenderPipeline({
+                vertex: fullscreenVs,
+                fragment: jfaFs,
+                targets: { format: "rg16uint" },
+                primitive: { topology: "triangle-list", cullMode: "none" },
+            }),
+        );
+        const composite = root.unwrap(root.createComputePipeline({ compute: compositeKernel }));
+        const groups = Array.from({ length: MAX_JFA_PASSES }, (_, k) =>
+            root.unwrap(
+                root.createBindGroup(jfaLayout, {
+                    seed: seed[k % 2]!.createView(),
+                    step: root.createBuffer(d.f32, jfaStep(k)).$usage("uniform"),
+                }),
             ),
+        );
+        const compositeGroup = root.unwrap(
+            root.createBindGroup(compositeLayout, {
+                scene: scene.createView(),
+                seed: seed[MAX_JFA_PASSES % 2]!.createView(),
+                attr: attr.createView(),
+                output: output.createView(),
+            }),
+        );
+        render = async (pixels, width) => {
+            const attrs = new Uint16Array(size * size * 4);
+            for (const [x, y] of pixels) {
+                const at = y * size + x;
+                attrs[at * 4] = 0x3c00;
+                attrs[at * 4 + 3] = new Uint16Array(new Float16Array([width]).buffer)[0]!;
+            }
+            const offset = MAX_JFA_PASSES - jfaPassCount(width);
+            device.queue.writeTexture(
+                { texture: seed[offset % 2]! },
+                initialSeeds(pixels),
+                { bytesPerRow: size * 4 },
+                [size, size],
+            );
+            device.queue.writeTexture({ texture: attr }, attrs, { bytesPerRow: size * 8 }, [
+                size,
+                size,
+            ]);
+            const encoder = device.createCommandEncoder();
+            for (let k = offset; k < MAX_JFA_PASSES; k++) {
+                const pass = encoder.beginRenderPass({
+                    colorAttachments: [
+                        {
+                            view: seed[1 - (k % 2)]!.createView(),
+                            loadOp: "clear",
+                            storeOp: "store",
+                            clearValue: { r: 30000, g: 30000, b: 0, a: 0 },
+                        },
+                    ],
+                });
+                pass.setPipeline(jfa);
+                pass.setBindGroup(0, groups[k]!);
+                pass.draw(3);
+                pass.end();
+            }
+            const pass = encoder.beginComputePass();
+            pass.setPipeline(composite);
+            pass.setBindGroup(0, compositeGroup);
+            pass.dispatchWorkgroups(Math.ceil(size / WORKGROUP), Math.ceil(size / WORKGROUP));
+            pass.end();
+            device.queue.submit([encoder.finish()]);
+            return {
+                coverage: new Uint16Array((await probeTexture(world, output)).bytes as ArrayBuffer),
+                nearest: new Uint16Array(
+                    (await probeTexture(world, seed[MAX_JFA_PASSES % 2]!)).bytes as ArrayBuffer,
+                ),
+            };
         };
-    };
-});
+    });
+    return { subjects, render: (pixels: Pixel[], width: number) => render(pixels, width) };
+}
 
 function smoothstep(low: number, high: number, value: number): number {
     const t = Math.max(0, Math.min(1, (value - low) / (high - low)));

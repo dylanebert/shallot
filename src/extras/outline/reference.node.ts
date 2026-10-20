@@ -3,23 +3,22 @@ import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { Meshes, MeshInstance } from "../../core/mesh";
 import { attachTexture, Camera, CameraMode } from "../../core/rendering";
 import { Transform } from "../../core/transform";
-import { probeTexture } from "../../engine/runtime";
 import { StandardRenderer } from "../../standard/rendering";
 import { Outline } from ".";
+import { captureSeeds } from "./mask.fixture";
 import {
     coverage,
     initialSeeds,
     jumpFlood,
     masks,
-    render,
+    outlineReference,
     size,
     squaredDistance,
-    subjects,
     widths,
 } from "./reference.fixture";
 
 setDefaultTimeout(TIMEOUT.node);
-
+const { render, subjects } = outlineReference(import.meta.path);
 for (const mask of masks)
     for (const width of widths) {
         test(`${mask.name}, width ${width}: exact CPU jump flood and coverage within one display code`, async () => {
@@ -50,17 +49,9 @@ for (const mask of masks)
             }
         });
     }
-
 for (const mask of masks) {
     test(`${mask.name}: the real orthographic mesh mask seeds exactly the covered pixels before flooding`, async () => {
         const { world } = subjects()[0];
-        const { device } = world.gpu;
-        const snapshot = device.createTexture({
-            size: [size, size],
-            format: "rg16uint",
-            usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-        });
-        world.own(snapshot);
         const camera = world.create();
         world.add(camera, Transform, { translation: [0, 0, 5] });
         world.add(camera, Camera, { mode: CameraMode.Orthographic, size: size / 2, antialias: 0 });
@@ -90,63 +81,15 @@ for (const mask of masks) {
         world.add(entity, Transform);
         world.add(entity, MeshInstance, { mesh });
         world.add(entity, Outline, { width: 5.5 });
-        const views = new WeakMap<GPUTextureView, GPUTexture>();
-        const createTexture = device.createTexture.bind(device);
-        const createEncoder = device.createCommandEncoder.bind(device);
-        let finalSeed: GPUTexture | undefined;
-        let copies = 0;
-        device.createTexture = (descriptor) => {
-            if (!descriptor.label?.startsWith("outline-seed")) return createTexture(descriptor);
-            const texture = createTexture({
-                ...descriptor,
-                usage: descriptor.usage | GPUTextureUsage.COPY_SRC,
-            });
-            // The production seven-slot ladder always finishes in seed B.
-            if (descriptor.label === `outline-seedB-${camera}`) finalSeed = texture;
-            const createView = texture.createView.bind(texture);
-            texture.createView = (descriptor) => {
-                const view = createView(descriptor);
-                views.set(view, texture);
-                return view;
-            };
-            return texture;
-        };
-        device.createCommandEncoder = (descriptor) => {
-            const encoder = createEncoder(descriptor);
-            const begin = encoder.beginRenderPass.bind(encoder);
-            encoder.beginRenderPass = (descriptor) => {
-                const pass = begin(descriptor);
-                if (descriptor.label !== `outline-mask/${camera}`) return pass;
-                const source = views.get(
-                    Array.from(descriptor.colorAttachments)[0]!.view as GPUTextureView,
-                )!;
-                const end = pass.end.bind(pass);
-                pass.end = () => {
-                    end();
-                    encoder.copyTextureToTexture({ texture: source }, { texture: snapshot }, [
-                        size,
-                        size,
-                    ]);
-                    copies++;
-                };
-                return pass;
-            };
-            return encoder;
-        };
+        const capture = captureSeeds(world, camera, size, size);
         try {
             world.step(0);
-            expect(copies).toBe(1);
-            const actual = new Uint16Array(
-                (await probeTexture(world, snapshot)).bytes as ArrayBuffer,
-            );
-            expect(actual).toEqual(initialSeeds(mask.pixels));
-            const flooded = new Uint16Array(
-                (await probeTexture(world, finalSeed!)).bytes as ArrayBuffer,
-            );
-            expect(flooded).toEqual(jumpFlood(mask.pixels, 5.5));
+            expect(capture.copies).toBe(1);
+            const actual = await capture.read();
+            expect(actual.mask).toEqual(initialSeeds(mask.pixels));
+            expect(actual.nearest).toEqual(jumpFlood(mask.pixels, 5.5));
         } finally {
-            device.createTexture = createTexture;
-            device.createCommandEncoder = createEncoder;
+            capture.restore();
             world.destroy(entity);
             world.destroy(camera);
             meshes.remove(mesh);
