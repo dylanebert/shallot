@@ -85,7 +85,7 @@ export function controlValues(scene: Scene): Record<string, number> {
         ]),
     );
 }
-export function visibleControls(scene: Scene, values: Record<string, number>): Controls {
+export function enabledControls(scene: Scene, values: Record<string, number>): Controls {
     const controls: Controls | undefined = scenes[scene].controls;
     return Object.fromEntries(
         Object.entries(controls ?? {}).filter(

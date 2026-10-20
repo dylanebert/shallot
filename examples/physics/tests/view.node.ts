@@ -8,7 +8,7 @@ import {
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { EventSample, EventSamplePlugin } from "../src/events";
 import { scenePresentation, shapeMaterial } from "../src/presentation";
-import { categories, controlValues, createScene, scenes, visibleControls } from "../src/scenes";
+import { categories, controlValues, createScene, enabledControls, scenes } from "../src/scenes";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -174,7 +174,7 @@ for (const { id, name } of categories.flatMap((category) => category.scenes)) {
                 });
             }
             expect(grid.lines).toHaveLength(((2 * extent) / spacing + 1) * 2);
-            expect(presentation.controls).toEqual(visibleControls(id, controlValues(id)));
+            expect(presentation.controls).toEqual(enabledControls(id, controlValues(id)));
         } finally {
             app.dispose();
         }

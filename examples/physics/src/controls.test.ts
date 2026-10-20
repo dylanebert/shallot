@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { type Controls, controlValues, type Scene, scenes, visibleControls } from "./scenes";
+import { formatValue } from "./control-format";
+import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
 for (const scene of Object.keys(scenes) as Scene[]) {
     test(`${scene} exposes exactly its controls and gates every dependent`, () => {
@@ -8,6 +9,12 @@ for (const scene of Object.keys(scenes) as Scene[]) {
         expect(Object.keys(values)).toEqual(Object.keys(controls));
         for (const [name, control] of Object.entries(controls)) {
             expect(values[name]).toBe(control.value);
+            if (control.min !== undefined) {
+                for (const value of [control.min, control.max!, control.value]) {
+                    expect(Number(formatValue(value))).toBe(value);
+                    expect(formatValue(value).length).toBeLessThanOrEqual(6);
+                }
+            }
             for (const dependency of control.when ?? []) {
                 expect(controls[dependency]).toBeDefined();
                 expect(controls[dependency]!.min).toBeUndefined();
@@ -20,12 +27,16 @@ for (const scene of Object.keys(scenes) as Scene[]) {
             toggles.forEach((name, index) => {
                 values[name] = (mask >> index) & 1;
             });
-            const visible = visibleControls(scene, values);
+            const remembered = { ...values };
+            const enabled = enabledControls(scene, values);
+            expect(values).toEqual(remembered);
             for (const [name, control] of Object.entries(controls)) {
-                const hidden = (control.when ?? []).some((dependency) => values[dependency] === 0);
-                expect(name in visible, `${scene}: ${name}, mask ${mask}`).toBe(!hidden);
+                const disabled = (control.when ?? []).some(
+                    (dependency) => values[dependency] === 0,
+                );
+                expect(name in enabled, `${scene}: ${name}, mask ${mask}`).toBe(!disabled);
             }
         }
-        expect(visibleControls("boxStack", values)).toEqual({});
+        expect(enabledControls("boxStack", values)).toEqual({});
     });
 }

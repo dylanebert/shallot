@@ -10,7 +10,7 @@ import {
 } from "@dylanebert/shallot";
 import { isAwake } from "@dylanebert/shallot/standard/physics";
 import { EventSample } from "./events";
-import { controlValues, type Scene, scenes, visibleControls } from "./scenes";
+import { controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
 const materials = {
     ground: StandardMaterial({ baseColor: [0.085, 0.08, 0.072, 1], perceptualRoughness: 0.82 }),
@@ -86,6 +86,6 @@ export function scenePresentation(world: World, scene: Scene) {
                   }
                 : undefined,
         materials,
-        controls: visibleControls(scene, controlValues(scene)),
+        controls: enabledControls(scene, controlValues(scene)),
     };
 }

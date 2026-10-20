@@ -1140,7 +1140,11 @@ function controlViolations(css: Css, light = false): string[] {
                     : thumb
                       ? ["8px"]
                       : /\.controls\b|\.name\b/.test(s)
-                        ? ["360px"]
+                        ? /\.name\b/.test(s)
+                            ? touch
+                                ? ["280px", "44px", "4px"]
+                                : ["296px"]
+                            : ["360px"]
                         : [];
             else if (/width/.test(p))
                 sizes = check
@@ -1162,7 +1166,7 @@ function controlViolations(css: Css, light = false): string[] {
                           ? ["4px"]
                           : rowSelector(s)
                             ? [touch ? "44px" : "32px"]
-                            : ["24px", "64px"];
+                            : ["24px", "64px", ...(/\.scenes\b/.test(s) && touch ? ["16px"] : [])];
             else if (p === "grid-template-columns")
                 sizes = /\.slider\b/.test(s)
                     ? ["48px"]
@@ -1460,6 +1464,8 @@ const controlMutations: [string, string, string][] = [
         "padding: var(--zero) var(--s2)",
         "padding: var(--zero) var(--zero) var(--s2)",
     ],
+    ["5: desktop picker name slot", "width: 296px", "width: 295px"],
+    ["5: phone picker name cap", "min(280px,", "min(281px,"],
     ["3: wrong heading padding-left", "padding: var(--zero) var(--s2)", "padding-left: var(--s4)"],
     [
         "4: print coarse is not screen coverage",
@@ -1820,7 +1826,7 @@ test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL 
 });
 
 // Moving an example changes this list alone: new rules become a test, old rules leave.
-const migrated = new Set<string>(["voxel", "post-processing"]);
+const migrated = new Set<string>(["voxel", "post-processing", "physics"]);
 
 for (const example of await readdir("examples")) {
     (migrated.has(example) ? test : test.todo)(`${example} follows example-controls`, async () => {

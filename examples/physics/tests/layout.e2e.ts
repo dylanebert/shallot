@@ -1,123 +1,156 @@
 import { expect, test } from "playwright/test";
-import { categories } from "../src/scenes";
+import { formatValue } from "../src/control-format";
+import { categories, type Scene, scenes } from "../src/scenes";
 
 for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
 ]) {
-    test(`instructions stay top left and toggles preserve the controls width and top-left at ${viewport.width}×${viewport.height}`, async ({
+    test(`fixed allocations, scrolling and uncropped picker at ${viewport.width}`, async ({
         browser,
     }) => {
-        const context = await browser.newContext({ viewport, hasTouch: viewport.width === 390 });
-        const page = await context.newPage();
-        await page.goto("/");
-        const picker = page.getByRole("button", { name: "Scene", exact: true });
-        await picker.click();
-        await page.getByRole("button", { name: "Contact", exact: true }).click();
-        const help = page.getByText("WASD to roll", { exact: true });
-        await expect(help).toBeVisible();
-        expect.soft(await page.locator(".controls").getByText("WASD to roll").count()).toBe(0);
-        const bounds = await help.boundingBox();
-        expect.soft(bounds!.x).toBe(24);
-        expect.soft(bounds!.y).toBe(24);
-        await picker.click();
-        await page.getByRole("button", { name: "Wheel", exact: true }).click();
-        const panel = page.getByRole("region", { name: "Wheel controls", exact: true });
-        await expect(panel).toBeVisible();
-        const toggles = panel.getByRole("checkbox");
-        for (let index = 0; index < (await toggles.count()); index++) {
-            const group = toggles.nth(index).locator("../..");
-            const dependents = group.locator(":scope > .dependents");
-            if (await dependents.locator(":scope > .group").count()) {
-                const toggle = await toggles.nth(index).locator("..").boundingBox();
-                const child = await dependents.locator(":scope > .group").first().boundingBox();
-                expect.soft(child!.x - toggle!.x).toBe(8);
-                expect.soft(child!.y).toBeGreaterThanOrEqual(toggle!.y + toggle!.height + 4);
-            }
-        }
-        const before = await panel.boundingBox();
-        expect(before!.height).toBe(136);
-        await expect(panel).toHaveCSS("padding", "8px");
-        await expect(panel.locator(".group").first()).toHaveCSS("column-gap", "8px");
-        expect(before!.width).toBeLessThanOrEqual(300);
-        expect(before!.x + before!.width).toBe(viewport.width - 24);
-        expect(before!.y).toBe(24);
-        let height = before!.height;
-        for (const name of ["Steering", "Steering Limit", "Steering Limit", "Steering"]) {
-            const toggle = panel.getByRole("checkbox", { name, exact: true });
-            await toggle.click();
-            const after = (await panel.boundingBox())!;
-            expect
-                .soft({ x: after.x, y: after.y, width: after.width })
-                .toEqual({ x: before!.x, y: before!.y, width: before!.width });
-            if (await toggle.isChecked()) expect.soft(after.height).toBeGreaterThan(height);
-            else expect.soft(after.height).toBeLessThan(height);
-            height = after.height;
-        }
-        await context.close();
-    });
-
-    test(`picker arrows stay fixed across every scene name at ${viewport.width}×${viewport.height}`, async ({
-        browser,
-    }) => {
-        const context = await browser.newContext({ viewport });
-        const page = await context.newPage();
-        await page.goto("/");
-        const arrows = [
-            page.getByRole("button", { name: "Previous scene" }),
-            page.getByRole("button", { name: "Next scene" }),
-        ];
-        const name = page.getByRole("button", { name: "Scene", exact: true });
-        const before = await Promise.all(arrows.map((arrow) => arrow.boundingBox()));
-        for (const sample of categories.flatMap((category) => category.scenes)) {
-            await name.evaluate((slot, text) => {
-                slot.textContent = text;
-            }, sample.name);
-            expect
-                .soft(await Promise.all(arrows.map((arrow) => arrow.boundingBox())), sample.name)
-                .toEqual(before);
-        }
-        await context.close();
-    });
-
-    test(`scene list stays within ${viewport.width}×${viewport.height} and dismisses`, async ({
-        browser,
-    }) => {
-        const context = await browser.newContext({ viewport, hasTouch: viewport.width === 390 });
+        const phone = viewport.width === 390;
+        const context = await browser.newContext({ viewport, hasTouch: phone });
         const page = await context.newPage();
         await page.goto("/");
         const trigger = page.getByRole("button", { name: "Scene", exact: true });
-        await trigger.click();
+        const arrows = page.locator("nav button:not(.name)");
+        await expect(trigger).toBeVisible();
+        const cdp = await context.newCDPSession(page);
+        await cdp.send("DOM.enable");
+        await cdp.send("CSS.enable");
+        async function shippedFonts() {
+            await page.evaluate(() => document.fonts.ready);
+            const { root } = await cdp.send("DOM.getDocument");
+            const { nodeIds } = await cdp.send("DOM.querySelectorAll", {
+                nodeId: root.nodeId,
+                selector: ".ec, .ec *",
+            });
+            for (const nodeId of nodeIds) {
+                const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
+                for (const font of fonts) {
+                    expect(font.isCustomFont, font.familyName).toBe(true);
+                    expect(["IBM Plex Sans", "JetBrains Mono"]).toContain(font.familyName);
+                }
+            }
+        }
+        const initial = await arrows.evaluateAll((nodes) =>
+            nodes.map((node) => node.getBoundingClientRect().toJSON()),
+        );
+        for (const sample of categories.flatMap((category) => category.scenes)) {
+            await trigger.click();
+            await page.getByRole("button", { name: sample.name, exact: true }).click();
+            expect(
+                await arrows.evaluateAll((nodes) =>
+                    nodes.map((node) => node.getBoundingClientRect().toJSON()),
+                ),
+            ).toEqual(initial);
+            await shippedFonts();
+            const panel = page.locator(".controls");
+            if (!scenes[sample.id as Scene].controls) continue;
+            for (const row of await panel.locator(".row").all())
+                expect((await row.boundingBox())!.height).toBe(phone ? 44 : 32);
+            const box = (await panel.boundingBox())!;
+            expect(box.width).toBe(Math.min(360, viewport.width - 32));
+            expect(box.y).toBe(phone ? 16 : 24);
+            expect(box.x + box.width).toBe(viewport.width - (phone ? 16 : 24));
+            expect(box.height).toBeLessThanOrEqual(
+                phone ? viewport.height * 0.6 : viewport.height - 112,
+            );
+            expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+            // Measure every label, and every authored numeric endpoint, not only defaults.
+            const fits = await panel
+                .locator(".row label, .toggle span, output")
+                .evaluateAll((nodes) =>
+                    nodes.map((node) => {
+                        const range = document.createRange();
+                        range.selectNodeContents(node);
+                        return (
+                            range.getBoundingClientRect().width <=
+                            node.getBoundingClientRect().width
+                        );
+                    }),
+                );
+            expect(fits.every(Boolean), sample.name).toBe(true);
+            for (const slider of await panel.locator("input[type=range]").all()) {
+                for (const endpoint of ["min", "max"]) {
+                    const output = slider.locator("..").locator("output");
+                    const original = await output.textContent();
+                    await output.evaluate(
+                        (node, text) => {
+                            node.textContent = text;
+                        },
+                        formatValue(Number(await slider.getAttribute(endpoint))),
+                    );
+                    expect(
+                        await output.evaluate((node) => node.scrollWidth <= node.clientWidth),
+                    ).toBe(true);
+                    await output.evaluate((node, text) => {
+                        node.textContent = text;
+                    }, original);
+                }
+            }
+            if (sample.id === "wheel" && phone) {
+                expect(await panel.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(
+                    true,
+                );
+                await panel.locator("output").last().scrollIntoViewIfNeeded();
+                await expect(panel.locator("output").last()).toBeInViewport();
+            }
+            if (sample.id === "contact") {
+                const help = (await page.getByText("WASD to roll", { exact: true }).boundingBox())!;
+                expect([help.x, help.y]).toEqual([phone ? 16 : 24, phone ? 16 : 24]);
+            }
+        }
+        await trigger.focus();
+        await page.keyboard.press("Enter");
         const list = page.locator("#scene-list");
-        await expect(list).toBeVisible();
-        await expect(list).toHaveCSS("padding", "8px");
-        for (const alignment of await list
-            .locator(".categories > section")
-            .evaluateAll((sections) =>
-                sections.map((section) => {
-                    const header = section.querySelector("h2")!;
-                    const item = section.querySelector("button")!;
-                    return {
-                        header: header.getBoundingClientRect().left,
-                        text:
-                            item.getBoundingClientRect().left +
-                            parseFloat(getComputedStyle(item).paddingLeft),
-                    };
-                }),
-            ))
-            expect(alignment.header).toBe(alignment.text);
-        const bounds = await list.boundingBox();
-        expect(bounds).not.toBeNull();
-        expect(bounds!.x).toBeGreaterThanOrEqual(24);
-        expect(bounds!.y).toBeGreaterThanOrEqual(24);
-        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width - 24);
-        expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height - 24);
-        await page.mouse.click(4, 4);
-        await expect(list).toBeHidden();
-        await trigger.click();
+        await shippedFonts();
+        expect(await list.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+        const box = (await list.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(phone ? 16 : 24);
+        expect(box.y).toBeGreaterThanOrEqual(phone ? 16 : 24);
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width - (phone ? 16 : 24));
+        expect(box.y + box.height).toBeLessThanOrEqual(initial[0].y);
+        await list.getByRole("button").last().scrollIntoViewIfNeeded();
+        await expect(list.getByRole("button").last()).toBeInViewport();
+        await expect(list.locator(".categories")).toHaveCSS(
+            "flex-direction",
+            phone ? "column" : "row",
+        );
         await page.keyboard.press("Escape");
         await expect(list).toBeHidden();
         await expect(trigger).toBeFocused();
+        await page.keyboard.press("Enter");
+        await page.mouse.click(4, 4);
+        await expect(list).toBeHidden();
+        await expect(trigger).toBeFocused();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+            true,
+        );
+        // Substitute host insets in the authored CSS to exercise nonzero safe areas.
+        await page.addStyleTag({
+            content: await page
+                .locator("style")
+                .allTextContents()
+                .then((styles) =>
+                    styles
+                        .join("\n")
+                        .replaceAll("env(safe-area-inset-top)", "12px")
+                        .replaceAll("env(safe-area-inset-right)", "8px")
+                        .replaceAll("env(safe-area-inset-bottom)", "12px")
+                        .replaceAll("env(safe-area-inset-left)", "8px"),
+                ),
+        });
+        await trigger.click();
+        await page.getByRole("button", { name: "Revolute", exact: true }).click();
+        const safe = (await page.locator(".controls").boundingBox())!;
+        expect(safe.y).toBe((phone ? 16 : 24) + 12);
+        expect(safe.x + safe.width).toBe(viewport.width - (phone ? 16 : 24) - 8);
+        const navigation = (await page.locator(".picker").boundingBox())!;
+        expect(navigation.x).toBe((phone ? 16 : 24) + 8);
+        expect(navigation.y + navigation.height).toBe(viewport.height - (phone ? 16 : 24) - 12);
+        await cdp.detach();
         await context.close();
     });
 }

@@ -51,7 +51,7 @@
 .ec fieldset:disabled { color: var(--muted); }
 .ec.picker { position: absolute; bottom: calc(var(--s5) + env(safe-area-inset-bottom)); left: var(--half); transform: translateX(calc(var(--zero) - var(--half))); z-index: var(--layer); max-width: calc(var(--full) - var(--s4) - var(--s4)); }
 .ec nav { display: flex; gap: var(--s1); }
-.ec nav .name { width: var(--panel); max-width: calc(var(--panel) - var(--reserve)); }
+.ec nav .name { width: 296px; }
 .ec .scenes { position: absolute; bottom: calc(var(--full) + var(--s2)); left: var(--half); transform: translateX(calc(var(--zero) - var(--half))); width: max-content; max-width: calc(var(--panel) + var(--panel)); max-height: calc(var(--view) - var(--reserve) - var(--s5) - var(--s5)); overflow: auto; background: var(--bg2); padding: var(--s4); border: var(--hair) solid var(--line); border-radius: var(--radius); }
 .ec .categories { display: flex; gap: var(--s4); }
 .ec .categories section { display: grid; align-content: start; gap: var(--s1); }
@@ -68,6 +68,6 @@
  .ec input[type='range'] { height: var(--touch); }
  .ec .categories { flex-direction: column; }
  .ec .scenes { max-width: calc(var(--panel) - var(--s6)); }
- .ec nav .name { max-width: calc(var(--panel) - var(--reserve) - var(--s4)); }
+ .ec nav .name { width: min(280px, calc(100% - 44px - 44px - 4px - 4px)); }
  .ec nav button:not(.name) { min-width: var(--touch); }
 }

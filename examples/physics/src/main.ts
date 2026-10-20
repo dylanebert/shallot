@@ -1,6 +1,6 @@
 import { runApp, StandardPhysicsPlugin } from "@dylanebert/shallot";
 import { LinesPlugin, OrbitPlugin, TextPlugin } from "@dylanebert/shallot/extras";
-import { mount, unmount } from "svelte";
+import { mount, tick, unmount } from "svelte";
 import { EventSamplePlugin, SampleInputPlugin } from "./events";
 import { GrabPlugin } from "./grab";
 import Hud from "./Hud.svelte";
@@ -24,6 +24,9 @@ await runApp({
         const replace = sceneSwitcher(world, createViewer(world));
         let component: ReturnType<typeof mount>;
         function select(scene: Scene): void {
+            const focus = container.contains(document.activeElement)
+                ? document.activeElement?.getAttribute("aria-label")
+                : null;
             const bodies = replace(scene);
             if (component) void unmount(component);
             component = mount(Hud, {
@@ -35,6 +38,12 @@ await runApp({
                         changeControl(world, scene, bodies, values, name, value),
                 },
             });
+            if (focus)
+                void tick().then(() =>
+                    container
+                        .querySelector<HTMLButtonElement>(`button[aria-label="${focus}"]`)
+                        ?.focus(),
+                );
         }
         select(initial);
         return () => void unmount(component);
