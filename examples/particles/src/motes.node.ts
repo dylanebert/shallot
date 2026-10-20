@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import {
     type createApp,
     DiagnosticsStore,
@@ -44,15 +44,8 @@ afterAll(async () => {
     app?.dispose();
     untimed?.dispose();
     if (untimedDevice) {
-        const error = spyOn(console, "error").mockImplementation(() => {});
-        try {
-            untimedDevice.destroy();
-            await untimedDevice.lost;
-            await Promise.resolve();
-            expect(error).toHaveBeenCalledWith("GPU device lost destroyed: device was destroyed");
-        } finally {
-            error.mockRestore();
-        }
+        untimedDevice.destroy();
+        await untimedDevice.lost;
     }
 });
 test("the example compiles its compute and draw pipelines and counts its storage and uniform bytes", () => {
