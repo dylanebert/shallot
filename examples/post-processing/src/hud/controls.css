@@ -14,6 +14,8 @@
 .ec { color: var(--ink); font: var(--regular) var(--body)/var(--leading) var(--sans); pointer-events: auto; }
 .ec.controls { position: absolute; top: calc(var(--s5) + env(safe-area-inset-top)); right: calc(var(--s5) + env(safe-area-inset-right)); width: var(--panel); max-width: calc(var(--full) - var(--s4) - var(--s4)); max-height: calc(var(--view) - var(--s5) - var(--s5) - var(--reserve)); overflow-y: auto; background: var(--bg2); border: var(--hair) solid var(--line); border-radius: var(--radius); }
 .ec .panel-title { min-height: var(--row); font: var(--strong) var(--title)/var(--leading) var(--mono); padding: var(--s3) var(--s4); border-bottom: var(--hair) solid var(--line); cursor: pointer; }
+.ec .panel-title::marker { content: '▶ '; font: var(--strong) var(--title)/var(--leading) var(--mono); }
+.ec[open] .panel-title::marker { content: '▼ '; font: var(--strong) var(--title)/var(--leading) var(--mono); }
 .ec .panel-title:hover { border-color: var(--muted); }
 .ec .fields { display: grid; gap: var(--s4); padding: var(--s4); }
 .ec .section { display: grid; gap: var(--s1); }
@@ -25,7 +27,7 @@
 .ec .dependents { display: grid; padding-left: var(--s2); border-left: var(--hair) solid var(--line); }
 .ec .dependents .row { grid-template-columns: calc(var(--label) - var(--s2) - var(--hair)) minmax(var(--zero), 1fr); }
 .ec label { cursor: pointer; }
-.ec input { margin: var(--zero); }
+.ec input { margin: var(--zero); font: inherit; }
 .ec input[type='checkbox'] { appearance: none; flex-shrink: var(--none); width: var(--check); height: var(--check); border: var(--hair) solid var(--muted); border-radius: var(--radius); background: var(--bg); display: grid; place-content: center; cursor: pointer; }
 .ec input[type='checkbox']:checked { background: var(--dim); border-color: var(--muted); }
 .ec input[type='checkbox']:checked::after { content: '✓'; color: var(--ink); }

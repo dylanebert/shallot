@@ -174,6 +174,23 @@ for (const viewport of [
                 document.fonts.check('700 15px "JetBrains Mono"'),
             ]),
         ).toEqual([true, true, true]);
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("DOM.enable");
+        await cdp.send("CSS.enable");
+        const { root } = await cdp.send("DOM.getDocument");
+        for (const selector of [".controls", ".section-title input", "summary"]) {
+            const { nodeId } = await cdp.send("DOM.querySelector", {
+                nodeId: root.nodeId,
+                selector,
+            });
+            const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
+            expect(fonts.length, selector).toBeGreaterThan(0);
+            for (const font of fonts) {
+                expect(font.isCustomFont, `${selector}: ${font.familyName}`).toBe(true);
+                expect(["IBM Plex Sans", "JetBrains Mono"]).toContain(font.familyName);
+            }
+        }
+        await cdp.detach();
         const bounds = (await panel.boundingBox())!;
         const inset = viewport.width === 390 ? 16 : 24;
         expect(bounds.x).toBe(viewport.width - inset - bounds.width);
@@ -219,12 +236,20 @@ for (const viewport of [
         await page.keyboard.press("Space");
         await expect(panel).toHaveAttribute("open", "");
         if (process.env.SHALLOT_CAPTURE_DIR) {
-            await page.evaluate(() => (document.querySelector(".controls")!.scrollTop = 0));
+            await page.evaluate(() => {
+                document.querySelector(".controls")!.scrollTop = 0;
+                (document.activeElement as HTMLElement)?.blur();
+            });
+            await page.mouse.move(0, 0);
+            await expect(title).not.toBeFocused();
+            await expect(title).toHaveCSS("border-bottom-color", "rgb(42, 36, 32)");
             await mkdir(process.env.SHALLOT_CAPTURE_DIR, { recursive: true });
             await page.screenshot({
                 path: `${process.env.SHALLOT_CAPTURE_DIR}/${viewport.width}-all-on.png`,
             });
             await toggle.uncheck();
+            await toggle.blur();
+            await page.mouse.move(0, 0);
             await page.screenshot({
                 path: `${process.env.SHALLOT_CAPTURE_DIR}/${viewport.width}-lens-off.png`,
             });
