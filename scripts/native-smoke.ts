@@ -1451,11 +1451,14 @@ export function assertSystemOrigin(href: string): void {
 export function standaloneIndex(
     project: string,
     mode: string,
-    mac?: { executable: string },
+    mac?: { executable: string; windows?: boolean },
 ): string | null {
     if (mode !== "debug-preview") return null;
     return mac
-        ? resolve(dirname(mac.executable), "../Resources/dist/index.html")
+        ? resolve(
+              dirname(mac.executable),
+              mac.windows ? "dist/index.html" : "../Resources/dist/index.html",
+          )
         : resolve(project, "build/linux/debug-portable/dist/index.html");
 }
 
@@ -1863,7 +1866,7 @@ async function runWindowsSmoke(options: ReturnType<typeof parseArgs>): Promise<v
 }
 
 function usage(): string {
-    return `Usage: bun scripts/native-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require hardware on Linux's owned Xvfb display (Mac always requires hardware)\n  --portable-only         Mac: run CEF alone; the log says WKWebView was not run\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nLinux setup: ${SETUP_COMMAND}\nMac: Apple Silicon; system WKWebView and portable CEF, copied release via open, quarantined Gatekeeper assessment.\nSet SHALLOT_SMOKE_WITHHOLD_MARKER=1 on Mac to plant a missing-marker failure.\n`;
+    return `Usage: bun scripts/native-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require hardware on Linux's owned Xvfb display (Mac always requires hardware)\n  --portable-only         Mac/Windows: run CEF alone; the log names the omitted system backend\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nLinux setup: ${SETUP_COMMAND}\nMac: Apple Silicon; system WKWebView and portable CEF, copied release via open, quarantined Gatekeeper assessment.\nWindows: x86_64-pc-windows-msvc; system WebView2 and portable CEF, copied release with source unavailable. Software GPU explicitly allowed.\nSet SHALLOT_SMOKE_WITHHOLD_MARKER=1 on Mac/Windows to plant a missing-marker failure.\n`;
 }
 
 async function main(): Promise<void> {
