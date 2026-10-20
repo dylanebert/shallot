@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Desktop targets state their status in `shallot build --help`.
+- Mac: the system webview backend needs macOS 26 for WebGPU.
+- Mac: the bundled-Chromium shell no longer stores its cookie key in the login Keychain, so a rebuilt app no longer prompts for "Chromium Safe Storage".
+- Windows: native builds link with Visual Studio's `link.exe` and no longer need a separate LLVM install.
 - AgX tonemapping now uses Bevy's default-contrast LUT instead of an analytic approximation, changing its displayed colors.
 
 ## 0.10.0

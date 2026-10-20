@@ -4,6 +4,13 @@ import { resolveViteCli, startViteDev } from "../project";
 import { buildProject, type NativeTarget } from "./build";
 import { previewProject } from "./preview";
 
+const desktopStatus = `
+  Desktop status (experimental)
+    linux x86_64   Use --portable; WebKitGTK does not enable WebGPU by default.
+    mac arm64      Without --portable, needs macOS 26 for WebGPU.
+    windows x64    --portable is checked only on a software GPU; without it, unchecked.
+`;
+
 const usage = `
   shallot — tools for a Shallot project
 
@@ -26,6 +33,7 @@ const usage = `
     --target <platform>          windows, mac, linux
     --release                    optimized native build
     --portable                   bundle the Chromium runtime (CEF)
+    Desktop targets are experimental; see \`shallot build --help\` for status.
 
   Help
     -V, --version                print the installed version
@@ -50,7 +58,7 @@ const commandUsage = {
     --target <platform>   windows, mac, linux
     --portable            Bundle the Chromium runtime (CEF)
     -h, --help            Show this help
-`,
+${desktopStatus}`,
     build: `
   shallot build --target <platform> [dir] [Vite options]
 
@@ -68,13 +76,14 @@ const commandUsage = {
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview.
     -h, --help            Show this help
 
+${desktopStatus}
   Native requirements
     Native release builds use a prebuilt shell from GitHub Releases when available. A miss (404,
     offline, checksum mismatch, or source checkout) falls back to compiling the Rust native host from
     source. Debug builds always compile from source. Source builds need the Rust toolchain
     (https://rustup.rs) and, per target:
       mac       Xcode command line tools
-      linux     --portable only (WebKitGTK has no usable WebGPU), with libx11-dev
+      linux     --portable only (WebKitGTK does not enable WebGPU by default), with libx11-dev
       windows   cargo-xwin to cross-compile; --portable needs a Windows host with Visual Studio,
                 its C++ workload and ATL
     Portable builds download CEF on first build, or use CEF_PATH when set.
@@ -96,6 +105,7 @@ const commandUsage = {
     --portable            Launch the build with its bundled Chromium runtime (CEF)
     -h, --help            Show this help
 
+${desktopStatus}
   Native targets use the requirements documented by 'shallot build --help'.
 `,
     migrate: `

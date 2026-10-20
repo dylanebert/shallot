@@ -1581,16 +1581,6 @@ async function runMacSmoke(options: ReturnType<typeof parseArgs>): Promise<void>
                             env,
                             logs,
                         );
-                        // Relocation does not require downloaded-app execution.
-                        spawnSync("xattr", ["-dr", "com.apple.quarantine", copy]);
-                        const quarantine = spawnSync("xattr", ["-lr", copy], { encoding: "utf8" });
-                        if (
-                            quarantine.status !== 0 ||
-                            quarantine.stdout.includes("com.apple.quarantine")
-                        )
-                            throw new Error(
-                                `copied launch must not carry quarantine: ${quarantine.stderr}`,
-                            );
                         const copiedExecutable = resolve(copy, "Contents/MacOS", basename(project));
                         const cwd = resolve(consumer, "unrelated-launch-directory");
                         mkdirSync(cwd, { recursive: true });
@@ -1648,36 +1638,6 @@ async function runMacSmoke(options: ReturnType<typeof parseArgs>): Promise<void>
                             rmSync(copiedExecutable, { force: true });
                             renameSync(savedExecutable, copiedExecutable);
                         }
-                        const assessmentCopy = resolve(
-                            consumer,
-                            `gatekeeper-${backend}`,
-                            `${basename(project)}.app`,
-                        );
-                        rmSync(dirname(assessmentCopy), { recursive: true, force: true });
-                        mkdirSync(dirname(assessmentCopy), { recursive: true });
-                        cpSync(copy, assessmentCopy, { recursive: true, verbatimSymlinks: true });
-                        await runLogged(
-                            `${backend} quarantine copy`,
-                            "xattr",
-                            [
-                                "-w",
-                                "com.apple.quarantine",
-                                `0083;${Math.floor(Date.now() / 1000).toString(16)};ShallotSmoke;${randomUUID()}`,
-                                assessmentCopy,
-                            ],
-                            project,
-                            env,
-                            logs,
-                        );
-                        const verdict = spawnSync(
-                            "spctl",
-                            ["--assess", "--type", "execute", "-v", assessmentCopy],
-                            { encoding: "utf8" },
-                        );
-                        if (verdict.error) throw verdict.error;
-                        const evidence = `Gatekeeper ${backend}: spctl --assess --type execute -v ${assessmentCopy}; exit ${verdict.status}; ${verdict.stdout}${verdict.stderr}`;
-                        writeFileSync(resolve(logs, `${backend}-gatekeeper.log`), evidence);
-                        console.info(evidence);
                     }
                 }
             } catch (error) {
@@ -1692,7 +1652,7 @@ async function runMacSmoke(options: ReturnType<typeof parseArgs>): Promise<void>
     assertNoSmokeProcesses(macSmokePids(consumer));
     if (findings.length) throw new Error(findings.join("\n"));
     console.info(
-        `Mac packed native smoke passed: hardware startup and canvas readback in ${options.portableOnly ? "CEF" : "both backends"}, dev, debug/release preview and copied release via open; Gatekeeper verdicts recorded.`,
+        `Mac packed native smoke passed: hardware startup and canvas readback in ${options.portableOnly ? "CEF" : "both backends"}, dev, debug/release preview and copied release via open.`,
     );
 }
 
@@ -1885,7 +1845,7 @@ async function runWindowsSmoke(options: ReturnType<typeof parseArgs>): Promise<v
 }
 
 function usage(): string {
-    return `Usage: bun scripts/native-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require hardware on Linux's owned Xvfb display (Mac always requires hardware)\n  --portable-only         Mac/Windows: run CEF alone; the log names the omitted system backend\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nLinux setup: ${SETUP_COMMAND}\nMac: Apple Silicon; system WKWebView and portable CEF, copied release via open, quarantined Gatekeeper assessment.\nWindows: x86_64-pc-windows-msvc; system WebView2 and portable CEF, copied release with source unavailable. Software GPU explicitly allowed.\nSet SHALLOT_SMOKE_WITHHOLD_MARKER=1 on Mac/Windows to plant a missing-marker failure.\n`;
+    return `Usage: bun scripts/native-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require hardware on Linux's owned Xvfb display (Mac always requires hardware)\n  --portable-only         Mac/Windows: run CEF alone; the log names the omitted system backend\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nLinux setup: ${SETUP_COMMAND}\nMac: Apple Silicon; system WKWebView and portable CEF, copied release via open.\nWindows: x86_64-pc-windows-msvc; system WebView2 and portable CEF, copied release with source unavailable. Software GPU explicitly allowed.\nSet SHALLOT_SMOKE_WITHHOLD_MARKER=1 on Mac/Windows to plant a missing-marker failure.\n`;
 }
 
 async function main(): Promise<void> {

@@ -68,6 +68,7 @@ test("bare shallot presents the project map, loop, commands, targets and help co
     --target <platform>          windows, mac, linux
     --release                    optimized native build
     --portable                   bundle the Chromium runtime (CEF)
+    Desktop targets are experimental; see \`shallot build --help\` for status.
 
   Help
     -V, --version                print the installed version
@@ -201,7 +202,13 @@ test("shallot dev --help presents dev options without build-only options", async
   Shallot options
     --target <platform>   windows, mac, linux
     --portable            Bundle the Chromium runtime (CEF)
-    -h, --help            Show this help`.trim(),
+    -h, --help            Show this help
+
+  Desktop status (experimental)
+    linux x86_64   Use --portable; WebKitGTK does not enable WebGPU by default.
+    mac arm64      Without --portable, needs macOS 26 for WebGPU.
+    windows x64    --portable is checked only on a software GPU; without it, unchecked.
+`.trim(),
     );
     expect(result.stderr).toBe("");
 });
