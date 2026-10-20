@@ -321,6 +321,7 @@ test("a context suspending drops a once Sound at its statechange, before the nex
     const previous = {
         AudioContext: globals.AudioContext,
         AudioWorkletNode: globals.AudioWorkletNode,
+        document: globals.document,
     };
     let onStateChange: (() => void) | undefined;
     const node = () => ({ connect() {}, disconnect() {} });
@@ -335,6 +336,10 @@ test("a context suspending drops a once Sound at its statechange, before the nex
         removeEventListener() {}
         createConstantSource() {
             return { ...node(), offset: { value: 1 }, start() {}, stop() {} };
+        }
+        resumes = 0;
+        async resume() {
+            this.resumes++;
         }
         async close() {}
     }
@@ -356,6 +361,8 @@ test("a context suspending drops a once Sound at its statechange, before the nex
         connect() {}
         disconnect() {}
     }
+    const document = new EventTarget();
+    globals.document = document;
     globals.AudioContext = FakeContext;
     globals.AudioWorkletNode = FakeWorkletNode;
     const world = new World();
@@ -370,10 +377,22 @@ test("a context suspending drops a once Sound at its statechange, before the nex
         expect(world.resource(Devices).audio.context).toBe("suspended");
         expect(world.exists(once)).toBe(false);
         expect(world.exists(loop)).toBe(true);
+        document.dispatchEvent(Object.assign(new Event("pointerdown"), { pointerType: "touch" }));
+        expect(context.resumes).toBe(0);
+        document.dispatchEvent(Object.assign(new Event("pointerup"), { pointerType: "touch" }));
+        expect(context.resumes).toBe(1);
+        document.dispatchEvent(new Event("touchend"));
+        expect(context.resumes).toBe(2);
+        await disposeAudio(world);
+        for (const type of ["pointerdown", "pointerup", "touchend", "keydown", "click"]) {
+            document.dispatchEvent(Object.assign(new Event(type), { pointerType: "mouse" }));
+        }
+        expect(context.resumes).toBe(2);
     } finally {
         await disposeAudio(world);
         world.dispose();
         globals.AudioContext = previous.AudioContext;
         globals.AudioWorkletNode = previous.AudioWorkletNode;
+        globals.document = previous.document;
     }
 });

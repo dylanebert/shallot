@@ -46,7 +46,7 @@ interface Runtime {
     buffer: Float64Array | null;
     batchMessage: { type: "batch"; buffer: Float64Array | null };
     batchTransfer: ArrayBuffer[];
-    resume: (() => void) | null;
+    resume: ((event: Event) => void) | null;
     onState: (() => void) | null;
     onVisibility: (() => void) | null;
     onDevice: (() => void) | null;
@@ -183,7 +183,8 @@ function installResume(runtime: Runtime): void {
     )
         return;
     const context = runtime.context;
-    const resume = () => {
+    const resume = (event: Event) => {
+        if (event.type === "pointerdown" && (event as PointerEvent).pointerType !== "mouse") return;
         void context
             .resume()
             .catch((error) => console.error("audio context resume failed:", error));
@@ -191,6 +192,8 @@ function installResume(runtime: Runtime): void {
     document.addEventListener("pointerdown", resume);
     document.addEventListener("keydown", resume);
     document.addEventListener("click", resume);
+    document.addEventListener("pointerup", resume);
+    document.addEventListener("touchend", resume);
     runtime.resume = resume;
 }
 
@@ -199,6 +202,8 @@ function removeResume(runtime: Runtime): void {
     document.removeEventListener("pointerdown", runtime.resume);
     document.removeEventListener("keydown", runtime.resume);
     document.removeEventListener("click", runtime.resume);
+    document.removeEventListener("pointerup", runtime.resume);
+    document.removeEventListener("touchend", runtime.resume);
     runtime.resume = null;
 }
 
