@@ -93,8 +93,8 @@ for (const claim of ["move and look", "jump", "use"]) {
                 const box = element.getBoundingClientRect();
                 return { left: text.left - box.left, right: box.right - text.right };
             });
-            expect(cap.left).toBeGreaterThanOrEqual(6);
-            expect(cap.right).toBeGreaterThanOrEqual(6);
+            expect(cap.left).toBeGreaterThanOrEqual(8);
+            expect(cap.right).toBeGreaterThanOrEqual(8);
             const previous = await useState();
             const use = await page.getByRole("button", { name: "Use", exact: true }).boundingBox();
             points.push({ id: 2, x: use!.x + 32, y: use!.y + 32 });

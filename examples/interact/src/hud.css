@@ -6,7 +6,7 @@
 .hint[hidden] { display: none; }
 .key-slot { display: grid; place-items: center; width: 48px; height: 48px; }
 .key-slot > * { grid-area: 1 / 1; }
-.key-slot kbd { display: grid; place-items: center; box-sizing: border-box; min-width: 28px; padding: 0 6px; height: 28px; border: 1px solid #eee9df; border-radius: 2px; background: #282622cc; font: 400 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.key-slot kbd { display: grid; place-items: center; box-sizing: border-box; min-width: 28px; padding: 0 8px; height: 28px; border: 1px solid #eee9df; border-radius: 2px; background: #282622cc; font: 400 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .hold-ring { width: 48px; height: 48px; fill: none; stroke-width: 2; transform: rotate(-90deg); }
 .track { stroke: #eee9df40; }
 .progress { stroke: #eee9df; }
