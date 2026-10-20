@@ -1,4 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { TIMEOUT } from "@dylanebert/shallot/testing";
+
+setDefaultTimeout(TIMEOUT.node);
+
 import {
     blurCanvas,
     cancelTouch,
