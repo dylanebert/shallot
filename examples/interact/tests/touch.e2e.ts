@@ -3,7 +3,7 @@ import { expect, test } from "playwright/test";
 test.use({ baseURL: "http://127.0.0.1:4186" });
 
 for (const claim of ["move and look", "jump", "use"]) {
-    test(`phone fingers ${claim} through the example's controls`, async ({ browser }, testInfo) => {
+    test(`phone fingers ${claim} through the example's controls`, async ({ browser }) => {
         const context = await browser.newContext({
             viewport: { width: 390, height: 844 },
             hasTouch: true,
@@ -47,7 +47,6 @@ for (const claim of ["move and look", "jump", "use"]) {
                 .toBeGreaterThan(0.1);
             await expect.poll(async () => (await sample()).yaw).not.toBe(before.yaw);
             await expect(page.locator("[data-touch-stick]")).toBeVisible();
-            await page.screenshot({ path: testInfo.outputPath("interact-phone-stick.png") });
             points = [];
             await send("touchEnd");
             await expect(page.locator("[data-touch-stick]")).toBeHidden();

@@ -18,7 +18,7 @@ test("desktop instructions name keyboard and mouse", async ({ page }) => {
 });
 
 for (const claim of ["move and look", "jump"]) {
-    test(`phone fingers ${claim} through the example's controls`, async ({ browser }, testInfo) => {
+    test(`phone fingers ${claim} through the example's controls`, async ({ browser }) => {
         const context = await browser.newContext({
             viewport: { width: 390, height: 844 },
             hasTouch: true,
@@ -80,7 +80,6 @@ for (const claim of ["move and look", "jump"]) {
                 )
                 .toBe(true);
             await expect(page.locator("[data-touch-stick]")).toBeVisible();
-            await page.screenshot({ path: testInfo.outputPath("first-person-phone-stick.png") });
             points = [];
             await send("touchEnd");
             await expect(page.locator("[data-touch-stick]")).toBeHidden();
