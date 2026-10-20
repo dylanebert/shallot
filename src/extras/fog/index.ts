@@ -499,7 +499,7 @@ const FogSystem: System = {
                 const deepest = world.gpu.device.createTexture({
                     label: `fog-deepest/${eid}`,
                     size: [grid.width, grid.height],
-                    format: "r32float",
+                    format: "rgba32float",
                     usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
                 });
                 const deepestView = deepest.createView();

@@ -8,6 +8,7 @@ declare global {
             image(): Promise<string>;
             evidence(regions: number[][]): Promise<number[]>;
             contributions(regions: number[][]): Promise<number[]>;
+            sunColumns(region: number[]): Promise<number[]>;
             walk(count: number): { before: number; after: number };
         };
     }
@@ -60,5 +61,19 @@ test("the window shaft, spot cone and point glow brighten haze beside their shad
     const walk = await page.evaluate(() => window.hall.walk(60));
     expect(walk.after).toBeLessThan(walk.before - 3);
     await capture("walked-shaft-cone");
+    expect(errors).toEqual([]);
+});
+
+test("the far wall's top seam takes no sunlight from the air above the hall", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto("/tests/stepped.html");
+    await page.waitForFunction(() => window.hall);
+    // Ceiling columns at the seam end metres short of the far wall their neighbours see, and the cells between
+    // lie in the sunlit air above the hall. Lit there, they streaked the seam's haze column by column: the
+    // brightest pixel column took 2.2 of sunlight at b8718d34.
+    const seam = await page.evaluate(() => window.hall.sunColumns([600, 830, 240, 270]));
+    console.log("far seam sunlight, brightest column", Math.max(...seam));
+    expect(Math.max(...seam)).toBeLessThan(0.5);
     expect(errors).toEqual([]);
 });

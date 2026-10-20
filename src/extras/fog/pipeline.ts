@@ -54,7 +54,7 @@ export const fogGridLayout = tgpu
             sampleType: "unfilterable-float",
             visibility: ["compute"],
         },
-        /** `fogDepthKernel`'s deepest surface per column. */
+        /** `fogDepthKernel`'s deepest surface per column and the uv of the pixel that sees it. */
         deepest: {
             texture: d.texture2d(d.f32),
             sampleType: "unfilterable-float",
@@ -68,11 +68,11 @@ export const fogGridLayout = tgpu
     })
     .$idx(0);
 
-/** The deepest surface each column's pixels see, as HDRP's MaxZ mask holds per tile. */
+/** The deepest surface each column's pixels see, as HDRP's MaxZ mask holds per tile, and the pixel seeing it. */
 export const fogDepthLayout = tgpu
     .bindGroupLayout({
         deepest: {
-            storageTexture: d.textureStorage2d("r32float", "write-only"),
+            storageTexture: d.textureStorage2d("rgba32float", "write-only"),
             visibility: ["compute"],
         },
         view: { uniform: ViewUniforms, visibility: ["compute"] },
@@ -83,7 +83,7 @@ export const fogDepthLayout = tgpu
 export const fogDepthLayoutMultisampled = tgpu
     .bindGroupLayout({
         deepest: {
-            storageTexture: d.textureStorage2d("r32float", "write-only"),
+            storageTexture: d.textureStorage2d("rgba32float", "write-only"),
             visibility: ["compute"],
         },
         view: { uniform: ViewUniforms, visibility: ["compute"] },
@@ -242,11 +242,13 @@ const loadColumnPixelMultisampled = tgpu.fn(
 
 /** The least depth among a column's pixels, as f32 bits: non-negative floats order as their bits. */
 const columnLeast = tgpu.workgroupVar(d.atomic(d.u32));
+/** A pixel holding `columnLeast`, x in the low 16 bits and y in the high. */
+const columnPixel = tgpu.workgroupVar(d.atomic(d.u32));
 
 /**
  * Store the deepest surface among each column's pixels, measured from the near plane as the grid's surface is,
- * or infinity where any pixel is clear. One workgroup reduces one column, as HDRP's ComputeMaxZ reduces a tile.
- * Sample zero stands for an MSAA pixel, as in the grid.
+ * or infinity where any pixel is clear, with the uv of a pixel that sees it. One workgroup reduces one column, as
+ * HDRP's ComputeMaxZ reduces a tile. Sample zero stands for an MSAA pixel, as in the grid.
  */
 function createDepthKernel(multisampled: boolean) {
     const layout = multisampled ? fogDepthLayoutMultisampled : fogDepthLayout;
@@ -269,32 +271,46 @@ function createDepthKernel(multisampled: boolean) {
                 ),
                 size,
             );
-            if (input.lid.x === 0 && input.lid.y === 0)
+            if (input.lid.x === 0 && input.lid.y === 0) {
                 std.atomicStore(columnLeast.$, std.bitcastF32toU32(d.f32(1)));
+                std.atomicStore(columnPixel.$, first.x | (first.y << 16));
+            }
             std.workgroupBarrier();
             // Reverse Z: the deepest surface has the least depth, and a clear pixel has zero.
             let least = d.f32(1);
+            let pixel = d.vec2u(first);
             let y = first.y + input.lid.y;
             while (y < last.y) {
                 let x = first.x + input.lid.x;
                 while (x < last.x) {
-                    least = std.min(least, loadPixel(d.vec2i(d.i32(x), d.i32(y))));
+                    const depth = std.max(loadPixel(d.vec2i(d.i32(x), d.i32(y))), 0);
+                    if (depth < least) {
+                        least = depth;
+                        pixel = d.vec2u(x, y);
+                    }
                     x = x + WORKGROUP;
                 }
                 y = y + WORKGROUP;
             }
-            std.atomicMin(columnLeast.$, std.bitcastF32toU32(std.max(least, 0)));
+            std.atomicMin(columnLeast.$, std.bitcastF32toU32(least));
+            std.workgroupBarrier();
+            const deepestDepth = std.bitcastU32toF32(std.atomicLoad(columnLeast.$));
+            if (least === deepestDepth && least < 1)
+                std.atomicStore(columnPixel.$, pixel.x | (pixel.y << 16));
             std.workgroupBarrier();
             if (input.lid.x !== 0 || input.lid.y !== 0) return;
-            const deepestDepth = std.bitcastU32toF32(std.atomicLoad(columnLeast.$));
+            const packed = std.atomicLoad(columnPixel.$);
+            const deepUv = std.div(
+                std.add(d.vec2f(d.f32(packed & 0xffff), d.f32(packed >>> 16)), 0.5),
+                camView.resolution,
+            );
             let deepest = d.f32(3.4e38);
             if (deepestDepth > 0) {
-                const uv = std.div(std.add(d.vec2f(input.wid.xy), 0.5), d.vec2f(dim.xy));
                 const forward = std.neg(std.cross(camView.right.xyz, camView.up.xyz));
-                const hit = reconstructWorld(camView.invViewProj, uv, deepestDepth);
+                const hit = reconstructWorld(camView.invViewProj, deepUv, deepestDepth);
                 deepest = std.dot(std.sub(hit, camView.eye.xyz), forward) - camView.projection.x;
             }
-            std.textureStore(layout.$.deepest, d.vec2i(input.wid.xy), d.vec4f(deepest));
+            std.textureStore(layout.$.deepest, d.vec2i(input.wid.xy), d.vec4f(deepest, deepUv, 0));
         })
         .$name("fogDepth");
 }
@@ -409,18 +425,26 @@ function createGridKernel(multisampled: boolean) {
             std.textureStore(layout.$.surface, px, d.vec4f(centerSurface));
             // The deepest surface any pixel reading this column sees. A pixel's trilinear read blends the columns
             // either side of it, so the per-column depths dilate by one column, as HDRP dilates its MaxZ mask.
-            let deepest = d.f32(0);
+            let deep = d.vec4f(0, uv, 0);
             const lastColumn = std.sub(d.vec2i(dim.xy), 1);
             let dy = d.i32(-1);
             while (dy <= 1) {
                 let dx = d.i32(-1);
                 while (dx <= 1) {
                     const column = std.clamp(std.add(px, d.vec2i(dx, dy)), d.vec2i(0), lastColumn);
-                    deepest = std.max(deepest, std.textureLoad(layout.$.deepest, column, 0).x);
+                    const texel = std.textureLoad(layout.$.deepest, column, 0);
+                    if (texel.x > deep.x) deep = d.vec4f(texel);
                     dx = dx + 1;
                 }
                 dy = dy + 1;
             }
+            const deepest = deep.x;
+            // The ray of the pixel that sees that surface, clear up to it by that pixel's depth sample.
+            const deepUv = deep.yz;
+            const deepNear = reconstructWorld(layout.$.view.invViewProj, deepUv, 1);
+            const deepDir = std.normalize(
+                std.sub(reconstructWorld(layout.$.view.invViewProj, deepUv, 0.0001), deepNear),
+            );
             const sceneDepth = loadDepth(sampleUv, camView.resolution);
             let surface = d.f32(extent);
             if (sceneDepth > 0) {
@@ -456,30 +480,52 @@ function createGridKernel(multisampled: boolean) {
                 const center = std.add(nearWorld, std.mul(dir, (start + end) * 0.5 * rayScale));
                 const sampleScale = 1 / std.max(std.dot(sampleDir, forward), 1e-6);
                 // Near-side light fills the first cell wholly past the surface, the one a trilinear read at the
-                // surface reaches; HDRP lights that cell where it is. Cells beyond it are lit where they are, as
-                // HDRP lights cells up to its dilated maximum depth (the MaxZ mask): repeating near-side light
-                // through them lit the far haze beside a silhouette. Past that depth, which no pixel reading the
-                // column sees, HDRP zeroes cells; here they take the light there, so a column whose sample hits
-                // one wall of a corner cannot light air outside the other from beyond the room (stage 12).
+                // surface reaches; HDRP lights that cell where it is. Cells beyond it take the light of the air
+                // the pixels reading them see: repeating near-side light through them lit the far haze beside a
+                // silhouette. HDRP lights them where they are on the voxel's own ray, up to its dilated maximum
+                // depth (the MaxZ mask), accepting "a temporally stable light leak". Beside a grazing wall that ray
+                // runs through the lit air outside the room: a hall's ceiling and side walls, ending metres short
+                // of the far wall their neighbours see, lit its seams' haze as a comb of columns. Here they are lit
+                // on the ray of the pixel that sees that depth, clear up to it by that pixel's depth, local lights
+                // included. Past that depth, which no pixel reading the column sees, HDRP zeroes cells; here
+                // they take the light there, so a column whose sample hits one wall of a corner cannot light air
+                // outside the other from beyond the room (stage 12).
                 let limit = surface * 0.999;
-                if (pastSurface(i, extent, surface)) limit = std.min(deepest, extent) * 0.999;
+                let rayUv = d.vec2f(sampleUv);
+                let rayNear = d.vec3f(sampleNear);
+                let rayDir = d.vec3f(sampleDir);
+                let rayStep = d.f32(sampleScale);
+                let lightNear = d.vec3f(nearWorld);
+                let lightDir = d.vec3f(dir);
+                let lightStep = d.f32(rayScale);
+                if (pastSurface(i, extent, surface)) {
+                    limit = std.min(deepest, extent) * 0.999;
+                    rayUv = d.vec2f(deepUv);
+                    rayNear = d.vec3f(deepNear);
+                    rayDir = d.vec3f(deepDir);
+                    rayStep = 1 / std.max(std.dot(deepDir, forward), 1e-6);
+                    lightNear = d.vec3f(deepNear);
+                    lightDir = d.vec3f(deepDir);
+                    lightStep = d.f32(rayStep);
+                }
                 const p = std.add(
-                    sampleNear,
+                    rayNear,
                     std.mul(
-                        sampleDir,
-                        std.mix(std.min(start, limit), std.min(end, limit), jitter.z) * sampleScale,
+                        rayDir,
+                        std.mix(std.min(start, limit), std.min(end, limit), jitter.z) * rayStep,
                     ),
                 );
                 let dens = fogDensity(p, density, base, falloff);
-                // Local lights sample the centre ray, bounded where the jittered sample is. The centre's own depth
-                // repeated near-side light past a silhouette: a band above a pillar rose 14% (stage 10).
-                const lightStart = std.min(start, limit) * rayScale;
-                const lightEnd = std.min(end, limit) * rayScale;
+                // Local lights sample the centre ray, bounded where the jittered sample is, until the cell lies past
+                // the surface. The centre's own depth repeated near-side light past a silhouette: a band above a
+                // pillar rose 14% (stage 10).
+                const lightStart = std.min(start, limit) * lightStep;
+                const lightEnd = std.min(end, limit) * lightStep;
 
                 const viewZ = std.max(std.dot(std.sub(p, camView.eye.xyz), forward), near);
                 const entry =
                     fogLayout1.$.pointLights.grid[
-                        clusterCell(sampleUv.x, sampleUv.y, viewZ, near, far, slot)
+                        clusterCell(rayUv.x, rayUv.y, viewZ, near, far, slot)
                     ];
                 const ambient = indirectLight(
                     IndirectLightInput({
@@ -509,7 +555,7 @@ function createGridKernel(multisampled: boolean) {
                     // HDRP raises a light's radius to the froxel's size at the segment's entry, so a ray through
                     // the lamp cannot sample its singular core; it compares a squared radius with a length, so
                     // this takes the intent, the froxel's width, and keeps the glow's brightness (stage 10).
-                    // Local lights take the column's centre ray, as HDRP takes the voxel centre for anisotropy to
+                    // Local lights take the column's centre ray, or past the surface the deepest pixel's, as HDRP takes the voxel centre for anisotropy to
                     // keep it out of the jitter: a ray jittered above or below a spot's apex inside one column
                     // flips the lamp's cell between dark and lit. Two depth strata settle the cone's penumbra
                     // along the segment. A lamp swings 0.0160 with neither, 0.0098 or 0.0088 with one, 0.0011 with both.
@@ -526,8 +572,8 @@ function createGridKernel(multisampled: boolean) {
                     while (stratum < LIGHT_STRATA) {
                         const sample = equiangularInScatter(
                             light,
-                            nearWorld,
-                            dir,
+                            lightNear,
+                            lightDir,
                             lightStart,
                             lightEnd,
                             (d.f32(stratum) + jitter.z) / LIGHT_STRATA,
@@ -613,7 +659,7 @@ function createGridKernel(multisampled: boolean) {
                     // one, by the jitter-free centre depth, so a still camera's history is its own cell's.
                     // Wronski (2014) finds a frustum grid's history valid behind geometry only without
                     // depth-based culling, and HDRP, which clips cells at the surface, reprojects every cell and
-                    // accepts the leak. Here a cell past a surface is lit where it is, beyond the wall: blended
+                    // accepts the leak. Here a cell past a surface is lit beyond the wall, on another ray: blended
                     // into air in front of a surface, it lit a room's seams and edges from outside while the
                     // camera walked or turned (stage 11). Where all eight cells agree, the sampler filters them.
                     const coord = std.sub(
@@ -739,6 +785,7 @@ const GAUSSIAN = tgpu.const(
 /**
  * Blur extinction-weighted light (σt·L, σt) along x, as Godot blurs σs·L with σt; the integration kernel blurs
  * along y and divides by σt. Blurring L and σt apart would light dense shadowed air with its thin lit neighbour.
+ * Both passes skip taps past their own column's surface and renormalize the rest.
  */
 export const fogFilterKernel = tgpu
     .computeFn({
@@ -760,6 +807,9 @@ export const fogFilterKernel = tgpu
         const weight = std.clamp((surface - extent * a * a) / (extent * (b * b - a * a)), 0, 1);
         const own = std.textureLoad(fogFilterLayout.$.lighting, cell, 0);
         // Neither HDRP's 3×3 nor Godot's 7-tap fog filter is depth-aware; blend continuously at the surface.
+        // A tap past its own column's surface holds air beside it that some neighbour sees, not this column's,
+        // and is left out: lit from a ray up to a column and a half away, it would carry that offset three
+        // columns, and the haze above a pillar's edge rose 0.0007 against silhouette.node.ts's 0.0005.
         if (weight <= 0) {
             std.textureStore(
                 fogFilterLayout.$.output,
@@ -769,16 +819,22 @@ export const fogFilterKernel = tgpu
             return;
         }
         let sum = d.vec4f(0);
+        let total = d.f32(0);
         let k = d.i32(-3);
         while (k <= 3) {
-            const tap = std.textureLoad(
-                fogFilterLayout.$.lighting,
-                d.vec3i(std.clamp(cell.x + k, 0, last), cell.y, cell.z),
-                0,
-            );
-            sum = std.add(sum, std.mul(d.vec4f(std.mul(tap.xyz, tap.w), tap.w), GAUSSIAN.$[k + 3]));
+            const column = d.vec2i(std.clamp(cell.x + k, 0, last), cell.y);
+            const tapSurface = std.textureLoad(fogFilterLayout.$.surface, column, 0).x;
+            if (!pastSurface(d.u32(cell.z), extent, tapSurface)) {
+                const tap = std.textureLoad(fogFilterLayout.$.lighting, d.vec3i(column, cell.z), 0);
+                sum = std.add(
+                    sum,
+                    std.mul(d.vec4f(std.mul(tap.xyz, tap.w), tap.w), GAUSSIAN.$[k + 3]),
+                );
+                total = total + GAUSSIAN.$[k + 3];
+            }
             k = k + 1;
         }
+        sum = std.div(sum, total);
         std.textureStore(
             fogFilterLayout.$.output,
             cell,
@@ -829,20 +885,28 @@ export const fogIntegrateKernel = tgpu
             const wall = weight <= 0;
             let k = std.select(d.i32(-3), d.i32(0), wall);
             const radius = std.select(d.i32(3), d.i32(0), wall);
+            let total = d.f32(0);
             while (k <= radius) {
-                cell = std.add(
-                    cell,
-                    std.mul(
-                        std.textureLoad(
-                            fogIntegrateLayout.$.lighting,
-                            d.vec3i(px.x, std.clamp(px.y + k, 0, last), slice),
-                            0,
+                const column = d.vec2i(px.x, std.clamp(px.y + k, 0, last));
+                const tapSurface = std.textureLoad(fogIntegrateLayout.$.surface, column, 0).x;
+                if (wall || !pastSurface(i, extent, tapSurface)) {
+                    const tapWeight = std.select(GAUSSIAN.$[k + 3], 1, wall);
+                    cell = std.add(
+                        cell,
+                        std.mul(
+                            std.textureLoad(
+                                fogIntegrateLayout.$.lighting,
+                                d.vec3i(column, slice),
+                                0,
+                            ),
+                            tapWeight,
                         ),
-                        std.select(GAUSSIAN.$[k + 3], 1, wall),
-                    ),
-                );
+                    );
+                    total = total + tapWeight;
+                }
                 k = k + 1;
             }
+            cell = std.div(cell, total);
             const own = std.textureLoad(fogIntegrateLayout.$.lighting, d.vec3i(px, slice), 0);
             cell = std.mix(own, cell, weight);
             std.textureStore(fogIntegrateLayout.$.filtered, d.vec3i(px, slice), cell);
