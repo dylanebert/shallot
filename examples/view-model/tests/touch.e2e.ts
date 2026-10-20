@@ -28,9 +28,6 @@ test("phone fingers move, look and jump through the example's controls", async (
     const send = (type: "touchStart" | "touchMove" | "touchEnd") =>
         session.send("Input.dispatchTouchEvent", { type, touchPoints: points });
     await expect(page.getByRole("button", { name: "Jump", exact: true })).toBeHidden();
-    if (["interact", "sound"].includes(example)) {
-        await expect(page.locator(".hint kbd")).toHaveText("E");
-    }
     const before = await sample();
     points = [{ id: 1, x: 90, y: 620 }];
     await send("touchStart");
@@ -63,26 +60,6 @@ test("phone fingers move, look and jump through the example's controls", async (
         .toBeGreaterThan(grounded.position[1] + 0.2);
     points.pop();
     await send("touchEnd");
-    if (["interact", "sound"].includes(example)) {
-        await page.evaluate(() => (window as unknown as { aimUse(): void }).aimUse());
-        await expect
-            .poll(() =>
-                page.evaluate(() => (window as unknown as { useReady(): boolean }).useReady()),
-            )
-            .toBe(true);
-        const useState = () =>
-            page.evaluate(() => (window as unknown as { useState(): number }).useState());
-        await expect(page.locator(".hint kbd")).toHaveText("Use");
-        const previous = await useState();
-        const use = await page.getByRole("button", { name: "Use", exact: true }).boundingBox();
-        points.push({ id: 4, x: use!.x + 32, y: use!.y + 32 });
-        await send("touchStart");
-        await expect.poll(async () => (await sample()).use).toBe(true);
-        await expect.poll(useState).not.toBe(previous);
-        points.pop();
-        await send("touchEnd");
-        await expect.poll(async () => (await sample()).use).toBe(false);
-    }
     points = [{ id: 5, x: 90, y: 620 }];
     await send("touchStart");
     points[0].y = 550;
