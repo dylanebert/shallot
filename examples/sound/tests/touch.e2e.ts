@@ -86,6 +86,15 @@ for (const claim of ["move and look", "jump", "use"]) {
             const useState = () =>
                 page.evaluate(() => (window as unknown as { useState(): number }).useState());
             await expect(page.locator(".hint kbd")).toHaveText("Use");
+            const cap = await page.locator(".hint kbd").evaluate((element) => {
+                const label = document.createRange();
+                label.selectNodeContents(element);
+                const text = label.getBoundingClientRect();
+                const box = element.getBoundingClientRect();
+                return { left: text.left - box.left, right: box.right - text.right };
+            });
+            expect(cap.left).toBeGreaterThanOrEqual(6);
+            expect(cap.right).toBeGreaterThanOrEqual(6);
             const previous = await useState();
             const use = await page.getByRole("button", { name: "Use", exact: true }).boundingBox();
             points.push({ id: 2, x: use!.x + 32, y: use!.y + 32 });
