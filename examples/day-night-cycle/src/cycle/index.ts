@@ -14,8 +14,6 @@ import {
     StandardMaterial,
     StandardRenderer,
     SunDisk,
-    Tonemapping,
-    TonemappingMethod,
     Transform,
     VolumetricLight,
     type World,
@@ -135,7 +133,6 @@ function makeScene(world: World): void {
     world.add(scene.camera, CameraBackground, { background: skyBackgroundHandle(world) });
     world.add(scene.camera, StandardRenderer);
     world.add(scene.camera, Exposure, { ev100: 9.7 });
-    world.add(scene.camera, Tonemapping, { method: TonemappingMethod.AgX });
     world.add(scene.camera, ColorGrading);
     const yaw = -1.3,
         pitch = 0.18,
