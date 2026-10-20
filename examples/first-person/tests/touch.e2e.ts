@@ -93,9 +93,12 @@ for (const claim of ["move and look", "jump"]) {
             // The first touch reveals the controls before the jump finger lands.
             points = [{ id: 1, x: 280, y: 450 }];
             await send("touchStart");
-            const jump = await page
-                .getByRole("button", { name: "Jump", exact: true })
-                .boundingBox();
+            const button = page.getByRole("button", { name: "Jump", exact: true });
+            await expect(button).toHaveCSS("background-color", "rgb(20, 18, 16)");
+            await expect(button).toHaveCSS("border-color", "rgb(42, 36, 32)");
+            await expect(button).toHaveCSS("font-family", '"IBM Plex Sans", system-ui, sans-serif');
+            await expect(button).toHaveCSS("font-size", "13px");
+            const jump = await button.boundingBox();
             await expect.poll(async () => (await sample()).grounded).toBe(true);
             const grounded = await sample();
             points.push({ id: 2, x: jump!.x + 32, y: jump!.y + 32 });

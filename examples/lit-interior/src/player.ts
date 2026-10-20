@@ -1,5 +1,3 @@
-import "./touch.css";
-
 import {
     Body,
     Character,

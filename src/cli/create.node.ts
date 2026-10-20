@@ -66,7 +66,6 @@ const FIRST_PERSON_TEMPLATE_FILES = [
     "public/fonts/plex/IBMPlexSans-Regular-Latin1.woff2",
     "public/fonts/plex/OFL.txt",
     "src/touch.css",
-    "src/vite.d.ts",
     "browser.e2e.ts",
     "index.html",
     "playwright.config.ts",
