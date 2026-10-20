@@ -750,6 +750,90 @@ function targetsControl(selector: string, kind: string): boolean {
     return covers((parseCss(`${selector}{}`).children[0] as any).prelude);
 }
 
+type StateRole = [
+    state: string,
+    part: string,
+    property: string,
+    role: keyof typeof EXAMPLE_CONTROLS.dark,
+];
+
+function requiredStates(kind: string): StateRole[] {
+    const states: StateRole[] = [["disabled", "", "color", "muted"]];
+    if (kind === "range") {
+        for (const engine of ["webkit", "moz"]) {
+            states.push([
+                "rest",
+                engine === "webkit" ? "-webkit-slider-runnable-track" : "-moz-range-track",
+                "background",
+                "line",
+            ]);
+            for (const [state, role] of [
+                ["rest", "muted"],
+                ["hover", "ink"],
+                ["active", "gold"],
+                ["disabled", "dim"],
+            ] as const)
+                states.push([
+                    state,
+                    engine === "webkit" ? "-webkit-slider-thumb" : "-moz-range-thumb",
+                    "background",
+                    role,
+                ]);
+        }
+    } else if (kind === "checkbox")
+        states.push(
+            ["rest", "", "background", "bg"],
+            ["rest", "", "border", "muted"],
+            ["checked", "", "background", "dim"],
+            ["checked", "after", "color", "ink"],
+            ["hover", "", "border", "ink"],
+            ["active", "", "background", "line"],
+        );
+    else {
+        states.push(
+            ["rest", "", "background", "bg"],
+            ["rest", "", "border", "line"],
+            ["rest", "", "color", "ink"],
+            ["hover", "", "border", "muted"],
+            ["active", "", "background", "line"],
+        );
+        if (kind !== "select") states.push(["selected", "", "border", "gold"]);
+    }
+    return states;
+}
+
+function controlState(selector: string): string {
+    const positive = selector.replace(/:not\([^)]*\)/g, "");
+    const states = ["disabled", "active", "hover", "checked", "focus-visible"].filter((state) =>
+        positive.includes(`:${state}`),
+    );
+    return states.length > 1
+        ? "compound"
+        : (states[0] ??
+              (/aria-(?:pressed|current|selected)=['"]?true|\.selected\b/.test(positive)
+                  ? "selected"
+                  : "rest"));
+}
+
+function stateSubject(selector: string, kind: string): boolean {
+    return targetsControl(
+        selector
+            .replace(/::[\w-]+/g, "")
+            .replace(/:not\(:disabled\)|:(?:disabled|active|hover|checked)\b/g, (state) =>
+                state.startsWith(":not") ? state : ":focus-visible",
+            )
+            .replace(
+                /\[aria-(?:pressed|current|selected)=['"]?true['"]?\]|\.selected\b/g,
+                ":focus-visible",
+            )
+            .replace(
+                /(?:\b(?:button|div|li|span))?(?:\.option\b|\[role=['"]?option['"]?\])/g,
+                "option",
+            ),
+        kind,
+    );
+}
+
 function controlViolations(css: Css, light = false): string[] {
     const failures: string[] = [];
     let rules: StyleRule[];
@@ -952,7 +1036,7 @@ function controlViolations(css: Css, light = false): string[] {
             const disabled = /:disabled|aria-disabled/.test(s) && !/:not\(:disabled\)/.test(s);
             const hover = /:hover/.test(s);
             const pressed = /:active/.test(s);
-            const selected = /aria-(?:pressed|current)=['"]?true|\.selected\b/.test(s);
+            const selected = /aria-(?:pressed|current|selected)=['"]?true|\.selected\b/.test(s);
             const check = /checkbox/.test(s);
             const thumb = /slider-thumb|range-thumb/.test(s);
             const track = /slider-runnable-track|range-track/.test(s);
@@ -1120,24 +1204,34 @@ function controlViolations(css: Css, light = false): string[] {
         )
     )
         failures.push("phone icon button width missing");
-    for (const kind of ["button", "select", "checkbox", "range"]) {
-        const owned = rules.filter((rule) => rule.selector.includes(kind));
-        if (!owned.some((rule) => !/:|aria-/.test(rule.selector))) continue;
-        for (const state of [":hover", ":active"]) {
-            if (!owned.some((rule) => rule.selector.includes(state)))
-                failures.push(`state ${state} missing: ${kind}`);
-        }
-        if (!focusRules.some((rule) => targetsControl(rule.selector, kind)))
-            failures.push(`focus missing: ${kind}`);
+    for (const kind of ["button", "select", "option", "checkbox", "range"]) {
         if (
-            !rules.some(
-                (rule) =>
-                    /:disabled/.test(rule.selector) &&
-                    !/:not\(:disabled\)/.test(rule.selector) &&
-                    rule.declarations.some((d) => d.property === "color"),
-            )
+            !rules.some((rule) => rule.selector.includes(kind) && stateSubject(rule.selector, kind))
         )
-            failures.push(`disabled text missing: ${kind}`);
+            continue;
+        if (!focusRules.some((rule) => stateSubject(rule.selector, kind)))
+            failures.push(`focus missing: ${kind}`);
+        for (const [state, part, property, role] of requiredStates(kind)) {
+            if (
+                !rules.some(
+                    (rule) =>
+                        controlState(rule.selector) === state &&
+                        (rule.selector.match(/::([\w-]+)/)?.[1] ?? "") === part &&
+                        stateSubject(rule.selector, kind) &&
+                        rule.declarations.some((d) => {
+                            const p = d.property.toLowerCase();
+                            return (
+                                (p === property || p === `${property}-color`) &&
+                                has(
+                                    expand(d.value),
+                                    p === "border" ? `1px solid ${palette[role]}` : palette[role],
+                                )
+                            );
+                        }),
+                )
+            )
+                failures.push(`state missing: ${kind} ${state} ${part} ${property}`);
+        }
     }
     for (const [selector, declarations] of types) {
         if (/:hover|:active|:focus|:disabled/.test(selector)) continue;
@@ -1232,6 +1326,116 @@ const controlFixture = await readFile("scripts/fixtures/example-controls/control
 
 test("example-controls candidate holds colour, type, spacing, rows, states and geometry roles", () => {
     expect(controlViolations({ sheets: [controlFixture], lists: [] })).toEqual([]);
+});
+
+function deleteStateProperty(sheet: string, selector: string, property: string): string {
+    for (const rule of parseCss(sheet).children as any[]) {
+        if (rule.type !== "Rule" || sheet.slice(rule.prelude.start, rule.prelude.end) !== selector)
+            continue;
+        const declaration = rule.block.children.find((d: any) => d.property === property);
+        if (declaration)
+            return (
+                sheet.slice(0, declaration.start) +
+                sheet.slice(declaration.end + (sheet[declaration.end] === ";" ? 1 : 0))
+            );
+    }
+    throw new Error(`fixture declaration missing: ${selector} ${property}`);
+}
+
+const stateDeletions: [string, string, string][] = [
+    ["button/select rest surface", ".ec button, .ec select", "background"],
+    ["button/select rest border", ".ec button, .ec select", "border"],
+    ["button/select rest text", ".ec button, .ec select", "color"],
+    [
+        "button/select hover",
+        ".ec button:hover:not(:disabled), .ec select:hover:not(:disabled)",
+        "border-color",
+    ],
+    [
+        "button/select pressed",
+        ".ec button:active:not(:disabled), .ec select:active:not(:disabled)",
+        "background",
+    ],
+    [
+        "button selected",
+        ".ec button[aria-current='true'], .ec button[aria-pressed='true']",
+        "border-color",
+    ],
+    ["checkbox unchecked surface", ".ec input[type='checkbox']", "background"],
+    ["checkbox unchecked border", ".ec input[type='checkbox']", "border"],
+    ["checkbox checked fill", ".ec input[type='checkbox']:checked", "background"],
+    ["checkbox check mark", ".ec input[type='checkbox']:checked::after", "color"],
+    ["checkbox hover", ".ec input[type='checkbox']:hover:not(:disabled)", "border-color"],
+    ["checkbox pressed", ".ec input[type='checkbox']:active:not(:disabled)", "background"],
+    ["disabled text", ".ec :disabled", "color"],
+];
+for (const engine of ["webkit", "moz"]) {
+    const track = engine === "webkit" ? "-webkit-slider-runnable-track" : "-moz-range-track";
+    const thumb = engine === "webkit" ? "-webkit-slider-thumb" : "-moz-range-thumb";
+    stateDeletions.push([
+        `${engine} range track`,
+        `.ec input[type='range']::${track}`,
+        "background",
+    ]);
+    for (const state of ["", ":hover:not(:disabled)", ":active:not(:disabled)", ":disabled"])
+        stateDeletions.push([
+            `${engine} range handle ${state || "rest"}`,
+            `.ec input[type='range']${state}::${thumb}`,
+            "background",
+        ]);
+}
+for (const [name, selector, property] of stateDeletions)
+    test(`8: deleting ${name} fails`, () => {
+        expect(
+            controlViolations({
+                sheets: [deleteStateProperty(controlFixture, selector, property)],
+                lists: [],
+            }).some((failure) => failure.startsWith("state missing:")),
+        ).toBe(true);
+    });
+
+test("8: deleting both disabled slider handles fails independently of disabled text", () => {
+    let sheet = controlFixture;
+    for (const part of ["-webkit-slider-thumb", "-moz-range-thumb"])
+        sheet = deleteStateProperty(
+            sheet,
+            `.ec input[type='range']:disabled::${part}`,
+            "background",
+        );
+    expect(
+        controlViolations({ sheets: [sheet], lists: [] }).filter((failure) =>
+            failure.startsWith("state missing: range disabled"),
+        ),
+    ).toHaveLength(2);
+});
+
+test("8: button-only disabled text cannot cover other control kinds", () => {
+    const sheet = controlFixture.replace(".ec :disabled {", ".ec button:disabled {");
+    const failures = controlViolations({ sheets: [sheet], lists: [] });
+    for (const kind of ["select", "checkbox", "range"])
+        expect(failures).toContain(`state missing: ${kind} disabled  color`);
+});
+
+test("8: styled options require rest, hover, pressed, selected and disabled text", () => {
+    const option =
+        ".ec option { background: var(--bg); border: var(--hair) solid var(--line); color: var(--ink); }\n.ec option:hover:not(:disabled) { border-color: var(--muted); }\n.ec option:active:not(:disabled) { background: var(--line); }\n.ec option[aria-selected='true'] { border-color: var(--gold); }\n.ec option:focus-visible { outline: var(--radius) solid var(--gold); outline-offset: var(--radius); }";
+    const sheet = controlFixture + option;
+    expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
+    for (const [selector, property] of [
+        [".ec option", "background"],
+        [".ec option", "border"],
+        [".ec option", "color"],
+        [".ec option:hover:not(:disabled)", "border-color"],
+        [".ec option:active:not(:disabled)", "background"],
+        [".ec option[aria-selected='true']", "border-color"],
+        [".ec :disabled", "color"],
+    ])
+        expect(
+            controlViolations({
+                sheets: [deleteStateProperty(sheet, selector!, property!)],
+                lists: [],
+            }).some((failure) => failure.startsWith("state missing: option")),
+        ).toBe(true);
 });
 
 const controlMutations: [string, string, string][] = [
