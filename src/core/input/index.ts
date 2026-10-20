@@ -188,7 +188,7 @@ interface BrowserAdapter {
     visibilityChange: () => void;
     pointerLockChange: () => void;
     pointerLockError: () => void;
-    canvasClick: () => void;
+    canvasClick: (e: PointerEvent) => void;
     lockMove: (e: MouseEvent) => void;
 }
 
@@ -783,8 +783,8 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
             if (a.host.document.pointerLockElement !== canvas) releaseOwnedLock(a, canvas);
         }
     };
-    a.canvasClick = () => {
-        if (d.requireLock) requestPointerLock(world);
+    a.canvasClick = (e) => {
+        if (d.requireLock && e.pointerType !== "touch") requestPointerLock(world);
     };
     a.lockMove = (e) => {
         if (d.pointer.lock.status !== "locked") return;

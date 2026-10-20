@@ -206,6 +206,21 @@ function declaredHost(
     };
 }
 
+test("touch clicks never request pointer lock but mouse clicks still do", () => {
+    const fixture = declaredHost();
+    const world = browserInputStateWith(fixture.host);
+    try {
+        world.step(0);
+        requirePointerLock(world, true);
+        fixture.emitCanvas("click", { pointerType: "touch" });
+        expect(fixture.requestCount).toBe(0);
+        fixture.emitCanvas("click", { pointerType: "mouse" });
+        expect(fixture.requestCount).toBe(1);
+    } finally {
+        world.dispose();
+    }
+});
+
 test("the production browser adapter carries focus, pointer, touch and visibility transitions through the shared producers and tears down cleanly", () => {
     const fixture = declaredHost();
     const world = inputState();
