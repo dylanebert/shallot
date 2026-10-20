@@ -8,7 +8,6 @@ import {
     CorePipelinePlugin,
     type EffectPass,
     EffectPasses,
-    fullscreenVertex,
     ImageBindings,
     TonemappingSystem,
     Views,
@@ -186,15 +185,23 @@ const vignette = tgpu
     return mix(color, g.color.rgb * coverage, (1.0 - factor) * g.intensity);
 }`)
     .$uses({ Settings });
-const fragment = tgpu.fragmentFn({ in: { position: d.builtin.position }, out: d.vec4f })(
-    (input) => {
-        "use gpu";
-        const resolution = d.vec2f(std.textureDimensions(layout.$.input));
-        const uv = std.div(input.position.xy, resolution);
-        const color = aberration(lensDistortion(uv, layout.$.settings));
-        return d.vec4f(vignette(uv, color.xyz, color.w, resolution, layout.$.settings), color.w);
-    },
-);
+// Interpolated UVs match Bevy's fullscreen triangle; position/resolution rounding can
+// select different bilinear weights at sharp HDR edges.
+const stackVertex = tgpu.vertexFn({
+    in: { index: d.builtin.vertexIndex },
+    out: { position: d.builtin.position, uv: d.vec2f },
+})((input) => {
+    "use gpu";
+    const uv = std.mul(d.vec2f(d.f32(input.index >>> 1), d.f32(input.index & 1)), 2);
+    return { position: d.vec4f(std.add(std.mul(uv, d.vec2f(2, -2)), d.vec2f(-1, 1)), 0, 1), uv };
+});
+const fragment = tgpu.fragmentFn({ in: { uv: d.vec2f }, out: d.vec4f })((input) => {
+    "use gpu";
+    const resolution = d.vec2f(std.textureDimensions(layout.$.input));
+    const uv = input.uv;
+    const color = aberration(lensDistortion(uv, layout.$.settings));
+    return d.vec4f(vignette(uv, color.xyz, color.w, resolution, layout.$.settings), color.w);
+});
 const stateKey = {
     create: () => ({
         pipeline: null as GPURenderPipeline | null,
@@ -386,7 +393,7 @@ export const EffectStackPlugin: Plugin = {
         });
         state.pipeline = world.gpu.root.unwrap(
             world.gpu.root.createRenderPipeline({
-                vertex: fullscreenVertex,
+                vertex: stackVertex,
                 fragment,
                 targets: { format: "rgba16float" },
             }),
