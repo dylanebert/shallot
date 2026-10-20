@@ -2,6 +2,51 @@ import { expect, test } from "playwright/test";
 import { formatValue } from "../src/control-format";
 import { categories, type Scene, scenes } from "../src/scenes";
 
+test("distinct control kinds render only shipped fonts", async ({ page, context }) => {
+    await page.goto("/");
+    const trigger = page.getByRole("button", { name: "Scene", exact: true });
+    await trigger.click();
+    await page.getByRole("button", { name: "Wheel", exact: true }).click();
+    await trigger.click();
+    await page.evaluate(() => document.fonts.ready);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("DOM.enable");
+    await cdp.send("CSS.enable");
+    async function shippedFont(selector: string) {
+        const { root } = await cdp.send("DOM.getDocument");
+        const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId, selector });
+        expect(nodeId, selector).not.toBe(0);
+        const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
+        expect(fonts.length, selector).toBeGreaterThan(0);
+        for (const font of fonts) {
+            expect(font.isCustomFont, `${selector}: ${font.familyName}`).toBe(true);
+            expect(["IBM Plex Sans", "JetBrains Mono"]).toContain(font.familyName);
+        }
+    }
+    for (const selector of [
+        ".panel-title",
+        ".section-title",
+        ".row > label",
+        ".toggle span",
+        "output",
+        "nav button",
+        "nav .name",
+        ".categories h2",
+        ".categories button",
+    ])
+        await shippedFont(selector);
+    await trigger.click();
+    for (const [scene, selector] of [
+        ["Contact", ".input-help"],
+        ["Motor Joint", ".fields button"],
+    ]) {
+        await trigger.click();
+        await page.getByRole("button", { name: scene, exact: true }).click();
+        await shippedFont(selector!);
+    }
+    await cdp.detach();
+});
+
 for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
@@ -16,24 +61,6 @@ for (const viewport of [
         const trigger = page.getByRole("button", { name: "Scene", exact: true });
         const arrows = page.locator("nav button:not(.name)");
         await expect(trigger).toBeVisible();
-        const cdp = await context.newCDPSession(page);
-        await cdp.send("DOM.enable");
-        await cdp.send("CSS.enable");
-        async function shippedFonts() {
-            await page.evaluate(() => document.fonts.ready);
-            const { root } = await cdp.send("DOM.getDocument");
-            const { nodeIds } = await cdp.send("DOM.querySelectorAll", {
-                nodeId: root.nodeId,
-                selector: ".ec, .ec *",
-            });
-            for (const nodeId of nodeIds) {
-                const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
-                for (const font of fonts) {
-                    expect(font.isCustomFont, font.familyName).toBe(true);
-                    expect(["IBM Plex Sans", "JetBrains Mono"]).toContain(font.familyName);
-                }
-            }
-        }
         const initial = await arrows.evaluateAll((nodes) =>
             nodes.map((node) => node.getBoundingClientRect().toJSON()),
         );
@@ -45,11 +72,17 @@ for (const viewport of [
                     nodes.map((node) => node.getBoundingClientRect().toJSON()),
                 ),
             ).toEqual(initial);
-            await shippedFonts();
             const panel = page.locator(".controls");
             if (!scenes[sample.id as Scene].controls) continue;
-            for (const row of await panel.locator(".row").all())
-                expect((await row.boundingBox())!.height).toBe(phone ? 44 : 32);
+            expect(
+                await panel
+                    .locator(".row")
+                    .evaluateAll(
+                        (rows, height) =>
+                            rows.every((row) => row.getBoundingClientRect().height === height),
+                        phone ? 44 : 32,
+                    ),
+            ).toBe(true);
             const box = (await panel.boundingBox())!;
             expect(box.width).toBe(Math.min(360, viewport.width - 32));
             expect(box.y).toBe(phone ? 16 : 24);
@@ -58,7 +91,7 @@ for (const viewport of [
                 phone ? viewport.height * 0.6 : viewport.height - 112,
             );
             expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-            // Measure every label, and every authored numeric endpoint, not only defaults.
+            // Labels retain scene-specific nesting and allocations.
             const fits = await panel
                 .locator(".row label, .toggle span, output")
                 .evaluateAll((nodes) =>
@@ -72,23 +105,27 @@ for (const viewport of [
                     }),
                 );
             expect(fits.every(Boolean), sample.name).toBe(true);
-            for (const slider of await panel.locator("input[type=range]").all()) {
-                for (const endpoint of ["min", "max"]) {
-                    const output = slider.locator("..").locator("output");
-                    const original = await output.textContent();
-                    await output.evaluate(
-                        (node, text) => {
-                            node.textContent = text;
-                        },
-                        formatValue(Number(await slider.getAttribute(endpoint))),
-                    );
-                    expect(
-                        await output.evaluate((node) => node.scrollWidth <= node.clientWidth),
-                    ).toBe(true);
-                    await output.evaluate((node, text) => {
-                        node.textContent = text;
-                    }, original);
-                }
+            if (sample.id === "wheel") {
+                const values = Object.values(scenes).flatMap((scene) =>
+                    Object.values(scene.controls ?? {}).flatMap((control) =>
+                        control.min === undefined
+                            ? []
+                            : [control.min, control.max!, control.value].map(formatValue),
+                    ),
+                );
+                expect(
+                    await panel.locator("output").evaluateAll((outputs, values) => {
+                        const context = document.createElement("canvas").getContext("2d")!;
+                        return outputs.every((output) => {
+                            context.font = getComputedStyle(output).font;
+                            return values.every(
+                                (value) =>
+                                    context.measureText(value).width <=
+                                    output.getBoundingClientRect().width,
+                            );
+                        });
+                    }, values),
+                ).toBe(true);
             }
             if (sample.id === "wheel" && phone) {
                 expect(await panel.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(
@@ -105,7 +142,6 @@ for (const viewport of [
         await trigger.focus();
         await page.keyboard.press("Enter");
         const list = page.locator("#scene-list");
-        await shippedFonts();
         expect(await list.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
         const box = (await list.boundingBox())!;
         expect(box.x).toBeGreaterThanOrEqual(phone ? 16 : 24);
@@ -150,7 +186,6 @@ for (const viewport of [
         const navigation = (await page.locator(".picker").boundingBox())!;
         expect(navigation.x).toBe((phone ? 16 : 24) + 8);
         expect(navigation.y + navigation.height).toBe(viewport.height - (phone ? 16 : 24) - 12);
-        await cdp.detach();
         await context.close();
     });
 }

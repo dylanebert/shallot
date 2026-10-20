@@ -3,18 +3,25 @@ import { formatValue } from "./control-format";
 import { type Controls, controlValues, enabledControls, type Scene, scenes } from "./scenes";
 
 for (const scene of Object.keys(scenes) as Scene[]) {
+    test(`${scene} slider endpoints and defaults format without loss in the value allocation`, () => {
+        const controls: Controls = scenes[scene].controls ?? {};
+        for (const control of Object.values(controls)) {
+            if (control.min === undefined) continue;
+            expect(control.min).toBeLessThan(control.max!);
+            for (const value of [control.min, control.max!, control.value]) {
+                expect(Number.isFinite(value)).toBe(true);
+                expect(Number(formatValue(value))).toBe(value);
+                expect(formatValue(value).length).toBeLessThanOrEqual(6);
+            }
+        }
+    });
+
     test(`${scene} exposes exactly its controls and gates every dependent`, () => {
         const controls: Controls = scenes[scene].controls ?? {};
         const values = controlValues(scene);
         expect(Object.keys(values)).toEqual(Object.keys(controls));
         for (const [name, control] of Object.entries(controls)) {
             expect(values[name]).toBe(control.value);
-            if (control.min !== undefined) {
-                for (const value of [control.min, control.max!, control.value]) {
-                    expect(Number(formatValue(value))).toBe(value);
-                    expect(formatValue(value).length).toBeLessThanOrEqual(6);
-                }
-            }
             for (const dependency of control.when ?? []) {
                 expect(controls[dependency]).toBeDefined();
                 expect(controls[dependency]!.min).toBeUndefined();
