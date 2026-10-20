@@ -31,6 +31,8 @@ const WRITTEN_FILES = [
     "tests/preload.ts",
 ];
 const MINIMAL_FILES = [
+    "public/fonts/plex/IBMPlexSans-Regular-Latin1.woff2",
+    "public/fonts/plex/OFL.txt",
     ".github/workflows/test.yml",
     ".gitignore",
     "AGENTS.md",
@@ -49,6 +51,8 @@ const MINIMAL_FILES = [
     "vite.config.ts",
 ];
 const MINIMAL_TEMPLATE_FILES = [
+    "public/fonts/plex/IBMPlexSans-Regular-Latin1.woff2",
+    "public/fonts/plex/OFL.txt",
     "index.html",
     "playwright.config.ts",
     "public/icon.svg",
@@ -225,7 +229,7 @@ test("every shipped scaffold owns the replaceable standard favicon and HTML link
     }
 });
 
-test("create writes exactly the 16-file minimal project", () => {
+test("create writes exactly the 18-file minimal project", () => {
     const destination = join(SCRATCH, "minimal");
     expect(runCreate([destination])).toBe(0);
     expect(files(destination).sort()).toEqual([...MINIMAL_FILES].sort());

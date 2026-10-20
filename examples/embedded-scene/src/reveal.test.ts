@@ -68,7 +68,7 @@ function fakeElement(): FakeElement {
 }
 
 test("a missing device on the first stepped frame leaves a readable alert inside its scene frame, with at least 4.5:1 contrast", async () => {
-    const errorContrast = contrast(themeColor("frame-error"), themeColor("bg2"));
+    const errorContrast = contrast(themeColor("frame-error"), themeColor("frame-bg"));
     const app = fakeElement();
     const frame = fakeElement();
     const canvas = fakeElement();
@@ -126,6 +126,6 @@ test("a missing device on the first stepped frame leaves a readable alert inside
     expect(readable, "missing-device failure renders an alert line in the scene frame").toBe(true);
     expect(
         errorContrast,
-        "frame error ink meets 4.5:1 contrast against the page background",
+        "frame error ink meets 4.5:1 contrast against the frame background",
     ).toBeGreaterThanOrEqual(4.5);
 });

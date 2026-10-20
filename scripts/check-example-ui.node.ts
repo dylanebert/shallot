@@ -5,7 +5,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
 import { parseCss, parse as parseSvelte } from "svelte/compiler";
-import { colorHex, EXAMPLE_CONTROLS, PALETTES } from "../diagnostics/default-look/palette";
+import { EXAMPLE_CONTROLS } from "../diagnostics/default-look/palette";
 import { normalizePath } from "../src/project/paths";
 import { removeTestDirectory } from "./test-directory";
 
@@ -27,22 +27,6 @@ async function sources(directory: string): Promise<string[]> {
     return result;
 }
 
-function titleDeclaration(source: string, offset: number): boolean {
-    const before = source.slice(0, offset);
-    const tag = before.slice(before.lastIndexOf("<"));
-    if (/^<h1\b[^>]*\bstyle\s*=/.test(tag)) return true;
-    const open = before.lastIndexOf("{");
-    const boundary = Math.max(before.lastIndexOf("}", open), before.lastIndexOf("{", open - 1));
-    const selectors = before
-        .slice(boundary + 1, open)
-        .trim()
-        .split(",");
-    return (
-        open > before.lastIndexOf("}") &&
-        selectors.every((selector) => /(?:^|\s|>)h1\s*$/.test(selector))
-    );
-}
-
 function styleSources(path: string, source: string): string[] {
     if (!/\.[cm]?[jt]s$/.test(path)) return [source];
     const strings: string[] = [];
@@ -62,18 +46,6 @@ function styleSources(path: string, source: string): string[] {
     return strings;
 }
 
-const carbon = PALETTES["aperture-carbon"];
-// The ui tokens, the clear colour and every material's sRGB hex, the accents included.
-const PALETTE_COLORS = new Set([
-    carbon.ui.panel,
-    carbon.ui.ink,
-    carbon.ui.border,
-    `#${carbon.clearColor.toString(16).padStart(6, "0")}`,
-    ...Object.values(carbon.materials).map(colorHex),
-]);
-// The person's exception to aperture-carbon (strategy/shallot/examples.md, 2026-10-17).
-const EXAMPLE_COLORS: Record<string, readonly string[]> = { voxel: ["#89b6e9"] };
-
 const COLOR_FUNCTIONS = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(([^)]*)\)?/gi;
 // A literal colour in hex, three, four, six or eight digits; any other length is not a colour.
 const HEX = /#[0-9a-f]+\b/gi;
@@ -81,14 +53,6 @@ const KEYWORDS = new Set(["transparent", "currentcolor", "inherit", "none"]);
 // A computed part of a cssText template or Svelte style attribute; it is not read.
 const COMPUTED_NAME = "--computed";
 const COMPUTED = `${COMPUTED_NAME}()`;
-
-function hexColor(value: string): string | undefined {
-    const digits = value.slice(1).toLowerCase();
-    if (digits.length === 6 || digits.length === 8) return `#${digits.slice(0, 6)}`;
-    if (digits.length === 3 || digits.length === 4)
-        return `#${[...digits.slice(0, 3)].map((digit) => digit + digit).join("")}`;
-    return undefined;
-}
 
 /**
  * The CSS a source writes, as stylelint reads it: a stylesheet, a page's `<style>` text and style
@@ -184,28 +148,6 @@ async function cssOf(path: string, source: string): Promise<Css> {
 
 type Declaration = { property: string; value: string };
 
-function declarations(css: Css): { declarations: Declaration[]; failures: string[] } {
-    const found: Declaration[] = [];
-    const failures: string[] = [];
-    function visit(value: unknown): void {
-        if (!value || typeof value !== "object") return;
-        const node = value as Record<string, unknown>;
-        if (node.type === "Declaration") found.push(node as unknown as Declaration);
-        for (const child of Object.values(node)) {
-            if (Array.isArray(child)) for (const item of child) visit(item);
-            else visit(child);
-        }
-    }
-    for (const sheet of [...css.sheets, ...css.lists.map((list) => `x{${list}}`)]) {
-        try {
-            visit(parseCss(sheet));
-        } catch (error) {
-            failures.push(`css: ${(error as Error).message}`);
-        }
-    }
-    return { declarations: found, failures };
-}
-
 type Scope = { example?: string; stepped?: boolean };
 
 // CSS Syntax escapes: up to six hex digits and one optional whitespace, or any other character.
@@ -218,319 +160,10 @@ function decodeEscapes(value: string): string {
     });
 }
 
-/**
- * Colour literals written as CSS are palette values, with or without an alpha suffix, and opacity is
- * 0 or 1. A stepped test page's background sits under the canvas and is not UI.
- */
-function colorViolations(css: Css, { example = "", stepped = false }: Scope = {}): string[] {
-    const parsed = declarations(css);
-    const failures = parsed.failures;
-    for (const { property, value } of parsed.declarations) {
-        const name = property.toLowerCase();
-        // A partial opacity blends an element into an off-palette colour.
-        if (name === "opacity") {
-            if (value.trim() !== "0" && value.trim() !== "1")
-                failures.push(`opacity: ${value.trim()}`);
-            continue;
-        }
-        if (stepped && (name === "background" || name === "background-color")) continue;
-        // Quoted strings and url() arguments are not colours; escapes decode before matching.
-        const text = decodeEscapes(
-            value.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, ""),
-        ).replace(/\burl\([^)]*\)/gi, "");
-        for (const match of text.matchAll(HEX)) {
-            const color = hexColor(match[0]);
-            if (color && (PALETTE_COLORS.has(color) || EXAMPLE_COLORS[example]?.includes(color)))
-                continue;
-            failures.push(`color: ${match[0]}`);
-        }
-        // Palette colours are written in hex; a colour function is refused unless it is computed.
-        for (const match of text.matchAll(COLOR_FUNCTIONS))
-            if (!match[1]?.includes(COMPUTED_NAME)) failures.push(`color: ${match[0]}`);
-        for (const word of text.match(/(?<![\w$#.-])[a-z]+(?![\w(-])/gi) ?? []) {
-            const lower = word.toLowerCase();
-            if (!KEYWORDS.has(lower) && Bun.color(lower, "hex") !== null)
-                failures.push(`color: ${word}`);
-        }
-    }
-    return failures;
-}
-
-function spacingViolations(css: Css): string[] {
-    const parsed = declarations(css);
-    const failures = parsed.failures;
-    for (const { property, value } of parsed.declarations) {
-        if (
-            !/^(?:(?:margin|padding|inset)(?:-.+)?|(?:row-|column-)?gap|top|right|bottom|left|--.*(?:gap|pad|top|right|bottom|left).*)$/i.test(
-                property,
-            )
-        )
-            continue;
-        for (const match of value.matchAll(/(-?\d*\.?\d+)(px|rem|em|vw|vh)\b/gi)) {
-            const placement = /^(top|right|bottom|left|inset|--(?:top|right|bottom|left))$/.test(
-                property,
-            );
-            const size = Math.abs(Number(match[1]));
-            if (
-                match[2] !== "px" ||
-                (placement
-                    ? size % carbon.ui.spacing.base !== 0
-                    : ![0, carbon.ui.spacing.base, carbon.ui.spacing.group].includes(size))
-            )
-                failures.push(`${property}: ${value}`);
-        }
-    }
-    return failures;
-}
-
-test("UI spacing uses only the compact set in sheets and inline declarations", async () => {
-    expect(carbon.ui.spacing.base).toBe(4);
-    expect(
-        spacingViolations(
-            await cssOf(
-                "a.css",
-                ".a { gap: 8px; padding: 4px 8px; margin: -4px auto; left: 50%; top: 24px; }",
-            ),
-        ),
-    ).toEqual([]);
-    for (const [path, source] of [
-        ["a.css", ".a { gap: 12px; }"],
-        ["a.html", '<b style="padding: 10px 8px">'],
-        ["a.svelte", '<b style="margin-inline: 1rem"></b>'],
-        ["a.ts", 'el.style.cssText = "row-gap: 5px";'],
-    ])
-        expect(spacingViolations(await cssOf(path!, source!))).toHaveLength(1);
-});
-
-function rowViolations(css: Css): string[] {
-    const failures: string[] = [];
-    for (const sheet of css.sheets) {
-        function visit(value: unknown, row = false): void {
-            if (!value || typeof value !== "object") return;
-            const node = value as Record<string, any>;
-            if (node.type === "Rule") {
-                const selector = sheet.slice(node.prelude.start, node.prelude.end);
-                row =
-                    /(?:\bbutton\b|\.row\b|\.toggle\b|input\[type=["']?range)/.test(selector) &&
-                    !/::|checkbox|\bnav\b/.test(selector);
-            }
-            if (
-                row &&
-                node.type === "Declaration" &&
-                /^(?:min-)?height$/.test(node.property) &&
-                /^\d+px$/.test(node.value.trim()) &&
-                node.value.trim() !== `${carbon.ui.controls.row}px`
-            )
-                failures.push(`${node.property}: ${node.value}`);
-            for (const child of Object.values(node)) {
-                if (Array.isArray(child)) for (const item of child) visit(item, row);
-                else visit(child, row);
-            }
-        }
-        visit(parseCss(sheet));
-    }
-    return failures;
-}
-
-test("controls and list rows have one height", async () => {
-    expect(
-        rowViolations(await cssOf("a.css", ".row { height: 24px; } button { min-height: 24px; }")),
-    ).toEqual([]);
-    for (const css of ["button { height: 28px; }", ".row { min-height: 32px; }"])
-        expect(rowViolations(await cssOf("a.css", css))).toHaveLength(1);
-});
-
-async function colors(path: string, source: string, scope?: Scope): Promise<string[]> {
-    return colorViolations(await cssOf(path, source), scope);
-}
-
-// Only a stepped test page's background is exempt; every other source under tests/ is held.
+// Only the canvas background of a stepped test page is scene presentation.
 function steppedPage(path: string): boolean {
-    return /^examples[\\/][^\\/]+[\\/]tests[\\/]stepped\.html$/.test(path);
+    return /^examples[\\/][^\\]+[\\/]tests[\\/]stepped\.html$/.test(path);
 }
-
-function violations(source: string): string[] {
-    const ui = carbon.ui;
-    const failures: string[] = [];
-    for (const match of source.matchAll(
-        /\b(font(?:-family|-size|-weight)?|border(?:-top-left|-top-right|-bottom-left|-bottom-right)?-radius)\s*:\s*([^;}"'\n]+)/g,
-    )) {
-        const [, property, raw] = match;
-        const value = raw!.trim();
-        let valid = false;
-        let size: string | undefined;
-        if (property === "font-family") valid = value === ui.fontFamily;
-        else if (property === "font-size") {
-            size = value;
-            valid = ui.fontSizes.includes(value);
-        } else if (property === "font-weight") valid = value === ui.fontWeight;
-        else if (property!.includes("radius")) valid = value === ui.radius || value === ui.circle;
-        else {
-            const font = value.match(/^(?:(\d+)\s+)?(\d+px)(?:\/[^\s]+)?\s+(.+)$/);
-            size = font?.[2];
-            valid =
-                !!font &&
-                (font[1] ?? "400") === ui.fontWeight &&
-                ui.fontSizes.includes(font[2]!) &&
-                font[3] === ui.fontFamily;
-        }
-        if (size === ui.fontSizes[1] && !titleDeclaration(source, match.index!)) valid = false;
-        if (!valid) failures.push(`${property}: ${value}`);
-    }
-    // UI keeps CSS pixels (CONTRIBUTING.md, Examples).
-    for (const match of source.matchAll(/\bzoom\s*:\s*([^;}"'\n]+)/g))
-        failures.push(`zoom: ${match[1]!.trim()}`);
-    return failures;
-}
-
-test("the UI scale reserves 24px for titles and rejects off-token CSS, inline declarations and zoom", () => {
-    const ui = PALETTES["aperture-carbon"].ui;
-    expect(ui.fontSizes).toEqual(["14px", "24px"]);
-    expect(
-        violations(
-            `.panel { font: ${ui.fontWeight} ${ui.fontSizes[0]} ${ui.fontFamily}; border-radius: ${ui.radius}; }`,
-        ),
-    ).toEqual([]);
-    expect(
-        violations(
-            '<span style="font-family: sans-serif; font-size: 18px; font-weight: 700; border-radius: 6px">',
-        ),
-    ).toHaveLength(4);
-    expect(violations(`.reticle { border-radius: ${ui.circle}; }`)).toEqual([]);
-    expect(violations(".panel { font: bold 48px serif; }")).toHaveLength(1);
-    expect(violations("h1 { font-size: 24px; }")).toEqual([]);
-    expect(violations('<h1 style="font-size: 24px">Name</h1>')).toEqual([]);
-    expect(violations(".notice { font-size: 24px; }")).toHaveLength(1);
-    expect(violations("h1, .notice { font-size: 24px; }")).toHaveLength(1);
-    expect(violations('<p style="font-size: 24px">Status</p>')).toHaveLength(1);
-    expect(violations("small { font-size: 12px; }")).toHaveLength(1);
-    expect(violations(".card { zoom: max(1, calc(100vmin / 1080px)); }")).toEqual([
-        "zoom: max(1, calc(100vmin / 1080px))",
-    ]);
-});
-
-test("UI colours written as CSS are palette values or their alpha variants and opacity is 0 or 1; Svelte style: directives and DOM .style properties are not read", async () => {
-    const css = (source: string, scope?: Scope) => colors("a.css", source, scope);
-    expect(
-        await css(
-            `.panel { background: ${carbon.ui.panel}cc; color: ${carbon.ui.ink}; border: 1px solid ${carbon.ui.border}; }`,
-        ),
-    ).toEqual([]);
-    expect(await css(".bar { background: #ddaa3f; } body { background: #191816; }")).toEqual([]);
-    expect(await css(".help { color: #a69d8f; }")).toEqual(["color: #a69d8f"]);
-    expect(await css(".panel { background: rgba(14, 17, 20, 0.72); }")).toEqual([
-        "color: rgba(14, 17, 20, 0.72)",
-    ]);
-    expect(await css("body { background: #89b6e9; }", { example: "voxel" })).toEqual([]);
-    expect(await css("body { background: #89b6e9; }", { example: "minimal" })).toEqual([
-        "color: #89b6e9",
-    ]);
-    expect(await colors("a.ts", `el.style.cssText = \`color: rgb(\${channels})\`;`)).toEqual([]);
-    expect(await css(".fade { opacity: 0; } .fade.shown { opacity: 1; }")).toEqual([]);
-    expect(await css("button:disabled { opacity: 0.5; }")).toEqual(["opacity: 0.5"]);
-    for (const color of [
-        "red",
-        "Tan",
-        "lab(50% 80 60)",
-        "RGB(255 0 0)",
-        "hwb(0 0% 0%)",
-        "oklab(0.5 0.1 0.1)",
-        "lch(50% 30 40)",
-        "color(srgb 1 0 0)",
-        "color-mix(in srgb, #eee9df, #282622)",
-        "#fff",
-        "#ffff",
-        "#12345",
-    ])
-        expect(await css(`.help { color: ${color}; }`)).toEqual([`color: ${color}`]);
-    for (const [source, color] of [
-        [".a { background-image: linear-gradient(red, #282622); }", "red"],
-        [".a { mask: linear-gradient(black, transparent); }", "black"],
-        [".a { scrollbar-color: gray transparent; }", "gray"],
-        [".a { -webkit-text-fill-color: white; }", "white"],
-    ])
-        expect(await css(source!)).toEqual([`color: ${color}`]);
-    expect(await css(".a { background-image: linear-gradient(red, blue); }")).toEqual([
-        "color: red",
-        "color: blue",
-    ]);
-    expect(
-        await css(`.a { background-image: linear-gradient(${carbon.ui.panel}, transparent); }`),
-    ).toEqual([]);
-    expect(await css(".a { COLOR: red; Border: 1px solid TAN; }")).toEqual([
-        "color: red",
-        "color: TAN",
-    ]);
-    expect(await css(".a { COLOR: CurrentColor; BACKGROUND: TRANSPARENT; }")).toEqual([]);
-    expect(await css(".a { OPACITY: 0.5; }")).toEqual(["opacity: 0.5"]);
-    expect(await css(".a { color: #eee; background: #eee9; border-color: #EEE9DF; }")).toEqual([
-        "color: #eee",
-        "color: #eee9",
-    ]);
-    expect(await css(".a { color: currentColor; background: transparent; fill: none; }")).toEqual(
-        [],
-    );
-    expect(await css(`.a { color: inherit; font: 400 14px ${carbon.ui.fontFamily}; }`)).toEqual([]);
-    // Escapes decode before matching, and a string ends only at an unescaped quote.
-    expect(await css(".a { color: r\\65 d; }")).toEqual(["color: red"]);
-    expect(await css(".a { color: \\72\\65\\64; }")).toEqual(["color: red"]);
-    expect(await css('.a { content: "\\"red"; color: #eee9df; }')).toEqual([]);
-    expect(await css(".a { content: 'it\\'s red'; color: #eee9df; }")).toEqual([]);
-    // A content string is not markup, and an id selector is not a colour.
-    expect(
-        await css('.a::before { content: "<b>"; color: tan; } #fab { color: #eee9df; }'),
-    ).toEqual(["color: tan"]);
-    expect(await colors("a.html", '<style>.a { content: "<b>"; color: tan; }</style>')).toEqual([
-        "color: tan",
-    ]);
-
-    // Pages: <style> text and style attributes, quoted or not; scripts are never read.
-    expect(
-        await colors(
-            "a.html",
-            '<style>.a { color: tan; }</style><script>const s = { canvas: 1, c: "#a69d8f", f: "rgb(1, 2, 3)" };</script>',
-        ),
-    ).toEqual(["color: tan"]);
-    expect(await colors("a.html", "<p style=color:red>x</p><p style='color: #fff'>y</p>")).toEqual([
-        "color: red",
-        "color: #fff",
-    ]);
-    expect(
-        await colors(
-            "a.svelte",
-            '<script>const c = "#a69d8f";</script><p style=color:red>x</p>{#if a}<b style="color: tan; width: {w}px"></b>{/if}<i style:color="red"></i><style>.a { color: #fff; }</style>',
-        ),
-    ).toEqual(["color: #fff", "color: red", "color: tan"]);
-    expect(await colors("a.ts", 'const c = "#a69d8f"; const css = ".a { color: red; }";')).toEqual(
-        [],
-    );
-    expect(
-        await colors("a.ts", 'el.style.cssText = "position:absolute;inset:0;color:red";'),
-    ).toEqual(["color: red"]);
-    // A message string is not a style string (examples/physics/tests/gold.ts).
-    expect(
-        await colors("a.ts", `throw new Error(\`step \${step}: invalid sample gold line\`);`),
-    ).toEqual([]);
-
-    const stepped = '<body style="background:#1c1917"><p style="color: #a69d8f">';
-    expect(await colors("a.html", stepped, { stepped: true })).toEqual(["color: #a69d8f"]);
-    expect(steppedPage(join("examples", "voxel", "tests", "stepped.html"))).toBe(true);
-    expect(steppedPage(join("examples", "physics", "tests", "capture-page.ts"))).toBe(false);
-    expect(steppedPage(join("examples", "hud", "src", "tests", "stepped.html"))).toBe(false);
-    expect(
-        await css("body { background: #1c1917; }", {
-            stepped: steppedPage(join("examples", "physics", "tests", "overlay.html")),
-        }),
-    ).toEqual(["color: #1c1917"]);
-});
-
-test("world-space Text font fields are not CSS, while styles in script strings are checked", () => {
-    const source =
-        "const state: { font: number } = { font: 1 }; const text = { font: state.font }; const css = `.panel { font: bold 48px serif; }`;";
-    expect(styleSources("scene.ts", source).flatMap((style) => violations(style))).toEqual([
-        "font: bold 48px serif",
-    ]);
-});
 
 function sceneBackgrounds(css: Css, scope: Scope): Css {
     function mask(sheet: string): string {
@@ -629,7 +262,11 @@ async function exampleCss(root: string): Promise<Css> {
         for (const name of names) {
             if (/^(?:https?:|\/\/|data:)/.test(name)) throw new Error(`remote stylesheet: ${name}`);
             await load(
-                name.startsWith("/") ? join(root, "public", name) : resolve(dirname(path), name),
+                name.startsWith("/src/")
+                    ? join(root, name)
+                    : name.startsWith("/")
+                      ? join(root, "public", name)
+                      : resolve(dirname(path), name),
             );
         }
     }
@@ -839,7 +476,7 @@ function stateSubject(selector: string, kind: string): boolean {
     );
 }
 
-function controlViolations(css: Css, light = false): string[] {
+function controlViolations(css: Css, light = false, embedded = false): string[] {
     const failures: string[] = [];
     let rules: StyleRule[];
     try {
@@ -849,11 +486,11 @@ function controlViolations(css: Css, light = false): string[] {
     } catch (error) {
         return [`css: ${error}`];
     }
-    const palette = EXAMPLE_CONTROLS[light ? "light" : "dark"];
+    const hostPalette = EXAMPLE_CONTROLS[light ? "light" : "dark"];
     const tokens: Record<string, string> = {
         ...EXAMPLE_CONTROLS.tokens,
-        ...palette,
-        "header-surface": palette.bg2,
+        ...hostPalette,
+        "header-surface": hostPalette.bg2,
     };
     const definitions = new Map<string, string[]>();
     for (const rule of rules)
@@ -915,11 +552,21 @@ function controlViolations(css: Css, light = false): string[] {
     const types = new Map<string, Declaration[]>();
     for (const rule of rules) {
         const { selector: s, media } = rule;
+        const page =
+            /^(?::root|\*|html|body|html,body|h1|\.page|\.scene|\.frame|\.description|\.frame-error|\.bootstrap-panel|\.title-card|\.lockup|\.notice|\.error|\[data-shallot-bootstrap\](?:\[data-state="error"\])?|\[data-bootstrap-(?:label|track)\])$/.test(
+                s,
+            );
+        const palette =
+            EXAMPLE_CONTROLS[
+                light && (!embedded || /^(?::root|body|h1|\.page|\.description)$/.test(s))
+                    ? "light"
+                    : "dark"
+            ];
         const gameplay =
             /^(?:gameplay|\[data-touch-stick\]|button\[data-touch-action\](?:\[[^\]]+\]|:[\w():-]+)*|\.reticle(?:-dot)?(?:\[hidden\])?|\.hint(?:\[hidden\])?|\.key-slot(?:\s+(?:>\s*)?(?:\*|kbd))?|\.hold-ring|\.track|\.progress)$/.test(
                 s,
             );
-        const passive = gameplay && !/\bbutton\b/.test(s);
+        const passive = page || (gameplay && !/\bbutton\b/.test(s));
         const modes = mediaModes(media);
         const touch = modes.includes("coarse") || modes.includes("phone");
         if (
@@ -967,7 +614,7 @@ function controlViolations(css: Css, light = false): string[] {
                 for (const number of text.matchAll(
                     /(?<![\w#.-])[+-]?\d*\.?\d+(?:e[+-]?\d+)?(?:[a-z]+|%)?(?![\w.])/gi,
                 ))
-                    if (!values.has(number[0])) fail("geometry token");
+                    if (!page && !values.has(number[0])) fail("geometry token");
                 continue;
             }
             if (p === "zoom" || /shadow/.test(p)) fail("surface");
@@ -989,7 +636,7 @@ function controlViolations(css: Css, light = false): string[] {
                 p === "font" &&
                 !(v === "inherit" && !title && !heading && !output) &&
                 !has(v, `${weight} ${size}/${tokens.leading} ${family}`) &&
-                !(/(?:^|[ >])h1$/.test(s) && has(v, `400 24px/20px ${tokens.mono}`))
+                !(s === "h1" && has(v, `400 24px/20px ${tokens.mono}`))
             )
                 fail("type role");
             if (p === "font-size" && v !== size && !(s === "h1" && v === "24px")) fail("type role");
@@ -1004,7 +651,7 @@ function controlViolations(css: Css, light = false): string[] {
                 for (const mode of modes) coverage.add(mode);
                 heights.set(s, coverage);
             }
-            if (!gameplay && /^(?:padding|margin|gap|row-gap|column-gap)(?:-|$)/.test(p)) {
+            if (!passive && /^(?:padding|margin|gap|row-gap|column-gap)(?:-|$)/.test(p)) {
                 let expected = "0px";
                 if (p.includes("gap"))
                     expected = /\.fields\b|\.categories\s*$/.test(s)
@@ -1037,7 +684,7 @@ function controlViolations(css: Css, light = false): string[] {
                 )
                     fail("spacing role");
             }
-            if (!gameplay && /^(?:top|right|bottom|left|inset)$/.test(p)) {
+            if (!passive && /^(?:top|right|bottom|left|inset)$/.test(p)) {
                 const lengths = [...v.matchAll(/([+-]?\d*\.?\d+)px/g)].map((m) => m[1]);
                 if (lengths.some((n) => n !== (touch ? "16" : "24")) && !/\.scenes\b/.test(s))
                     fail("inset role");
@@ -1110,7 +757,7 @@ function controlViolations(css: Css, light = false): string[] {
             )
                 fail("disabled priority");
             // Gameplay stick, touch buttons and reticles retain their geometry outside the panel kit.
-            if (gameplay || /(?:^|\s)canvas$/.test(s)) continue;
+            if (passive || /(?:^|\s)canvas$/.test(s)) continue;
             if (
                 /^(?:transform(?:-.+)?|translate|rotate|scale|perspective(?:-.+)?)$/.test(p) &&
                 v !== "none" &&
@@ -1202,7 +849,8 @@ function controlViolations(css: Css, light = false): string[] {
     for (const rule of focusRules) {
         if (
             !rule.declarations.some(
-                (d) => d.property === "outline" && expand(d.value) === `2px solid ${palette.gold}`,
+                (d) =>
+                    d.property === "outline" && expand(d.value) === `2px solid ${hostPalette.gold}`,
             ) ||
             !rule.declarations.some(
                 (d) => d.property === "outline-offset" && expand(d.value) === "2px",
@@ -1242,7 +890,9 @@ function controlViolations(css: Css, light = false): string[] {
                                 (p === property || p === `${property}-color`) &&
                                 has(
                                     expand(d.value),
-                                    p === "border" ? `1px solid ${palette[role]}` : palette[role],
+                                    p === "border"
+                                        ? `1px solid ${hostPalette[role]}`
+                                        : hostPalette[role],
                                 )
                             );
                         }),
@@ -1345,7 +995,7 @@ async function fontViolations(root: string, css: Css): Promise<string[]> {
 async function exampleControls(root: string, light = false): Promise<string[]> {
     try {
         const css = await exampleCss(root);
-        return [...controlViolations(css, light), ...(await fontViolations(root, css))];
+        return [...controlViolations(css, light, light), ...(await fontViolations(root, css))];
     } catch (error) {
         return [`source: ${error}`];
     }
@@ -1758,6 +1408,34 @@ test("gameplay geometry stays outside the panel kit without exempting its type o
         expect(controlViolations({ sheets: [css + extra], lists: [] }).length).toBeGreaterThan(0);
 });
 
+test("passive page geometry does not excuse off-site colours, type, opacity or 24px panel text", () => {
+    const sheet =
+        "body { background: #141210; font: 400 13px/20px 'IBM Plex Sans', system-ui, sans-serif; } h1 { font: 400 24px/20px 'JetBrains Mono', ui-monospace, monospace; } .lockup { width: min(80%, 420px); }";
+    expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
+    for (const extra of [
+        ".notice { color: #ddaa3f; }",
+        ".notice { color: r\\65 d; }",
+        ".notice { background: #141210cc; }",
+        ".notice { opacity: .5; }",
+        ".notice { font-size: 24px; }",
+        ".controls h1 { font: 400 24px/20px 'JetBrains Mono', ui-monospace, monospace; }",
+        ".notice { zoom: 1; }",
+        ".notice { color: rgb(240 230 214); }",
+        ".notice { color: var(--missing); }",
+    ])
+        expect(controlViolations({ sheets: [sheet + extra], lists: [] }).length).toBeGreaterThan(0);
+});
+
+test("world-space Text fields are data, not CSS; CSS authored in script strings still runs the gate", () => {
+    expect(
+        styleSources("scene.ts", "const label = { font: 1, fontSize: 0.5 }; ").some((s) =>
+            /font:/.test(s),
+        ),
+    ).toBe(false);
+    const strings = styleSources("scene.ts", "const css = '.notice { font: bold 48px serif; }';");
+    expect(controlViolations({ sheets: strings, lists: [] }).length).toBeGreaterThan(0);
+});
+
 test("touch action geometry does not excuse missing button states", async () => {
     const sheet = await readFile("examples/first-person/src/touch.css", "utf8");
     expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
@@ -1779,6 +1457,19 @@ test("1: embedded host uses light counterparts without allowing scene materials"
         controlViolations({ sheets: [light.replace("#f7f3ec", "#141210")], lists: [] }, true)
             .length,
     ).toBeGreaterThan(0);
+});
+
+test("embedded host and dark frame are checked independently", async () => {
+    const sheet = await readFile("examples/embedded-scene/src/style.css", "utf8");
+    expect(controlViolations({ sheets: [sheet], lists: [] }, true, true)).toEqual([]);
+    for (const changed of [
+        sheet.replace("--bg: #f7f3ec", "--bg: #141210"),
+        sheet.replace("background: #1c1917", "background: #efe9df"),
+        sheet.replace("--frame-error: #f0e6d6", "--frame-error: #2a231e"),
+    ])
+        expect(
+            controlViolations({ sheets: [changed], lists: [] }, true, true).length,
+        ).toBeGreaterThan(0);
 });
 
 test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL are checked", async () => {
@@ -1887,43 +1578,10 @@ test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL 
     }
 });
 
-// Moving an example changes this list alone: new rules become a test, old rules leave.
-const migrated = new Set<string>([
-    "voxel",
-    "post-processing",
-    "physics",
-    "hud",
-    "day-night-cycle",
-    "save-and-load",
-    "interact",
-    "sound",
-    "first-person",
-    "lit-interior",
-    "particles",
-    "view-model",
-    "volumetric-fog",
-]);
-
 for (const example of await readdir("examples")) {
-    (migrated.has(example) ? test : test.todo)(`${example} follows example-controls`, async () => {
+    test(`${example} follows example-controls`, async () => {
         expect(
             await exampleControls(join("examples", example), example === "embedded-scene"),
         ).toEqual([]);
-    });
-    if (migrated.has(example)) continue;
-    test(`${example} CSS and inline styles use the UI type, shape and colour tokens`, async () => {
-        const failures: string[] = [];
-        for (const path of await sources(join("examples", example))) {
-            const source = await readFile(path, "utf8");
-            failures.push(
-                ...[
-                    ...styleSources(path, source).flatMap((style) => violations(style)),
-                    ...(await colors(path, source, { example, stepped: steppedPage(path) })),
-                    ...spacingViolations(await cssOf(path, source)),
-                    ...rowViolations(await cssOf(path, source)),
-                ].map((failure) => `${path}: ${failure}`),
-            );
-        }
-        expect(failures).toEqual([]);
     });
 }

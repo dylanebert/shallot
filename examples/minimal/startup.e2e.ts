@@ -27,6 +27,9 @@ async function labelInkPixels(page: Page): Promise<number> {
     const screenshot = await page.screenshot();
     return page.evaluate(async (base64) => {
         const bootstrap = document.querySelector("[data-shallot-bootstrap]");
+        const background = bootstrap
+            ? getComputedStyle(bootstrap).backgroundColor.match(/\d+/g)!.map(Number)
+            : [];
         const text = bootstrap?.firstChild;
         if (!text || text.nodeType !== Node.TEXT_NODE) return 0;
         const range = document.createRange();
@@ -58,9 +61,9 @@ async function labelInkPixels(page: Page): Promise<number> {
             ) {
                 const offset = (y * canvas.width + x) * 4;
                 if (
-                    Math.abs(pixels[offset]! - 40) > 4 &&
-                    Math.abs(pixels[offset + 1]! - 38) > 4 &&
-                    Math.abs(pixels[offset + 2]! - 34) > 4
+                    Math.abs(pixels[offset]! - background[0]!) > 4 &&
+                    Math.abs(pixels[offset + 1]! - background[1]!) > 4 &&
+                    Math.abs(pixels[offset + 2]! - background[2]!) > 4
                 )
                     contrasting++;
             }
@@ -79,6 +82,11 @@ async function expectPaintedLabel(page: Page) {
 test("minimal paints its bootstrap before the held application entry", async ({ page }) => {
     const release = await holdEntry(page);
     await expectPaintedLabel(page);
+    if (process.env.SHALLOT_CAPTURE_DIR) {
+        await page.evaluate(() => document.fonts.ready);
+        await page.mouse.move(0, 0);
+        await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/bootstrap.png` });
+    }
     release();
 });
 
