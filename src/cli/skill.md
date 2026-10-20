@@ -5,12 +5,8 @@ description: Learn a Shallot project's API from the installed package and check 
 
 # Shallot project
 
-Explore this project's entry, plugins and checks first; reuse its existing setup.
+Explore this project's entry, plugins and checks first; reuse its setup.
 
-- Learn the API from the installed package, not memory: `node_modules/@dylanebert/shallot/examples/` holds working projects and their checks; `node_modules/@dylanebert/shallot/src/` holds the contracts in JSDoc.
-- Run `bunx shallot create --help` to find the nearest example by its description. Read its implementation and checks, then the source for the APIs you use before writing code.
-- Check gameplay by driving the composed world through `World.tick` / `World.step` and asserting state, as in `examples/first-person/tests/ascent.node.ts` inside the installed package.
-- Use the cheapest evidence: state first, then `captureFrame` from `@dylanebert/shallot/rendering` as in `examples/hud/tests/stepped.html` inside the installed package, then browser pixels when needed.
-- Put each plugin in `src/<plugin>/index.ts`, with module checks beside it; put whole-app checks in `tests/`.
-- `bun test` discovers cheap `*.test.ts` and GPU `*.gpu.test.ts` checks, not Node or browser checks.
-- Run Node `*.node.ts` checks by path: `bun test ./<file>`. Full default-renderer or physics-kernel compositions belong in `tests/<goal>.node.ts`, not `*.gpu.test.ts`.
+- Learn the API from the installed package, not memory. `bunx shallot create --help` lists the examples in `node_modules/@dylanebert/shallot/examples/`; start from the nearest one, its implementation and its checks, then the JSDoc in `node_modules/@dylanebert/shallot/src/` for the APIs it uses.
+- Check your work as that example's checks do, with the cheapest evidence that answers: state, then a captured frame, then the browser.
+- `bun test` runs `*.test.ts` and `*.gpu.test.ts` only; run a `*.node.ts` check by path with `bun test ./<file>`. A full renderer or physics composition is a `tests/<goal>.node.ts` check, not a `*.gpu.test.ts`.
