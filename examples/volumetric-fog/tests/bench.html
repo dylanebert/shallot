@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>Fog bench</title><style>body{margin:0;background:#191816}canvas{display:block}</style></head><body><canvas width="1280" height="720"></canvas>
+<script type="module">
+
+import { createApp, Camera, DirectionalLight, VolumetricLight, ShadowFilteringMethod, ShadowFilteringMethodMode } from '@dylanebert/shallot';
+import { attachTexture } from '@dylanebert/shallot/rendering';
+import { DiagnosticsStore } from '@dylanebert/shallot';
+import { showProfiler, Fog, NoFog } from '@dylanebert/shallot/extras';
+import { Room, RoomPlugin } from '../src/room';
+
+const app=await createApp({plugins:[RoomPlugin]});
+const world=app.world, room=world.resource(Room);
+const q=new URLSearchParams(location.search);
+const W=+(q.get('w')??1280),H=+(q.get('h')??720);
+attachTexture(world,room.camera,{width:W,height:H});
+showProfiler(world);
+const stats=world.resource(DiagnosticsStore);
+async function frames(n) {
+ const out={};
+ for(let i=0;i<n;i++){
+  world.step(0);await world.gpu.device.queue.onSubmittedWorkDone();await new Promise(r=>setTimeout(r,0));
+  for(const d of stats.iter()){const p=d.path.path;if(!p.endsWith('/elapsed_gpu'))continue;const v=d.value();if(Number.isFinite(v))(out[p.slice(7,-12)]??=[]).push(v);}
+ }
+ const med=a=>{a=[...a].sort((x,y)=>x-y);return a[a.length>>1];};
+ const r={};for(const[k,a]of Object.entries(out))r[k]=+med(a.slice(a.length/2)).toFixed(3);
+ return r;
+}
+window.bench={
+ adapter:world.gpu.adapter,
+ async run(variant={}) {
+  const fog=world.only([Fog]);
+  if(variant.steps!==undefined) world.storage(Fog).stepCount.set(fog,variant.steps);
+  if(variant.method!==undefined) world.add(room.camera,ShadowFilteringMethod,{method:ShadowFilteringMethodMode[variant.method]});
+  if(variant.msaa!==undefined) world.storage(Camera).antialias.set(room.camera,variant.msaa);
+  if(variant.noVolumetric) for(const e of world.query([VolumetricLight])) world.remove(e,VolumetricLight);
+  if(variant.noFog) world.add(room.camera,NoFog);
+  await frames(30);
+  const r=await frames(variant.n??120);
+  const n=variant.wall??400;await world.gpu.device.queue.onSubmittedWorkDone();const t0=performance.now();
+  for(let i=0;i<n;i++){world.step(0);await world.gpu.device.queue.onSubmittedWorkDone();}
+  await world.gpu.device.queue.onSubmittedWorkDone();
+  r.wallMs=+((performance.now()-t0)/n).toFixed(3);
+  return r;
+ },
+};
+</script></body></html>
