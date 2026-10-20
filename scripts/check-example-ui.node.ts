@@ -1901,6 +1901,7 @@ const migrated = new Set<string>([
     "lit-interior",
     "particles",
     "view-model",
+    "volumetric-fog",
 ]);
 
 for (const example of await readdir("examples")) {
