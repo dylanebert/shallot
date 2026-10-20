@@ -15,6 +15,7 @@ import {
     macOwnedPids,
     macSmokePids,
     requireLinuxPrerequisites,
+    standaloneIndex,
     startObserver,
     startVirtualDisplay,
     stopMainShell,
@@ -57,6 +58,19 @@ test("Mac bundle paths distinguish backend, profile and dev assets", () => {
     expect(macApp("/scratch/game", true, false, true)).toBe(
         "/scratch/game/build/mac/debug-portable-dev/game.app",
     );
+});
+
+test("a missing-asset diagnosis checks the launched bundle on each host", () => {
+    const app = macApp("/scratch/game", true, false);
+    expect(
+        standaloneIndex("/scratch/game", "debug-preview", {
+            executable: `${app}/Contents/MacOS/game`,
+        }),
+    ).toBe(`${app}/Contents/Resources/dist/index.html`);
+    expect(standaloneIndex("/scratch/game", "debug-preview")).toBe(
+        "/scratch/game/build/linux/debug-portable/dist/index.html",
+    );
+    expect(standaloneIndex("/scratch/game", "release-preview")).toBeNull();
 });
 
 test("system previews require the shell custom protocol, not Vite or a file", () => {

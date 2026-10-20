@@ -120,13 +120,15 @@ function parseArgs(args: string[]) {
         staleRuntime?: string;
         plantStale: boolean;
         hardware: boolean;
+        portableOnly: boolean;
         help: boolean;
-    } = { plantStale: false, hardware: false, help: false };
+    } = { plantStale: false, hardware: false, portableOnly: false, help: false };
     for (let index = 0; index < args.length; index++) {
         const arg = args[index];
         if (arg === "--help" || arg === "-h") options.help = true;
         else if (arg === "--hardware") options.hardware = true;
         else if (arg === "--plant-stale") options.plantStale = true;
+        else if (arg === "--portable-only") options.portableOnly = true;
         else if (["--consumer", "--logs", "--tarball", "--stale-runtime"].includes(arg)) {
             const value = args[++index];
             if (!value || value.startsWith("--")) throw new Error(`${arg} requires a path`);
@@ -977,9 +979,8 @@ async function launchAndObserve(
     const output = readFileSync(logPath, "utf8");
     const origin = assetOrigin(output);
     if (failure) {
-        const bundle =
-            mode === "debug-preview" ? resolve(project, "build/linux/debug-portable") : null;
-        const missingAssets = bundle && !existsSync(resolve(bundle, "dist/index.html"));
+        const index = standaloneIndex(project, mode, mac);
+        const missingAssets = index && !existsSync(index);
         const cause = lastDiagnostic(output);
         throw new SmokeFailure(
             step,
@@ -1421,6 +1422,18 @@ export function assertSystemOrigin(href: string): void {
         throw new Error(`page ran at ${href}, not shallot://localhost/`);
 }
 
+/** The debug preview's bundled page; release builds embed theirs. */
+export function standaloneIndex(
+    project: string,
+    mode: string,
+    mac?: { executable: string },
+): string | null {
+    if (mode !== "debug-preview") return null;
+    return mac
+        ? resolve(dirname(mac.executable), "../Resources/dist/index.html")
+        : resolve(project, "build/linux/debug-portable/dist/index.html");
+}
+
 export function macApp(project: string, portable: boolean, release: boolean, dev = false): string {
     return resolve(
         project,
@@ -1456,7 +1469,8 @@ async function runMacSmoke(options: ReturnType<typeof parseArgs>): Promise<void>
     const observer = await startObserver(logs);
     const findings: string[] = [];
     try {
-        for (const portable of [false, true]) {
+        if (options.portableOnly) console.info("WKWebView: not run (--portable-only)");
+        for (const portable of options.portableOnly ? [true] : [false, true]) {
             const backend = portable ? "CEF" : "WKWebView";
             const flags = ["--target", "mac", ...(portable ? ["--portable"] : [])];
             let viteOrigin: string | null = null;
@@ -1650,12 +1664,12 @@ async function runMacSmoke(options: ReturnType<typeof parseArgs>): Promise<void>
     assertNoSmokeProcesses(macSmokePids(consumer));
     if (findings.length) throw new Error(findings.join("\n"));
     console.info(
-        "Mac packed native smoke passed: hardware startup and canvas readback in both backends, dev, debug/release preview and copied release via open; Gatekeeper verdicts recorded.",
+        `Mac packed native smoke passed: hardware startup and canvas readback in ${options.portableOnly ? "CEF" : "both backends"}, dev, debug/release preview and copied release via open; Gatekeeper verdicts recorded.`,
     );
 }
 
 function usage(): string {
-    return `Usage: bun scripts/native-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require hardware on Linux's owned Xvfb display (Mac always requires hardware)\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nLinux setup: ${SETUP_COMMAND}\nMac: Apple Silicon; system WKWebView and portable CEF, copied release via open, quarantined Gatekeeper assessment.\nSet SHALLOT_SMOKE_WITHHOLD_MARKER=1 on Mac to plant a missing-marker failure.\n`;
+    return `Usage: bun scripts/native-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require hardware on Linux's owned Xvfb display (Mac always requires hardware)\n  --portable-only         Mac: run CEF alone; the log says WKWebView was not run\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nLinux setup: ${SETUP_COMMAND}\nMac: Apple Silicon; system WKWebView and portable CEF, copied release via open, quarantined Gatekeeper assessment.\nSet SHALLOT_SMOKE_WITHHOLD_MARKER=1 on Mac to plant a missing-marker failure.\n`;
 }
 
 async function main(): Promise<void> {

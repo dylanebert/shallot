@@ -389,7 +389,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/native-runtime-pair/consumer" "$RUNNER_TEMP/native-runtime-pair/logs"
           echo 'Mac native smoke: hardware adapter required; no software GPU override.'
-          /usr/bin/time -p bun scripts/native-smoke.ts --consumer "$RUNNER_TEMP/native-runtime-pair/consumer" --logs "$RUNNER_TEMP/native-runtime-pair/logs" 2>&1 | tee "$RUNNER_TEMP/native-runtime-pair/logs/driver.log"
+          echo 'WKWebView is not gated here: this VM exposes navigator.gpu without an adapter. It is qualified on Apple Silicon hardware (92602846).'
+          /usr/bin/time -p bun scripts/native-smoke.ts --portable-only --consumer "$RUNNER_TEMP/native-runtime-pair/consumer" --logs "$RUNNER_TEMP/native-runtime-pair/logs" 2>&1 | tee "$RUNNER_TEMP/native-runtime-pair/logs/driver.log"
       - name: retain Mac native smoke logs
         if: failure()
         uses: actions/upload-artifact@v7
