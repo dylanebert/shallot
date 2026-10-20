@@ -9,10 +9,10 @@ import {
     type EffectPass,
     EffectPasses,
     fullscreenVertex,
+    ImageBindings,
     TonemappingSystem,
     Views,
 } from "../../core/rendering";
-import { ImageBindings } from "../../core/rendering/image";
 import { component, f32, i32, type Plugin, u32, vec2, type World } from "../../engine";
 import {
     beginRenderPass,

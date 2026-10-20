@@ -51,7 +51,7 @@
         "./rendering": "./src/core/rendering/index.ts",
         "./standard/rendering": "./src/standard/rendering/index.ts",
         "./effect-stack": "./src/extras/effect-stack/index.ts",
-        "./vignette": "./src/extras/vignette/index.ts",
+        "./vignette": "./src/extras/effect-stack/index.ts",
         "./physics": "./src/core/physics/index.ts",
         "./transform": "./src/core/transform/index.ts",
         "./standard/physics": "./src/standard/physics/index.ts"
