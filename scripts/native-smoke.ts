@@ -12,6 +12,7 @@ import {
     readdirSync,
     readFileSync,
     realpathSync,
+    renameSync,
     rmSync,
     symlinkSync,
     writeFileSync,
@@ -224,7 +225,7 @@ function groupExists(pid: number): boolean {
 /** Terminate a detached POSIX process group, escalating after a bounded grace period. */
 export async function terminateProcessGroup(pid: number, graceMs = 500): Promise<void> {
     if (process.platform === "win32")
-        throw new Error("POSIX process groups are required by the Linux smoke");
+        throw new Error("POSIX process groups are required by the native smoke");
     try {
         process.kill(-pid, "SIGTERM");
     } catch (error) {
@@ -242,6 +243,10 @@ export async function terminateProcessGroup(pid: number, graceMs = 500): Promise
 }
 
 function processGroup(pid: number): number | null {
+    if (process.platform === "darwin") {
+        const result = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" });
+        return result.status === 0 ? Number(result.stdout.trim()) : null;
+    }
     try {
         const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
         const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
@@ -251,7 +256,67 @@ function processGroup(pid: number): number | null {
     }
 }
 
-function mainShellPid(group: number, executable: string): number | null {
+// LaunchServices receives this explicitly via open --env, including under App Translocation.
+const MAC_OWNER = `SHALLOT_SMOKE_OWNER=${randomUUID()}`;
+
+export function assertNoSmokeProcesses(pids: number[]): void {
+    if (pids.length) throw new Error(`smoke processes still running: ${pids.join(", ")}`);
+}
+
+export function macOwnedPids(owner = MAC_OWNER): number[] {
+    const result = spawnSync("ps", ["eww", "-axo", "pid=,command="], { encoding: "utf8" });
+    if (result.status !== 0) throw new Error(`cannot inventory smoke processes: ${result.stderr}`);
+    return result.stdout.split("\n").flatMap((row) => {
+        const match = row.trim().match(/^(\d+)\s+(.+)$/);
+        return match?.[2].split(/\s+/).includes(owner) ? [Number(match[1])] : [];
+    });
+}
+
+export function macSmokePids(consumer: string): number[] {
+    const root = `${realpathSync.native(consumer)}/`;
+    const result = spawnSync("ps", ["-wwaxo", "pid=,comm="], { encoding: "utf8" });
+    if (result.status !== 0)
+        throw new Error(`cannot inventory consumer processes: ${result.stderr}`);
+    const pids = new Set(macOwnedPids());
+    for (const row of result.stdout.split("\n")) {
+        const match = row.trim().match(/^(\d+)\s+(.+)$/);
+        if (!match) continue;
+        try {
+            if (realpathSync.native(match[2]).startsWith(root)) pids.add(Number(match[1]));
+        } catch {}
+    }
+    return [...pids];
+}
+
+async function stopMacOwnedProcesses(consumer: string): Promise<void> {
+    for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+        for (const pid of macSmokePids(consumer)) {
+            try {
+                process.kill(pid, signal);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+            }
+        }
+        const deadline = Date.now() + 1000;
+        while (macSmokePids(consumer).length && Date.now() < deadline) await Bun.sleep(25);
+    }
+    assertNoSmokeProcesses(macSmokePids(consumer));
+}
+
+export function mainShellPid(group: number, executable: string): number | null {
+    if (process.platform === "darwin") {
+        if (!existsSync(executable)) return null;
+        const expected = realpathSync.native(executable);
+        const rows = spawnSync("ps", ["-axo", "pid=,pgid=,comm="], { encoding: "utf8" }).stdout;
+        for (const row of rows.split("\n")) {
+            const match = row.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+            if (!match) continue;
+            try {
+                if (realpathSync.native(match[3]) === expected) return Number(match[1]);
+            } catch {}
+        }
+        return null;
+    }
     const expected = realpathSync.native(executable);
     for (const entry of readdirSync("/proc")) {
         if (!/^\d+$/.test(entry)) continue;
@@ -266,7 +331,7 @@ function mainShellPid(group: number, executable: string): number | null {
     return null;
 }
 
-async function stopMainShell(group: number, executable: string): Promise<void> {
+export async function stopMainShell(group: number, executable: string): Promise<void> {
     const pid = mainShellPid(group, executable);
     if (!pid) return;
     try {
@@ -286,6 +351,16 @@ async function stopMainShell(group: number, executable: string): Promise<void> {
     }
 }
 
+export async function withoutProject<T>(project: string, action: () => Promise<T>): Promise<T> {
+    const hidden = `${project}-unavailable-${randomUUID()}`;
+    renameSync(project, hidden);
+    try {
+        return await action();
+    } finally {
+        renameSync(hidden, project);
+    }
+}
+
 interface MarkerReport {
     nonce: string;
     mode: string;
@@ -297,6 +372,8 @@ interface MarkerReport {
     refusal?: string;
     adapter?: Record<string, string | boolean>;
     error?: string;
+    userAgent?: string;
+    run?: string;
 }
 
 interface Observer {
@@ -305,10 +382,11 @@ interface Observer {
     close(): Promise<void>;
 }
 
-async function startObserver(logs: string): Promise<Observer> {
+export async function startObserver(logs: string): Promise<Observer> {
     const logPath = resolve(logs, "observer.log");
     writeFileSync(logPath, "");
     const pending = new Map<string, { resolve(report: MarkerReport): void }>();
+    const runs = new Set<string>();
     const server = createServer((request, response) => {
         response.setHeader("Access-Control-Allow-Origin", "*");
         response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
@@ -336,6 +414,11 @@ async function startObserver(logs: string): Promise<Observer> {
             try {
                 const report = JSON.parse(Buffer.concat(chunks).toString("utf8")) as MarkerReport;
                 appendFileSync(logPath, `${JSON.stringify(report)}\n`);
+                if (!report.run || runs.has(report.run)) {
+                    response.writeHead(409).end("missing or repeated page-run marker");
+                    return;
+                }
+                runs.add(report.run);
                 const waiter = pending.get(report.nonce);
                 if (waiter) {
                     waiter.resolve(report);
@@ -541,6 +624,8 @@ function writePage(
     const script = `import { createApp } from '@dylanebert/shallot/app';
 const report = ${report};
 report.href = location.href;
+report.userAgent = navigator.userAgent;
+report.run = crypto.randomUUID();
 report.requireHardware = globalThis.__shallotRequireHardwareGpu;
 try {
     const status = document.createElement('p');
@@ -606,7 +691,7 @@ try {
 fetch(${JSON.stringify(`${observer}/marker`)}, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(report) }).catch((error) => console.error("smoke observer", error));`;
     writeFileSync(
         resolve(project, "index.html"),
-        `<!doctype html><html><head><meta charset="utf-8"><title>Shallot Linux smoke</title></head><body><canvas width="64" height="64"></canvas><script type="module">${script}</script></body></html>\n`,
+        `<!doctype html><html><head><meta charset="utf-8"><title>Shallot native smoke</title></head><body><canvas width="64" height="64"></canvas><script type="module">${script}</script></body></html>\n`,
     );
 }
 
@@ -745,6 +830,7 @@ async function launchAndObserve(
     viteOrigin: string | null,
     expected: "vite" | "asset-server",
     hardware = false,
+    mac?: { executable: string; app?: string; portable: boolean; cwd?: string },
 ): Promise<LaunchResult> {
     const logPath = resolve(logs, `${slug(step)}.log`);
     const log = createWriteStream(logPath);
@@ -759,12 +845,35 @@ async function launchAndObserve(
     const commandStartedAt = performance.now();
     // Register before spawn: the page can report before the CLI emits its launch line.
     const marker = observer.wait(nonce);
-    const child = spawn("bunx", ["shallot", ...args], {
-        cwd: project,
-        env: environment,
-        detached: true,
-        stdio: ["ignore", "pipe", "pipe"],
-    });
+    const nativeLog = resolve(logs, `${slug(step)}-app.log`);
+    if (mac) {
+        writeFileSync(nativeLog, "");
+        const bin = resolve(logs, "launch-bin");
+        mkdirSync(bin, { recursive: true });
+        writeFileSync(
+            resolve(bin, "open"),
+            '#!/bin/sh\nexec /usr/bin/open --env "SHALLOT_SMOKE_OWNER=$SHALLOT_SMOKE_OWNER" --stdout "$SHALLOT_SMOKE_NATIVE_LOG" --stderr "$SHALLOT_SMOKE_NATIVE_LOG" "$@"\n',
+            { mode: 0o755 },
+        );
+        environment = {
+            ...environment,
+            PATH: `${bin}${delimiter}${environment.PATH}`,
+            SHALLOT_SMOKE_NATIVE_LOG: nativeLog,
+            SHALLOT_SMOKE_OWNER: MAC_OWNER.split("=")[1],
+        };
+    }
+    const child = spawn(
+        mac?.app ? "open" : "bunx",
+        mac?.app
+            ? ["-n", "-W", "--stdout", nativeLog, "--stderr", nativeLog, mac.app]
+            : ["shallot", ...args],
+        {
+            cwd: mac?.cwd ?? project,
+            env: environment,
+            detached: true,
+            stdio: ["ignore", "pipe", "pipe"],
+        },
+    );
     const lines = streamLines((stream, line) => log.write(`[${stream}] ${line}\n`));
     const record = (stream: "stdout" | "stderr", data: Buffer) => {
         const text = data.toString();
@@ -781,6 +890,11 @@ async function launchAndObserve(
     child.once("error", (error) => {
         spawnError = error;
     });
+    if (mac?.app) {
+        started = true;
+        shellStartedAt = performance.now();
+        resolveStarted();
+    }
     let exit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
     const exited = new Promise<void>((resolveExit) => {
         child.once("close", (code, signal) => {
@@ -814,8 +928,25 @@ async function launchAndObserve(
                         );
                     }),
                 ]);
-                if (result.kind === "report") report = result.value;
-                else if (result.kind === "timeout")
+                if (result.kind === "report") {
+                    report = result.value;
+                    if (mac?.app) {
+                        const actual = realpathSync.native(mac.executable);
+                        if (!actual.startsWith(`${realpathSync.native(mac.app)}/Contents/MacOS/`))
+                            throw new Error(`main executable is outside copied bundle: ${actual}`);
+                        const pid = mainShellPid(child.pid, mac.executable);
+                        if (!pid)
+                            throw new Error(
+                                `running main executable was not found inside copied bundle: ${mac.executable}`,
+                            );
+                        log.write(
+                            `[identity] running main pid=${pid} executable=${realpathSync.native(mac.executable)}\n`,
+                        );
+                        console.info(
+                            `${step}: running main pid=${pid} executable=${realpathSync.native(mac.executable)}`,
+                        );
+                    }
+                } else if (result.kind === "timeout")
                     failure = `page script did not report its nonce within CEILING.startup (${CEILING.startup}ms)`;
                 else
                     failure =
@@ -830,13 +961,15 @@ async function launchAndObserve(
     } finally {
         try {
             if (child.pid) {
-                await stopMainShell(child.pid, shellExecutable(project, mode));
+                await stopMainShell(child.pid, mac?.executable ?? shellExecutable(project, mode));
                 await Promise.race([exited, Bun.sleep(2000)]);
             }
         } finally {
             if (child.pid) await terminateProcessGroup(child.pid);
+            if (mac) await stopMacOwnedProcesses(dirname(project));
             await Promise.race([exited, Bun.sleep(1500)]);
             lines.flush();
+            if (mac) log.write(readFileSync(nativeLog, "utf8"));
             await new Promise<void>((resolveEnd) => log.end(resolveEnd));
         }
     }
@@ -881,7 +1014,8 @@ async function launchAndObserve(
             );
     } else {
         try {
-            assertStandaloneOrigin(report.href, origin, viteOrigin);
+            if (mac && !mac.portable) assertSystemOrigin(report.href);
+            else assertStandaloneOrigin(report.href, origin, viteOrigin);
         } catch (error) {
             throw new SmokeFailure(
                 step,
@@ -896,7 +1030,7 @@ async function launchAndObserve(
     const durationMs = performance.now() - (shellStartedAt ?? commandStartedAt);
     console.info(`${step}: CLI work before shell launch ${(prelaunchMs / 1000).toFixed(2)}s`);
     console.info(
-        `${step}: CPU startup, ${report.refusal ? "software refusal before plugin hooks" : "GPU startup and WebGPU canvas readback"} verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; GPU: ${report.refusal ?? JSON.stringify(report.adapter)} (log: ${logPath})`,
+        `${step}: CPU startup, ${report.refusal ? "software refusal before plugin hooks" : "GPU startup and WebGPU canvas readback"} verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; marker ${report.nonce}/${report.run}; GPU: ${report.refusal ?? JSON.stringify(report.adapter)}; runtime: ${report.userAgent} (log: ${logPath})`,
     );
     return { report, output, viteOrigin: resolvedViteOrigin };
 }
@@ -1037,7 +1171,7 @@ async function prepareTarball(
     if (!manifest.version || typeof manifest.version !== "string")
         throw new Error("packed package has no string version to stamp");
     const originalVersion = manifest.version.split("+")[0];
-    const unpublishedVersion = `${originalVersion}-linux-smoke.${Date.now().toString(36)}.${process.pid}`;
+    const unpublishedVersion = `${originalVersion}-native-smoke.${Date.now().toString(36)}.${process.pid}`;
     manifest.version = unpublishedVersion;
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     const stamped = resolve(consumer, "shallot-smoke.tgz");
@@ -1066,7 +1200,7 @@ async function createConsumer(
     rmSync(project, { recursive: true, force: true });
     mkdirSync(project, { recursive: true });
     const manifest = {
-        name: "shallot-native-linux-smoke",
+        name: "shallot-native-smoke",
         version: "1.0.0",
         private: true,
         type: "module",
@@ -1281,8 +1415,247 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
     }
 }
 
+export function assertSystemOrigin(href: string): void {
+    const url = new URL(href);
+    if (url.protocol !== "shallot:" || url.host !== "localhost")
+        throw new Error(`page ran at ${href}, not shallot://localhost/`);
+}
+
+export function macApp(project: string, portable: boolean, release: boolean, dev = false): string {
+    return resolve(
+        project,
+        "build/mac",
+        `${release ? "release" : "debug"}-${portable ? "portable" : "system"}${dev ? "-dev" : ""}`,
+        `${basename(project)}.app`,
+    );
+}
+
+async function runMacSmoke(options: ReturnType<typeof parseArgs>): Promise<void> {
+    if (process.arch !== "arm64") throw new Error("Mac smoke requires aarch64-apple-darwin");
+    if (options.plantStale || options.staleRuntime)
+        throw new Error("stale runtime fixtures are Linux-only");
+    const consumer = resolve(options.consumer!);
+    const rel = normalizePath(relative(ROOT, consumer));
+    if (!rel || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith("../")))
+        throw new Error("--consumer must be outside the checkout");
+    const logs = resolve(options.logs ?? resolve(consumer, "logs"));
+    mkdirSync(logs, { recursive: true });
+    const env = cleanEnvironment(process.env);
+    delete env.SHALLOT_ALLOW_SOFTWARE_GPU;
+    const display = await runLogged(
+        "Mac hardware identity",
+        "system_profiler",
+        ["SPDisplaysDataType"],
+        consumer,
+        env,
+        logs,
+    );
+    console.info(display.output);
+    const tarball = await prepareTarball(consumer, logs, options.tarball, env);
+    const { project } = await createConsumer(consumer, logs, tarball, env);
+    const observer = await startObserver(logs);
+    const findings: string[] = [];
+    try {
+        for (const portable of [false, true]) {
+            const backend = portable ? "CEF" : "WKWebView";
+            const flags = ["--target", "mac", ...(portable ? ["--portable"] : [])];
+            let viteOrigin: string | null = null;
+            try {
+                for (const mode of ["dev", "debug-preview", "release-preview"] as const) {
+                    const nonce = randomUUID();
+                    writePage(project, observer.origin, mode, nonce, true);
+                    if (process.env.SHALLOT_SMOKE_WITHHOLD_MARKER === "1")
+                        writeFileSync(
+                            resolve(project, "index.html"),
+                            "<!doctype html><title>Withheld marker</title>",
+                        );
+                    const release = mode === "release-preview";
+                    if (mode !== "dev") {
+                        const build = await runLogged(
+                            `${backend} build ${mode}`,
+                            "bunx",
+                            ["shallot", "build", ...flags, ...(release ? ["--release"] : [])],
+                            project,
+                            env,
+                            logs,
+                        );
+                        if (
+                            release &&
+                            !/prebuilt:\s+(?:no matching release|offline|source checkout|checksum mismatch|extract failed|cache error)/i.test(
+                                build.output,
+                            )
+                        )
+                            throw new Error("release did not prove a source fallback");
+                    }
+                    const app = macApp(project, portable, release, mode === "dev");
+                    const executable = resolve(app, "Contents/MacOS", basename(project));
+                    const result = await launchAndObserve(
+                        `${backend} launch ${mode}`,
+                        project,
+                        logs,
+                        observer,
+                        env,
+                        mode,
+                        nonce,
+                        [
+                            mode === "dev" ? "dev" : "preview",
+                            ...flags,
+                            ...(release ? ["--release"] : []),
+                        ],
+                        viteOrigin,
+                        mode === "dev" ? "vite" : "asset-server",
+                        true,
+                        { executable, portable },
+                    );
+                    const plist = portable
+                        ? resolve(
+                              app,
+                              "Contents/Frameworks/Chromium Embedded Framework.framework/Resources/Info.plist",
+                          )
+                        : "/System/Library/Frameworks/WebKit.framework/Resources/Info.plist";
+                    const identity = await runLogged(
+                        `${backend} ${mode} runtime identity`,
+                        "/usr/libexec/PlistBuddy",
+                        ["-c", "Print :CFBundleShortVersionString", plist],
+                        project,
+                        env,
+                        logs,
+                    );
+                    console.info(`${backend} ${mode} runtime version: ${identity.output.trim()}`);
+                    if (mode === "dev") viteOrigin = result.viteOrigin;
+                    if (release) {
+                        const copy = resolve(
+                            consumer,
+                            `installed-${backend}`,
+                            `${basename(project)}.app`,
+                        );
+                        mkdirSync(dirname(copy), { recursive: true });
+                        rmSync(copy, { recursive: true, force: true });
+                        await runLogged(
+                            `${backend} copy release`,
+                            "ditto",
+                            [app, copy],
+                            project,
+                            env,
+                            logs,
+                        );
+                        // Relocation does not require downloaded-app execution.
+                        spawnSync("xattr", ["-dr", "com.apple.quarantine", copy]);
+                        const quarantine = spawnSync("xattr", ["-lr", copy], { encoding: "utf8" });
+                        if (
+                            quarantine.status !== 0 ||
+                            quarantine.stdout.includes("com.apple.quarantine")
+                        )
+                            throw new Error(
+                                `copied launch must not carry quarantine: ${quarantine.stderr}`,
+                            );
+                        const copiedExecutable = resolve(copy, "Contents/MacOS", basename(project));
+                        const cwd = resolve(consumer, "unrelated-launch-directory");
+                        mkdirSync(cwd, { recursive: true });
+                        const launchCopy = (step: string) =>
+                            launchAndObserve(
+                                step,
+                                project,
+                                logs,
+                                observer,
+                                env,
+                                mode,
+                                nonce,
+                                [],
+                                viteOrigin,
+                                "asset-server",
+                                true,
+                                { executable: copiedExecutable, app: copy, portable, cwd },
+                            );
+                        await withoutProject(project, async () => {
+                            console.info(
+                                `${backend} copied release: original project/build/assets unavailable; cwd=${cwd}`,
+                            );
+                            await launchCopy(`${backend} open copied release`);
+                        });
+                        const savedExecutable = `${copiedExecutable}.independent`;
+                        renameSync(copiedExecutable, savedExecutable);
+                        symlinkSync(executable, copiedExecutable);
+                        try {
+                            if (
+                                realpathSync.native(copiedExecutable) !==
+                                realpathSync.native(executable)
+                            )
+                                throw new Error(
+                                    "dependent-copy control does not point to source executable",
+                                );
+                            await withoutProject(project, async () => {
+                                if (existsSync(copiedExecutable))
+                                    throw new Error("dependent executable remained available");
+                                try {
+                                    await launchCopy(`${backend} dependent copy negative control`);
+                                } catch (error) {
+                                    if (
+                                        !(error instanceof SmokeFailure) ||
+                                        !/CLI exited before the page marker/.test(error.message)
+                                    )
+                                        throw error;
+                                    console.info(
+                                        `${backend} dependent copy negative control: expected RED: ${error.message}`,
+                                    );
+                                    return;
+                                }
+                                throw new Error("build-tree-dependent copy unexpectedly passed");
+                            });
+                        } finally {
+                            rmSync(copiedExecutable, { force: true });
+                            renameSync(savedExecutable, copiedExecutable);
+                        }
+                        const assessmentCopy = resolve(
+                            consumer,
+                            `gatekeeper-${backend}`,
+                            `${basename(project)}.app`,
+                        );
+                        rmSync(dirname(assessmentCopy), { recursive: true, force: true });
+                        mkdirSync(dirname(assessmentCopy), { recursive: true });
+                        cpSync(copy, assessmentCopy, { recursive: true, verbatimSymlinks: true });
+                        await runLogged(
+                            `${backend} quarantine copy`,
+                            "xattr",
+                            [
+                                "-w",
+                                "com.apple.quarantine",
+                                `0083;${Math.floor(Date.now() / 1000).toString(16)};ShallotSmoke;${randomUUID()}`,
+                                assessmentCopy,
+                            ],
+                            project,
+                            env,
+                            logs,
+                        );
+                        const verdict = spawnSync(
+                            "spctl",
+                            ["--assess", "--type", "execute", "-v", assessmentCopy],
+                            { encoding: "utf8" },
+                        );
+                        if (verdict.error) throw verdict.error;
+                        const evidence = `Gatekeeper ${backend}: spctl --assess --type execute -v ${assessmentCopy}; exit ${verdict.status}; ${verdict.stdout}${verdict.stderr}`;
+                        writeFileSync(resolve(logs, `${backend}-gatekeeper.log`), evidence);
+                        console.info(evidence);
+                    }
+                }
+            } catch (error) {
+                const finding = `${backend}: ${error instanceof Error ? error.message : String(error)}`;
+                findings.push(finding);
+                console.error(finding);
+            }
+        }
+    } finally {
+        await observer.close();
+    }
+    assertNoSmokeProcesses(macSmokePids(consumer));
+    if (findings.length) throw new Error(findings.join("\n"));
+    console.info(
+        "Mac packed native smoke passed: hardware startup and canvas readback in both backends, dev, debug/release preview and copied release via open; Gatekeeper verdicts recorded.",
+    );
+}
+
 function usage(): string {
-    return `Usage: bun scripts/native-linux-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require a hardware adapter on the owned Xvfb display\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nSetup: ${SETUP_COMMAND}\n`;
+    return `Usage: bun scripts/native-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require hardware on Linux's owned Xvfb display (Mac always requires hardware)\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nLinux setup: ${SETUP_COMMAND}\nMac: Apple Silicon; system WKWebView and portable CEF, copied release via open, quarantined Gatekeeper assessment.\nSet SHALLOT_SMOKE_WITHHOLD_MARKER=1 on Mac to plant a missing-marker failure.\n`;
 }
 
 async function main(): Promise<void> {
@@ -1299,6 +1672,10 @@ async function main(): Promise<void> {
         return;
     }
     try {
+        if (process.platform === "darwin") {
+            await runMacSmoke(options);
+            return;
+        }
         const icd = requireLinuxPrerequisites(defaultProbe, options.hardware);
         console.info(
             `setup: ${options.hardware ? `composited Xvfb; hardware required (Vulkan ICD: ${process.env.VK_ICD_FILENAMES ?? "system loader default"})` : `composited Xvfb + Mesa software Vulkan (${icd})`}; launch ceiling ${CEILING.startup}ms; CEF download and native compile use the CI job timeout`,

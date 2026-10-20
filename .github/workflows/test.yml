@@ -345,7 +345,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native-runtime-pair/logs"
           bash scripts/native-linux-setup.sh 2>&1 | tee "$RUNNER_TEMP/native-runtime-pair/logs/setup.log"
       - name: exercise Linux smoke driver assertions
-        run: bun test ./scripts/native-linux-smoke.oracle.ts
+        run: bun test ./scripts/native-smoke.oracle.ts
       - name: packed Linux native smoke
         run: |
           args=(--consumer "$HOME/.cache/shallot/native-runtime-pair/consumer" --logs "$RUNNER_TEMP/native-runtime-pair/logs")
@@ -355,7 +355,7 @@ jobs:
           else
             echo 'Cold Cargo/CEF cache: no cached runtime is assumed.'
           fi
-          /usr/bin/time -p bun scripts/native-linux-smoke.ts "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/native-runtime-pair/logs/driver.log"
+          /usr/bin/time -p bun scripts/native-smoke.ts "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/native-runtime-pair/logs/driver.log"
       - name: retain Linux native smoke logs
         if: failure()
         uses: actions/upload-artifact@v7
