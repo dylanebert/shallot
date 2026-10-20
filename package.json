@@ -81,6 +81,7 @@
         "examples/world-ui",
         "examples/save-and-load",
         "examples/particles",
+        "examples/volumetric-fog",
         "examples/physics",
         "examples/city",
         "examples/voxel",
