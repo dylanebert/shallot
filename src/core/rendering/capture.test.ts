@@ -6,7 +6,5 @@ test("CAPTURE_CONTRACT is the size and scale fixtures set their viewport to", ()
         width: 1280,
         height: 720,
         deviceScale: 1,
-        surface: "final-canvas",
-        encoding: "rgba8-tight",
     });
 });

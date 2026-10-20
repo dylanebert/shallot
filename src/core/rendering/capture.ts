@@ -14,14 +14,10 @@ export const CAPTURE_CONTRACT: {
     width: number;
     height: number;
     deviceScale: number;
-    surface: "final-canvas";
-    encoding: "rgba8-tight";
 } = {
     width: 1280,
     height: 720,
     deviceScale: 1,
-    surface: "final-canvas",
-    encoding: "rgba8-tight",
 };
 
 const FRAME_CAPTURE_LABEL = "canvas frame capture";
@@ -50,8 +46,8 @@ function watchFrameCaptureDevice(view: View, device: GPUDevice): void {
 /**
  * Read a camera's world-owned rendered texture target at its own size after a submitted presenting
  * frame. Call after stepping; queue order places the copy after that submission, without requiring
- * another frame. Refuses an
- * unbound/non-texture camera or a target never presented to. Returns independent tight RGBA bytes
+ * another frame. Refuses an unbound/non-texture camera or a target never presented to.
+ * Returns independent tight RGBA bytes
  * that outlive the target; detachment or disposal before the copy completes may reject the read.
  */
 export async function captureTexture(world: World, eid: number): Promise<Capture> {
@@ -143,8 +139,9 @@ export function encodeFrameCapture(world: World, view: View): void {
 /**
  * Read a running canvas's rendered target at its own backing size as tightly packed RGBA, not the
  * composited page or physical display. A bound WebGPU canvas captures the next presenting frame and
- * refuses capture if that frame reuses a texture an earlier frame drew to; await world.frameFence (or yield a task)
- * before the capture frame. An unbound canvas uses its bitmap.
+ * refuses capture if that frame reuses a texture an earlier frame drew to; await world.frameFence
+ * (or yield a task) before the capture frame. An unbound canvas uses its bitmap. A held app presents
+ * no next frame; capture its page with a Playwright page screenshot instead.
  */
 export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> {
     const binding = canvasFrameBinding(canvas);
