@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
-import { resolveCargoInvocation } from "../src/native";
+import { cargoBuildEnvironment, resolveCargoInvocation } from "../src/native";
 import {
     assertCanvasImage,
     assertNoSmokeProcesses,
@@ -286,6 +286,29 @@ while True: time.sleep(1)
         }
     });
 }
+
+test("native Windows overrides the cross linker even when LLVM is not installed", () => {
+    const target = "x86_64-pc-windows-msvc";
+    const key = "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER";
+    const config = Bun.TOML.parse(
+        readFileSync(resolve(import.meta.dir, "../crates/native/.cargo/config.toml"), "utf8"),
+    ) as { target: Record<string, { linker: string }> };
+    for (const portable of [false, true]) {
+        const invocation = resolveCargoInvocation(target, false, portable, false, "win32");
+        const env = cargoBuildEnvironment(target, invocation, { [key]: "lld-link" });
+        expect(env[key] ?? config.target[target].linker).toBe("link.exe");
+    }
+    for (const wsl of [false, true]) {
+        const invocation = resolveCargoInvocation(target, false, false, wsl, "linux");
+        const env = cargoBuildEnvironment(target, invocation, {});
+        expect(env[key] ?? config.target[target].linker).toBe("lld-link");
+    }
+    const linux = resolveCargoInvocation("x86_64-unknown-linux-gnu", false, true, false, "linux");
+    expect(
+        cargoBuildEnvironment("x86_64-unknown-linux-gnu", linux, {})
+            .CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER,
+    ).toBeUndefined();
+});
 
 test("Windows builds use native MSVC rather than cargo-xwin", () => {
     expect(

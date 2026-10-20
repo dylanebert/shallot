@@ -147,6 +147,20 @@ export function resolveCargoInvocation(
     return { kind: msvc && host !== "win32" ? "xwin" : "native", flags };
 }
 
+export function cargoBuildEnvironment(
+    target: string,
+    invocation: CargoInvocation,
+    env: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+    // Cargo's environment overrides the lld-link cross-build default in .cargo/config.toml.
+    return {
+        ...env,
+        ...(invocation.kind === "native" && target.includes("msvc")
+            ? { CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: "link.exe" }
+            : {}),
+    };
+}
+
 // crates/native ships in the npm tarball (package.json `files` includes `crates/native`), so a missing
 // crate dir means a corrupt install or a non-standard layout, not an unsupported path. Guard it
 // before spawning cargo, since a raw ENOENT from `cwd: RUST_CRATE` below is an opaque failure.
@@ -215,12 +229,12 @@ function cargoBuild(
     }
 
     const cmd = invocation.kind === "xwin" ? "cargo xwin build" : "cargo build";
-    const env = {
+    const env = cargoBuildEnvironment(target, invocation, {
         ...process.env,
         CARGO_TARGET_DIR: CRATE_TARGET,
         SHALLOT_ICON_ICO: iconPath ?? "",
         ...(distDir ? { SHALLOT_DIST: distDir } : {}),
-    };
+    });
     const output = execSync(
         [cmd, ...invocation.flags, "--message-format=json-render-diagnostics"].join(" "),
         {
