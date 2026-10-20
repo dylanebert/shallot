@@ -115,31 +115,29 @@ test("each HUD toggle changes the all-on scene reversibly without moving or resi
     expect(errors).toEqual([]);
 });
 
-test("each slider changes captured pixels and the panel stays inside the canvas", async ({
+test("a slider for each effect changes captured pixels and the panel stays inside the canvas", async ({
     page,
 }) => {
     await page.goto("http://127.0.0.1:4266/tests/stepped.html");
     await page.waitForFunction(() => (window as SteppedWindow).captureScene !== undefined);
     for (const name of names) {
         await page.getByRole("checkbox", { name, exact: true }).check();
-        const sliders = page.getByRole("group", { name, exact: true }).getByRole("slider");
-        for (const slider of await sliders.all()) {
-            await capture(page, "before-slider");
-            const original = await slider.inputValue();
-            const min = Number(await slider.getAttribute("min"));
-            const max = Number(await slider.getAttribute("max"));
-            const value = Number(original) > (min + max) / 2 ? min : max;
-            await slider.fill(String(value));
-            expect(
-                (await capture(page, "slider")).previous,
-                (await slider.getAttribute("id"))!,
-            ).toBeGreaterThan(0.1);
-            await slider.fill(original);
-        }
+        // scene.test.ts checks every field write; pixels prove the HUD-to-frame path.
+        const slider = page.getByRole("group", { name, exact: true }).getByRole("slider").first();
+        await capture(page, "before-slider");
+        const original = await slider.inputValue();
+        const min = Number(await slider.getAttribute("min"));
+        const max = Number(await slider.getAttribute("max"));
+        const value = Number(original) > (min + max) / 2 ? min : max;
+        await slider.fill(String(value));
+        expect(
+            (await capture(page, "slider")).previous,
+            (await slider.getAttribute("id"))!,
+        ).toBeGreaterThan(0.1);
+        await slider.fill(original);
         await page.getByRole("checkbox", { name, exact: true }).uncheck();
     }
     for (const name of names) await page.getByRole("checkbox", { name, exact: true }).check();
-    await capture(page, "all");
     for (const viewport of [
         { width: 1280, height: 720 },
         { width: 390, height: 844 },
