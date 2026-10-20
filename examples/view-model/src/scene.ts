@@ -136,7 +136,6 @@ export const ScenePlugin: Plugin = {
         const surfaces = [
             { position: [0, -0.1, 0], size: [10, 0.2, 12], color: [0.085, 0.08, 0.072, 1] },
             { position: [0, 1.5, -1], size: [3, 3, 0.2], color: [0.11, 0.105, 0.095, 1] },
-            { position: [-2.1, 0.5, -2], size: [0.7, 1, 0.7], color: [0.06, 0.057, 0.052, 1] },
         ] as const;
         for (const surface of surfaces) {
             const eid = block(world, surface.position, surface.size, surface.color);
