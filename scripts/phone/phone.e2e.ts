@@ -11,7 +11,7 @@ const examples = readdirSync(resolve(root, "examples"), { withFileTypes: true })
     .sort();
 
 for (const example of examples) {
-    test(`${example} draws with its overlay inside a phone`, async ({ page }) => {
+    test(`${example} draws with its overlay inside a phone`, async ({ page }, testInfo) => {
         const directory = resolve(root, "examples", example);
         const server = await createServer({
             root: directory,
@@ -93,9 +93,12 @@ for (const example of examples) {
                     ];
                 }),
             );
-            await page.screenshot({ path: resolve(root, ".artifacts/phone", `${example}.png`) });
             expect(overflow, "every visible overlay element fits the viewport").toEqual([]);
             expect(errors, "no page or console errors").toEqual([]);
+            const captureDirectory = testInfo.project.metadata.captureDirectory;
+            if (typeof captureDirectory === "string") {
+                await page.screenshot({ path: resolve(root, captureDirectory, `${example}.png`) });
+            }
         } finally {
             await page.close();
             await server.close();
