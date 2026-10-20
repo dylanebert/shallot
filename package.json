@@ -95,6 +95,8 @@
         "!src/standard/physics/solver/fixtures",
         "!src/standard/physics/oracle/**",
         "!src/extras/effect-stack/bevy/**",
+        "!src/core/rendering/bevy/**",
+        "!src/core/rendering/blender/**",
         "!src/**/*.test.ts",
         "!**/*.oracle.ts",
         "!src/**/*.node.ts",
