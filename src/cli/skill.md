@@ -11,7 +11,7 @@ From the project root, run `bun install` before using these commands.
 - The root `index.html` imports the app's plugins; `vite.config.ts` enables `shallot()`
 - `bun test` runs cheap `*.test.ts` and GPU `*.gpu.test.ts` files; it does not discover Node or browser checks
 - Run Node `*.node.ts` checks by path with `bun test ./<file>`
-- Run browser `*.e2e.ts` checks with `bunx playwright test`; keep the app's config in root `playwright.config.ts`
+- Install the browser once with `bunx playwright install chromium`, then run browser `*.e2e.ts` checks with `bunx playwright test`; the project's `playwright.config.ts` starts its server
 - Put each plugin in `src/<plugin>/index.ts`; keep its module checks beside it
 - Put whole-app checks in `tests/`; the directory sets scope, the suffix sets tier
 - Put full default-renderer or physics-kernel compositions in `tests/<goal>.node.ts`, not `*.gpu.test.ts`; run them by path

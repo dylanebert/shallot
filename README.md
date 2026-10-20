@@ -26,7 +26,7 @@ open the url in a [supported browser](https://caniuse.com/webgpu).
 
 ## examples
 
-get started by exploring [examples](https://dylanebert.com/shallot/). start from one:
+get started by exploring [examples](https://dylanebert.com/shallot/). installed projects and their checks live in `node_modules/@dylanebert/shallot/examples/`; API contracts live in JSDoc in `node_modules/@dylanebert/shallot/src/`. learn from the nearest example and the installed source for your version. start from one:
 
 ```bash
 # list them
@@ -40,6 +40,6 @@ bun create shallot first-person --template first-person
 
 - questions: [discord](https://discord.gg/eEY75Nqk3C). bugs: [issues](https://github.com/dylanebert/shallot/issues). releases: [npm](https://www.npmjs.com/package/@dylanebert/shallot)
 - upgrading from 0.10: [`MIGRATION.md`](MIGRATION.md)
-- changing the engine: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- changing the engine: [contributing](https://github.com/dylanebert/shallot/blob/main/CONTRIBUTING.md)
 
 mit, see [`LICENSE`](LICENSE).
