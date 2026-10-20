@@ -60,9 +60,6 @@ const MINIMAL_TEMPLATE_FILES = [
     "vite.config.ts",
 ];
 const FIRST_PERSON_TEMPLATE_FILES = [
-    "public/fonts/mono/JetBrainsMono-Bold.woff2",
-    "public/fonts/mono/JetBrainsMono-Regular.woff2",
-    "public/fonts/mono/OFL.txt",
     "public/fonts/plex/IBMPlexSans-Regular-Latin1.woff2",
     "public/fonts/plex/OFL.txt",
     "src/touch.css",

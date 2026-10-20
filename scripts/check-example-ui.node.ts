@@ -1300,7 +1300,18 @@ async function fontViolations(root: string, css: Css): Promise<string[]> {
         families.add(match[1]!);
     for (const family of families) {
         if (!sheet.includes(family) && !css.lists.some((s) => s.includes(family))) continue;
-        for (const weight of family === "JetBrains Mono" ? ["400", "700"] : ["400"]) {
+        const weights = new Set(["400"]);
+        for (const face of faces) {
+            if (face.includes(family))
+                weights.add(face.match(/font-weight:\s*(\d+)/i)?.[1] ?? "400");
+        }
+        // The type-role gate reserves Mono 700 for panel titles; other text uses 400.
+        if (
+            family === "JetBrains Mono" &&
+            styleRules(css).some((r) => /\.panel-title\b/.test(r.selector))
+        )
+            weights.add("700");
+        for (const weight of weights) {
             const face = faces.find(
                 (f) =>
                     f.includes(family) && new RegExp(`font-weight:\\s*${weight}\\b`, "i").test(f),
@@ -1827,6 +1838,21 @@ test("11/12: local script and CSS imports, font weights, woff2 and adjacent OFL 
             expect((await exampleControls(root)).length).toBeGreaterThan(0);
             await writeFile(path, original);
         }
+        const withoutBold = controlFixture.replace(
+            /@font-face\s*\{[^}]*font-weight: 700[^}]*\}/g,
+            "",
+        );
+        expect(await fontViolations(root, { sheets: [withoutBold], lists: [] })).toContain(
+            "font face: JetBrains Mono 700",
+        );
+        const withoutTitle = withoutBold.replace(/[^{}]*\.panel-title[^{}]*\{[^}]*\}/g, "");
+        expect(await fontViolations(root, { sheets: [withoutTitle], lists: [] })).toEqual([]);
+        expect(
+            await fontViolations(root, {
+                sheets: [withoutTitle.replace(/@font-face\s*\{[^}]*JetBrains Mono[^}]*\}/g, "")],
+                lists: [],
+            }),
+        ).toContain("font face: JetBrains Mono 400");
         expect(
             (
                 await fontViolations(root, {
