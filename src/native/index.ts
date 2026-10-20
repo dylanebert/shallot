@@ -6,6 +6,7 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     rmSync,
     statSync,
     writeFileSync,
@@ -57,7 +58,9 @@ export function nativeOutDir(
 // Windows dir (winBuildDir) instead; everything else uses this. cargoBuild pins CARGO_TARGET_DIR to
 // it, so the path is the same whether the crate builds as a member of the source repo's workspace
 // (whose default is the root target/) or standalone from the npm tarball.
-const CRATE_TARGET = resolve(RUST_CRATE, "target");
+const targetPath = resolve(RUST_CRATE, "target");
+// Resolve a consumer's target junction before CEF hands nested paths to MSVC.
+const CRATE_TARGET = existsSync(targetPath) ? realpathSync(targetPath) : targetPath;
 
 export function cargoTarget(target: string, release: boolean, targetDir = CRATE_TARGET): string {
     const profile = release ? "release" : "debug";
