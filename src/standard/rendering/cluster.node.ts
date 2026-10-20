@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { TIMEOUT } from "@dylanebert/shallot/testing";
+import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { expectWarning } from "../../../scripts/test-console";
 import {
@@ -34,7 +35,7 @@ import {
     UpdateLightClustersSystem,
 } from "./cluster";
 import { StandardRenderingPlugin } from "./index";
-import { MAX_POINT_LIGHTS } from "./lighting";
+import { MAX_POINT_LIGHTS, PointLightGpu } from "./lighting";
 
 setDefaultTimeout(TIMEOUT.node);
 
@@ -174,7 +175,10 @@ async function checkScene(
         const data = new DataView(bytes);
         const compactOffset = 16;
         for (let light = 0; light < compactCount; light++) {
-            compactEids.set(light, data.getFloat32(compactOffset + light * 48 + 28, true));
+            compactEids.set(
+                light,
+                data.getFloat32(compactOffset + light * d.sizeOf(PointLightGpu) + 28, true),
+            );
         }
 
         const compactedEids = new Set(compactEids.values());

@@ -56,7 +56,6 @@ interface LightingResources {
     colors: Float64Array;
     stagingU32: Uint32Array;
     directionalOverflowWarned: boolean;
-    viewOverflowWarned: boolean[];
     pointOverflowWarned: boolean;
     spotAngleWarned: boolean;
     shadowConflictWarned: boolean;
@@ -75,7 +74,6 @@ function createLightingResources(): LightingResources {
         colors: new Float64Array(MAX_DIRECTIONAL_LIGHTS * 3),
         stagingU32: new Uint32Array(backing),
         directionalOverflowWarned: false,
-        viewOverflowWarned: [],
         pointOverflowWarned: false,
         spotAngleWarned: false,
         shadowConflictWarned: false,
@@ -164,7 +162,7 @@ export function viewLighting(world: World, slot: number): GPUBuffer {
 function writeViewLighting(this: World, view: View, eid: number): void {
     if (view.slot >= this.resource(RenderContext).shadeCount) return;
     const mask = this.has(eid, RenderLayers) ? this.storage(RenderLayers).mask.get(eid) : 1;
-    packLighting(this, mask, viewLighting(this, view.slot), view.slot);
+    packLighting(this, mask, viewLighting(this, view.slot), false);
 }
 
 /** Read up to ten directionals per view, filtering layers before applying the cap. */
@@ -173,7 +171,7 @@ export function writeLighting(world: World): void {
     world.resource(Views).forEach(writeViewLighting, world);
 }
 
-function packLighting(world: World, mask: number, buffer: GPUBuffer, slot = -1): void {
+function packLighting(world: World, mask: number, buffer: GPUBuffer, warn = true): void {
     const gpu = world.resource(Lighting);
     if (!world.gpu.device || !gpu.buffer) return;
 
@@ -189,15 +187,14 @@ function packLighting(world: World, mask: number, buffer: GPUBuffer, slot = -1):
         if (count < MAX_DIRECTIONAL_LIGHTS) resources.directionalEids[count++] = eid;
         total++;
     }
-    const overflowWarned =
-        slot < 0 ? resources.directionalOverflowWarned : resources.viewOverflowWarned[slot];
-    if (total > MAX_DIRECTIONAL_LIGHTS && !overflowWarned) {
-        console.warn(
-            `shallot: ${total} directional lights exceed the ${MAX_DIRECTIONAL_LIGHTS} cap; ${total - MAX_DIRECTIONAL_LIGHTS} ignored`,
-        );
+    if (warn) {
+        if (total > MAX_DIRECTIONAL_LIGHTS && !resources.directionalOverflowWarned) {
+            console.warn(
+                `shallot: ${total} directional lights exceed the ${MAX_DIRECTIONAL_LIGHTS} cap; ${total - MAX_DIRECTIONAL_LIGHTS} ignored`,
+            );
+        }
+        resources.directionalOverflowWarned = total > MAX_DIRECTIONAL_LIGHTS;
     }
-    if (slot < 0) resources.directionalOverflowWarned = total > MAX_DIRECTIONAL_LIGHTS;
-    else resources.viewOverflowWarned[slot] = total > MAX_DIRECTIONAL_LIGHTS;
 
     const shadow = shadowDirectionalLight(world);
     if (shadow >= 0 && ((world.has(shadow, RenderLayers) ? layers.get(shadow) : 1) & mask) !== 0) {
