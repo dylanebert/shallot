@@ -268,6 +268,7 @@ export const PointLightGpu = d.struct({
     posRange: d.vec4f,
     color: d.vec4f,
     params: d.vec4f,
+    /** Render-layer mask; zero matches no camera. */
     layers: d.u32,
 });
 

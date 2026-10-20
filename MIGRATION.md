@@ -20,3 +20,9 @@ attachTexture(world, eid, { width: 320, height: 180 });
 // or stack it over the first camera on purpose
 world.add(eid, Camera, { order: 1 });
 ```
+
+## GPU light and entity-instance rows
+
+`PointLightGpu` from `/standard/rendering` gains `layers: u32`, a 32-bit render-layer mask. A manually authored light record writes `1` for layer 0, or the intended mask; zero matches no camera. Its stride is now 64 bytes rather than 48. Derive strides and offsets with TypeGPU's `sizeOf` and `memoryLayoutOf` instead of retaining the old byte constants.
+
+The entity table returned by `meshInstanceTable(world)` gains `layers` in existing padding, with bit 1 of `flags` indicating that `RenderLayers` is present; without that bit, the effective mask is `1`. Preserve those fields when publishing alpha or bounds directly. `MeshInstanceInput` remains the producer/material schema, with unchanged stride and field offsets; producer-table rows belong to layer 0. If an explicit material binding used `meshInstanceTable(world).typed` against `MeshInstanceInput`, use `meshInstanceTable(world).buffer` instead: the raw buffer binds the unchanged material-field layout without claiming that the entity and producer schemas are identical. Standard supplies this binding automatically.

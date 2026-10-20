@@ -32,7 +32,8 @@ export const MeshInstanceInput = d
     .$name("MeshInstanceInput");
 
 const { cullBounds, ...instanceFields } = MeshInstanceInput.propTypes;
-/** Entity input consumes the producer row's padding for render layers without changing its stride.
+/** Entity input consumes producer-row padding without changing its stride or material-field offsets.
+ * Bit 1 of flags marks RenderLayers presence; without it the effective layer mask is 1.
  * @internal */
 export const EntityMeshInstanceInput = d.struct({ ...instanceFields, layers: d.u32, cullBounds });
 
