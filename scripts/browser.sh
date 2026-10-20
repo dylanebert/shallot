@@ -63,8 +63,9 @@ if [ "$check_only" = true ]; then
     exit 0
 fi
 
-printf '%s\n' "$subjects" | awk -v shard="$shard_index" -v count="$shard_count" \
-    '(NR - 1) % count == shard - 1' | while IFS= read -r subject; do
+subject_count=$(printf '%s\n' "$subjects" | wc -l)
+printf '%s\n' "$subjects" | awk -v shard="$shard_index" -v count="$shard_count" -v total="$subject_count" \
+    'NR > int((shard - 1) * total / count) && NR <= int(shard * total / count)' | while IFS= read -r subject; do
     # A subject with no browser check yet, as a fresh minimal project, has nothing for Playwright to run.
     if [ -z "$(find "$subject" -name node_modules -prune -o -type f -name '*.e2e.ts' -print)" ]; then
         echo "No browser checks: $subject"

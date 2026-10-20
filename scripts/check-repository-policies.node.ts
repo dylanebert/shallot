@@ -109,11 +109,11 @@ test("browser shards partition sorted subjects but validate every subject", () =
                 .split("\n")
                 .filter((line) => line.startsWith("Browser subject:"));
         };
-        expect(subjects("1/2")).toEqual([
-            "Browser subject: examples/a",
+        expect(subjects("1/2")).toEqual(["Browser subject: examples/a"]);
+        expect(subjects("2/2")).toEqual([
+            "Browser subject: examples/b",
             "Browser subject: examples/c",
         ]);
-        expect(subjects("2/2")).toEqual(["Browser subject: examples/b"]);
         writeFileSync(join(tree, "src/orphan.e2e.ts"), "");
         expect(run("--shard", "2/2").stderr.toString()).toContain(
             "Orphan browser test: src/orphan.e2e.ts",
