@@ -17,6 +17,8 @@ import {
     ChromaticAberration,
     EffectStackPlugin,
     LensDistortion,
+    Orbit,
+    OrbitPlugin,
     Vignette,
 } from "@dylanebert/shallot/extras";
 
@@ -54,10 +56,13 @@ function makeScene(world: World): void {
     world.resource(Scene).camera = camera;
     world.add(camera, Camera, { clearColor: 0x191816 });
     world.add(camera, StandardRenderer);
-    world.add(camera, Transform, {
-        translation: [0, 3.4, 10],
-        rotation: lookAtRotation(0, 3.4, 10, 0, 1.3, 0),
+    world.add(camera, Orbit, {
+        pan: [0, 1.3, 0],
+        distance: Math.hypot(2.1, 10),
+        yaw: 0,
+        pitch: Math.atan2(2.1, 10),
     });
+    world.add(camera, Transform);
 
     const materials = world.resource(Materials);
     const carbon = materials.add(
@@ -111,6 +116,6 @@ function makeScene(world: World): void {
 
 export const ScenePlugin: Plugin = {
     name: "PostProcessingScene",
-    dependencies: [EffectStackPlugin],
+    dependencies: [EffectStackPlugin, OrbitPlugin],
     initialize: makeScene,
 };

@@ -5,6 +5,7 @@ type SteppedWindow = Window & {
     captureScene?: () => Promise<number[]>;
     baseline?: number[];
     combined?: number[];
+    previous?: number[];
 };
 const names = ["Lens distortion", "Chromatic aberration", "Vignette"];
 
@@ -39,8 +40,11 @@ async function capture(page: Page, name: string) {
                     );
                 png = canvas.toDataURL("image/png").split(",")[1];
             }
+            const previous = win.previous ? difference(win.previous) : 0;
+            win.previous = rgba;
             if (name === "all") win.combined = rgba;
             return {
+                previous,
                 baseline: difference(win.baseline),
                 combined: win.combined ? difference(win.combined) : 0,
                 colors: new Set(rgba).size,
@@ -71,10 +75,7 @@ test("the built page presents the scene and keeps its HUD inside the canvas", as
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(canvas.x + canvas.width);
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(canvas.y + canvas.height);
     for (const name of names)
-        await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute(
-            "aria-pressed",
-            "false",
-        );
+        await expect(page.getByRole("checkbox", { name, exact: true })).not.toBeChecked();
     expect(errors).toEqual([]);
 });
 
@@ -89,27 +90,91 @@ test("each HUD toggle changes the captured scene alone, reversibly and in the co
     const panel = page.getByRole("region", { name: "Post-processing controls" });
     const bounds = await panel.boundingBox();
     for (const [index, name] of names.entries()) {
-        const toggle = page.getByRole("button", { name, exact: true });
+        const toggle = page.getByRole("checkbox", { name, exact: true });
         await toggle.click();
-        await expect(toggle).toHaveAttribute("aria-pressed", "true");
+        await expect(toggle).toBeChecked();
         const changed = await capture(
             page,
             ["lens-distortion", "chromatic-aberration", "vignette"][index],
         );
         expect(changed.baseline, `${name} must change scene pixels`).toBeGreaterThan(0.25);
-        expect(await panel.boundingBox()).toEqual(bounds);
+        const expanded = (await panel.boundingBox())!;
+        expect(expanded.x).toBe(bounds!.x);
+        expect(expanded.y).toBe(bounds!.y);
+        expect(expanded.width).toBe(bounds!.width);
         await toggle.click();
-        await expect(toggle).toHaveAttribute("aria-pressed", "false");
+        await expect(toggle).not.toBeChecked();
         // Tonemapping dithering changes sub-byte averages between otherwise identical frames.
         expect((await capture(page, "reset")).baseline).toBeLessThan(0.1);
     }
-    for (const name of names) await page.getByRole("button", { name, exact: true }).click();
+    for (const name of names) await page.getByRole("checkbox", { name, exact: true }).click();
     expect((await capture(page, "all")).baseline).toBeGreaterThan(0.25);
     for (const name of names) {
-        const toggle = page.getByRole("button", { name, exact: true });
+        const toggle = page.getByRole("checkbox", { name, exact: true });
         await toggle.click();
         expect((await capture(page, "without")).combined, name).toBeGreaterThan(0.25);
         await toggle.click();
     }
     expect(errors).toEqual([]);
+});
+
+test("each slider changes captured pixels and the expanded panel stays inside the canvas", async ({
+    page,
+}) => {
+    await page.goto("http://127.0.0.1:4266/tests/stepped.html");
+    await page.waitForFunction(() => (window as SteppedWindow).captureScene !== undefined);
+    for (const name of names) {
+        await page.getByRole("checkbox", { name, exact: true }).check();
+        const sliders = page.getByRole("group", { name, exact: true }).getByRole("slider");
+        for (const slider of await sliders.all()) {
+            await capture(page, "before-slider");
+            const original = await slider.inputValue();
+            const min = Number(await slider.getAttribute("min"));
+            const max = Number(await slider.getAttribute("max"));
+            const value = Number(original) > (min + max) / 2 ? min : max;
+            await slider.fill(String(value));
+            expect(
+                (await capture(page, "slider")).previous,
+                (await slider.getAttribute("id"))!,
+            ).toBeGreaterThan(0.1);
+            await slider.fill(original);
+        }
+        await page.getByRole("checkbox", { name, exact: true }).uncheck();
+    }
+    for (const name of names) await page.getByRole("checkbox", { name, exact: true }).check();
+    await capture(page, "all");
+    for (const viewport of [
+        { width: 1280, height: 720 },
+        { width: 390, height: 844 },
+        { width: 844, height: 390 },
+    ]) {
+        await page.setViewportSize(viewport);
+        const canvas = (await page.locator("canvas").boundingBox())!;
+        const panel = (await page
+            .getByRole("region", { name: "Post-processing controls" })
+            .boundingBox())!;
+        expect(panel.x).toBeGreaterThanOrEqual(canvas.x);
+        expect(panel.y).toBeGreaterThanOrEqual(canvas.y);
+        expect(panel.x + panel.width).toBeLessThanOrEqual(canvas.x + canvas.width);
+        expect(panel.y + panel.height).toBeLessThanOrEqual(canvas.y + canvas.height);
+    }
+});
+
+test("dragging the canvas orbits the camera", async ({ page }) => {
+    await page.goto("http://127.0.0.1:4266/tests/stepped.html");
+    await page.waitForFunction(() => (window as SteppedWindow).captureScene !== undefined);
+    await capture(page, "before-orbit");
+    await page.mouse.move(300, 350);
+    await page.mouse.down();
+    await page.mouse.move(550, 400, { steps: 20 });
+    await capture(page, "during-orbit");
+    await page.mouse.up();
+    expect((await capture(page, "after-orbit")).baseline).toBeGreaterThan(0.25);
+    if (process.env.SHALLOT_CAPTURE_DIR) {
+        await page.goto("/");
+        for (const name of names) await page.getByRole("checkbox", { name, exact: true }).check();
+        await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/panel-all.png` });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.screenshot({ path: `${process.env.SHALLOT_CAPTURE_DIR}/panel-all-phone.png` });
+    }
 });
