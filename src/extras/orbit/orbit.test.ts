@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
     Camera,
     CameraMode,
+    cancelTouch,
     createApp,
     Devices,
     focusCanvas,
@@ -17,9 +18,10 @@ import {
     resizeViewport,
     Time,
     Transform,
+    touchPoint,
 } from "@dylanebert/shallot";
 
-async function subject(mode: number, button: "left" | "right", locked = false) {
+async function subject(mode: number, button?: "left" | "right", locked = false) {
     const app = await createApp({
         defaults: false,
         plugins: [OrbitPlugin, { name: "CameraData", components: [Camera] }],
@@ -29,8 +31,10 @@ async function subject(mode: number, button: "left" | "right", locked = false) {
     w.add(camera, Transform);
     w.add(camera, Camera, { mode });
     w.add(camera, Orbit, { mode: locked ? OrbitMode.Locked : OrbitMode.Free });
+    resizeViewport(w, 0, 320, 200, 1);
+    focusCanvas(w, 0);
     w.step(0);
-    pressButton(w, button);
+    if (button) pressButton(w, button);
     return { app, w, camera };
 }
 
@@ -45,6 +49,123 @@ function pose(w: Awaited<ReturnType<typeof createApp>>["world"], camera: number)
         t.rotation.z.get(camera),
         t.rotation.w.get(camera),
     ];
+}
+
+test("one finger rotates yaw and pitch regardless of mouse orbit binding and stops after cancellation", async () => {
+    const { app, w, camera } = await subject(CameraMode.Perspective);
+    try {
+        const orbit = w.storage(Orbit);
+        orbit.orbitButton.set(camera, 2);
+        const yaw = orbit.yaw.get(camera);
+        const pitch = orbit.pitch.get(camera);
+        touchPoint(w, 1, 100, 100);
+        w.step(Time.FIXED_DT);
+        touchPoint(w, 1, 120, 88);
+        w.step(Time.FIXED_DT);
+        expect(orbit.yaw.get(camera)).toBeCloseTo(yaw - 20 * orbit.sensitivity.get(camera), 6);
+        expect(orbit.pitch.get(camera)).toBeCloseTo(pitch - 12 * orbit.sensitivity.get(camera), 6);
+        cancelTouch(w, 1);
+        const releasedYaw = orbit.yaw.get(camera);
+        const releasedPitch = orbit.pitch.get(camera);
+        w.step(Time.FIXED_DT);
+        w.step(Time.FIXED_DT);
+        expect(orbit.yaw.get(camera)).toBe(releasedYaw);
+        expect(orbit.pitch.get(camera)).toBe(releasedPitch);
+    } finally {
+        await app.dispose();
+    }
+});
+
+for (const mode of [CameraMode.Perspective, CameraMode.Orthographic]) {
+    test(`a pinch zooms ${mode === CameraMode.Perspective ? "perspective distance" : "orthographic size"} without rotating`, async () => {
+        const { app, w, camera } = await subject(mode);
+        try {
+            const orbit = w.storage(Orbit);
+            const yaw = orbit.yaw.get(camera);
+            const pitch = orbit.pitch.get(camera);
+            touchPoint(w, 1, 100, 100);
+            touchPoint(w, 2, 200, 100);
+            w.step(Time.FIXED_DT);
+            touchPoint(w, 1, 90, 100);
+            touchPoint(w, 2, 210, 100);
+            w.step(Time.FIXED_DT);
+            if (mode === CameraMode.Perspective) {
+                expect(orbit.distance.get(camera)).toBeCloseTo(9.6, 6);
+                expect(orbit.size.get(camera)).toBe(5);
+            } else {
+                expect(orbit.size.get(camera)).toBeCloseTo(4.8, 6);
+                expect(w.storage(Camera).size.get(camera)).toBeLessThan(5);
+                expect(orbit.distance.get(camera)).toBe(10);
+            }
+            expect(orbit.yaw.get(camera)).toBe(yaw);
+            expect(orbit.pitch.get(camera)).toBe(pitch);
+        } finally {
+            await app.dispose();
+        }
+    });
+}
+
+test("two-finger drag pans by the centroid without rotating or zooming, and cancellation returns to one-finger rotation", async () => {
+    const { app, w, camera } = await subject(CameraMode.Perspective);
+    try {
+        resizeViewport(w, 0, 320, 200, 1);
+        focusCanvas(w, 0);
+        const orbit = w.storage(Orbit);
+        const yaw = orbit.yaw.get(camera);
+        const pitch = orbit.pitch.get(camera);
+        touchPoint(w, 1, 100, 100);
+        touchPoint(w, 2, 200, 100);
+        w.step(Time.FIXED_DT);
+        touchPoint(w, 1, 120, 110);
+        touchPoint(w, 2, 220, 110);
+        w.step(Time.FIXED_DT);
+        const scale = (2 * 10 * Math.tan(Math.PI / 6)) / 200;
+        expect(orbit.pan.x.get(camera)).toBeCloseTo(
+            scale * (-10 * Math.sin(pitch) * Math.sin(yaw) - 20 * Math.cos(yaw)),
+            6,
+        );
+        expect(orbit.pan.y.get(camera)).toBeCloseTo(scale * 10 * Math.cos(pitch), 6);
+        expect(orbit.pan.z.get(camera)).toBeCloseTo(
+            scale * (-10 * Math.sin(pitch) * Math.cos(yaw) + 20 * Math.sin(yaw)),
+            6,
+        );
+        expect(orbit.yaw.get(camera)).toBe(yaw);
+        expect(orbit.pitch.get(camera)).toBe(pitch);
+        expect(orbit.distance.get(camera)).toBe(10);
+        const pan = [orbit.pan.x.get(camera), orbit.pan.y.get(camera), orbit.pan.z.get(camera)];
+        cancelTouch(w, 1);
+        touchPoint(w, 2, 230, 110);
+        w.step(Time.FIXED_DT);
+        expect(orbit.yaw.get(camera)).toBeCloseTo(yaw - 10 * orbit.sensitivity.get(camera), 6);
+        expect([orbit.pan.x.get(camera), orbit.pan.y.get(camera), orbit.pan.z.get(camera)]).toEqual(
+            pan,
+        );
+    } finally {
+        await app.dispose();
+    }
+});
+
+for (const flyButton of [0, 1, 2]) {
+    test(`touch never engages fly with flyButton=${flyButton}, even with its mouse button and movement keys held`, async () => {
+        const { app, w, camera } = await subject(CameraMode.Perspective);
+        try {
+            const orbit = w.storage(Orbit);
+            orbit.flyButton.set(camera, flyButton);
+            orbit.orbitButton.set(camera, (flyButton + 1) % 3);
+            orbit.panButton.set(camera, (flyButton + 1) % 3);
+            touchPoint(w, 1, 100, 100);
+            pressButton(w, (["left", "middle", "right"] as const)[flyButton]!);
+            pressKey(w, "KeyW");
+            pressKey(w, "KeyE");
+            pressKey(w, "ShiftLeft");
+            const initial = pose(w, camera);
+            w.step(Time.FIXED_DT);
+            expect(pose(w, camera)).toEqual(initial);
+            expect(orbit.flySpeed.get(camera)).toBe(5);
+        } finally {
+            await app.dispose();
+        }
+    });
 }
 
 test("orthographic fly-button drag uses orbit sensitivity and smoothing, ignores movement keys, and scroll zooms size without changing fly speed", async () => {
