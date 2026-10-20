@@ -19,6 +19,7 @@ import {
     PresentationSystem,
     RenderContext,
     RenderingPlugin,
+    RenderLayers,
     sceneTransform,
     TonemappingSystem,
     type View,
@@ -490,64 +491,88 @@ const OutlineSystem: System = {
         if (n === 0) return; // bare path — no passes
         const globalTransforms = globalTransformTable(world).buffer;
 
-        ensureInstances(world, n);
+        const cameras = world.query(OUTLINE_CAMERA_QUERY);
+        let cameraCount = 0;
+        for (const camEid of cameras) {
+            if (world.resource(Views).get(camEid)?.framebuffer) cameraCount++;
+        }
+        ensureInstances(world, n * cameraCount);
         const outline = world.storage(Outline);
         const eidsStaging = _outlineState.eidsStaging;
         const attrStaging = _outlineState.attrStaging;
         const groups = _outlineState.groups;
-        let groupCount = 0;
+        const layers = world.storage(RenderLayers).mask;
         let cursor = 0;
-        let maxWidth = 1;
-        let occlude = false;
-        // group by mesh in first-seen order: each group's eids become a contiguous instance slice
-        for (let i = 0; i < n; i++) {
-            const meshId = meshes[i]!;
-            let seen = false;
-            for (let j = 0; j < i; j++) {
-                if (meshes[j] === meshId) {
-                    seen = true;
-                    break;
-                }
-            }
-            if (seen) continue;
-            const mesh = _meshes.get(meshId as MeshHandle);
-            // mesh deleted / unregistered, or an un-quantized producer — nothing to outline
-            if (!mesh?.position || !mesh.quant) continue;
-            const first = cursor;
-            for (let j = i; j < n; j++) {
-                if (meshes[j] !== meshId) continue;
-                const eid = eids[j]!;
-                eidsStaging[cursor] = eid;
-                const o = cursor * 8;
-                unpackColorInto(outline.color.get(eid), attrStaging, o);
-                attrStaging[o + 3] = 1;
-                const w = Math.max(0, Math.min(MAX_WIDTH, outline.width.get(eid)));
-                const occ = outline.occlude.get(eid);
-                attrStaging[o + 4] = w;
-                attrStaging[o + 5] = occ;
-                if (w > maxWidth) maxWidth = w;
-                if (occ > 0.5) occlude = true;
-                cursor++;
-            }
-            let group = groups[groupCount];
-            if (!group) {
-                group = { mesh, meshId, first, count: 0 };
-                groups[groupCount] = group;
-            }
-            group.mesh = mesh;
-            group.meshId = meshId;
-            group.first = first;
-            group.count = cursor - first;
-            groupCount++;
-        }
-        if (cursor === 0) return;
-        world.gpu.device.queue.writeBuffer(_outlineState.gpu.eids!, 0, eidsStaging, 0, cursor);
-        world.gpu.device.queue.writeBuffer(_outlineState.gpu.attrs!, 0, attrStaging, 0, cursor * 8);
-
-        const passes = jfaPassCount(maxWidth);
-        for (const camEid of world.query(OUTLINE_CAMERA_QUERY)) {
+        for (const camEid of cameras) {
             const view = world.resource(Views).get(camEid);
             if (!view?.framebuffer) continue;
+            const cameraMask = world.has(camEid, RenderLayers) ? layers.get(camEid) : 1;
+            const start = cursor;
+            let groupCount = 0;
+            let maxWidth = 1;
+            let occlude = false;
+            // group by mesh in first-seen order: each group's eids become a contiguous instance slice
+            for (let i = 0; i < n; i++) {
+                const meshId = meshes[i]!;
+                let seen = false;
+                for (let j = 0; j < i; j++) {
+                    if (meshes[j] === meshId) {
+                        seen = true;
+                        break;
+                    }
+                }
+                if (seen) continue;
+                const mesh = _meshes.get(meshId as MeshHandle);
+                // mesh deleted / unregistered, or an un-quantized producer — nothing to outline
+                if (!mesh?.position || !mesh.quant) continue;
+                const first = cursor;
+                for (let j = i; j < n; j++) {
+                    if (meshes[j] !== meshId) continue;
+                    const eid = eids[j]!;
+                    const meshMask = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
+                    if ((meshMask & cameraMask) === 0) continue;
+                    eidsStaging[cursor] = eid;
+                    const o = cursor * 8;
+                    unpackColorInto(outline.color.get(eid), attrStaging, o);
+                    attrStaging[o + 3] = 1;
+                    const w = Math.max(0, Math.min(MAX_WIDTH, outline.width.get(eid)));
+                    const occ = outline.occlude.get(eid);
+                    attrStaging[o + 4] = w;
+                    attrStaging[o + 5] = occ;
+                    if (w > maxWidth) maxWidth = w;
+                    if (occ > 0.5) occlude = true;
+                    cursor++;
+                }
+                if (cursor === first) continue;
+                let group = groups[groupCount];
+                if (!group) {
+                    group = { mesh, meshId, first, count: 0 };
+                    groups[groupCount] = group;
+                }
+                group.mesh = mesh;
+                group.meshId = meshId;
+                group.first = first;
+                group.count = cursor - first;
+                groupCount++;
+            }
+            if (cursor === start) continue;
+            // Each camera reads its own slice: queue writes all precede the shared submission.
+            world.gpu.device.queue.writeBuffer(
+                _outlineState.gpu.eids!,
+                start * 4,
+                eidsStaging,
+                start,
+                cursor - start,
+            );
+            world.gpu.device.queue.writeBuffer(
+                _outlineState.gpu.attrs!,
+                start * 32,
+                attrStaging,
+                start * 8,
+                (cursor - start) * 8,
+            );
+
+            const passes = jfaPassCount(maxWidth);
             // occlusion needs the shared depth lane; without another requester, the outline plugin supplies it.
             renderOutline(
                 world,
