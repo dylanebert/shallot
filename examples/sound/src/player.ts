@@ -155,7 +155,7 @@ export const LocalPlayer = component(
     {
         defaults: () => ({
             sensitivity: 1.5,
-            touchSensitivity: 0.5,
+            touchSensitivity: 0.35,
             viewYaw: 0,
             viewPitch: 0,
             initialized: 0,
