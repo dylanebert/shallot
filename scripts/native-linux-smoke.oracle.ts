@@ -84,6 +84,42 @@ test("deliberate native software startup still requires plugin hooks and a green
     );
 });
 
+test("hardware smoke requires an identified real adapter, hooks and canvas under the default policy", () => {
+    const report = {
+        requireHardware: true,
+        cpuReady: true,
+        hooks: ["prepare", "initialize", "warm"],
+        pixel: [0, 255, 0, 255],
+        adapter: { vendor: "nvidia", architecture: "lovelace", isFallbackAdapter: false },
+    };
+    expect(() => assertStartup(report, true)).not.toThrow();
+    const refusedAdapters: (Record<string, string | boolean> | undefined)[] = [
+        undefined,
+        {},
+        { description: "SwiftShader" },
+        { vendor: "nvidia", isFallbackAdapter: true },
+    ];
+    for (const adapter of refusedAdapters)
+        expect(() => assertStartup({ ...report, adapter }, true)).toThrow(
+            /Hardware adapter required/,
+        );
+    expect(() => assertStartup({ ...report, hooks: [] }, true)).toThrow(/Hardware startup/);
+    expect(() => assertStartup({ ...report, requireHardware: false }, true)).toThrow(
+        /default native GPU policy/,
+    );
+    expect(() => assertStartup({ ...report, pixel: [] }, true)).toThrow(/canvas image failed/);
+    expect(
+        requireLinuxPrerequisites(
+            {
+                commandExists: () => true,
+                hasX11Headers: () => true,
+                softwareVulkanIcd: () => null,
+            },
+            true,
+        ),
+    ).toBe("");
+});
+
 test("Linux smoke names the Bun and Rust toolchain installers", () => {
     const refuse = () =>
         requireLinuxPrerequisites({

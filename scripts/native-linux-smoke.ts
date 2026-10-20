@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:http";
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from "node:path";
+import { classifyAdapter } from "../src/engine/runtime/adapter";
 import { normalizePath } from "../src/project/paths";
 import { CEILING } from "../src/project/testing.js";
 
@@ -75,7 +76,10 @@ const defaultProbe: LinuxPrerequisiteProbe = {
     softwareVulkanIcd: configuredSoftwareIcd,
 };
 
-export function requireLinuxPrerequisites(probe: LinuxPrerequisiteProbe = defaultProbe): string {
+export function requireLinuxPrerequisites(
+    probe: LinuxPrerequisiteProbe = defaultProbe,
+    hardware = false,
+): string {
     const softwareIcd = probe.softwareVulkanIcd();
     const missingBun = ["bun", "bunx"].filter((command) => !probe.commandExists(command));
     const missingRust = ["cargo", "rustc"].filter((command) => !probe.commandExists(command));
@@ -90,7 +94,8 @@ export function requireLinuxPrerequisites(probe: LinuxPrerequisiteProbe = defaul
         "python3",
     ].filter((command) => !probe.commandExists(command));
     if (!probe.hasX11Headers()) missingSystem.push("X11 development headers (libx11-dev)");
-    if (!softwareIcd) missingSystem.push("Mesa software Vulkan ICD (mesa-vulkan-drivers)");
+    if (!hardware && !softwareIcd)
+        missingSystem.push("Mesa software Vulkan ICD (mesa-vulkan-drivers)");
 
     const missing = [...missingBun, ...missingRust, ...missingSystem];
     if (missing.length) {
@@ -100,10 +105,10 @@ export function requireLinuxPrerequisites(probe: LinuxPrerequisiteProbe = defaul
             ...(missingSystem.length ? [`system packages: \`${SETUP_COMMAND}\``] : []),
         ];
         throw new Error(
-            `missing Linux native smoke prerequisites: ${missing.join(", ")}; install via ${routes.join("; ")}${!softwareIcd ? " (or set VK_ICD_FILENAMES to a Mesa lvp ICD)" : ""}`,
+            `missing Linux native smoke prerequisites: ${missing.join(", ")}; install via ${routes.join("; ")}${!hardware && !softwareIcd ? " (or set VK_ICD_FILENAMES to a Mesa lvp ICD)" : ""}`,
         );
     }
-    return softwareIcd!;
+    return softwareIcd ?? "";
 }
 
 function parseArgs(args: string[]) {
@@ -113,11 +118,13 @@ function parseArgs(args: string[]) {
         tarball?: string;
         staleRuntime?: string;
         plantStale: boolean;
+        hardware: boolean;
         help: boolean;
-    } = { plantStale: false, help: false };
+    } = { plantStale: false, hardware: false, help: false };
     for (let index = 0; index < args.length; index++) {
         const arg = args[index];
         if (arg === "--help" || arg === "-h") options.help = true;
+        else if (arg === "--hardware") options.hardware = true;
         else if (arg === "--plant-stale") options.plantStale = true;
         else if (["--consumer", "--logs", "--tarball", "--stale-runtime"].includes(arg)) {
             const value = args[++index];
@@ -523,7 +530,13 @@ finally:
     }
 }
 
-function writePage(project: string, observer: string, mode: string, nonce: string): void {
+function writePage(
+    project: string,
+    observer: string,
+    mode: string,
+    nonce: string,
+    hardware = false,
+): void {
     const report = JSON.stringify({ nonce, mode, href: "" });
     const script = `import { createApp } from '@dylanebert/shallot/app';
 const report = ${report};
@@ -553,11 +566,11 @@ try {
     } catch (error) {
         if (!report.requireHardware || !String(error).includes('Hardware WebGPU is required:')) throw error;
     }
-    if (report.requireHardware) {
+    if (report.requireHardware && !${hardware}) {
         if (gpuApp || hooks.length || !splashError?.includes('fallback') || status.textContent !== splashError) throw new Error('native software refusal did not reach splash before plugin hooks');
         report.refusal = splashError;
     } else {
-        if (!gpuApp || hooks.join(',') !== 'prepare,initialize,warm' || splashError) throw new Error('deliberate software startup failed');
+        if (!gpuApp || hooks.join(',') !== 'prepare,initialize,warm' || splashError) throw new Error('GPU startup failed');
         gpuApp.dispose();
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("no WebGPU adapter");
@@ -610,12 +623,24 @@ export function assertStartup(
         MarkerReport,
         "requireHardware" | "cpuReady" | "hooks" | "refusal" | "error" | "pixel" | "adapter"
     >,
+    hardware = false,
 ): void {
     if (report.error || report.cpuReady !== true)
         throw new Error(
             `Native startup failed: ${report.error ?? "CPU-only startup was not observed"}`,
         );
-    if (report.requireHardware === true) {
+    if (hardware) {
+        const verdict = classifyAdapter({ present: !!report.adapter, info: report.adapter });
+        if (verdict.class !== "real")
+            throw new Error(`Hardware adapter required: ${verdict.reason}`);
+        if (
+            report.requireHardware !== true ||
+            report.refusal ||
+            JSON.stringify(report.hooks) !== '["prepare","initialize","warm"]'
+        )
+            throw new Error("Hardware startup was not observed with the default native GPU policy");
+        assertCanvasImage(report);
+    } else if (report.requireHardware === true) {
         if (
             JSON.stringify(report.hooks) !== "[]" ||
             !report.refusal?.includes("Hardware WebGPU is required:") ||
@@ -719,6 +744,7 @@ async function launchAndObserve(
     args: string[],
     viteOrigin: string | null,
     expected: "vite" | "asset-server",
+    hardware = false,
 ): Promise<LaunchResult> {
     const logPath = resolve(logs, `${slug(step)}.log`);
     const log = createWriteStream(logPath);
@@ -836,7 +862,7 @@ async function launchAndObserve(
             `observer marker did not match this launch (mode ${report.mode})`,
         );
     try {
-        assertStartup(report);
+        assertStartup(report, hardware);
     } catch (error) {
         throw new SmokeFailure(
             step,
@@ -870,7 +896,7 @@ async function launchAndObserve(
     const durationMs = performance.now() - (shellStartedAt ?? commandStartedAt);
     console.info(`${step}: CLI work before shell launch ${(prelaunchMs / 1000).toFixed(2)}s`);
     console.info(
-        `${step}: CPU startup, ${report.requireHardware ? "software refusal before plugin hooks" : "deliberate software startup and WebGPU canvas readback"} verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; GPU: ${report.refusal ?? JSON.stringify(report.adapter)} (log: ${logPath})`,
+        `${step}: CPU startup, ${report.refusal ? "software refusal before plugin hooks" : "GPU startup and WebGPU canvas readback"} verified in ${(durationMs / 1000).toFixed(2)}s at ${report.href}; GPU: ${report.refusal ?? JSON.stringify(report.adapter)} (log: ${logPath})`,
     );
     return { report, output, viteOrigin: resolvedViteOrigin };
 }
@@ -1089,10 +1115,12 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
     rmSync(runtimeData, { recursive: true, force: true });
     const env = cleanEnvironment(process.env, {
         XDG_DATA_HOME: runtimeData,
-        VK_ICD_FILENAMES: icd,
-        LIBGL_ALWAYS_SOFTWARE: "1",
         XDG_SESSION_TYPE: "x11",
+        ...(options.hardware ? {} : { VK_ICD_FILENAMES: icd, LIBGL_ALWAYS_SOFTWARE: "1" }),
     });
+    if (options.hardware) {
+        delete env.LIBGL_ALWAYS_SOFTWARE;
+    }
 
     const tarball = await prepareTarball(consumer, logs, options.tarball, env);
     const { project, targetDir } = await createConsumer(consumer, logs, tarball, env);
@@ -1105,12 +1133,14 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
     try {
         const defaultEnv = cleanEnvironment(env, { DISPLAY: display.display });
         delete defaultEnv.SHALLOT_ALLOW_SOFTWARE_GPU;
-        const launchEnv = { ...defaultEnv, SHALLOT_ALLOW_SOFTWARE_GPU: "1" };
+        const launchEnv = options.hardware
+            ? defaultEnv
+            : { ...defaultEnv, SHALLOT_ALLOW_SOFTWARE_GPU: "1" };
         stopCompositor = await startCompositor(logs, launchEnv);
         observer = await startObserver(logs);
         let devOrigin: string | null = null;
         const debugNonce = randomUUID();
-        writePage(project, observer.origin, "debug-preview", debugNonce);
+        writePage(project, observer.origin, "debug-preview", debugNonce, options.hardware);
         const debugBuild = await runLogged(
             "build debug standalone",
             "bunx",
@@ -1127,21 +1157,22 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
             );
         await bundleIdentity("debug standalone bundle", project, logs, env, false);
 
-        await launchAndObserve(
-            "launch default hardware policy",
-            project,
-            logs,
-            observer,
-            defaultEnv,
-            "debug-preview",
-            debugNonce,
-            ["preview", "--target", "linux", "--portable"],
-            null,
-            "asset-server",
-        );
+        if (!options.hardware)
+            await launchAndObserve(
+                "launch default hardware policy",
+                project,
+                logs,
+                observer,
+                defaultEnv,
+                "debug-preview",
+                debugNonce,
+                ["preview", "--target", "linux", "--portable"],
+                null,
+                "asset-server",
+            );
 
         const devNonce = randomUUID();
-        writePage(project, observer.origin, "dev", devNonce);
+        writePage(project, observer.origin, "dev", devNonce, options.hardware);
         const dev = await launchAndObserve(
             "launch dev",
             project,
@@ -1153,6 +1184,7 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
             ["dev", "--target", "linux", "--portable"],
             null,
             "vite",
+            options.hardware,
         );
         devOrigin = dev.viteOrigin;
         if (!devOrigin)
@@ -1185,10 +1217,11 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
             ["preview", "--target", "linux", "--portable"],
             devOrigin,
             "asset-server",
+            options.hardware,
         );
 
         const releaseNonce = randomUUID();
-        writePage(project, observer.origin, "release-preview", releaseNonce);
+        writePage(project, observer.origin, "release-preview", releaseNonce, options.hardware);
         const releaseBuild = await runLogged(
             "build source release standalone",
             "bunx",
@@ -1233,6 +1266,7 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
             ["preview", "--target", "linux", "--portable", "--release"],
             devOrigin,
             "asset-server",
+            options.hardware,
         );
     } finally {
         try {
@@ -1248,7 +1282,7 @@ async function runSmoke(options: ReturnType<typeof parseArgs>, icd: string): Pro
 }
 
 function usage(): string {
-    return `Usage: bun scripts/native-linux-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nSetup: ${SETUP_COMMAND}\n`;
+    return `Usage: bun scripts/native-linux-smoke.ts --consumer <directory> [options]\n\nOptions:\n  --consumer <directory>  Scratch consumer/cache root, outside the checkout (required)\n  --logs <directory>      Retained step logs (default: <consumer>/logs)\n  --tarball <path>        Test an existing Shallot npm tarball instead of packing this checkout\n  --hardware              Require a hardware adapter on the owned Xvfb display\n  --plant-stale           Plant stale runtimes and bundles to exercise warm-cache selection\n  --stale-runtime <path>  Copy an older libcef.so tree into the release-profile Cargo output\n  --help                  Show this help\n\nSetup: ${SETUP_COMMAND}\n`;
 }
 
 async function main(): Promise<void> {
@@ -1265,13 +1299,13 @@ async function main(): Promise<void> {
         return;
     }
     try {
-        const icd = requireLinuxPrerequisites();
+        const icd = requireLinuxPrerequisites(defaultProbe, options.hardware);
         console.info(
-            `setup: composited Xvfb + Mesa software Vulkan (${icd}); launch ceiling ${CEILING.startup}ms; CEF download and native compile use the CI job timeout`,
+            `setup: ${options.hardware ? `composited Xvfb; hardware required (Vulkan ICD: ${process.env.VK_ICD_FILENAMES ?? "system loader default"})` : `composited Xvfb + Mesa software Vulkan (${icd})`}; launch ceiling ${CEILING.startup}ms; CEF download and native compile use the CI job timeout`,
         );
         await runSmoke(options, icd);
         console.info(
-            "Linux packed native smoke passed: default software refusal; deliberate software startup and canvas readback in dev, debug preview, and source-release preview.",
+            `Linux packed native smoke passed: ${options.hardware ? "hardware startup" : "default software refusal; deliberate software startup"} and canvas readback in dev, debug preview, and source-release preview.`,
         );
     } catch (error) {
         console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
