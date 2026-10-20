@@ -185,8 +185,8 @@ bun run format                  # biome
 - Core physics recovers its geometry registries, read by fixed body synchronization. Standard physics recovers its solver image and ECS bindings; a physics hash does not prove ECS or gameplay recovery
 - Determinism holds within one runtime and engine version; hashes detect divergence across versions
 - Frame evidence uses the cheapest observable: CPU state, then GPU readback, then browser pixels, then a person
-- An engine's final frame uses `attachTexture` and `captureTexture`; other owned textures use `probeTexture`
-- Page composition uses a stepped app and semantic screenshot regions; a running canvas uses `captureFrame` inside the presenting frame, since canvas readback after presentation is transparent black
+- `captureFrame` reads a running canvas's rendered target at its own backing size in the presenting frame; `captureTexture` reads a camera's rendered texture target at its own size after stepping. Other owned textures use `probeTexture`
+- A page screenshot proves the composited page at CSS size × device scale; use a stepped app and semantic screenshot regions. What a display presents belongs to the display-seat manual oracle
 - Goldens cover only defects cheaper evidence cannot show, and are never updated to make a check pass
 - Steady engine work allocates nothing beyond the host API allocations its allocation oracle admits
 - An allocation gate measures what a shipped game allocates: runtime flags may make code optimize sooner, never differently, and a run lasts until its steady code has finished optimizing

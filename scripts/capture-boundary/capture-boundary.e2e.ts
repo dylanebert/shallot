@@ -84,30 +84,25 @@ test("a page screenshot is the browser-composited canvas at CSS size times devic
     ]);
 });
 
-// Quarantined known failure: Playwright's test.fail runs the claim and turns red once it passes. captureFrame
-// refuses every canvas not at the 1280x720 fixture size, so a running app's own rendered target has no
-// capture without resizing the app; examples/physics resizes its canvas and scripts/phone overwrites
-// CAPTURE_CONTRACT to work around it.
-test.fail(
-    "captureFrame reads a running canvas's rendered target at its own backing size and names it",
-    async ({ page }) => {
-        const geometry = await openApp(page);
-        const frame = await page.evaluate(async () => {
-            const captureWindow = window as unknown as CaptureWindow;
-            const capture = await captureWindow.captureFrame(document.querySelector("canvas")!);
-            if (capture.rgba.length !== capture.width * capture.height * 4)
-                throw new Error(`capture is not tight RGBA: ${capture.rgba.length} bytes`);
-            return captureWindow.sceneFrame(capture);
-        });
-        expect([frame.width, frame.height]).toEqual([geometry.width, geometry.height]);
-        expect(frame.identity).toMatchObject({
-            width: geometry.width,
-            height: geometry.height,
-            surface: "final-canvas",
-            encoding: "rgba8-tight",
-        });
-        expect(frame.scene, "the rendered target holds the drawn cube").toBeGreaterThan(
-            geometry.width * geometry.height * 0.05,
-        );
-    },
-);
+test("captureFrame reads a running canvas's rendered target at its own backing size and names it", async ({
+    page,
+}) => {
+    const geometry = await openApp(page);
+    const frame = await page.evaluate(async () => {
+        const captureWindow = window as unknown as CaptureWindow;
+        const capture = await captureWindow.captureFrame(document.querySelector("canvas")!);
+        if (capture.rgba.length !== capture.width * capture.height * 4)
+            throw new Error(`capture is not tight RGBA: ${capture.rgba.length} bytes`);
+        return captureWindow.sceneFrame(capture);
+    });
+    expect([frame.width, frame.height]).toEqual([geometry.width, geometry.height]);
+    expect(frame.identity).toMatchObject({
+        width: geometry.width,
+        height: geometry.height,
+        surface: "final-canvas",
+        encoding: "rgba8-tight",
+    });
+    expect(frame.scene, "the rendered target holds the drawn cube").toBeGreaterThan(
+        geometry.width * geometry.height * 0.05,
+    );
+});

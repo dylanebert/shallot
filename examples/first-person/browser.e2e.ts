@@ -117,7 +117,6 @@ test("the preview serves its isolated page and presents its first frame", async 
     expect(first.identity).toMatchObject({
         width: 1280,
         height: 720,
-        deviceScale: 1,
         surface: "final-canvas",
         encoding: "rgba8-tight",
     });

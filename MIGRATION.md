@@ -4,6 +4,12 @@ Start with the compiler errors in your app. Search this guide for the old symbol
 
 Code fragments assume an owning `world`, an existing entity `eid`, and the imports named in the surrounding text.
 
+## Captures use the rendered target's own size
+
+`captureFrame` now accepts any canvas backing size instead of refusing sizes other than 1280×720. Remove capture-only resizes or writes to `CAPTURE_CONTRACT`; read the actual size from the returned capture. `CAPTURE_CONTRACT` still declares the fixed viewport size and device scale for fixtures.
+
+`Capture.identity` from both `captureFrame` and `captureTexture` no longer includes `deviceScale`. Use its `width`, `height`, `surface` and `encoding` to identify the rendered target. For page screenshots, set the viewport and device scale in the browser driver; a target's backing size does not declare the page's device scale.
+
 ## Effect stack replaces vignette
 
 `@dylanebert/shallot/vignette` and `VignettePlugin` still work as deprecated aliases and are removed in 0.11. Switch imports to `@dylanebert/shallot/effect-stack` and use `EffectStackPlugin` (also in root and extras imports). Both plugin names refer to the same plugin. `Vignette` keeps its fields and defaults. The plugin now also supports camera components `LensDistortion` and `ChromaticAberration`, fused with vignette into one pass before tonemapping.

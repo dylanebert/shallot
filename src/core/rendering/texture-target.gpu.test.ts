@@ -210,7 +210,6 @@ test("texture final frames capture tight RGBA and refuse missing presentation; o
     expect(capture.identity).toEqual({
         width: 7,
         height: 3,
-        deviceScale: 1,
         surface: "final-texture",
         encoding: "rgba8-tight",
     });

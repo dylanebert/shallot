@@ -14,7 +14,6 @@ interface BrowserCapture {
     identity: {
         width: number;
         height: number;
-        deviceScale: number;
         surface: string;
         encoding: string;
     };

@@ -1,7 +1,3 @@
-// The canvas capture contract. It fixes the viewport, device scale, target surface, presentation
-// boundary and tightly packed RGBA semantics, so every consumer reads the same geometry. `captureFrame`
-// runs IN THE PAGE; the driver fixes the viewport that makes the geometry hold and never re-implements the read.
-
 import type { World } from "../../engine";
 import { probeTexture } from "../../engine/runtime";
 import { cameraView, canvasFrameBinding, type View } from "./view";
@@ -9,31 +5,24 @@ import { cameraView, canvasFrameBinding, type View } from "./view";
 interface CaptureIdentity {
     width: number;
     height: number;
-    deviceScale: number;
     surface: "final-canvas" | "final-texture";
     encoding: "rgba8-tight";
 }
 
-/** the one declared capture contract every consumer reads. */
-export const CAPTURE_CONTRACT: CaptureIdentity = {
+/** The viewport size and device scale used by capture fixtures. */
+export const CAPTURE_CONTRACT: {
+    width: number;
+    height: number;
+    deviceScale: number;
+    surface: "final-canvas";
+    encoding: "rgba8-tight";
+} = {
     width: 1280,
     height: 720,
     deviceScale: 1,
     surface: "final-canvas",
     encoding: "rgba8-tight",
 };
-
-function captureIdentityLabel(identity: CaptureIdentity): string {
-    return `${identity.surface} ${identity.width}x${identity.height}@${identity.deviceScale} ${identity.encoding}`;
-}
-
-function assertCaptureGeometry(width: number, height: number): void {
-    if (width !== CAPTURE_CONTRACT.width || height !== CAPTURE_CONTRACT.height) {
-        throw new Error(
-            `capture refused: surface is ${width}x${height}, not the declared contract ${captureIdentityLabel(CAPTURE_CONTRACT)}`,
-        );
-    }
-}
 
 const FRAME_CAPTURE_LABEL = "canvas frame capture";
 
@@ -59,8 +48,9 @@ function watchFrameCaptureDevice(view: View, device: GPUDevice): void {
 }
 
 /**
- * Read a camera's world-owned final texture after a submitted presenting frame. Call after stepping;
- * queue order places the copy after that submission, without requiring another frame. Refuses an
+ * Read a camera's world-owned rendered texture target at its own size after a submitted presenting
+ * frame. Call after stepping; queue order places the copy after that submission, without requiring
+ * another frame. Refuses an
  * unbound/non-texture camera or a target never presented to. Returns independent tight RGBA bytes
  * that outlive the target; detachment or disposal before the copy completes may reject the read.
  */
@@ -84,7 +74,6 @@ export async function captureTexture(world: World, eid: number): Promise<Capture
         identity: {
             width: snapshot.width,
             height: snapshot.height,
-            deviceScale: 1,
             surface: "final-texture",
             encoding: "rgba8-tight",
         },
@@ -99,11 +88,6 @@ export interface Capture {
     identity: CaptureIdentity;
 }
 
-/**
- * Capture a running app's final canvas as tightly packed RGBA at the declared contract. A WebGPU canvas
- * copies its current swapchain texture before the browser presents it; an unbound canvas uses its own
- * bitmap. A held app presents no next frame; capture its page with a Playwright page screenshot.
- */
 export function encodeFrameCapture(world: World, view: View): void {
     const captures = view.frameCaptures;
     if (!captures?.length) return;
@@ -157,12 +141,12 @@ export function encodeFrameCapture(world: World, view: View): void {
 }
 
 /**
- * Capture the next presenting frame as tightly packed RGBA. A bound WebGPU canvas refuses capture
- * if that frame reuses a texture an earlier frame drew to; await world.frameFence (or yield a task)
+ * Read a running canvas's rendered target at its own backing size as tightly packed RGBA, not the
+ * composited page or physical display. A bound WebGPU canvas captures the next presenting frame and
+ * refuses capture if that frame reuses a texture an earlier frame drew to; await world.frameFence (or yield a task)
  * before the capture frame. An unbound canvas uses its bitmap.
  */
 export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> {
-    assertCaptureGeometry(canvas.width, canvas.height);
     const binding = canvasFrameBinding(canvas);
     if (binding) {
         if (binding.view.frameCaptureLost) throw labeledCaptureError(binding.view.frameCaptureLost);
@@ -203,7 +187,12 @@ export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> 
                     rgba[i] = red;
                 }
             }
-            return { rgba, width, height, identity: CAPTURE_CONTRACT };
+            return {
+                rgba,
+                width,
+                height,
+                identity: { width, height, surface: "final-canvas", encoding: "rgba8-tight" },
+            };
         } catch (error) {
             throw labeledCaptureError(error);
         } finally {
@@ -216,7 +205,6 @@ export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> 
     );
     const bitmap = await createImageBitmap(await (await fetch(url)).blob());
     try {
-        assertCaptureGeometry(bitmap.width, bitmap.height);
         const surface = new OffscreenCanvas(bitmap.width, bitmap.height);
         const context = surface.getContext("2d");
         if (!context) throw new Error("capture refused: no 2d context for the capture surface");
@@ -226,7 +214,12 @@ export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> 
             rgba: image.data,
             width: image.width,
             height: image.height,
-            identity: CAPTURE_CONTRACT,
+            identity: {
+                width: image.width,
+                height: image.height,
+                surface: "final-canvas",
+                encoding: "rgba8-tight",
+            },
         };
     } finally {
         bitmap.close();

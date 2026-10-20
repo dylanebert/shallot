@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { CAPTURE_CONTRACT } from "./capture";
 
-test("a frame capture uses the declared final-canvas geometry and encoding", () => {
+test("CAPTURE_CONTRACT is the size and scale fixtures set their viewport to", () => {
     expect(CAPTURE_CONTRACT).toEqual({
         width: 1280,
         height: 720,
