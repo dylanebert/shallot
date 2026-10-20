@@ -197,12 +197,12 @@ export function squaredDistance(seeds: Uint16Array, x: number, y: number): numbe
 }
 
 /** CPU nine-neighbour flood, including its non-nearest results.
- * The independent ladder starts at the first power of two >= width and ends at 1.
+ * The independent ladder has Golus's ceil(log2(width + 1)) levels, ending at 1.
  * The current seed wins ties; otherwise the first in y-then-x order wins.
  */
 export function jumpFlood(pixels: Pixel[], width: number): Uint16Array<ArrayBuffer> {
     let seeds = initialSeeds(pixels);
-    const first = 2 ** Math.ceil(Math.log2(Math.max(1, Math.min(64, Math.ceil(width)))));
+    const first = 2 ** (Math.ceil(Math.log2(Math.max(1, Math.min(64, width)) + 1)) - 1);
     for (let step = first; step >= 1; step /= 2) {
         const next = new Uint16Array(seeds.length);
         for (let y = 0; y < size; y++)

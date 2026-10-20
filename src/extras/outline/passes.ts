@@ -7,25 +7,22 @@ import { ViewUniforms, Xform, xformPoint } from "../../core/rendering";
 // Cap band width to bound the jump-flood pass count.
 export const MAX_WIDTH = 64;
 
-/** the JFA ladder's slot count: one per power of two from the first ≥ MAX_WIDTH down to 1. */
-export const MAX_JFA_PASSES = Math.ceil(Math.log2(MAX_WIDTH)) + 1;
+/** Golus's width-bounded ladder: ceil(log2(width + 1)) levels at the maximum width. */
+export const MAX_JFA_PASSES = Math.ceil(Math.log2(MAX_WIDTH + 1));
 
-/** the jump step of ladder slot `k`: MAX_JFA_PASSES slots halving from the first power of two ≥ MAX_WIDTH to 1. */
+/** The jump step of ladder slot `k`, halving to 1 in the last slot. */
 export function jfaStep(k: number): number {
     return 2 ** (MAX_JFA_PASSES - 1 - k);
 }
 
 /**
- * the jump-flood pass count for a band of `maxWidth` pixels: the ladder's last `ceil(log2(width)) + 1`
- * slots, from the first power of two ≥ the width down to 1. Bounding the first jump by the width (not the
- * screen) bounds the pass count: a pixel only needs to find seeds within `width`, so seeds nearer than the
- * start step resolve correctly.
+ * Golus's linked JumpFloodOutlineRenderer uses ceil(log2(width + 1)) levels.
+ * Their steps sum to 2^levels - 1 >= width, covering every integer offset in band range.
+ * This bounds reach, not accuracy: competing seeds can still kill the nearest seed's paths.
  */
 export function jfaPassCount(maxWidth: number): number {
-    const w = Math.max(1, Math.min(MAX_WIDTH, Math.ceil(maxWidth)));
-    let passes = 1;
-    for (let s = 1; s < w; s <<= 1) passes++;
-    return passes;
+    const width = Math.max(1, Math.min(MAX_WIDTH, maxWidth));
+    return Math.ceil(Math.log2(width + 1));
 }
 
 /** the always-on-top mask layout. @internal */

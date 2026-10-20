@@ -155,7 +155,7 @@ test("view targets preserve non-uniform lit background, fog and outline frames f
             renderPasses = 0;
             world.step(0);
             // Count and populate each add a color-disabled raster pass before the view's shading passes.
-            expect(renderPasses).toBe(depth ? 11 : 10);
+            expect(renderPasses).toBe(depth ? 10 : 9);
             const { rgba } = await captureTexture(world, camera);
             frames[aa][depth] = rgba;
             expect(await world.gpu.device.popErrorScope()).toBeNull();
