@@ -36,7 +36,7 @@ import {
 import { foggedColor, fogSlot, fogSource, unfoggedColor } from "./fog";
 import type { Recorded } from "./forward";
 import { indirectLightSlot, indirectLightSources } from "./indirect";
-import { Lighting } from "./lighting";
+import { viewLighting } from "./lighting";
 import type { MaterialBinding, MaterialLayout, MaterialType } from "./material-type";
 import {
     ALPHA_PIPELINE_KEY_COUNT,
@@ -289,7 +289,7 @@ export function engineGroup(
         world.gpu.root.createBindGroup(engineLayout, {
             frame: world.resource(Frame).buffer!,
             view: world.resource(RenderContext).viewBuffers[slot],
-            lighting: world.resource(Lighting).buffer!,
+            lighting: viewLighting(world, slot),
             pointLights,
             meshQuant: quant,
         }),

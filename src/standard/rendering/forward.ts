@@ -23,6 +23,7 @@ import {
     MainPassSystem,
     PrepassSystem,
     RenderContext,
+    RenderLayers,
     RenderPhases,
     SAMPLE_COUNT,
     type TransparentPhase,
@@ -323,7 +324,8 @@ function materialResource(
         case "globalTransforms":
             return globalTransformTable(world).typed;
         case "meshInstances":
-            return meshInstanceTable(world).typed;
+            // Entity layers occupy producer-row padding; material fields retain the producer layout.
+            return meshInstanceTable(world).buffer;
         case "materialParameters":
             return type ? materialSource(world, type).table.typed : undefined;
         default:
@@ -887,7 +889,15 @@ function queueTransparent(world: World, eid: number, view: View, phase: Transpar
     const planeBase = view.slot * CULL_VOLUME_FLOATS;
     const position = phase.positionScratch;
     const sources = world.resource(MaterialTypes).sources;
+    const layers = world.storage(RenderLayers).mask;
+    const cameraLayers = world.has(eid, RenderLayers) ? layers.get(eid) : 1;
     for (const instanceEid of world.resource(TransparentMeshes).candidates) {
+        if (
+            ((world.has(instanceEid, RenderLayers) ? layers.get(instanceEid) : 1) &
+                cameraLayers) ===
+            0
+        )
+            continue;
         const source = sources[materials.type.get(instanceEid)];
         const alphaMode =
             source?.alphaMode(materials.material.get(instanceEid)) ??

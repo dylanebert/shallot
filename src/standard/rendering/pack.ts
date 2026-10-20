@@ -9,7 +9,7 @@ import {
     xformPoint,
 } from "../../core/rendering";
 import { HANDLE_INDEX_MASK } from "../../engine/utils";
-import { MeshInstanceInput } from "./material-data";
+import { EntityMeshInstanceInput } from "./material-data";
 import { DrawIndexedIndirect } from "./registry";
 
 // Raw compute passes bind by index, so layouts pin their group indices rather than relying on resolve order.
@@ -30,7 +30,7 @@ export const MeshBounds = d.struct({ sphere: d.vec4f, handle: d.u32 });
 export const cullLayout = tgpu
     .bindGroupLayout({
         instanceRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
-        instances: { storage: d.arrayOf(MeshInstanceInput), access: "readonly" },
+        instances: { storage: d.arrayOf(EntityMeshInstanceInput), access: "readonly" },
         globalTransforms: { storage: d.arrayOf(Xform), access: "readonly" },
         globalTransformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         meshBounds: { storage: d.arrayOf(MeshBounds), access: "readonly" },
@@ -82,9 +82,9 @@ export function visibility(
     layout: typeof cullLayout | typeof import("./producer-table").producerCullLayout,
 ) {
     return tgpu.fn(
-        [d.u32, d.u32, d.u32, d.u32],
+        [d.u32, d.u32, d.u32, d.u32, d.u32],
         d.bool,
-    )((mid, instanceRow, globalTransformRow, slot) => {
+    )((mid, instanceRow, globalTransformRow, slot, layers) => {
         "use gpu";
         if (slot >= layout.$.params.viewCount) return true;
         const xf = layout.$.globalTransforms[globalTransformRow];
@@ -96,6 +96,7 @@ export function visibility(
             b.w * std.max(std.abs(xf.scale.x), std.max(std.abs(xf.scale.y), std.abs(xf.scale.z)));
         const base = slot * CULL_STRIDE;
         const header = layout.$.cullVolumes[base];
+        if ((std.bitcastF32toU32(header.z) & layers) === 0) return false;
         if (d.u32(header.x) !== CULL_FRUSTUM) return true;
         let i = d.u32(0);
         while (i < 6) {
@@ -184,7 +185,20 @@ export function countKernel(materialTypeCount: number) {
                 cullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0
             )
                 return;
-            if (!visible(g.mid, g.row, g.globalTransformRow, slot)) return;
+            if (
+                !visible(
+                    g.mid,
+                    g.row,
+                    g.globalTransformRow,
+                    slot,
+                    std.select(
+                        1,
+                        cullLayout.$.instances[g.row].layers,
+                        (cullLayout.$.instances[g.row].flags & 2) !== 0,
+                    ),
+                )
+            )
+                return;
             std.atomicAdd(countLayout.$.counts[slot * cullLayout.$.params.pairCount + g.pair], 1);
         })
         .$name("meshPreprocessCount");
@@ -277,7 +291,20 @@ export function scatterKernel(materialTypeCount: number) {
                 cullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0
             )
                 return;
-            if (!visible(g.mid, g.row, g.globalTransformRow, slot)) return;
+            if (
+                !visible(
+                    g.mid,
+                    g.row,
+                    g.globalTransformRow,
+                    slot,
+                    std.select(
+                        1,
+                        cullLayout.$.instances[g.row].layers,
+                        (cullLayout.$.instances[g.row].flags & 2) !== 0,
+                    ),
+                )
+            )
+                return;
             const idx = slot * cullLayout.$.params.pairCount + g.pair;
             const remaining = std.atomicSub(scatterLayout.$.drawArgs[idx].instanceCount, 1);
             const target = scatterLayout.$.drawArgs[idx].firstInstance + remaining - 1;

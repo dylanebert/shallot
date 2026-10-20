@@ -9,6 +9,7 @@ import {
     Camera,
     captureTexture,
     DirectionalLight,
+    RenderLayers,
     Xform,
 } from "../../core/rendering";
 import { Transform } from "../../core/transform";
@@ -294,6 +295,20 @@ test("producer rows outside the camera frustum are absent from its packed list",
     expect([packed[0], packed[4]]).toEqual([0xffffffff, 0xffffffff]);
     expect([packed[1], packed[5]].sort()).toEqual([0, 1]);
     expect(packed[2]).toBe(packed[1]! + 1);
+});
+test("producer rows belong to layer 0 and do not enter a layer-1 camera", async () => {
+    const world = apps()[1].world;
+    const camera = world.resource(state).camera;
+    try {
+        world.add(camera, RenderLayers, { mask: 2 });
+        world.step(0);
+        expect((await producerArgs(world)).args[1]).toBe(0);
+        world.storage(RenderLayers).mask.set(camera, 3);
+        world.step(0);
+        expect((await producerArgs(world)).args[1]).toBe(2);
+    } finally {
+        world.remove(camera, RenderLayers);
+    }
 });
 test("different producer meshes and material types have their own indirect draw groups", async () => {
     const world = apps()[1].world;

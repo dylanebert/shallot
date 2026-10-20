@@ -143,5 +143,14 @@ export const SunDisk = component(
 /** Opt a light into FogPlugin's volumetric scattering. Without fog this marker is inert. */
 export const VolumetricLight = component("VolumetricLight", {});
 
+/** Membership in 32 rendering layers: bit n selects layer n. Missing means layer 0; zero matches
+ * nothing. Cameras select meshes and lights by intersection; lights select their shadow casters.
+ * Changes take effect next frame. */
+export const RenderLayers = component(
+    "RenderLayers",
+    { mask: u32 },
+    { defaults: () => ({ mask: 1 }) },
+);
+
 /** Exclude a mesh from shadow views without removing it from the main view. */
 export const NotShadowCaster = component("NotShadowCaster", {});

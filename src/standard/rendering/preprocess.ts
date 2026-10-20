@@ -19,6 +19,7 @@ import {
     MAX_SLOTS,
     NotShadowCaster,
     RenderContext,
+    RenderLayers,
 } from "../../core/rendering";
 import { ClearChangeMarksSystem, type System, type World } from "../../engine";
 import {
@@ -31,7 +32,7 @@ import {
     setComputePipeline,
 } from "../../engine/runtime";
 import { MaterialTypes } from "./material";
-import { MeshInstanceInput, MeshMaterial } from "./material-data";
+import { EntityMeshInstanceInput, MeshMaterial } from "./material-data";
 import {
     ALPHA_PIPELINE_KEY_COUNT,
     alphaPipelineKey,
@@ -143,7 +144,7 @@ export function meshInstanceTable(world: World) {
 }
 
 function createMeshInstanceTable(world: World) {
-    const table = world.table("meshInstances", MeshInstanceInput);
+    const table = world.table("meshInstances", EntityMeshInstanceInput);
     table.setUploadPreparation(copyMeshAlpha);
     table.enableEidLookup();
     return table;
@@ -207,6 +208,8 @@ export function initializeMeshPreprocess(world: World): void {
         alphaCutoff: "alphaCutoff",
     });
     table.bindPresence(NotShadowCaster, "flags", 1);
+    table.bindFields(RenderLayers, { layers: "mask" });
+    table.bindPresence(RenderLayers, "flags", 2);
     const seedDefault = (eid: number) => {
         if (!world.has(eid, MeshMaterial)) {
             world.storage(MeshMaterial).material.set(eid, 0);

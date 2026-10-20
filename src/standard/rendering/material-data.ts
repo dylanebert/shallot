@@ -31,6 +31,11 @@ export const MeshInstanceInput = d
     })
     .$name("MeshInstanceInput");
 
+const { cullBounds, ...instanceFields } = MeshInstanceInput.propTypes;
+/** Entity input consumes the producer row's padding for render layers without changing its stride.
+ * @internal */
+export const EntityMeshInstanceInput = d.struct({ ...instanceFields, layers: d.u32, cullBounds });
+
 /**
  * Selects one material row from one World-local material type. `type` identifies the shader and typed
  * parameter table; `material` is a row in that table. `alphaMode` and `alphaCutoff` copy that row's alpha

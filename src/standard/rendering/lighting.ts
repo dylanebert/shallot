@@ -4,8 +4,12 @@ import * as std from "typegpu/std";
 import {
     DirectionalLight,
     PointLight,
+    RenderContext,
+    RenderLayers,
     SpotLight,
     SunDisk,
+    type View,
+    Views,
     VolumetricLight,
 } from "../../core/rendering";
 import { GlobalTransform } from "../../core/transform";
@@ -45,12 +49,14 @@ export interface Lighting {
 
 interface LightingResources {
     gpu: Lighting;
+    viewBuffers: GPUBuffer[];
     directionalEids: Int32Array;
     colorEids: Int32Array;
     colorPacked: Float64Array;
     colors: Float64Array;
     stagingU32: Uint32Array;
     directionalOverflowWarned: boolean;
+    viewOverflowWarned: boolean[];
     pointOverflowWarned: boolean;
     spotAngleWarned: boolean;
     shadowConflictWarned: boolean;
@@ -62,12 +68,14 @@ function createLightingResources(): LightingResources {
     const backing = new ArrayBuffer(LIGHTING_UNIFORM_SIZE);
     return {
         gpu: { buffer: null!, staging: new Float32Array(backing) },
+        viewBuffers: [],
         directionalEids: new Int32Array(MAX_DIRECTIONAL_LIGHTS).fill(-1),
         colorEids: new Int32Array(MAX_DIRECTIONAL_LIGHTS).fill(-1),
         colorPacked: new Float64Array(MAX_DIRECTIONAL_LIGHTS).fill(-1),
         colors: new Float64Array(MAX_DIRECTIONAL_LIGHTS * 3),
         stagingU32: new Uint32Array(backing),
         directionalOverflowWarned: false,
+        viewOverflowWarned: [],
         pointOverflowWarned: false,
         spotAngleWarned: false,
         shadowConflictWarned: false,
@@ -139,8 +147,33 @@ export function shadowDirectionalLight(world: World): number {
     return selected;
 }
 
-/** Read up to ten directionals and pack their transform-derived directions and light features. */
+/** Per-view directional uniform; buffers retain their slot identity until world disposal. @internal */
+export function viewLighting(world: World, slot: number): GPUBuffer {
+    const buffers = lightingResources(world).viewBuffers;
+    if (!buffers[slot]) {
+        buffers[slot] = world.gpu.device.createBuffer({
+            label: `shallot-view-lighting-${slot}`,
+            size: LIGHTING_UNIFORM_SIZE,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        world.own(buffers[slot]);
+    }
+    return buffers[slot];
+}
+
+function writeViewLighting(this: World, view: View, eid: number): void {
+    if (view.slot >= this.resource(RenderContext).shadeCount) return;
+    const mask = this.has(eid, RenderLayers) ? this.storage(RenderLayers).mask.get(eid) : 1;
+    packLighting(this, mask, viewLighting(this, view.slot), view.slot);
+}
+
+/** Read up to ten directionals per view, filtering layers before applying the cap. */
 export function writeLighting(world: World): void {
+    packLighting(world, 0xffffffff, world.resource(Lighting).buffer);
+    world.resource(Views).forEach(writeViewLighting, world);
+}
+
+function packLighting(world: World, mask: number, buffer: GPUBuffer, slot = -1): void {
     const gpu = world.resource(Lighting);
     if (!world.gpu.device || !gpu.buffer) return;
 
@@ -150,19 +183,24 @@ export function writeLighting(world: World): void {
     const lights = world.storage(DirectionalLight);
     let count = 0;
     let total = 0;
+    const layers = world.storage(RenderLayers).mask;
     for (const eid of world.query(DIRECTIONAL_TERMS)) {
+        if (((world.has(eid, RenderLayers) ? layers.get(eid) : 1) & mask) === 0) continue;
         if (count < MAX_DIRECTIONAL_LIGHTS) resources.directionalEids[count++] = eid;
         total++;
     }
-    if (total > MAX_DIRECTIONAL_LIGHTS && !resources.directionalOverflowWarned) {
+    const overflowWarned =
+        slot < 0 ? resources.directionalOverflowWarned : resources.viewOverflowWarned[slot];
+    if (total > MAX_DIRECTIONAL_LIGHTS && !overflowWarned) {
         console.warn(
             `shallot: ${total} directional lights exceed the ${MAX_DIRECTIONAL_LIGHTS} cap; ${total - MAX_DIRECTIONAL_LIGHTS} ignored`,
         );
-        resources.directionalOverflowWarned = true;
-    } else if (total <= MAX_DIRECTIONAL_LIGHTS) resources.directionalOverflowWarned = false;
+    }
+    if (slot < 0) resources.directionalOverflowWarned = total > MAX_DIRECTIONAL_LIGHTS;
+    else resources.viewOverflowWarned[slot] = total > MAX_DIRECTIONAL_LIGHTS;
 
     const shadow = shadowDirectionalLight(world);
-    if (shadow >= 0) {
+    if (shadow >= 0 && ((world.has(shadow, RenderLayers) ? layers.get(shadow) : 1) & mask) !== 0) {
         let at = -1;
         for (let i = 0; i < count; i++) if (resources.directionalEids[i] === shadow) at = i;
         if (at < 0) {
@@ -216,7 +254,7 @@ export function writeLighting(world: World): void {
         }
     }
 
-    world.gpu.device.queue.writeBuffer(gpu.buffer, 0, staging as Float32Array<ArrayBuffer>);
+    world.gpu.device.queue.writeBuffer(buffer, 0, staging as Float32Array<ArrayBuffer>);
 }
 
 /** the point-light list cap. The compacted list the cull pass bins is fixed-size so standard's binding
@@ -233,6 +271,7 @@ export const PointLightGpu = d.struct({
     posRange: d.vec4f,
     color: d.vec4f,
     params: d.vec4f,
+    layers: d.u32,
 });
 
 /**

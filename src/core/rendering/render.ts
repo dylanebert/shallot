@@ -13,6 +13,7 @@ export interface RenderContext {
     viewStaging: Float32Array;
     cullVolumes: GPUBuffer;
     cullVolumeStaging: Float32Array;
+    cullVolumeWords: Uint32Array;
     viewCount: number;
     shadeCount: number;
 }
@@ -26,6 +27,7 @@ function createRender(): RenderContext {
         viewStaging: null!,
         cullVolumes: null!,
         cullVolumeStaging: null!,
+        cullVolumeWords: null!,
         viewCount: 0,
         shadeCount: 0,
     };

@@ -10,6 +10,7 @@ import {
     MAX_SLOTS,
     MAX_VIEWS,
     PointLight,
+    RenderLayers,
     readRenderGlobalTransform,
     SpotLight,
     Views,
@@ -541,6 +542,7 @@ export function sunTowardLight(world: World): Float64Array {
 
 function createCascadeCamera(world: World): number {
     const eid = world.create();
+    world.add(eid, RenderLayers);
     world.add(eid, GlobalTransform);
     world.add(eid, Camera);
     world.storage(Camera).mode.set(eid, CameraMode.Orthographic);
@@ -640,6 +642,9 @@ export function updateCascades(world: World, main: number): void {
     shadow.sunOverlap = overlap;
 
     syncCascadePool(world, shadow, n);
+    const layers = world.storage(RenderLayers).mask;
+    const mask = world.has(light, RenderLayers) ? layers.get(light) : 1;
+    for (let i = 0; i < n; i++) layers.set(shadow.cascadeEids[i]!, mask);
 
     _cascNext.set(_cascWorld, 0);
     _cascNext[16] = mode;
@@ -1026,6 +1031,7 @@ export function pointComboEids(world: World): number[] {
 
 function createComboCamera(world: World): number {
     const eid = world.create();
+    world.add(eid, RenderLayers);
     world.add(eid, GlobalTransform);
     world.add(eid, Camera);
     world.storage(Camera).mode.set(eid, CameraMode.Perspective);
@@ -1146,6 +1152,14 @@ function poseSpotRotation(world: World, eid: number, frame: PointShadowFrame): v
 
 // Combo culling must match the face/cone projection before atlas tile placement.
 function poseCombo(world: World, eid: number, frame: PointShadowFrame, face: number): void {
+    world
+        .storage(RenderLayers)
+        .mask.set(
+            eid,
+            world.has(frame.light, RenderLayers)
+                ? world.storage(RenderLayers).mask.get(frame.light)
+                : 1,
+        );
     world.storage(GlobalTransform).translation.set(eid, frame.pos[0], frame.pos[1], frame.pos[2]);
     if (frame.spot) poseSpotRotation(world, eid, frame);
     else {

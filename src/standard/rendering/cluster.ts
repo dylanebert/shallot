@@ -5,12 +5,15 @@ import {
     BeginFrameSystem,
     Camera,
     CameraMode,
+    CULL_VOLUME_FLOATS,
+    CullVolumes,
     computeViewFromWorld,
     globalTransformTable,
     INITIAL_VIEW_CAPACITY,
     MAX_VIEWS,
     PointLight,
     RenderContext,
+    RenderLayers,
     SpotLight,
     type View,
     Views,
@@ -166,7 +169,7 @@ const LightInput = d
         spotScale: d.f32,
         spotOffset: d.f32,
         flags: d.u32,
-        padding: d.u32,
+        layers: d.u32,
     })
     .$name("LightInput");
 const LIGHT_SPOT = 1;
@@ -202,6 +205,8 @@ export function initializeClusterState(world: World): void {
     table.bindMembership(SpotLight);
     table.bindPresence(SpotLight, "flags", LIGHT_SPOT);
     table.bindPresence(VolumetricLight, "flags", LIGHT_VOLUMETRIC);
+    table.bindFields(RenderLayers, { layers: "mask" });
+    table.bindPresence(RenderLayers, "flags", 4);
 }
 
 const SPOT_SCALE_OFFSET = d.memoryLayoutOf(LightInput, (row) => row.spotScale).offset;
@@ -712,7 +717,7 @@ const ALLOCATION_WORKGROUP_SIZE = 256;
 const RASTER_ARGS_SIZE = 20;
 
 const zSliceShader = `
-struct PointLight { posRange: vec4f, color: vec4f, params: vec4f };
+struct PointLight { posRange: vec4f, color: vec4f, params: vec4f, layers: u32 };
 struct ClusterOutput {
     count: array<atomic<u32>, 4>,
     lights: array<PointLight, ${MAX_POINT_LIGHTS}>,
@@ -733,6 +738,7 @@ struct ZSlice { light: u32, z: u32 };
 @group(0) @binding(3) var<storage, read> clusterViews: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> rasterArgs: array<RasterArgs>;
 @group(0) @binding(5) var<storage, read_write> zSlices: array<ZSlice>;
+@group(0) @binding(6) var<uniform> cullVolumes: array<vec4f, ${d.sizeOf(CullVolumes) / 16}>;
 
 fn viewScale(view: mat4x4f) -> f32 {
     let x = length(vec3f(view[0].x, view[1].x, view[2].x));
@@ -746,6 +752,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let lightCount = min(atomicLoad(&cluster.count[0]), ${MAX_POINT_LIGHTS}u);
     if (gid.x >= lightCount || gid.y >= arrayLength(&viewMats)) { return; }
     let light = rasterLights[gid.x];
+    if ((light.layers & bitcast<u32>(cullVolumes[gid.y * ${CULL_VOLUME_FLOATS / 4}u].z)) == 0u) { return; }
     let center = (viewMats[gid.y] * vec4f(light.posRange.xyz, 1.0)).xyz;
     let inverseRangeSquared = light.posRange.w;
     let radius = select(1e20, inverseSqrt(inverseRangeSquared), inverseRangeSquared > 0.0) * viewScale(viewMats[gid.y]);
@@ -770,7 +777,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 const allocationShader = `
 struct ClusterOutput {
     count: array<atomic<u32>, 4>,
-    lights: array<vec4f, ${MAX_POINT_LIGHTS * 3}>,
+    lights: array<vec4f, ${MAX_POINT_LIGHTS * 4}>,
     indices: array<atomic<u32>, ${POOL_HEADER + LIGHT_POOL}>,
     grid: array<vec2u>,
 };
@@ -839,7 +846,7 @@ fn allocateGlobal(@builtin(local_invocation_id) local: vec3u) {
 `;
 
 const rasterCommon = `
-struct PointLight { posRange: vec4f, color: vec4f, params: vec4f };
+struct PointLight { posRange: vec4f, color: vec4f, params: vec4f, layers: u32 };
 struct ZSlice { light: u32, z: u32 };
 struct ClusterCounter { count: atomic<u32>, cursor: atomic<u32> };
 struct ClusterOutput {
@@ -1043,9 +1050,19 @@ function compactKernel() {
                 );
             }
             compactLayout.$.lights.lights.lights[i].params = d.vec4f(params);
+            compactLayout.$.lights.lights.lights[i].layers = std.select(
+                1,
+                record.layers,
+                (record.flags & 4) !== 0,
+            );
             compactLayout.$.rasterLights[i].posRange = d.vec4f(posRange);
             compactLayout.$.rasterLights[i].color = d.vec4f(color);
             compactLayout.$.rasterLights[i].params = d.vec4f(params);
+            compactLayout.$.rasterLights[i].layers = std.select(
+                1,
+                record.layers,
+                (record.flags & 4) !== 0,
+            );
         })
         .$name("lightCompact");
 }
@@ -1140,6 +1157,7 @@ async function warmLightRaster(world: World): Promise<void> {
         storage(3, GPUShaderStage.COMPUTE, "read-only-storage"),
         storage(4, GPUShaderStage.COMPUTE, "storage"),
         storage(5, GPUShaderStage.COMPUTE, "storage"),
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
     ]);
     const allocationLayout = computeLayout([
         storage(0, GPUShaderStage.COMPUTE, "storage"),
@@ -1310,6 +1328,7 @@ function bindLightCullGroups(world: World): void {
                 { binding: 3, resource: { buffer: views } },
                 { binding: 4, resource: { buffer: rasterArgs } },
                 { binding: 5, resource: { buffer: zSlices } },
+                { binding: 6, resource: { buffer: world.resource(RenderContext).cullVolumes } },
             ],
         }),
     };
@@ -1576,7 +1595,7 @@ export async function warmLightCull(world: World): Promise<void> {
     _clusterGpu.rasterLights = ownedBuffer(
         world,
         "shallot-light-raster-lights",
-        MAX_POINT_LIGHTS * 48,
+        MAX_POINT_LIGHTS * d.sizeOf(PointLightGpu),
         GPUBufferUsage.STORAGE,
     );
     allocatePerViewLightBuffers(world, _clusterGpu.viewCapacity);

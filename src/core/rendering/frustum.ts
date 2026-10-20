@@ -62,7 +62,8 @@ export function frustumPlanes(viewProj: Float32Array, out: Float32Array, base = 
 
 /**
  * Writes a cull slot at `slot*CULL_VOLUME_FLOATS`: a header vec4 with x=CULL_FRUSTUM, then six planes.
- * header.y is one for depth-only views, zero for shading views. Supplying cameraWorld and far
+ * header.y is one for depth-only views, zero for shading views. header.z holds the bitcast u32
+ * RenderLayers mask, initially layer 0. Supplying cameraWorld and far
  * replaces an infinite perspective's degenerate far plane with a finite bound.
  */
 export function frustumVolume(
@@ -74,6 +75,7 @@ export function frustumVolume(
 ): void {
     const base = slot * CULL_VOLUME_FLOATS;
     out[base] = CULL_FRUSTUM; // header vec4: tag in .x
+    out[base + 2] = 2 ** -149; // f32 bits of the layer-0 mask (u32 1)
     frustumPlanes(viewProj, out, base + 4); // planes follow the header vec4
     if (!cameraWorld || far === undefined) return;
 

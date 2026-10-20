@@ -45,6 +45,7 @@ export interface ProducerEntry {
  * MeshInstanceInput, whose JSDoc gives each field's source and the silent failure a wrong value causes.
  * Material shaders read eid as 0xFFFFFFFF (the invalid entity id) and row as this table's row index.
  * Entity rows instead read their entity id in eid and 0xFFFFFFFF in row.
+ * Producer rows belong to render layer 0, for both camera and shadow-light selection.
  * CPU picking, interpolation and snapshots do not include these rows. Blended materials are refused
  * because transparent sorting is on the CPU. Only declared mesh and material-type/alpha pairs draw.
  */
@@ -158,7 +159,7 @@ const producerPair = tgpu.fn(
         return params.pairCount;
     if ((instance.flags & 1) !== 0 && producerCullLayout.$.cullVolumes[slot * CULL_STRIDE].y !== 0)
         return params.pairCount;
-    if (!producerVisible(mid, row, row, slot)) return params.pairCount;
+    if (!producerVisible(mid, row, row, slot, 1)) return params.pairCount;
     let key: number = instance.alphaMode;
     if (key === AlphaModeCode.AlphaToCoverage) key = AlphaPipelineKey.AlphaToCoverage;
     return (

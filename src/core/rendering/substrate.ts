@@ -49,6 +49,7 @@ import {
     GlobalAmbientLight,
     NotShadowCaster,
     PointLight,
+    RenderLayers,
     SpotLight,
     SunDisk,
     VolumetricLight,
@@ -92,6 +93,7 @@ export {
     GlobalAmbientLight,
     NotShadowCaster,
     PointLight,
+    RenderLayers,
     SpotLight,
     SUN_DISK_EARTH_ANGULAR_SIZE,
     SunDisk,
@@ -132,6 +134,8 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
     // the viewProj is composed from, so it is read before the unchanged-slot test below
     composeGlobalTransform(world, eid, _renderFrame.camWorld);
+    const mask = world.has(eid, RenderLayers) ? world.storage(RenderLayers).mask.get(eid) : 1;
+    _render.cullVolumeWords[slot * CULL_VOLUME_FLOATS + 2] = mask;
     if (!slotInputsChanged(world, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;
     const viewProj = _renderFrame.viewProjs[slot];
@@ -175,6 +179,7 @@ function packView(world: World, eid: number, view: ViewSlot, shading: boolean, s
         isPerspective ? camera.far.get(eid) : undefined,
     );
     _render.cullVolumeStaging[slot * CULL_VOLUME_FLOATS + 1] = shading ? 0 : 1;
+    _render.cullVolumeWords[slot * CULL_VOLUME_FLOATS + 2] = mask;
     // ViewUniforms.projection packs near, far, perspective flag and cull slot in xyzw.
     if (shading) {
         _render.viewStaging[offset + 28] = camera.near.get(eid);
@@ -536,6 +541,7 @@ async function initRender(world: World): Promise<void> {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     _render.cullVolumeStaging = new Float32Array(MAX_SLOTS * CULL_VOLUME_FLOATS);
+    _render.cullVolumeWords = new Uint32Array(_render.cullVolumeStaging.buffer);
     _render.viewCount = 0;
     _render.shadeCount = 0;
     world.resource(Views).clear();
@@ -570,6 +576,7 @@ export const RenderingPlugin: Plugin = {
         SunDisk,
         VolumetricLight,
         NotShadowCaster,
+        RenderLayers,
         ShadowFilteringMethod,
     ],
 
