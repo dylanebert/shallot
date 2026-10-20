@@ -250,13 +250,20 @@ function stackEffect(
         endRenderPass(pass);
     };
 }
-function active(world: World, eid: number): boolean {
+function active(
+    world: World,
+    eid: number,
+    effect: typeof Vignette | typeof LensDistortion | typeof ChromaticAberration,
+): boolean {
+    if (!world.has(eid, effect)) return false;
+    const intensity = world.storage(effect).intensity.get(eid);
+    return (effect === LensDistortion ? Math.abs(intensity) : intensity) > 1e-4;
+}
+function anyActive(world: World, eid: number): boolean {
     return (
-        (world.has(eid, Vignette) && world.storage(Vignette).intensity.get(eid) > 1e-4) ||
-        (world.has(eid, LensDistortion) &&
-            Math.abs(world.storage(LensDistortion).intensity.get(eid)) > 1e-4) ||
-        (world.has(eid, ChromaticAberration) &&
-            world.storage(ChromaticAberration).intensity.get(eid) > 1e-4)
+        active(world, eid, Vignette) ||
+        active(world, eid, LensDistortion) ||
+        active(world, eid, ChromaticAberration)
     );
 }
 /** One pre-tonemapping pass for cameras carrying any active stack effect. */
@@ -278,7 +285,7 @@ export const EffectStackPlugin: Plugin = {
                 const l = world.storage(LensDistortion);
                 const a = world.storage(ChromaticAberration);
                 for (const eid of world.query(CAMERAS)) {
-                    if (!views.has(eid) || !active(world, eid)) continue;
+                    if (!views.has(eid) || !anyActive(world, eid)) continue;
                     let camera = state.cameras.get(eid);
                     if (!camera) {
                         const buffer = world.gpu.root.unwrap(
@@ -297,7 +304,8 @@ export const EffectStackPlugin: Plugin = {
                         camera.effect = stackEffect(state, camera);
                         state.cameras.set(eid, camera);
                     }
-                    const lutId = world.has(eid, ChromaticAberration) ? a.colorLut.get(eid) : -1;
+                    const ca = active(world, eid, ChromaticAberration);
+                    const lutId = ca ? a.colorLut.get(eid) : -1;
                     if (camera.lutId !== lutId) {
                         camera.lutId = lutId;
                         camera.lut =
@@ -317,35 +325,34 @@ export const EffectStackPlugin: Plugin = {
                     }
                     if (!stack.before.includes(camera.effect)) stack.before.push(camera.effect);
                     const b = camera.bytes;
-                    const v = world.has(eid, Vignette);
+                    const v = active(world, eid, Vignette);
                     b[0] = v ? Math.min(s.intensity.get(eid), 1) : 0;
-                    b[1] = v ? Math.max(s.radius.get(eid), 1e-6) : 1;
+                    b[1] = v ? Math.max(s.radius.get(eid), 1e-6) : 0;
                     b[2] = v ? Math.max(s.smoothness.get(eid), 0) : 0;
-                    b[3] = v ? Math.min(Math.max(s.roundness.get(eid), 1e-6), 2 - 1e-6) : 1;
-                    b[4] = v ? s.center.x.get(eid) : 0.5;
-                    b[5] = v ? s.center.y.get(eid) : 0.5;
+                    b[3] = v ? Math.min(Math.max(s.roundness.get(eid), 1e-6), 2 - 1e-6) : 0;
+                    b[4] = v ? s.center.x.get(eid) : 0;
+                    b[5] = v ? s.center.y.get(eid) : 0;
                     b[6] = v ? s.edgeCompensation.get(eid) : 0;
                     camera.words[7] = views.get(eid)!.sortedIndexForTarget ? 1 : 0;
                     const color = v ? s.color.get(eid) : 0;
                     b[8] = ((color >> 16) & 255) / 255;
                     b[9] = ((color >> 8) & 255) / 255;
                     b[10] = (color & 255) / 255;
-                    b[11] = 1;
-                    const lens = world.has(eid, LensDistortion);
+                    b[11] = v ? 1 : 0;
+                    const lens = active(world, eid, LensDistortion);
                     b[12] = lens ? l.intensity.get(eid) : 0;
-                    b[13] = lens ? Math.max(l.scale.get(eid), 1e-6) : 1;
-                    b[14] = lens ? l.multiplier.x.get(eid) : 1;
-                    b[15] = lens ? l.multiplier.y.get(eid) : 1;
-                    b[16] = lens ? l.center.x.get(eid) : 0.5;
-                    b[17] = lens ? l.center.y.get(eid) : 0.5;
+                    b[13] = lens ? Math.max(l.scale.get(eid), 1e-6) : 0;
+                    b[14] = lens ? l.multiplier.x.get(eid) : 0;
+                    b[15] = lens ? l.multiplier.y.get(eid) : 0;
+                    b[16] = lens ? l.center.x.get(eid) : 0;
+                    b[17] = lens ? l.center.y.get(eid) : 0;
                     b[18] = lens ? l.edgeCurvature.get(eid) : 0;
-                    const ca = world.has(eid, ChromaticAberration);
                     b[20] = ca ? a.intensity.get(eid) : 0;
                     camera.words[21] = ca ? a.maxSamples.get(eid) : 0;
                     world.gpu.device.queue.writeBuffer(camera.buffer, 0, b);
                 }
                 for (const [eid, camera] of state.cameras) {
-                    if (views.has(eid) && world.has(eid, Camera) && active(world, eid)) continue;
+                    if (views.has(eid) && world.has(eid, Camera) && anyActive(world, eid)) continue;
                     const stack = effects.get(eid);
                     const index = stack?.before.indexOf(camera.effect) ?? -1;
                     if (index >= 0) stack!.before.splice(index, 1);

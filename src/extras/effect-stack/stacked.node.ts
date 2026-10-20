@@ -9,8 +9,10 @@ import {
     EffectPasses,
     Tonemapping,
     TonemappingMethod,
+    Views,
 } from "../../core/rendering";
 import { ImageBindings } from "../../core/rendering/image";
+import { tonemappingStateKey } from "../../core/rendering/tonemapping-state";
 import { offscreenTexture } from "../../core/rendering/view";
 import { Transform } from "../../core/transform";
 import { probeTexture } from "../../engine/runtime";
@@ -122,6 +124,148 @@ test("a custom chromatic LUT changes the fringes and unsetting it restores the d
         world.step(0);
     }
 });
+
+for (const inactive of [Vignette, LensDistortion, ChromaticAberration]) {
+    test(`inactive ${inactive === Vignette ? "vignette" : inactive === LensDistortion ? "distortion" : "aberration"} stays absent beside another active effect`, async () => {
+        const { world } = subjects()[0];
+        const { lower, upper, cube } = stackedScene(world, 4, 128);
+        const companion = inactive === Vignette ? LensDistortion : Vignette;
+        world.add(upper, companion);
+        const baseline = await stackedFrame(world, lower);
+        world.add(upper, inactive);
+        for (const intensity of [
+            0,
+            1e-4,
+            0.00005,
+            ...(inactive === LensDistortion ? [-1e-4] : [-0.5]),
+        ]) {
+            world.storage(inactive).intensity.set(upper, intensity);
+            expect(await stackedFrame(world, lower)).toEqual(baseline);
+        }
+        for (const eid of [cube, upper, lower]) world.destroy(eid);
+        world.step(0);
+    });
+}
+
+for (const effect of [LensDistortion, ChromaticAberration]) {
+    test(`${effect === LensDistortion ? "distortion" : "aberration"} carries displaced edge coverage and bounds premultiplied RGB by alpha`, async () => {
+        const { world } = subjects()[0];
+        const size = 128;
+        const { lower, upper, cube } = stackedScene(world, 4, size);
+        world.remove(cube, MeshMaterial);
+        world.add(
+            cube,
+            MeshMaterial,
+            world
+                .resource(Materials)
+                .add(StandardMaterial({ baseColor: [1, 1, 1, 1], unlit: true })),
+        );
+        const intensity = effect === LensDistortion ? 4 : 0.2;
+        world.add(upper, effect, { intensity });
+        await stackedFrame(world, lower);
+        const targets = world
+            .resource(tonemappingStateKey)
+            .targets.get(world.resource(Views).get(upper)!)!;
+        // Read the actual HDR pass output, before tonemapping and lower-camera compositing.
+        targets.hdr[0].texture.destroy();
+        const output = world.gpu.device.createTexture({
+            size: [size, size],
+            format: "rgba16float",
+            usage:
+                GPUTextureUsage.RENDER_ATTACHMENT |
+                GPUTextureUsage.TEXTURE_BINDING |
+                GPUTextureUsage.COPY_SRC,
+        });
+        targets.hdr[0] = { texture: output, view: output.createView() };
+        await stackedFrame(world, lower);
+        const source = new Uint16Array(
+            (await probeTexture(world, offscreenTexture(world, upper)!)).bytes as ArrayBuffer,
+        );
+        const result = new Uint16Array((await probeTexture(world, output)).bytes as ArrayBuffer);
+        const alphaAt = (x: number, y: number) =>
+            half(
+                source[
+                    (Math.max(0, Math.min(size - 1, y)) * size +
+                        Math.max(0, Math.min(size - 1, x))) *
+                        4 +
+                        3
+                ]!,
+            );
+        const sample = (u: number, v: number) => {
+            const x = u * size - 0.5;
+            const y = v * size - 0.5;
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+            const fx = x - ix;
+            const fy = y - iy;
+            return (
+                (alphaAt(ix, iy) * (1 - fx) + alphaAt(ix + 1, iy) * fx) * (1 - fy) +
+                (alphaAt(ix, iy + 1) * (1 - fx) + alphaAt(ix + 1, iy + 1) * fx) * fy
+            );
+        };
+        let displacedEdges = 0;
+        for (let y = 0; y < size; y++)
+            for (let x = 0; x < size; x++) {
+                const u = (x + 0.5) / size;
+                const v = (y + 0.5) / size;
+                let expected: number;
+                if (effect === LensDistortion) {
+                    const dx = u - 0.5;
+                    const dy = v - 0.5;
+                    const radius = Math.max(Math.hypot(dx, dy), 1e-6);
+                    const k1 = (intensity * (Math.abs(dx) + Math.abs(dy))) / radius;
+                    const factor = 1 + k1 * radius * radius;
+                    expected = sample(
+                        Math.max(0, Math.min(1, dx * factor + 0.5)),
+                        Math.max(0, Math.min(1, dy * factor + 0.5)),
+                    );
+                } else {
+                    const count = Math.min(
+                        Math.ceil(Math.hypot(0.5 - u, 0.5 - v) * intensity * size),
+                        8,
+                    );
+                    if (count <= 1) continue;
+                    const sums = [0, 0, 0];
+                    const weights = [0, 0, 0];
+                    for (let i = 0; i < count; i++) {
+                        const t = (i + 0.5) / count;
+                        const alpha = sample(
+                            u + (0.5 - u) * intensity * t,
+                            v + (0.5 - v) * intensity * t,
+                        );
+                        // Bilinear sampling across Bevy's three-texel RGB lookup, half a texel inset.
+                        const lut = [
+                            Math.max(0, 1 - 2 * t),
+                            1 - Math.abs(2 * t - 1),
+                            Math.max(0, 2 * t - 1),
+                        ];
+                        for (let c = 0; c < 3; c++) {
+                            sums[c]! += alpha * lut[c]!;
+                            weights[c]! += lut[c]!;
+                        }
+                    }
+                    expected = Math.max(...sums.map((sum, c) => sum / weights[c]!));
+                }
+                const at = (y * size + x) * 4;
+                const alpha = half(result[at + 3]!);
+                const rgb = [0, 1, 2].map((c) => half(result[at + c]!));
+                expect(Math.max(...rgb)).toBeLessThanOrEqual(alpha + 0.001);
+                if (
+                    expected > 0.05 &&
+                    expected < 0.95 &&
+                    Math.abs(expected - alphaAt(x, y)) > 0.15
+                ) {
+                    displacedEdges++;
+                    expect(alpha).toBeCloseTo(expected, 2);
+                    expect(Math.abs(alpha - alphaAt(x, y))).toBeGreaterThan(0.14);
+                    expect(Math.max(...rgb)).toBeGreaterThan(0.04);
+                }
+            }
+        expect(displacedEdges).toBeGreaterThan(0);
+        for (const eid of [cube, upper, lower]) world.destroy(eid);
+        world.step(0);
+    });
+}
 
 const RADIUS = 0.6;
 const SMOOTHNESS = 2;
