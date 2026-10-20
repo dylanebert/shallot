@@ -111,7 +111,7 @@ function svelteCss(source: string): Css {
     return css;
 }
 
-function cssTextStrings(source: string): string[] {
+function cssTextStrings(source: string, gameplay = false): string[] {
     const lists: string[] = [];
     const ast = parse(source, { sourceType: "module", plugins: ["typescript"] });
     function visit(value: unknown): void {
@@ -122,13 +122,24 @@ function cssTextStrings(source: string): string[] {
             node.left.type === "MemberExpression" &&
             (node.left.property.name ?? node.left.property.value) === "cssText"
         ) {
-            if (node.right.type === "StringLiteral") lists.push(node.right.value);
-            else if (node.right.type === "TemplateLiteral")
-                lists.push(
-                    node.right.quasis
-                        .map((quasi: { value: { cooked: string } }) => quasi.value.cooked)
-                        .join(COMPUTED),
-                );
+            const text =
+                node.right.type === "StringLiteral"
+                    ? node.right.value
+                    : node.right.type === "TemplateLiteral"
+                      ? node.right.quasis
+                            .map((quasi: { value: { cooked: string } }) => quasi.value.cooked)
+                            .join(COMPUTED)
+                      : undefined;
+            if (text !== undefined) {
+                const name = node.left.object.object?.name;
+                const selector =
+                    name === "stick"
+                        ? "[data-touch-stick]"
+                        : name === "knob"
+                          ? "[data-touch-stick] > div"
+                          : "gameplay";
+                lists.push(gameplay ? `${selector}{${text}}` : text);
+            }
         }
         for (const child of Object.values(node)) {
             if (Array.isArray(child)) for (const item of child) visit(item);
@@ -225,7 +236,7 @@ async function exampleCss(root: string): Promise<Css> {
             ),
         );
         if (path.endsWith(join("src", "player.ts"))) {
-            result.sheets.push(...css.lists.map((list) => `gameplay{${list}}`));
+            result.sheets.push(...cssTextStrings(source, true));
         } else result.lists.push(...css.lists);
         if (/\.[cm]?[jt]s$/.test(path)) {
             for (const text of styleSources(path, source)) {
@@ -562,7 +573,9 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
                     ? "light"
                     : "dark"
             ];
+        const stick = /^\[data-touch-stick\](?:\s*>\s*div)?$/.test(s);
         const gameplay =
+            stick ||
             /^(?:gameplay|\[data-touch-stick\]|button\[data-touch-action\](?:\[[^\]]+\]|:[\w():-]+)*|\.reticle(?:-dot)?(?:\[hidden\])?|\.hint(?:\[hidden\])?|\.key-slot(?:\s+(?:>\s*)?(?:\*|kbd))?|\.hold-ring|\.track|\.progress)$/.test(
                 s,
             );
@@ -602,7 +615,14 @@ function controlViolations(css: Css, light = false, embedded = false): string[] 
             const text = decodeEscapes(unquoted(v));
             const colors = `${text} ${decodeEscapes(unquoted(raw))}`;
             for (const match of colors.matchAll(HEX))
-                if (!Object.values(palette).includes(match[0].toLowerCase() as typeof palette.bg))
+                if (
+                    !Object.values(palette).includes(
+                        (stick && /^#[0-9a-f]{8}$/i.test(match[0])
+                            ? match[0].slice(0, 7)
+                            : match[0]
+                        ).toLowerCase() as typeof palette.bg,
+                    )
+                )
                     fail("chrome color");
             for (const match of colors.matchAll(COLOR_FUNCTIONS))
                 if (!match[1]?.includes(`${COMPUTED_NAME}(`)) fail("color syntax");
@@ -1406,6 +1426,36 @@ test("gameplay geometry stays outside the panel kit without exempting its type o
         "canvas .controls { border-radius: 50%; }",
     ])
         expect(controlViolations({ sheets: [css + extra], lists: [] }).length).toBeGreaterThan(0);
+});
+
+test("gameplay stick alone accepts translucent site colours, including its authored knob", () => {
+    const sheet =
+        "[data-touch-stick] { background: #141210cc; } [data-touch-stick] > div { background: #f0e6d680; }";
+    expect(controlViolations({ sheets: [sheet], lists: [] })).toEqual([]);
+    expect(
+        cssTextStrings(
+            'stick.style.cssText = "background:#141210cc"; knob.style.cssText = "background:#f0e6d680";',
+            true,
+        ),
+    ).toEqual([
+        "[data-touch-stick]{background:#141210cc}",
+        "[data-touch-stick] > div{background:#f0e6d680}",
+    ]);
+    for (const selector of [
+        "button[data-touch-action]",
+        ".ec",
+        ".ec button",
+        "[data-touch-stick] button",
+    ])
+        expect(
+            controlViolations({
+                sheets: [`${selector} { background: #141210cc; }`],
+                lists: [],
+            }).some((failure) => failure.startsWith("chrome color:")),
+        ).toBe(true);
+    expect(
+        controlViolations({ sheets: ["[data-touch-stick] { background: #ff0000cc; }"], lists: [] }),
+    ).not.toEqual([]);
 });
 
 test("passive page geometry does not excuse off-site colours, type, opacity or 24px panel text", () => {

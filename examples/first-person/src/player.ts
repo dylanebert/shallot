@@ -104,10 +104,10 @@ function setupLocalControls(world: World): void {
         const stick = document.createElement("div");
         stick.dataset.touchStick = "";
         stick.style.cssText =
-            "display:none;position:absolute;width:140px;height:140px;border:1px solid #2a2420;border-radius:50%;background:#141210;pointer-events:none;transform:translate(-50%,-50%)";
+            "display:none;position:absolute;width:140px;height:140px;border:1px solid #2a2420;border-radius:50%;background:#141210cc;pointer-events:none;transform:translate(-50%,-50%)";
         const knob = document.createElement("div");
         knob.style.cssText =
-            "position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;background:#a08c78";
+            "position:absolute;left:50%;top:50%;width:48px;height:48px;border-radius:50%;background:#f0e6d680";
         stick.append(knob);
         overlay.append(stick);
         Object.assign(world.resource(TouchControls), { stick, knob });
