@@ -25,6 +25,10 @@
         left: 50%;
         transform: translateX(-50%);
         display: flex;
+        flex-wrap: wrap;
+        width: max-content;
+        max-width: calc(100% - 32px);
+        box-sizing: border-box;
         gap: 8px;
         padding: 4px;
         border-radius: 2px;
