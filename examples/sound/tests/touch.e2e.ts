@@ -1,9 +1,11 @@
 import { expect, test } from "playwright/test";
 
+test.use({ baseURL: "http://127.0.0.1:4186" });
+
 test("phone fingers move, look and jump through the example's controls", async ({
     browser,
 }, testInfo) => {
-    const example = process.env.TOUCH_EXAMPLE ?? "first-person";
+    const example = "sound";
     const context = await browser.newContext({
         viewport: { width: 390, height: 844 },
         hasTouch: true,
@@ -26,6 +28,9 @@ test("phone fingers move, look and jump through the example's controls", async (
     const send = (type: "touchStart" | "touchMove" | "touchEnd") =>
         session.send("Input.dispatchTouchEvent", { type, touchPoints: points });
     await expect(page.getByRole("button", { name: "Jump", exact: true })).toBeHidden();
+    if (["interact", "sound"].includes(example)) {
+        await expect(page.locator(".hint kbd")).toHaveText("E");
+    }
     const before = await sample();
     points = [{ id: 1, x: 90, y: 620 }];
     await send("touchStart");
@@ -67,6 +72,7 @@ test("phone fingers move, look and jump through the example's controls", async (
             .toBe(true);
         const useState = () =>
             page.evaluate(() => (window as unknown as { useState(): number }).useState());
+        await expect(page.locator(".hint kbd")).toHaveText("Use");
         const previous = await useState();
         const use = await page.getByRole("button", { name: "Use", exact: true }).boundingBox();
         points.push({ id: 4, x: use!.x + 32, y: use!.y + 32 });

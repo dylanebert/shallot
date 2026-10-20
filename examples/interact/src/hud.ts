@@ -1,6 +1,6 @@
 import type { System, World } from "@dylanebert/shallot";
 import { Hint } from "./interact";
-import { mountTouchButton } from "./player";
+import { mountTouchButton, TouchControls } from "./player";
 
 export function hud(container: HTMLElement, world: World): () => void {
     mountTouchButton(container, world, "Use", "KeyE");
@@ -13,11 +13,13 @@ export function hud(container: HTMLElement, world: World): () => void {
     const ring = root.querySelector<SVGElement>(".hold-ring")!;
     const progress = root.querySelector<SVGElement>(".progress")!;
     const action = root.querySelector<HTMLElement>(".action")!;
+    const key = root.querySelector("kbd")!;
     const read: System = {
         name: "Hud/Read",
         group: "draw",
         update(world) {
             const state = world.resource(Hint);
+            key.textContent = world.resource(TouchControls).used ? "Use" : "E";
             hint.hidden = !state.target;
             dot.hidden = !state.target;
             action.textContent = state.action;

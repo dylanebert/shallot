@@ -88,6 +88,7 @@ const FIRST_PERSON_TEMPLATE_FILES = [
     "tests/input/vite.config.ts",
     "tests/stepped.html",
     "tests/touch.html",
+    "tests/touch.e2e.ts",
     "tsconfig.json",
     "vite.config.ts",
 ];

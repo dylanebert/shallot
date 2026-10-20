@@ -155,7 +155,7 @@ export const LocalPlayer = component(
 
 const LOCAL_PLAYERS = [LocalPlayer, Player];
 
-const TouchControls: Resource<{
+export const TouchControls: Resource<{
     used: boolean;
     buttons: HTMLButtonElement[];
     stick?: HTMLDivElement;
