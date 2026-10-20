@@ -1327,17 +1327,19 @@ export function compileMaterial<
     let root = world.gpu.root.with(indirectLightSlot, indirectLightSources(world));
     const fog = fogSource(world);
     if (fogged && fog) root = root.with(fogSlot, fog.source);
-    const pipeline = root.createRenderPipeline({
-        vertex,
-        fragment,
-        targets: { color: { format: _render.format, ...(blend ? { blend } : {}) } },
-        primitive,
-        depthStencil,
-        multisample: {
-            count: SAMPLE_COUNT,
-            alphaToCoverageEnabled: alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage,
-        },
-    });
+    const pipeline = root
+        .createRenderPipeline({
+            vertex,
+            fragment,
+            targets: { color: { format: _render.format, ...(blend ? { blend } : {}) } },
+            primitive,
+            depthStencil,
+            multisample: {
+                count: SAMPLE_COUNT,
+                alphaToCoverageEnabled: alphaPipelineKey === AlphaPipelineKey.AlphaToCoverage,
+            },
+        })
+        .$name(`standard-${name}`);
     const compiled: CompiledMaterial = {
         owner: surface as AnyMaterialType,
         layout: surface.layout as MaterialLayout<Record<string, MaterialBinding>, AnyWgslStruct>,
@@ -1441,6 +1443,15 @@ export function ensureStacked(world: World, t: CompiledMaterial): TgpuRenderPipe
     return t.stacked;
 }
 
+// Every pipeline recorded into a render bundle has a fragment stage: WebKit rejects a vertex-only pipeline
+// in a bundle encoder (`setPipeline: validation failed`), though it accepts one in a pass and the spec
+// allows both. The opaque prepass writes depth alone, so its stage is empty.
+const depthOnlyFs = tgpu
+    .fragmentFn({ in: { pos: d.builtin.position }, out: d.Void })(() => {
+        "use gpu";
+    })
+    .$name("prepassDepthOnlyFs");
+
 /** Opaque uses the compact depth stream; Mask and AlphaToCoverage use alpha-tested material inputs. */
 function compilePrepass(
     world: World,
@@ -1472,11 +1483,9 @@ function compilePrepass(
                     ? varyingVs(surface, true)
                     : colorVs(surface, true)
                 : prepassVs(surface),
-            ...(clip
-                ? {
-                      fragment: (varying ? varyingClipFs(surface) : clipFs(surface)) as never,
-                  }
-                : {}),
+            fragment: clip
+                ? ((varying ? varyingClipFs(surface) : clipFs(surface)) as never)
+                : depthOnlyFs,
             primitive,
             depthStencil,
             multisample: { count: sampleCount },
